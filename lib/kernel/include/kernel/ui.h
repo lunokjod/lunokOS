@@ -151,6 +151,10 @@ struct Canvas {
   int32_t caret_y = 0;
   int32_t caret_w = 0;
   int32_t caret_h = 0;
+  // **Whether the cross of a text box is ink on this canvas** (0.184.0): the button that empties the box is hidden while the
+  // box is written into, and hiding it is **erasing** it —the quick pass of the panel paints and does not clean— so the first
+  // paint without it asks for the clean pass and this flag is what knows it was there (docs/30, docs/50).
+  bool cross_on_the_glass = false;
 };
 
 // Makes the canvas, at the size of the glass **minus the rows the system keeps at the top** and just
@@ -361,9 +365,23 @@ bool label_draw(int16_t slot, const char* text, uint8_t color, uint8_t backgroun
 // inverted word— and `tag` is a small word in an outlined box at its left that says what kind of thing the row is. A
 // child added with `add` is still composed after the box and cut at the frame, and it is **not** inverted: a control the
 // app paints keeps the colours the app gave it (docs/30, docs/90, docs/92).
+// **`framed` i `icon`, les dues propietats que un botó no tenia** (0.185.0): `framed` false is **a button with no frame and no
+// shadow**, where the key is paper on the paper of its page and the ink of it is only its content —the face **inverts when it
+// is pressed**, which is the press this system already gives a button, and it is what a key of an icon needs: a frame round a
+// mark is a box round a picture—. `icon` is **a mark of the system drawn by the kernel** and not a word: the five the panel of
+// the bar uses (`back`, `close`, `settings`, `reboot`, `poweroff`), in two levels and of the size of the face's line, so an app
+// that wants one of them asks for it by name and gets the same drawing the system uses (docs/30, docs/92).
+// **And `mark_side`, per a un botó que porta les dues coses** (0.185.3, the owner: *«afegeix text per als botons… al costat de la
+// icona… i als botons de Settings, Reboot i Powerdown posa text sota cada icona»*): a key with a mark and a word in it is the
+// key of the card of the bar, and where the mark goes is the caller's —**at the left or at the right of the word in a key that is
+// wider than it is tall, and on top of it in one that is not**—. Un botó sense paraula té la marca al mig i no li cal el costat.
+const uint8_t kMarkAbove = 0;  // the mark on top and the word under it
+const uint8_t kMarkLeft = 1;   // the mark at the left and the word beside it
+const uint8_t kMarkRight = 2;  // the word first and the mark at the right
 bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused = false,
                  bool primary = false, const char* title = nullptr, const char* tag = nullptr,
-                 uint8_t color = 0, uint8_t scale = 1);
+                 uint8_t color = 0, uint8_t scale = 1, bool framed = true, const char* icon = nullptr,
+                 uint8_t mark_side = kMarkAbove);
 
 // **El dibuix d'un botó, sobre el vidre mateix** (0.179.31): the panel of the system paints on the glass while the page
 // under it is held, so its controls **cannot** be children of the view's tree —the composition of the page at the release
@@ -375,10 +393,23 @@ bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed,
 // focus (docs/30, docs/90, docs/92).
 //
 // **The word is cut by the control**: a box of sixty-four leaves thirty-two pixels for it, and `X` at four steps of the
-// face is twenty-two, which is the measure this was drawn for.
+// face is twenty-two, which is the measure this was drawn for. **With `icon` there is no word** unless the caller gives one,
+// and then the mark takes a square of the face's height at the side `mark_side` says and the word is centred in what is left
+// —the corners of the card of the bar, which point outwards—, or the mark takes the top of the key and the word the rows under
+// it —the three of the middle— (docs/30, docs/92).
 bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                     uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
-                    const char* title, uint8_t color, uint8_t scale);
+                    const char* title, uint8_t color, uint8_t scale, bool framed = true,
+                    const char* icon = nullptr, uint8_t mark_side = kMarkAbove);
+
+// **The marks of the system, by name** (0.185.0): the five the panel of the bar draws, and the list `ui.icons()` answers.
+// A name that is not one of them draws nothing, which is a key with no content and not a picture of an accident.
+// `draw_icon` is the one drawing of them: the panel, an app's button and the test that counts their ink all come here.
+bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t width, int32_t height, uint8_t level,
+               hal::UpdateMode mode);
+bool an_icon_named(const char* name);
+const char* icon_at(uint8_t index);
+uint8_t icon_count();
 
 // ---- a checkbox: a square with a tick, and the state the click changes (docs/30, docs/90) ----
 //
@@ -668,8 +699,24 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t 
 // `cursor` is how many bytes of the text are before the caret; `caret` says whether the block is drawn, because
 // the blinking is the system's clock and not the control's; `mask` draws a dot for every letter, which is what a
 // password is (docs/30).
+//
+// **`clear` is the button that empties the box** (0.184.0): a borderless square at the right end of the frame with the
+// cross of a command, drawn in `clear_color`. **It takes its room from the text** —a line of the face and its air— so a long
+// text is cut where the button begins and never runs under the cross. **While the box is being written into the cross is not
+// there**: the focus of a box is its edit mode, an editing box is a box whose words are being changed and the button that
+// empties it is a command of the other state of the control (the owner, *«no es pot pitjar quan està en mode edició, així que
+// millor ocultar-lo en aquest mode»*), so the caller passes `clear` false and the box paints no cross at all. **And hiding ink
+// on this panel is erasing it**: the quick pass paints and does not clean —it leaves the cross at five sixteenths, a command a
+// person sees and cannot press— so the one frame that takes the cross away asks for the pass that cleans and the frames after
+// it are quick again (`Canvas::cross_on_the_glass`, measured on the emulator, docs/30, docs/50).
 bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
-                  uint8_t background, uint8_t border, uint8_t scale);
+                  uint8_t background, uint8_t border, uint8_t scale, bool clear = false,
+                  uint8_t clear_color = 0);
+
+// **El quadre del botó que buida la caixa** (0.184.0), in the control's own pixels: the paint draws the cross in it and the
+// finger asks the same function whether it landed there, so the two can never disagree (docs/30, docs/90). False when the
+// box is too small to hold it, which is a box with no button at all.
+bool textbox_clear_box(int16_t slot, uint8_t scale, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h);
 
 // How wide the inside of a text box is with that scale, which is what an app needs to place a hint of its own in
 // the empty box (docs/90).

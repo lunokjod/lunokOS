@@ -29,8 +29,8 @@ namespace splash {
 // list is the one place a moment is added: a picture called `charging.png` is the charging moment of a
 // build that knows the word, and a file of a word nobody knows is a file nothing looks for (docs/30).
 //
-// **The words are the ones a person types** (0.114.0): `boot`, `poweroff`, `reboot`, `charging` and
-// `sleep`, which are the five of the command and the ones a manifest may name. **`boot-alt` is gone**
+// **The words are the ones a person types** (0.114.0): `boot`, `poweroff`, `reboot`, `charging`, `sleep`, `lowbatt` and
+// `oops`, which are the ones of the command and the ones a manifest may name. **`boot-alt` is gone**
 // (0.178.5, the owner: *«boot-alt.png i boot.png no han d'estar a la llista del boot»*): the boot is not
 // one drawing but the drawings the disk carries —`boot-2.bmp`, `boot-3.bmp`, `boot-5.bmp`— and one of
 // them is drawn at every switch-on (`picture_of`), so a second word for a second logo is a switch of the
@@ -42,6 +42,14 @@ enum Kind : uint8_t {
   kReboot,     // the board is being restarted under a person's hand
   kCharging,   // on the cable, waiting
   kSleep,      // a light sleep, where the board keeps what it has
+  // **La bateria que s'ha acabat** (0.183.0): the picture of a board that has almost nothing left —it is the boot's when
+  // the cell is under the mark, and the way down's when the battery is the reason— so a person finds `lowbatt` instead of
+  // a board that went dark on its own (docs/50).
+  kLowBattery,
+  // **El sistema que no pot donar cap pàgina** (0.183.0): the face of a board whose own home app did not come up. It is the
+  // one error this system can show and go on living with —a panic cannot be painted, the chip that panics is not driving
+  // the glass— and it is a picture and not a frozen logo (docs/50).
+  kOops,
 };
 
 // The word of a moment, or "" for one that is not one.

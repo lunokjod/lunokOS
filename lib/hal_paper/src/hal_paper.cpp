@@ -241,12 +241,17 @@ class PaperPower : public Esp32Power {
 
   bool deep_powers_off() const override { return true; }
 
+  // **The glass of this board, for the way down to put to sleep** (0.183.0): the maker's own shutdown writes
+  // `IT8951_TCON_SLEEP` before the supplies go, and that command belongs to the panel and not to the power. The board hands
+  // it over here when the panel joins the bus, and a build without a glass wakes up with nothing to put to sleep.
+  void keep_glass(ISurface* glass) { glass_ = glass; }
+
   // Power off. It is the maker's own sequence, from the factory firmware of this board
   // (`M5Paper_FactoryTest`, `Shutdown()` in `global_setting.cpp`, docs/50): wait for what is pending
-  // to finish, take the **panel supply** down, then the **ports supply**, then the **main power
-  // hold**, and put the chip into deep sleep right after —because with the cable in the board does
-  // not stop being powered, and the deep sleep is what stops it instead of leaving a board awake
-  // with nothing to do.
+  // to finish, put the **panel to sleep**, take the **panel supply** down, then the **ports supply**,
+  // then the **main power hold**, and put the chip into deep sleep right after —because with the
+  // cable in the board does not stop being powered, and the deep sleep is what stops it instead of
+  // leaving a board awake with nothing to do.
   //
   // The clock chip is disarmed **before** all that, and that is the one thing added to the maker's
   // plain `M5EPD::shutdown()`, which does not look at the alarm: one armed by an earlier sleep would
@@ -260,6 +265,11 @@ class PaperPower : public Esp32Power {
     // finished. This board has no panel painting to wait for, and the number is still theirs.
     fflush(stdout);
     vTaskDelay(pdMS_TO_TICKS(600));
+    // **El panell reposa abans que el seu rail baixi** (0.183.0): the maker's `Shutdown()` starts with `M5.EPD.Sleep()`,
+    // which is `IT8951_TCON_SLEEP` written to the controller, and this file went straight from the wait to the rails. A
+    // controller left awake on a supply that is going away is a controller asking for what it no longer has; the image on
+    // the glass stays, because it is pigment and not memory (docs/50).
+    if (glass_ != nullptr) glass_->rest();
     turn_supply_off(kPanelPowerPin);
     turn_supply_off(kExtPowerPin);
     gpio_set_level(static_cast<gpio_num_t>(kMainPowerPin), 0);
@@ -273,6 +283,10 @@ class PaperPower : public Esp32Power {
   // The chip's timer while the board is powered, and the clock chip's alarm when it is not:
   // the two ways this board comes back (docs/50).
   const char* wakes() override { return "timer, clock"; }
+
+ private:
+  // The glass, for the way down to put to sleep first (0.183.0).
+  ISurface* glass_ = nullptr;
 };
 
 class PaperPlatform : public IPlatform {
@@ -402,6 +416,9 @@ class PaperPlatform : public IPlatform {
     // deselect of the boot (`capabilities`) must not take it back, or the panel stops being selected
     // for the rest of the session (see there).
     panel_joined_ = glass != nullptr;
+    // **I el power sap on és el vidre** (0.183.0): the way down puts the panel to sleep before the rails go, which is the
+    // maker's own order (docs/50).
+    power_.keep_glass(glass);
     return glass;
   }
 

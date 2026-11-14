@@ -459,6 +459,24 @@ struct TouchOps {
 
 void set_touch_ops(const TouchOps& ops);
 
+// **Les imatges dels moments del sistema des de Lua** (0.183.0): the pictures this system paints outside a page —the boot,
+// the way down, the battery that is over, the error— are the system's and not the page's, and a page that offers them
+// asks here instead of copying them. It is the same list the prompt's `splash` reads, so an app and the console cannot
+// disagree about which moments exist (docs/30, docs/50).
+struct SplashOps {
+  // The moments of this build, in the order of the system: how many and the i-th word.
+  uint8_t (*count)();
+  const char* (*word)(uint8_t index);
+  // A moment by its word, or any picture by its path. False when the moment has no picture or the file is not one, and
+  // then `last_error` says why.
+  bool (*show)(const char* moment_or_path);
+  // Paper, washed whole, and no picture of any moment.
+  bool (*hide)();
+  const char* (*last_error)();
+};
+
+void set_splash_ops(const SplashOps& ops);
+
 // **What a call into the system costs.** Every call the app makes to the API —`fs.read`, `ui.rect`,
 // `sys.delay`, all of them— is counted and timed by the interpreter's own hook, and the total is handed
 // here so the kernel can keep it in its meters: this library does not know the kernel and must not
@@ -623,9 +641,13 @@ struct UIOps {
                      uint8_t valign, uint8_t scale);
   // **The frame of a button** (docs/30, docs/90): background, border, a second inner border while it is
   // pressed and another one two pixels in while it has the focus. The child of the button is drawn by the
-  // tree after this control, not here.
+  // tree after this control, not here. **`framed` false is a key with no frame and no shadow** —the mark or the word is all
+  // of it and it sinks by turning over— and **`icon` is a mark of the system** drawn instead of the word (0.185.0, docs/30).
+  // **`mark_side` is where the mark goes when the button also carries a word** (0.185.3): on top of it, at its left or at its
+  // right, and 0 —the top— is what a button with no word wants because then the mark is centred and the value is not read.
   bool (*button_draw)(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
-                      bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale);
+                      bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale,
+                      bool framed, const char* icon, uint8_t mark_side);
   // **A checkbox** (docs/30, docs/90): the side of the square it draws —which is where the child that names
   // the setting goes— and the row itself: background, border, the tick's level, whether it is checked, held
   // and focused.
@@ -714,8 +736,11 @@ struct UIOps {
   // block with the letter under it in paper, and how wide the inside of the frame is for an app that places a
   // hint of its own.
   bool (*textbox_draw)(int16_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
-                       uint8_t background, uint8_t border, uint8_t scale);
+                       uint8_t background, uint8_t border, uint8_t scale, bool clear, uint8_t clear_color);
   uint16_t (*textbox_inside)(int16_t slot, uint8_t scale);
+  // **El quadre del botó que buida la caixa** (0.184.0): the square the cross is drawn in, in the control's own pixels, so
+  // the finger that lands on it clears the box with the same geometry the paint used (docs/30, docs/90).
+  bool (*textbox_clear_box)(int16_t slot, uint8_t scale, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h);
   // **The keyboard is the system's and not a control** (docs/90): the app shows it, asks the band it takes and
   // hands over the box it types into; every key comes back as one number.
   bool (*keyboard_show)(uint8_t kind);

@@ -212,7 +212,13 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // (`--no-delay`, `--no-ink`, a board with no glass and no key), and the default, which nobody asked for, steps
   // aside with a line so that a script that says `--no-delay` still runs (docs/85).
   bool gui_asked = false;
+  // **The window a build comes up with is a default of the build and not of the model** (0.183.0): the `test` environment
+  // has no `LUNOK_GUI_BY_DEFAULT`, so the flag of `--no-gui` is taken and does nothing —a script that carries it keeps
+  // running— and the word that answers it is only compiled where there is a window to take away. Before this, the variable
+  // was declared everywhere and used in one place, which is a warning and a red suite in the environment of the tests.
+#ifdef LUNOK_GUI_BY_DEFAULT
   bool no_gui = false;
+#endif
   // **No picture of the page unless the run asks for one**, which is what the rest of these start as well: a
   // binary that writes files nobody asked for is an emulator that surprises whoever runs it (docs/85).
   opts.dump = nullptr;
@@ -303,7 +309,9 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     if (strcmp(arg, "--no-gui") == 0) {
       // **No window at all**: the console, and the page in a file when `--dump` asks for one. It is the run of a
       // measure, and what a build that comes up with a window needs to be quiet again (docs/85).
+#ifdef LUNOK_GUI_BY_DEFAULT
       no_gui = true;
+#endif
       continue;
     }
     if (strcmp(arg, "--gui-scale") == 0) {

@@ -62,6 +62,12 @@ class Gt911 : public ITouch {
   uint16_t height() const override { return height_; }
   uint32_t scan_ms() const override { return kGt911ScanMs; }
   uint8_t read(TouchPoint* out, uint8_t capacity) override;
+  // **El que diu el darrer frame que el xip ha lliurat** (0.183.2): a frame with points is a finger on the glass and a frame
+  // with none is the lift. The driver used to throw the second one away —`read` answered zero for it, the same word as “no
+  // frame yet”—, and the system had to **guess** a lift from a silence of thirty milliseconds: a chip that reports slower
+  // than that, or a paint that holds the turns, turned one finger into a run of contacts —and a contact that ends under a
+  // finger is a tap, which is a row clicked at the end of a swipe (docs/50, docs/90).
+  bool finger_still_down() const override { return down_; }
 
  private:
   // Tells the chip that the frame has been taken. Without it the same finger is read for ever.
@@ -72,6 +78,9 @@ class Gt911 : public ITouch {
   uint8_t points_ = kGt911MaxPoints;
   uint16_t width_ = 0;
   uint16_t height_ = 0;
+  // Whether the last frame the chip handed over had a finger on it (0.183.2). It starts as `true` because a chip that has
+  // said nothing has said nothing about a lift either, and a contact is the safe answer (docs/50).
+  bool down_ = true;
   char profile_[64] = {0};
 };
 

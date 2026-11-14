@@ -1083,10 +1083,12 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.full_screen([on])` | si té la pantalla sencera, amb argument; `true` o `nil, error`, sense | **La pantalla sencera** (0.136.0): la barra de les 48 files marxa i la vista és tot el vidre, `540 × 960` des de la fila 0, i l'app rep `on_resize`. Sense argument només respon si la té (la mateixa forma que `ui.rotation`). **El camí de tornada és del sistema i no de l'app**: tres tocs seguits al vidre tornen la barra, l'app no els sent mai i només rep `on_resize` amb la mida de tornada; i una app que s'acaba —per les bones o per un error— torna el vidre tota sola |
 | `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present`. **I és el moment en què el sistema pinta el que el panell li va refusar** (0.118.2): esperar aquí una pàgina que no ha pujat és la manera de veure-la arribar (docs/50) |
 | `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
+| `ui.splashes()` | taula de paraules | **Els moments d'aquest build**, en l'ordre del sistema: `boot`, `poweroff`, `reboot`, `charging`, `sleep`, `lowbatt` i `oops` (0.183.0). És la mateixa llista que dona `splash` al prompt, o sigui que una pàgina no pot nomenar un moment que el sistema no té (docs/50) |
+| `ui.splash(word)` | `true` o `nil, error` | **La imatge d'un moment al vidre** (0.183.0): el panell sencer es renta i el dibuix va al mig, a la seva mida i sense escalar, sobre **la pàgina que demana la seva vora** (`/res/splash/<word>.png`). Amb un camí (`/res/x.png`) és qualsevol imatge, i `'hide'` torna el vidre a paper. **Pinta fora de la pàgina**: la vista de l'app no canvia, i el camí de tornada és de l'app —donar la pàgina i tornar-la a fer, o marcar-la sencera— perquè el sistema no té res a repintar-hi; la barra del sistema torna amb la primera pàgina que es presenti (docs/50, docs/90) |
 | `ui.canvas(w, h)` | **un objecte** o `nil, error` | Un control **amb vista pròpia**: un buffer i un lloc, que el sistema compon amb la resta quan l'app fa `ui.present` (vegeu a sota) |
 | `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això; amb `focusable = true` també entra al recorregut del dial i del tàctil, amb `on_activate` com a clic |
 | `ui.label(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una línia de text: fons, color, cara, alineació i retall amb `...` (vegeu a sota) |
-| `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
+| `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **`framed`** (0.185.0) el deixa **sense vora i sense ombra**: el paper de la seva pàgina és la seva cara i la tinta és només el contingut, i **`icon`** (0.185.0) hi posa **una marca del sistema** en lloc de la paraula —`back`, `close`, `settings`, `reboot` o `poweroff`, les cinc de la targeta de la barra—. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
 | `ui.checkbox(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una fila: un **quadrat amb una X a dins quan està marcat** (res quan no) i el lloc de les paraules, que són un fill. **És enfocable i clicable**, i el clic **gira l'estat** i avisa amb `on_change` (vegeu a sota) |
 | `ui.progress(w, h)` | **un objecte** o `nil, error` | Una **barra**: fons, pista i el tros fet, tot del sistema. `value` és 0 a 100 i **un negatiu és «encara no ho sé»**. **No és enfocable** (3/11, 0.69.0) |
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)`. **Des de la 0.117.0 cal entrar-hi amb el botó central** (`editing`): fora, les fletxes segueixen caminant el dial; dins, són el número, i el centre les torna al sistema (3/11, 0.69.0, 0.117.0) |
@@ -1097,8 +1099,8 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **El paginador del sistema**: `pages`, `current`, `level` (la tinta, 0 per defecte) i `background`, amb la bola de la pàgina on ets plena i més gran (25) i les altres d'anella (19), unides per un pal de 3 (0.94.1); si les pàgines no hi caben, la finestra de les que hi caben i **tres boles més petites a cada cap** que no arriba (0.139.0). **No és enfocable**, i amb una sola pàgina dibuixa el seu paper i cap bola (0.176.0). **La caixa del disseny és de 37** (la bola de 25 i dotze d'aire a sota) i una caixa més baixa encongeix tota la tira amb el mateix factor: **el peu d'una llista i el d'una graella li demanen sempre aquesta caixa**, o sigui que el paginador és el mateix a tot arreu (0.176.0, docs/92 §27). **Accepta fins a 512 pàgines** (0.138.0): abans eren un byte amb un topall de 32, i un capítol d'un llibre en té més |
 | `ui.list_entry(w, h)` | **un objecte** o `nil, error` | **Una fila d'una llista que l'app construeix** (0.104.0): paper, tinta, separador, `marked` i focus, i el contingut és un fill |
 | `ui.grid_entry(w, h)` | **un objecte** o `nil, error` | **Una cel·la d'una graella que l'app construeix** (0.105.0): el mateix control que `ui.list_entry` sense la línia del separador, i el contingut és un fill (una icona amb el seu nom, un box de dues cel·les, una imatge) |
-| `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). **El peu és el paginador del sistema** (0.174.2, el mateix dibuix de `ui.dots` i **amb la mateixa caixa de 37 i la mateixa tinta que el control**: bola de 25, anelles de 19 i el pal que les enfila) i va **enganxat sota l'última fila** i no al fons de la caixa, i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0; la caixa del disseny des de 0.176.0). **Un dit que camina de costat també la passa, i una passa més enllà de l'última fila visible també** (0.179.4) |
-| `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (el bloc que el sistema fa parpellejar; l'app el llegeix), `mask` (puntets en lloc de lletres), `color`, `scale`, **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat), **`readonly`** (una pàgina que es llegeix i no s'escriu: el cursor hi és i el teclat no puja mai, 0.116.0) i **`framed`** (si el control té vora; `false` la deixa fora i el paper de la pàgina arriba a la vora, 0.116.0). **És enfocable** (3/11, 0.72.0, 0.91.0, 0.92.0, 0.116.0) |
+| `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). **El peu és el paginador del sistema** (0.174.2, el mateix dibuix de `ui.dots` i **amb la mateixa caixa de 37 i la mateixa tinta que el control**: bola de 25, anelles de 19 i el pal que les enfila) i va **al fons de la caixa, el més avall que pot estar** (0.183.2, l'amo: *«el paginador ha d'estar el mes avall possible del control per deixar el màxim d'espai a les entrades»*), i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0; la caixa del disseny des de 0.176.0). **Un dit que camina de costat —o cap amunt o cap avall— també la passa, i una passa més enllà de l'última fila visible també** (0.179.4, 0.179.51), i **el gest és de la llista on el dit va caure** encara que el dit surti de la fila (0.183.2) |
+| `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (el bloc que el sistema fa parpellejar; l'app el llegeix), `mask` (puntets en lloc de lletres), `color`, `scale`, **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat), **`readonly`** (una pàgina que es llegeix i no s'escriu: el cursor hi és i el teclat no puja mai, 0.116.0), **`framed`** (si el control té vora; `false` la deixa fora i el paper de la pàgina arriba a la vora, 0.116.0) i **`clear`** (el botó de la creu que buida la caixa, **posat per defecte**; `false` el treu, 0.184.0). **És enfocable** (3/11, 0.72.0, 0.91.0, 0.92.0, 0.116.0) |
 | `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 656 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (`box.keyboard`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0). **Des de 0.107.0 les tecles fan 64 píxels d'alt** i la lletra ocupa l'alçada de la tecla, i el backspace té la icona del seu símbol |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
@@ -1568,6 +1570,16 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 | `button.pressed` | `true` o `false` (fals per defecte) | Mentre és cert, **el relleu s'inverteix** i el botó sembla enfonsat |
 | `button.focused` | `true` o `false` (fals per defecte) | **L'estat del focus**, que porta el sistema: mentre és cert, el marc pinta **una pausa de dos píxels i una banda de set** —el doble marc del control seleccionat—, negra sobre fons clar i blanca sobre fons fosc |
 | `button.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil poden aturar-s'hi. Un botó amb `false` continua pintant-se i pot rebre clics de l'app, però no entra al recorregut del sistema |
+| `button.framed` | `true` o `false` (cert per defecte) | **Sense vores i sense ombra** (0.185.0): el paper de la seva pàgina és la cara del botó i la tinta és només el contingut. **S'enfonsa girant-se**: amb el dit a sobre la cara va a la tinta i la marca al paper, que és el mateix senyal que ja gastava un botó seleccionat |
+| `button.icon` | un mot o `nil` | **Una marca del sistema en lloc de la paraula** (0.185.0): `back` (fletxa), `close` (creu), `settings` (roda dentada), `reboot` (fletxa circular) o `poweroff` (el símbol d'apagar). La dibuixa el nucli, en dos nivells i de la mida de la cara, i **un mot que no és del joc no en dibuixa cap** |
+| `button.icon_side` | `'above'`, `'left'` o `'right'` | **On va la marca quan el botó també porta paraula** (0.185.3): a sobre (`'above'`, per defecte), a l'esquerra del títol o a la dreta. La marca es queda un quadrat de l'alçada de la cara i la paraula es centra a la resta, o sigui que en un botó més ample que alt les dues coses van de costat. **Un botó sense títol té la marca al mig** i aquest camp no es llegeix |
+
+- **Un botó sense vores és la seva marca** (0.185.0, l'amo: *«vull que siguin UIButton, però sense vores (afegir propietat al botó
+  si no la te ja) i amb una imatge/icona com a contingut»*): `framed = false` treu la vora i l'ombra, i `icon` hi posa una de les
+  cinc marques que el sistema sap dibuixar, de manera que una clau de la targeta de la barra i un botó d'una app són **el mateix
+  control** amb la mateixa marca. Al vidre, quiet, es veu només el dibuix; amb el dit a sobre, la cara es gira —tinta de fons i
+  marca de paper—, que és el senyal que aquest sistema ja fa servir per a un botó seleccionat.
+
 
 | Callback | Què fa |
 |---|---|
@@ -2219,6 +2231,23 @@ list:add(entry)                          -- i la llista la col·loca
   passa més enllà de l'última fila visible també, amb el cercle posat a la primera fila de la pàgina nova. **L'app no ha
   de llegir cap gest ni escriure cap pàgina**: fins a la 0.179.3 l'`about` tenia un `touch.gesture()` i un `kSlidePx`
   seus per fer girar aquesta llista, i eren un paginador a mig fer dins d'una app (docs/30, docs/90).
+- **El gest és de la llista on el dit va caure, i el peu és al fons de la caixa** (0.183.2, l'amo amb la llista de les
+  cares a la mà: *«la llista no pagina i al acabar el gest, l'item sota el dit queda seleccionat»*, i *«el paginador ha
+  d'estar el mes avall possible del control»*). Tres coses del sistema, no de l'app:
+  - **la pàgina que gira és la de la llista on va començar el contacte** i no la del control que hi ha sota el dit en la
+    fila que ja ha caminat prou —una mà que surt de la fila que havia tocat és el cas normal d'un swipe—, que és la
+    regla que la barra i la pàgina ja seguien: *«l'event l'ha de rebre l'objecte que hi ha sota quan comença l'acció»*;
+  - **un gest no acaba mai en un toc**: un contacte que ha caminat no clica en aixecar-se, i el contacte que arriba
+    **fins a cent cinquanta mil·lisegons** després d'un gest tampoc —és el mateix dit o un panell que ha partit el
+    contacte en dos, i el toc que cau al mig és el que triava la fila i no la pàgina—;
+  - **i el contacte viu el que viu el vidre**: la finestra de silenci que el nucli espera abans de donar el dit per
+    aixecat és **de tres escaneigs del xip que hi ha** (mai menys de trenta mil·lisegons), i l'aixecament el diu el
+    panell mateix quan lliura un frame sense punts, en comptes d'endevinar-lo amb un rellotge (docs/50).
+- **Una premuda és del control que va rebre el dit, i es deixa anar quan el dit el deixa** (0.183.3). Una fila es prem
+  en baixar i es desprèn **en sortir-ne el dit**, no en aixecar-lo sobre una altra fila: l'aixecament anava al control
+  que hi havia sota el dit en aquell moment, i la fila on el gest havia començat **es quedava premuda al vidre** —la
+  fila fosca sota el dit després d'un swipe—. El cost no canvia: seixanta-quatre píxels de fila, i no el full. I si el
+  dit deixa el control perquè la pàgina es reconstrueix, l'aixecament els deixa anar tots abans de tancar el contacte.
 - **`items` i les entrades conviuen**: si la llista té fills, es col·loquen ells i el control només pinta el fons i el
   peu; si no en té, es pinten les files de dades com sempre. Una llista no s'ha de migrar per començar a fer servir
   entrades.
@@ -2275,10 +2304,12 @@ llista **pagina**, i el peu diu en quina pàgina ets.
   quan les pàgines no hi caben— **amb la mateixa bola del disseny a tots dos** (0.176.0: abans la llista l'escalava a la
   banda i el mateix control sortia de 20 píxels en una llista de files curtes, de 24 sota una graella i de 25 dins d'un
   `ui.dots`), i no quatre punts de quatre píxels que eren una segona còpia de la mateixa idea i la petita. **La banda ja
-  no depèn de la fila**: són els 37 de la caixa del disseny més les 4 de la línia que tanca les files, i el peu es pinta
-  **on s'acaba l'última fila** i no al fons de la caixa: una llista amb més lloc que files deixava l'aire **entremig**, i
-  això es llegia com un peu que ocupa mitja pàgina. El paper que sobra és sota el peu, on s'acaba una pàgina. Quan la
-  caixa és tan estreta que la tira no hi cap, el control pinta el número (`2 / 4`) i prou (docs/30, docs/92).
+  no depèn de la fila**: són els 37 de la caixa del disseny més les 4 de la línia que tanca les files. **I el peu va al fons
+  de la caixa, el més avall que pot estar** (0.183.2, l'amo: *«el paginador ha d'estar el mes avall possible del control
+  per deixar el màxim d'espai a les entrades de la llista»*): la 0.174.2 el pintava **on s'acabava l'última fila** —l'aire
+  quedava entre les files i el peu, que es llegia com un peu que ocupa mitja pàgina— i la 0.183.2 el torna a posar a la vora
+  de baix, que és on s'acaba una pàgina. Quan la caixa és tan estreta que la tira no hi cap, el control pinta el número
+  (`2 / 4`) i prou (docs/30, docs/92).
 - **`marked` és una fila de tota la llista** i el control en pinta una pàgina: una fila d'una altra pàgina no és la
   triada d'aquesta, i el control ho sap (zero).
 - **Les fletxes del dial canvien la pàgina** mentre la llista té el focus i l'app ho sap per `on_page(self, page)`.
@@ -2348,6 +2379,24 @@ text—. Ara es pinta amb el text i el bloc la gira, i la fase apagada és el te
 - **`mask`** dibuixa un puntet per lletra: és el mateix requadre amb els punts al lloc de les lletres, i per tant el
   cursor cau on cauria i l'amplada del que s'ha escrit no es filtra.
 - **`cursor` és quants bytes hi ha abans del cursor**, no una lletra: una lletra pot fer dos bytes.
+- **I el dret de la caixa és un botó que la buida** (0.184.0, l'amo: *«afegeix al control TextBox un UIButton sense vores
+  a la dreta del tot amb una X negra (esborra el contingut del buffer del TextBox si es polsa)»*). És un quadre sense vora amb
+  la creu d'un comandament, **de l'alçada d'una línia de la cara**, a l'extrem dret de dins del marc, i **pren la seva
+  habitació del text**: una línia llarga es talla on comença la creu i no hi passa mai per sota —una lletra sota un
+  comandament és una lletra que ningú no llegeix—. Posar-hi el dit **buida el `text`, posa el `cursor` a zero, dona el focus
+  a la caixa i obre la banda** (el mode edició), i l'app ho sent a `on_change(self, '')` **abans que la banda arribe**: obrir la
+  banda canvia la mida de la vista, i una app que té la seva pròpia còpia de les paraules torna a fer la pàgina a partir
+  d'aquella còpia —la nota del rellotge tornava amb el text que s'acabava d'esborrar perquè l'app va refer la pàgina primer i
+  va saber el text buit després (mesurat a l'emulador, i el subjecta
+  `test_the_cross_of_a_text_box_empties_it_and_tells_the_app_first`)—. **Mentre la caixa s'escriu la creu
+  no hi és** (l'amo: *«no es possible pitjar-lo quan està en mode edició, així que millor ocultar-lo en aquest mode»*): el
+  mode edició és el camp **`editing`** —i no el `focused`, que una pàgina que es torna a fer deixa fals mentre la caixa nova és
+  la que s'escriu—, i el dibuix i el dit pregunten els mateixos dos camps, o sigui que una creu que es veu és una creu que es
+  pot prémer. **Amagar-la és esborrar-la**, i la passada ràpida d'aquest panell pinta i no neteja: el marc que la treu demana
+  **una passada neta (`gc16`) de la caixa i prou**, i els marcs següents tornen a ser ràpids —sense això la creu es quedava a
+  cinc setzens, un comandament que es veu i no es pot prémer (mesurat a l'emulador, i el subjecta
+  `test_the_cross_of_a_text_box_goes_away_with_the_clean_pass`)—. **Una caixa
+  on no hi cap (un quadre de menys de deu píxels de costat) no porta botó i el text es queda amb tot el de dins.**
 - **`keyboard` és el que la caixa vol del teclat** (0.91.0): `'alpha'` per defecte, `'numeric'` per a dígits, i
   `false` per a una caixa que no en vol —una pàgina de només lectura, un full que només es desplaça—. El sistema el
   llegeix quan la caixa pren el focus, i `kb:show('numeric')` també l'escriu a la caixa.
@@ -2821,6 +2870,30 @@ una llista trien alguna cosa amb el botó central, i treure'ls-hi aquest signifi
 regla viu en una funció sola (`ui_enters_to_move`) perquè afegir-hi un control nou sigui una línia i es vegi què ha de
 complir: no tenir cap acció pròpia al centre.
 
+#### Les imatges dels moments, des d'una pàgina (0.183.0)
+
+**`ui.splashes()` és la llista i `ui.splash(word)` la imatge**, i són les mateixes dues coses que el prompt diu amb
+`splash` i `splash <word>`: la pàgina no copia la llista de moments, la llegeix, i un moment que el nucli guanyi demà
+arriba a l'app sense tocar-ne una línia. La imatge es pinta **fora de la pàgina** —el panell sencer rentat amb un
+`gc16`, el dibuix al mig a la seva mida, i la pàgina del voltant és la que el dibuix demana— i la vista de l'app no
+canvia gens. Dues conseqüències que val la pena tenir escrites:
+
+- **El camí de tornada és de l'app**, perquè el sistema no té res a repintar-hi: es dona la pàgina i es torna a fer
+  (`screen:release()` i construir-la de nou), que és el que fa l'app `splash` del disc i el que fa l'editor amb les
+  seves dues pantalles. Marcar els controls un a un amb `control:invalidate()` també hi és, però una pàgina que torna
+  pot tornar amb un tros de menys (es va veure amb el títol de la pàgina de les imatges).
+- **La barra del sistema torna amb la primera pàgina que es presenti**, no amb la imatge: una barra pintada mentre el
+  dibuix és al vidre és una franja del sistema a sobre d'un dibuix.
+- **I el toc que tria una fila no és el toc que torna la pàgina**: el gest d'un control el llegeix el control i no se'l
+  queda, i el gest d'un toc arriba **al torn següent al del dit aixecat**, o sigui que l'app l'ha de pair abans de
+  començar a mirar gestos. L'app `splash` ho fa amb un bucle curt després de pintar la imatge.
+
+```lua
+local words = ui.splashes()
+local ok, why = ui.splash(words[1])      -- el primer moment de la llista
+if not ok then console.print('splash: ' .. tostring(why)) end
+```
+
 #### Un camp que es llegeix i no s'escriu (0.116.0)
 
 **`box.readonly = true` és una propietat del control i no una manera de dir-ho amb una altra**: la caixa **mai** aixeca
@@ -3231,19 +3304,13 @@ i res més (0.179.42, 0.179.49).
   L'amo ho va demanar així: *«un cop el desplegable es a la pantalla l'app es queda en pausa … Es deixa com estava i es
   resumeix l'execució de l'app lua»*. És el que fa que **cap app pugui tancar el panell**: no hi ha cap camí pel qual
   una app caigui el que el sistema té a sobre (docs/30).
-- **El botó de la cantonada tanca l'app del davant** (0.179.23): un **botó del sistema** —un control de
-  seixanta-quatre píxels de costat pintat per `ui::paint_a_button`, el mateix dibuix que tenen tots els
-  botons d'aquest arbre: la cara de paper aixecada quatre píxels, l'ombra de tinta a sota, el marc a la cara
-  i la paraula al mig—, amb una `X` de paraula i a vint-i-quatre files de la barra i a vint-i-quatre de la
-  vora dreta (0.179.31; abans era un disc de quaranta dibuixat a mà i després un quadrat amb una creu de
-  píxels, i un sistema que té un botó no pot tenir una segona manera de dibuixar-lo). La tinta i el toc són
-  **el mateix requadre**: el que se sent és el que es veu. El toc no tanca l'app a la
-  seva manera: passa pel **camí únic de sortir d'una pàgina** (`shell::leave_one_page`), que és el
-  mateix que el pessic de gran a petit i els tres tocs. O sigui que fa les tres mateixes coses: una
-  pàgina amb una altra a sobre la torna i l'app es queda; **un llançador no es tanca**; i una app d'una
-  sola pàgina es tanca i **la pàgina que la va obrir torna a agafar el vidre**. La targeta se'n va amb
-  l'app que tanca: si ja hi ha una pàgina que ha de rentar el vidre, aquella és la que esborra la
-  targeta i el tancament no paga dues passades; si no, la pàgina de sota torna sencera.
+- **El botó de la cantonada tanca l'app del davant, i ara la tanca de debò** (0.179.23, i 0.185.0). L'amo: *«"Close" ha de
+  tancar l'app, no anar enrere, per això ja està "Back"»*. Fins a la 0.184.0 el toc passava pel camí únic de sortir d'una pàgina
+  (`shell::leave_one_page`), que **torna una vista** quan n'hi ha una a sobre i deixa l'app oberta; ara passa per
+  `shell::close_the_app`, que tanca **l'app sencera** amb les vistes que tingui a sobre i fa tornar la pàgina que la va obrir. Un
+  llançador no es tanca mai (el sistema ho pregunta abans de pintar) i, si la porta no s'obre, la targeta es queda on és. La
+  targeta se'n va amb l'app que es tanca: si ja hi ha una pàgina que ha de rentar el vidre, aquella és la que esborra la targeta
+  i el tancament no paga dues passades; si no, la pàgina de sota torna sencera.
 - **I la fletxa de l'esquerra torna una vista** (0.179.52). L'amo: *«Afegir botó de "back" al panell lliscant de la
   barra de sistema. Per tirar l'app a la vista anterior. A la part esquerra del panell, a la dreta el "close" com fins
   ara. El back ha de ser una icona, com el close»*. És **el mateix botó de seixanta-quatre píxels** que la creu, amb la
@@ -3260,6 +3327,40 @@ i res més (0.179.42, 0.179.49).
 - **I amb una sola pàgina la fletxa no hi és**: una app que no ha empès cap vista no té on tornar, i un botó que no pot
   fer res és pitjor que cap botó —la mateixa regla que la creu sobre un llançador (0.179.25)—. El sistema ho pregunta
   abans de pintar (`apps::views() > 0`), i la cantonada de la targeta és paper: un toc allà és un toc a la targeta.
+- **I les cinc claus són el mateix botó, sense vores** (0.185.0, l'amo: *«afegeix al panell lliscat … l'icona de Reinciar,
+  d'Apagar i de Settings … aquests botons no tinguin vores, l'icona és tot el que es veu i com qualsevol botó s'enfonsa al pitjar»*).
+  La targeta porta **cinc claus de seixanta-quatre píxels**: la fletxa a la cantonada esquerra i la creu a la dreta, com fins ara,
+  i **una fila de tres al mig** centrada —`settings` (roda dentada), `reboot` (fletxa circular) i `poweroff` (el símbol d'apagar)—,
+  totes amb `framed = false` i `icon` a la mateixa clau del sistema: el paper de la targeta és la seva cara, la marca és tota la
+  tinta que hi ha, i **el botó s'enfonsa girant-se** quan el dit hi és a sobre (una passada `du` de la clau i després l'acció).
+  Les cinc es calculen en una sola taula (`key_is_there`, `key_x`, `key_y`, `run_the_key`) i la que no pot fer res no es pinta ni
+  es pot prémer. El reinici i l'apagat passen pel **mateix camí que la consola** (`shell::reboot` i `shell::power_off`), i
+  **`settings` obre la consola del sistema**, que és on viu `cfg` —encara no hi ha cap pàgina d'ajustos al disc— i ho fa amb la
+  pàgina que l'ha demanada al darrere perquè tancar la consola torni on era (docs/30, docs/40, docs/45, docs/92).
+- **I les cinc marques són dibuixos del disc, fets com al PaperOS** (0.185.1, l'amo: *«fes les icones dels botons del panell
+  desplegable de sistema de nou, usa el mateix que feies amb el PaperOS»*). `tools/iconart.py` dibuixa cada marca en una caixa de
+  448 unitats —una funció per marca, la paleta de setze tons amb nom, la vora de tinta de 15 unitats que la reducció no
+  s'empassa— i en desa dues coses: el **mestre** a `tools/icons/system/` i la **icona de 64 × 64** a `data/res/icons/`, que és el
+  que el disc porta. El nucli llegeix `/res/icons/<nom>.png` (`ui::picture_of_a_mark`), el descodifica i l'escriu a la cara de la
+  clau **mapejant els nivells** —el paper del dibuix és la cara i la tinta és la marca, i girats quan la clau s'enfonsa—, i si el
+  fitxer no hi és dibuixa les línies que aquest sistema tenia (`ui::draw_icon`), que és el que veu una placa sense la carpeta.
+  **La clau s'enfonsa mentre el dit hi és** (0.185.2): el contacte de l'últim torn és el que la gira, i un dit que s'hi està un
+  segon també és un toc, o sigui que el gest `long` fa el mateix que el `tap` (docs/45, docs/92).
+- **I les cinc marques són clipart, no un dibuix meu** (0.185.2, l'amo: *«usa un clipart, clarament no estàs dibuixant com ho
+  feies l'altre dia a PaperOS»*). El primer intent les dibuixava amb primitives i el que sortia era un joc d'icones de casa; el
+  que fa el projecte del paper per a la seva interfície és **treure-les d'una família d'icones** (Font Awesome, amb
+  `tools/make_keys.py` ja fent-ho per a les cinc lletres del rellotge). `tools/iconart.py` rasteritza ara els glifs
+  **`arrow-left`, `times`, `cog`, `redo` i `power-off`** de **Font Awesome Free 5.15.4**, els ajusta al 80 % de la caixa i els
+  desa igual: mestre de 448 a `tools/icons/system/` i icona de 64 a `data/res/icons/`. **Llicències**: glifs SIL OFL 1.1, icones
+  CC BY 4.0, crèdit al `README`.
+- **I les cinc claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
+  icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*, amb `Settings ||| Poweroff | Reboot` al dibuix).
+  **La paraula és dins del botó** i no a fora, o sigui que prémer el nom és prémer la clau: les cantonades són **amples**
+  (`← Back` a 190 × 64 i `Close ✕` a la mateixa mida, amb la marca a la vora de fora, que és el que fa que les dues cantonades
+  mirin enfora) i les tres del mig són **altes** (150 × 104, marca a sobre i paraula a sota). **`Settings` va separada de la
+  parella** amb quaranta-vuit píxels en lloc dels dotze d'entre claus, que és el `|||` del dibuix, i **l'ordre és Settings,
+  Poweroff, Reboot**, que és el que hi ha escrit allà. La paraula va a **tres passos** de la cara del sistema: a un pas fa onze
+  píxels i no es llegeix (mesurat a l'emulador, docs/30, docs/92).
 - **I sobre un llançador el quadrat no hi és** (0.179.25): el llançador és l'única pàgina que no es
   deixa, i un botó que no pot fer res és pitjor que cap botó. La cantonada de la targeta és paper, i un
   toc allà és un toc a la targeta, que no fa res (0.179.42). El sistema ho pregunta abans de

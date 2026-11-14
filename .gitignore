@@ -4,6 +4,11 @@
 .vscode/launch.json
 .vscode/ipch
 
+# The database of what each file includes, written for the language server of an editor: it is
+# generated from the build and not source —the flags are the ones in `platformio.ini`— and it is
+# different in every machine, so the repository does not keep it.
+compile_commands.json
+
 # The disk an environment is flashed with: `tools/make_disk.py` puts `data/` and,
 # on a board with room, `apps/` together in here. It is generated, not source, and
 # it is the same in every run (docs/80).

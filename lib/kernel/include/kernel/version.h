@@ -7621,8 +7621,233 @@ namespace kernel {
 //   - **el que queda**: sortir del camp amb el centre sí (la banda baixa i la pàgina torna), i **tornar-hi amb el centre no
 //     arrenca la banda ni la plaça** —el següent toc de tecla mou el focus i tanca la banda—. És una pàgina que el centre
 //     ha de poder reprendre, i queda per a la propera.
-static const char kVersion[] = "0.182.1";
-
+// 0.183.0 (13/11): **els quatre moments que faltaven, la pila que mana i el panell que reposa abans del rail** (docs/30,
+// docs/50):
+//   - **el que demana l'amo**: *«Fer splash de poweroff (revisa documentació i codi de la llibrería M5Paper, em sembla
+//     recordar que s'havíen de fer passos extra per tancar rails i estalviar energia al maxim), fer splash de batería baixa,
+//     fer splash de deep sleep, fer splash de "oops" (Error del sistema), i una app en lua que mostri tots els splash de
+//     sistema»*;
+//   - **el que ja hi era, i és el que vaig comprovar primer**: `PaperPower::power_off` ja feia la seqüència del fabricant
+//     (`M5Paper_FactoryTest`, `Shutdown()`): espera de 600 ms, GPIO23 (rail del panell), GPIO5 (ports HY2.0), GPIO2 (el hold),
+//     i son profund. **El que faltava és el primer pas d'aquella `Shutdown()`**: `M5.EPD.Sleep()`, que és `IT8951_TCON_SLEEP`
+//     al controlador abans que el seu rail baixi. És `hal::ISurface::rest()`, amb `It8951::rest` a la placa, la línia i la
+//     negativa a pintar-hi després a l'emulador (`the panel has gone to sleep`) i la crida dins de `power_off` amb el vidre
+//     que li passa `PaperPlatform::display()`;
+//   - **dos moments nous i dos de separats**: `splash::kLowBattery` (`lowbatt`) i `splash::kOops` (`oops`), i el son profund
+//     deixa de pintar el comiat de `poweroff` i pinta `sleep`. La llista té set mots i són els de la comanda i els de
+//     `ui.splashes()`;
+//   - **qui decideix la imatge és una funció i no una branca escampada** (`power::boot_picture`, `power::going_down_picture`,
+//     `power::kLowBatteryPercent` = **5**): a l'arrencada mana el dibuix de `cfg boot`, tret d'una pila sota el llindar i sense
+//     cable (llavors `lowbatt`); a la baixada mana el motiu —`sleep`, `poweroff`— i la pila hi té l'última paraula. Una placa
+//     que no llegeix la pila no diu mai «buida» i una placa al cable no diu mai que s'ha acabat;
+//   - **`oops` és la cara d'un sistema que ha decidit que no pot seguir**: l'app de casa que no arrenca a `kernel::boot`,
+//     amb la raó al log i el prompt com a única porta. **Un pànic no es pot pintar** —el xip que pànica no condueix el vidre— i
+//     això queda dit al seu lloc;
+//   - **i la imatge també és d'una pàgina** (docs/30): `ui.splashes()` (les paraules d'aquest build) i `ui.splash(word|path)`
+//     o `'hide'`, que és el mateix que la comanda. La barra del sistema queda deuda —la imatge renta el panell sencer— i la
+//     torna la primera pàgina que es presenti (`present_for_lua`, `bar::refresh`);
+//   - **l'app `splash` del disc**: la llista dels set moments, triar-ne un el posa al vidre i un toc torna la pàgina. Dues
+//     coses que va costar encertar i que queden escrites allà dins: el toc que tria la fila **és** el que arriba com a gest
+//     (el control el llegeix i no se'l queda) i la pàgina s'ha de **tornar a fer** i no apedaçar (el títol va ser el primer
+//     tros que no va tornar);
+//   - **les imatges són totes d'una mà** (`tools/make_splash_images.py`): `poweroff.png` sortia **tallat** del disc —el mot no
+//     hi cabia a 54 punts i la primera lletra era fora del fitxer—, i el guió ara baixa el cos fins que hi cap i escriu els
+//     sis PNG de 460 × 200;
+//   - **measured a l'emulador**: `--battery-mv 3300` a l'arrencada → `the battery is at 0 % and there is no cable` i
+//     `/res/splash/lowbatt.png` al vidre; el mateix amb `poweroff` → `lowbatt.png`; `sleep deep 60000` →
+//     `/res/splash/sleep.png`; `splash lowbatt` → `261x123 at 139,418, a drawing of 460x200, the page is paper` (centrada, la
+//     pàgina del seu marge) i l'app `splash` amb `7 moments` i `7 rows in a list of 573 px`, triar-ne un i tornar amb un toc;
+//   - **i una cosa que estava trencada i no era meva**: `pio run -e test` no compilava des de feia dies —`no_gui` declarada
+//     sempre i usada només sota `LUNOK_GUI_BY_DEFAULT`, i `-Werror`—, o sigui que la suite no podia ni arrencar; el guàrdia
+//     cobreix ara la variable i l'opció `--no-gui` es pren igualment (docs/85).
+// 0.183.1 (13/11): **les dues pàgines de la pila són les del projecte vell, copiades** (docs/50):
+//   - **el que demana l'amo**: *«Per l'splash de batería agafa el del projecte antic PaperOS, mira com fa el dibuix i guarda
+//     les imatges fonts (si n'hi ha) Fes una copia exacta»* i, després, *«Fes el mateix amb charging»*;
+//   - **què era `lowbatt.png`** fins ara: una pàgina de text meva (`lowbatt` / `plug the cable`). **I ara és la pantalla del
+//     PaperOS**: la insígnia de `drawBatteryLowMark` —la pila de quatre cel·les amb la de baix plena i el triangle d'avis amb
+//     vora de paper i l'admiració— i cinc línies, amb el tema d'aquell projecte (`padLarge` 18, `gap` 10) i les seves tres
+//     cares de DejaVuSans-Bold a 48, 36 i 28 px (`font_ui48b`, `ui36b`, `ui28b`);
+//   - **`charging.png`**: `ChargingApp::arrange` i `::onDraw` del PaperOS —el cos del 40 % del costat curt, la paret del 7 %,
+//     el terminal del 10 % i el llamp de sis punts de `title_bar.cpp`—, 540 × 960, amb la frase `Charging...`;
+//   - **`tools/make_splash_from_paperos.py`** és el port número per número (i hi ha el parany escrit: el `dy` del Bresenham
+//     del Paper és **negatiu**, i amb un de positiu la ratlla avança en diagonal i no arriba mai al final);
+//   - **la imatge font es queda** a `tools/splash-sources/` amb un README: la captura del PaperOS per a la pila i el codi
+//     per a la càrrega, perquè la targeta de càrrega no té cap captura al projecte vell (el seu `ui_preview.cpp` només
+//     dibuixa la barra amb el cable);
+//   - **mesurat contra la captura**: la caixa de tinta és la mateixa (251..707) i la insígnia difereix en **67 píxels sobre
+//     11 468** de tinta (0,6 %, l'antialiasing de la vora del triangle). **L'única diferència volguda és el nom**: la primera
+//     línia diu `lunokOS` i no `PaperOS`.
+// 0.183.2 (13/11): **la llista d'un app es torna a poder fer servir amb el dit: el gest gira la pàgina i no tria la fila**
+// (docs/30, docs/50):
+//   - **el símptoma, literal**: *«La llista de l'app Fonts no es pot utlitzar, tot i fer swipe a l'esquerra o la dreta, la
+//     llista no pagina i al acabar el gest, l'item sota el dit al acabar el gest queda seleccionat! Se suposa que quan un
+//     gest acaba no s'envien els tocs per no confondre el control, que es precisament el que passa»*;
+//   - **el que he pogut mesurar i el que no**: a l'emulador el gest **sí** que girava la pàgina i **no** clicava (amb el xip
+//     a 10 ms i també a 60, i amb un fling ràpid), o sigui que el cas de la placa és una de les maneres en què el sistema
+//     partia un contacte en dos —i un contacte que s'acaba sota un dit és un **toc**: la fila de sota, clicada—. Les tres
+//     carreteres que el podien partir estan tancades;
+//   - **el contacte viu el que viu el vidre** (`touch.cpp`): la finestra de silenci era de trenta mil·lisegons plans, que era
+//     «tres escaneigs» d'un xip suposat a deu —`kGt911ScanMs` és una suposició, docs/95 E-6 diu que el ritme del xip de la
+//     placa no l'ha comptat ningú—, i se surt de la finestra només quan el panell diu que el dit no hi és:
+//     **`Gt911::finger_still_down`** respon ara amb el que diu el darrer frame lliurat, i un frame sense punts és
+//     l'aixecament i no un silenci a endevinar. La finestra és `max(3 × scan, 30 ms)`;
+//   - **la pàgina que gira és la de la llista on el dit va caure** (`g_ui_swipe_list`, llegida una vegada al contacte): `index`
+//     és el control sota el dit en aquest frame, i una mà que fa un swipe surt de la fila que havia tocat, o sigui que el gest
+//     es quedava sense llista i no girava res —la regla que la barra i la pàgina ja seguien: l'event és del control que hi ha
+//     sota quan comença l'acció—;
+//   - **i un gest no acaba mai en un toc** (`g_ui_tap_swallowed_until_ms`, 150 ms): un contacte que ha caminat deixa el
+//     següent mut —el mateix dit, o el panell que ha partit el contacte— i el que neix mut **no torna a armar la finestra**,
+//     que era la cadena que vaig fer jo i que deixava la llista sense respondre a cada segon toc (mesurat: el toc següent al
+//     swipe no obria, i el d'un segon després tampoc);
+//   - **i el paginador, al fons de la caixa** (`list_draw`): l'amo, *«el paginador ha d'estar el mes avall possible del
+//     control per deixar el màxim d'espai a les entrades de la llista»*; fins ara anava enganxat sota l'última fila (0.174.2) i
+//     el paper que sobrava quedava a sota dels punts.
+//   - **mesurat a l'emulador amb l'app `fonts`**: 19 files i 3 pàgines amb els punts al fons de la llista, un swipe de 330 px
+//     → `fonts: page 2` i cap fila triada, i un toc dins dels 150 ms → res (i un de més tard → la fila).
+//
+// 0.183.3: **una premuda no sobreviu al dit que l'ha feta** —el segon tros de la mateixa queixa de l'amo, *«al acabar el gest,
+// l'item sota el dit queda seleccionat»*—. Un control es prem **a baixar** i es deixa anar **aixecant sobre aquell mateix
+// control**; un dit que camina prem la fila on cau i l'aixecament va a la fila on s'atura, o sigui que la primera **es quedava
+// premuda al vidre**: a l'emulador es veia com una fila fosca sota el dit després d'un swipe a la dreta (les dues files que el
+// gest va repintar al log, `paint 22,114 496x74` i `paint 22,484 496x74`, són la premuda i el despressament de l'altra). El
+// contacte **recorda quin control té premut** (`g_ui_touch_pressed`, escrit a la caiguda) i el deixa anar **quan el dit el
+// deixa**, que és el camí barat: seixanta-quatre píxels de fila i no el full sencer. I si algun quedés premut de tota manera
+// —una pàgina que es reconstrueix sota el dit—, l'aixecament recorre els controls i els deixa anar tots abans de tancar el
+// contacte. **El toc segueix engolit** (150 ms): el que es deixa anar és el dibuix de la premuda, no el clic.
+//   - **mesurat a l'emulador amb l'app `about`** (25 llibreries, 8 files per pàgina, 4 pàgines, llista de 580 px): swipe
+//     esquerra 288 px → pàgina 2, swipe dreta 288 px → pàgina 1, swipe amunt 264 px → pàgina 2, cap `about: open` perdut i cap
+//     fila premuda a les captures; un toc 1 s després → obre el detall; a la pàgina 4 (una sola fila) el paginador queda a la
+//     vora de baix de la caixa.
+//   - **i el cost d'un swipe**: un sol pintat (`paint 20,312 500x580 gl16`, el gir de pàgina) allà on la 0.183.2 en feia tres
+//     (dues tires de fila i el full).
+//
+// 0.183.4: **la imatge d'un moment és el dibuix i no la pàgina** (l'amo: *«per què l'splash charging i lowbatt són a pantalla
+// completa? són blancs de fons!»*, i *«fes que tots els splash excepte els de boot tinguin el tamany mínim necessari»*). El
+// vidre no canviava —`splash::show` ja treu la vora uniforme de la imatge (`drawing_of`) i centra el que queda—, però el
+// paper que el volta s'escrivia al disc, es llegia sencer, es descodificava i es llençava: 540 × 960 de blanc per a una
+// insígnia de 456 files. Les **sis imatges dels moments** es desen **retallades a la caixa de tinta** (la regla del sistema:
+// un píxel a més de dos nivells del paper és dibuix) i el vidre ensenya exactament el mateix, perquè el que es pintava era el
+// dibuix i segueix centrat. Els dibuixos del boot no es toquen: són pàgines del vidre sencer i la pàgina és el dibuix.
+//   - **abans → ara**: `poweroff` 460 × 200 → **306 × 118**, `reboot` → **249 × 123**, `sleep` → **252 × 123**, `oops` →
+//     **257 × 113**, `charging` 540 × 960 → **293 × 200** i `lowbatt` → **540 × 456**. **El bloc que es demana a la memòria
+//     extra**, que és el que es pinta, baixa de **702 400 B** a **216 221 B** entre les sis (una imatge a la vegada, quatre
+//     bits a píxel), i `lowbatt` tot sol de **259 200 B** a **123 120 B**; al disc, els sis PNG de **27 110 B** a
+//     **23 145 B** (el PNG ja comprimia el blanc, i el que s'estalviava de debò era la descodificació).
+//   - **`lowbatt` no pot ser més estreta**: la seva línia `The battery is running out.` fa **548 px** a la cara de 36 sobre una
+//     pàgina de 540, o sigui que la còpia del PaperOS la talla a les dues vores i el mínim d'aquell dibuix és l'amplada del
+//     vidre (docs/50).
+//
+// 0.184.0: **el TextBox té un botó que el buida** (l'amo: *«afegeix al control TextBox un UIButton sense vores a la dreta del
+// tot amb una X negra (esborra el contingut del buffer del TextBox si es polsa) respecta el botó si el text es molt llarg
+// (talla el text com si fos el final del control sense trepitjar l'X) polsar aquest botó esborra el buffer i activa el mode
+// edició amb el cursor a 0 i el buffer buit del control»*). És el camp **`clear`** de la caixa, **posat per defecte** (una app
+// el treu amb `clear = false`), i el dibuixa el nucli: un quadre sense vora amb la creu, **de l'alçada d'una línia de la
+// cara**, a l'extrem dret de dins del marc (`textbox_clear_box`, una sola geometria per al dibuix i per al dit).
+//   - **El text no el trepitja**: l'amplada de dins de la caixa es redueix en el quadre més sis píxels d'aire, i la finestra
+//     del text i la cua es tallen allà —una lletra sota un comandament és una lletra que ningú no llegeix—.
+//   - **Prémer-la buida la caixa i hi entra**: `text` buit, `cursor` a 0, el focus a la caixa, `editing` a cert, la banda al
+//     vidre, les dues tecles per a la caixa i l'app ho sent a `on_change(self, '')` **abans que la banda arribe**: obrir la banda
+//     canvia la mida de la vista i una app que té la seva pròpia còpia de les paraules refà la pàgina a partir d'aquella còpia
+//     —la nota del rellotge tornava amb el text que s'acabava d'esborrar, i es va veure a l'emulador: `on_change` anava
+//     després de la banda—. Es pregunta **abans** que el cursor, o el dit que cau a la creu posaria el cursor al final de les
+//     paraules que està a punt d'esborrar.
+//   - **Mentre s'escriu, la creu no hi és** (l'amo: *«no es possible pitjar-lo quan està en mode edició, així que millor
+//     ocultar-lo en aquest mode»*), i el mode edició és el camp **`editing`** i no el `focused`: una pàgina es torna a fer cada
+//     cop que la banda pren el fons del vidre, tots els controls se'n van amb ella i la caixa nova és la que una persona
+//     escriu mentre el seu `focused` és fals; `editing` el torna a posar el sistema a la caixa viva.
+//   - **I amagar-la és esborrar-la**: la passada ràpida d'aquest panell pinta i no neteja (deixava la creu a **cinc
+//     setzens**), o sigui que el marc que la treu demana **una passada neta (`gc16`) de la caixa** i els marcs següents tornen
+//     a ser ràpids; el flag és del llenç (`Canvas::cross_on_the_glass`) perquè és la tinta d'aquella caixa.
+//   - **I el present de l'app no rebaixa el mode que demana un control** (`merge_all`): the quality of a present is a floor now
+//     and not a ceiling —a region goes up with the present's quality or with the one a control asked for when it is stronger—,
+//     because the present of a page knew nothing about the cross and downgraded its clean pass to `du`, which is exactly the
+//     five sixteenths the glass kept.
+//   - **Una caixa massa petita no en porta**: per sota de deu píxels de costat no hi cap una creu que es vegi i el text es
+//     queda amb tot el de dins.
+//   - **mesurat a l'emulador amb la nota del rellotge** (caixa de 500 × 63, escala 4): la creu surt a l'extrem dret i en negre,
+//     el toc la buida amb el cursor a zero i la banda al vidre, i **la caixa es torna a pintar amb `mode 2 gc16` una vegada**
+//     (la creu marxa) i amb `mode 3 gl16` la resta; el text llarg es talla abans del quadre. Els casos
+//     `test_the_cross_of_a_text_box_takes_its_room_from_the_text`,
+//     `test_the_cross_of_a_text_box_goes_away_with_the_clean_pass` i
+//     `test_the_cross_of_a_text_box_empties_it_and_tells_the_app_first` subjecten les quatre coses.
+//
+// 0.185.0: **la targeta de la barra té cinc claus, i totes són botons sense vores amb una icona** (l'amo: *«afegeix al panell
+// lliscat de la barra del sistema més botons: l'icona de Reinciar, d'Apagar i de Settings… aquests botons no tinguin vores,
+// l'icona és tot el que es veu i com qualsevol botó s'enfonsa al pitjar… vull que siguin UIButton, però sense vores (afegir
+// propietat al botó si no la te ja) i amb una imatge/icona com a contingut… Dissenya tots els botons: Back, Close, Poweroff,
+// Reboot i Settings amb icones ben entenedores»*). Dues propietats noves del **botó** (no de la targeta):
+//   - **`framed = false`**: sense vora i sense ombra —el paper de la pàgina és la cara— i **la premuda gira la cara** (tinta de
+//     fons, marca de paper), que és la pressió que aquest sistema ja donava a un botó seleccionat;
+//   - **`icon`**: una de les **cinc marques** del sistema (`back`, `close`, `settings`, `reboot`, `poweroff`), dibuixades pel
+//     nucli en dos nivells i amb les primitives de `ui.cpp` (`ui::draw_icon`, `ui::icon_count`, `ui::icon_at`).
+//   - **Els cinc botons de la targeta**, en una sola taula: la fletxa a la cantonada esquerra, la creu a la dreta i la fila de
+//     tres al mig (settings, reboot, poweroff) centrada. La premsa es veu: una passada `du` de la clau abans de l'acció.
+//   - **\\«Close\\» tanca l'app i no una pàgina** (l'amo: *«\"Close\" ha de tancar l'app, no anar enrere, per aixó ja està \"Back\"»*):
+//     `shell::close_the_app` tanca l'app amb les vistes que tingui a sobre; `shell::leave_one_page` no canvia i és el pessic.
+//   - **`shell::power_off`** és la baixada del sistema una vegada, la que fa la comanda `poweroff` i la clau del mig.
+//   - **mesurat a l'emulador amb l'app `about`** (targeta de 304 files sota la barra, claus de 64 px): les cinc marques surten
+//     sense cap vora a 24 files de la barra i a la fila de 120, el toc a la fletxa torna la vista (`the arrow: the app went to
+//     the view below`) i el toc a la clau del mig canvia la clau. El cas `test_a_button_without_a_frame_is_its_mark_and_turns_over`
+//     subjecta el botó sense vores, la premuda girada i les cinc marques.
+//
+// 0.185.1: **les cinc marques de la targeta són dibuixos, i es fan com al PaperOS** (l'amo: *«fes les icones dels botons del
+// panell desplegable de sistema de nou, usa el mateix que feies amb el PaperOS»*). El PaperOS no tenia cap model dibuixant: tenia
+// `tools/iconart.py`, un quadrat de 448 unitats amb sis primitives i **una funció per icona**, dibuixat quatre cops més gran i
+// reduït **d'una sola passada amb LANCZOS** —que és el que fa que les vores portin els grisos del panell en lloc d'una escala de
+// píxels—, amb una paleta de setze tons amb nom (cos de 8 a 13, vora a 4) i una vora de 15 unitats (2,1 px a 64). Aquest
+// sistema té ara el mateix fitxer, `tools/iconart.py`, i **les cinc marques ja no són línies al nucli**:
+//   - **el dibuix viu fora**: `tools/iconart.py` escriu el mestre de 448 a `tools/icons/system/` (el que una persona edita) i la
+//     icona de **64 × 64** a `data/res/icons/`, que és el que el disc porta;
+//   - **i el nucli el llegeix**: `ui::picture_of_a_mark` obre `/res/icons/<nom>.png`, el descodifica amb `lib/img` i l'escriu a la
+//     cara de la clau **mapejant els nivells** —el paper del dibuix és la cara de la clau i la tinta és la marca, i girats quan la
+//     clau s'enfonsa—, o sigui que el dibuix no ha de saber en quin estat es pinta;
+//   - **i si el fitxer no hi és, el nucli dibuixa les línies d'abans** (`ui::draw_icon`): una placa sense la carpeta no té cinc
+//     claus buides sinó la marca que aquest sistema ja tenia (docs/30, docs/45).
+//   - **dues coses de la premsa, trobades mesurant**: la clau **s'enfonsa mentre el dit hi és** (`g_sunk` a `panel.cpp`, la
+//     posició del contacte de l'últim torn) i no només a l'aixecar —fins ara el toc pintava la clau girada i l'acció al mateix
+//     marc, i la roda no es veia moure's—; i **un dit que s'hi està també és un toc**: la premsa d'un segon és un gest `long` i la
+//     targeta no responia a res, amb la clau girada per sempre.
+//   - **mesurat a l'emulador** (targeta de 304 files, claus de 64 px, `about` amb un detall a sobre i `timeclock`): les cinc
+//     marques surten del disc a la cantonada esquerra, a la dreta i a la fila de tres; el dit sobre la roda la gira (quadre de
+//     tinta, roda de paper) i en aixecar-se obre la consola (`[I][APPS] shell`); el cas
+//     `test_the_card_of_the_bar_carries_the_five_marks` subjecta que les cinc són al disc i són un PNG.
+//
+// 0.185.2: **les cinc marques són clipart** (l'amo, mirant-les: *«usa un clipart, clarament no estàs dibuixant com ho feies l'altre
+// dia a PaperOS»*). Tenia raó sobre d'on venien aquelles icones: el projecte del paper **no dibuixava la seva interfície a mà**, la
+// treia d'una família —Font Awesome, que el seu `tools/fontgen.py` rasteritzava, i que aquest repositori ja fa servir a
+// `tools/make_keys.py` per a les cinc lletres del rellotge—. El que hi havia era un joc d'icones de casa: una fletxa, una creu,
+// una roda i dos cercles amb contorn, correctes i sense ànima.
+//   - **`tools/iconart.py` rasteritza ara el clipart**: els glifs `arrow-left`, `times`, `cog`, `redo` i `power-off` de **Font
+//     Awesome Free 5.15.4**, amb la tinta retallada a la **seva caixa** (un símbol de clipart no està centrat a la caixa de la
+//     seva font, i dos costat a costat amb les caixes centrades surten a dues mides òptiques diferents), ajustada al **80 %** de la
+//     caixa de 448 i reduïda **d'una sola passada** al costat de la clau;
+//   - **i el fitxer s'atura si la font no hi és**: unes icones que canvien de dibuix en silenci el dia que falta un fitxer són
+//     pitjor que un error. Es proven `tools/fontawesome/fa-solid-900.ttf`, el camí d'aquesta màquina i el del sistema.
+//   - **Llicències**: els glifs són **SIL OFL 1.1** i les icones **CC BY 4.0**; el crèdit és al `README` i a docs/45.
+//   - **El nucli no canvia**: segueix llegint `/res/icons/<nom>.png` (`ui::picture_of_a_mark`) i mapejant-ne els nivells; el que
+//     canvia és el dibuix dels fitxers.
+//
+// 0.185.3: **cada clau de la targeta diu el que fa** (l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la icona
+// … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*, i al dibuix `Settings ||| Poweroff | Reboot`).
+//   - **El botó aprèn a portar les dues coses** (`mark_side` a `paint_button`, `paint_a_button` i `button_draw`): the mark keeps a
+//     **square of the face's height** —a mark stretched to the width of a key is a gear that is an oval— at the side the caller
+//     names (`kMarkLeft`, `kMarkRight`) or on top of the word (`kMarkAbove`), and the word is centred in what is left. A button
+//     with no word keeps the mark in the middle and the value is not read.
+//   - **`ui.button` té `icon_side`** (`'above'` per defecte, `'left'`, `'right'`) i la marca deixa de ser quadrada de mida fixa:
+//     `picture_of_a_mark` dibuixa **el quadrat més gran que hi cap**, centrat.
+//   - **Les cinc claus de la targeta**: `← Back` i `Close ✕` són claus **amples** (190 × 64) amb la marca a la vora de fora, i les
+//     tres del mig són **altes** (150 × 104) amb la paraula a sota. **`Settings` va separat de la parella** amb quaranta-vuit
+//     píxels en lloc dels dotze d'entre claus (el `|||` del dibuix) i l'ordre és **Settings, Poweroff, Reboot**, que és el que hi
+//     ha escrit allà. El rectangle del toc és el del botó sencer, o sigui que **prémer la paraula és prémer la clau**.
+//   - **La paraula va a `kWordScale` = 3** passos de la cara del sistema: a un pas fa **onze píxels** i no es llegeix —es va veure
+//     a l'emulador i és el número que va fer créixer les claus de 128 a 150 i de 168 a 190—.
+//   - **I un sol buffer per a la paraula**: dues meitats de quilo de `.dram0.bss` (una per al camí de la marca i una per al del
+//     botó sense marca) van fer que la placa **no enllacés**, `region dram0_0_seg overflowed by 272 bytes`; amb una de sola torna
+//     a cabre i és el mateix que abans (docs/75).
+//   - **mesurat a l'emulador** (`about` amb un detall a sobre, targeta de 304 files): `← Back` a l'esquerra, `Close ✕` a la dreta i
+//     `Settings`, `Poweroff` i `Reboot` amb la paraula sota la marca, tot llegible; el cas
+//     `test_a_key_with_a_word_puts_the_mark_where_it_says` subjecta els tres costats.
+static const char kVersion[] = "0.185.3";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

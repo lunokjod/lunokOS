@@ -40,7 +40,8 @@ struct Moment {
 };
 
 const Moment kMoments[] = {
-    {kBoot, "boot"}, {kPowerOff, "poweroff"}, {kReboot, "reboot"}, {kCharging, "charging"}, {kSleep, "sleep"},
+    {kBoot, "boot"},       {kPowerOff, "poweroff"}, {kReboot, "reboot"}, {kCharging, "charging"},
+    {kSleep, "sleep"},     {kLowBattery, "lowbatt"}, {kOops, "oops"},
 };
 const uint8_t kMomentCount = static_cast<uint8_t>(sizeof(kMoments) / sizeof(kMoments[0]));
 

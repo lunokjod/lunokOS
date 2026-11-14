@@ -5872,6 +5872,79 @@ void test_a_finger_that_walks_sideways_over_a_grid_turns_the_page(void) {
   kernel::boot(hal::platform());
 }
 
+// **A finger that walks sideways over a list of entries turns its page, and picks nothing** (0.183.2, the owner: *«La llista
+// de l'app Fonts no es pot utilitzar, tot i fer swipe a l'esquerra o la dreta, la llista no pagina i al acabar el gest,
+// l'item sota el dit al acabar el gest queda seleccionat!»*). The grid had this case and the list did not, which is the gap
+// the owner found with his hand: the rows of a list are controls of the app and the page is the list's, so the system has to
+// join them —and a gesture is not a press, so the row the finger stopped over is not clicked (docs/30, docs/90).
+void test_a_finger_that_walks_sideways_over_a_list_turns_the_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // A list of two hundred pixels with rows of fifty and eight entries: the foot takes its band, three rows fit a page and
+  // the eight entries are three pages.
+  TEST_ASSERT_TRUE(add_app(storage, "shelf",
+                           "{\"title\":\"Shelf\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local list = ui.list(300, 200)\n"
+                           "list:place(20, 20)\n"
+                           "list.row_height = 50\n"
+                           "local rows = {}\n"
+                           "for i = 1, 8 do\n"
+                           "  local row = ui.list_entry(300, 50)\n"
+                           "  row.background = 15\n"
+                           "  row.on_click = function() console.print('pick row' .. i) end\n"
+                           "  list:add(row)\n"
+                           "  rows[i] = row\n"
+                           "end\n"
+                           "list.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.focus(rows[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('list up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run shelf");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "list up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // The first row of the list is at 20,20 of the view and is fifty tall: the finger lands on it and walks a hundred pixels
+  // to the left, which is more than the slop of a page and still on the glass.
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 160);
+  const uint16_t start_y = static_cast<uint16_t>(view.y + 20 + 20);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 100), start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  // **The page turned** and the app was told, which is the half of the report that was missing.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  // **And the gesture picked nothing**: the row the finger stopped over is not clicked, which is the other half.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/shelf/app.lua");
+  storage->remove("/apps/shelf/manifest.json");
+  storage->remove("/apps/shelf");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A dial step past the last row of a page turns it** (0.179.4, the owner: *«si el focus sobrepassa l'últim o el primer
 // item visible per canviar de pàgina»*). A list of entries places the rows of the other pages out of its frame, where the
 // walk does not reach them: without the rule the down key on the last visible row left the list and the rows behind the
@@ -5933,10 +6006,13 @@ void test_a_dial_step_past_the_last_row_of_a_page_turns_it(void) {
   storage->remove("/apps/rows");
 }
 
-// **A finger that walks sideways over a list turns its page** (0.179.4): the same gesture a grid takes, said for the rows,
-// so an app does not read `touch.gesture()` to turn a control's page —which is what `about` did until this version—. The
-// ring goes to the first row of the page the finger asked for and the gesture picks nothing (docs/30, docs/90).
-void test_a_finger_that_walks_sideways_over_a_list_turns_the_page(void) {
+// **The cross of a text box empties it, opens the edit mode and tells the app first** (0.184.0, the owner: *«polsar aquest
+// botó esborra el buffer i activa el mode edició amb el cursor a 0 i el buffer buit del control»*). The order is the half of
+// this that a person feels: a band that arrives resizes the view and an app that keeps its own copy of the words builds its
+// page from that copy, so `on_change('')` has to reach it **before** the band —the timer's note box came back with the words
+// it had just had cleared, because the app rebuilt the page first and heard the empty text afterwards— (measured on the
+// emulator, docs/30, docs/90).
+void test_the_cross_of_a_text_box_empties_it_and_tells_the_app_first(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
@@ -5947,38 +6023,116 @@ void test_a_finger_that_walks_sideways_over_a_list_turns_the_page(void) {
 
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
-  TEST_ASSERT_TRUE(add_app(storage, "rowswipe",
-                           "{\"title\":\"Row swipe\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
-                           "local l = ui.list(300, 200)\n"
-                           "l:place(20, 20)\n"
-                           "l.row_height = 56\n"
-                           "local rows = {}\n"
-                           "for i = 1, 5 do\n"
-                           "  local row = ui.list_entry(300, 56)\n"
-                           "  row.background = 15\n"
-                           "  row.on_focus = function(self, on)\n"
-                           "    if not on then return end\n"
-                           "    console.print('focus row ' .. i)\n"
-                           "  end\n"
-                           "  row.on_click = function() console.print('pick row ' .. i) end\n"
-                           "  l:add(row)\n"
-                           "  rows[i] = row\n"
-                           "end\n"
-                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
-                           "ui.focus(rows[1])\n"
+  TEST_ASSERT_TRUE(add_app(storage, "crossbox",
+                           "{\"title\":\"Cross box\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox(400, 60)\n"
+                           "box:place(20, 20)\n"
+                           "box.scale = 2\n"
+                           "box.text = 'hola'\n"
+                           "box.cursor = 4\n"
+                           "box.on_change = function(self, text) console.print('change [' .. tostring(text) .. ']') end\n"
+                           "function on_resize(w, h) console.print('resize ' .. w .. 'x' .. h) end\n"
                            "ui.present('gc16')\n"
-                           "console.print('rows up')\n"
+                           "console.print('box up')\n"
                            "while true do sys.delay(20):await() end\n"));
 
-  pump_captured(40, g_out, sizeof(g_out), "run rowswipe");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rows up"), g_out);
+  pump_captured(40, g_out, sizeof(g_out), "run crossbox");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "box up"), g_out);
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
 
   emu::Gt911Panel* panel = emu::touch_panel();
   TEST_ASSERT_NOT_NULL(panel);
   const kernel::ui::Canvas& view = kernel::ui::canvas();
-  // The finger lands on the first row —twenty pixels down and half the width across— and walks a hundred pixels to the
-  // left, which is more than the slop of a page and still on the glass.
+  // The cross is at the right end of the box: a square of the face's line height, inside the frame and its air, so a finger
+  // that lands in the last piece of the box's inside lands on it.
+  const uint16_t at_x = static_cast<uint16_t>(view.x + 20 + 400 - 24);
+  const uint16_t at_y = static_cast<uint16_t>(view.y + 20 + 30);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, at_x, at_y));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  // **The box is empty and the app was told**: the hook says it, and it says it about nothing.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "change []"), g_out);
+  // **And the app heard it before the band took the bottom of the glass**, which is the ordering this case is for.
+  const char* told = strstr(g_out, "change []");
+  const char* resized = strstr(g_out, "resize ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(told, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(resized == nullptr || told < resized,
+                           "the app rebuilt its page before it heard the empty text");
+  // **The finger on the cross did not put the caret**: the box was emptied and the block is at zero, so the text it shows
+  // after the click is nothing —the app printed what it was handed and not what the box holds— (docs/30, docs/90).
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "change [hola]"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/crossbox/app.lua");
+  storage->remove("/apps/crossbox/manifest.json");
+  storage->remove("/apps/crossbox");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A press does not survive the finger that made it** (0.183.3): a row is pressed on the way down and let go on the way up
+// of **that same row**, and the finger of a swipe leaves the row it fell on and stops over another one —so the first stayed
+// pressed on the glass, which is the dark row the owner saw after a gesture (*«al acabar el gest, l'item sota el dit queda
+// seleccionat»*)—. The app of this case watches its own rows and says `stuck` when one is still pressed after a second, which
+// a press of a finger can never be: the finger is on the glass for a few hundred milliseconds and the system lets go of every
+// press when the contact ends (docs/30, docs/90).
+void test_a_swipe_over_a_list_does_not_leave_a_row_pressed(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "rowpress",
+                           "{\"title\":\"Row press\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local l = ui.list(300, 200)\n"
+                           "l:place(20, 20)\n"
+                           "l.row_height = 56\n"
+                           "local rows = {}\n"
+                           "local held = {}\n"
+                           "for i = 1, 5 do\n"
+                           "  local row = ui.list_entry(300, 56)\n"
+                           "  row.background = 15\n"
+                           "  row.on_click = function() console.print('pick row ' .. i) end\n"
+                           "  l:add(row)\n"
+                           "  rows[i] = row\n"
+                           "  held[i] = 0\n"
+                           "end\n"
+                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.focus(rows[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('press up')\n"
+                           "while true do\n"
+                           "  for i = 1, 5 do\n"
+                           "    if rows[i].pressed then\n"
+                           "      held[i] = held[i] + 1\n"
+                           "      if held[i] == 60 then console.print('stuck ' .. i) end\n"
+                           "    else\n"
+                           "      held[i] = 0\n"
+                           "    end\n"
+                           "  end\n"
+                           "  sys.delay(20):await()\n"
+                           "end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run rowpress");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // The finger lands on the first row and walks a hundred pixels to the left, so the page turns under a row that was pressed.
   const uint16_t start_x = static_cast<uint16_t>(view.x + 20 + 150);
   const uint16_t start_y = static_cast<uint16_t>(view.y + 20 + 28);
   capture_begin();
@@ -5987,29 +6141,27 @@ void test_a_finger_that_walks_sideways_over_a_list_turns_the_page(void) {
   TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 100), start_y));
   pump_turns(20);
   TEST_ASSERT_TRUE(panel->finger_up(0));
-  pump_turns(40);
+  pump_turns(80);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus row 3"), g_out);
+  // **No row stays pressed**: the page turned, the finger is not on the glass any more and a row that is still pressed a
+  // second later is the press of a gesture that nobody released.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "stuck "), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
-
-  // **The same finger the other way brings the first page back**, with the ring on its first row.
+  // **And the list answers the next tap**: the sweep let go of the press and did not leave the list deaf, which is what a
+  // release delivered nowhere would have done.
   capture_begin();
   TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
-  pump_turns(20);
-  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x + 60), start_y));
-  pump_turns(20);
+  pump_turns(10);
   TEST_ASSERT_TRUE(panel->finger_up(0));
-  pump_turns(40);
+  pump_turns(30);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 1"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus row 1"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pick row 3"), g_out);
 
   close_any_app();
-  storage->remove("/apps/rowswipe/app.lua");
-  storage->remove("/apps/rowswipe/manifest.json");
-  storage->remove("/apps/rowswipe");
+  storage->remove("/apps/rowpress/app.lua");
+  storage->remove("/apps/rowpress/manifest.json");
+  storage->remove("/apps/rowpress");
 
   opts = emu::options();
   opts.board = nullptr;
@@ -6329,6 +6481,39 @@ void test_an_app_that_names_a_splash_carries_it(void) {
   // **El llançador és un dels que en porta**, i la seva targeta no és una pàgina.
   TEST_ASSERT_GREATER_THAN_MESSAGE(0, launcher_bytes, "the launcher names no splash");
   TEST_ASSERT_LESS_THAN_MESSAGE(20000, launcher_bytes, launcher_path);
+}
+
+// **Les cinc marques de la targeta viuen al disc i són dibuixos** (0.185.1): the keys of the card of the bar carry the marks of
+// `tools/iconart.py` —the arrow, the cross, the wheel, the circle that starts again and the switch— and the kernel reads them
+// from `/res/icons`, so the five of them have to be in the repository and be a PNG with something in it (a key of the card that
+// finds no file falls back to the lines of `draw_icon`, which is a mark and not a drawing, and this case keeps the day from
+// passing without anybody noticing) (docs/30, docs/45).
+void test_the_card_of_the_bar_carries_the_five_marks(void) {
+  static const char* const kMarks[] = {"back", "close", "settings", "reboot", "poweroff"};
+  static const char* const kParents[] = {"", "../", "../../", "../../../"};
+  size_t found = 0;
+  for (size_t m = 0; m < sizeof(kMarks) / sizeof(kMarks[0]); ++m) {
+    bool there = false;
+    for (size_t p = 0; p < sizeof(kParents) / sizeof(kParents[0]) && !there; ++p) {
+      char path[512];
+      snprintf(path, sizeof(path), "%sdata/res/icons/%s.png", kParents[p], kMarks[m]);
+      FILE* file = fopen(path, "rb");
+      if (file == nullptr) continue;
+      unsigned char head[8] = {0};
+      const size_t got = fread(head, 1, sizeof(head), file);
+      fseek(file, 0, SEEK_END);
+      const long size = ftell(file);
+      fclose(file);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(8, static_cast<int>(got), path);
+      static const unsigned char kPng[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+      TEST_ASSERT_EQUAL_MEMORY_MESSAGE(kPng, head, sizeof(kPng), path);
+      TEST_ASSERT_GREATER_THAN_MESSAGE(100, size, path);
+      there = true;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(there, kMarks[m]);
+    ++found;
+  }
+  TEST_ASSERT_EQUAL_UINT32(5, static_cast<uint32_t>(found));
 }
 
 // The store answers how full it is in **entries**, which is the number that says whether the
@@ -8015,25 +8200,84 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
   TEST_ASSERT_FALSE(kernel::splash::show(kernel::splash::kNone));
   TEST_ASSERT_EQUAL_STRING("no such moment", kernel::splash::last_error());
 
-  // **The five words of the command** (0.114.0, and five since 0.178.5): the boot, the two ways down, the charge
-  // and the light sleep. **`boot-alt` is not one of them any more** —the boot draws the drawings of the disk and
-  // picks one, so a second word for a second logo is a switch the pictures already make— and a word of the lookup
-  // that only compared the first letters would still find it under `boot-`.
-  TEST_ASSERT_EQUAL_UINT8(5, kernel::splash::count());
+  // **The seven words of the command** (0.114.0, five since 0.178.5, seven since 0.183.0): the boot, the two ways down,
+  // the charge, the light sleep, the battery that is over and the error of the system. **`boot-alt` is not one of them any
+  // more** —the boot draws the drawings of the disk and picks one, so a second word for a second logo is a switch the
+  // pictures already make— and a word of the lookup that only compared the first letters would still find it under `boot-`.
+  TEST_ASSERT_EQUAL_UINT8(7, kernel::splash::count());
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot, kernel::splash::kind_of("boot"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kNone, kernel::splash::kind_of("boot-alt"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kPowerOff, kernel::splash::kind_of("poweroff"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kReboot, kernel::splash::kind_of("reboot"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kCharging, kernel::splash::kind_of("charging"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kSleep, kernel::splash::kind_of("sleep"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kLowBattery, kernel::splash::kind_of("lowbatt"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kOops, kernel::splash::kind_of("oops"));
   TEST_ASSERT_EQUAL_STRING("boot", kernel::splash::word(kernel::splash::kBoot));
   TEST_ASSERT_EQUAL_STRING("poweroff", kernel::splash::word(kernel::splash::kPowerOff));
+  // **The two that arrived in 0.183.0 are at the end of the list and not in the middle**: the order of the moments is the
+  // order a person reads them in the prompt and in a page, and the ones that were there keep their place (docs/50).
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kSleep, kernel::splash::at(4));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kLowBattery, kernel::splash::at(5));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kOops, kernel::splash::at(6));
 
   storage->remove("/res/splash/probe.bmp");
   storage->remove("/res/splash/boot.bmp");
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **La bateria i el motiu decideixen la imatge, i la regla és una sola funció** (0.183.0): the boot's picture is the one the
+// person chose, unless the gauge says the cell is at or under the mark and there is no cable; the way down is `sleep` for a
+// deep sleep, `poweroff` for a board that is being asked to stop, and `lowbatt` when the battery is what is over. The two
+// functions are the whole of the rule, so this case is the rule and not the wiring (docs/50).
+void test_the_battery_and_the_reason_decide_the_picture(void) {
+  const uint8_t mark = kernel::power::kLowBatteryPercent;
+  // A board whose gauge says nothing has nothing low: its boot is the drawing it chose, and an unknown word is the boot
+  // and not a board that paints nothing.
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot, kernel::power::boot_picture("boot", /*known=*/false, 0, false));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot, kernel::power::boot_picture("nope", /*known=*/true, 90, false));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kReboot, kernel::power::boot_picture("reboot", /*known=*/true, 90, false));
+  // **Al llindar i per sota és la bateria**, and one point over it is the drawing again.
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kLowBattery,
+                          kernel::power::boot_picture("boot", /*known=*/true, mark, false));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kLowBattery,
+                          kernel::power::boot_picture("boot", /*known=*/true, 0, false));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot, kernel::power::boot_picture("boot", /*known=*/true, mark + 1, false));
+  // **I amb el cable no**: a board charging at three percent is a board coming back and not a board that is over.
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot,
+                          kernel::power::boot_picture("boot", /*known=*/true, mark, /*charging=*/true));
+
+  // **La baixada**: the emulator's cell is said here so the case does not depend on the laptop it runs on — a full one, a
+  // deep sleep says `sleep` and a board asked to stop says `poweroff`.
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.battery_mv = 4190;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kSleep, kernel::power::going_down_picture(/*deep=*/true));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kPowerOff, kernel::power::going_down_picture(/*deep=*/false));
+
+  // **I el panell reposa abans que el rail baixi, que és el pas del fabricant** (0.183.0): the glass takes the sleep once,
+  // and a paint asked after it is refused with the reason instead of a page that goes nowhere (docs/50).
+  hal::ISurface* glass = hal::platform().display();
+  TEST_ASSERT_NOT_NULL(glass);
+  TEST_ASSERT_TRUE(glass->rest());
+  TEST_ASSERT_TRUE(glass->rest());  // twice is once
+  glass->clear(0);
+  TEST_ASSERT_FALSE(glass->flush(hal::UpdateMode::kDu));
+  TEST_ASSERT_EQUAL_STRING("the panel has gone to sleep", glass->last_error());
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.battery_mv = 0;
   emu::set_options(opts);
   kernel::boot(hal::platform());
 }
@@ -14759,13 +15003,15 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
   RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);
   RUN_TEST(test_a_finger_that_walks_sideways_over_a_grid_turns_the_page);
-  RUN_TEST(test_the_cursor_of_a_grid_follows_the_ring_without_the_app);
   RUN_TEST(test_a_finger_that_walks_sideways_over_a_list_turns_the_page);
+  RUN_TEST(test_a_swipe_over_a_list_does_not_leave_a_row_pressed);
+  RUN_TEST(test_the_cursor_of_a_grid_follows_the_ring_without_the_app);
   RUN_TEST(test_a_dial_step_past_the_last_row_of_a_page_turns_it);
   RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_every_app_of_the_repository_carries_an_icon);
   RUN_TEST(test_an_app_that_names_a_splash_carries_it);
+  RUN_TEST(test_the_card_of_the_bar_carries_the_five_marks);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
@@ -14803,8 +15049,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_key_paints_the_ring_the_app_cannot_see);
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
+  RUN_TEST(test_the_cross_of_a_text_box_empties_it_and_tells_the_app_first);
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
   RUN_TEST(test_the_drawing_of_a_splash_is_cut_from_its_air_and_its_page);
+  RUN_TEST(test_the_battery_and_the_reason_decide_the_picture);
   RUN_TEST(test_a_plane_of_the_glass_is_painted_as_it_is);
   RUN_TEST(test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game);
   RUN_TEST(test_the_rainbow_app_paints_the_panel_of_the_matrix);

@@ -98,6 +98,9 @@ uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {
   // whatever it holds, zero fingers and too many of them included, or the chip would answer with it for ever (docs/50).
   if ((status & 0x80) == 0) return 0;
   const uint8_t points = static_cast<uint8_t>(status & 0x0F);
+  // **Un frame sense punts és el dit que s'aixeca** (0.183.2): it is the chip's own word about the glass and not a silence to
+  // be guessed from a timeout, so it is written down before the frame is released (docs/50, docs/90).
+  down_ = (points > 0 && points <= kGt911MaxPoints);
   if (points == 0 || points > kGt911MaxPoints) {
     release();
     return 0;

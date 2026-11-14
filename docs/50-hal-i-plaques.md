@@ -1172,13 +1172,20 @@ cap app al davant —una placa que s'aixeca encara no té ni prompt, i una que b
   imatge amb un fantasma a sota.
 - **La imatge va al mig i no s'escala mai**: una imatge més gran que el vidre es talla pel seu centre i una que hi
   cap es deixa tal com és. Escalar quatre bits és un blur, i el que fa la splash és ensenyar el que hi ha al fitxer.
+- **I el fitxer és el dibuix, no la pàgina** (0.183.4, l'amo: *«per què l'splash charging i lowbatt són a pantalla
+  completa? són blancs de fons!»*): el que es pinta ja era el dibuix —`splash::show` treu la vora uniforme de la imatge
+  (`drawing_of`) i el centra—, però el paper que el volta s'escrivia al disc, es llegia sencer, es descodificava i es
+  llençava: 540 × 960 de blanc per a una insígnia de 456 files. Les sis imatges dels moments es retallen **a la caixa de
+  tinta** (regla del sistema: un píxel a més de dos nivells del paper és dibuix) i el vidre no canvia ni un píxel, perquè
+  el que es pintava era el dibuix i segueix centrat. **Els dibuixos del boot no es toquen**: són pàgines del vidre
+  sencer i la pàgina és el dibuix.
 - **Els moments són paraules**, i la paraula és el nom del fitxer: `/res/splash/<moment>.png` (o `.bmp`, `.jpg`) i,
   si el moment no en té, `/res/splash.png` per a tots. Un moment sense imatge **no pinta res i diu per què**: una
   splash que dibuixa una endevinalla és una placa que amaga un fitxer trencat. Des de la 0.114.0 són les paraules de
-  la comanda, i des de la 0.178.5 són **cinc**: `boot`, `poweroff`, `reboot`, `charging` i `sleep` — el mateix joc que
-  accepta la comanda i que un manifest pot nomenar amb `splash` (docs/40). **`boot-alt` ja no hi és** (l'amo, 11/11:
-  *«boot-alt.png i boot.png no han d'estar a la llista del boot»*): el boot no és un dibuix sinó **els dibuixos que el
-  disc porta**, i un segon mot per a un segon logotip era un commutador del pintat que les imatges ja fan.
+  la comanda, i des de la 0.183.0 són **set**: `boot`, `poweroff`, `reboot`, `charging`, `sleep`, `lowbatt` i `oops` —
+  el mateix joc que accepta la comanda i que un manifest pot nomenar amb `splash` (docs/40). **`boot-alt` ja no hi és**
+  (l'amo, 11/11: *«boot-alt.png i boot.png no han d'estar a la llista del boot»*): el boot no és un dibuix sinó **els
+  dibuixos que el disc porta**, i un segon mot per a un segon logotip era un commutador del pintat que les imatges ja fan.
 - **I el boot en té més d'un** (0.178.5): un moment pot portar diverses imatges amb el mot i una cua —`boot-2.bmp`,
   `boot-3.bmp`, `boot-5.bmp`—, i **una d'elles es tria amb `ISystem::random()` a cada engegada**, o sigui que la
   mateixa placa no diu el mateix dues vegades (i un `--seed` de l'emulador sí, que és el que fa repetible una prova).
@@ -1186,17 +1193,40 @@ cap app al davant —una placa que s'aixeca encara no té ni prompt, i una que b
   és—, i un nom que no és d'una imatge que aquest sistema llegeixi no entra al sorteig. `splash` i `cfg boot`
   ensenyen **la imatge que es dibuixaria**, i no el nom pla del moment, perquè una llista que digués `boot.png` mentre
   el boot dibuixa `boot-3.bmp` seria una llista que menteix.
-- **El que hi ha al disc, l'11/11**: `poweroff.png`, `reboot.png` i `charging.png` —**460 × 200** cada una: la paraula,
-  la ratlla i la línia de sota, dibuixades per la mateixa mà—, i els **tres dibuixos del boot**, `boot-2.bmp`,
-  `boot-3.bmp` i `boot-5.bmp`, de **540 × 960** i vuit bits, que són tres pàgines d'un wireframe i omplen el vidre
-  sencer. **Les dues imatges del logotip ja no hi són** (0.178.5): `boot.png` era **una fotografia de la Lluna**
-  (`as11-44-6667`, la lluna plena fotografiada des de l'Apollo 11, obra del govern dels Estats Units i per tant de
-  domini públic) amb el cel tret, i `boot-alt.png` era la mateixa lluna **en clipart**; totes dues viuen a la història
-  del projecte (`git show 9dfa038:data/res/splash/boot.png`) i `tools/make_splash_images.py` ja no les escriu. `sleep`
-  no en té i és el cas que la prova fa servir per comprovar que un moment sense imatge ho diu.
+- **El que hi ha al disc, el 13/11**: **sis PNG, tots a la mida del seu dibuix** (0.183.4) —`poweroff.png`
+  **306 × 118** (3 383 B), `reboot.png` **249 × 123** (2 343 B), `sleep.png` **252 × 123** (2 751 B), `oops.png`
+  **257 × 113** (2 632 B), `charging.png` **293 × 200** (2 317 B) i `lowbatt.png` **540 × 456** (9 719 B); abans eren
+  quatre de 460 × 200 i dues pàgines de 540 × 960—, i els **tres dibuixos del boot**, `boot-2.bmp`, `boot-3.bmp` i
+  `boot-5.bmp`, de **540 × 960** i vuit bits (519 478 B cada un), que són tres pàgines d'un wireframe i omplen el vidre
+  sencer. **`lowbatt.png` no pot ser més estreta**: la línia `The battery is running out.` fa 548 px a la seva cara de
+  36 i la pàgina del projecte vell en té 540, o sigui que la còpia la talla a les dues vores —així la dibuixava el
+  PaperOS i així es va copiar— i el mínim d'aquell dibuix és l'amplada del vidre. **Les dues imatges del logotip ja no hi són**
+  (0.178.5): `boot.png` era **una fotografia de la Lluna** (`as11-44-6667`, la lluna plena fotografiada des de l'Apollo
+  11, obra del govern dels Estats Units i per tant de domini públic) amb el cel tret, i `boot-alt.png` era la mateixa
+  lluna **en clipart**; totes dues viuen a la història del projecte (`git show 9dfa038:data/res/splash/boot.png`) i
+  `tools/make_splash_images.py` ja no les escriu. **Cap moment del disc queda sense imatge** des de la 0.183.0 (`sleep`
+  no en tenia i era el cas que una prova feia servir per comprovar que un moment sense imatge ho diu); aquest camí el
+  prova `splash::show` amb un camí que no hi és.
+- **Les dues pàgines són del projecte vell, copiades** (0.183.1, l'amo: *«per l'splash de batería agafa el del projecte
+  antic PaperOS… fes una còpia exacta»* i *«fes el mateix amb charging»*): `lowbatt.png` és
+  `drawPowerOffScreen(canvas, PowerOffNotice::BatteryLow)` del `PaperOS/src/ui/power_screen.cpp` —la insígnia de
+  `drawBatteryLowMark`: la pila de quatre cel·les amb la de baix plena i el triangle d'avis amb la vora de paper i
+  l'admiració— amb el tema d'aquell projecte (`padLarge` **18**, `gap` **10**) i les seves tres cares
+  (`font_ui48b`/`ui36b`/`ui28b`, que són DejaVuSans-Bold a 48, 36 i 28 px amb 57/45, 43/34 i 33/26 d'alçada i ascens); i
+  `charging.png` és `ChargingApp::arrange` i `::onDraw` del `PaperOS/src/apps/charging_app.cpp` —el cos de 40 % del
+  costat curt, la paret del 7 %, el terminal del 10 % i el llamp de sis punts de `title_bar.cpp` (`fillBolt`)—.
+  `tools/make_splash_from_paperos.py` és el port número per número, i **la imatge font que hi havia es queda a
+  `tools/splash-sources/`** (la captura del PaperOS per a la de la pila; de la targeta de càrrega no n'hi ha cap, perquè
+  el seu `ui_preview.cpp` no la dibuixa, i la font és el codi). La còpia es va comprovar contra la captura: la caixa de
+  tinta és la mateixa (**251..707**) i la insígnia difereix en **67 píxels sobre 11 468** de tinta, que és l'antialiasing
+  de la vora del triangle. **L'única cosa que no és una còpia és el nom del sistema**: la primera línia diu `lunokOS` i
+  no `PaperOS`, perquè aquesta placa no és l'altra.
 
-Des de la consola: **`splash`** (la llista de moments i la imatge que hi ha), **`splash boot|poweroff|reboot|charging|sleep`**
-(la del moment), **`splash /ruta/al/fitxer.png`** (una imatge qualsevol) i **`splash hide`** (el vidre torna a paper).
+Des de la consola: **`splash`** (la llista de moments i la imatge que hi ha),
+**`splash boot|poweroff|reboot|charging|sleep|lowbatt|oops`** (la del moment), **`splash /ruta/al/fitxer.png`** (una imatge
+qualsevol) i **`splash hide`** (el vidre torna a paper). Des d'una app són les mateixes dues coses amb dos noms:
+**`ui.splashes()`** (les paraules que aquest build té, en l'ordre del sistema) i **`ui.splash(word)`** (la imatge), i l'app
+`splash` del disc és la pàgina que les ensenya totes (docs/30).
 L'ordre en què s'encenen és el del sistema, i **el de l'arrencada és el primer moment possible** (0.115.0): a
 `kernel::boot`, just després dels muntatges i dels ajustos (el dibuix és un fitxer i és el que la persona ha
 triat) i **abans de la resta del maquinari** —les alarmes que han sobreviscut al tall, la ràdio, els sensors, la
@@ -1204,9 +1234,29 @@ barra—, o sigui que tot això es fa mentre el vidre ja diu lunokOS. És la mat
 `splash boot`, i una placa sense pantalla contesta `no glass` i segueix, que és l'únic lloc on pot dir-ho. **Quin
 dels dibuixos surt no el tria ningú**: es tria sol, a cada engegada (0.178.5), i el que la persona pot triar és el
 mot —`cfg boot boot`, l'únic que hi ha— que és el que queda desat a l'NVS (`cfg/boot`) i el que fa que un `splash`
-digui **quin dibuix sortiria ara** (docs/30, docs/70). La resta de moments: a
-`power::sleep`, abans que el xip parin els rellotges i només en un **son profund** —un son lleuger és una becaina i
-no pinta res—; i als dos comandaments que aturen la placa, `reboot` i `poweroff`, abans de fer la feina (0.114.0).
+digui **quin dibuix sortiria ara** (docs/30, docs/70).
+
+**Els moments i el que els encén, des de la 0.183.0** (`power::boot_picture` i `power::going_down_picture`, que és on
+viu la regla sencera):
+
+| moment | quan | quin mot surt |
+|---|---|---|
+| `boot` | a `kernel::boot`, abans del maquinari | el dibuix de `cfg boot`, o **`lowbatt`** si la pila és sota el llindar i no hi ha cable |
+| `sleep` | a `power::sleep`, abans que el xip pari els rellotges i **només en un son profund** (un de lleuger és una becaina i no pinta res) | `sleep`, o `lowbatt` si la pila és el motiu |
+| `poweroff` | al comandament `poweroff`, abans que el rail baixi | `poweroff`, o `lowbatt` si la pila és el motiu |
+| `reboot` | al comandament `reboot`, abans de reiniciar | `reboot` |
+| `charging` | el moment del cable, que cap camí no encén sol encara | `charging` |
+| `lowbatt` | a l'arrencada i a la baixada, quan la pila és sota el llindar | `lowbatt` |
+| `oops` | quan el sistema no pot presentar la seva pròpia pàgina —l'app de casa no arrenca a l'arrencada— i el prompt és l'única porta que queda | `oops` |
+
+- **El llindar és un número i una funció** (`power::kLowBatteryPercent`, **cinc per cent**): una pila que es llegeix, un
+  cable que no hi és i una càrrega en el llindar o per sota. Una placa que no llegeix la pila no diu mai «buida», i una
+  placa al cable no diu mai que s'ha acabat (docs/50).
+- **Un pànic no es pot pintar**: el xip que pànica no està conduint el vidre, i un `gc16` des del gestor de pànic és una
+  pàgina que no arriba. Per això `oops` és la cara d'un sistema que **ha decidit** que no pot seguir i no la d'un abort.
+- **Una app que posa una imatge i torna** (`ui.splash`) deixa la barra del sistema deuda: la imatge renta el panell sencer
+  i la franja de l'hora amb ell, i és la pàgina que torna la que la torna a pintar (`present_for_lua`, `bar::refresh`), no
+  el moment de la imatge —una barra pintada mentre la imatge és al vidre és una franja del sistema sobre un dibuix.
 **Una imatge d'una app** que la nomeni al seu manifest (`"splash": "res/logo.png"`) es pinta de la mateixa manera
 just abans que arrenqui l'intèrpret, i la primera pàgina que l'app presenta se l'emporta (docs/30, docs/40).
 
@@ -1477,12 +1527,21 @@ només baixar GPIO2, i és la que fa servir el firmware de fàbrica del fabrican
 (`M5Paper_FactoryTest`, `Shutdown()` a `global_setting.cpp`):
 
 ```
-fflush  →  espera 600 ms  →  GPIO23 = 0  →  GPIO5 = 0  →  GPIO2 = 0  →  esp_deep_sleep_start()
+fflush  →  espera 600 ms  →  REPÒS DEL PANELL  →  GPIO23 = 0  →  GPIO5 = 0  →  GPIO2 = 0  →  esp_deep_sleep_start()
 ```
 
 Les dues primeres són **l'alimentació del panell** i la dels **ports HY2.0**; l'última és el xip
 posat a dormir, perquè amb el cable posat el corrent no cau i la placa ha de callar igualment. La
 `M5EPD::shutdown()` de la llibreria, la que no té hora, només fa `disableMainPower()`.
+
+**El repòs del panell és el pas que faltava** (0.183.0, i és el primer de la `Shutdown()` del
+fabricant): `M5.EPD.Sleep()` escriu **`IT8951_TCON_SLEEP`** (la comanda `0x0003`, sense arguments) al
+controlador abans que el seu rail baixi — un controlador despert sobre una alimentació que se'n va és
+un controlador demanant el que ja no té, i la imatge del vidre s'hi queda perquè és pigment i no
+memòria. És `hal::ISurface::rest()`: la placa la té a `It8951::rest`, l'emulador diu la línia i **es
+nega a pintar-hi després** (`the panel has gone to sleep`), i la placa la crida des de
+`PaperPower::power_off()` amb el vidre que li passa `PaperPlatform::display()`. **El son profund no
+la fa servir**: baixa l'alimentació principal i el panell mor amb ella.
 
 L'única cosa que s'hi afegeix és **desarmar la BM8563 abans**: la `shutdown()` de la llibreria no
 mira l'alarma, i una que vingués d'un son anterior tornaria a encendre una placa que hom ha demanat

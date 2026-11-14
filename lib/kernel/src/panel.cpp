@@ -47,33 +47,144 @@ const uint16_t kHandleGap = 14;
 // The two rows that close the card, which are the same line the bar has under itself.
 const uint16_t kLineH = 2;
 
-// **The button of the corner** (0.179.23, and its shape in 0.179.26 and 0.179.31): a **button of the system** —a key of
-// sixty-four a side, painted by the one function every button of this system is painted by— with the ink of the card: paper
-// face, ink shadow under it, ink frame and the word in ink. It was a disc of forty drawn by hand and then a square with a
-// cross of pixels, and a system that has a button cannot have a second way of drawing one (the owner, 12/11). **Twenty-four
-// rows and twenty-four columns off the corner**: the first version was fourteen from the edge and he found it small and too
-// close to the corners of the glass (docs/30, docs/45, docs/92).
-const int16_t kCrossSide = 64;       // the side of the button, so what a finger lands on is a key
-const uint16_t kCrossTop = 24;
-const uint16_t kCrossRight = 24;
-// **I el de la tornada, a l'esquerra** (0.179.52): the owner: *«Afegir botó de "back" al panell lliscant… A la part esquerra del
-// panell, a la dreta el "close" com fins ara. El back ha de ser una icona, com el close»*. The same key on the other side, with
-// the same margin and the same rows, so the two of them are one pair and not two numbers that happen to be close.
-const uint16_t kBackLeft = 24;
-// **The word and its steps**: the box leaves thirty-two pixels of word —the sixteen of air a button has on each side— and
-// `X` at four steps of the face is twenty-two, which is the measure the two numbers were chosen with. A bigger step is cut
-// by the control and a smaller one is a dot in a box.
-const char kCrossWord[] = "X";
-const uint8_t kCrossScale = 4;
-// **La icona de la tornada és una fletxa i no un dibuix d'aquest fitxer** (0.179.52): `0x81`, which is the leftwards arrow of this
-// system —the one byte CP1252 leaves empty and that the face answers with `U+2190` (0.158.0), so it is a character like the `X`
-// and not three bytes of UTF-8 that this system would read as three characters (`â†↓`, found on the glass)— at three steps,
-// because an arrow is wider than an `X` and at four the frame of the control cuts it. **Una icona i no una paraula**: «back» is
-// the word of a language and an arrow is not.
-const char kBackWord[] = "\x81";
-const uint8_t kBackScale = 3;
+// **Els cinc botons de la targeta** (0.185.0): the arrow of the way back in the left corner and the cross of the way out in the
+// right one —the two of 0.179.52— and **the three of the system in a row in the middle**: the settings, the restart and the power
+// off. All five are **one key**: a `UIButton` of this system with **no frame and no shadow** (`framed` false), so what a person
+// sees is the mark and nothing else, and it sinks by turning over while the finger is on it, which is the press every button of
+// this glass has (the owner: *«vull que siguin UIButton, però sense vores (afegir propietat al botó si no la te ja) i amb una
+// imatge/icona com a contingut»*) (docs/30, docs/45, docs/92).
+// **Les cinc claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
+// icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*). Una clau del sistema ja no és un quadrat d'una
+// icona: és **una icona amb el seu nom**, i el nom és dins del botó, o sigui que prémer el nom és prémer la clau.
+//
+//   - **les cantonades són amples** —`← Back` i `Close ✕`, amb la marca a la vora de fora, que és el que fa que les dues
+//     cantonades mirin enfora— i el repartiment el fa el dibuix del botó (`ui::kMarkLeft` i `ui::kMarkRight`);
+//   - **les tres del mig són altes**: la marca a sobre i la paraula a sota, dins del mateix rectangle, i la paraula a escala 1
+//     de la cara del sistema (a escala 2 no hi caben les dues coses en una clau de 128);
+//   - **`Settings` va separada de la parella** amb quaranta-vuit píxels en lloc dels dotze d'entre claus, que és el que el dibuix
+//     de l'amo marcava amb `|||` (docs/30, docs/45, docs/92).
+const uint16_t kCornerTop = 20;   // la fila de les dues cantonades
+const uint16_t kCornerW = 190;    // una clau ampla: la marca i la paraula al costat
+const uint16_t kCornerH = 64;
+const uint16_t kKeyMargin = 24;
+const uint16_t kRowTop = 108;     // la fila de les tres del mig
+const uint16_t kMiddleW = 150;    // una clau alta: la marca a sobre i la paraula a sota
+const uint16_t kMiddleH = 104;
+const uint16_t kRowGap = 12;      // l'aire entre dues claus del mig
+const uint16_t kSettingsGap = 48;  // i el doble entre Settings i la parella
+// **La paraula, a tres passos de la cara del sistema** (0.185.3): a un pas fa onze píxels i no es llegeix —es va veure a
+// l'emulador—, i a tres són trenta-tres, que és el que cap en una clau de cent quatre files amb la marca a sobre (docs/30, docs/92).
+const uint8_t kWordScale = 3;
+
+// **Quin botó és quin** (0.185.0): the five of the card, in the order the row of the three is drawn —the settings first and then
+// the pair that stops the board— (docs/30).
+enum class Key : uint8_t { kBack = 0, kClose = 1, kSettings = 2, kPowerOff = 3, kReboot = 4 };
+const uint8_t kKeyCount = 5;
 
 bool g_open = false;
+// **Quina clau té el dit a sobre** (0.185.2): the card is painted on the glass and not by a page of controls, so a press is a
+// paint of that key and not a state kept somewhere: the finger arrives, the key is drawn sunken, and the lift runs its action.
+// The tap's own press used to be the only paint of it —at the lift, with the action on top of it— and a person never saw a key
+// go down (measured on the emulator: the gear was painted turned over and the settings took the glass on the same frame,
+// docs/30, docs/50).
+int16_t g_sunk = -1;
+
+// **On és el botó, en el marc de la vista** (0.179.23): the fingers arrive with the rows of the bar taken off and the card is
+// painted with them put back, so a hit test that mixed the two frames would be a button a whole bar away from the thing the person
+// aimed at. The rectangle is the ink and the hit test both —**a key with a word in it is the whole word**— and the tall ones are
+// taller than wide so the word has rows of its own (docs/30, docs/92).
+struct KeyBox {
+  int16_t x = 0;
+  int16_t y = 0;
+  uint16_t w = 0;
+  uint16_t h = 0;
+  uint8_t mark = ui::kMarkAbove;
+  const char* word = nullptr;
+};
+
+KeyBox key_box(Key which) {
+  const int16_t width = static_cast<int16_t>(ui::width());
+  KeyBox box;
+  if (which == Key::kBack) {
+    box.x = static_cast<int16_t>(kKeyMargin);
+    box.y = static_cast<int16_t>(kCornerTop);
+    box.w = kCornerW;
+    box.h = kCornerH;
+    box.mark = ui::kMarkLeft;
+    box.word = "Back";
+    return box;
+  }
+  if (which == Key::kClose) {
+    box.x = static_cast<int16_t>(width - static_cast<int16_t>(kKeyMargin) - kCornerW);
+    box.y = static_cast<int16_t>(kCornerTop);
+    box.w = kCornerW;
+    box.h = kCornerH;
+    box.mark = ui::kMarkRight;
+    box.word = "Close";
+    return box;
+  }
+  // **Settings, Poweroff, Reboot**, en aquest ordre i amb la separació de l'amo entre la primera i la parella.
+  const int16_t total = static_cast<int16_t>(3 * kMiddleW + kSettingsGap + kRowGap);
+  const int16_t left = static_cast<int16_t>((width - total) / 2);
+  int16_t at = left;
+  if (which == Key::kPowerOff) at = static_cast<int16_t>(left + kMiddleW + kSettingsGap);
+  if (which == Key::kReboot) at = static_cast<int16_t>(left + 2 * kMiddleW + kSettingsGap + kRowGap);
+  box.x = at;
+  box.y = static_cast<int16_t>(kRowTop);
+  box.w = kMiddleW;
+  box.h = kMiddleH;
+  box.mark = ui::kMarkAbove;
+  box.word = (which == Key::kSettings) ? "Settings" : ((which == Key::kPowerOff) ? "Poweroff" : "Reboot");
+  return box;
+}
+
+const char* key_icon(Key which) {
+  switch (which) {
+    case Key::kBack:
+      return "back";
+    case Key::kClose:
+      return "close";
+    case Key::kSettings:
+      return "settings";
+    case Key::kReboot:
+      return "reboot";
+    default:
+      return "poweroff";
+  }
+}
+
+// **La creu és un botó només quan hi ha una pàgina que es pugui deixar** (0.179.25): over a launcher —the one page that is not
+// left— and over no page at all, the corner of the card is paper, and a tap there is a tap on the card. A button that does nothing
+// is worse than no button: it says the system can do something it cannot (docs/30, docs/45). **La fletxa, quan hi ha una vista a
+// sota**: an app with one page has nowhere to go back to, and the same rule applies to it.
+//
+// **Els tres del mig hi són sempre**: the settings, the restart and the power off do not depend on how many pages the app has on
+// top —they are the system's, and the console that a close leaves behind has them too— (docs/30, docs/45).
+bool key_is_there(Key which) {
+  if (which == Key::kClose) return shell::the_page_in_front_can_be_left();
+  if (which == Key::kBack) return apps::views() > 0;
+  return true;
+}
+
+// **The button is the rectangle a finger lands on** (0.179.26): the ink and the hit test are the same rectangle, so what a person
+// sees is what a person presses —and a key with a word in it is the word and the mark, not the square the mark sits in— (docs/30).
+bool in_a_button(const KeyBox& box, uint16_t x, uint16_t y) {
+  const int32_t px = static_cast<int32_t>(x);
+  const int32_t py = static_cast<int32_t>(y);
+  return px >= box.x && px < static_cast<int32_t>(box.x) + static_cast<int32_t>(box.w) && py >= box.y &&
+         py < static_cast<int32_t>(box.y) + static_cast<int32_t>(box.h);
+}
+
+bool the_key_under(uint16_t x, uint16_t y, Key& which) {
+  for (uint8_t i = 0; i < kKeyCount; ++i) {
+    const Key key = static_cast<Key>(i);
+    if (!key_is_there(key)) continue;
+    if (!in_a_button(key_box(key), x, y)) continue;
+    which = key;
+    return true;
+  }
+  return false;
+}
 
 // **A third of what the bar leaves**: enough for the rows of switches that come later and little enough that the page
 // under it is still the page of the app (0.179.22).
@@ -82,46 +193,6 @@ uint16_t card_height() {
   const uint16_t top = bar::height();
   if (glass <= top) return 0;
   return static_cast<uint16_t>((glass - top) / 3);
-}
-
-// **The word of the control** (0.179.31): the button of the system draws its own word, centred and cut at its frame, so there
-// is no cross of pixels here any more —`paint_the_cross` was a drawing of this file and it is gone—. What is left is the
-// box and the position.
-//
-// **Where the button is, in the frame of the view** (0.179.23): the fingers arrive with the rows of the bar taken off and the
-// card is painted with them put back, so a hit test that mixed the two frames would be a button a whole bar away from the
-// thing the person aimed at (docs/30). The two numbers are **the middle of the button**, which is what a tap aims at.
-int16_t cross_x() { return static_cast<int16_t>(ui::width()) - static_cast<int16_t>(kCrossRight) - kCrossSide / 2; }
-int16_t cross_y() { return static_cast<int16_t>(kCrossTop) + kCrossSide / 2; }
-int16_t back_x() { return static_cast<int16_t>(kBackLeft) + kCrossSide / 2; }
-
-// **The cross is a button only when there is a page it can close** (0.179.25): over a launcher —the one page that is not left— and
-// over no page at all, the corner of the card is paper, and a tap there is a tap on the card. A button that does nothing is worse
-// than no button: it says the system can do something it cannot (docs/30, docs/45).
-bool the_cross_is_there() { return shell::the_page_in_front_can_be_left(); }
-
-// **The button is the square a finger lands on** (0.179.26): the ink and the hit test are the same rectangle, so what a person
-// sees is what a person presses.
-bool in_a_button(int16_t cx, int16_t cy, uint16_t x, uint16_t y) {
-  const int32_t half = kCrossSide / 2;
-  const int32_t left = static_cast<int32_t>(cx) - half;
-  const int32_t top = static_cast<int32_t>(cy) - half;
-  const int32_t px = static_cast<int32_t>(x);
-  const int32_t py = static_cast<int32_t>(y);
-  return px >= left && px < left + kCrossSide && py >= top && py < top + kCrossSide;
-}
-
-bool in_the_cross(uint16_t x, uint16_t y) {
-  return the_cross_is_there() && in_a_button(cross_x(), cross_y(), x, y);
-}
-
-// **La tornada és un botó només quan hi ha una vista a sota** (0.179.52): an app with one page has nowhere to go back to, and a
-// button that does nothing is worse than no button —the same rule the cross follows over a launcher (0.179.25)—. What it asks is
-// the number the system already keeps for every app: the views on top of its first page (docs/30, docs/45).
-bool the_back_is_there() { return apps::views() > 0; }
-
-bool in_the_back(uint16_t x, uint16_t y) {
-  return the_back_is_there() && in_a_button(back_x(), cross_y(), x, y);
 }
 
 // **Whether the finger landed on the card** (0.179.42): the card hangs from the bar, so its rows are the first
@@ -134,16 +205,16 @@ bool on_the_card(const touch::Gesture& gesture) {
   return gesture.y < card_height();
 }
 
-// **The button, painted by the system** (0.179.31): `ui::paint_a_button` is the drawing of every button of this tree —the
-// box in the colour of its shadow with the face lifted four pixels, the frame on the face, the word centred in what the air
-// leaves— and the panel only says where it is and with which ink. The `X` is the control's word and it is not a shape of
-// this file: a cross of pixels was a second button in a system that has one (the owner, 12/11, docs/30, docs/92).
-void paint_the_button(hal::ISurface& surface, int16_t cx, int16_t cy, const char* word, uint8_t scale) {
-  const uint16_t left = static_cast<uint16_t>(cx - kCrossSide / 2);
-  const uint16_t top = static_cast<uint16_t>(cy - kCrossSide / 2);
-  ui::paint_a_button(surface, left, top, static_cast<uint16_t>(kCrossSide), static_cast<uint16_t>(kCrossSide),
-                     /*background=*/15, /*border=*/0, /*pressed=*/false, /*focused=*/false, /*primary=*/false,
-                     word, /*color=*/0, scale);
+// **El botó, pintat pel sistema** (0.185.0): `ui::paint_a_button` is the drawing of every button of this tree and the panel only
+// says where it is, which mark it carries, which word says what it does and whether the finger is on it. **Sense vores i sense
+// ombra** (`framed` false): the card's paper is the key's paper, so the mark and its word are the whole of what a person sees, and
+// the press turns the key over —ink face, paper mark and paper word— which is the same press every button of this system has
+// (docs/30, docs/92).
+void paint_the_key(hal::ISurface& surface, Key which, bool pressed) {
+  const KeyBox box = key_box(which);
+  ui::paint_a_button(surface, static_cast<uint16_t>(box.x), static_cast<uint16_t>(bar::height() + box.y), box.w,
+                     box.h, /*background=*/15, /*border=*/0, pressed, /*focused=*/false, /*primary=*/false,
+                     box.word, /*color=*/0, kWordScale, /*framed=*/false, key_icon(which), box.mark);
 }
 
 void paint() {
@@ -156,14 +227,13 @@ void paint() {
   surface->fill_rect(0, static_cast<uint16_t>(top + rows - kLineH), width, kLineH, 0);
   surface->fill_rect(static_cast<uint16_t>((width - kHandleW) / 2),
                      static_cast<uint16_t>(top + rows - kLineH - kHandleGap - kHandleH), kHandleW, kHandleH, 0);
-  // **I els dos botons de la targeta**, on the rows of the card and not of the view: the arrow of the way back at the left, when
-  // there is a view under the page, and the cross of the way out at the right, when the page can be left. Each one is a key the
-  // system paints with the same function every button of this system is painted with (0.179.52, docs/30).
-  if (the_back_is_there()) {
-    paint_the_button(*surface, back_x(), static_cast<int16_t>(top + cross_y()), kBackWord, kBackScale);
-  }
-  if (the_cross_is_there()) {
-    paint_the_button(*surface, cross_x(), static_cast<int16_t>(top + cross_y()), kCrossWord, kCrossScale);
+  // **Els cinc botons de la targeta**, on the rows of the card and not of the view: the arrow of the way back in the left corner,
+  // the cross of the way out in the right one and the three of the system in the row of the middle, each one drawn with the one
+  // function every button of this system is drawn with (0.185.0, docs/30).
+  for (uint8_t i = 0; i < kKeyCount; ++i) {
+    const Key key = static_cast<Key>(i);
+    if (!key_is_there(key)) continue;
+    paint_the_key(*surface, key, /*pressed=*/false);
   }
   // **`gc16` and not `gld16`**: the card is the whole box and it has to come out clean the first time, which is what the
   // strip of the bar asks for when it paints itself whole (docs/50, docs/92).
@@ -180,7 +250,7 @@ void put_it_away();
 // so the present the app makes inside `on_back` is the page whole and the card goes with it. A paint here and another one there
 // would be two passes of this glass for one finger, and the second would be the app's own (docs/50, docs/92).
 void go_back_a_view() {
-  if (!the_back_is_there()) return;
+  if (!key_is_there(Key::kBack)) return;
   g_open = false;
   ui::forget_the_page_hold();
   ui::owe_the_page();
@@ -188,28 +258,91 @@ void go_back_a_view() {
   log_printf(pal::kLogInfo, "PANEL", "the arrow: the app went to the view below");
 }
 
-// **The cross closes the app of the page under the card** (0.179.23), and it asks the one road out of a page for it: a page
-// with another one on top gives it back, a launcher is refused with the line the pinch is refused with, and the page that
-// asked for this app takes the glass again (docs/30, docs/45).
+// **La creu tanca l'app i no una pàgina** (0.185.0, l'amo: *«"Close" ha de tancar l'app, no anar enrere, per aixó ja està
+// "Back"»*): the arrow of the left corner is the one page back and the cross is the whole app, pages on top and all, with the
+// page that asked for it taking the glass back —`shell::close_the_app` is that road, and it refuses a launcher the way the pinch
+// does— (docs/30, docs/45).
 void close_the_app() {
-  const shell::LeaveOutcome out = shell::leave_one_page();
+  const shell::LeaveOutcome out = shell::close_the_app();
   // **A door that did not open leaves the card where it is**: a launcher is the one page that is not left, and a page that did
   // not go is a page the panel is still over —the refusal is said in the line of the road out and not by closing the card— (docs/30,
   // docs/45).
   if (out == shell::LeaveOutcome::kNothing || out == shell::LeaveOutcome::kLauncher) return;
-  // **And the card goes with the page it was over**: when the system already owes a whole page —the page below a view that
-  // went back, the page of the app that asked for this one— that paint is the one that erases the card, and a close does not
-  // pay for two washes of the glass. Anywhere else the page under the card is still there and it comes back whole (docs/50,
-  // docs/92).
-  if (out == shell::LeaveOutcome::kBack || out == shell::LeaveOutcome::kClosedHome) {
+  // **And the card goes with the page it was over**: when the system already owes a whole page —the page of the app that asked
+  // for this one— that paint is the one that erases the card, and a close does not pay for two washes of the glass.
+  if (out == shell::LeaveOutcome::kClosedHome) {
     g_open = false;
     ui::forget_the_page_hold();
-    log_printf(pal::kLogInfo, "PANEL", "the cross: %s",
-               (out == shell::LeaveOutcome::kBack) ? "a page went back" : "the app is closed and its page comes back");
+    log_printf(pal::kLogInfo, "PANEL", "the cross: the app is closed and its page comes back");
     return;
   }
   log_printf(pal::kLogInfo, "PANEL", "the cross: the app is closed");
   put_it_away();
+}
+
+// **El reinici i el tancament de la placa** (0.185.0): the card drops the hold of the page **sense pintar**, because the picture
+// of the moment washes the whole glass in `gc16` —which is the paint the card would have paid—, and asks the shell for the one
+// sequence the prompt asks for: two ways down of the same board are two things to keep in step (docs/30, docs/50).
+void restart_the_board() {
+  g_open = false;
+  ui::forget_the_page_hold();
+  log_printf(pal::kLogInfo, "PANEL", "the restart key: the board starts again");
+  shell::reboot("the card of the bar");
+}
+
+void power_the_board_off() {
+  g_open = false;
+  ui::forget_the_page_hold();
+  log_printf(pal::kLogInfo, "PANEL", "the power key: the board goes down");
+  shell::power_off("the card of the bar");
+}
+
+// **Els ajustos** (0.185.0): the settings of this system live in `cfg`, which is a line of the prompt and not a page yet —there is
+// no app of settings on the disk—, so the key opens the console in the glass, which is the app that speaks `cfg`, **with the page
+// that asked for it behind it** (`back`): closing the console comes back to where a person was (docs/30, docs/40).
+void open_the_settings() {
+  char why[96] = {0};
+  if (!shell::ask_run("shell", /*back=*/true, why, sizeof(why))) {
+    log_printf(pal::kLogWarn, "PANEL", "the settings are not there: %s", why);
+    return;
+  }
+  put_it_away();
+  log_printf(pal::kLogInfo, "PANEL", "the settings key: the console of the system comes up");
+}
+
+// **Un botó és la seva acció**: the five of the card, one switch, so the paint, the hit test and the press cannot disagree about what
+// a key does (docs/30, docs/45).
+void run_the_key(Key which) {
+  switch (which) {
+    case Key::kBack:
+      go_back_a_view();
+      return;
+    case Key::kClose:
+      close_the_app();
+      return;
+    case Key::kSettings:
+      open_the_settings();
+      return;
+    case Key::kReboot:
+      restart_the_board();
+      return;
+    default:
+      power_the_board_off();
+      return;
+  }
+}
+
+// **El botó s'enfonsa mentre el dit hi és** (0.185.0, l'amo: *«com qualsevol botó s'enfonsa al pitjar»*): the card is ink on the
+// glass and not a page of controls, so the press is a paint of that key with its face turned over, one box of sixty-four and not the
+// card, and only then does its action run (docs/30, docs/50).
+void press_the_key(Key which) {
+  hal::ISurface* surface = display::surface();
+  if (surface == nullptr) return;
+  paint_the_key(*surface, which, /*pressed=*/true);
+  display::present(hal::UpdateMode::kDu);
+  // **The key stays sunk under the action and the state goes with the card**: the tap is the last thing this key does, and a
+  // card that is put away leaves nothing to paint back (docs/30).
+  g_sunk = static_cast<int16_t>(which);
 }
 
 void pull_it_out() {
@@ -226,6 +359,9 @@ void pull_it_out() {
 void put_it_away() {
   if (!g_open) return;
   g_open = false;
+  // **Una clau enfonsada no sobreviu a la targeta**: a key that was painted turned over and whose card goes away would be a
+  // repaint of the page under it the next turn (docs/30, docs/50).
+  g_sunk = -1;
   // **The page comes back whole** (0.179.22): the card left ink that is not the page's, and the frame the app drew while it
   // was out never reached the glass. One wash of the view is the two of them.
   ui::hold_the_page(false);
@@ -273,8 +409,9 @@ void poll() {
   // **The ways out are the person's** (0.179.42, 0.179.49). The owner: *«Ningú ha de poder tancar el panell excepte l'usuari,
   // picant fora de la zona desplegada»*, and then *«afegeix també el swipe up desde fora del panell, que fa que el tancament
   // sigui molt més natural»*. So, while the card is out:
-  //   - a **tap on the button of the corner** closes the app under it, and it is the only thing on the card that answers a
-  //     finger (`in_the_cross` is false over a launcher, where the button is not painted at all);
+  //   - a **tap on one of the five keys** does what that key says —the arrow one page back, the cross the app closed, and the
+  //     three of the middle the settings, the restart and the power off—, and they are the only things on the card that answer a
+  //     finger (`key_is_there` is false for a key that would do nothing: the cross over a launcher, the arrow on the only page);
   //   - a **tap outside its rows** —the page below it, or the bar it hangs from— puts the card away. A tap **on** the card is
   //     the card's: the switches that come later will take their taps, and the rows are not a thing to dismiss with;
   //   - and a **drag up that begins outside it** puts it away too. That is the gesture the page under the card would use for
@@ -284,17 +421,39 @@ void poll() {
   // What is left is nobody's: the app hears none of it, and its turn is not run while the card is out (`kernel.cpp`), so
   // nothing but this function can close the card (docs/30).
   touch::Gesture gesture;
+  // **El dit que hi ha ara mateix**: the contact of the last turn is what sinks a key, because a tap is only a gesture when it
+  // ends and a button that goes down on the way up is a button nobody sees move (docs/30, docs/50).
+  {
+    hal::TouchPoint live[touch::kMaxPoints];
+    const uint8_t down = touch::points(live, touch::kMaxPoints);
+    int16_t under = -1;
+    if (down > 0) {
+      Key held = Key::kBack;
+      if (the_key_under(live[0].x, live[0].y, held)) under = static_cast<int16_t>(held);
+    }
+    if (under != g_sunk) {
+      hal::ISurface* surface = display::surface();
+      if (surface != nullptr) {
+        if (g_sunk >= 0) paint_the_key(*surface, static_cast<Key>(g_sunk), /*pressed=*/false);
+        if (under >= 0) paint_the_key(*surface, static_cast<Key>(under), /*pressed=*/true);
+        display::present(hal::UpdateMode::kDu);
+      }
+      g_sunk = under;
+    }
+  }
   while (touch::take_gesture(gesture)) {
     if (gesture.kind == nullptr) continue;
-    if (strcmp(gesture.kind, "tap") == 0) {
-      if (in_the_cross(gesture.x, gesture.y)) {
+    // **Un dit que s'hi està també és un toc** (0.185.2): a key of the card is a button of this glass and a person who rests a
+    // finger on it for a second has pressed it —the gesture of a contact held that long is `long` and not `tap`, and the card
+    // answered nothing at all: the gear stayed turned over and the settings never came (measured on the emulator)— (docs/30).
+    if (strcmp(gesture.kind, "tap") == 0 || strcmp(gesture.kind, "long") == 0) {
+      Key which = Key::kBack;
+      if (the_key_under(gesture.x, gesture.y, which)) {
         touch::forget_gestures();
-        close_the_app();
-        return;
-      }
-      if (in_the_back(gesture.x, gesture.y)) {
-        touch::forget_gestures();
-        go_back_a_view();
+        // **El botó s'enfonsa i després fa el que diu**: the press is the paint of that key turned over, which is what a finger on a
+        // key of this system sees, and the action comes after it (docs/30, docs/50).
+        press_the_key(which);
+        run_the_key(which);
         return;
       }
       if (!on_the_card(gesture)) {

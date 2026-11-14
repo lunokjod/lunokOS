@@ -3648,6 +3648,10 @@ const uint8_t kTouchPointsInFrame = 5;
 
 UIOps g_ui_ops = {};  // and ui.*
 BookOps g_book_ops = {};  // and epub.*
+// **Les imatges dels moments del sistema** (0.183.0): the interpreter does not know the kernel, so the four calls it needs
+// to put one on the glass —how many moments, their words, the picture and its failure— come in through this table
+// (docs/20, docs/30, docs/50).
+SplashOps g_splash_ops = {};
 
 TouchOps g_touch_ops = {};  // and touch.
 
@@ -3969,6 +3973,42 @@ int l_ui_idle(lua_State* L) {
   return 1;
 }
 
+// **La imatge d'un moment del sistema, pintada pel sistema** (0.183.0): `ui.splash('sleep')` washes the glass whole and
+// puts the picture of a moment on it —the same thing the prompt's `splash` does—, `ui.splash('/res/x.png')` puts any
+// picture the file carries, and `ui.splash('hide')` gives the glass back to paper. It is the one call of this system
+// that paints outside a page, and what the glass has afterwards is the picture and not the page: an app that uses it
+// owes its page a present with the whole of it (`ui.present` after `ui.invalidate_all`) (docs/30, docs/50).
+int l_ui_splash(lua_State* L) {
+  if (g_splash_ops.show == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build carries no pictures");
+  const char* what = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
+  if (what == nullptr || what[0] == '\0') {
+    return push_nil_error(L, "E_INVAL", "a splash needs a moment or a picture");
+  }
+  const bool hiding = strcmp(what, "hide") == 0 && g_splash_ops.hide != nullptr;
+  const bool done = hiding ? g_splash_ops.hide() : g_splash_ops.show(what);
+  if (!done) {
+    const char* why = (g_splash_ops.last_error != nullptr) ? g_splash_ops.last_error() : nullptr;
+    return push_nil_error(L, "E_INVAL", (why != nullptr && why[0] != '\0') ? why : "the picture was not shown");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **Els moments que aquest build té** (0.183.0): the words in the order of the system, for a page that offers them.
+// It is the list and not a copy of it, so a page cannot name a moment this system does not know (docs/30, docs/50).
+int l_ui_splashes(lua_State* L) {
+  if (g_splash_ops.count == nullptr || g_splash_ops.word == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build carries no pictures");
+  }
+  const uint8_t moments = g_splash_ops.count();
+  lua_createtable(L, moments, 0);
+  for (uint8_t i = 0; i < moments; ++i) {
+    lua_pushstring(L, g_splash_ops.word(i));
+    lua_rawseti(L, -2, static_cast<lua_Integer>(i) + 1);
+  }
+  return 1;
+}
+
 // ui.resize(width, height): the app asks for a view of another size. The system makes a new canvas
 // and calls `on_resize`, and the app draws it again — the system has no idea what belongs there
 // (docs/30).
@@ -4144,6 +4184,31 @@ const int32_t kSwipeSlop = 12;
 // when it leaves (docs/30, docs/90).
 const int32_t kPageSwipeSlop = 40;
 bool g_ui_swipe_page = false;
+// **La llista on el gest va començar** (0.183.2, l'amo: *«Se suposa que quan un gest acaba no s'envien els tocs per no
+// confondre el control, que es precisament el que passa»*): the page a finger turns is the page of the **control it landed
+// on** —the rule the whole system follows for a contact, «the event goes to the control that is under it when the action
+// begins»— and not of the control it happens to be over in the frame that travelled far enough. A finger that slides off
+// the row it started on, which is what a swipe of a hand does, was a gesture that found no list and turned nothing.
+int16_t g_ui_swipe_list = -1;
+// **Un toc que arriba just després d'un gest no és un toc** (0.183.2): a contact that ends having travelled is a page or a
+// window that moved, and the finger's next landing —the same finger of the same hand, or the contact the panel split in
+// two— must not click what it lands on. Two hundred and fifty milliseconds are longer than any split and shorter than a
+// person's second gesture (docs/30, docs/90).
+int64_t g_ui_tap_swallowed_until_ms = 0;
+// **Cent cinquanta mil·lisegons** (0.183.2): longer than any split of a contact by a panel that reports slowly —a hundred is
+// already a chip that reports every thirty— and shorter than the flight of a hand from the end of a swipe to the next tap
+// (docs/30, docs/90).
+const int64_t kAfterGestureMs = 150;
+// **Si el contacte que hi ha ara va néixer mut** (0.183.2): a tap that landed inside the window is born travelled and its lift
+// must not open a new window —that is how a chain of swallowed taps is made, and the person is left with a list that answers
+// every other touch (measured on the emulator: the tap after the swipe did not open, and the one a second later did not
+// either)— (docs/30, docs/90).
+bool g_ui_tap_swallowed = false;
+// **El control que el contacte té premut** (0.183.3): a press belongs to the control that took the finger —it is set when the
+// contact lands and let go when the finger leaves that same control— and the release used to be aimed at the control under
+// the finger, which after a walk is another one: the row of a swipe stayed pressed on the glass (the owner: *«al acabar el
+// gest, l'item sota el dit queda seleccionat»*). Minus one means the contact is holding nothing down (docs/30, docs/90).
+int16_t g_ui_touch_pressed = -1;
 // **Un lliscament d'una caixa deu una passada neta** (0.179.35): the rows go up with a `du` while the finger walks and the
 // `gld16` that takes the blur away is the one at the lift, paid once (docs/30, docs/50).
 bool g_ui_swipe_clean = false;
@@ -4241,13 +4306,15 @@ bool label_field_valid(lua_State* L, const char* key, int value) {
 
 // **The fields of a button** (docs/30, docs/90): the two colours of its frame, whether it is held and
 // whether the walk of the dial and the finger can land on it. The child of a button is a control of its
-// own: the button does not keep a copy of it and does not need a field for it.
+// own: the button does not keep a copy of it and does not need a field for it. **`framed` i `icon`** són les dues de la
+// 0.185.0: the key without a frame and the mark of the system it carries (docs/30, docs/92).
 bool is_button_field(const char* key) {
   return strcmp(key, "background") == 0 || strcmp(key, "border") == 0 ||
          strcmp(key, "pressed") == 0 || strcmp(key, "focused") == 0 ||
          strcmp(key, "focusable") == 0 || strcmp(key, "primary") == 0 ||
          strcmp(key, "title") == 0 || strcmp(key, "tag") == 0 ||
-         strcmp(key, "color") == 0 || strcmp(key, "scale") == 0;
+         strcmp(key, "color") == 0 || strcmp(key, "scale") == 0 ||
+         strcmp(key, "framed") == 0 || strcmp(key, "icon") == 0;
 }
 
 // **The fields a checkbox adds to the ones of a frame**: whether it is checked —the state the click changes
@@ -4266,10 +4333,11 @@ bool checkbox_field_valid(lua_State* L, const char* key, int value) {
 
 bool button_field_valid(lua_State* L, const char* key, int value) {
   if (strcmp(key, "pressed") == 0 || strcmp(key, "focused") == 0 ||
-      strcmp(key, "focusable") == 0 || strcmp(key, "primary") == 0) {
+      strcmp(key, "focusable") == 0 || strcmp(key, "primary") == 0 ||
+      strcmp(key, "framed") == 0) {
     return lua_type(L, value) == LUA_TBOOLEAN;
   }
-  if (strcmp(key, "title") == 0 || strcmp(key, "tag") == 0) {
+  if (strcmp(key, "title") == 0 || strcmp(key, "tag") == 0 || strcmp(key, "icon") == 0) {
     return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
   }
   if (!lua_isnumber(L, value)) return false;
@@ -5376,12 +5444,44 @@ int l_button_draw(lua_State* L) {
     tag[used] = '\0';
   }
   lua_pop(L, 1);
+  // **Sense vores i amb una icona** (0.185.0, l'amo: *«vull que siguin UIButton, però sense vores … i amb una imatge/icona com a
+  // contingut»*): `framed` false is a key that is its mark and nothing else, and `icon` names a mark of the system —the five of
+  // `ui.icons()`— that is drawn in the place of the word. An icon that is not a name of the set draws nothing, which is a key
+  // with no content and not a picture of an accident (docs/30, docs/92).
+  lua_getfield(L, -1, "framed");
+  const bool framed_field = lua_isboolean(L, -1) ? (lua_toboolean(L, -1) != 0) : true;
+  lua_pop(L, 1);
+  static char icon[16];
+  icon[0] = '\0';
+  lua_getfield(L, -1, "icon");
+  if (lua_isstring(L, -1)) {
+    const char* said = lua_tostring(L, -1);
+    size_t used = 0;
+    for (; said != nullptr && said[used] != '\0' && used + 1 < sizeof(icon); ++used) icon[used] = said[used];
+    icon[used] = '\0';
+  }
+  lua_pop(L, 1);
+  // **On va la marca quan el botó també té paraula** (0.185.3): `icon_side` is `'above'` (the default), `'left'` or `'right'`,
+  // and the panel of the bar is what showed why it is needed: the two corners of its card carry the mark on the outer side and a
+  // key that always put it in the same place would be a card with two corners that look the same (docs/30, docs/92).
+  uint8_t mark_side = 0;
+  lua_getfield(L, -1, "icon_side");
+  if (lua_isstring(L, -1)) {
+    const char* said = lua_tostring(L, -1);
+    if (said != nullptr && strcmp(said, "left") == 0) {
+      mark_side = 1;
+    } else if (said != nullptr && strcmp(said, "right") == 0) {
+      mark_side = 2;
+    }
+  }
+  lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.button_draw != nullptr) {
     g_ui_ops.button_draw(canvas->slot, static_cast<uint8_t>(background), ink_or_dim(off, border), pressed,
                          focused && !off.on, primary, title, tag,
                          ink_or_dim(off, (color >= 0 && color <= 15) ? color : 0),
-                         static_cast<uint8_t>((scale >= 1 && scale <= 16) ? scale : 1));
+                         static_cast<uint8_t>((scale >= 1 && scale <= 16) ? scale : 1), framed_field,
+                         (icon[0] != '\0') ? icon : nullptr, mark_side);
   }
   return 0;
 }
@@ -7837,6 +7937,23 @@ int l_textbox_draw(lua_State* L) {
   lua_getfield(L, -1, "mask");
   const bool mask = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
+  // **El botó que buida la caixa** (0.184.0): it belongs to the control and an app turns it off with `clear = false`, and
+  // **while the box is being written into it is not drawn at all** —the owner: *«no es possible pitjar-lo quan està en mode
+  // edició, així que millor ocultar-lo en aquest mode»*—, so the paint and the finger ask the same two fields and a cross a
+  // person sees is a cross a person can press. **The edit mode of a box is its `editing` field and not its `focused` one**: a
+  // page is built again whenever the band takes the bottom of the glass, every control goes with it and the new box is the
+  // one a person is writing into while its `focused` field is false, and `editing` is put back on the live box by the system
+  // (docs/30, docs/90).
+  lua_getfield(L, -1, "clear");
+  const bool clear = lua_isboolean(L, -1) ? (lua_toboolean(L, -1) != 0) : true;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "editing");
+  const bool editing = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  // **La creu va en la tinta de les paraules** (0.184.0, l'amo: *«una X negra»*): the button of a box is a command of the control
+  // and not a picture of its own, so it is drawn with the colour the text is and it dims with it when the page is not the one
+  // that answers (docs/30).
+  const uint8_t cross = ink_or_dim(off, color);
   // The text goes last and stays on the stack while the control draws: a string taken off the stack before the
   // call is a pointer the collector may have spoken for (docs/75, docs/90).
   lua_getfield(L, -1, "text");
@@ -7844,7 +7961,8 @@ int l_textbox_draw(lua_State* L) {
   if (g_ui_ops.textbox_draw != nullptr) {
     g_ui_ops.textbox_draw(canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), caret, mask,
                           ink_or_dim(off, color), static_cast<uint8_t>(background),
-                          ink_or_dim(off, border), static_cast<uint8_t>((scale == 0) ? 1 : scale));
+                          ink_or_dim(off, border), static_cast<uint8_t>((scale == 0) ? 1 : scale),
+                          clear && !editing, cross);
   }
   lua_pop(L, 2);  // the text and the fields table
   return 0;
@@ -7868,6 +7986,11 @@ int l_ui_textbox(lua_State* L) {
   lua_setfield(L, -2, "caret");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "mask");
+  // **El botó que buida la caixa ve posat** (0.184.0, l'amo: *«afegeix al control TextBox un UIButton sense vores a la dreta
+  // del tot amb una X negra»*): a box a person writes into has somewhere to be emptied with one finger, and an app that does
+  // not want it says `clear = false` (docs/30, docs/90).
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "clear");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "color");
   lua_pushinteger(L, 15);
@@ -8988,6 +9111,8 @@ void ui_gesture_forget_if(LuaCanvas* canvas) {
   g_ui_swipe_clean = false;
   g_ui_swipe_painted_ms = 0;
   g_ui_swipe_rest = 0;
+  g_ui_swipe_list = -1;
+  g_ui_touch_pressed = -1;
   g_ui_swipe_y0 = 0;
   g_ui_swipe_y = 0;
   g_ui_swipe_tap = 0;
@@ -10414,7 +10539,15 @@ bool ui_activate(lua_State* L, int count, int objects, int index, bool by_finger
     // that—, which is what a person is doing when they tap the middle of the line they are writing and the caret has to
     // go where the finger asked. The caret went there on the way up, and that is the whole of the change (docs/30, docs/90).
     const bool stays = editing && by_finger;
-    if (!stays && ui_set_field_bool(L, object, "editing", !editing)) ui_invalidate(L, object);
+    if (!stays && ui_set_field_bool(L, object, "editing", !editing)) {
+      ui_invalidate(L, object);
+      // **La caixa que entra o surt es pinta de seguida, i no amb la passada ràpida** (0.184.0): the cross that empties the box
+      // is drawn while the box is not being written into and it is not drawn while it is, so entering the field **erases ink**
+      // —and a `du` paints and does not clean: the emulator showed the cross at level ten of sixteen left behind, which is a
+      // command a person sees and cannot press—. `ui_feedback` is the present of the system and it goes with `a2`, which lands
+      // two sixteenths off the level: the cross is gone and nothing blinks (docs/30, docs/50, docs/92).
+      ui_feedback();
+    }
     if (stays) {
       // **Un dit dins la caixa que s'escriu torna a ser el destí de la banda i el bloc** (0.179.73): the tap focuses the
       // control first (`ui_apply_focus`) and a focus that changes **stops the block** of the one it leaves, so a second tap
@@ -11450,6 +11583,9 @@ void seal_globals(lua_State* L) {
   set_function(L, "title", l_ui_title);
   set_function(L, "rotation", l_ui_rotation);
   set_function(L, "full_screen", l_ui_full_screen);
+  // **Les imatges dels moments** (0.183.0): `ui.splashes()` is the list and `ui.splash(word)` the picture (docs/30).
+  set_function(L, "splashes", l_ui_splashes);
+  set_function(L, "splash", l_ui_splash);
   set_function(L, "canvas", l_ui_canvas);
   set_function(L, "control", l_ui_control);
   set_function(L, "label", l_ui_label);
@@ -11823,6 +11959,8 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_ui_swipe_clean = false;
   g_ui_swipe_painted_ms = 0;
   g_ui_swipe_rest = 0;
+  g_ui_swipe_list = -1;
+  g_ui_touch_pressed = -1;
   // **The finger is not a number that outlives the interpreter** (0.113.0): the row it started on and the pixels it
   // had walked are the system's, and a new attempt that began with the ones the last one left would move a window the
   // moment it is touched (docs/30, docs/75).
@@ -11897,6 +12035,8 @@ void stop() {
   g_ui_swipe_clean = false;
   g_ui_swipe_painted_ms = 0;
   g_ui_swipe_rest = 0;
+  g_ui_swipe_list = -1;
+  g_ui_touch_pressed = -1;
   // **The finger is not a number that outlives the interpreter** (0.113.0): the row it started on and the pixels it
   // had walked are the system's, and a new attempt that began with the ones the last one left would move a window the
   // moment it is touched (docs/30, docs/75).
@@ -12075,6 +12215,7 @@ void set_meter_ops(const MeterOps& ops) { g_meter_ops = ops; }
 
 // And the panel, which the kernel installs only when the board answers with a surface (docs/50).
 void set_ui_ops(const UIOps& ops) { g_ui_ops = ops; }
+void set_splash_ops(const SplashOps& ops) { g_splash_ops = ops; }
 void set_book_ops(const BookOps& ops) { g_book_ops = ops; }
 
 // **What a board with no glass still calls, answered here** (0.179.9): the key of a board reaches this door before an app
@@ -13389,10 +13530,40 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
           lua_pop(g_state, 1);
         }
       }
+      // **A press does not survive the finger that made it** (0.183.3): a control is pressed on the way **down** and let go
+      // on the way **up of that same control**, and a finger that walks —the landing pressed one row, the lift lands on
+      // another— leaves the first one pressed on the glass: the dark row under the finger after a swipe over a list, which
+      // is the visible half of the owner's report *«al acabar el gest, l'item sota el dit queda seleccionat»*. Every control
+      // of the page that is still pressed when the contact ends is let go here, and the page is painted only if one of them
+      // was —a gesture that pressed nothing costs nothing— (docs/30, docs/90).
+      if (g_ui_touch_moved || g_ui_swipe_page) {
+        bool let_go = false;
+        for (int i = 0; i < count; ++i) {
+          lua_rawgeti(g_state, objects, i + 1);
+          const int kind = lua_type(g_state, -1);
+          if ((kind == LUA_TTABLE || lua_isuserdata(g_state, -1)) &&
+              ui_field_bool(g_state, -1, "pressed", false) &&
+              ui_set_field_bool(g_state, -1, "pressed", false)) {
+            ui_invalidate(g_state, -1);
+            let_go = true;
+          }
+          lua_pop(g_state, 1);
+        }
+        if (let_go) ui_draw_and_present("gl16");
+      }
       g_ui_touch_slot = -1;
       g_ui_touch_generation = 0;
       g_ui_touch_item = 0;
       g_ui_touch_inside = false;
+      // **A contact that ends after travelling leaves the next one deaf** (0.183.2): the finger of a gesture is not a tap, and
+      // a panel that splits one contact in two —or a hand that lands again at once— would click the row it stopped over, which
+      // is the whole of the owner's report: *«al acabar el gest, l'item sota el dit queda seleccionat»*. **Un contacte que ja va
+      // néixer mut no torna a armar la finestra**: si ho fes, el primer toc engolit faria mut el següent i la llista no respondria
+      // mai més (docs/30, docs/90).
+      if ((g_ui_touch_moved || g_ui_swipe_page) && !g_ui_tap_swallowed) {
+        g_ui_tap_swallowed_until_ms = now_ms() + kAfterGestureMs;
+      }
+      g_ui_tap_swallowed = false;
       // **A contact that is over is not a gesture any more** (0.179.29): the next press of the same finger —or of the one
       // that comes after it— measures its own travel from its own landing.
       g_ui_touch_moved = false;
@@ -13402,6 +13573,8 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       g_ui_swipe_clean = false;
       g_ui_swipe_painted_ms = 0;
       g_ui_swipe_rest = 0;
+      g_ui_swipe_list = -1;
+      g_ui_touch_pressed = -1;
     }
     // **The finger goes up and the contact is over**: the next press is a new one (0.113.0, docs/30).
     g_ui_touch_orphan = false;
@@ -13429,7 +13602,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     // system does is move the **cursor** to the first cell of that page, because the page of a grid follows the cursor: the
     // ring lands where a person is now looking, and the page comes with it. A page turned with the cursor left behind would
     // be a page whose dial is nowhere (docs/30, docs/90).
-    if (index >= 0 && !g_ui_swipe_page) {
+    if ((index >= 0 || g_ui_swipe_list >= 0) && !g_ui_swipe_page) {
       const int dx = static_cast<int>(x) - static_cast<int>(g_ui_swipe_x0);
       const int dy = static_cast<int>(y) - static_cast<int>(g_ui_swipe_y0);
       const bool sideways = (dx >= kPageSwipeSlop || dx <= -kPageSwipeSlop);
@@ -13453,7 +13626,11 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         int16_t list_slot = -1;
         bool turned = ui_grid_turn_the_page(g_state, targets, count, objects, index, delta);
         if (!turned) {
-          list_slot = ui_list_of_the_stop(g_state, objects, index);
+          // **La llista és la del lloc on el gest va començar** (0.183.2): `index` is the control under the finger in this frame
+          // and a swipe of a hand leaves the row it began on, so the list the gesture belongs to is the one the landing found
+          // —the same rule as the bar and the page, which hear a contact because it began on them and not because it passed
+          // over them— (docs/30, docs/90).
+          list_slot = (g_ui_swipe_list >= 0) ? g_ui_swipe_list : ui_list_of_the_stop(g_state, objects, index);
           turned = list_slot >= 0 && ui_turn_the_page_of_the_list(g_state, list_slot, delta);
         }
         if (turned) {
@@ -13555,10 +13732,22 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         !g_ui_touch_moved && index >= 0 && x >= targets[index].x && y >= targets[index].y &&
         x < targets[index].x + targets[index].w && y < targets[index].y + targets[index].h;
     if (inside != g_ui_touch_inside) {
+      // **La premuda és d'un control i es deixa anar on és** (0.183.3): the press is set on the control the finger landed on
+      // and the release belongs to **that** control; `index` is the one under the finger in this frame, so a finger that
+      // walked away left its row pressed on the glass —the dark row of a swipe over a list—. The slot the contact is holding
+      // down is remembered in `g_ui_touch_pressed` and let go here, which is also the cheap way: a row of sixty-four pixels
+      // and not the whole page at the lift (docs/30, docs/90).
+      if (g_ui_touch_pressed >= 0 && g_ui_touch_pressed != index) {
+        lua_rawgeti(g_state, objects, g_ui_touch_pressed + 1);
+        if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
+        lua_pop(g_state, 1);
+        g_ui_touch_pressed = -1;
+      }
       if (index >= 0) {
         lua_rawgeti(g_state, objects, index + 1);
         if (ui_set_field_bool(g_state, -1, "pressed", inside)) ui_invalidate(g_state, -1);
         lua_pop(g_state, 1);
+        g_ui_touch_pressed = inside ? static_cast<int16_t>(index) : -1;
       }
       g_ui_touch_inside = inside;
     }
@@ -13612,6 +13801,18 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     g_ui_touch_item = targets[hit].item;
     g_ui_touch_inside = true;
     g_ui_touch_orphan = false;
+    // **I la llista on ha caigut, per al gest que ve** (0.183.2): the row is a control of the app's and the page that a finger
+    // turns belongs to the list it is inside; asking it here, once per contact, is also what stops a swipe from having to find
+    // the row in every frame it travels (docs/30, docs/90).
+    g_ui_swipe_list = ui_list_of_the_stop(g_state, objects, hit);
+    // **Un toc just després d'un gest no és cap toc** (0.183.2): the landing is the one that decides, so the window is read
+    // here and the contact is born travelled —nothing is pressed and nothing is clicked when it ends— which is the only way a
+    // tap that the panel split in two does not pick the row it stopped over (docs/30, docs/90).
+    if (now_ms() < g_ui_tap_swallowed_until_ms) {
+      g_ui_touch_moved = true;
+      g_ui_touch_inside = false;
+      g_ui_tap_swallowed = true;
+    }
     lua_rawgeti(g_state, objects, hit + 1);
     const int hit_object = lua_absindex(g_state, -1);
     // **A finger on a dialog picks the button it is on and not the one the dial was on**: the two boxes of a card
@@ -13730,6 +13931,53 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       lua_pop(g_state, 1);
       const lua_Integer scale = ui_field_number(g_state, base, "scale", 3);
       const uint8_t box_scale = static_cast<uint8_t>((scale < 1) ? 1 : ((scale > 16) ? 16 : scale));
+      // **La creu del botó buida la caixa i la deixa en mode edició** (0.184.0, l'amo: *«polsar aquest botó esborra el buffer i
+      // activa el mode edició amb el cursor a 0 i el buffer buit del control»*). It is asked **first**, before the caret, because
+      // the square is the button's and not a place in the text: a finger that lands on the cross would otherwise put the caret at
+      // the end of the words it is about to erase. **A box that is being written into has no button** —its `editing` field is its
+      // edit mode, and the paint hides the cross on that same field—, so the rule is one and not two (docs/30, docs/90).
+      if (ui_field_bool(g_state, base, "__textbox", false) && g_ui_ops.textbox_clear_box != nullptr &&
+          ui_field_bool(g_state, base, "clear", true) && !ui_field_bool(g_state, base, "editing", false)) {
+        uint16_t square_x = 0;
+        uint16_t square_y = 0;
+        uint16_t square_w = 0;
+        uint16_t square_h = 0;
+        const int32_t local_x = static_cast<int32_t>(x) - static_cast<int32_t>(targets[hit].x);
+        const int32_t local_y = static_cast<int32_t>(y) - static_cast<int32_t>(targets[hit].y);
+        if (g_ui_ops.textbox_clear_box(targets[hit].slot, box_scale, square_x, square_y, square_w, square_h) &&
+            local_x >= square_x && local_y >= square_y && local_x < square_x + square_w &&
+            local_y < square_y + square_h) {
+          lua_getiuservalue(g_state, base, 1);
+          if (lua_istable(g_state, -1)) {
+            lua_pushliteral(g_state, "");
+            lua_setfield(g_state, -2, "text");
+            lua_pushinteger(g_state, 0);
+            lua_setfield(g_state, -2, "cursor");
+          }
+          lua_pop(g_state, 1);
+          ui_invalidate(g_state, base);
+          // **L'app ho sab abans que la banda torni** (0.184.0): the box is empty and the page is about to be built again —a band
+          // that arrives resizes the view and an app that keeps its own copy of the words builds its page from that copy—, so
+          // `on_change` with the empty text goes **first**. It used to go last, after the band: the timer's note box was emptied,
+          // the band came, the app rebuilt the page from its own note —still the old words— and the empty box a person had just
+          // asked for came back with the text it had (measured on the emulator, docs/30, docs/90).
+          ui_call_hook_text(g_state, base, "on_change", "");
+          // **El focus, la banda i el mode edició són del sistema**: the box the finger emptied is the one a person is writing
+          // into from now on, so the ring goes to it, `editing` says it, the band comes for it —the same three things a tap on
+          // the box does— (docs/30, docs/90).
+          ui_apply_focus(g_state, targets, count, objects, hit);
+          if (ui_set_field_bool(g_state, base, "editing", true)) ui_invalidate(g_state, base);
+          if (!ui_field_bool(g_state, base, "readonly", false)) {
+            lua_pushvalue(g_state, base);
+            ui_keyboard_follow_object(g_state, lua_gettop(g_state));
+            lua_pop(g_state, 1);
+          }
+          ui_keys_follow_the_control(g_state, base);
+          ui_draw_and_present("gl16");
+          lua_settop(g_state, top);
+          return;
+        }
+      }
       // **El dit dins una caixa d'una línia posa el cursor on toca** (0.179.77, i el camí que hi porta, 0.179.81): a box of one
       // line has no page to scroll, so there is no gesture to wait for and the column goes in on the way down —only the column,
       // because a box of one line has no rows—. **The gate of this branch asked for `__textbox_multiline`**, so the road written
@@ -13846,6 +14094,10 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       }
     }
     if (ui_set_field_bool(g_state, -1, "pressed", true)) ui_invalidate(g_state, -1);
+    // **Which control the contact is holding down** (0.183.3): the release of a press belongs to the control that took the
+    // finger and not to the one under it when the finger comes up, so the slot is written here and let go in
+    // `ui_touch_progress` (docs/30, docs/90).
+    g_ui_touch_pressed = static_cast<int16_t>(hit);
     // **The box that took the finger is the one the keys go to** (0.91.0), and a button or a card that took it leaves
     // the keyboard behind: the band is not a page of the app and does not stay over a control that cannot type.
     ui_keyboard_follow_object(g_state, hit_object);

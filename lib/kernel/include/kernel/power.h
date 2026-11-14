@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "hal/hal.h"
+#include "kernel/splash.h"
 
 namespace kernel {
 namespace power {
@@ -74,6 +75,25 @@ bool keeping_awake();
 // The battery, when the board has a gauge. False is "this board cannot tell", and
 // that is not "empty" (docs/75).
 bool battery(int& mv, int& pct, bool& charging);
+
+// **Under this mark a board says it is over** (0.183.0): one number, in one place, so that the boot, the way down and the
+// console cannot disagree about what "low" is. Five percent of a cell of this glass is minutes and not hours (docs/50).
+constexpr uint8_t kLowBatteryPercent = 5;
+
+// **The battery a board has left, said as a yes or a no**: true when it can be read, there is no cable in the slot and
+// the charge is at or under the mark. The cell is the board's and the number is the gauge's, so both a board without one
+// and a gauge that answers nothing say `false` —"nothing to say"— and never "empty" (docs/50).
+bool battery_is_low(int& pct);
+
+// **The picture of a moment that the battery decides** (0.183.0). The boot asks this before this module has been booted,
+// so the reading comes in as an argument —`known` is whether the gauge answered at all—: a board that comes up with a
+// cell under the mark says `lowbatt` instead of its logo, because the picture of the boot is the one moment where the
+// person can still be told, and the chosen drawing is what a board with a battery comes up with.
+splash::Kind boot_picture(const char* chosen, bool known, int pct, bool charging);
+
+// **The picture of the way down**: `lowbatt` when the battery is what is over, `sleep` for a deep sleep and `poweroff`
+// for a board that is being asked to stop. A light sleep paints nothing at all (docs/50).
+splash::Kind going_down_picture(bool deep);
 
 // The speed of the processor. It is the same decision as the sleep —energy— and it
 // is taken here and not inside an app: the board says which steps it has, and a

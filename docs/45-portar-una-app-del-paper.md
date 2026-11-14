@@ -24,6 +24,17 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
 
 ## 2 · Els recursos: icones, splash i dades
 
+- **Com es dibuixa una icona, que és el que fa que surtin bé**: el projecte del paper no tenia cap model dibuixant, tenia
+  `tools/iconart.py` —**el dibuix és codi**— per a les icones de les apps, i **les marques de la interfície les treia d'un
+  clipart**: la família **Font Awesome**, que el seu `tools/fontgen.py` rasteritzava. Aquest repositori en porta la mostra a
+  `tools/make_keys.py` (les cinc lletres del rellotge, del mateix `fa-solid-900.ttf`).
+  - **Per a les icones d'una app** la regla del paper és la que dona el to: es dibuixa a 448 unitats i es redueix **d'una sola
+    passada amb LANCZOS** (les vores porten els grisos del panell en lloc d'una escala de píxels), la vora és el dibuix —15
+    unitats, 2,1 px a 64; amb 8 la reducció se la menja—, i la paleta té nom: cos de 8 a 13, vora a 4, paper a 15.
+  - **I per a les marques del sistema no es dibuixa res**: `tools/iconart.py` rasteritza els glifs de **Font Awesome Free
+    5.15.4** (`arrow-left`, `times`, `cog`, `redo`, `power-off`), els ajusta al 80 % de la caixa i en desa el mestre a
+    `tools/icons/system/` i la icona de 64 a `data/res/icons/`, que és el que el disc porta i el que `ui::picture_of_a_mark`
+    llegeix (docs/30, docs/92). **Llicències**: els glifs són SIL OFL 1.1 i les icones CC BY 4.0, amb el crèdit al `README`.
 - **La icona es porta amb el seu màster.** Es copia `tools/icons/<App>.png` a
   `apps/<id>/res/icon-source.png` —el fitxer que es pot tornar a editar— i es converteix amb
   `tools/make_icon.py` a `apps/<id>/res/icon.png`, que és el que el manifest nomena amb

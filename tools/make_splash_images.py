@@ -4,8 +4,9 @@
 A moment looks for `/res/splash/<word>.png` (and `.bmp`, `.jpg`), the system
 reads the file with `lib/img`, washes the whole glass and paints the picture in
 the middle **without scaling it**, so the size written here is the size a person
-sees. Every picture of this script is 460 x 200 and greyscale, which is what the
-other moments of the disk are.
+sees. Every picture of this script is drawn on a page of 460 x 200 and greyscale
+and saved **as big as its drawing** (0.183.4): the paper around the ink was a
+size written, read and decoded for nothing, because the system drops it anyway.
 
 The logo is a moon with the name on it: **"lunok" over the disc in ink with a
 paper edge**, because the disc is brighter than the paper and ink reads on it,
@@ -221,23 +222,59 @@ def logo(clipart: bool, refresh: bool = False) -> Image.Image:
     return picture
 
 
+def fitting_face(draw: ImageDraw.ImageDraw, text: str, path: str, size: int, room: int) -> ImageFont.FreeTypeFont:
+    """The biggest face at or under `size` with which `text` fits the paper.
+
+    **Un mot llarg no es talla** (0.183.0): `powering off` at fifty-four points is wider than the
+    460 pixels of this paper, and the picture on the disk was written with the first letter outside
+    the file —a person saw `powering of`. The word steps down until it fits the air of the page and
+    the rule and the line under it follow the face that came out.
+    """
+    face = font(path, size)
+    while size > 16 and text_width(draw, text, face) > room:
+        size -= 2
+        face = font(path, size)
+    return face
+
+
 def plain(title: str, subtitle: str) -> Image.Image:
     """The style of `poweroff.png` and `charging.png`: the word, a rule, a line."""
     picture = Image.new("L", (WIDTH, HEIGHT), PAPER)
     draw = ImageDraw.Draw(picture)
-    big = font(FONT_BOLD, 54)
-    small = font(FONT, 26)
+    air = 24
+    big = fitting_face(draw, title, FONT_BOLD, 54, WIDTH - 2 * air)
+    small = fitting_face(draw, subtitle, FONT, 26, WIDTH - 2 * air)
     draw.text((WIDTH // 2, 58), title, font=big, fill=INK, anchor="ms")
-    rule = 70
-    draw.line((WIDTH // 2 - 130, 96, WIDTH // 2 + 130, 96), fill=INK, width=2)
-    draw.text((WIDTH // 2, 96 + rule // 2 + 4), subtitle, font=small, fill=INK, anchor="ms")
+    # The rule is as wide as the word and no wider, with the air of a margin on each side.
+    half = min(130, int(text_width(draw, title, big) / 2) + 24)
+    draw.line((WIDTH // 2 - half, 96, WIDTH // 2 + half, 96), fill=INK, width=2)
+    draw.text((WIDTH // 2, 96 + 70 // 2 + 4), subtitle, font=small, fill=INK, anchor="ms")
     return picture
+
+
+def the_drawing(picture: Image.Image) -> Image.Image:
+    """**El dibuix i no el paper que el volta** (0.183.4, the owner: *«per qué l'splash charging i lowbatt
+    són a pantalla completa? són blancs de fons!»*). A picture is drawn on the canvas the artist wanted —460 x 200
+    here— and the system drops its uniform border and centres what is left (`splash::drawing_of`), so the paper around
+    the ink is a size the file does not need: it is written, read from the disk, decoded and thrown away. **The file is
+    the ink it carries**, trimmed the same way the system trims it —a pixel two levels away from the paper is not part
+    of the drawing, which is what the dither of a flat area leaves— and the glass does not change, because what is
+    painted was the drawing and it is still centred (`splash::show`).
+    """
+    grey = picture.convert("L")
+    page = grey.getpixel((0, 0))
+    ink = grey.point(lambda v: 255 if abs(v - page) > 2 else 0)
+    box = ink.getbbox()
+    if box is None:
+        return grey
+    return grey.crop(box)
 
 
 def save(picture: Image.Image, name: str) -> None:
     path = os.path.join(OUT, name)
-    picture.convert("L").save(path, "PNG", optimize=True)
-    print(f"{path} {picture.width}x{picture.height}")
+    drawing = the_drawing(picture)
+    drawing.save(path, "PNG", optimize=True)
+    print(f"{path} {drawing.width}x{drawing.height}")
 
 
 def main(argv: list[str]) -> int:
@@ -248,6 +285,12 @@ def main(argv: list[str]) -> int:
     # is drawn with the drawings of the disk now (0.178.5), so a script of the owner that still carries it keeps running.
     del argv
     save(plain("reboot", "restarting"), "reboot.png")
+    # **Els moments que falten, tots amb la mateixa mà** (0.183.0): the way down, the cable and the three that arrived with
+    # the battery and the error. **`lowbatt.png` i `charging.png` no es fan aquí** (0.183.1): són les dues pàgines del
+    # projecte vell, copiades del seu codi, i les fa `tools/make_splash_from_paperos.py` (docs/50).
+    save(plain("poweroff", "it is safe to close the lid"), "poweroff.png")
+    save(plain("sleep", "the board is resting"), "sleep.png")
+    save(plain("oops", "the system stopped"), "oops.png")
     return 0
 
 

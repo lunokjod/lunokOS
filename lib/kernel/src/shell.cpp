@@ -3856,6 +3856,39 @@ LeaveOutcome leave_one_page() {
   return LeaveOutcome::kClosed;
 }
 
+// **Tancar l'app de debò** (0.185.0, l'amo: *«"Close" ha de tancar l'app, no anar enrere, per aixó ja està "Back"»*): the road out
+// of a page gives **one page** back and the app stays in front, which is what a pinch means. The cross of the card says «close»
+// and closes the **app**, whatever pages it has on top: the views go with it and the page that asked for it takes the glass
+// back, which is the return the last page already has. A launcher is refused, because a board with no page at all is a board a
+// person has to reach with a cable (docs/30, docs/45).
+LeaveOutcome close_the_app() {
+  if (!g_app_alive) return LeaveOutcome::kNothing;
+  if (app_in_front_is_a_launcher()) {
+    log_printf(pal::kLogInfo, "APPS", "%s is a launcher: it is the one page that is not left", app_id());
+    return LeaveOutcome::kLauncher;
+  }
+  log_printf(pal::kLogInfo, "APPS", "%s is closed with %u view(s) on top", app_id(),
+             static_cast<unsigned>(apps::views()));
+  close_app();
+  if (start_the_one_that_asked()) return LeaveOutcome::kClosedHome;
+  prompt();
+  return LeaveOutcome::kClosed;
+}
+
+// **La baixada del sistema, una vegada** (0.185.0): the `poweroff` line of the prompt did this in its own body and the card of
+// the panel needs the same four steps —the picture of the moment, the line out, the wait for the glass, and the supply—, so it is
+// a function and not a second copy: a power off that skips the wait leaves the last page of somebody's app on the glass (docs/50).
+bool power_off(const char* reason) {
+  if (reason != nullptr && reason[0] != '\0') log_printf(pal::kLogInfo, "POWER", "power off: %s", reason);
+  splash::show(power::going_down_picture(/*deep=*/false));
+  pal::IConsole* console = pal::system().console();
+  if (console != nullptr) console->flush();  // the line has to be out before the supply goes
+  splash::wait();
+  if (!platform().power()->power_off()) return false;
+  shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
+  return true;
+}
+
 bool poll_app() {
   // **The next step of an install, in the turn and not inside the answer** (0.86.0): the queue of the radio has to be
   // empty and the page of before given back, and that is the turn after (found on the emulator, 4/11, docs/30, docs/75).
@@ -4633,21 +4666,13 @@ bool execute(char* line) {
   // is the one of a board that cannot —the ATOMs hold nothing to switch— and the person is told
   // instead of being left in front of a board that did nothing (docs/50).
   if (strcmp(line, "poweroff") == 0) {
-    // **The picture of the moment, and then the supply**: the line is written after
-    // the wash so that what is left on the glass is the goodbye of the system and not
-    // the last page of somebody's app (docs/50).
-    splash::show(splash::kPowerOff);
+    // **The picture of the moment, and then the supply**: the sequence is `power_off`, the same one the card of the panel
+    // asks for, so the prompt and a finger do exactly the same thing to the glass (0.185.0, docs/50).
     out("powering off...\r\n");
-    pal::IConsole* console = pal::system().console();
-    if (console != nullptr) console->flush();  // the line has to be out before the supply goes
-    // **And the glass has the goodbye on it before the supply goes** (0.165.1): the picture is a `gc16` of the whole
-    // panel and cutting the power in the middle of it leaves the last page of somebody's app (docs/50).
-    splash::wait();
-    if (!platform().power()->power_off()) {
+    if (!power_off("the prompt")) {
       error_out("this board cannot cut its own power: it holds nothing to switch off\r\n");
       return false;
     }
-    shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
     return true;
   }
   // **A terminal that does not answer is not a terminal without colour for ever**: the question is one

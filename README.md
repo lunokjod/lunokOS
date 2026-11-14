@@ -274,3 +274,9 @@ finestra. Els detalls són a [80 · Compilació i proves](docs/80-compilacio-i-p
 **GNU Affero General Public License, versió 3** — el text sencer és a `LICENSE`, a l'arrel. És
 copyleft i, a diferència de la GPL, també compta l'ús **per xarxa**: qui faci servir una versió
 modificada com a servei ha de publicar el codi que hi ha darrere.
+
+**Les marques de la targeta de la barra són clipart i no són meves**: `data/res/icons/*.png` i els
+mestres de `tools/icons/system/` surten de **Font Awesome Free 5.15.4** —els glifs sota **SIL OFL
+1.1** i les icones sota **CC BY 4.0**—, que és la mateixa família de què el projecte del paper va
+treure les seves marques. El crèdit és de Font Awesome (<https://fontawesome.com>) i el catàleg
+sencer i la llicència són al paquet; `tools/iconart.py` només els rasteritza.

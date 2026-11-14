@@ -1,0 +1,9 @@
+{
+  "title": "Splash",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "splash.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "Every picture the system paints on the glass outside a page: the boot, the way down, the restart, the cable, the deep sleep, the battery that is over and the error.\nThe list is the system's own —a page that copied it would lie the day a moment is added— and choosing one puts it on the glass the way the system does it: the whole panel washed and the drawing in the middle at its own size, on the paper its own border asks for. A tap gives the page back."
+}

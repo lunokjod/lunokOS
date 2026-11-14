@@ -636,6 +636,12 @@ bool It8951::flush(UpdateMode mode) {
     why_ = "the panel is not up";
     return false;
   }
+  if (resting_) {
+    // **A panel that has been told to sleep is not asked to paint** (0.183.0): it is the last word of a board that is
+    // going to stop, and a paint sent after it is a page that goes nowhere (docs/50).
+    why_ = "the panel has gone to sleep";
+    return false;
+  }
   if (dead_) {
     why_ = "the panel does not answer";
     return false;
@@ -964,6 +970,28 @@ bool It8951::engine_over() {
 bool It8951::idle() {
   // The controller says whether the last paint is over. It is asked and not waited on (docs/50).
   return engine_over();
+}
+
+// **El panell reposa, i és l'últim que se li demana** (0.183.0): the maker's shutdown writes `IT8951_TCON_SLEEP` before the
+// supplies go, because a controller left awake under a supply that is being cut is a controller asking for what it no longer
+// has. The command takes no argument, the paint in flight is waited for first —a sleep that arrives in the middle of one is
+// a page half drawn on a glass nobody will see again— and after it the controller answers nothing until `SYS_RUN`, which is
+// the first word of `begin()` at the next boot (docs/50).
+bool It8951::rest() {
+  if (!ready_) {
+    why_ = "the panel was not up";
+    return false;
+  }
+  if (!idle() && !wait_paint(3000)) {
+    why_ = "the panel was still painting";
+    return false;
+  }
+  if (!command(kCmdSleep, nullptr, 0)) {
+    why_ = "the panel did not take the sleep";
+    return false;
+  }
+  resting_ = true;
+  return true;
 }
 
 bool It8951::wait_paint(uint32_t timeout_ms) {

@@ -402,7 +402,10 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // first —after the app is closed and before the chip stops— so a person finds the reason it went dark instead of
   // the last page of an app that is no longer there. A light sleep is a nap and paints nothing: the board keeps what
   // it has and is back in a moment (docs/30, docs/50, docs/92).
-  if (mode == hal::SleepMode::kDeep) splash::show(splash::kPowerOff);
+  // **I el motiu és el que diu la imatge** (0.183.0): a deep sleep is `sleep`, and a board whose battery is under the mark
+  // says `lowbatt` —the reason it is going down is the one a person has to know—, which is one function and not a branch
+  // here (docs/50).
+  if (mode == hal::SleepMode::kDeep) splash::show(going_down_picture(/*deep=*/true));
   // **And the ink of the picture is over before the chip stops** (0.165.1): the deep sleep cuts the clocks where the call
   // found them, so a picture asked for and not waited on is a picture that nobody sees (docs/50).
   if (mode == hal::SleepMode::kDeep) splash::wait();
@@ -531,6 +534,35 @@ bool battery(int& mv, int& pct, bool& charging) {
   meter::Scope scope(meter::kPowerBattery);
   if (g_power == nullptr) return false;
   return g_power->battery(mv, pct, charging);
+}
+
+// **La bateria que s'ha acabat** (0.183.0): one question with one rule —a gauge that answers, no cable in the slot, and a
+// charge at or under the mark— so that the boot, the way down and `power` cannot disagree about a board that is over. A
+// board whose gauge says nothing is not a flat board, and the answer says so by being false (docs/50).
+bool battery_is_low(int& pct) {
+  pct = 0;
+  int mv = 0;
+  bool charging = false;
+  if (!battery(mv, pct, charging)) return false;
+  return !charging && pct <= static_cast<int>(kLowBatteryPercent);
+}
+
+// **The picture of the boot when the battery is what it is** (0.183.0): the drawing the person chose, unless the cell is
+// under the mark, and then `lowbatt` — a board that comes up with nothing left says it once, on the one page nobody has to
+// ask for (docs/50).
+splash::Kind boot_picture(const char* chosen, bool known, int pct, bool charging) {
+  if (known && !charging && pct <= static_cast<int>(kLowBatteryPercent)) return splash::kLowBattery;
+  const splash::Kind moment = splash::kind_of(chosen);
+  return (moment == splash::kNone) ? splash::kBoot : moment;
+}
+
+// **The picture of the way down** (0.183.0): the reason the board stops is what the glass says. A deep sleep is `sleep`
+// —the board comes back by itself and the picture is the promise of it—, a board whose battery has gone is `lowbatt`, and
+// everything else is the goodbye of `poweroff`. A light sleep is a nap and paints nothing (docs/50).
+splash::Kind going_down_picture(bool deep) {
+  int pct = 0;
+  if (battery_is_low(pct)) return splash::kLowBattery;
+  return deep ? splash::kSleep : splash::kPowerOff;
 }
 
 uint32_t cpu_mhz() { return (g_power != nullptr) ? g_power->cpu_mhz() : 0; }

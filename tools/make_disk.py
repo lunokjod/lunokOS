@@ -247,7 +247,9 @@ def rebuild():
     # leaves two of the three out is a rule nobody can explain.
     left_out = 0
     if not glass_of_board():
-        for name in ("res/splash", "res/fonts", "epub"):
+        # **And the marks of the card of the bar are the same rule** (0.185.1): the arrows, the cross, the wheel, the circle and
+        # the switch are read by `panel.cpp` and by nothing of a board with no glass.
+        for name in ("res/splash", "res/fonts", "res/icons", "epub"):
             path = os.path.join(DISK_DIR, name)
             if os.path.isdir(path):
                 left_out += sum(len(names) for _, _, names in os.walk(path))

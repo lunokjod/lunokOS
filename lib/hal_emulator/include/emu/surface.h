@@ -40,6 +40,12 @@ class MemorySurface : public hal::ISurface {
   // **Why a paint was refused**, in the words of the driver of the Paper (`--ink-refuse`), for the line the caller
   // writes (0.118.2, docs/50, docs/85).
   const char* last_error() const override { return why_; }
+  // **The panel of the emulator goes to sleep like the board's** (0.183.0): it says so to the console and refuses the paints
+  // that come after, which is what the controller of the Paper does with the command. A test that asks the glass for a
+  // picture after the way down would otherwise get a page, and the board gets nothing (docs/50, docs/85).
+  bool rest() override;
+  // Whether the sleep has been asked for, which is what a test reads.
+  bool resting() const { return resting_; }
 
   // What a test asks: the pixels themselves, and how the panel was asked to work.
   const uint8_t* bits() const { return bits_; }
@@ -118,6 +124,8 @@ class MemorySurface : public hal::ISurface {
   uint32_t busy_until_ms_ = 0;
   // The sentence of the last refusal, as the driver of the board says it (docs/50).
   const char* why_ = "";
+  // Whether the panel has been told to sleep (0.183.0).
+  bool resting_ = false;
   // **A flash that is running**: the region, the quality that asked for it, when it started and when it
   // is over. Zero in `flash_until_ms_` is no flash, and `flash_stage_` says which of the three moments
   // the glass is in (white, black, the image) (docs/85).

@@ -7,6 +7,7 @@
 
 #include "emu/ink.h"
 #include "emu/options.h"
+#include "hal/log.h"
 #include "pal/pal.h"
 
 namespace emu {
@@ -247,6 +248,12 @@ void MemorySurface::wait_and_pump(uint32_t us) {
 bool MemorySurface::flush(hal::UpdateMode mode) {
   ++flushes_;
   last_mode_ = mode;
+  if (resting_) {
+    // **A glass that has been told to sleep paints nothing** (0.183.0): the same answer the controller of the Paper gives,
+    // and the reason is said instead of a page that goes nowhere (docs/50).
+    why_ = "the panel has gone to sleep";
+    return false;
+  }
   // **One paint at a time**, as on the board: the controller starts an engine per paint and the driver
   // asks for the previous one to be over before sending the next (`wait_paint`, docs/50). A present of
   // two qualities is two paints, so the second waits here for the first —and a flash still running is
@@ -536,6 +543,17 @@ bool MemorySurface::idle() {
   if (!options().delays) return true;
   step_ink();
   return static_cast<uint32_t>(pal::system().millis()) >= busy_until_ms_;
+}
+
+// **The sleep of the glass** (0.183.0): the emulator says it out loud and from then on refuses the paints with the reason the
+// driver of the Paper gives, because a run that paints after the way down must fail the same way the board does (docs/50,
+// docs/85).
+bool MemorySurface::rest() {
+  if (resting_) return true;
+  resting_ = true;
+  hal::logf(pal::kLogInfo, "PANEL", "the panel is told to sleep: %ux%u", static_cast<unsigned>(width_),
+            static_cast<unsigned>(height_));
+  return true;
 }
 
 uint8_t MemorySurface::level_at(uint16_t x, uint16_t y) const {

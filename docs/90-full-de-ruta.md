@@ -595,7 +595,8 @@ aquest paginador es del sistema?»*. Sí que ho era —el peu d'`ui.list`, la 0.
 
 L'`about` i el visor de les cares són les dues pàgines que l'ensenyen, i el cas
 `test_the_foot_of_a_list_is_the_paginator_of_the_system` el subjecta: la bola de la pàgina que es llegeix és un disc i la
-de les altres és una anella, i el peu cau sota l'última fila (les dues coses fallen amb el codi de la 0.174.1).
+de les altres és una anella (les dues coses fallen amb el codi de la 0.174.1). La tercera cosa que subjectava —el peu
+**sota l'última fila**— la va desfer la 0.183.2, que el torna a posar al fons de la caixa (docs/30).
 
 ### `/fonts` és una porta, i el visor de les cares (10/11)
 

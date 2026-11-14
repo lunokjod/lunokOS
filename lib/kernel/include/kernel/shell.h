@@ -110,6 +110,15 @@ enum class LeaveOutcome {
 // because «leave this page» is one meaning and three gestures that mean it differently are three behaviours (docs/30).
 LeaveOutcome leave_one_page();
 
+// **Tancar l'app de debò, i apagar** (0.185.0, the card of the panel asks for both). `leave_one_page` gives **one page** back
+// and leaves the app in front, which is what a pinch means; the cross of the card says «close» and closes **the app**, whatever
+// pages it has on top, and the page that asked for it takes the glass back —the same return the last page has when it goes by
+// itself— (the owner: *«"Close" ha de tancar l'app, no anar enrere, per aixó ja està "Back"»*). A launcher is refused, and
+// `power_off` is the sequence the `poweroff` line of the prompt does: the picture of the moment, its wait, and the supply
+// (docs/30, docs/50).
+LeaveOutcome close_the_app();
+bool power_off(const char* reason);
+
 // The app of the alarm goes to the front: what was in front is closed and this
 // app is started in its place (docs/60).
 bool raise_app(const char* id);

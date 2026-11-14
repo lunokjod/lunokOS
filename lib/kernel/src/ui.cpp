@@ -25,6 +25,7 @@
 #include "kernel/display.h"
 #include "kernel/font.h"
 #include "kernel/fs_ops.h"
+#include "kernel/splash.h"
 #include "kernel/touch.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
@@ -56,6 +57,11 @@ const size_t kSlotTableBytes = 512u * 1024u;
 const uint16_t kMinSlots = 32;
 Canvas* g_canvases = nullptr;
 uint16_t g_canvas_count = 0;
+
+// **Whether the strip of the system owes its place** (0.183.0): a picture of a moment washes the whole panel, the bar with it,
+// and the page that comes back is what puts it there again (`present_for_lua`). It is up here because the present of a page and
+// the splash of a moment are two ends of the file and this is the one word between them (docs/30, docs/50).
+bool g_splash_took_the_strip = false;
 
 // **The table of canvases, from the extra memory** and cut to what it will take: the block asked for is halved
 // until the allocator says yes, so a board with little extra memory gets fewer slots instead of no display, and a
@@ -188,8 +194,17 @@ bool boxes_touch(const Damage& a, const Damage& b) {
          static_cast<int32_t>(a.y) <= by1 && static_cast<int32_t>(b.y) <= ay1;
 }
 
+// **The quality that reaches the glass when two pieces of damage become one**, which is defined with the rest of the map
+// below and is asked here first (docs/50).
+hal::UpdateMode stronger_mode(hal::UpdateMode kept, hal::UpdateMode other);
+
 // **One region when the caller says so, and the groups that touch otherwise** (0.179.57): a page that owes the whole glass
 // is one paint —the wash of `gc16` is one region and not forty— and a present of a page with two separate changes is two.
+// **And the quality of the present is a floor and not a ceiling** (0.184.0): a region goes up with the quality the present
+// asked for **or with the one a control asked for when it is stronger**. The text box that hides the cross of its button asks
+// for one clean pass of itself —hiding ink on this panel is erasing it— and the present of the app, which knows nothing about
+// that cross, downgraded it to `du` and left the cross at five sixteenths on the glass: a command a person sees and cannot
+// press. It is the rule the full list of damage already followed when it becomes one region (docs/30, docs/50).
 void merge_all(Canvas& canvas, hal::UpdateMode mode, bool one_region = false) {
   if (canvas.damage_count == 0) return;
   if (!one_region && canvas.damage_count > 1) {
@@ -224,7 +239,7 @@ void merge_all(Canvas& canvas, hal::UpdateMode mode, bool one_region = false) {
         }
       }
     }
-    for (uint8_t i = 0; i < canvas.damage_count; ++i) canvas.damage[i].mode = mode;
+    for (uint8_t i = 0; i < canvas.damage_count; ++i) canvas.damage[i].mode = stronger_mode(canvas.damage[i].mode, mode);
     return;
   }
   uint16_t x0 = canvas.damage[0].x;
@@ -242,7 +257,7 @@ void merge_all(Canvas& canvas, hal::UpdateMode mode, bool one_region = false) {
   canvas.damage[0].y = y0;
   canvas.damage[0].w = static_cast<uint16_t>(x1 - x0);
   canvas.damage[0].h = static_cast<uint16_t>(y1 - y0);
-  canvas.damage[0].mode = mode;
+  canvas.damage[0].mode = stronger_mode(canvas.damage[0].mode, mode);
   canvas.damage_count = 1;
 }
 
@@ -1578,6 +1593,118 @@ void image_row(void* context, uint16_t source_y, const uint8_t* packed) {
 const uint32_t kImageFileBytes = 2u << 20;
 const uint32_t kImageScratchBytes = 3u << 20;
 
+// **La marca d'un botó, dibuixada fora i portada com una imatge** (0.185.1): the five marks of the card of the bar —the
+// arrow, the cross, the wheel, the circle that starts again and the switch— are **drawings** and not a table of lines in this
+// file: `tools/iconart.py` makes them the way the paper project made its icons, in a box of 448 reduced in one pass, and the
+// kernel reads `/res/icons/<name>.png` and writes it in the face of the key. **The levels of the file are mapped to the face
+// of the key**: the paper of the drawing is the paper of the key and its ink is the ink —or the two the other way round, which
+// is a key with the finger on it—, so a mark stays readable when the key turns over and the artwork can carry the greys of the
+// panel without knowing which state it is drawn in (docs/30, docs/45, docs/92).
+struct IconPlace {
+  Canvas* canvas = nullptr;
+  int32_t x = 0;
+  int32_t y = 0;
+  int32_t w = 0;
+  int32_t h = 0;
+  uint32_t source_w = 0;
+  uint32_t source_h = 0;
+  uint8_t paper = 15;
+  uint8_t ink = 0;
+};
+
+void icon_row(void* context, uint16_t source_y, const uint8_t* packed) {
+  IconPlace& place = *static_cast<IconPlace*>(context);
+  if (place.canvas == nullptr || place.source_h == 0 || place.source_w == 0) return;
+  const int32_t first =
+      static_cast<int32_t>((static_cast<int64_t>(source_y) * place.h) / place.source_h);
+  int32_t last = static_cast<int32_t>((static_cast<int64_t>(source_y + 1) * place.h) / place.source_h);
+  if (last <= first) last = first + 1;
+  for (int32_t target = first; target < last; ++target) {
+    for (int32_t column = 0; column < place.w; ++column) {
+      const uint32_t source_x =
+          static_cast<uint32_t>((static_cast<int64_t>(column) * place.source_w) / place.w);
+      const uint32_t at = (source_x < place.source_w) ? source_x : place.source_w - 1;
+      const uint8_t byte = packed[at / 2];
+      const uint8_t level = ((at & 1) == 0) ? static_cast<uint8_t>(byte >> 4)
+                                            : static_cast<uint8_t>(byte & 0x0F);
+      // **El paper del dibuix és la cara de la clau** (15 in the file is the face, 0 is the mark): the two ends are the
+      // face's own and everything between them keeps the drawing's greys (docs/30).
+      const int32_t mapped = static_cast<int32_t>(place.paper) +
+                             static_cast<int32_t>(15 - level) *
+                                 (static_cast<int32_t>(place.ink) - static_cast<int32_t>(place.paper)) / 15;
+      put_pixel(*place.canvas, place.x + column, place.y + target,
+                static_cast<uint8_t>((mapped < 0) ? 0 : ((mapped > 15) ? 15 : mapped)));
+    }
+  }
+}
+
+// **The picture of a mark on a canvas, or false when there is no such file**: the folder of the drawings of the system is
+// `/res/icons`, it is read with the decoder every picture of this board is read with, and a board that does not carry it keeps
+// the mark the kernel draws with its own primitives (`draw_icon`) —a key with no picture is a key with the drawing this system
+// had, and not a key with a hole in it— (docs/30, docs/45).
+bool picture_of_a_mark(Canvas& view, const char* name, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t paper,
+                       uint8_t ink, hal::UpdateMode mode) {
+  if (name == nullptr || name[0] == '\0' || w <= 0 || h <= 0) return false;
+  // **La marca és quadrada i no s'estira** (0.185.3): the five pictures are a square of 64 and the box they are given is not
+  // always one —the top of a key with a word under it is as wide as the key—, so what is drawn is the **biggest square that
+  // fits**, centred. A mark stretched to the width of a key is a gear that is an oval, which is a drawing nobody made.
+  const int32_t side = (w < h) ? w : h;
+  x += (w - side) / 2;
+  y += (h - side) / 2;
+  w = side;
+  h = side;
+  char path[64];
+  snprintf(path, sizeof(path), "/res/icons/%s.png", name);
+  hal::Stat info;
+  if (!vfs::stat(path, info) || info.type != hal::NodeType::kFile || info.size == 0 ||
+      info.size > kImageFileBytes) {
+    return false;
+  }
+  void* block = nullptr;
+  {
+    meter::Scope scope(meter::kExtraAlloc);
+    block = pal::extra_memory().allocate(static_cast<size_t>(info.size) + 1, true);
+  }
+  if (block == nullptr) return false;
+  size_t read = 0;
+  const uint8_t* data = static_cast<const uint8_t*>(block);
+  if (!vfs::read_file(path, static_cast<char*>(block), static_cast<size_t>(info.size), read) ||
+      read != static_cast<size_t>(info.size)) {
+    pal::extra_memory().release(block);
+    return false;
+  }
+  img::Info picture;
+  bool ok = img::read_info(data, static_cast<uint32_t>(read), picture) == img::kOk && picture.width > 0 &&
+            picture.height > 0;
+  void* scratch = nullptr;
+  if (ok) {
+    const uint32_t scratch_bytes = img::scratch_bytes(data, static_cast<uint32_t>(read));
+    if (scratch_bytes > 0) {
+      meter::Scope scope(meter::kExtraAlloc);
+      scratch = pal::extra_memory().allocate(scratch_bytes, true);
+      if (scratch == nullptr) ok = false;
+    }
+    if (ok) {
+      IconPlace place;
+      place.canvas = &view;
+      place.x = x;
+      place.y = y;
+      place.w = w;
+      place.h = h;
+      place.source_w = picture.width;
+      place.source_h = picture.height;
+      place.paper = paper;
+      place.ink = ink;
+      ok = img::decode(data, static_cast<uint32_t>(read), img::RowSink(icon_row, &place),
+                       static_cast<uint8_t*>(scratch), scratch_bytes) == img::kOk;
+      if (ok) mark_box(view, x, y, w, h, mode);
+    }
+  }
+  if (scratch != nullptr) pal::extra_memory().release(scratch);
+  pal::extra_memory().release(block);
+  return ok;
+}
+
 // Why a picture could not be read, in the words a person reads, and the code an app branches on (docs/30).
 const char* image_why(img::Status status, const char*& code) {
   switch (status) {
@@ -1638,6 +1765,15 @@ bool canvas_invert_for_lua(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uin
 }
 
 bool present_for_lua(const char* mode) {
+  // **Una pàgina que torna després d'una imatge torna la barra** (0.183.0): a splash washes the whole panel —the strip of the
+  // system with it— and its own place is not painted again by anybody: the clock and the charge are the bar's, and the bar
+  // only paints when it has something new. An app that puts a moment on the glass and comes back is the moment the strip is
+  // owed, and it is asked for here and not at the splash itself, because a bar painted while the picture is up is a strip
+  // of the system over somebody's drawing (docs/30, docs/50).
+  if (g_splash_took_the_strip) {
+    g_splash_took_the_strip = false;
+    bar::refresh();
+  }
   if (mode == nullptr) return present();
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!display::mode_from_name(mode, chosen)) return false;
@@ -1862,6 +1998,27 @@ bool icon_grid_ring_for_lua(int16_t slot, uint8_t count, uint8_t from, uint8_t t
   return icon_grid_ring(slot, count, from, to, cursor_moved, columns, scale, cells_of_the_kernel);
 }
 
+// **Les imatges dels moments, per a una pàgina** (0.183.0): the list and the picture are the kernel's and the interpreter
+// only carries them, so a page that offers the moments of the system is a page that reads them. A word this build does not
+// know is a path —that is the prompt's rule and it is the same call— and a moment that has no picture says why through
+// `last_error` (docs/30, docs/50).
+uint8_t splash_count_for_lua() { return splash::count(); }
+const char* splash_word_for_lua(uint8_t index) { return splash::word(splash::at(index)); }
+
+bool splash_show_for_lua(const char* moment_or_path) {
+  if (moment_or_path == nullptr || moment_or_path[0] == '\0') return false;
+  const splash::Kind moment = splash::kind_of(moment_or_path);
+  const bool done = (moment != splash::kNone) ? splash::show(moment) : splash::show(moment_or_path);
+  // **La barra del sistema queda deuda** (0.183.0): the wash of a picture takes the strip with it and nothing paints it again
+  // until the page that comes back asks for it (`present_for_lua`) (docs/50).
+  if (done) g_splash_took_the_strip = true;
+  return done;
+}
+
+bool splash_hide_for_lua() { return splash::hide(); }
+
+const char* splash_error_for_lua() { return splash::last_error(); }
+
 }  // namespace
 
 // **The present that keeps the boxes apart** (0.168.1), declared here because the table of the ops is filled a few lines
@@ -1987,6 +2144,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      calendar::days_in_month,
                                      textbox_draw,
                                      textbox_inside,
+                                     textbox_clear_box,
                                      keyboard_show,
                                      keyboard_hide,
                                      keyboard_visible,
@@ -2020,6 +2178,11 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      invert_for_lua,
                                      canvas_invert_for_lua,
                                      textbox_column_at});
+  // **I les imatges dels moments del sistema** (0.183.0): one call of a page can put the picture of the boot, of the way
+  // down, of the battery or of the error on the glass, which is what a page that offers them needs and what it cannot do
+  // by drawing: the wash of a moment is the whole panel and the picture is a file of the disk (docs/30, docs/50).
+  luabind::set_splash_ops(luabind::SplashOps{splash_count_for_lua, splash_word_for_lua, splash_show_for_lua,
+                                             splash_hide_for_lua, splash_error_for_lua});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -2906,6 +3069,192 @@ bool label_draw(int16_t slot, const char* text, uint8_t color, uint8_t backgroun
   return true;
 }
 
+// ---- the marks of the system (0.185.0) ----
+//
+// **Un botó sense vores és el seu dibuix** (l'amo: *«vull que siguin UIButton, però sense vores i amb una imatge/icona com a
+// contingut»*): a key of the card of the bar has no frame and no shadow, so what a person sees is the mark and nothing else,
+// and the mark has to say what the key does at the size of it —thirty-two pixels on this glass—. They are drawn here, in two
+// levels and with the primitives of this file, and not loaded from a picture: a mark of the system that lived on the disk
+// would be a splash of the whole glass when the disk is not there, and one drawing serves the card, an app's button and the
+// case that counts their ink (docs/30, docs/92).
+namespace {
+
+struct Icon {
+  const char* name;
+};
+
+const Icon kIcons[] = {
+    {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"},
+};
+const uint8_t kIconCount = static_cast<uint8_t>(sizeof(kIcons) / sizeof(kIcons[0]));
+
+// **A line of a mark, which is two or three pixels thick**: a one-pixel line is a line an e-ink panel eats, and the same
+// thickness for every mark is what makes five drawings one set (docs/30, docs/50).
+void icon_line(Canvas& view, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t thickness, uint8_t level,
+               hal::UpdateMode mode) {
+  for (int32_t i = 0; i < thickness; ++i) {
+    const int32_t shift = i - thickness / 2;
+    draw_line(view, x0 + shift, y0 + shift, x1 + shift, y1 + shift, level, mode);
+  }
+}
+
+// **La punta plena d'una fletxa** (0.185.0): a mark of thirty-eight pixels has no room for a head of two lines —it read as a
+// comma on the glass— so the head of the restart is a triangle walked row by row, which is the same arithmetic `fillTriangle`
+// does in the paper project and not a second shape of this file (docs/30, docs/92).
+void icon_triangle(Canvas& view, int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t cx, int32_t cy, uint8_t level,
+                   hal::UpdateMode mode) {
+  const int32_t top = (ay < by) ? ((ay < cy) ? ay : cy) : ((by < cy) ? by : cy);
+  const int32_t bottom = (ay > by) ? ((ay > cy) ? ay : cy) : ((by > cy) ? by : cy);
+  if (bottom <= top) return;
+  // For every row, the two edges that cross it give the run of ink: the triangle is filled and not outlined, and a mark of
+  // this size is a shape and not a drawing.
+  for (int32_t row = top; row <= bottom; ++row) {
+    int32_t left = 0;
+    int32_t right = 0;
+    bool any = false;
+    const int32_t xs[3] = {ax, bx, cx};
+    const int32_t ys[3] = {ay, by, cy};
+    for (uint8_t i = 0; i < 3; ++i) {
+      const uint8_t j = static_cast<uint8_t>((i + 1) % 3);
+      const int32_t y0 = ys[i];
+      const int32_t y1 = ys[j];
+      if (y0 == y1) {
+        if (row != y0) continue;
+        const int32_t a = (xs[i] < xs[j]) ? xs[i] : xs[j];
+        const int32_t b = (xs[i] < xs[j]) ? xs[j] : xs[i];
+        if (!any) {
+          left = a;
+          right = b;
+          any = true;
+        } else {
+          if (a < left) left = a;
+          if (b > right) right = b;
+        }
+        continue;
+      }
+      if (row < ((y0 < y1) ? y0 : y1) || row > ((y0 < y1) ? y1 : y0)) continue;
+      const int32_t x = xs[i] + ((xs[j] - xs[i]) * (row - y0)) / (y1 - y0);
+      if (!any) {
+        left = x;
+        right = x;
+        any = true;
+      } else {
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+    }
+    if (!any || right < left) continue;
+    put_rect(view, left, row, right - left + 1, 1, level);
+  }
+  mark_box(view, (ax < bx ? (ax < cx ? ax : cx) : (bx < cx ? bx : cx)), top,
+           (ax > bx ? (ax > cx ? ax : cx) : (bx > cx ? bx : cx)) -
+                   (ax < bx ? (ax < cx ? ax : cx) : (bx < cx ? bx : cx)) + 1,
+           bottom - top + 1, mode);
+}
+
+// **A ring of that radius, with a piece of it missing** (the `reboot` and the `poweroff` marks): the midpoint circle of this file,
+// walked as eight symmetric points and dropping the ones a predicate refuses. **The gap is a test on the way the point is from the
+// middle** —a quadrant and a share of the radius— and not an angle in radians, because there is no cosine in this file and an
+// eighth of a circle is two comparisons (docs/30, docs/92).
+enum class RingGap { kWhole, kTopRight, kTop };
+
+void icon_ring(Canvas& view, int32_t cx, int32_t cy, int32_t radius, RingGap gap, uint8_t level,
+               hal::UpdateMode mode) {
+  if (radius <= 0) return;
+  const int32_t third = radius / 3;
+  auto refused = [gap, radius, third](int32_t dx, int32_t dy) {
+    if (gap == RingGap::kTopRight) return dx > third && dy < -third;  // the quarter of the top-right
+    if (gap == RingGap::kTop) return dy < 0 && dx > -radius / 2 && dx < radius / 2;
+    return false;
+  };
+  int32_t dx = radius;
+  int32_t dy = 0;
+  int32_t err = 1 - radius;
+  while (dx >= dy) {
+    const int32_t points[8][2] = {{dx, dy}, {dy, dx}, {-dy, dx}, {-dx, dy},
+                                  {-dx, -dy}, {-dy, -dx}, {dy, -dx}, {dx, -dy}};
+    for (uint8_t i = 0; i < 8; ++i) {
+      if (refused(points[i][0], points[i][1])) continue;
+      put_pixel(view, cx + points[i][0], cy + points[i][1], level);
+    }
+    ++dy;
+    if (err < 0) {
+      err += 2 * dy + 1;
+    } else {
+      --dx;
+      err += 2 * (dy - dx) + 1;
+    }
+  }
+  mark_box(view, cx - radius, cy - radius, 2 * radius + 1, 2 * radius + 1, mode);
+}
+
+}  // namespace
+
+bool an_icon_named(const char* name) {
+  if (name == nullptr) return false;
+  for (uint8_t i = 0; i < kIconCount; ++i) {
+    if (strcmp(kIcons[i].name, name) == 0) return true;
+  }
+  return false;
+}
+
+const char* icon_at(uint8_t index) { return (index < kIconCount) ? kIcons[index].name : ""; }
+
+uint8_t icon_count() { return kIconCount; }
+
+// **Les cinc marques, una funció** (0.185.0): every mark is drawn in the box it is given, centred, with a reach of thirty per
+// cent of the shorter side, so a key of sixty-four and a button of a hundred carry the same drawing at two sizes.
+bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t width, int32_t height, uint8_t level,
+               hal::UpdateMode mode) {
+  if (name == nullptr || width <= 0 || height <= 0 || !an_icon_named(name)) return false;
+  const int32_t side = (width < height) ? width : height;
+  const int32_t cx = x + width / 2;
+  const int32_t cy = y + height / 2;
+  const int32_t reach = (side * 34) / 100;
+  const int32_t stroke = (side >= 32) ? 3 : 2;
+  if (reach < 5) return false;
+  if (strcmp(name, "back") == 0) {
+    // **Una fletxa cap a l'esquerra**: the shaft and a head of two arms, which is the way back in every hand of this glass.
+    icon_line(view, cx - reach, cy, cx + reach, cy, stroke, level, mode);
+    icon_line(view, cx - reach, cy, cx - reach / 2, cy - reach / 2, stroke, level, mode);
+    icon_line(view, cx - reach, cy, cx - reach / 2, cy + reach / 2, stroke, level, mode);
+  } else if (strcmp(name, "close") == 0) {
+    // **Una creu**: the two diagonals of the command, the same mark the box of a text box empties itself with.
+    icon_line(view, cx - reach, cy - reach, cx + reach, cy + reach, stroke, level, mode);
+    icon_line(view, cx + reach, cy - reach, cx - reach, cy + reach, stroke, level, mode);
+  } else if (strcmp(name, "settings") == 0) {
+    // **Una roda dentada**: the ring, the hub and eight teeth, which is the one mark that says «the things of the system»
+    // without a word. The teeth are the eight directions of a table and not a cosine, and they are short: a tooth as long as
+    // the ring is a sun, which is the mark of a brightness and not of a setting (measured on the emulator, docs/30, docs/92).
+    const int32_t ring = (reach * 60) / 100;
+    icon_ring(view, cx, cy, ring, RingGap::kWhole, level, mode);
+    icon_ring(view, cx, cy, ring - 3, RingGap::kWhole, level, mode);
+    draw_disc(view, cx, cy, reach / 5, level, mode);
+    const int32_t tooth[8][2] = {{1000, 0}, {707, 707}, {0, 1000}, {-707, 707}, {-1000, 0}, {-707, -707}, {0, -1000}, {707, -707}};
+    for (uint8_t i = 0; i < 8; ++i) {
+      const int32_t ax = cx + (tooth[i][0] * (ring - 3)) / 1000;
+      const int32_t ay = cy + (tooth[i][1] * (ring - 3)) / 1000;
+      const int32_t bx = cx + (tooth[i][0] * reach) / 1000;
+      const int32_t by = cy + (tooth[i][1] * reach) / 1000;
+      icon_line(view, ax, ay, bx, by, stroke + 1, level, mode);
+    }
+  } else if (strcmp(name, "reboot") == 0) {
+    // **Una fletxa circular**: a ring with its top-right quarter missing and **a filled head** on the end of the arc that is left,
+    // pointing the way the arc goes, which is the mark of a thing that starts again (docs/30, docs/92).
+    icon_ring(view, cx, cy, reach, RingGap::kTopRight, level, mode);
+    const int32_t tip_x = cx + (reach * 60) / 100;
+    const int32_t tip_y = cy - (reach * 78) / 100;
+    icon_triangle(view, tip_x, tip_y, tip_x - reach / 2, tip_y - reach / 4, tip_x - reach / 4, tip_y + reach / 2, level,
+                  mode);
+  } else {
+    // **El símbol d'apagar**: the ring with a gap at the top and the stem through it, which is the one mark the world
+    // already agrees on.
+    icon_ring(view, cx, cy + reach / 5, reach, RingGap::kTop, level, mode);
+    icon_line(view, cx, cy - reach, cx, cy + reach / 5, stroke, level, mode);
+  }
+  return true;
+}
+
 // **The drawing of a button, and it is the one thing that draws a key of this system** (0.97.0, docs/92): the paper
 // project's `Button::draw`, number by number. It is a function of its own and not the body of `button_draw` because the
 // options of a menu are buttons too, and a second drawing of a button would be a second look for the same control.
@@ -2924,7 +3273,8 @@ bool label_draw(int16_t slot, const char* text, uint8_t color, uint8_t backgroun
 //   - and the word is centred in what the tag leaves, with sixteen pixels of air on each side.
 void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_t x, int32_t y, int32_t width,
                   int32_t height, uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
-                  const char* title, const char* tag, uint8_t color, uint8_t scale, hal::UpdateMode mode) {
+                  const char* title, const char* tag, uint8_t color, uint8_t scale, hal::UpdateMode mode,
+                  bool framed = true, const char* icon = nullptr, uint8_t mark_side = kMarkAbove) {
   if (width <= 0 || height <= 0 || scale == 0) return;
   int32_t radius = 14;
   const int32_t most = ((width < height) ? width : height) / 3;
@@ -2933,31 +3283,106 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
   int32_t lift = 4;
   const int32_t lift_cap = height / 3;
   if (lift > lift_cap) lift = lift_cap;
+  // **Un botó sense vores no té ombra on enfonsar-se** (0.185.0): the shadow is what a key of paper sinks into, and a key
+  // whose face is the paper of its page has no paper of its own to give. It sinks the way this drawing already sinks a
+  // selected one: **the face goes to the ink and the mark to the paper**, which on a card of the system is the whole of what
+  // a person sees move (docs/30, docs/92).
+  if (!framed) lift = 0;
   const int32_t drop = pressed ? lift : 0;
   const int32_t face_y = y + drop;
   const int32_t face_h = height - lift;
   const bool selected = (pressed || focused);
   const uint8_t face_level = selected ? border : background;
   const uint8_t text_level = selected ? background : color;
+  // **Un sol buffer per a la paraula** (0.185.3): the two uses of it —the word beside a mark and the word of a button with no
+  // mark— are never both in one paint, and half a kilobyte of `.dram0.bss` twice is a chip that does not link (the board's
+  // build was 272 bytes over when this was two buffers, docs/75).
+  static char shown[512];
 
-  // 1. **The box, in the colour of the shadow**: ink under the face while the button is up, and paper while it is down.
-  draw_round_fill(view, x, y, static_cast<uint16_t>(width), static_cast<uint16_t>(height), radius,
-                  (pressed || lift == 0) ? background : border, mode);
-  // 2. The face, which is where all the ink of the button is.
-  draw_round_fill(view, x, face_y, static_cast<uint16_t>(width), static_cast<uint16_t>(face_h), radius, face_level,
-                  mode);
-  // 3. **The frame goes on the face and not on the box**, or it would stay where it was while the button goes down:
-  // one pixel, and **three on a primary button**, which is the only one that wears a frame with weight. And it is drawn
-  // only when the button is not selected, because on a black face a black frame is nothing: what has to call for
-  // attention is the fill (docs/92).
-  if (!selected) {
-    const int32_t thickness = primary ? 3 : 1;
-    for (int32_t i = 0; i < thickness; ++i) {
-      if (width - 2 * i < 2 || face_h - 2 * i < 2) break;
-      const int32_t r = (radius > i) ? (radius - i) : 1;
-      draw_round_bevel(view, x + i, face_y + i, static_cast<uint16_t>(width - 2 * i),
-                       static_cast<uint16_t>(face_h - 2 * i), r, border, border, mode);
+  if (!framed) {
+    // **Les cantonades de la clau són el paper de la targeta** (0.185.0): the scratch canvas of a button of the panel is a block
+    // of the extra memory and it starts black, so a face of paper with a corner of fourteen left four black brackets on the glass
+    // —a frame nobody asked for—. The box is paper first and the face is drawn over it (measured on the emulator, docs/30, docs/50).
+    draw_clear(view, background, mode);
+    draw_round_fill(view, x, y, static_cast<uint16_t>(width), static_cast<uint16_t>(height), radius, face_level, mode);
+  } else {
+    // 1. **The box, in the colour of the shadow**: ink under the face while the button is up, and paper while it is down.
+    draw_round_fill(view, x, y, static_cast<uint16_t>(width), static_cast<uint16_t>(height), radius,
+                    (pressed || lift == 0) ? background : border, mode);
+    // 2. The face, which is where all the ink of the button is.
+    draw_round_fill(view, x, face_y, static_cast<uint16_t>(width), static_cast<uint16_t>(face_h), radius, face_level,
+                    mode);
+    // 3. **The frame goes on the face and not on the box**, or it would stay where it was while the button goes down:
+    // one pixel, and **three on a primary button**, which is the only one that wears a frame with weight. And it is drawn
+    // only when the button is not selected, because on a black face a black frame is nothing: what has to call for
+    // attention is the fill (docs/92).
+    if (!selected) {
+      const int32_t thickness = primary ? 3 : 1;
+      for (int32_t i = 0; i < thickness; ++i) {
+        if (width - 2 * i < 2 || face_h - 2 * i < 2) break;
+        const int32_t r = (radius > i) ? (radius - i) : 1;
+        draw_round_bevel(view, x + i, face_y + i, static_cast<uint16_t>(width - 2 * i),
+                         static_cast<uint16_t>(face_h - 2 * i), r, border, border, mode);
+      }
     }
+  }
+  // **La marca del sistema en lloc de la paraula** (0.185.0): a key that carries a mark of the system draws it centred in the
+  // face and has no word —a cross, an arrow and a gear are not words of a language— and it is the same drawing the panel of
+  // the bar, an app's button and the case that counts their ink come to (docs/30, docs/92). **La del disc primer** (0.185.1):
+  // the five marks are drawings of `tools/iconart.py` and the key reads `/res/icons/<name>.png`; the lines this file draws are
+  // what a board without the folder shows, so a card is never five empty keys (docs/30, docs/45).
+  //
+  // **I amb una paraula, la marca comparteix la clau** (0.185.3): a key of the card of the bar says what it does, and the two
+  // things have to fit in it without one eating the other. The mark keeps a **square of the face's height** —a mark is round or
+  // square and a stretched one is a mark drawn wrong—, at the side `mark_side` names or on top of the word, and the word is
+  // centred in what is left, cut by that width like every word of this drawing (docs/30, docs/92).
+  if (icon != nullptr && icon[0] != '\0') {
+    const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) *
+                           static_cast<int32_t>(scale);
+    const bool has_word = (title != nullptr && title[0] != '\0' && line_h > 0 && line_h < face_h);
+    int32_t mark_x = x;
+    int32_t mark_y = face_y;
+    int32_t mark_w = width;
+    int32_t mark_h = face_h;
+    int32_t word_x = x;
+    int32_t word_w = width;
+    int32_t word_y = face_y + (face_h - line_h) / 2;
+    if (has_word) {
+      const int32_t air = 8;
+      if (mark_side == kMarkLeft || mark_side == kMarkRight) {
+        // **La marca a la vora i la paraula a la resta**: the corners of the card point outwards —the arrow to the left and the
+        // cross to the right— and a key that carried its mark always on the same side would be two corners that look the same
+        // (docs/30, docs/92).
+        mark_h = face_h;
+        mark_w = (face_h <= width - 2 * air) ? face_h : (width - 2 * air);
+        mark_y = face_y;
+        mark_x = (mark_side == kMarkLeft) ? (x + air) : (x + width - air - mark_w);
+        const int32_t from = (mark_side == kMarkLeft) ? (mark_x + mark_w + air) : (x + air);
+        const int32_t to = (mark_side == kMarkLeft) ? (x + width - air) : (mark_x - air);
+        word_x = from;
+        word_w = to - from;
+        word_y = face_y + (face_h - line_h) / 2;
+      } else {
+        // **La marca a sobre i la paraula a sota**: a key as wide as it is tall reads as a mark with its name under it, which is
+        // what the three of the middle of the card are (docs/30, docs/92).
+        mark_x = x;
+        mark_y = face_y;
+        mark_w = width;
+        mark_h = face_h - line_h;
+        word_x = x;
+        word_w = width;
+        word_y = face_y + mark_h;
+      }
+    }
+    if (!picture_of_a_mark(view, icon, mark_x, mark_y, mark_w, mark_h, face_level, text_level, mode)) {
+      draw_icon(view, icon, mark_x, mark_y, mark_w, mark_h, text_level, mode);
+    }
+    if (!has_word || word_w <= 0) return;
+    const uint16_t shown_w = label_text(face_slot, title, static_cast<uint16_t>(word_w), scale, shown,
+                                        sizeof(shown));
+    draw_text(view, face, word_x + (word_w - static_cast<int32_t>(shown_w)) / 2, word_y, shown, scale,
+              text_level, mode);
+    return;
   }
   // 4. **The tag and the word, inside the face**: a tag is a small word in an outlined box at the left —the same ink as
   // the word and not a fill— and the word is centred in what is left on its right. Both measurements come out of the
@@ -2982,7 +3407,6 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
   if (title != nullptr && title[0] != '\0' && text_width > 0 && line_h > 0) {
     // **The word is cut by the control and not by the frame**: the prefix that fits and three dots, which is what a
     // label does, so a button and a label end the same way (docs/30, docs/90).
-    static char shown[512];
     const uint16_t shown_w =
         label_text(face_slot, title, static_cast<uint16_t>(text_width), scale, shown, sizeof(shown));
     const int32_t word_x = text_left + (text_width - static_cast<int32_t>(shown_w)) / 2;
@@ -2992,14 +3416,16 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
 }
 
 bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
-                 bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale) {
+                 bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale,
+                 bool framed, const char* icon, uint8_t mark_side) {
   if (!live(slot) || background > 15 || border > 15 || color > 15 || scale == 0 || scale > 16) return false;
   const Canvas& button = g_canvases[slot];
   if (button.width == 0 || button.height == 0) return true;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return false;
   paint_button(*target.canvas, button.face, face_of(button.face), target.x, target.y, button.width, button.height,
-               background, border, pressed, focused, primary, title, tag, color, scale, hal::UpdateMode::kDu);
+               background, border, pressed, focused, primary, title, tag, color, scale, hal::UpdateMode::kDu,
+               framed, icon, mark_side);
   // **The frame is opaque, and it covers everything inside it**: a child that did not redraw would be erased by the
   // button's own fill, so the child is asked to draw again whenever the frame does. **And a child is not inverted**: it
   // is a control the app paints with the colours the app gave it, and this system does not reach inside another
@@ -3027,7 +3453,8 @@ bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed,
 // the counters are saved and put back around the drawing.
 bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                     uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
-                    const char* title, uint8_t color, uint8_t scale) {
+                    const char* title, uint8_t color, uint8_t scale, bool framed,
+                    const char* icon, uint8_t mark_side) {
   // **A nibble a pixel, so a width that is not even is refused**: half a byte is a pixel and an odd width would shift
   // every row of the control.
   if (width == 0 || height == 0 || (width & 1u) != 0 || scale == 0 || scale > 16) return false;
@@ -3048,7 +3475,7 @@ bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t wid
   const uint16_t levels = g_levels;
   const uint16_t paints = g_paints;
   paint_button(view, -1, font::system_face(), 0, 0, width, height, background, border, pressed, focused, primary,
-               title, nullptr, color, scale, hal::UpdateMode::kDu);
+               title, nullptr, color, scale, hal::UpdateMode::kDu, framed, icon, mark_side);
   g_levels = levels;
   g_paints = paints;
   surface.blit(x, y, width, height, static_cast<const uint8_t*>(block), stride);
@@ -3761,6 +4188,11 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t 
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
                  static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
   const int32_t footer = (pages > 1) ? static_cast<int32_t>(list_footer(row_height)) : 0;
+  // **Comptar les files que hi caben no es fa servir per pintar** (0.183.2): the rows of a page are the kernel's arithmetic
+  // and the app was already told how many they are (`list_page_of`), so this call paints the rows it is given and stops
+  // where the foot begins. It stays in the signature because it is the number the caller and the paint agreed on, and a
+  // paint that ignored it would be a list saying two things about its own page.
+  (void)rows;
   const int32_t last_row = height - footer;
   for (uint8_t i = 0; i < count; ++i) {
     const int32_t row_y = static_cast<int32_t>(i) * static_cast<int32_t>(row_height);
@@ -3774,13 +4206,12 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t 
               static_cast<uint8_t>(i + 1) == marked, separator && (i + 1 < count), mode);
   }
   if (footer > 0) {
-    // **The foot sits under the last row and not at the bottom of the box** (0.174.2, the owner: *«a la part d'abaix has
-    // posat un pager? perqué ocupa tant espai i es veu tant petit?»*): the band is the box the app gave the list less the
-    // rows that are on it, and a list with more room than rows used to leave that air **between** the last row and its
-    // pager, which reads as a page that lost its end. The leftover paper is under the foot, where a page ends (docs/90).
-    const int32_t on_page = (rows > 0) ? static_cast<int32_t>(rows) : static_cast<int32_t>(count);
-    const int32_t used = on_page * static_cast<int32_t>(row_height);
-    const int32_t band_y = target.y + ((used + footer <= height) ? used : (height - footer));
+    // **The foot goes to the bottom of the box, the lowest it can be** (0.183.2, the owner: *«a long list usually has the
+    // paginator under it, and it has to be as far down in the control as it goes, to leave the most room to the entries of
+    // the list»*): the band is the last rows of the box the app gave the list, and the rows above it are the page. It
+    // used to sit **under the last row** (0.174.2), which left the leftover paper between the rows and the dots: the
+    // paginator is the end of the list and the end of a list is its edge (docs/30, docs/90).
+    const int32_t band_y = target.y + height - footer;
     // **The line closes the page when the rows are the list's own** (0.176.0): a list of data paints its rows here and the
     // last of them has no separator —the separator belongs to the row above the next one, and there is none—, so the foot
     // draws it at the top of its band. A list of **entries** (`count` 0: the rows are controls of the app) brings its own
@@ -3827,6 +4258,46 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t 
 
 // ---- a text box: the window of the text and the caret (docs/90) ----
 
+namespace {
+
+// **L'aire entre el text i el botó** (0.184.0): six pixels, which is the air the frame already puts between the ink and the
+// border, so a line of text and the cross are two things with room in between (docs/30, docs/90).
+const int32_t kClearGap = 6;
+
+// **El quadre del botó que buida la caixa** (0.184.0): a square as tall as a line of the face, inside the frame and its air,
+// at the right end of the box. **One function for the paint and for the finger**, because two copies of this arithmetic are a
+// button a person sees in one place and presses in another (docs/30, docs/90).
+struct ClearSquare {
+  int32_t x = 0;
+  int32_t y = 0;
+  int32_t side = 0;
+};
+
+ClearSquare clear_square_of(const Canvas& box, uint8_t scale) {
+  ClearSquare square;
+  if (scale == 0) scale = 1;
+  const font::Face& face = face_of(box.face);
+  const int32_t width = box.width;
+  const int32_t height = box.height;
+  const int32_t thickness = (width > 24 && height > 16) ? 2 : 1;
+  const int32_t pad = thickness + 6;
+  const int32_t line_h =
+      static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  int32_t side = line_h;
+  const int32_t most = height - 2 * thickness - 4;
+  if (side > most) side = most;
+  // **A box with no room keeps no button**: a cross of six pixels is a smudge and a box left with no room for its words is a
+  // box nobody can read, so the button is not drawn and the text keeps the whole inside (docs/30, docs/90).
+  if (side < 10) return square;
+  square.side = side;
+  square.x = width - pad - side;
+  square.y = (height - side) / 2;
+  if (square.x < pad) return ClearSquare();
+  return square;
+}
+
+}  // namespace
+
 // **The caret is a block of the size of a letter** (0.92.0): under a letter it is that letter, and at the end of the
 // text —where there is no letter to take the width from— it is an `M`, the widest of the small ones, instead of the
 // three-pixel hairline the first boxes drew. A cursor a person has to look for is a cursor that is not there
@@ -3843,7 +4314,7 @@ static int32_t caret_cell_width(const font::Face& face, const char* under, int32
 }
 
 bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
-                  uint8_t background, uint8_t border, uint8_t scale) {
+                  uint8_t background, uint8_t border, uint8_t scale, bool clear, uint8_t clear_color) {
   if (!live(slot) || color > 15 || background > 15 || border > 15) return false;
   const Canvas& box = g_canvases[slot];
   const int32_t width = box.width;
@@ -3853,22 +4324,57 @@ bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, b
   if (scale > 16) scale = 16;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return false;
-  const hal::UpdateMode mode = hal::UpdateMode::kDu;
   const font::Face& face = face_of(box.face);
   // The frame is the one of a chip, the same as a slider: it is a place a person types into and not a button.
   int32_t radius = 8;
   const int32_t most = ((width < height) ? width : height) / 3;
   if (radius > most) radius = most;
   const int32_t thickness = (width > 24 && height > 16) ? 2 : 1;
+  // **El botó que buida la caixa, i el text que no el trepitja** (0.184.0): the square is as tall as a line of the face and it
+  // takes its room from the **inside of the frame**, so the window of the text —the window and the tail both— stops where the
+  // cross begins. A text that ran under the button would be a text a person cannot read and a button drawn over a letter
+  // (docs/30, docs/90).
+  const ClearSquare square = clear_square_of(box, scale);
+  const bool with_button = clear && square.side > 0;
+  // **El marc on la creu marxa és el que neteja** (0.184.0): a box hides its button while it is written into, and hiding ink
+  // on this panel is **erasing** it —`du` paints and does not clean, which the emulator showed as the cross left at five
+  // sixteenths: a command a person sees and cannot press—. The pass that cleans is `gc16`, so it is asked once, on the frame
+  // where the cross goes away, and the box is quick again from the next one. The flag is the canvas's because it is that
+  // box's ink, and it is written here so the paint after it knows whether there is a cross on the glass (docs/30, docs/50).
+  hal::UpdateMode mode = hal::UpdateMode::kDu;
+  if (!with_button && g_canvases[slot].cross_on_the_glass) mode = hal::UpdateMode::kGc16;
+  g_canvases[slot].cross_on_the_glass = with_button;
   draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, border, mode);
   draw_round_fill(*target.canvas, target.x + thickness, target.y + thickness, width - 2 * thickness,
                   height - 2 * thickness, radius - thickness, background, mode);
   const int32_t pad = thickness + 6;
   const int32_t inner_x = target.x + pad;
-  const int32_t inner_w = width - 2 * pad;
+  const int32_t inner_w = width - 2 * pad - (with_button ? (square.side + kClearGap) : 0);
   const int32_t line_h =
       static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
   const int32_t top = target.y + (height - line_h) / 2;
+  if (with_button) {
+    // **La creu del botó** (0.184.0): two diagonals of the middle two thirds of the square, with a stroke of two or three
+    // pixels —a line of one pixel is a line an e-ink panel eats— and in the ink of the words, because it is a command of the
+    // control and not a picture (docs/30, docs/90). The square has no frame: it is a button of this system, which is a word
+    // or a mark and no box around it.
+    const int32_t inset = square.side / 6;
+    const int32_t from = square.x + inset;
+    const int32_t to = square.x + square.side - 1 - inset;
+    const int32_t top_y = square.y + inset;
+    const int32_t bottom_y = square.y + square.side - 1 - inset;
+    const int32_t stroke = (square.side >= 24) ? 3 : 2;
+    for (int32_t i = 0; i < stroke; ++i) {
+      const int32_t shift = i - stroke / 2;
+      const int32_t left = target.x + from + shift;
+      const int32_t right = target.x + to + shift;
+      // **Les dues diagonals creuades**: the first one goes down to the right and the second one down to the left, and the two
+      // together are the cross of a command —the first version of this drew the same diagonal twice, which is a slash and not a
+      // cross— (docs/30, docs/90).
+      draw_line(*target.canvas, left, target.y + top_y, right, target.y + bottom_y, clear_color, mode);
+      draw_line(*target.canvas, right, target.y + top_y, left, target.y + bottom_y, clear_color, mode);
+    }
+  }
   close_draw(target);
   if (inner_w <= 0) return true;
   // **Una caixa sense text es una caixa buida, i el bloc s'hi ha de pintar** (0.179.66): the draw stopped when the text was
@@ -4041,6 +4547,22 @@ uint16_t textbox_inside(int16_t slot, uint8_t scale) {
   const int32_t thickness = (box.width > 24 && box.height > 16) ? 2 : 1;
   const int32_t inside = static_cast<int32_t>(box.width) - 2 * (thickness + 6);
   return static_cast<uint16_t>((inside > 0) ? inside : 0);
+}
+
+// **El quadre del botó que buida la caixa** (0.184.0), in the control's own pixels, for the finger: it is the same square the
+// paint put the cross in (`clear_square_of`), and asking it here instead of measuring it again is what keeps a button that a
+// person sees and a button that a person presses the same button (docs/30, docs/90).
+bool textbox_clear_box(int16_t slot, uint8_t scale, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h) {
+  if (!live(slot)) return false;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const ClearSquare square = clear_square_of(g_canvases[slot], scale);
+  if (square.side <= 0) return false;
+  x = static_cast<uint16_t>(square.x);
+  y = static_cast<uint16_t>(square.y);
+  w = static_cast<uint16_t>(square.side);
+  h = static_cast<uint16_t>(square.side);
+  return true;
 }
 
 // ---- a box of several lines: the same box, with room to fall (docs/30, docs/90) ----

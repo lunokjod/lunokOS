@@ -334,7 +334,22 @@ void boot(hal::IPlatform& platform) {
   // (`LUNOK_GLASS`, docs/50, docs/75). What follows —the alarms, the radio, the sensors— is the same on both.
 #if LUNOK_GLASS
   display::boot(platform);
-  if (!splash::show(splash::kind_of(cfg::boot_splash()))) {
+  // **La bateria decideix la imatge de l'arrencada** (0.183.0): the gauge is asked here and not by `power::boot`, which has
+  // not run yet —it is after the shell— because this is the one page a person sees before anything else can tell them, and
+  // a board with a cell under the mark has to say it before it says its name. `power::boot_picture` is the rule and this is
+  // the reading (docs/50).
+  int boot_mv = 0;
+  int boot_pct = 0;
+  bool boot_charging = false;
+  hal::IPower* gauge = platform.power();
+  const bool battery_known = gauge != nullptr && gauge->battery(boot_mv, boot_pct, boot_charging);
+  const splash::Kind boot_moment =
+      power::boot_picture(cfg::boot_splash(), battery_known, boot_pct, boot_charging);
+  if (boot_moment == splash::kLowBattery) {
+    log_printf(pal::kLogWarn, "POWER", "the battery is at %d %% and there is no cable: the picture says so",
+               boot_pct);
+  }
+  if (!splash::show(boot_moment)) {
     log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
   } else {
     // **The first page of the system washes the picture away** (0.179.5): the splash paints the panel whole and none of its
@@ -468,7 +483,17 @@ void boot(hal::IPlatform& platform) {
     if (shell::start_app(home, /*splash=*/false)) {
       log_printf(pal::kLogInfo, "HOME", "%s", home);
     } else {
+      // **La cara del sistema que no té pàgina** (0.183.0): the home app is the page this board is supposed to present, and a
+      // boot that cannot present it is a system error and not a line in a log nobody is reading. The picture goes up on the
+      // glass with the reason under the stamp of the build, and the prompt is still the console's, which is the only door a
+      // board like this has left. **A panic cannot be painted** —the chip that panics is not driving the glass— so this is
+      // the one error of the system a person can be told about (docs/50).
       log_printf(pal::kLogWarn, "HOME", "no app '%s' on this disk; the prompt is yours", home);
+      if (!splash::show(splash::kOops)) {
+        log_printf(pal::kLogDebug, "SPLASH", "no picture of the error: %s", splash::last_error());
+      } else {
+        ui::owe_the_page();
+      }
     }
   }
 

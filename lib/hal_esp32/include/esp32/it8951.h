@@ -83,6 +83,10 @@ class It8951 : public ISurface {
   // Why the last step that failed failed, for the console: a paint that is refused without a reason is
   // a flash to find out which of five things it was (docs/50).
   const char* last_error() const override { return why_; }
+  // **The panel's own sleep, and the last word it is given** (0.183.0): `IT8951_TCON_SLEEP`, which is what the maker's
+  // `M5EPD_Driver::Sleep` writes and what its shutdown does before the supplies go. The controller stops answering
+  // until a boot writes `SYS_RUN` again, so a caller paints nothing after it (docs/50).
+  bool rest() override;
   // Waits —with a ceiling— until the paint engine of the controller has nothing in flight. A present
   // with two qualities is two paints and the second one cannot start on top of the first (docs/50).
   bool wait_paint(uint32_t timeout_ms);
@@ -157,6 +161,10 @@ class It8951 : public ISurface {
   uint8_t* image_ = nullptr;
   It8951Pins pins_;
   bool ready_ = false;
+  // **Whether the controller has been told to sleep** (0.183.0): the last word it is given, and a paint asked after it is
+  // a paint that would have gone to a controller that answers nothing. It is refused with the reason instead of being
+  // sent and lost (docs/50).
+  bool resting_ = false;
   bool bus_ = false;
   void* device_ = nullptr;  // spi_device_handle_t, kept out of the header
   uint32_t memory_ = 0;     // where the controller keeps the image, from `GetDeviceInfo`

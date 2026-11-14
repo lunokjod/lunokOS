@@ -296,6 +296,21 @@ bool ask_the_chip(int32_t now) {
   return true;
 }
 
+// **Quan s'acaba un contacte: quan el vidre diu que no hi ha dit, o quan ha callat tres escaneigs seus** (0.183.2). The
+// window was thirty milliseconds flat, which was three scans of a chip that reports every ten —the number this build
+// assumes for the GT911— and it is a window **of the glass that is there**: a panel that reports every twenty or thirty,
+// with the same thirty assumed, splits one finger into a run of contacts, and a contact that ends under a finger is a
+// **lift**: the row under it is clicked and the gesture that was a page never happens. `kQuietMs` stays as the floor for a
+// glass that does not say how often it scans, and **the lift of the panel is not a timeout any more**: `finger_still_down`
+// is the chip's own word about the frame it just handed over, so a frame with no points ends the contact in that turn
+// (docs/30, docs/50, docs/90).
+int32_t quiet_window_ms() {
+  const uint32_t scan = (g_glass != nullptr) ? g_glass->scan_ms() : 0;
+  if (scan == 0) return kQuietMs;
+  const int32_t three_scans = static_cast<int32_t>(scan) * 3;
+  return (three_scans > kQuietMs) ? three_scans : kQuietMs;
+}
+
 bool boot(hal::IPlatform& platform) {
   g_glass = platform.touch();
   g_clock = platform.clock();
@@ -338,7 +353,7 @@ void poll() {
     // the chip's in the same buffer, so turning a frame that is being kept turned it again on every poll and the finger
     // walked away on its own (found on the emulator, 3/11).
     turn_frame();
-  } else if (g_seen_ms < 0 || (now - g_seen_ms) >= kQuietMs) {
+  } else if (g_seen_ms < 0 || !g_glass->finger_still_down() || (now - g_seen_ms) >= quiet_window_ms()) {
     g_count = 0;
     g_seen_ms = -1;
   }

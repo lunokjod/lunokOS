@@ -431,6 +431,13 @@ class ISurface : public IDisplay {
   // not fail. A paint that is refused without a reason is a flash to find out which of five things it
   // was (docs/50).
   virtual const char* last_error() const { return ""; }
+  // **The panel goes to sleep, and this is the last thing it is asked** (0.183.0): the controller of the glass has a
+  // sleep of its own —`IT8951_TCON_SLEEP` on the Paper— and the maker's own shutdown writes it **before** the rails are
+  // cut, because a controller left awake on a supply that is going away keeps asking for what it no longer has. Nothing
+  // may paint after it: the controller answers nothing until `SYS_RUN`, which is what a boot writes. A board that is
+  // going to stop calls it, and one that is only going to sleep keeps its panel awake, because a deep sleep of this
+  // board takes the supply down anyway (docs/50).
+  virtual bool rest() { return false; }
 };
 
 // One finger on the glass, as the controller reports it (docs/50): where it is, how much of the
