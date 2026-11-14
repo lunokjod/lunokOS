@@ -9757,6 +9757,10 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_NOT_NULL(storage);
   storage->mkdir("/apps/life");
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/life/life.lua", "/apps/life/life.lua"));
+  // **The preferences of a run before this one are thrown away** (0.189.47): the app writes the two of its settings in its
+  // own folder, and a case that read them would be measuring the finger of the case before it (the lesson of the save of
+  // the 2048, 0.179.53).
+  storage->remove("/data/life/settings.txt");
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/life/manifest.json", "/apps/life/manifest.json"));
 
   // **Where the grid and the button are, said by the app** (the paper's `keys`, docs/45): a case that guessed a cell would
@@ -9784,6 +9788,43 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(cell_line, g_out);
   int cell = 0;
   TEST_ASSERT_EQUAL_INT_MESSAGE(1, sscanf(cell_line, "Life cell %d", &cell), cell_line);
+  // **And where the settings are** (0.189.47): the gear of the strip, the row of the wash and the two refresh times, said
+  // by the app for the same reason the board is.
+  const char* gear_line = strstr(g_out, "Life gear ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(gear_line, g_out);
+  int gx = 0;
+  int gy = 0;
+  int gw = 0;
+  int gh = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(gear_line, "Life gear %d %d %d %d", &gx, &gy, &gw, &gh), gear_line);
+  const char* wash_line = strstr(g_out, "Life wash ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(wash_line, g_out);
+  int wash_x = 0;
+  int wash_y = 0;
+  int wash_w = 0;
+  int wash_h = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(wash_line, "Life wash %d %d %d %d", &wash_x, &wash_y, &wash_w, &wash_h),
+                                wash_line);
+  const char* seg_line = strstr(g_out, "Life seg ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(seg_line, g_out);
+  int seg_x = 0;
+  int seg_y = 0;
+  int seg_w = 0;
+  int seg_h = 0;
+  int seg_next = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(5, sscanf(seg_line, "Life seg %d %d %d %d %d", &seg_x, &seg_y, &seg_w, &seg_h,
+                                          &seg_next),
+                                seg_line);
+  const char* pref_line = strstr(g_out, "Life pref ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(pref_line, g_out);
+  int pref_wash = -1;
+  int pref_speed = -1;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(pref_line, "Life pref %d %d", &pref_wash, &pref_speed), pref_line);
+  // A machine that has just wiped the app's folder has the two of them at their default: the wash on and 700 ms, which is
+  // the index 2 of the two the settings offer.
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, pref_wash, pref_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, pref_speed, pref_line);
+  TEST_ASSERT_TRUE_MESSAGE(gx >= 0 && gy >= 0 && gx + gw <= view.width && gy + gh <= view.height, gear_line);
 
   // **The board is SMALLER THAN THE VIEW, and that is not a taste**: the box of a generation and the box of the strip
   // must never touch, because the kernel turns a two-level pass of seven eighths of the glass into a wash —450 ms and
@@ -9899,6 +9940,58 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912"), g_out);
   TEST_ASSERT_GREATER_THAN_INT32_MESSAGE(0, painted_pixels(g_out), g_out);
 
+  // **The gear opens the page of the settings** (0.189.47): a whole page, in one wash that does not blink, and the world
+  // under it is paper —a stopped board and not a running one, because a person who is choosing what to do with it cannot
+  // be losing cells meanwhile—.
+  // **The wait of the ink is outside the capture** on purpose: the wash of the six generations paints the same line, and a
+  // case that caught it would be saying «a whole page» about the world and not about the settings (docs/85).
+  pump_turns(1200);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + gx + gw / 2),
+                                      static_cast<uint16_t>(view.y + gy + gh / 2)));
+  pump_turns(120);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(1200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912 mode 5 gld16"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "mode 1 du"), g_out);   // and the world under it is not running
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, page_level(static_cast<uint16_t>(grid_x + 2), static_cast<uint16_t>(grid_y + 2)),
+                                  "the board is paper under the settings");
+
+  // **The row of the wash takes the finger** and the choice is written where the app keeps it: its own file, because a
+  // preference is not the shape of a view (docs/30).
+  press_finger(panel, static_cast<uint16_t>(view.x + wash_x + wash_w / 2),
+               static_cast<uint16_t>(view.y + wash_y + wash_h / 2));
+  pump_turns(400);
+  char settings[128] = {0};
+  TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/life/settings.txt", settings, sizeof(settings)), settings);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(settings, "wash=0"), settings);
+
+  // **And the two refresh times are a choice of two**: the one on the left is 1200 ms and choosing it turns it over.
+  press_finger(panel, static_cast<uint16_t>(view.x + seg_x + seg_w / 2),
+               static_cast<uint16_t>(view.y + seg_y + seg_h / 2));
+  pump_turns(400);
+  memset(settings, 0, sizeof(settings));
+  TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/life/settings.txt", settings, sizeof(settings)), settings);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(settings, "speed=1"), settings);
+  // **The two segments are two boxes and not one**: the second starts after the first and there is paper between them.
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(seg_w, seg_next, seg_line);
+
+  // **The arrow goes back to the board**, which is painted whole with the clock running again —and the proof that the page of
+  // the settings is gone is that a finger where the box was is a cell of the world and not a choice: the file does not
+  // move—.
+  capture_begin();
+  press_finger(panel, static_cast<uint16_t>(view.x + bx + bw / 2), static_cast<uint16_t>(view.y + by + bh / 2));
+  pump_turns(1200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912"), g_out);
+  press_finger(panel, static_cast<uint16_t>(view.x + wash_x + wash_w / 2),
+               static_cast<uint16_t>(view.y + wash_y + wash_h / 2));
+  pump_turns(400);
+  memset(settings, 0, sizeof(settings));
+  TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/life/settings.txt", settings, sizeof(settings)), settings);
+  TEST_ASSERT_NULL_MESSAGE(strstr(settings, "wash=1"), settings);
+
   // **The centre key stops it**, and a stopped world asks the panel for nothing at all: the strip is painted once with the
   // word `paused` and after that there is no damage, which is what this case can see of a game that is not running.
   emu::press_key(0, true);
@@ -9913,6 +10006,22 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   kernel::shell::close_app();
   pump_captured(5, nullptr, 0);
   TEST_ASSERT_FALSE(kernel::app_running());
+
+  // **And the two choices are there for the run after this one** (0.189.47): the app is opened again and says what it read
+  // —the wash off and 1200 ms, which is the first of the two— because lasting is the whole point of a preference.
+  pump_captured(60, g_out, sizeof(g_out), "run life keys");
+  const char* again_line = strstr(g_out, "Life pref ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(again_line, g_out);
+  int again_wash = -1;
+  int again_speed = -1;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(again_line, "Life pref %d %d", &again_wash, &again_speed), again_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, again_wash, again_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, again_speed, again_line);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/data/life/settings.txt");
+  storage->remove("/data/life");
   storage->remove("/apps/life/life.lua");
   storage->remove("/apps/life/manifest.json");
   storage->remove("/apps/life");

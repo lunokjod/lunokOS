@@ -9005,7 +9005,25 @@ namespace kernel {
 //     glif, i dóna zero —o sigui que la marca sortia enganxada a la dreta del marc—. L'amplada es demana a la cara
 //     (`marks:text_width`) i és 45 px; l'alçada de la línia és més gran que la de la tinta (l'em fa 1792 unitats i la
 //     marca 40 px), i el mig de la caixa es troba amb set píxels de nudge, mesurats a l'emulador: deu a dalt i onze a baix.
-static const char kVersion[] = "0.189.46";
+// 0.189.47 — **el `Life` té una pàgina d'ajustos, i el món queda aturat a sota** (l'amo: *«fes una vista de settings i posa
+// un checkbox amb aquesta opció. Afegeix un botó amb una icona de roda dentada per anar a aquesta vista de settings. Afegeix
+// també un desplegable amb el temps de refresc, 700 o 1200»*):
+//   - **la roda dentada de la tira obre la pàgina i la fletxa que en pren el lloc torna enrere**, les dues amb la cara de
+//     tres marques (`random`, `cog` i `arrow_left` del clipart, `res/marks.ttf`); mentre és oberta el món no corre i torna
+//     com era —corrent o parat— quan la pàgina marxa, i el centre també hi torna (docs/30, docs/45);
+//   - **què s'hi tria**: si la pàgina es renta cada sis generacions —el `gld16` que el `du` necessita, que l'amo volia poder
+//     apagar— i amb quin dels **dos** temps de refresc corre: **1200 o 700 ms**, i les tecles laterals només canvien entre
+//     aquests dos (eren quatre). El desplegable és **un segment de dues caixes** i no una llista desplegable: dues coses en
+//     aquest vidre no demanen un menú, i la triada es gira (tinta plena i paper a dins);
+//   - **cada toc pinta la seva caixa i prou**, en la passada barata: una pàgina d'ajustos és paper que no es mou;
+//   - **i són preferències, no forma de vista**, o sigui que van al fitxer de l'app (`/data/life/settings.txt`, `fs.data`,
+//     docs/70) amb una línia de versió al davant i tornen la propera arrencada — el que docs/30 diu de les preferències i
+//     per què no són la sessió `state`, que és el que la pregunta de l'amo ha fet decidir (§5 bis de docs/45);
+//   - **la tira passa a dues línies curtes** (`gen 16   86 alive` i `700 ms` o `paused`): amb els dos botons al davant, la
+//     línia de sempre no hi cap —mesurat a l'emulador, on la cara del flaix és la més ampla que aquesta pàgina veu mai, i
+//     la línia té vint caràcters—, i la pista de les tecles se'n va a la pàgina dels ajustos, en tres línies de dinou;
+//   - **i `run life settings` obre l'app en aquesta pàgina**, que és com es mira des de l'emulador sense un dit a sobre.
+static const char kVersion[] = "0.189.47";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

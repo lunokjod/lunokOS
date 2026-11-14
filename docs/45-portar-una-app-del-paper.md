@@ -387,12 +387,20 @@ Les **disset** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`
   línia de paper que separa dues cel·les vives es dibuixa DINS de la cel·la de dalt i de la de l'esquerra, o
   sigui que qui toca una cel·la ha de repintar les vuit del costat o deixa una línia que no toca.
 - **Les tecles són de l'app i el centre segueix sent la sortida del sistema**: `on_button` llegeix el `spot` de
-  `button.list()` (centre = pausa, costats = velocitat), no espera res i no hi pinta —el bucle pinta la tira
-  quan el seu text és un altre—; els tres tocs del centre en un segon i mig tanquen l'app, i això no és una
-  cosa que un hook pugui prendre (docs/30).
-- **No té sessió `state`, i està dit al capçal** (§5 bis): el món, la velocitat i la pausa són la partida i la
-  decisió de la persona, i el paper les llençava en tancar. Una graella sense cap control no té forma de vista
-  per tornar-hi.
+  `button.list()` (centre = pausa, costats = el temps de refresc), no espera res i no hi pinta —el bucle pinta
+  les dues línies de la tira quan el seu text és un altre—; els tres tocs del centre en un segon i mig tanquen
+  l'app, i això no és una cosa que un hook pugui prendre (docs/30).
+- **I una pàgina d'ajustos, que és l'altra cosa que una pàgina d'aquesta app pot ser** (15/11, l'amo: *«fes una
+  vista de settings i posa un checkbox amb aquesta opció … i un desplegable amb el temps de refresc»*): la roda
+  dentada de la tira l'obre, la fletxa que en pren el lloc torna enrere, i el món queda **aturat a sota** mentre
+  es tria. Ofereix les dues coses que són decisió i no partida: **si la pàgina es renta cada sis generacions** i
+  **amb quin dels dos temps de refresc corre** (1200 o 700, i les tecles laterals només canvien entre aquests
+  dos). Cada toc pinta només la caixa que ha canviat, en la passada barata, perquè una pàgina d'ajustos és paper
+  que no es mou (docs/50). I els dos botons són marcs amb una marca del clipart —`random` i `cog`—, amb el mot de
+  reserva quan la cara no hi és.
+- **I el que es recorda és una preferència, no una forma de vista** (§5 bis): el món i la pausa moren amb l'app,
+  com al paper, i els dos ajustos viuen al fitxer de l'app (`/data/life/settings.txt`, `fs.data`) i tornen la
+  propera arrencada — que és el que docs/30 diu de les preferències i per què **no** van a la sessió `state`.
 - **`run life blank` arrenca el món buit I ATURAT**, perquè una generació d'un món buit és un mapa nou —la regla
   de l'avorriment de `step`— i la mà no arribaria a pintar la primera cel·la. És la porta que fa que la prova
   pugui comptar cel·les: paper, una cel·la girada pel dit, la del costat intacta, el botó de món nou que omple el

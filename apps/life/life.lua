@@ -2,11 +2,11 @@
 --
 -- Ported from the paper project (`data/app/Life/pos_launch.lua`, version 1.5.2) with **the screen and the behaviour
 -- whole** and the original's numbers (docs/45). A grid of thirty-pixel cells, two generations and a rule of three
--- lines; four speeds, a pause, a button of a new world and a finger that paints the world one cell at a time.
+-- lines; a pause, a button of a new world and a finger that paints the world one cell at a time.
 --
--- **EVERY GENERATION IS A PASS OF THE PANEL, AND THAT IS THE CLOCK.** That is why the speed is given in
--- MILLISECONDS —1200, 700, 400 and 250— and why the ceiling is the glass and not the processor: a generation that
--- paints nothing is a generation nobody sees.
+-- **EVERY GENERATION IS A PASS OF THE PANEL, AND THAT IS THE CLOCK.** That is why the refresh time is given in
+-- MILLISECONDS —the two the settings offer, 1200 and 700— and why the ceiling is the glass and not the processor: a
+-- generation that paints nothing is a generation nobody sees.
 --
 -- **TWO BOARDS AND NOTHING ELSE.** The new one is computed over the old —it cannot be done in place, because a cell
 -- that changes would affect its neighbours— and at the end the two swap roles. No new Lua table per generation: the
@@ -45,19 +45,25 @@
 -- after the fill. Erasing a pixel next to a dead cell would leave a row of paper that can never change, and the rows
 -- that can change are what buys the clean pass of a new map (the original's T99).
 --
--- **NO CONTROL TREE AND ONE BUTTON PAINTED BY HAND.** The page has no focusable control, so the dial of the board is
--- the app's: the centre pauses, the two sides change the speed, and none of the three costs a control. The button of
--- the strip is **a frame with the mark of a new world in it** —the `random` of FontAwesome, U+F074, the two arrows that
--- cross and come out the other way, which is what the world does when it is thrown away and made again— and the same
--- rectangle both paints it and takes the finger. The mark is a face of the app's own folder (`res/marks.ttf`, made by
--- `tools/make_keys.py` out of the same font as the keys of the time clock) and the word is what the button says when
+-- **NO CONTROL TREE AND EVERY BUTTON PAINTED BY HAND.** The page has no focusable control, so the dial of the board is
+-- the app's: the centre pauses, the two sides change the refresh time, and none of the three costs a control. The two
+-- buttons of the strip are **a frame with a mark of the clipart in it** —the `random` of FontAwesome (U+F074), which is
+-- what the world does when it is thrown away and made again, and the `cog` of the settings— and the same rectangles both
+-- paint them and take the finger. The marks are a face of the app's own folder (`res/marks.ttf`, made by
+-- `tools/make_keys.py` out of the same font as the keys of the time clock) and the words are what the buttons say when
 -- the face is not on the disk, the fallback the other apps have (docs/45). The centre key is also the system's way out
 -- —three presses inside a second and a half close the app— and a hook cannot take it away.
 --
--- **WHAT IS NOT REMEMBERED, AND WHY.** The world, the speed and the pause are the game and the person's choice, and
--- the original threw them away when the app closed; this port does the same. There is no `state` session because a
--- grid with no control has no shape left behind to rebuild: the board comes back as a new world, which is what the
--- paper did (docs/45 §5 bis).
+-- **AND A PAGE OF SETTINGS, WHICH IS THE OTHER THING A PAGE OF THIS APP CAN BE** (`setting`): the gear of the strip opens
+-- it, the arrow that takes its place goes back, and the world stays stopped underneath while a person chooses. The page
+-- offers the two things this app has that are a choice and not the game: **whether the page is washed every six
+-- generations** and **which of the two refresh times it runs at**. A tap paints only the box it changed, in the cheapest
+-- pass, because a page of settings is paper that does not move (docs/50).
+--
+-- **WHAT IS REMEMBERED AND WHAT IS NOT.** The world and the pause are the game, and they are thrown away when the app
+-- closes, as the paper did. The two settings are a **preference** —not the shape of a view— so they live in the app's own
+-- file (`/data/life/settings.txt`, `fs.data`) and the page comes back as the person left it, which is what docs/30 says of
+-- the things that go in `fs.data` and not in a `state` session (docs/30, docs/45 §5 bis).
 
 local caps = sys.caps()
 if not caps.display then
@@ -66,13 +72,13 @@ if not caps.display then
 end
 
 local Cell = 30                        -- the size a cell aims for, in pixels
-local Speeds = { 1200, 700, 400, 250 } -- how long a generation lasts, in ms
-local Top = 72                         -- the strip at the top: status and button
+local Speeds = { 1200, 700 }           -- how long a generation lasts, in ms: the two the settings offer
+local Top = 72                         -- the strip at the top: the counters and the two buttons
 local Inset = 8                        -- the paper the board keeps around it, and the reason it is there is in
                                        -- the header: the strip and the band of a generation never touch, so neither
                                        -- box is ever the glass (docs/50)
-local BtnW = 84                        -- the button of a new world, in pixels, and its
-local BtnH = 63                        -- ...height is the touch minimum
+local Btn = 63                         -- a button of the strip: square, and 63 is the touch minimum
+local BtnGap = 8                       -- the air between the two buttons and against the edge of the view
 
 -- **The two qualities this page asks for.** `du` is the fastest paint of this panel —two levels, 120 ms, no blink— and
 -- it is what a generation asks for; `gld16` is the house's clean —sixteen levels, 450 ms, no blink— and it is what a
@@ -105,18 +111,27 @@ local marks, marks_why = ui.load_font('/res/marks.ttf')
 if marks == nil then
   console.print('life: /res/marks.ttf: ' .. tostring(marks_why) .. ': the button says the word')
 end
-local kWorldMark = '\1'
+local kWorldMark, kGearMark, kBackMark = '\1', '\2', '\3'
 local kMarkScale = 5
+
+-- **THE TWO PREFERENCES OF THIS APP, AND WHERE THEY LIVE** (docs/30, docs/45): what the settings page offers is a
+-- **preference** —the wash and the refresh time— and a preference is not the shape of a view, so it goes to the app's own
+-- file and not to the `state` session, which is what the 2048 does with its game (docs/30, «el que no hi va»).
+local kSettingsFile = 'settings.txt'
+local washOn = true                    -- whether the page is washed every `kWashEvery` generations
+local setting = false                  -- true while the page of the settings is what the glass shows
+local wasPaused = false                -- what the board was before the settings took the glass
 
 local GridX, GridY                     -- where the board starts, in pixels of the view: the inset is the paper
 local GridW, GridH                     -- ...around it, and the box of the world is never the glass because of it
 local PageW, PageH                     -- the view, which is where the strip is laid out and what a page covers
+local StripW                           -- the room the counters have: the strip less the two buttons
 local Cols, Rows                       -- how many cells fit in the board
 local alive, fresh                     -- the two boards (0 and 1)
 local gen, live = 0, 0                 -- counters
 local paused = false
 local due = 0                          -- when the next generation is due
-local speed = 2
+local speed = 2                        -- an index into `Speeds`: the refresh time the person chose in the settings
 local whole = true                     -- true when what is on the glass is a brand new board
 local washes = 0                       -- generations painted with `du` since the last wash of the page
 
@@ -170,6 +185,7 @@ local function measure(w, h)
 
   GridX, GridY = Inset, Top + Inset
   GridW, GridH = w - 2 * Inset, h - GridY - Inset
+  StripW = w - Inset - 2 * Btn - 2 * BtnGap
   Cols, Rows = fits(GridW, GridH)
 
   alive, fresh = {}, {}
@@ -329,55 +345,72 @@ local function paintGrid()
   end
 end
 
+-- **TWO SHORT LINES AND NOT ONE LONG ONE** (measured on the emulator, where the face of the flash is the widest this page
+-- ever gets): `gen 16   86 alive` is seventeen characters and the strip has room for twenty, so the time of the refresh
+-- goes on a line of its own —it changes when a key is pressed and not with every generation— (docs/50).
 local function statusText()
-  return string.format('gen %d   %d alive   %s', gen, live,
-    paused and 'paused' or (Speeds[speed] .. ' ms'))
+  return string.format('gen %d   %d alive', gen, live)
 end
+
+local function speedText()
+  return paused and 'paused' or (Speeds[speed] .. ' ms')
+end
+
+-- The height of a line at a scale, which is what centring a word in a box needs (docs/30).
+local function line(scale) return scale * ui.line_height(1) end
 
 -- **THE COUNTERS ARE A LINE OF TEXT AND NOTHING ELSE**: they change with every generation, so they are a pass of their
 -- own, and the box is the line —not the strip— because the rows between here and the board would be air on the glass
 -- every time. It is papered first, because a counter that grows is a shorter number over a longer one.
 local function paintCounters()
-  ui.rect(0, 0, PageW - BtnW - 8, 40, 15)
-  ui.text(12, 4, statusText(), kSmall, 0)
+  ui.rect(0, 0, StripW, 36, 15)
+  ui.text(12, 2, statusText(), kSmall, 0)
 end
 
--- What the hand can do, under the counters. It says the same thing for ever, so it is painted with the page and never
--- again (docs/50: a page that is not painted costs nothing).
-local function paintHint()
-  ui.text(12, 38, 'Tap: a cell   Center: pause', kSmall, 0)
+-- **Whether it is running and how fast**, on the line under the counters: it is painted with a page and when a key or the
+-- settings change it, which is a pass of half a strip and not one per generation.
+local function paintSpeed()
+  ui.rect(0, 36, StripW, 36, 15)
+  ui.text(12, 38, speedText(), kSmall, 0)
 end
 
--- THE BUTTON, AND IT LIVES IN THE STRIP. Over the board it would be a box of rows that never change.
-local function buttonRect()
-  return PageW - BtnW - 8, 4, BtnW, BtnH
-end
+-- **THE TWO BUTTONS LIVE IN THE STRIP**, at its right end: the world and the settings. Over the board they would be a box
+-- of rows that never change.
+local function worldRect() return PageW - Inset - Btn, 4, Btn, Btn end
+local function gearRect() return PageW - Inset - 2 * Btn - BtnGap, 4, Btn, Btn end
 
-local function paintButton()
-  local x, y = buttonRect()
-
-  ui.frame(x, y, BtnW, BtnH, 0)
+-- **A BUTTON IS A FRAME WITH A MARK OF THE CLIPART IN IT** (docs/45): the mark is centred in the box and the face goes
+-- back afterwards, because the counters of the strip are letters and a page has one face at a time (docs/30).
+-- **The width is asked of the face itself**: `ui.text_width` is the measure of the *system* face and answers nothing for
+-- a glyph an app brought (found here, 15/11). And the line of this face is much taller than its marks —the em is 1792
+-- units and the mark 40 px in a box of 63—, so the line is centred and then nudged the seven pixels that land the ink in
+-- the middle of the box: gaps of ten and eleven, measured on the emulator.
+local function paintMark(x, y, width, height, mark, word)
+  ui.frame(x, y, width, height, 0)
 
   if marks == nil then
-    -- **The word, and the shortest one that fits**: `World` is what the button means and `New` is what the paper's key
-    -- said, so the box takes the long one when the face of the disk is the small table of the flash (docs/45).
-    local word = 'World'
-    if ui.text_width(word, kSmall) > BtnW - 12 then word = 'New' end
-    ui.text(x + math.floor((BtnW - ui.text_width(word, kSmall)) / 2), y + 15, word, kSmall, 0)
+    -- **The word when the face is not on the disk**, at the biggest size that fits the box: `World` is what the button
+    -- means and `New` is what the paper's key said (docs/45).
+    local scale = kSmall
+    while scale > 1 and ui.text_width(word, scale) > width - 10 do scale = scale - 1 end
+    ui.text(x + math.floor((width - ui.text_width(word, scale)) / 2), y + math.floor((height - line(scale)) / 2),
+      word, scale, 0)
     return
   end
 
-  -- **The mark is centred in the frame and the face goes back afterwards**, because the counters of the strip are
-  -- letters and a page has one face at a time (docs/30). The width is asked of the face itself: `ui.text_width` is the
-  -- measure of the **system** face and answers nothing for a glyph an app brought (found here, 15/11). And the line of
-  -- this face is much taller than its marks —the em is 1792 units and the mark 40 px in a box of 63—, so the line is
-  -- centred and then nudged the seven pixels that land the ink in the middle: gaps of ten and eleven, measured on the
-  -- emulator.
   ui.font(marks)
-  local w = marks:text_width(kWorldMark, kMarkScale)
+  local w = marks:text_width(mark, kMarkScale)
   local _, step = marks:size()
-  ui.text(x + math.floor((BtnW - w) / 2), y + math.floor((BtnH - step * kMarkScale) / 2) + 7, kWorldMark, kMarkScale, 0)
+  ui.text(x + math.floor((width - w) / 2), y + math.floor((height - step * kMarkScale) / 2) + 7, mark, kMarkScale, 0)
   ui.font(nil)
+end
+
+-- The two buttons of the board, and this is the only place that says which mark is which.
+local function paintButtons()
+  local gx, gy = gearRect()
+  paintMark(gx, gy, Btn, Btn, kGearMark, 'Set')
+  local bx, by = worldRect()
+  paintMark(bx, by, Btn, Btn, kWorldMark, 'World')
 end
 
 -- The page: the whole view in one pass of sixteen levels that does not blink, when the app opens, when the view is
@@ -391,8 +424,8 @@ local function paintPage()
   ui.rect(0, 0, PageW, PageH, 15)
   paintGrid()
   paintCounters()
-  paintHint()
-  paintButton()
+  paintSpeed()
+  paintButtons()
   ui.present(kPageMode)
   whole = false
   statusDirty = false
@@ -408,6 +441,8 @@ local function refresh()
     return
   end
 
+  if setting then return end
+
   boxesOfChange()
   paintBoxes()
   paintCounters()
@@ -416,16 +451,168 @@ local function refresh()
   washes = washes + 1
 end
 
+-- ---------------------------------------------------------------- the settings
+
+-- **WHAT THE SETTINGS OFFER, AND WHERE THEY LIVE.** Two preferences and nothing else: the wash of the page and the
+-- refresh time. They are not the shape of a view, so they are not the `state` session (docs/30, «el que no hi va»): the
+-- page opens on the board and a person who comes back finds the two choices they made, which is what a preference is.
+local Marg = 24                        -- the paper the settings keep on the left and the right
+local kWashRowY, kWashRowH = 116, 44   -- the wash: the whole row takes the finger and not the box of thirty-two
+local kSegY, kSegW, kSegH, kSegGap = 252, 180, 56, 12
+local kTitle = scale_for(57)
+local kBody = scale_for(43)
+
+local function washRect() return Marg, kWashRowY, PageW - 2 * Marg, kWashRowH end
+local function segRect(i) return Marg + (i - 1) * (kSegW + kSegGap), kSegY, kSegW, kSegH end
+
+-- The box of the wash, and its tick: the frame, the paper of the box and, when it is on, a block inside. Three boxes that
+-- touch are one paint (docs/30).
+local function paintWash()
+  ui.rect(Marg, kWashRowY + 6, 32, 32, 15)
+  ui.frame(Marg, kWashRowY + 6, 32, 32, 0)
+  if washOn then ui.rect(Marg + 9, kWashRowY + 15, 14, 14, 0) end
+end
+
+-- **The two refresh times, and the one chosen is turned over**: a segment of the two, which is a choice of two things and
+-- not a drop-down with a list nobody will read on this glass.
+local function paintSegments()
+  for i = 1, #Speeds do
+    local x, y = segRect(i)
+    local text = Speeds[i] .. ' ms'
+    local w = ui.text_width(text, kBody)
+    local top = y + math.floor((kSegH - line(kBody)) / 2)
+    if i == speed then
+      ui.rect(x, y, kSegW, kSegH, 0)
+      ui.text(x + math.floor((kSegW - w) / 2), top, text, kBody, 15)
+    else
+      ui.rect(x, y, kSegW, kSegH, 15)
+      ui.frame(x, y, kSegW, kSegH, 0)
+      ui.text(x + math.floor((kSegW - w) / 2), top, text, kBody, 0)
+    end
+  end
+end
+
+-- **THE PAGE OF THE SETTINGS**, in one box and one pass like every other page of this app, and the way back where the
+-- button of the world is: the mark of the arrow, which is the one the system uses for going back a view (docs/30).
+local function paintSettings()
+  ui.rect(0, 0, PageW, PageH, 15)
+  ui.text(Marg, 16, 'Settings', kTitle, 0)
+  ui.rect(Marg, 96, PageW - 2 * Marg, 1, 0)
+  paintWash()
+  ui.text(Marg + 44, kWashRowY + 6, 'Wash every ' .. kWashEvery .. ' gens', kSmall, 0)
+  ui.rect(Marg, 176, PageW - 2 * Marg, 1, 0)
+  ui.text(Marg, 196, 'Refresh time', kBody, 0)
+  paintSegments()
+  ui.rect(Marg, 336, PageW - 2 * Marg, 1, 0)
+  -- **What the hand can do, which is what the strip used to say** and no longer has the room for: three short lines, the
+  -- longest nineteen characters, because the face of the flash is the widest this page ever gets (docs/50).
+  ui.text(Marg, 356, 'Tap a cell to paint', kSmall, 0)
+  ui.text(Marg, 396, 'Center: pause', kSmall, 0)
+  ui.text(Marg, 436, 'Sides: the time', kSmall, 0)
+  ui.text(Marg, 492, 'A board of ' .. Cols .. ' by ' .. Rows, kSmall, 0)
+  local bx, by = worldRect()
+  paintMark(bx, by, Btn, Btn, kBackMark, 'Back')
+  ui.present(kPageMode)
+end
+
+-- **The two preferences, in the app's own folder** (`fs.data`, docs/70): a version and a line per choice, so a file of
+-- another shape is thrown away instead of read as this one (the rule of the `state` session, docs/30).
+local function saveSettings()
+  local ground = fs.data()
+  if ground ~= nil then pcall(fs.mkdir, ground) end
+  local written, reason = fs.write(fs.data(kSettingsFile),
+    string.format('v1\nwash=%d\nspeed=%d\n', washOn and 1 or 0, speed))
+  if written == nil then console.print('life: the settings were not written: ' .. tostring(reason)) end
+end
+
+local function loadSettings()
+  local text = fs.read(fs.data(kSettingsFile))
+  if text == nil then return end
+  local first = true
+  for row in text:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if row ~= 'v1' then return end
+    else
+      local key, value = row:match('^([%w_]+)=(%d+)$')
+      if key == 'wash' then
+        washOn = (value == '1')
+      elseif key == 'speed' then
+        speed = math.min(math.max(1, tonumber(value) or #Speeds), #Speeds)
+      end
+    end
+  end
+end
+
+-- **A STOPPED BOARD UNDER THE SETTINGS**: the world does not run while a person is choosing what to do with it, and it
+-- comes back as it was —running or stopped— when the settings go away.
+local function openSettings()
+  setting = true
+  wasPaused = paused
+  paused = true
+  paintSettings()
+end
+
+local function closeSettings()
+  setting = false
+  paused = wasPaused
+  due = 0
+  paintPage()
+end
+
+-- **A finger on the settings**: the way back, the row of the wash and the two refresh times. Each one paints only its own
+-- box, in the cheapest pass of the panel, because a page of settings is paper that does not move (docs/50).
+local function tapSettings(x, y)
+  local bx, by = worldRect()
+  if x >= bx and x < bx + Btn and y >= by and y < by + Btn then
+    closeSettings()
+    return
+  end
+
+  local rx, ry, rw, rh = washRect()
+  if x >= rx and x < rx + rw and y >= ry and y < ry + rh then
+    washOn = not washOn
+    saveSettings()
+    paintWash()
+    ui.present(kGenMode)
+    return
+  end
+
+  for i = 1, #Speeds do
+    local sx, sy = segRect(i)
+    if x >= sx and x < sx + kSegW and y >= sy and y < sy + kSegH then
+      if speed ~= i then
+        speed = i
+        saveSettings()
+        paintSegments()
+        ui.present(kGenMode)
+      end
+      return
+    end
+  end
+end
+
 -- ------------------------------------------------------------------- the hand
 
 -- A finger on a cell turns it over, and the next generation comes out of that: it is the most direct way to try
 -- everything, and whoever wants a glider can paint one.
 local function tap(x, y)
-  local bx, by = buttonRect()
+  -- **The page of the settings is another page**, and its own finger: a tap there is not a cell of the world.
+  if setting then
+    tapSettings(x, y)
+    return
+  end
 
-  if x >= bx and x < bx + BtnW and y >= by and y < by + BtnH then
-    -- THE BUTTON: A NEW MAP, and playing again if it was paused. A new map is something to look at, never a thing
-    -- to keep frozen.
+  local gx, gy = gearRect()
+  if x >= gx and x < gx + Btn and y >= gy and y < gy + Btn then
+    openSettings()
+    return
+  end
+
+  local bx, by = worldRect()
+  if x >= bx and x < bx + Btn and y >= by and y < by + Btn then
+    -- THE BUTTON OF A NEW WORLD, and playing again if it was paused. A world made again is something to look at, never a
+    -- thing to keep frozen.
     newMap()
     paused = false
     due = 0
@@ -466,6 +653,13 @@ for _, key in ipairs(button.list()) do spots[key.key] = key.spot end
 function on_button(kind, held_ms, key)
   if kind ~= 'press' then return end
 
+  -- **The centre goes back from the settings** and stops being the pause while they are open: a page under a page has one
+  -- way out and it is the same key that entered (docs/30).
+  if setting then
+    if spots[key] == 'centre' then statusDirty = false; setting = false; paused = wasPaused; due = 0; paintPage() end
+    return
+  end
+
   local spot = spots[key]
   if spot == 'centre' then
     paused = not paused
@@ -490,6 +684,7 @@ local start = ui.caps()
 local W, H = start.width, start.height
 PageW, PageH = W, H
 measure(W, H)
+loadSettings()
 
 local arg = (app.args ~= nil) and app.args.path or ''
 -- **WITH `blank` THE GRID STARTS EMPTY AND STOPPED**: it is there so a pattern can be painted by hand (a glider, a gun)
@@ -503,14 +698,29 @@ else
 end
 
 if arg == 'keys' then
-  local bx, by = buttonRect()
   console.print(string.format('Life grid %d %d %d %d %d %d', Cols, Rows, GridX, GridY, GridW, GridH))
-  console.print(string.format('Life button %d %d %d %d', bx, by, BtnW, BtnH))
+  local bx, by = worldRect()
+  console.print(string.format('Life button %d %d %d %d', bx, by, Btn, Btn))
+  local gx, gy = gearRect()
+  console.print(string.format('Life gear %d %d %d %d', gx, gy, Btn, Btn))
+  local wx, wy, ww, wh = washRect()
+  console.print(string.format('Life wash %d %d %d %d', wx, wy, ww, wh))
+  local sx, sy = segRect(1)
+  console.print(string.format('Life seg %d %d %d %d %d', sx, sy, kSegW, kSegH, kSegW + kSegGap))
+  console.print(string.format('Life pref %d %d', washOn and 1 or 0, speed))
   console.print(string.format('Life cell %d', Cell))
-  console.print(string.format('Life speeds %d %d %d %d', Speeds[1], Speeds[2], Speeds[3], Speeds[4]))
+  console.print(string.format('Life speeds %d %d', Speeds[1], Speeds[2]))
 end
 
-paintPage()
+-- **`settings` obre l'app a la pàgina dels ajustos**, que és com es mira des de l'emulador sense un dit a sobre.
+if arg == 'settings' then
+  setting = true
+  wasPaused = paused
+  paused = true
+  paintSettings()
+else
+  paintPage()
+end
 
 local held = false
 
@@ -543,8 +753,9 @@ while true do
   while gesture do gesture = touch.gesture() end
 
   -- A key changes the counters and they are painted here, once, when their text is another one.
-  if statusDirty then
+  if statusDirty and not setting then
     paintCounters()
+    paintSpeed()
     ui.present(kGenMode)
     statusDirty = false
   end
