@@ -266,9 +266,12 @@ uint32_t remove_every_folder() {
     log_printf(pal::kLogInfo, "MEMORY", "sessions destroy: there is nothing at %s", kDoor);
     return 0;
   }
+  // **Les carpetes són les de les apps** (0.189.43): the door holds one folder per app and nothing else, so what is walked
+  // is the folders and the files are skipped —the condition was the other way round, and `sessions destroy` over the whole
+  // board removed nothing while saying it had— (docs/30, docs/70).
   uint32_t removed = 0;
   for (uint32_t i = 0; i < sink.count(); ++i) {
-    if (sink[i].is_dir) continue;
+    if (!sink[i].is_dir) continue;
     removed += remove_a_folder(sink[i].name);
   }
   return removed;
@@ -459,6 +462,13 @@ void relieve(const char* current, void* keep, size_t asked) {
   if (freed_others < asked) {
     for (Block** link = &g_blocks; *link != nullptr;) {
       Block* block = *link;
+      // **I el bloc que la petició està movent no es toca tampoc aquí** (0.189.43): the first pass protects it and the
+      // second did not, so a memory that is short gave back the very block the allocator was moving —a pointer that is
+      // about to be freed— (docs/30, docs/75).
+      if (keep != nullptr && block->bytes == keep) {
+        link = &block->next;
+        continue;
+      }
       if (in_front[0] == '\0' || strcmp(block->app, in_front) != 0) {
         link = &block->next;
         continue;

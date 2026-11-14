@@ -43,7 +43,10 @@ void test_a_picture_of_paper_goes_round_and_comes_back_whole(void) {
   const uint32_t len = a_picture(picture, sizeof(picture));
   TEST_ASSERT_EQUAL_UINT32(48u * 24u, len);
 
-  uint8_t packed[1024];
+  // **The room is the ceiling and not a guess**: `pack` refuses a buffer under `packed_capacity`, which is the contract
+  // a caller budgets with, so the picture of paper is packed into the worst case and comes out a fraction of it.
+  uint8_t packed[1280];
+  TEST_ASSERT_TRUE(rle::packed_capacity(len) <= sizeof(packed));
   const uint32_t got = rle::pack(picture, len, packed, sizeof(packed));
   TEST_ASSERT_GREATER_THAN_UINT32(rle::kHeader, got);
   // **A picture of paper is a tenth of itself and not a half**: the run of twenty-four paper nibbles in a row is one

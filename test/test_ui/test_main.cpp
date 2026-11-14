@@ -70,6 +70,14 @@ uint8_t view_level(uint16_t x, uint16_t y) {
 
 // **A level of a control's own canvas** (0.184.0): a box paints into its own buffer —its own pixels, from 0,0— and the view
 // only gets them when a present composes them, so a case about what a control draws reads the control and not the view.
+// **The ink of a control that paints into the page**: a canvas with no view of its own has no buffer to read, so what
+// it drew is read on the page at the place it was put (docs/90).
+uint8_t placed_level(int16_t slot, uint16_t x, uint16_t y) {
+  const ui::Canvas* canvas = ui::at(slot);
+  if (canvas == nullptr) return 0;
+  return view_level(static_cast<uint16_t>(canvas->x + x), static_cast<uint16_t>(canvas->y + y));
+}
+
 uint8_t box_level(int16_t slot, uint16_t x, uint16_t y) {
   const ui::Canvas* canvas = ui::at(slot);
   if (canvas == nullptr || canvas->bits == nullptr || x >= canvas->width || y >= canvas->height) return 0;
@@ -187,7 +195,9 @@ static void test_the_boxes_of_a_start_go_up_over_the_picture_and_the_page_after(
   TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(100, 50));
 
   // **I el deute segueix sencer**: the present an app makes when it is ready is the whole view with the cleaner, which is
-  // the one that washes the picture away (docs/30, docs/50).
+  // the one that washes the picture away (docs/30, docs/50). The app has cleared its page by then —the box of a start is
+  // ink over the picture and not part of the page it presents—, which is what the last assertion reads.
+  TEST_ASSERT_TRUE(ui::clear(15, nullptr));
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_UINT32(before + 2, glass().paint_count());
   const emu::MemorySurface::Paint* page = glass().paint_at(before + 1);
@@ -2630,12 +2640,14 @@ void test_a_list_draws_one_page_and_says_which_one_it_is() {
   // The second row of the page is the chosen one and it is inverted: ink where the others are paper.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(290, 25));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(290, 75));
-  // The band of the footer starts under the third row —at 150 and not at 176— and no row is drawn under it.
-  TEST_ASSERT_EQUAL_UINT8(8, view_level(150, 150));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(4, 155));
+  // **The band of the footer is the bottom of the box and not under the last row** (0.183.2): forty-one pixels —the
+  // thirty-seven of the strip and the four of the rule and its air— so the rule that closes the rows is at 159 and the
+  // nine pixels between the third row and it are the paper the box has left (docs/30, docs/90).
+  TEST_ASSERT_EQUAL_UINT8(8, view_level(150, 159));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(4, 154));
   // The paginator is in the band and it is ink: the ball of the page that is read is a disc in the middle.
   int ink = 0;
-  for (uint16_t y = 151; y < 200; ++y) {
+  for (uint16_t y = 160; y < 200; ++y) {
     for (uint16_t x = 0; x < 300; ++x) {
       if (view_level(x, y) == 0) ++ink;
     }
@@ -2910,13 +2922,13 @@ void test_the_cross_of_a_text_box_goes_away_with_the_clean_pass(void) {
   TEST_ASSERT_TRUE(ui::textbox_draw(box, "hola", 4, false, false, 0, 15, 0, 2, true, 0));
   const uint16_t middle_x = static_cast<uint16_t>(cross_x + cross_w / 2);
   const uint16_t middle_y = static_cast<uint16_t>(cross_y + cross_h / 2);
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, box_level(box, middle_x, middle_y), "there is no cross in the box");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, placed_level(box, middle_x, middle_y), "there is no cross in the box");
   TEST_ASSERT_EQUAL(hal::UpdateMode::kDu, ui::damage(0).mode);
   ui::present();
   // **And the same box while it is being written into**: the cross is not drawn, what is in the square goes back to paper
   // and the frame asks for the pass that cleans it off the glass.
   TEST_ASSERT_TRUE(ui::textbox_draw(box, "hola", 4, false, false, 0, 15, 0, 2, false, 0));
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, box_level(box, middle_x, middle_y), "the cross is still in the box");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, placed_level(box, middle_x, middle_y), "the cross is still in the box");
   TEST_ASSERT_EQUAL_MESSAGE(hal::UpdateMode::kGc16, ui::damage(0).mode,
                             "the frame that takes the cross away is not the clean one");
   ui::present();
@@ -2927,7 +2939,7 @@ void test_the_cross_of_a_text_box_goes_away_with_the_clean_pass(void) {
   // ink, which is what a quick pass is for.
   ui::present();
   TEST_ASSERT_TRUE(ui::textbox_draw(box, "hola", 4, false, false, 0, 15, 0, 2, true, 0));
-  TEST_ASSERT_EQUAL_UINT8(0, box_level(box, middle_x, middle_y));
+  TEST_ASSERT_EQUAL_UINT8(0, placed_level(box, middle_x, middle_y));
   TEST_ASSERT_EQUAL(hal::UpdateMode::kDu, ui::damage(0).mode);
   ui::release(box);
 }
@@ -2955,11 +2967,11 @@ void test_a_button_without_a_frame_is_its_mark_and_turns_over(void) {
   // **A rest**: no frame, and the mark in the middle of the key.
   TEST_ASSERT_TRUE(ui::button_draw(key, 15, 0, /*pressed=*/false, false, false, nullptr, nullptr, 0, 1,
                                    /*framed=*/false, "poweroff"));
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, box_level(key, 2, 2), "the key without a frame has a frame");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, placed_level(key, 2, 2), "the key without a frame has a frame");
   uint8_t ink = 0;
   for (uint16_t x = 8; x < 56; ++x) {
     for (uint16_t y = 8; y < 56; ++y) {
-      if (box_level(key, x, y) == 0) ++ink;
+      if (placed_level(key, x, y) == 0) ++ink;
     }
   }
   TEST_ASSERT_GREATER_THAN_MESSAGE(40, ink, "the mark of the key is not there");
@@ -2967,15 +2979,23 @@ void test_a_button_without_a_frame_is_its_mark_and_turns_over(void) {
   // person sees move.
   TEST_ASSERT_TRUE(ui::button_draw(key, 15, 0, /*pressed=*/true, false, false, nullptr, nullptr, 0, 1,
                                    /*framed=*/false, "poweroff"));
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, box_level(key, 2, 2), "the pressed key is not turned over");
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, box_level(key, 32, 4), "the mark of a pressed key is not paper");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, placed_level(key, 2, 2), "the pressed key is not turned over");
+  // **I la marca és el paper del damunt**: the face is ink and the mark is drawn in the paper of the page, so the middle
+  // of the key has paper where the rest had the ink of the mark (docs/30, docs/92).
+  uint8_t paper = 0;
+  for (uint16_t x = 8; x < 56; ++x) {
+    for (uint16_t y = 8; y < 56; ++y) {
+      if (placed_level(key, x, y) == 15) ++paper;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(40, paper, "the mark of a pressed key is not paper");
   // **Una icona que no és del joc no dibuixa res**: the key is its paper and nothing else, and not a picture of an accident.
   TEST_ASSERT_TRUE(ui::button_draw(key, 15, 0, false, false, false, nullptr, nullptr, 0, 1, /*framed=*/false,
                                    "a-mark-that-is-not-one"));
   uint8_t nothing = 0;
   for (uint16_t x = 8; x < 56; ++x) {
     for (uint16_t y = 8; y < 56; ++y) {
-      if (box_level(key, x, y) == 0) ++nothing;
+      if (placed_level(key, x, y) == 0) ++nothing;
     }
   }
   TEST_ASSERT_EQUAL_UINT8(0, nothing);
@@ -3000,12 +3020,12 @@ void test_a_key_with_a_word_puts_the_mark_where_it_says(void) {
   uint8_t right_ink = 0;
   for (uint16_t x = 4; x < 80; ++x) {
     for (uint16_t y = 4; y < 60; ++y) {
-      if (box_level(key, x, y) < 8) ++left_ink;
+      if (placed_level(key, x, y) < 8) ++left_ink;
     }
   }
   for (uint16_t x = 100; x < 186; ++x) {
     for (uint16_t y = 4; y < 60; ++y) {
-      if (box_level(key, x, y) < 8) ++right_ink;
+      if (placed_level(key, x, y) < 8) ++right_ink;
     }
   }
   TEST_ASSERT_GREATER_THAN_MESSAGE(20, left_ink, "there is no mark at the left of the key");
@@ -3017,12 +3037,12 @@ void test_a_key_with_a_word_puts_the_mark_where_it_says(void) {
   uint8_t word_left = 0;
   for (uint16_t x = 120; x < 186; ++x) {
     for (uint16_t y = 4; y < 60; ++y) {
-      if (box_level(key, x, y) < 8) ++mark_right;
+      if (placed_level(key, x, y) < 8) ++mark_right;
     }
   }
   for (uint16_t x = 4; x < 70; ++x) {
     for (uint16_t y = 4; y < 60; ++y) {
-      if (box_level(key, x, y) < 8) ++word_left;
+      if (placed_level(key, x, y) < 8) ++word_left;
     }
   }
   TEST_ASSERT_GREATER_THAN_MESSAGE(20, mark_right, "the cross is not at the right of the key");
@@ -3038,10 +3058,10 @@ void test_a_key_with_a_word_puts_the_mark_where_it_says(void) {
   uint8_t below = 0;
   for (uint16_t x = 8; x < 142; ++x) {
     for (uint16_t y = 4; y < 66; ++y) {
-      if (box_level(tall, x, y) < 8) ++above;
+      if (placed_level(tall, x, y) < 8) ++above;
     }
     for (uint16_t y = 70; y < 100; ++y) {
-      if (box_level(tall, x, y) < 8) ++below;
+      if (placed_level(tall, x, y) < 8) ++below;
     }
   }
   TEST_ASSERT_GREATER_THAN_MESSAGE(20, above, "there is no mark at the top of the tall key");
@@ -3073,23 +3093,38 @@ void test_the_cross_of_a_text_box_takes_its_room_from_the_text(void) {
   // The line of this case is longer than the box, so the window has to cut it and the cut is where the cross is.
   const char* long_line = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
   TEST_ASSERT_TRUE(ui::textbox_draw(with_cross, long_line, 32, false, false, 0, 15, 0, 2, true, 0));
-  bool ink_under_the_cross = false;
-  for (uint16_t x = cross_x; x < cross_x + cross_w && !ink_under_the_cross; ++x) {
-    for (uint16_t y = 120 + cross_y; y < 120 + cross_y + cross_h && !ink_under_the_cross; ++y) {
-      if (view_level(x, y) == 0) ink_under_the_cross = true;
+  // **On acaba la tinta del text** (0.184.0): the window stops where the square begins less the air of the paint, so the
+  // last letter of the box with the button is left of the square; the same line without the button uses the room the
+  // square had. The square's own ink is the command and not the text, so it is not counted here (docs/30, docs/90).
+  int with_rightmost = -1;
+  for (int x = static_cast<int>(cross_x) - 1; x >= 10 && with_rightmost < 0; --x) {
+    for (int y = 122; y < 158; ++y) {
+      if (view_level(static_cast<uint16_t>(x), static_cast<uint16_t>(y)) == 0) {
+        with_rightmost = x;
+        break;
+      }
     }
   }
-  TEST_ASSERT_FALSE_MESSAGE(ink_under_the_cross, "the text ran under the cross of the box");
-  // **And the same line without the button gets there**: the room it lost is the button's and nothing else.
+  TEST_ASSERT_GREATER_THAN_MESSAGE(10, with_rightmost, "there is no text in the box at all");
+  TEST_ASSERT_TRUE_MESSAGE(with_rightmost < static_cast<int>(cross_x) - 4, "the text ran under the cross of the box");
+  // **And the same line without the button gets there**: the room it lost is the button's and nothing else. The box is
+  // made again because `fresh_view` gives every canvas of the case before back (docs/90).
   fresh_view();
-  TEST_ASSERT_TRUE(ui::textbox_draw(with_cross, long_line, 32, false, false, 0, 15, 0, 2, false, 0));
-  bool ink_without_the_cross = false;
-  for (uint16_t x = cross_x; x < cross_x + cross_w && !ink_without_the_cross; ++x) {
-    for (uint16_t y = 120 + cross_y; y < 120 + cross_y + cross_h && !ink_without_the_cross; ++y) {
-      if (view_level(x, y) == 0) ink_without_the_cross = true;
+  int16_t plain = -1;
+  TEST_ASSERT_TRUE(ui::create(300, 40, 0, false, plain));
+  TEST_ASSERT_TRUE(ui::place(plain, 0, 120));
+  TEST_ASSERT_TRUE(ui::textbox_draw(plain, long_line, 32, false, false, 0, 15, 0, 2, false, 0));
+  int without_rightmost = -1;
+  for (int x = 292; x >= 10 && without_rightmost < 0; --x) {
+    for (int y = 122; y < 158; ++y) {
+      if (view_level(static_cast<uint16_t>(x), static_cast<uint16_t>(y)) == 0) {
+        without_rightmost = x;
+        break;
+      }
     }
   }
-  TEST_ASSERT_TRUE_MESSAGE(ink_without_the_cross, "a box with no button keeps the room of one");
+  TEST_ASSERT_TRUE_MESSAGE(without_rightmost > static_cast<int>(cross_x),
+                           "a box with no button keeps the room of one");
   ui::release(with_cross);
   // **A box with no room for it keeps no button**: twenty pixels by eight are a smudge and not a command, and the text
   // there keeps the whole inside (docs/30, docs/90).

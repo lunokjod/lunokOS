@@ -586,19 +586,41 @@ void test_apps_lists_the_apps_in_the_order_of_the_uses(void) {
   TEST_ASSERT_TRUE(used_most < used_once);
   TEST_ASSERT_TRUE(used_once < never);
 
-  // **I sense l'ajust mana l'ordre de la porta**, que és el nom.
+  // **I sense l'ajust mana l'ordre de la porta** (0.189.43): the order without the switch is the door's —a flash and a
+  // card are read in the order the storage gives their folders, which on a host disk is not the name— so the case asks
+  // the door for its order and compares the positions, instead of assuming an alphabetical sort nobody promised
+  // (docs/40, docs/70).
   TEST_ASSERT_TRUE(kernel::execute("cfg sort off"));
   capture_begin();
   TEST_ASSERT_TRUE(kernel::execute("apps"));
   capture_end(said, sizeof(said));
-  used_most = strstr(said, "zzz");
-  used_once = strstr(said, "aaa");
-  never = strstr(said, "mmm");
-  TEST_ASSERT_NOT_NULL(used_most);
-  TEST_ASSERT_NOT_NULL(used_once);
-  TEST_ASSERT_NOT_NULL(never);
-  TEST_ASSERT_TRUE(used_once < never);
-  TEST_ASSERT_TRUE(never < used_most);
+
+  struct DoorSink : public hal::ListSink {
+    // **The names are copied and not pointed at**: `entry.name` is the storage's buffer and it is the next entry's by the
+    // time this one is compared with the listing (docs/70).
+    char names[3][8] = {};
+    const char* order[3] = {nullptr, nullptr, nullptr};
+    uint32_t count = 0;
+    bool on_entry(const hal::ListEntry& entry) override {
+      if (entry.type != hal::NodeType::kDir || entry.name == nullptr || count >= 3) return true;
+      const bool mine = strcmp(entry.name, "aaa") == 0 || strcmp(entry.name, "mmm") == 0 ||
+                        strcmp(entry.name, "zzz") == 0;
+      if (!mine) return true;
+      snprintf(names[count], sizeof(names[count]), "%s", entry.name);
+      order[count] = names[count];
+      ++count;
+      return true;
+    }
+  } door;
+  TEST_ASSERT_TRUE(kernel::vfs::list("/apps", door));
+  TEST_ASSERT_EQUAL_UINT32(3, door.count);
+  const char* previous = nullptr;
+  for (uint32_t i = 0; i < door.count; ++i) {
+    const char* at = strstr(said, door.order[i]);
+    TEST_ASSERT_NOT_NULL(at);
+    if (previous != nullptr) TEST_ASSERT_TRUE(previous < at);
+    previous = at;
+  }
 
   TEST_ASSERT_TRUE(kernel::session::release("page", "usage"));
   for (uint8_t i = 0; i < 3; ++i) {
@@ -693,8 +715,11 @@ void test_the_sessions_of_a_board_are_as_many_as_the_memory_gives(void) {
   TEST_ASSERT_EQUAL_UINT32(kAsks * 256, static_cast<uint32_t>(kernel::session::bytes_held()));
 
   // **I la vint-i-unena sessió té el que s'hi va escriure**: a block that is there is a block and not a row that says it is.
+  // **The answer is the bytes copied and not the length of the text**: the block is 256 and the room of the caller is 32,
+  // so what comes back is those 32 bytes —the line and the zeroes after it— which is what `copy` promises (docs/30, docs/75).
   char text[32];
-  TEST_ASSERT_EQUAL_UINT32(12, static_cast<uint32_t>(kernel::session::copy("gallery", "face20", text, sizeof(text))));
+  TEST_ASSERT_EQUAL_UINT32(sizeof(text),
+                           static_cast<uint32_t>(kernel::session::copy("gallery", "face20", text, sizeof(text))));
   TEST_ASSERT_EQUAL_STRING_LEN("the face 20", text, 11);
 
   // **The listing says all of them**: the answer of `each` is the number of rows the board has, and the rows a caller asked

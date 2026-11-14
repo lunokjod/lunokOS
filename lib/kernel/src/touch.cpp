@@ -392,7 +392,6 @@ void poll() {
                  static_cast<int>(g_contact), static_cast<unsigned>(g_contact_frames),
                  static_cast<int>(now_ms() - g_contact_ms));
     }
-    g_contact_frames = 0;
     if (g_contact == kTheKeyboard) ui::keyboard_touch(0, 0, false);
     if (g_contact == kThePage) {
       // **I el contacte es decideix aquí i només aquí** (0.189.0, l'amo: *«fes un mètode per retardar els events que s'envien
@@ -424,6 +423,10 @@ void poll() {
         luabind::ui_gesture(g_start_x, g_start_y, walked_x, walked_y);
       }
     }
+    // **El compte es buida quan el contacte s'ha acabat i no abans** (0.189.43): clearing it before the line above copied
+    // it into `last_contact` made every contact say `frames 0` —the number the owner asked for to tell a lost line from a
+    // still finger— (docs/50, docs/95).
+    g_contact_frames = 0;
     g_contact = kNoContact;
   } else if (g_contact == kNoContact) {
     // **El contacte comença aquí, i el seu compte arrenca de zero** (0.188.8): the same two numbers, so the line at the end

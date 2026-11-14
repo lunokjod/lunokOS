@@ -233,7 +233,8 @@ void test_a_bmp_with_rle_says_it_is_not_read_and_not_that_it_is_unknown(void) {
     1, 0,                                             // one plane
     8, 0,                                             // eight bits a pixel
     1, 0, 0, 0,                                       // **BI_RLE8**, the compression this reader does not do
-    4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    // the size of the image and the two resolutions and the table
+    4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    // the size of the image and the two resolutions
+    0, 0, 0, 0, 0, 0, 0, 0,                            // the colours used and the important ones: the DIB is forty bytes
   };
   img::Info info;
   TEST_ASSERT_EQUAL(img::kUnsupported, img::read_info(rle_bmp, sizeof(rle_bmp), info));

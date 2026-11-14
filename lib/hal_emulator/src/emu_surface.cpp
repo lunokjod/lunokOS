@@ -556,6 +556,12 @@ bool MemorySurface::rest() {
   return true;
 }
 
+bool MemorySurface::wake() {
+  resting_ = false;
+  why_ = "";
+  return true;
+}
+
 uint8_t MemorySurface::level_at(uint16_t x, uint16_t y) const {
   if (bits_ == nullptr || x >= width_ || y >= height_) return 0;
   const uint8_t byte = bits_[static_cast<size_t>(y) * stride_ + x / 2];

@@ -102,12 +102,27 @@ uint16_t g_next_handle = 1;
 char g_system_owner = 0;
 
 void deliver(const char* kind, int64_t held_ms, uint32_t key) {
+  // **La cua es copia abans de repartir** (0.189.43): a subscriber that takes its place **while the event is being handed
+  // over** used to hear that same event. The box of a page enters with the centre —it takes the keys as an exclusive— and
+  // the event that entered it arrived a second time at the place it had just taken, so the field was entered and left by
+  // one press: the band came up and went down on the same key. Who hears an event is decided by the queue as it was when
+  // the event was delivered, and a place taken in the middle hears the next one (docs/30, docs/90).
+  uint16_t handles[kMaxSubscribers];
+  uint8_t count = 0;
+  for (uint8_t i = 0; i < kMaxSubscribers; ++i) {
+    if (g_slots[i].used) handles[count++] = g_slots[i].handle;
+  }
   // **L'exclusiu de més amunt és qui respon** (0.180.0): the last exclusive in the queue is the one that answers and
   // nobody else hears the event —a control that took the keys sits over the app's queue, and an app that took them sits
   // over the system's own delivery, which is what "exclusive" means (docs/30, docs/90).
   int top = -1;
   for (uint8_t i = 0; i < kMaxSubscribers; ++i) {
-    if (g_slots[i].used && g_slots[i].mode == Mode::kExclusive) top = i;
+    if (!g_slots[i].used || g_slots[i].mode != Mode::kExclusive) continue;
+    for (uint8_t h = 0; h < count; ++h) {
+      if (handles[h] != g_slots[i].handle) continue;
+      top = i;
+      break;
+    }
   }
   if (top >= 0) {
     const Listener listener = g_slots[top].listener;
@@ -116,12 +131,15 @@ void deliver(const char* kind, int64_t held_ms, uint32_t key) {
     return;
   }
   // **Cascade és tots, en l'ordre en què es van registrar**: a listener may unsubscribe itself or another one while it
-  // runs, so what is called is copied before the call and the table is read again for the next one (docs/30).
-  for (uint8_t i = 0; i < kMaxSubscribers; ++i) {
-    if (!g_slots[i].used) continue;
-    const Listener listener = g_slots[i].listener;
-    void* const owner = g_slots[i].owner;
-    if (listener != nullptr) listener(kind, key, held_ms, owner);
+  // runs, so each place is looked up by its handle and a place that went is skipped (docs/30).
+  for (uint8_t h = 0; h < count; ++h) {
+    for (uint8_t i = 0; i < kMaxSubscribers; ++i) {
+      if (!g_slots[i].used || g_slots[i].handle != handles[h]) continue;
+      const Listener listener = g_slots[i].listener;
+      void* const owner = g_slots[i].owner;
+      if (listener != nullptr) listener(kind, key, held_ms, owner);
+      break;
+    }
   }
 }
 

@@ -612,11 +612,12 @@ void pump_turns(int turns) {
 // that the band was never asked—. This waits the paint out, presses, and lets the lift be seen as well (docs/85).
 void press_finger(emu::Gt911Panel* panel, uint16_t x, uint16_t y) {
   pump_turns(1200);
-  printf("[press] %u,%u with the band %d, a view of %u+%u and a band of %u\n", static_cast<unsigned>(x),
-         static_cast<unsigned>(y), kernel::ui::keyboard_visible() ? 1 : 0,
-         static_cast<unsigned>(kernel::ui::canvas().y), static_cast<unsigned>(kernel::ui::canvas().height),
-         static_cast<unsigned>(kernel::ui::keyboard_height()));
-  TEST_ASSERT_TRUE_MESSAGE(panel->finger_down(0, x, y), "the panel of the emulator took no finger");
+  static char why[160];
+  snprintf(why, sizeof(why), "no finger at %u,%u: band %d, band h %u, view %u+%u", static_cast<unsigned>(x),
+           static_cast<unsigned>(y), kernel::ui::keyboard_visible() ? 1 : 0,
+           static_cast<unsigned>(kernel::ui::keyboard_height()), static_cast<unsigned>(kernel::ui::canvas().y),
+           static_cast<unsigned>(kernel::ui::canvas().height));
+  TEST_ASSERT_TRUE_MESSAGE(panel->finger_down(0, x, y), why);
   // **El dit s'hi està una estona**: the chip is asked at the rate it can have news —`scan_ms`— and a press that lasts a
   // couple of turns can fall between two reads of it, which is a press the kernel never saw. A thumb rests on a key for
   // a tenth of a second and this one does the same (docs/50, docs/85).
@@ -722,7 +723,9 @@ void test_an_app_runs_and_writes(void) {
 void test_the_commands_of_the_prompt_reach_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
   TEST_ASSERT_TRUE(run_captured("run words", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 48"), g_out);
+  // **Cinquanta i no quaranta-vuit** (0.189.43): the list grew with `serial` and `sessions`, and the number is the one
+  // `kCommandNames` holds —the same table the prompt reads— (docs/30, docs/40).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 50"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first help"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last history"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sessions true"), g_out);
@@ -2489,7 +2492,8 @@ void test_an_app_asks_what_is_mounted_and_how_much_room_is_left(void) {
                             "  .. tostring(err2 and err2.code))\n"));
 
   TEST_ASSERT_TRUE(run_captured("run mtab", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts 8"), g_out);
+  // **Nou i no vuit**: `/session` is the cache of the sessions on the disk, a mount of its own since 0.189.7 (docs/70).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts 9"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/data littlefs true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/nvs nvs false"), g_out);
   // The flash of the emulator is a directory, but the board's is a partition of a size its own table
@@ -5687,7 +5691,9 @@ void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
   pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " cells"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: cache kept"), g_out);
-  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
+  // **Dues i no una** (0.189.13): the launcher keeps its cells in `apps` and the count of the uses in `usage`, and the two
+  // are sessions of the same app (docs/30, docs/75).
+  TEST_ASSERT_EQUAL_UINT32(2, kernel::session::count());
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
 
@@ -5763,6 +5769,9 @@ void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
 void test_a_session_goes_to_the_disk_and_comes_back(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
+  // **The board starts this case with no session at all**: the suite shares the disk and a cache another case parked is a
+  // file this one would count (docs/30, docs/75).
+  kernel::session::forget(nullptr);
 
   size_t got = 0;
   void* block = kernel::session::acquire("probe", "cache", 512, got);
@@ -6578,9 +6587,10 @@ void test_a_finger_that_walks_sideways_over_a_grid_turns_the_page(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus cell1"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick cell"), g_out);
 
-  // **I un dit que va cap amunt o avall també la gira** (0.179.51): una graella i una llista no fan scroll, o sigui que el gest
-  // vertical vol dir el mateix que l'horitzontal —la pàgina següent cap amunt, la d'abans cap avall—, i aquesta meitat del cas
-  // és la que faltava quan el paginador només mirava el camí de costat (docs/30, docs/90).
+  // **I un dit que va cap amunt o avall no gira res** (0.188.5, l'amo: *«per passar pàgina vull dreta/esquerra no
+  // amunt/avall»*): the vertical was a second way in (0.179.51) and it stole the gesture when the glass reported the two
+  // axes differently from the page, so the sides are the only way now and a finger that walks up says so in the log
+  // (docs/30, docs/90).
   capture_begin();
   TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
   pump_turns(20);
@@ -6589,7 +6599,8 @@ void test_a_finger_that_walks_sideways_over_a_grid_turns_the_page(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(40);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus cell3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "not a page (the sides turn a page)"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "focus cell3"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick cell"), g_out);
 
   close_any_app();
@@ -9365,6 +9376,9 @@ void test_the_battery_and_the_reason_decide_the_picture(void) {
   glass->clear(0);
   TEST_ASSERT_FALSE(glass->flush(hal::UpdateMode::kDu));
   TEST_ASSERT_EQUAL_STRING("the panel has gone to sleep", glass->last_error());
+  // **I el vidre es torna a despertar** (0.189.43): the sleep was this case's and the surface is one object for the whole
+  // run, so leaving it down refused every page of the cases after it (docs/85).
+  TEST_ASSERT_TRUE(emu::memory_surface()->wake());
 
   opts = emu::options();
   opts.board = nullptr;
@@ -10279,11 +10293,14 @@ void test_the_memory_of_a_session_is_the_apps_and_not_the_systems(void) {
   TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
   TEST_ASSERT_EQUAL_UINT32(0, kernel::session::bytes_held());
   TEST_ASSERT_TRUE(kernel::session::generation() > first_generation);
+  // **I el bloc torna del disc amb el que hi havia** (0.189.7): the relief parks the cache before giving it back, so the
+  // next ask finds the file and its size —512 and not the 256 asked for— with the byte the app left in it. What is zeroed
+  // is a block no file covers (docs/30, docs/75).
   size_t fresh = 0;
   uint8_t* after = static_cast<uint8_t*>(kernel::session::acquire("launcher", "apps", 256, fresh));
   TEST_ASSERT_NOT_NULL(after);
-  TEST_ASSERT_EQUAL_UINT32(256, fresh);
-  TEST_ASSERT_EQUAL_UINT8(0, after[0]);
+  TEST_ASSERT_EQUAL_UINT32(512, fresh);
+  TEST_ASSERT_EQUAL_UINT8(0x5A, after[0]);
   kernel::session::release_all();
 
   // **A key that is not a name is not a block**: an empty one is refused instead of taking a row of the table for nobody.
@@ -13640,8 +13657,14 @@ void test_the_face_of_the_system_comes_from_the_disk(void) {
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
 
-  // The emulator's disk carries no font, so what the glass has is the table of the flash: a face of bits, seven pixels of
-  // body for every step of `scale`.
+  // **With no font on this disk** the glass has the table of the flash: a face of bits, seven pixels of body for every
+  // step of `scale`. The face is taken away first, because another case of the suite may have left one in `/res/fonts`
+  // and this case is the one of a board whose disk carries none (docs/30, docs/92).
+  (void)storage->remove("/res/fonts/dejavusans-bold.ttf");
+  // **I la cara que el vidre té carregada es torna a preguntar**: the face is one global of this layer and a case before
+  // this one may have loaded the disk's, so the fallback is asked with the table put back (docs/30, docs/90).
+  kernel::font::set_system_face(nullptr);
+  kernel::boot(hal::platform());
   TEST_ASSERT_NULL(kernel::font::system_face().outline);
   TEST_ASSERT_EQUAL_UINT8(7, kernel::font::system_face().height);
 

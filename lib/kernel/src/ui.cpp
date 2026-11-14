@@ -1442,6 +1442,10 @@ bool draw_fill_rect(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t
   if (y + h > canvas.height) h = static_cast<uint16_t>(canvas.height - y);
   const uint8_t level_value = clamped(level);
   const uint8_t packed = static_cast<uint8_t>((level_value << 4) | level_value);
+  // **I el nivell que ha posat down és tinta de la pàgina** (0.189.43): `put_rect` and `draw_clear` told the counters and
+  // this one did not, so a page drawn with `ui.fill_rect` read as a page of nothing and every present of it went up with
+  // the cheap `du` —the ghost of the ink under it kept, which is what the e-ink panel shows (docs/50, docs/90).
+  note_level(level_value);
   // **The two ends are written a nibble at a time.** Two pixels share a byte, so a rectangle that
   // starts or ends at an odd pixel splits one, and painting the whole byte would paint the pixel next
   // to it, which belongs to whatever was drawn there before. The middle is whole bytes and goes out in
@@ -3421,7 +3425,12 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
     // **Les cantonades de la clau són el paper de la targeta** (0.185.0): the scratch canvas of a button of the panel is a block
     // of the extra memory and it starts black, so a face of paper with a corner of fourteen left four black brackets on the glass
     // —a frame nobody asked for—. The box is paper first and the face is drawn over it (measured on the emulator, docs/30, docs/50).
-    draw_clear(view, background, mode);
+    //
+    // **I la tecla premuda es gira sencera** (0.189.43): the face of a key with no frame is the paper of the page, and a press
+    // turns it over —the corners to ink and the mark to paper— which is the whole of what a person sees move on a key with no
+    // shadow. Clearing with the face's level and not always with the paper is what makes the corners follow the press; the
+    // fill over it keeps the rounded face (docs/30, docs/92).
+    draw_clear(view, face_level, mode);
     draw_round_fill(view, x, y, static_cast<uint16_t>(width), static_cast<uint16_t>(height), radius, face_level, mode);
   } else {
     // 1. **The box, in the colour of the shadow**: ink under the face while the button is up, and paper while it is down.
@@ -8622,7 +8631,10 @@ hal::UpdateMode cleaner_for(uint16_t levels, uint16_t paints) {
   for (uint8_t level = 0; level < 16; ++level) {
     if ((levels & (1u << level)) != 0) ++grays;
   }
-  if (grays <= 4) return hal::UpdateMode::kGl16;
+  // **`gld16` i no `gl16`** (0.189.43): a few grays take the sixteen-level wash **without the blink**, which is the mode
+  // the name of this rule has said since 0.189.5 and the one this panel has for it; `gl16` flashes the page black on every
+  // present of a list (docs/50, docs/90).
+  if (grays <= 4) return hal::UpdateMode::kGld16;
   // **A photograph**: all sixteen, or most of them, and only the full wash leaves the paper clean.
   return hal::UpdateMode::kGc16;
 }

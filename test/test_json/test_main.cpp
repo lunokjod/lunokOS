@@ -201,8 +201,9 @@ void test_root_lists_the_mounts(void) {
   CountingSink sink;
   TEST_ASSERT_TRUE(kernel::vfs::list("/", sink));
   // /littlefs, /apps, /res, /data, /fonts (the faces every app reads), /nvs (the key-value store as
-  // files), /rtc (the RTC memory as one file) and /cfg.
-  TEST_ASSERT_EQUAL_INT(8, static_cast<int>(sink.count));
+  // files), /rtc (the RTC memory as one file), /cfg and /session (the cache of the sessions on the
+  // disk, 0.189.7).
+  TEST_ASSERT_EQUAL_INT(9, static_cast<int>(sink.count));
 }
 
 void test_root_is_a_directory(void) {

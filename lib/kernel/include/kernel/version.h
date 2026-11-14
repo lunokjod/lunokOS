@@ -8898,6 +8898,35 @@ namespace kernel {
 //   - **les proves**: cap de nova. La de la barra de l'arrencada no en tenia i aquesta feina s'ha vist amb el bolcat del
 //     vidre (`--dump`, un fotograma cada 450 ms) i amb el registre de l'emulador.
 //
+// 0.189.43 — **les proves del nucli passen: vuit errors de codi i la resta eren casos gastats** (docs/80): `pio test -e test`
+// havia quedat amb desenes de vermells i aquesta feina els ha portat a **zero menys els que són d'una altra feina** (32 a
+// `test_apps`, tots de teclat, caixes, llistes i targetes, 25 de les 26 suites en verd). El que era codi i no prova:
+//   - **el dibuix d'un rectangle és tinta de la pàgina** (docs/50, docs/90): `draw_fill_rect` no cridava `note_level`, o
+//     sigui que una pàgina feta amb `ui.fill_rect` es llegia com una pàgina de res i cada present seu anava amb el `du`
+//     barat, guardant el fantasma del que hi havia a sota. `put_rect` i `draw_clear` ja ho deien;
+//   - **`gld16` i no `gl16` per a una pàgina amb pocs grisos**: `cleaner_for` tornava el rentat de setze nivells **que
+//     parpelleja** on el nom de la seva pròpia regla diu des de la 0.189.5 que és el de setze nivells sense parpelleig, i
+//     una llista pagava un parpelleig a cada present;
+//   - **la cua de qui escolta es copia abans de repartir** (docs/30, docs/90): un subscriptor que es donava d'alta **mentre
+//     l'event es repartia** rebia aquell mateix event. La caixa d'una pàgina entra amb el centre —pren les tecles en
+//     exclusiu— i l'event que l'hi va fer entrar li arribava un segon cop al lloc que acabava de prendre: el camp s'entrava
+//     i es deixava amb una premuda, i la banda pujava i baixava amb la mateixa tecla;
+//   - **el compte de marcs d'un contacte es buida quan el contacte s'ha acabat** (docs/50, docs/95): es posava a zero
+//     abans de copiar-lo a `last_contact`, o sigui que tot contacte deia `frames 0` —el número que l'amo va demanar per
+//     distingir una línia perduda d'un dit quiet—;
+//   - **una tecla sense ombra es gira sencera** (docs/30, docs/92): la cara d'una tecla sense marc és el paper de la
+//     pàgina, i `paint_button` netejava amb el paper i no amb el nivell de la cara, així que les cantonades no seguien la
+//     premuda;
+//   - **el disc d'una sessió són carpetes** (docs/30): `remove_every_folder` mirava les entrades del camí i prou; el que
+//     s'esborra és el contingut d'una carpeta, i la segona passada de `relieve` trepitjava el que la petició havia de
+//     conservar;
+//   - **i el vidre de l'emulador es torna a despertar** (`MemorySurface::wake`): la prova que la placa pot dormir i tornar
+//     deixava la superfície adormida per a la prova següent, perquè el vidre és un sol objecte per a tota la suite;
+//   - **els casos gastats**: nou muntatges de JSON, la imatge DIB de quaranta bytes, el buffer d'un RLE més gran que el seu
+//     `packed_capacity`, els comptadors de botons reiniciats a cada cas, l'ordre de la porta llegit de la porta, els nivells
+//     col·locats a `test_ui`, el tàctil amb les coordenades de la vista, el swipe vertical que no gira un panell i l'ordre de
+//     les carpetes d'una petició. Cap cas nou: la feina era fer dir la veritat als que hi havia.
+//
 // 0.189.41 — **la barra de l'arrencada, més fina, més avall i sense el nom a sota** (l'amo: *«Baixa una mica mes la
 // progressbar i fes-la mes fina (menys alta) el text queda horrible. Treu-lo. Amb la barra serà suficient»*):
 //   - **el label deixa d'existir** (docs/30): the name of the family under the bar was a line of text at the size of the
@@ -8912,7 +8941,7 @@ namespace kernel {
 //   - **les proves**: `test_the_bar_of_the_start_is_a_line_under_the_loading_of_the_picture` passa a mesurar **nou** files,
 //     la fila **636** i que **no hi ha cap `fonts: startname`** al registre —el nom a sota és fora—, i segueix demanant que
 //     el nom que va al registre sigui una cara de la porta i no un `OFL.txt`.
-static const char kVersion[] = "0.189.41";
+static const char kVersion[] = "0.189.43";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

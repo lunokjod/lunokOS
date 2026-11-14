@@ -150,6 +150,9 @@ static void test_the_panel_hands_over_one_frame_per_scan() {
   boot_with_a_touch_panel();
   emu::Options opts = emu::options();
   opts.touch_scan_ms = 200;
+  // **The glass that has to be asked** (0.188.0): the miss and the read of a window already taken are the model's of the
+  // glass with no interrupt line, because a glass that warns is not asked when it has nothing (docs/50, docs/85).
+  opts.touch_interrupt = false;
   emu::set_options(opts);
   chip().reset();
   TEST_ASSERT_EQUAL_UINT32(200, chip().scan_ms());
@@ -172,6 +175,7 @@ static void test_the_panel_hands_over_one_frame_per_scan() {
   TEST_ASSERT_EQUAL_UINT32(2, chip().frames());
   opts = emu::options();
   opts.touch_scan_ms = 0;
+  opts.touch_interrupt = true;
   emu::set_options(opts);
 }
 
@@ -252,6 +256,9 @@ static void test_a_panel_slower_than_the_turn_answers_nothing_half_the_time() {
   boot_with_a_touch_panel();
   emu::Options opts = emu::options();
   opts.touch_scan_ms = 40;
+  // **A glass with no warning line** is the one that is asked every turn and the one that can answer nothing while a
+  // finger is down (0.188.0, docs/50, docs/85).
+  opts.touch_interrupt = false;
   emu::set_options(opts);
   chip().reset();
   TEST_ASSERT_EQUAL_UINT32(40, chip().scan_ms());
@@ -269,6 +276,7 @@ static void test_a_panel_slower_than_the_turn_answers_nothing_half_the_time() {
   TEST_ASSERT_TRUE(chip().missed() > 0);
   opts = emu::options();
   opts.touch_scan_ms = 0;
+  opts.touch_interrupt = true;
   emu::set_options(opts);
 }
 
@@ -300,6 +308,7 @@ static void test_the_kernel_asks_the_glass_once_per_scan() {
   TEST_ASSERT_EQUAL_UINT32(0, chip().missed());
   opts = emu::options();
   opts.touch_scan_ms = 0;
+  opts.touch_interrupt = true;
   emu::set_options(opts);
 }
 
@@ -341,6 +350,7 @@ static void test_a_swipe_on_a_slow_glass_is_one_gesture() {
   TEST_ASSERT_FALSE(kernel::touch::take_gesture(extra));
   opts = emu::options();
   opts.touch_scan_ms = 0;
+  opts.touch_interrupt = true;
   emu::set_options(opts);
 }
 
@@ -364,8 +374,10 @@ static void test_a_still_contact_is_told_as_a_press_and_a_walk_as_one_gesture() 
   hand_turn(60);
   const kernel::touch::LastContact tap = kernel::touch::last_contact();
   TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(kernel::touch::Told::kAPress), static_cast<uint8_t>(tap.told));
+  // **The point the page was told about is in the view's frame**: the finger landed at row 400 of the glass and the view
+  // starts forty-eight rows down, under the bar of the system (docs/30, docs/50).
   TEST_ASSERT_EQUAL_UINT16(400, tap.x);
-  TEST_ASSERT_EQUAL_UINT16(400, tap.y);
+  TEST_ASSERT_EQUAL_UINT16(352, tap.y);
   TEST_ASSERT_EQUAL_INT16(0, tap.dx);
   TEST_ASSERT_EQUAL_INT16(0, tap.dy);
 
@@ -391,6 +403,7 @@ static void test_a_still_contact_is_told_as_a_press_and_a_walk_as_one_gesture() 
 
   opts = emu::options();
   opts.touch_scan_ms = 0;
+  opts.touch_interrupt = true;
   emu::set_options(opts);
 }
 
@@ -414,8 +427,10 @@ static void test_a_glass_that_warns_hands_the_frame_on_the_turn_it_lands() {
   turn(1);
   TEST_ASSERT_EQUAL_UINT32(1, chip().frames());
   TEST_ASSERT_EQUAL_UINT8(1, kernel::touch::points(&point, 1));
+  // **The view's own rows**: the chip's row 200 is the view's 152, because the bar of the system takes the first
+  // forty-eight (docs/30, docs/50).
   TEST_ASSERT_EQUAL_UINT16(100, point.x);
-  TEST_ASSERT_EQUAL_UINT16(200, point.y);
+  TEST_ASSERT_EQUAL_UINT16(152, point.y);
   // **I la contraprova**: el mateix torn d'un mil·lisegon amb la línia treta és el vidre que s'ha de preguntar, que dins la
   // finestra dels deu mil·lisegons no contesta res i no ha lliurat cap marc.
   chip().reset();
@@ -609,6 +624,9 @@ static void test_the_waits_are_one_switch() {
   hal::TouchPoint frame[kernel::touch::kMaxPoints];
   emu::Options opts = emu::options();
   opts.delays = false;
+  // **I la línia treta** (0.188.0): a glass that warns is not asked when it has nothing and pays no bus at all; what this
+  // case measures is the read that does ask, which is the glass of always (docs/50, docs/85).
+  opts.touch_interrupt = false;
   emu::set_options(opts);
   int64_t started = pal::system().micros();
   (void)chip().read(frame, kernel::touch::kMaxPoints);
@@ -623,6 +641,7 @@ static void test_the_waits_are_one_switch() {
   TEST_ASSERT_TRUE_MESSAGE(paid >= 400, "a read with the waits on did not pay the bus");
 
   opts.delays = false;
+  opts.touch_interrupt = true;
   emu::set_options(opts);
 }
 
@@ -737,7 +756,10 @@ static void test_a_tap_on_the_card_leaves_it_and_a_tap_below_takes_it_away() {
   // **A tap of a hand on the card**: down and up in one place, and the window of the taps of this system is three
   // hundred and fifty milliseconds, so the turns after the lift are the ones that say it was a tap (docs/30). Two hundred
   // is a row of the card —it ends at forty-eight plus a third of the page, which is two hundred and twelve on this glass—.
-  TEST_ASSERT_TRUE(chip().finger_down(0, 270, 200));
+  // **The paper of the card and not a key** (0.185.0): the middle row has four keys and the forty-eight pixels between
+  // `Settings` and `Poweroff` are the card's own, which is the row a tap leaves open —the power key of the card would put
+  // the board down (docs/30, docs/92).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 146, 200));
   hand_turn(20);
   TEST_ASSERT_TRUE(chip().finger_up(0));
   for (int t = 0; t < 25; ++t) hand_turn(20);

@@ -44,6 +44,11 @@ class MemorySurface : public hal::ISurface {
   // that come after, which is what the controller of the Paper does with the command. A test that asks the glass for a
   // picture after the way down would otherwise get a page, and the board gets nothing (docs/50, docs/85).
   bool rest() override;
+  // **I torna a despertar-se com el panell de debò** (0.189.43): the case that asks the glass to sleep is measuring the way
+  // down, and the cases after it are not —the surface is one object for the whole run, so a sleep that stays would leave
+  // every page of the suite refused with `the panel has gone to sleep`—. Not part of `hal::ISurface`: it is the model's
+  // own door and a test is the only caller (docs/85).
+  bool wake();
   // Whether the sleep has been asked for, which is what a test reads.
   bool resting() const { return resting_; }
 

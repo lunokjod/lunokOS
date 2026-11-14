@@ -9,12 +9,6 @@
 // been declared` and the suite of the whole project did not build (docs/80).
 namespace button = kernel::button;
 
-// **The system is in the queue from the first moment** (`reset()`), because the dial, the promise of `button.wait` and
-// `on_button` are one subscriber in cascade: every count in this file is that one plus the ones a case adds (docs/30).
-void setUp(void) { button::reset(); }
-
-void tearDown(void) {}
-
 namespace {
 
 // What the listeners saw, in the order they saw it: the case says who is who with the number of the listener.
@@ -45,6 +39,23 @@ char g_one = 0;
 char g_two = 0;
 
 }  // namespace
+
+// **The system is in the queue from the first moment** (`reset()`), because the dial, the promise of `button.wait` and
+// `on_button` are one subscriber in cascade: every count in this file is that one plus the ones a case adds (docs/30).
+//
+// **I les notes d'un cas no arriben al següent** (0.189.43): the queue is cleared here and the notes with it, because a
+// counter shared by the whole file made a case read the calls of the one above —`Expected 1 Was 3` on the exclusive, which
+// had done nothing wrong— (docs/80).
+void setUp(void) {
+  button::reset();
+  g_calls = 0;
+  for (int i = 0; i < 8; ++i) g_order[i] = 0;
+  g_kind = nullptr;
+  g_key = 0;
+  g_held = 0;
+}
+
+void tearDown(void) {}
 
 // **Cascada és tots, i en l'ordre en què es van registrar**: a listener that takes the event is not the one that stops the
 // others, which is what a chain of responsibility would do and what the page does not want: the app sees the key and the
