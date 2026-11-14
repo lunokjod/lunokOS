@@ -11,11 +11,15 @@
 -- STEP OF DARKNESS: the small tiles are paper with a frame, the middle ones fill up, and 2048 and up are black
 -- with white numbers. That is also what makes the board readable at a glance after a swipe.
 --
--- **AND THE APP PAINTS ONLY WHAT CHANGED, AND SAYS WHAT IT IS** (the design the paper's owner dictated on 26/10,
--- kept here because it is the whole of the cost of a move): a tile that is another number is painted on its own
--- and in sixteen greys, the score digits and the button travel in two inks, and the line at the bottom only when
--- its message changes. The paper of the board is never painted again if the luck holds. In this system the
--- quality is an argument of the painting call, so `markChanges` is the same rule with one name less (docs/30).
+-- **AND THE APP PAINTS WHAT IT NEEDS AND NOTHING ELSE, AND SAYS WHAT IT IS IN THREE PASSES** (0.189.4): the score
+-- digits go up in the cheap pass, the board goes up in **one** pass of sixteen greys that does not blink, and the line
+-- at the bottom only when its message changes. The paper of the board travels again with the board, which is what keeps
+-- an emptied cell from coming back out of the buffer a move later.
+--
+-- **THE PIECES OF A MOVE ARE THE WHOLE BOARD IN ONE BOX AND NOT A CELL AT A TIME** (0.189.4): sixteen disjoint boxes
+-- are sixteen passes of ink —four hundred and fifty milliseconds each, and four of them for a move of two tiles—, so the
+-- board is marked as one box and the panel takes it in a single pass that neither blinks nor loses the greys. The panel
+-- paints one box per waveform, and one box of five hundred pixels is one waveform.
 --
 -- **THE MOVEMENT ITSELF IS THE FINGER**, and left and right are ALSO on the two side keys: the panel has three
 -- keys and the game has four directions, so the swipes are the real input and the keys cost three lines. The
@@ -32,12 +36,11 @@ local FileName = 'game.txt'     -- the save, inside this app's own folder (`fs.d
 local MaxExp = 17               -- 2^17 = the ceiling of a tile that is read
 
 local Gap = 8                   -- between tiles, in pixels
-local Strip = 78                -- the top strip: the score and the New button
+local Strip = 96                -- the top strip: the score, the best and the New button
 local BtnH = 63                 -- the button's height, which is the minimum a finger can hit
 -- **The room a button of this system leaves its own word is sixteen pixels on each side** —`padX` of
--- `paint_button`, the same measure for the word and for a tag—, and not the fourteen of the paper's button: measured
--- with fourteen, «Sure?» came out four pixels short and the system painted «Sur…» inside the frame (found on the
--- board, 11/11). The button is the original's plus those four pixels and not a number picked by eye.
+-- `paint_button`, the same measure for the word and for a tag—, and the button is measured from «New», which is the only
+-- word it carries now that a new game starts with one tap (0.189.4).
 local BtnPad = 16
 local BtnMinW = 84              -- never narrower than it was, even with a word that would fit in less
 local Footer = 63               -- the bottom line: what the game is saying
@@ -66,18 +69,43 @@ local kTitle = scale_for(57)
 -- shaky finger (docs/30).
 local kSwipePx = 30
 
--- The qualities this app asks for: a tile is sixteen greys and the digits two inks, which is the design of the
--- original and the difference between 450 ms and 120 ms per paint (docs/50).
-local kTileMode = 'gld16'
-local kTextMode = 'gld16'
+-- **EL TAULELL NO ES REPINTA MAI** (0.189.7): a move touches **only the cells whose number changed** —the ones that
+-- emptied are cleared first and the ones with a tile are painted after— and the rest of the board, its paper and its
+-- frames stay exactly where they are on the glass. The paper of a box travels with the box, which is what stops a cell
+-- that emptied from keeping the ink of the tile it had; there is no pass over the whole board and none over the air
+-- between the strip and the bottom (docs/30, docs/45).
+--   - **`kPageMode`, la pàgina nada de zero**: the whole glass in **one** paint of sixteen greys, when an app opens or the
+--     system gives it another view. One paint and not seven: the page is marked as one box before anything is drawn on it,
+--     because sixteen cells, three labels and a button are disjoint boxes (measured on the board, seven passes for the
+--     first page of this game).
+--   - **`kStripMode`, la tira d'un moviment, i NO parpelleja** (`gld16`): the score is two inks and the button is a face
+--     with a word on it, and a pass that lands on the level and leaves two of sixteen is enough for both. `du` is faster
+--     and it is **too little**: it keeps five of sixteen of the ink it finds, so the digit that was there and the frame of
+--     the button that was pressed would stay on the paper (docs/50).
+--   - **`kClearMode`, la casella que s'ha buidat, i és la que neteja** (`gl16`): a tile is fourteen steps of darkness and a
+--     cell that empties has to come out paper, which is what the sixteen levels of this pass do and what `gld16` does not
+--     (it leaves two of sixteen, and two of sixteen of a black tile is a grey square where a cell was). It is the pass of
+--     **that cell** and of no other.
+--   - **`kTileMode`, el cuadrat que arriba, i NO parpelleja** (`gld16`): a tile is a filled box with a number on it over paper
+--     or over the tile before it, and sixteen levels that land on the level are the whole of what it needs. The blink of
+--     `gl16` was for a cell that had to be emptied, and a tile that arrives has nothing to empty (docs/50).
 local kPageMode = 'gl16'
+local kStripMode = 'gld16'
+local kClearMode = 'gl16'
+local kTileMode = 'gld16'
 
 local board = {}                -- N*N exponents: 0 is an empty cell
-local before = {}               -- the board as it is on the glass, to see what changed
+-- **El tauler tal com és al vidre** (0.189.7): the cells that changed are the diff between this and `board`, and a cell
+-- that is empty now and had a tile is one of them —the one that has to be cleared before the next tile is painted—.
+local before = {}
+-- **Si la pàgina de l'app ja és al vidre** (0.189.7): until `paintPage` has put the interface up there is nothing to diff
+-- against, and a new game at boot would paint the cells of a board nobody has seen yet (docs/30).
+local pageUp = false
 local score = 0
+local best = 0                  -- the highest score this board has ever reached, kept across games
+local bestDate = ''             -- the day it was reached, `YYYY-MM-DD` in the person's own clock
 local over = false              -- no move is possible any more
 local won = false               -- the goal was reached, once
-local sure = false              -- the New button is asking «really?»
 local canSave = true            -- false when the save cannot be trusted
 local why = ''                  -- and the reason, which is said on screen
 
@@ -85,6 +113,7 @@ local cell, boardW, boardX, boardY   -- the geometry, measured for this view
 local btnX, btnY, btnW               -- and the button, measured from its own word
 local the_button = nil               -- the New of the system, placed and told what to say
 local the_score = nil                -- the score, a label of the system (opaque: the old number goes with its box)
+local the_best = nil                 -- the best and its day, under the score and smaller
 local the_foot = nil                 -- and the line at the bottom, the same
 
 -- ------------------------------------------------------------------------- the board
@@ -249,6 +278,9 @@ end
 -- The ground of an app is `/data/<id>`, which is this system's answer to the paper's `storage.preferred()`
 -- (docs/30, docs/45). The folder can be missing on a disk that never had a save, and making it twice is not an
 -- error worth a line.
+-- **THE FILE IS FOUR LINES** (0.189.4): the sixteen exponents, the score, the best and the day it was reached. The
+-- first two are what an older save already had, so a save written by an older version opens and only the best is lost
+-- (docs/30, docs/45).
 local function save()
   if not canSave then return false end
 
@@ -259,7 +291,7 @@ local function save()
     text = text .. tostring(board[i])
   end
 
-  text = text .. '\n' .. tostring(score) .. '\n'
+  text = text .. '\n' .. tostring(score) .. '\n' .. tostring(best) .. '\n' .. bestDate .. '\n'
 
   local ground = fs.data()
   if ground ~= nil then pcall(fs.mkdir, ground) end
@@ -302,6 +334,14 @@ local function load()
       tiles[n] = exp
     elseif n == N * N + 1 then
       score = tonumber(piece) or 0
+    elseif n == N * N + 2 then
+      best = tonumber(piece) or 0
+    elseif n == N * N + 3 then
+      -- **The day is text and not a number**: `YYYY-MM-DD` is what the line under the score says, and a save that
+      -- carries it as it is written needs no calendar to be read back (docs/30, docs/45).
+      bestDate = string.gsub(piece, '^%s+', '')
+      bestDate = string.gsub(bestDate, '%s+$', '')
+      if bestDate == '' then bestDate = '' end
     end
   end
 
@@ -332,7 +372,9 @@ local function textOf(exp, room)
 end
 
 -- **A tile is painted, and the quality is the tile's**: sixteen greys, which is what makes fourteen steps of
--- darkness readable and what stops the dark ones from coming out as a dither (the paper's 26/10).
+-- darkness readable and what stops the dark ones from coming out as a dither (the paper's 26/10). The box is small
+-- and it is the tile's own pass: `gld16` lands close to the level without blinking, and the whole board is never
+-- repainted for it.
 local function paintTile(row, col, exp, mode)
   local x = boardX + (col - 1) * (cell + Gap)
   local y = boardY + (row - 1) * (cell + Gap)
@@ -377,18 +419,31 @@ local function stripText()
   return 'Score ' .. tostring(score)
 end
 
--- **The score is a label of the system and not a line of text this file paints**, and it is opaque: changing the
--- number repaints its whole box with paper and then the digits, so the number that was there cannot stay under the
--- new one (docs/30). What the design of the original asks —the digits travel on their own and not the page— is what
--- a control gives for free: its box is the damage.
+-- **La màxima, amb el dia que es va fer** (0.189.4), in the small size under the score: `Best 344 - 2026-11-14`. A day
+-- that is not known —the clock of a board that has never been set— is not written as a date, because a 1970 says
+-- nothing and a line of four digits says less than nothing.
+local function bestText()
+  if best <= 0 then return 'Best -' end
+  if bestDate == '' then return 'Best ' .. tostring(best) end
+
+  return 'Best ' .. tostring(best) .. ' - ' .. bestDate
+end
+
+-- **The score and the best are labels of the system and not lines of text this file paints**, and they are opaque:
+-- changing the number repaints their whole box with paper and then the digits, so the number that was there cannot stay
+-- under the new one (docs/30). What the design of the original asks —the digits travel on their own and not the page— is
+-- what a control gives for free: its box is the damage.
 local function paintStrip()
   if the_score ~= nil then the_score.text = stripText() end
+  if the_best ~= nil then the_best.text = bestText() end
 
   -- **The New is a button of the system and not a frame this file paints** (the rule of the project: the control
   -- that exists is the one that is used, and the paper's hand-painted one was there because its launcher was the
-  -- panel's). The system paints it, measures its word, takes the old ink away when the word changes —from «New» to
-  -- «Sure?» and back— and knows how a button looks when a finger is on it (docs/30, docs/45).
-  if the_button ~= nil then the_button.title = sure and 'Sure?' or 'New' end
+  -- panel's). The system paints it, measures its word, takes the old ink away when the word changes and knows how a
+  -- button looks when a finger is on it (docs/30, docs/45). **I no pregunta res** (0.189.4): the word is «New» and
+  -- pressing it starts a game, because a game thrown away by accident is a game nobody gets back either way —the save
+  -- of the move before is what comes back— and two taps for one wish is a button that doubts.
+  if the_button ~= nil then the_button.title = 'New' end
 end
 
 -- **What the app was asked for**: `run 2048 keys` prints the geometry so a test asks instead of guessing a corner,
@@ -414,35 +469,112 @@ local function paintFooter()
   if the_foot ~= nil then the_foot.text = footerText() end
 end
 
--- **THE DESIGN OF THE REFRESH** (the paper's 26/10, and the whole of the cost of a move): what changed in value
--- is painted on its own and in sixteen greys, the score digits and the button in two inks, and the line at the
--- bottom only when its message is another one. `before` is the board that is on the glass.
+-- **The ink of one box is waited before the next one is asked for** (`ui.idle`, docs/30). A named present already
+-- paints one box per paint, but a box that arrives while the glass still moves the one before is refused and stays
+-- owed, and a queue of refused boxes is a page painted in one pass — the flash this design does not want. The wait is
+-- capped so a glass that never answers does not freeze the game, and the ink is what a move costs anyway (docs/50).
+local function waitForTheInk()
+  for _ = 1, 24 do
+    if ui.idle() then return end
+    sys.delay(40):await()
+  end
+end
+
+-- **THE PAGE IS BUILT FROM SCRATCH IN ONE PLACE** (0.186.0): the paper, the board, the digits and the line, and the
+-- system asks every control it covered to draw again when the paper is laid (that is what 0.186.0 put in
+-- `ui::clear`, and it is the rule of a hole in the page), so the New button and the score come back with the page
+-- instead of staying off the glass when the view changes height and nothing of them moves —«el botó new desapareix»—.
+-- **And the page is ONE box** (0.189.4): `ui.clear` of a page the system has already handed white is free —it adds no
+-- box at all (0.168.0)— so the sixteen cells, the two labels and the button were **seven disjoint boxes and seven
+-- passes** for one page; the whole view is marked here, in the page's own quality, and everything drawn after it falls
+-- inside it and merges into one paint (docs/30, docs/50).
+local function paintPage()
+  ui.clear(15)
+  ui.rect(0, 0, W, H, 15, kPageMode)
+  paintBoard(kPageMode)
+  paintStrip()
+  paintFooter()
+  ui.present(kPageMode)
+  waitForTheInk()
+  -- **I el vidre i el tauler són la mateixa cosa a partir d'aquí** (0.189.7): the diff of a move is measured against the
+  -- board that is **on the glass**, and after a page the two are the same one —sixteen cells, a score, a best, a foot—, so
+  -- no cell is painted twice and the page that has just gone up is not repainted by the first move (docs/30, docs/45).
+  for i = 1, N * N do before[i] = board[i] end
+  pageUp = true
+end
+
 local function markChanges(footerChanged)
-  -- **A CELL THAT CHANGED IS PAINTED WHOLE** —paper, then the tile or the frame— and that is the mark: the box is the
-  -- damage and the mode says what the glass has to pay for it. A cell that did not change is not painted, not marked
-  -- and not sent: the paper of the board never travels again after the first paint (docs/30, docs/45).
+  -- **Res abans que la pàgina sigui al vidre** (0.189.7): a new game at boot builds the sixteen cells before `paintPage` is
+  -- called, and a diff there would be fourteen empty cells painted on a glass nobody has seen followed by the page itself.
+  -- The page is what paints the first board, and it is one pass (docs/30, docs/50).
+  if not pageUp then return end
+
+  -- **LA TIRA, I RES MÉS DE DALT** (0.189.5): the score, the best and the face of the button are three boxes that touch —the
+  -- score's frame ends where the button begins— so they go up in **one** paint, without blinking, and the button is marked
+  -- on every move because the pass of a press leaves its own ink behind and a frame that keeps it is a button that looks
+  -- held down (docs/30, docs/50).
+  paintStrip()
+  if the_button ~= nil then the_button:invalidate() end
+  ui.present(kStripMode)
+  waitForTheInk()
+
+  -- **PRIMER LES CASELLES QUE ARA SÓN BUIES** (0.189.7): a cell that had a tile and has none is paper and its frame,
+  -- and it is cleared **before** anything else is painted —the tile that lands there next is a box of its own and the
+  -- two are painted in that order—. That is the paper of the box travelling with the box, which is what stops the ink of
+  -- the tile that left from staying inside the frame (docs/30, docs/45).
+  local cleared = false
+
   for row = 1, N do
     for col = 1, N do
       local i = index(row, col)
 
-      if board[i] ~= before[i] then paintTile(row, col, board[i], kTileMode) end
+      if (board[i] == 0) and (before[i] ~= 0) then
+        paintTile(row, col, 0, kClearMode)
+        cleared = true
+      end
     end
   end
 
-  paintStrip()
+  if cleared then
+    ui.present(kClearMode)
+    waitForTheInk()
+  end
 
-  if footerChanged then paintFooter() end
+  -- **I DESPRÉS ELS CUADRATS AMB NÚMERO, NOMÉS ELS QUE HAN CANVIAT**: a cell whose number is the same one it had is on the
+  -- glass already, and asking for it is ink for nothing. **El tauler no es repinta mai**: no box of this file covers the
+  -- sixteen cells, and the air between them does not travel (docs/30, docs/50).
+  local painted = false
 
-  ui.present()
-end
+  for row = 1, N do
+    for col = 1, N do
+      local i = index(row, col)
 
-local function copyBoard(into)
-  for i = 1, N * N do into[i] = board[i] end
+      if (board[i] ~= 0) and (board[i] ~= before[i]) then
+        paintTile(row, col, board[i], kTileMode)
+        painted = true
+      end
+    end
+  end
+
+  if painted then
+    ui.present(kTileMode)
+    waitForTheInk()
+  end
+
+  -- **I la línia del peu, només quan diu una altra cosa**: one box, one pass, in the quality that **cleans**, because a
+  -- message that changes is words that have to go away and not only arrive —`gld16` would leave two of sixteen of the
+  -- sentence before (docs/30, docs/50).
+  if footerChanged then
+    paintFooter()
+    ui.present(kClearMode)
+    waitForTheInk()
+  end
 end
 
 local function say()
   console.print('[2048] board: ' .. table.concat(board, ',') ..
     ' score=' .. score ..
+    ' best=' .. best ..
     ' over=' .. (over and 1 or 0) ..
     ' sum=' .. total())
 end
@@ -452,7 +584,9 @@ end
 local function play(dr, dc)
   if over then return false end
 
-  copyBoard(before)
+  -- **El tauler tal com és al vidre, abans de moure'l**: the diff of this copy is what the move paints, and it is taken
+  -- here because `move` walks the board in place (0.189.7, docs/30).
+  for i = 1, N * N do before[i] = board[i] end
 
   local wasOver, wasWon = over, won
   local moved, earn = move(dr, dc)
@@ -460,6 +594,18 @@ local function play(dr, dc)
   if not moved then return false end
 
   score = score + earn
+
+  -- **LA MÀXIMA ES GUARDA AMB EL DIA QUE ES VA FER** (0.189.4): the day is the person's own clock (`time.date`, which
+  -- carries the offset and the daylight saving of the settings), and it is written once —the move that passes the best—
+  -- and not on every move, because a date that moves says nothing. A clock that has never been set gives a year of
+  -- 1970, and a day that is not known is not written (docs/30, docs/45).
+  if score > best then
+    best = score
+    local day = time.date()
+    if day ~= nil and day.year ~= nil and day.year >= 2000 then
+      bestDate = string.format('%04d-%02d-%02d', day.year, day.month, day.day)
+    end
+  end
 
   spawn()
 
@@ -476,22 +622,22 @@ local function play(dr, dc)
 
   if over then console.print('[2048] no moves left, score=' .. score) end
 
-  -- ONLY WHAT CHANGED, and at the quality it deserves: the tiles that are another number, the digits of the score
-  -- and the button, and the foot when its message is another one. Nothing else of the screen travels.
+  -- **El marcador, les caselles que han canviat i el peu només si diu una altra cosa**: no passada pel tauler sencer.
   markChanges((over ~= wasOver) or (won ~= wasWon))
 
   return true
 end
 
--- A NEW GAME: the score digits, the button —so it says «New» again— and the cells that are another number.
+-- A NEW GAME: the score digits, the board and the button. **La màxima no es toca**: it is the best of this board and
+-- survives every new game, which is what it is for (0.189.4).
 local function newGame()
-  copyBoard(before)
-
-  local wasOver, wasWon = over, won
+  -- **A new game is a board whose cells all changed**, so the copy is the one of the game before: the cells that had a
+  -- tile are cleared and the two that arrive are painted (0.189.7).
+  for i = 1, N * N do before[i] = board[i] end
 
   for i = 1, N * N do board[i] = 0 end
 
-  score, over, won, sure = 0, false, false, false
+  score, over, won = 0, false, false
 
   -- TWO TWOS, ALWAYS: it is the only place of the game that does not throw the four's die.
   spawn(true)
@@ -499,7 +645,7 @@ local function newGame()
 
   save()
   say()
-  markChanges(wasOver or wasWon)
+  markChanges(true)
 end
 
 -- --------------------------------------------------------------------------- the geometry
@@ -517,10 +663,9 @@ local function measure(w, h)
   if boardY < Strip then boardY = Strip end
 
   -- THE BUTTON IS MEASURED FROM ITS WORD and sits where it sat: its right edge is the board's right edge, the same
-  -- 12 px of paper the score has on the left. What changes is only how wide it is, which is what makes «Sure?»
-  -- fit (the paper's 26/10). **And two pixels of air on top**, because the word is measured here and cut inside the
-  -- control with the same arithmetic: a difference of one pixel is a word with three dots at the end.
-  btnW = ui.text_width('Sure?', kSmall) + 2 * BtnPad + 2
+  -- 12 px of paper the score has on the left. **And two pixels of air on top**, because the word is measured here and
+  -- cut inside the control with the same arithmetic: a difference of one pixel is a word with three dots at the end.
+  btnW = ui.text_width('New', kSmall) + 2 * BtnPad + 2
   if btnW < BtnMinW then btnW = BtnMinW end
 
   btnX = boardX + boardW - btnW
@@ -528,7 +673,7 @@ local function measure(w, h)
 
   -- **The button itself**: a control of the system, told where it sits and how wide it is, and **out of the dial**
   -- (`focusable = false`) because the centre of this panel is the way out of an app and this file reads the press
-  -- itself —it is the game that decides between «New» and «Sure?»— (docs/30).
+  -- itself (docs/30).
   if the_button == nil then
     the_button = ui.button(btnW, BtnH)
     if the_button ~= nil then
@@ -541,23 +686,39 @@ local function measure(w, h)
 
   if the_button ~= nil then the_button:place(btnX, btnY) end
 
-  -- **The two labels of the page**: the score on the left of the strip, in the body's size, and the line of the
-  -- bottom in the small one. A label is opaque —its box is paper and then the words— so a number that changes takes
-  -- the one it replaces with it, and its box is what the system paints (docs/30).
+  -- **The three labels of the page**: the score on the left of the strip in the body's size, **the best and its day under
+  -- it in the small one** (0.189.4), and the line of the bottom in the small one. A label is opaque —its box is paper and
+  -- then the words— so a number that changes takes the one it replaces with it, and its box is what the system paints
+  -- (docs/30).
   local strip_w = btnX - 12
   if strip_w < 40 then strip_w = 40 end
 
+  local score_h = ui.line_height(kBody)
+  local best_h = ui.line_height(kSmall)
+
   if the_score == nil then
-    the_score = ui.label(strip_w, BtnH)
+    the_score = ui.label(strip_w, score_h)
     if the_score ~= nil then
       the_score.scale = kBody
       the_score.align = 'left'
     end
   else
-    the_score:resize(strip_w, BtnH)
+    the_score:resize(strip_w, score_h)
   end
 
-  if the_score ~= nil then the_score:place(12, 18) end
+  if the_score ~= nil then the_score:place(12, 6) end
+
+  if the_best == nil then
+    the_best = ui.label(strip_w, best_h)
+    if the_best ~= nil then
+      the_best.scale = kSmall
+      the_best.align = 'left'
+    end
+  else
+    the_best:resize(strip_w, best_h)
+  end
+
+  if the_best ~= nil then the_best:place(12, 6 + score_h) end
 
   if the_foot == nil then
     the_foot = ui.label(boardX + boardW - 24, 30)
@@ -574,25 +735,11 @@ end
 
 -- ------------------------------------------------------------------------------- the input
 
+-- **Un toc al New és una partida nova i prou** (0.189.4): there is no second question and no second word. The save of
+-- the move before is what a person gets back if the tap was a mistake, and the best score survives the new game.
 local function tapAt(x, y)
   if (x >= btnX) and (x < btnX + btnW) and (y >= btnY) and (y < btnY + BtnH) then
-    if sure then
-      newGame()
-    else
-      -- The first tap asks. A game thrown away by accident is a game nobody gets back, so the word changes from
-      -- «New» to «Sure?» and the button travels on its own, in two inks.
-      sure = true
-      paintStrip()
-      ui.present()
-    end
-
-    return
-  end
-
-  if sure then
-    sure = false
-    paintStrip()
-    ui.present()
+    newGame()
   end
 end
 
@@ -652,7 +799,6 @@ if asked == 'full' then
   for i = 1, N * N do board[i] = pattern[i] end
 
   score, over, won, why = 8192, true, true, ''
-  copyBoard(before)
   say()
   console.print('[2048] no moves left, score=' .. score)
 elseif not load() then
@@ -662,13 +808,9 @@ else
   say()
 end
 
--- The whole page at once and with one quality: it is the first paint of an app and the glass has to be clean
--- (docs/50). From here on only the damage of a move travels.
-ui.clear(15)
-paintBoard()
-paintStrip()
-paintFooter()
-ui.present(kPageMode)
+-- **The page of the app, once**: the glass comes from the launcher and the whole interface goes up in a single pass at a
+-- quality that keeps the greys. From here on what travels is the score, the board and the line of the bottom (docs/50).
+paintPage()
 
 local lastFooter = footerText()
 
@@ -679,11 +821,7 @@ while true do
   if view.width ~= W or view.height ~= H then
     W, H = view.width, view.height
     measure(W, H)
-    ui.clear(15)
-    paintBoard()
-    paintStrip()
-    paintFooter()
-    ui.present(kPageMode)
+    paintPage()
     lastFooter = footerText()
   end
 
@@ -701,11 +839,13 @@ while true do
   end
 
   -- A move may have changed the line of the foot without painting it: it is painted here, once, when its message
-  -- is another one, which is the rule the design of the refresh asks for.
+  -- is another one, which is the rule the design of the refresh asks for. One box, one paint, in the quality of a line
+  -- of words that changes (0.189.5).
   local foot = footerText()
   if foot ~= lastFooter then
     paintFooter()
-    ui.present()
+    ui.present(kClearMode)
+    waitForTheInk()
     lastFooter = foot
   end
 

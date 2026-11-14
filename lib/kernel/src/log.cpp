@@ -8,6 +8,7 @@
 #include "hal/log.h"
 #include "kernel/colour.h"
 #include "kernel/led.h"
+#include "kernel/serial.h"
 
 namespace kernel {
 namespace {
@@ -59,7 +60,10 @@ void append(const char* data, size_t len) {
 // la línia (docs/50).
 void emit(const char* line, size_t len) {
   append(line, len);
-  if (g_echo) write_line(pal::system().console(), line, len);
+  // **I mentre el port és cedit, el mirall calla** (0.189.20): `serial::console()` is nullptr and `write_line` already knows
+  // what to do with a console that is not there; the ring keeps the line, so `log` still has it when the port comes back
+  // (docs/30, docs/50).
+  if (g_echo) write_line(serial::console(), line, len);
 }
 
 void sink(const char* line, size_t len) { emit(line, len); }
@@ -114,7 +118,7 @@ void log_printf(pal::LogLevel level, const char* tag, const char* fmt, ...) {
 }
 
 void log_dump() {
-  pal::IConsole* console = pal::system().console();
+  pal::IConsole* console = serial::console();
   if (console == nullptr) return;
 
   if (g_count == 0) {

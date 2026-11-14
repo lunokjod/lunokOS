@@ -170,6 +170,14 @@ uint8_t levels();
 // touched**: the panel keeps what it held until the app presents (docs/30).
 void attach();
 
+// **La vista d'una app que arrenca amb una imatge al darrere** (0.189.39, l'amo: *«Revisa a veure quants refrescos es fan
+// desde que es tanca l'app que t'ha cridat, l'splash i després la nostra app»*): the same as `attach()` and **it does not
+// ask the glass for the clean page between two apps**, because the picture the manifest names is about to wash the whole
+// panel anyway —one whole `gc16` and its 290 to 450 ms less per start—. Nothing is lost: the page the app gets is white, a
+// `ui.clear(15)` of it costs nothing, and the page it draws is owed **whole and clean** by `owe_the_page()`, which is the
+// pass that takes the picture away and the ghost of the app before with it (docs/30, docs/50).
+void attach_under_a_picture();
+
 // Drawing. `mode` is the quality the app wants for this region; the default is `du`, the one a menu or
 // a line of text wants. Each call records its region and its quality and nothing reaches the glass.
 bool clear(uint8_t level, const char* mode);
@@ -233,6 +241,13 @@ bool invalidate_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t 
 // after, and only while it is open is the drawing cut at the box (docs/90).
 bool begin_draw(int16_t slot);
 bool end_draw(int16_t slot);
+// **El que aquest control ha pintat, al canvas que el té, ara mateix** (0.189.9): a control with a buffer of its own is
+// composed into the canvas that holds it as soon as its `on_draw` is over, and not at the end of the turn. The layers of
+// a page are the order of its children, and a control without a buffer —the bar of a menu, which paints its card straight
+// into the page— is painted **before** the buffers of his brothers are composed: the card of the menu reached the page and
+// then the box of the terminal took it away, which is the `File` of the editor and of the shell, both dead (docs/30,
+// docs/90). The damage of the control is taken by the canvas that holds it, with the quality the control asked for.
+bool compose_self(int16_t slot);
 // Whether it has to be drawn. False is "nothing changed": the control is not asked to draw at all.
 bool needs_draw(int16_t slot);
 // It has been drawn: nothing more to do until something changes it again.
@@ -919,6 +934,14 @@ const char* keyboard_at(uint8_t index);
 const char* keyboard_current();
 bool keyboard_select(const char* id);
 
+// **El teclat del cable** (0.189.21): el tercer teclat, `serial`, no dibuixa cap banda i el que fa quan una caixa que pren
+// tecles pren el focus és **reclamar el port sèrie** —el sistema deixa d'escriure-hi i el que una persona tecleja va a la
+// caixa—; quan la caixa el deixa anar, el port torna al sistema (docs/30, docs/50). `keyboard_is_the_wire` is the question
+// the shell's feed asks, and `keyboard_type_the_wire` is the one that turns the bytes of the port into keys of the box with
+// the focus, through the same door the band uses (docs/90).
+bool keyboard_is_the_wire();
+bool keyboard_type_the_wire(const char* data, size_t len);
+
 // ---- the dots of a page: where this page is among the others (docs/30, docs/90) ----
 //
 // **`pages` balls in a row and `current` the bigger one**, threaded on a rod: the ball of the page that is open is a
@@ -987,9 +1010,19 @@ uint16_t paints_since_clean();
 // region to be painted with the quality it was drawn with. Returns **before the ink has moved**
 // (docs/30, docs/50).
 bool present();
-// The same, with one quality for everything pending: what an app asks for when it wants the whole page
+// **The same, with one quality for everything pending: what an app asks for when it wants the whole page
 // to look the same, or when it is about to leave a page behind (docs/30).
 bool present_all(hal::UpdateMode mode);
+
+// **Les caixes de la pàgina, i el deute de la pàgina encara per pagar** (0.189.38, l'amo: *«Fes que al arrencar l'app no
+// refresqui la seva vista … així es queda l'splash amb la barra de progrés que creix mentre l'app carrega»*): the system put
+// a picture on the glass —the splash an app names in its manifest— and it owes the whole page, and that debt is what takes
+// the picture away. This present is the one an app asks for **while it is starting**: what it has drawn since goes up
+// **over the picture, in its own box**, and the debt stays for the present that will come after, which is the page of the
+// app whole and clean. A page that is not owed gets exactly what `present()` gives it, and a page under a card keeps the
+// rule of the card (nothing goes up and the page is owed). An app that never pays the debt never shows its page, so this is
+// the door of a start and of nothing else (docs/30, docs/50).
+bool present_over();
 
 // **One quality for every pending region, and the regions kept apart** (0.168.1): what the system asks for when it has
 // changed two controls and owes the glass both of them —the ring that comes and the ring that goes—, because merging the

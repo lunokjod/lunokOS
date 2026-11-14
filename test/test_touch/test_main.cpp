@@ -303,6 +303,138 @@ static void test_the_kernel_asks_the_glass_once_per_scan() {
   emu::set_options(opts);
 }
 
+// **Un vidre lent no parteix un swipe en contactes** (0.188.1): el ritme d'escombrat del xip és a la seva pròpia configuració
+// (`0x8056`, `5 + (byte & 0x0F)` hertz) i el driver deia sempre deu mil·lisegons, un número de full d'especificacions. Aquesta
+// unitat diu **vint hertz** —un escaneig cada cinquanta— i la finestra de silenci del nucli era de **tres escaneigs**, trenta
+// mil·lisegons: entre dos frames del dit, el nucli el donava per anat i **un swipe es tornava un grapat de contactes d'un
+// frame cada un**. Un fregat ràpid passava (un sol frame amb quaranta píxels) i un swipe de mà no: la pàgina es passava «quan
+// volia». Aquí el vidre és el de la unitat i el gest ha de ser **un** `drag` amb el viatge sencer (docs/50, docs/95).
+static void test_a_swipe_on_a_slow_glass_is_one_gesture() {
+  boot_with_a_touch_panel();
+  emu::Options opts = emu::options();
+  opts.touch_scan_ms = 50;  // the configuration of the unit: 5 + (0x0F & 0x0F) = twenty hertz
+  emu::set_options(opts);
+  chip().reset();
+  TEST_ASSERT_EQUAL_UINT32(50, chip().scan_ms());
+  const uint16_t y = 400;
+  // **Un dit que camina trenta píxels per escaneig**, que és una mà i no una màquina: quatre frames i l'aixecament, dos-cents
+  // mil·lisegons de contacte.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 400, y));
+  turn(0);
+  for (int i = 0; i < 4; ++i) {
+    wait_ms(50);
+    TEST_ASSERT_TRUE(chip().finger_move(0, static_cast<uint16_t>(400 - 30 * (i + 1)), y));
+    turn(0);
+  }
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  // The lift of this model is the silence, which is three scans of this glass.
+  wait_ms(200);
+  turn(0);
+  kernel::touch::Gesture gesture;
+  TEST_ASSERT_TRUE(kernel::touch::take_gesture(gesture));
+  TEST_ASSERT_NOT_NULL(gesture.kind);
+  TEST_ASSERT_EQUAL_STRING("drag", gesture.kind);
+  // **El viatge sencer i no el d'un frame**: cent vint píxels cap a l'esquerra, que és la pàgina següent.
+  TEST_ASSERT_EQUAL_INT16(-120, gesture.dx);
+  // **I no hi ha res més a la cua**: el contacte era un i no un grapat de tocs.
+  kernel::touch::Gesture extra;
+  TEST_ASSERT_FALSE(kernel::touch::take_gesture(extra));
+  opts = emu::options();
+  opts.touch_scan_ms = 0;
+  emu::set_options(opts);
+}
+
+// **La pàgina no sent res mentre el dit és a sobre** (0.189.0, l'amo: *«fes un mètode per retardar els events que s'envien
+// als UIControl. Si es decideix que és un gest no s'envien mai els events i s'envia el gest»*). El que es mesura aquí és la
+// decisió i no la tinta: un contacte que **es queda quiet** es diu a la pàgina com una premuda del punt on va caure, i un
+// contacte que **camina** es diu una sola vegada, com un gest, amb el viatge del contacte sencer. Els marcs del camí són del
+// nucli i de ningú més, que és el que fa que un swipe no pinti res (docs/30, docs/50, docs/90).
+static void test_a_still_contact_is_told_as_a_press_and_a_walk_as_one_gesture() {
+  boot_with_a_touch_panel();
+  emu::Options opts = emu::options();
+  opts.touch_scan_ms = 50;  // the configuration of the unit, twenty hertz
+  emu::set_options(opts);
+  chip().reset();
+
+  // **Un toc**: the press of the point it landed on and no travel at all.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 400, 400));
+  hand_turn(60);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  hand_turn(60);
+  hand_turn(60);
+  const kernel::touch::LastContact tap = kernel::touch::last_contact();
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(kernel::touch::Told::kAPress), static_cast<uint8_t>(tap.told));
+  TEST_ASSERT_EQUAL_UINT16(400, tap.x);
+  TEST_ASSERT_EQUAL_UINT16(400, tap.y);
+  TEST_ASSERT_EQUAL_INT16(0, tap.dx);
+  TEST_ASSERT_EQUAL_INT16(0, tap.dy);
+
+  // **I un que camina**: the same finger of the test above, four scans of thirty pixels.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 400, 400));
+  hand_turn(60);
+  for (int i = 0; i < 4; ++i) {
+    wait_ms(50);
+    TEST_ASSERT_TRUE(chip().finger_move(0, static_cast<uint16_t>(400 - 30 * (i + 1)), 400));
+    hand_turn(0);
+  }
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  wait_ms(200);  // the lift of this glass is its silence, three scans
+  hand_turn(0);
+  const kernel::touch::LastContact walk = kernel::touch::last_contact();
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(kernel::touch::Told::kAGesture), static_cast<uint8_t>(walk.told));
+  // **El punt on va caure i el viatge sencer**, which is what a page turn needs to know a side.
+  TEST_ASSERT_EQUAL_UINT16(400, walk.x);
+  TEST_ASSERT_EQUAL_INT16(-120, walk.dx);
+  TEST_ASSERT_EQUAL_INT16(0, walk.dy);
+  // **I el compte diu que el vidre va lliurar marcs**: a contact of a single frame would be a lost line and not a swipe.
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT8(4, walk.frames);
+
+  opts = emu::options();
+  opts.touch_scan_ms = 0;
+  emu::set_options(opts);
+}
+
+// **El vidre que avisa lliura el marc el torn que arriba** (0.188.0): el GT911 del Paper té `INT` a GPIO36 i la baixa quan
+// un escombrat té un marc, el driver l'escolta i el nucli el pregunta a cada torn perquè un torn sense avís no toca el bus.
+// El que es mesura aquí és la conseqüència i no la interrupció: **el marc és al nucli un mil·lisegon després que el dit
+// caigui**, quan la porta de deu mil·lisegons de la 0.174.4 encara l'hauria deixat dins la finestra i no hauria preguntat
+// ningú. La contraprova és el mateix torn amb la línia treta (`--no-touch-int`), que és el vidre de sempre (docs/50, docs/85).
+static void test_a_glass_that_warns_hands_the_frame_on_the_turn_it_lands() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  TEST_ASSERT_TRUE(chip().warns());
+  hal::TouchPoint point = {};
+  // **Un torn amb ningú a la pantalla**: la línia no ha dit res, o sigui que el xip no s'ha preguntat ni una vegada.
+  turn(0);
+  TEST_ASSERT_EQUAL_UINT32(0, chip().frames());
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::touch::points(&point, 1));
+  // **El dit cau i el torn següent ja el té**, un mil·lisegon després: el flamenc és el que fa que aquest torn no sigui dins
+  // cap finestra.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 100, 200));
+  turn(1);
+  TEST_ASSERT_EQUAL_UINT32(1, chip().frames());
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::touch::points(&point, 1));
+  TEST_ASSERT_EQUAL_UINT16(100, point.x);
+  TEST_ASSERT_EQUAL_UINT16(200, point.y);
+  // **I la contraprova**: el mateix torn d'un mil·lisegon amb la línia treta és el vidre que s'ha de preguntar, que dins la
+  // finestra dels deu mil·lisegons no contesta res i no ha lliurat cap marc.
+  chip().reset();
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Options opts = emu::options();
+  opts.touch_interrupt = false;
+  emu::set_options(opts);
+  TEST_ASSERT_FALSE(chip().warns());
+  turn(0);
+  TEST_ASSERT_TRUE(chip().finger_down(0, 100, 200));
+  turn(1);
+  TEST_ASSERT_EQUAL_UINT32(0, chip().frames());
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::touch::points(&point, 1));
+  // **La línia torna per als casos que vénen després d'aquest**.
+  opts = emu::options();
+  opts.touch_interrupt = true;
+  emu::set_options(opts);
+}
+
 // **The whole path**: a finger on the panel, the kernel reading it in its turns, and the gesture coming
 // out in the frame of the view —the page starts under the bar of the system— with the length of the
 // press. The threshold is a second, so this is a second of the emulator's own time (docs/30, docs/50).
@@ -668,6 +800,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_tap_between_two_reads_is_still_a_frame);
   RUN_TEST(test_a_panel_slower_than_the_turn_answers_nothing_half_the_time);
   RUN_TEST(test_the_kernel_asks_the_glass_once_per_scan);
+  RUN_TEST(test_a_swipe_on_a_slow_glass_is_one_gesture);
+  RUN_TEST(test_a_still_contact_is_told_as_a_press_and_a_walk_as_one_gesture);
+  RUN_TEST(test_a_glass_that_warns_hands_the_frame_on_the_turn_it_lands);
   RUN_TEST(test_the_waits_are_one_switch);
   RUN_TEST(test_the_kernel_turns_a_finger_into_a_long_press);
   RUN_TEST(test_a_slow_still_press_is_a_tap_and_a_long_is_not);

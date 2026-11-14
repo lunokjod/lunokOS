@@ -218,6 +218,35 @@ void test_the_pictures_this_board_does_not_read_say_so(void) {
   TEST_ASSERT_EQUAL(img::kUnsupported, img::read_info(file, size, info));
 }
 
+// **Un BMP comprimit amb RLE és una imatge d'una família que llegim i no una cosa desconeguda** (0.189.6): the format
+// allows RLE8 and RLE4 and this reader does not do them —the stream of the format walks a row with its own escapes, which
+// is not the run-length of `lib/rle`— so the answer is `kUnsupported`, and a caller that hears it knows the file is fine
+// and the reader is not (docs/30).
+void test_a_bmp_with_rle_says_it_is_not_read_and_not_that_it_is_unknown(void) {
+  // A BMP of 2x2 pixels, 8 bits a pixel, and **the compression field of the DIB header set to one**, which is RLE8. The
+  // header is written here because no paint program of this machine writes one.
+  static const uint8_t rle_bmp[] = {
+    'B', 'M', 58, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,  // the file header: signature, size, reserved, where the rows are
+    40, 0, 0, 0,                                     // the DIB header is the everyday forty bytes
+    2, 0, 0, 0,                                       // two pixels wide
+    2, 0, 0, 0,                                       // two rows high, and the last row first
+    1, 0,                                             // one plane
+    8, 0,                                             // eight bits a pixel
+    1, 0, 0, 0,                                       // **BI_RLE8**, the compression this reader does not do
+    4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    // the size of the image and the two resolutions and the table
+  };
+  img::Info info;
+  TEST_ASSERT_EQUAL(img::kUnsupported, img::read_info(rle_bmp, sizeof(rle_bmp), info));
+  // **I el mateix fitxer sense el camp de la compressió és una imatge bona**: the same header with a zero reads, which is
+  // what makes this a case about the compression and not about the rest of the header.
+  static uint8_t plain[sizeof(rle_bmp)];
+  memcpy(plain, rle_bmp, sizeof(rle_bmp));
+  plain[30] = 0;
+  TEST_ASSERT_EQUAL(img::kOk, img::read_info(plain, sizeof(plain), info));
+  TEST_ASSERT_EQUAL_UINT16(2, info.width);
+  TEST_ASSERT_EQUAL_UINT16(2, info.height);
+}
+
 // What is not a picture at all, and what is a picture that was cut: two different answers, because they are
 // two different problems (docs/30).
 void test_a_broken_file_and_a_strange_one_are_told_apart(void) {
@@ -472,6 +501,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_block_that_is_smaller_than_the_picture_needs_is_refused);
   RUN_TEST(test_the_netpbm_family_draws_its_own_pictures);
   RUN_TEST(test_the_pictures_this_board_does_not_read_say_so);
+  RUN_TEST(test_a_bmp_with_rle_says_it_is_not_read_and_not_that_it_is_unknown);
   RUN_TEST(test_a_broken_file_and_a_strange_one_are_told_apart);
   RUN_TEST(test_the_info_of_every_family);
   RUN_TEST(test_a_picture_lands_where_it_is_put);

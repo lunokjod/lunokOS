@@ -283,6 +283,14 @@ class PosixStorage : public IStorage {
     return true;
   }
 
+  // **El volum es renta al disc del PC** (0.189.18): a l'emulador el disc és una carpeta de veritat, i `sync()` és el que
+  // fa que el que s'ha escrit sigui al disc i no a la caché del sistema de fitxers. És el que la placa fa amb la targeta
+  // sense tenir-ne els seus marges: aquí no hi ha controlador que endrecini res després (docs/85).
+  bool flush() override {
+    ::sync();
+    return true;
+  }
+
  private:
   void fs_path(const char* rel, char* out, size_t cap) const {
     const emu::Options& o = emu::options();
@@ -346,6 +354,10 @@ class TimedStorage : public IStorage {
   bool space(uint64_t& total, uint64_t& free) override {
     emu::disk_pay(disk_, 0, false);
     return inner_->space(total, free);
+  }
+  bool flush() override {
+    emu::disk_pay(disk_, 0, false);
+    return inner_->flush();
   }
   bool format(uint32_t& removed) override {
     // **A format costs what its entries cost** (0.171.2): the walk reads the directory —one command, and that is paid

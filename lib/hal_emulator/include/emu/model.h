@@ -31,6 +31,9 @@ struct Model {
   // the board stopping. The ATOMs have no hold and no way to switch themselves off between the cell
   // and the chip, so they answer no (docs/50, docs/85).
   bool powers_off;
+  // **Un board whose keys can wake it from a sleep that keeps the supply** (0.189.25): the Paper has a key of the RTC domain
+  // wired to the dial; the ATOMs do not, and say no (docs/50, docs/85).
+  bool keys_wake;
   // The memory the board really has for the system, in KB. **320** on every ESP32 of this family:
   // the chip's 520 KB of SRAM are not all heap, and 320 is what a program can use (docs/75). The
   // emulator may be told a smaller ceiling, never a bigger one: an emulator that hands out a megabyte is

@@ -43,6 +43,10 @@ deixar un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb 
 | `/nvs` | emmagatzematge clau-valor | claus exposades com a fitxers |
 | `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `hexdump /rtc` l'ensenya en hex i en visible, que és el que cal per a un binari. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1: una escriptura atòmica necessita un reanomenament que una memòria no té, i el que fa és escriure al lloc —els bytes al començament i la resta a zero—. **La banda també hi guarda setze bytes seus** (0.178.8): l'última paraula del generador aleatori, en una variable `RTC_NOINIT_ATTR` que no és al fitxer i que cap app no pot llegir ni escriure (docs/50) |
 | `/data` | àlies | escrivible per app: `/data/<id>/` |
+| `/session` | **la targeta primer i el flaix quan no n'hi ha** (0.189.8) | **`sd/session`** quan hi ha targeta i **`littlefs/session`** quan no, amb la carpeta creada al muntatge. És on el nucli desa la memòria d'una sessió (`sys.session`) quan l'app que la va demanar s'acaba o quan l'allocator se la queda per falta de memòria: **un fitxer per bloc**, `/session/<id>/<key>`, amb els bytes tal com eren. El nom de la clau es neteja (el que no és lletra, xifra, punt, guió o guió baix passa a `_`, i `.` i `..` es refusen): una clau d'app amb una barra dins seria una carpeta i escriuria sobre el que no toca. Un sol camí i no dos: dues files del mateix prefix són una taula que ningú no pot llegir. `sessions` al prompt diu què hi ha a la memòria (id, clau,
+bytes i si el fitxer hi és). **I el llistat d'una carpeta creix amb ella** (0.189.36): els noms es copien a la pila mentre
+hi caben —vuit— i passat aquest número a la memòria de casa, perquè una carpeta amb vint-i-una sessions es llegeix sencera
+i un `sessions destroy` no pot dir «8 file(s)» sobre una carpeta de vint-i-un fitxers |
 | `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1, que hi va al lloc: els bytes al començament i la resta de la memòria a zero. `hexdump /fram` l'ensenya |
 | `/apps` | **directori virtual: els dos discs en un, i l'únic punt d'entrada de les apps** (0.88.19, 0.88.20) | **`littlefs/apps` i `sd/apps` junts**, amb la flash primer i la targeta després. Un nom que la flash té **i** la targeta també es presenta **dues vegades**: `<id>` és la còpia de la flash i **`*<id>` la de la targeta** —l'asterisc és la marca d'una app redirigida, i el nom de la còpia diu la unitat al final (`Editor-SD`, `Editor-Littlefs`)—, i cada nom llegeix i corre la seva —`run editor` és l'app de la flash i `run editor-SD` la de la targeta—, en lloc d'una desapareixent darrere l'altra. La carpeta **es crea si no hi és** (a la flash i a la targeta): l'emulador no porta cap app i `repo install` n'hi posa la primera, i una porta que s'obrís només quan la carpeta ja hi era al boot deixava l'app instal·lada **llistada per `apps` i no oberta per `run`** (`cannot read: /apps/<id>/<entry>`, trobat a l'emulador el 4/11). **És l'únic camí per on el sistema mira una app**: el llistat, el `run` i els fitxers d'una app (`/res/`) hi passen, i mai pel directori real d'una unitat, o sigui que **el sistema decideix què presenta la porta** (`vfs::set_apps_presenter`, instal·lat al boot amb `apps::is_an_app`): una carpeta que no porta `manifest.json` **no es llista, no es corre i no la llegeix ningú** que busqui un obridor; una que en porta i diu una altra placa **sí** que hi és, i el llistat diu què necessita |
 | `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
@@ -394,7 +398,7 @@ unitat, i quina unitat és ho tria el sistema, no l'app:
 | Què més hi va | **les apps que s'instal·len** (0.86.0): `repo install <app>` les baixa a `apps/` de la unitat triada, i `cfg` ho diu (`apps install into: /sd/apps`) |
 
 **El teclat és una altra configuració del sistema i viu a la mateixa porta** (0.93.0): `cfg keyboard` diu quin
-hi ha i quins n'hi ha, i `cfg keyboard qwerty` o `cfg keyboard azerty` en tria un. La tria va a l'NVS
+hi ha i quins n'hi ha, i `cfg keyboard qwerty`, `cfg keyboard azerty` o `cfg keyboard serial` en tria un. La tria va a l'NVS
 (`cfg/keyboard`) i l'arrencada la llegeix; un nom que aquest build no té es refusa amb la llista i no canvia
 el que hi havia. No és la cfg d'una app: és del sistema sencer, com la unitat, i per això el `cfg` de la
 consola la mostra amb la resta d'ajustos (docs/30, docs/90).
@@ -431,6 +435,15 @@ ràdio. Viu a `cfg/turn` com el **text decimal** que una persona llegeix (`20000
 amb el rellotge). El valor de sèrie és **20 000** —deu blocs de dos mil— i el que es desa és el que queda en vigor, que
 és el bloc sencer de dalt: demanar-ne 20 001 en deixa 22 000 i `cfg turn` diu el número de debò. El perquè del número i
 el del seu sostre són a docs/20 i docs/75.
+
+**I el sisè ajust és el ritme del cursor** (0.189.34, l'amo: *«Crea una opcio nova de cfg anomenada "cursor delay"
+Allarga el parpalleig del cursor a 850milis. Aquest valor es comú a tots els cursors del sistema»*): `cfg cursor delay
+[<ms>]` és el temps que el bloc de tinta dura abans de girar-se, i és **un sol número per a tots els cursors** —la caixa
+d'una línia, la de diverses, el terminal del shell i la nota del rellotge de fitxar— perquè dos cursors al mateix vidre no
+poden girar-se a dues velocitats. Viu a `cfg/cursor` com el text decimal que una persona llegeix (`850`) i el número qui el
+fa servir és `luabind`, que és el mòdul que té el rellotge del cursor: la porta només en guarda la tria i la hi posa a
+l'arrencada, exactament com `cfg turn`. El valor de sèrie és **850 ms** (eren 700) i el rang va de 100 a 5 000: per sota,
+una pàgina pintada per a ningú; per sobre, un cursor que sembla mort (docs/30, docs/50).
 
 **Els dos fitxers temporals d'una instal·lació** (0.88.9): mentre baixa, `repo install` deixa dins del
 directori de treball el llistat de la carpeta que està llegint (`.listing.json`) i el pla de les carpetes

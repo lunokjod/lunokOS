@@ -31,7 +31,9 @@ jobs:
           python-version: '3.11'
 
       # **Law 10, checked and not remembered**: every commit raises `kernel::kVersion`, in the same
-      # commit, even the one that only touches a tool or a document (docs/80).
+      # commit, even the one that only touches a tool or a document, **and the `version` of the
+      # manifest of every app and of the library.json of every library it touches** (0.186.0,
+      # docs/80).
       - name: version bump
         run: |
           set -euo pipefail
@@ -44,6 +46,12 @@ jobs:
             BASE="$(git merge-base HEAD origin/HEAD 2>/dev/null || echo HEAD^)"
           fi
           python3 tools/check_version.py "$BASE" HEAD
+
+      # **And the list of libraries the About page shows is generated from those numbers** (0.186.0):
+      # a `libs.txt` left behind is an About page that lies about the version of every library
+      # (docs/40, docs/45).
+      - name: the list of libraries is up to date
+        run: python3 tools/gen_about.py --check
 
       # One job and one cache: the five ESP32 environments share the same toolchain, so it is
       # downloaded once and not five times.

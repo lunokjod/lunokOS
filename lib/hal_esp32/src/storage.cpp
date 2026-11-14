@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "esp32/storage.h"
 #include "esp32/volume_wipe.h"
@@ -206,6 +207,13 @@ class Esp32Fs : public IStorage {
     free = (total > used) ? (total - used) : 0;
     return true;
   }
+
+  // **El flaix, rentat** (0.189.18): LittleFS writes the block of a file when the file is closed, and this system closes
+  // every file inside the call that wrote it —`write_block` is the only writer of a session and it opens, writes and closes
+  // in one go— so there is nothing held open here. **L'ESP-IDF no té un `sync()` que es pugui enllaçar** (declarat a
+  // `unistd.h` i sense implementació, mesurat el 14/11): la resposta honesta és aquesta i no una crida que no fa res; el que
+  // queda per a la targeta és el repòs de `power::settle_before_leaving` (docs/70, docs/75).
+  bool flush() override { return true; }
 
  private:
   static File* file_of(FileSlot& slot) { return static_cast<File*>(slot.impl); }

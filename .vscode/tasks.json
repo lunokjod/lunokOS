@@ -30,6 +30,13 @@
       "type": "shell",
       "command": "bash tools/sync_emulator.sh",
       "problemMatcher": []
+    },
+    {
+      "label": "lunokOS: check versions",
+      "detail": "Law 10 over what a push would carry (origin/main..HEAD): every commit raises kernel::kVersion, the `version` of the manifest of every app it touches and the `version` of the library.json of every library it touches; and apps/about/res/libs.txt, which is generated from those numbers, says the same. It is what the CI runs (docs/80).",
+      "type": "shell",
+      "command": "python3 tools/check_version.py origin/main HEAD && python3 tools/gen_about.py --check",
+      "problemMatcher": []
     }
   ]
 }

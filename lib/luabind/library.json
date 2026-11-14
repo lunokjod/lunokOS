@@ -1,6 +1,6 @@
 {
   "name": "luabind",
-  "version": "0.1.0",
+  "version": "0.7.3",
   "description": "The Lua state, its accounting allocator and the first bindings.",
   "dependencies": {
     "lua": "*",
@@ -8,7 +8,8 @@
     "hal": "*",
     "alarms": "*",
     "qr": "*",
-    "json": "*"
+    "json": "*",
+    "rle": "*"
   },
   "build": {
     "flags": ["-Wall", "-Wextra", "-Werror"],

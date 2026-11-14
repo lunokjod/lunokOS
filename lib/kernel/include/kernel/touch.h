@@ -33,6 +33,26 @@ void poll();
 // The points that were down in the last turn, up to `capacity`.
 uint8_t points(hal::TouchPoint* out, uint8_t capacity);
 
+// **El que la pàgina ha sentit de l'últim contacte** (0.189.0, l'amo: *«fes un mètode per retardar els events que
+// s'envien als UIControl. Si es decideix que és un gest no s'envien mai els events i s'envia el gest»*): the page is told
+// **nothing** while a finger is down —the kernel decides first— and it hears exactly one thing when the finger leaves: the
+// press and the release of a point that did not walk, or one gesture with the travel of the whole contact. This is that
+// decision, the one the log says line by line and the tests measure. `kNothing` is a contact that was the system's or the
+// keyboard's, which tell their own things (docs/30, docs/50, docs/90).
+enum class Told : uint8_t { kNothing = 0, kAPress, kAGesture };
+
+struct LastContact {
+  Told told = Told::kNothing;
+  uint16_t x = 0;  // where the finger landed, which is the point the page was told about
+  uint16_t y = 0;
+  int16_t dx = 0;  // how far it walked, which is the gesture when there is one
+  int16_t dy = 0;
+  uint8_t frames = 0;
+  uint16_t ms = 0;
+};
+
+const LastContact& last_contact();
+
 // A gesture, as the kernel says it: where it happened and how long it took.
 struct Gesture {
   const char* kind = nullptr;  // "tap", "double", "triple", "long", "drag" (one finger or two),

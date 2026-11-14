@@ -77,6 +77,7 @@ bool take_pinch_in(int16_t, Gesture&) { return false; }
 namespace ui {
 
 void attach() {}
+void attach_under_a_picture() {}
 
 void give_back_the_glass() {}
 

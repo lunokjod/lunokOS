@@ -29,6 +29,10 @@ struct Header {
   bool core = false;  // OS/2: three bytes a colour and no compression field
   // The channel order of a 16- or 32-bit picture, which the bit fields say and a plain BMP leaves as BGRA.
   uint32_t masks[3] = {0, 0, 0};
+  // **Why a header was refused, when the reason is not «this is not a BMP»**: the compression the format allows and
+  // this reader does not do is a picture of a family we read that asks for something we do not, and a caller that hears
+  // `kUnsupported` instead of `kUnknown` knows the file is fine and the reader is not (docs/30).
+  bool compressed = false;
 };
 
 bool read_header(const uint8_t* data, uint32_t len, Header& out) {
@@ -99,7 +103,11 @@ bool read_header(const uint8_t* data, uint32_t len, Header& out) {
     out.compression = kCompressionRgb;
     out.palette_at = dib_at + kCoreHeader;
   } else if (out.compression != kCompressionRgb && out.compression != kCompressionBitfields) {
-    return false;  // RLE, or a JPEG or a PNG inside a BMP: another decoder's business or nobody's
+    // **RLE8, RLE4, a JPEG or a PNG inside a BMP**: the first two are compression this reader does not do —the stream
+    // of the format is a walk per row with its own escapes, and `lib/rle` is not it— and the last two are another
+    // decoder's business (docs/30). A header that says which one it is, is a header that says `kUnsupported`.
+    out.compressed = true;
+    return false;
   }
   if (width <= 0 || height == 0) return false;
   if (out.depth != 1 && out.depth != 4 && out.depth != 8 && out.depth != 16 && out.depth != 24 &&
@@ -239,7 +247,7 @@ Status sane(const Header& header) {
 
 Status bmp_info(const uint8_t* data, uint32_t len, Info& out) {
   Header header;
-  if (!read_header(data, len, header)) return kUnknown;
+  if (!read_header(data, len, header)) return header.compressed ? kUnsupported : kUnknown;
   const Status status = sane(header);
   if (status != kOk) return status;
   out.format = "BMP";
@@ -261,7 +269,7 @@ uint32_t bmp_scratch(const uint8_t* data, uint32_t len) {
 Status decode_bmp(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap) {
   if (scratch == nullptr || cap < kRowBytes) return kNoRoom;
   Header header;
-  if (!read_header(data, len, header)) return kUnknown;
+  if (!read_header(data, len, header)) return header.compressed ? kUnsupported : kUnknown;
   const Status status = sane(header);
   if (status != kOk) return status;
   if (header.depth <= 8) {

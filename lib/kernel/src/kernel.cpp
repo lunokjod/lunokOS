@@ -15,6 +15,7 @@
 #include "kernel/net.h"
 #include "kernel/power.h"
 #include "kernel/session.h"
+#include "kernel/serial.h"
 #include "kernel/shell.h"
 #include "kernel/version.h"
 #include "kernel/vfs.h"
@@ -87,6 +88,42 @@ void* session_acquire(const char* key, size_t bytes, size_t& got) {
 }
 
 bool session_release(const char* key) { return session::release(luabind::app_id(), key); }
+
+// **I una sessió seva es pot llençar de debò** (0.189.16): the key arrives from Lua and the id of the app is the kernel's,
+// here and nowhere else, so `sys.session_destroy('apps')` throws away the launcher's own `apps` and never another app's
+// (docs/30, docs/75).
+bool session_destroy(const char* key, uint32_t& blocks, uint32_t& files, size_t& bytes) {
+  const session::Forgotten gone = session::forget(luabind::app_id(), key);
+  blocks = gone.blocks;
+  files = gone.files;
+  bytes = gone.bytes;
+  return true;
+}
+
+// **El port sèrie cedit des de Lua** (0.189.20): the id of the running app is put here —or `"the prompt"` when it is a person
+// at the interpreter’s prompt, which is the same door and the same silence— so a wire never belongs to a name nobody can see
+// (docs/30, docs/50).
+const char* serial_owner() {
+  const char* id = luabind::app_id();
+  return (id != nullptr && id[0] != '\0') ? id : "the prompt";
+}
+
+bool serial_claim(const char* by) {
+  (void)by;
+  return serial::claim(serial_owner(), "an app asked for it");
+}
+
+bool serial_release(const char* by) {
+  (void)by;
+  return serial::release_owner(serial_owner(), "the app that had it let it go");
+}
+
+// **The relief of the allocator, with the app that is in front** (0.189.11): `pal` gives one function pointer and no room
+// for a second argument, so the id of the running app is read here —the kernel is the only one that knows it— and the
+// session module is told which cache is the one of the page a person is looking at. That is what lets the memory be given
+// back in the order a person expects: the caches of the other apps first, and the cache of the app on the glass only when
+// that was not enough (docs/30, docs/75).
+void relieve_memory(void* keep, size_t asked) { session::relieve(luabind::app_id(), keep, asked); }
 
 void settle_console() {
   pal::IConsole* console = pal::system().console();
@@ -254,6 +291,30 @@ void deliver_alarms() {
   }
 }
 
+// **I el canvi de la llista d'apps, que només sent l'app que `cfg home` nomena** (0.189.23): `repo install` i `apps
+// remove` deixen el canvi a la porta (`apps::note_a_change`) i es lliura aquí, entre dos torns, com una alarma —la coroutine
+// de l'app és sempre suspesa quan el ganxo corre—. Si l'app que hi ha al vidre no és el llançador registrat, el canvi es
+// llença i no es perd res: la propera arrencada de la pàgina torna a preguntar la llista a la porta i la veu sencera
+// (docs/30, docs/40).
+void deliver_the_apps_change() {
+  if (g_platform == nullptr) return;
+  uint32_t generation = 0;
+  bool installed = true;
+  while (apps::take_the_change(generation, installed)) {
+    const char* home = cfg::home_app();
+    const bool the_launcher = luabind::running() && home != nullptr && home[0] != '\0' &&
+                              strcmp(luabind::app_id(), home) == 0;
+    if (!the_launcher) continue;
+    const char* what = installed ? "install" : "remove";
+    if (!luabind::call_apps_event(what, generation)) {
+      log_printf(pal::kLogWarn, "APPS", "the list changed (%s) and %s has no on_event", what, luabind::app_id());
+    } else {
+      log_printf(pal::kLogInfo, "APPS", "%s hears the change (%s), generation %u", luabind::app_id(), what,
+                 static_cast<unsigned>(generation));
+    }
+  }
+}
+
 // **Where the time of the interpreter's instructions is spent**: the band's own wait, which on the PC
 // is a sleep and on the board is never asked for, because a board's instruction already takes the time
 // it takes (docs/85).
@@ -284,6 +345,13 @@ void dispatch(const pal::Event& ev) {
 }  // namespace
 
 void boot(hal::IPlatform& platform) {
+  // **El corrent de la placa, abans de qualsevol altra cosa** (0.189.24, l'amo: *«El poweroff deixa la placa tonta? no puc
+  // arrencar-la sense punxarla a un usb?!»*): a board whose supply is held by a pin —the Paper, with the SY7088— gives up
+  // about a second after the key, and this boot spends it in the console, the mounts and the splash of the glass. It was
+  // asked for inside `caps()`, which comes after the splash, so on the battery the board switched itself off half way
+  // through its own boot; the maker's own `M5EPD::begin()` enables the main power as its very first instruction (docs/50).
+  // The board already did it in its own entry point, and doing it twice costs a call on a pin that is already high.
+  platform.hold_the_power();
   // **The clock of the meters starts with the boot**, so the uptime of `stats` covers the boot too and
   // the doors can never add up to more than the life of the system (docs/30).
   (void)meter::uptime_ms();
@@ -370,6 +438,9 @@ void boot(hal::IPlatform& platform) {
   // **And the hour of the person beside the disk** (0.125.0): an app that reads a clock reads a date and an hour, and
   // which hour is the person's is a setting of the system (docs/30, docs/60).
   install_time_ops();
+  // **I els ajustos, llegits per una app** (0.189.13): a page that has to obey a switch —the launcher and `sort apps by
+  // usage`— reads what `cfg` prints, and the prompt is the only door that writes one (docs/30, docs/40).
+  install_settings_ops();
   // **The door of the apps, for a launcher** (0.153.0): `apps.list` and `app.run` are the two calls a launcher is made
   // of, and they are the door's and not a second reader of the manifests (docs/30, docs/40).
   apps::install_apps_ops();
@@ -381,12 +452,20 @@ void boot(hal::IPlatform& platform) {
   // —the key is the app's and not the system's— until the board goes off, and **it is the first thing the allocator gives
   // up when a block does not fit**, because it is the only memory of the system that can be made again (docs/30, docs/75).
   // The relief is one function pointer and the block is freed from inside the allocator that refused (docs/75).
-  pal::set_memory_relief(&session::release_all);
+  pal::set_memory_relief(&relieve_memory);
   luabind::SessionOps session_ops = {};
   session_ops.acquire = &session_acquire;
   session_ops.release = &session_release;
+  session_ops.destroy = &session_destroy;
   session_ops.generation = &session::generation;
   luabind::set_session_ops(session_ops);
+  // **I el port sèrie, que una app pot demanar per a ella** (0.189.20): `serial.claim()`, `serial.release()` i
+  // `serial.claimed()` des de Lua, amb el nom de l'app posat aquí (docs/30, docs/50).
+  luabind::SerialOps serial_ops = {};
+  serial_ops.claim = &serial_claim;
+  serial_ops.release = &serial_release;
+  serial_ops.claimed = &serial::claimed;
+  luabind::set_serial_ops(serial_ops);
   net::boot(platform);
   // **The apps are not looked at here on purpose**: `/apps` is walked when a command asks for it
   // (`apps`, `ls`, `run`), so the boot does not depend on how many apps the disk carries (docs/10, docs/40).
@@ -696,6 +775,11 @@ void poll() {
   // its mind while the light was not its own: `on_light()` is the one turn it gets to redraw
   // (docs/30). It runs between turns, with the app's coroutine suspended, like every hook.
   if (led::released() && luabind::running()) luabind::call_hook("on_light");
+
+  // **I la llista d'apps que ha canviat** (0.189.23): the same place as `on_light`, and for the same reason — it is a hook
+  // and it runs between turns — but only after the app has had its own turn, so the app never hears a knock from inside one
+  // of its calls (docs/30, docs/40).
+  deliver_the_apps_change();
 
   if (pal::system().reboot_requested()) g_running = false;
 }

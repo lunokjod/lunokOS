@@ -533,5 +533,33 @@ uint8_t view_pop() {
 
 void reset_views() { g_views = 0; }
 
+// **El número de la llista i el canvi que espera el torn** (0.189.23): el número comença a zero a cada arrencada —no és cap
+// dada que s'hagi de desar: el que una pàgina en fa és comparar-lo amb el que tenia, i una arrencada torna a llegir la
+// llista de la porta— i el canvi és **un de sol**, perquè qui el rep no mira quin és: torna a preguntar la llista sencera i
+// el que necessita saber és que n'hi ha una de nova (docs/30, docs/40).
+namespace {
+uint32_t g_generation = 0;
+// **Zero és cap canvi** (0.189.23): one byte for the verb instead of a name, because the DRAM of the board is at the byte and
+// an app that hears this asks the door for the whole list anyway (docs/30, docs/75).
+uint8_t g_pending = 0;  // 0 none, 1 install, 2 remove
+}  // namespace
+
+uint32_t generation() { return g_generation; }
+
+void note_a_change(const char* what, const char* id) {
+  ++g_generation;
+  g_pending = (what != nullptr && strcmp(what, "install") == 0) ? 1 : 2;
+  log_printf(pal::kLogInfo, "APPS", "the list changed (%s %s), generation %u", (what != nullptr) ? what : "",
+             (id != nullptr) ? id : "", static_cast<unsigned>(g_generation));
+}
+
+bool take_the_change(uint32_t& generation_out, bool& installed) {
+  if (g_pending == 0) return false;
+  installed = (g_pending == 1);
+  generation_out = g_generation;
+  g_pending = 0;
+  return true;
+}
+
 }  // namespace apps
 }  // namespace kernel

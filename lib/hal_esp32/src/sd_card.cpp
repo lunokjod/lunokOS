@@ -180,6 +180,13 @@ class SdCard : public IStorage {
     return true;
   }
 
+  // **La targeta, rentada** (0.189.18): every file is opened, written and closed in one call of this system, so FatFs has
+  // already written the data and the table of the folder by the time `close` answers and there is no descriptor left to
+  // flush. **What no call can do from here is the card's own rest**: its controller copies its buffer into the flash some
+  // milliseconds after the last sector arrived, and that is what the margin of `power::settle_before_leaving` is for —on
+  // this board there is no `sync()` to link against either— (docs/75).
+  bool flush() override { return true; }
+
  private:
   static void fill(const struct stat& info, Stat& out) {
     const bool dir = S_ISDIR(info.st_mode);

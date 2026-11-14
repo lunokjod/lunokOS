@@ -25,6 +25,7 @@
 #include "kernel/display.h"
 #include "kernel/font.h"
 #include "kernel/fs_ops.h"
+#include "kernel/serial.h"
 #include "kernel/splash.h"
 #include "kernel/touch.h"
 #include "kernel/vfs.h"
@@ -1780,6 +1781,23 @@ bool present_for_lua(const char* mode) {
   return present_all(chosen);
 }
 
+// **Les caixes de la pàgina sobre la imatge que l'app ha demanat al seu manifest** (0.189.38, l'amo: *«així es queda
+// l'splash amb la barra de progrés que creix mentre l'app carrega completament»*): the door an app opens while it starts,
+// where the boxes of what it has drawn go up over the picture and **the page stays owed** for the present that will take it
+// away. The strip of the system is asked for here for the same reason `present()` asks for it: a picture washes the whole
+// panel and the bar paints itself only when something of it changes (0.183.0, docs/30, docs/50).
+bool present_over_for_lua() {
+  if (g_splash_took_the_strip) {
+    g_splash_took_the_strip = false;
+    bar::refresh();
+  }
+  return present_over();
+}
+
+// **I aguantar la pàgina** (0.189.42): the same door the card of the system uses, said by an app that is finishing its page
+// while the picture of its own start is still on the glass (docs/30, docs/50).
+bool hold_page_for_lua(bool on) { return hold_the_page(on); }
+
 bool idle_for_lua() { return idle(); }
 
 bool resize_for_lua(uint16_t width, uint16_t height) { return resize(width, height); }
@@ -2049,6 +2067,30 @@ const int32_t kFootRule = 4;
 bool paint_dots(Canvas& canvas, int32_t x, int32_t y, int32_t width, int32_t ball, uint16_t pages,
                 uint16_t current, uint8_t level, uint8_t background, hal::UpdateMode mode);
 
+// **The band of the footer is the box the paginator is designed in, and not a third of a row** (0.176.0): the owner,
+// *«el paginador ha de ser igual a tot arreu, si no no s'entén que és un control paginador»*. It was a third of the row
+// clamped between twenty-four and thirty-seven, so **the same control came out at twenty pixels in a list of short rows,
+// at twenty-four under a grid and at twenty-five in a `ui.dots`** —three sizes of one thing, and a size is what tells a
+// person that two drawings are the same control—. Now the strip is always the design: a ball of twenty-five, twelve of
+// air under it, thirty-seven of band. A tall row gives it nothing extra and a short one gives it what it needs (docs/30,
+// docs/92).
+uint16_t list_footer(uint16_t row_height) {
+  (void)row_height;
+  // **The four rows before the box are the rule and its air** (0.176.0): the line that closes the rows is drawn where a
+  // separator would be, and the strip's box —thirty-seven, the ball and the twelve of air under it— begins four rows
+  // under it, which is exactly where it begins under a grid and inside a `ui.dots` (docs/30, docs/92).
+  return static_cast<uint16_t>(kDotDesignH + kFootRule);
+}
+
+// **And the same strip under a grid** (0.186.3): the band of the dots, and nothing at all in a grid too short to have one
+// —which is the rule its own paint follows—. It is one function because the finger and the paint have to agree about
+// where a page is asked from (docs/30, docs/90).
+int32_t grid_footer(int32_t height) { return (height > 160) ? kDotDesignH : 0; }
+
+// One arithmetic for the paint and for the finger: the band of a list and the band of a grid, which is what the dots are
+// drawn in and what the list counts its rows with. **A finger no longer asks where the dots are** (0.187.0): the whole box of
+// a list or of a grid is the place a swipe turns its page, because a contact that has walked is a gesture and not a tap
+// (0.186.1, docs/30, docs/90).
 bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   (void)platform;
   // **The face of the whole glass, before anything is drawn and whether or not there is a glass**: the typeface is the
@@ -2059,8 +2101,10 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   // hold, so everything after it —the view, the buffers— is taken knowing that this much is spoken for (0.102.0,
   // docs/75, docs/90).
   if (!boot_table()) return false;
+  // **The band of the paginator, declared here** (0.186.3): the table below is a list by position and the arithmetic of
+  // the strip lives with the paint that draws the dots, further down this file (docs/30, docs/90).
   if (!display::available()) return false;
-  // The view of an app is the glass **under the bar of the system**, and never the bar: a page that goes
+  // **The view of an app is the glass **under the bar of the system**, and never the bar: a page that goes
   // wrong cannot take the hour with it (docs/30).
   if (display::height() <= top_rows) return false;
   const uint16_t usable = static_cast<uint16_t>(display::height() - top_rows);
@@ -2073,6 +2117,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      pixel_for_lua,
                                      present_for_lua,
                                      [](uint8_t mode) { return present_each(static_cast<hal::UpdateMode>(mode)); },
+                                     present_over_for_lua,
+                                     hold_page_for_lua,
                                      idle_for_lua,
                                      resize_for_lua,
                                      damage_for_lua,
@@ -2110,6 +2156,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      invalidate_rect,
                                      begin_draw,
                                      end_draw,
+                                     compose_self,
                                      font_load,
                                      font_load_bytes,
                                      font_release,
@@ -2209,7 +2256,13 @@ uint8_t levels() { return 16; }
 // memory's and not a constant of this file (docs/75, docs/90).
 uint16_t canvas_count() { return g_canvas_count; }
 
-void attach() {
+namespace {
+
+// **The view of the app that comes, with or without the clean page between the two** (0.189.39): `attach()` is the door of
+// every start and it washes the glass with the cleaner the page before deserves; `attach_under_a_picture()` is the same and
+// **asks nothing of the glass**, because the picture a manifest names is about to wash the whole panel anyway. The two are
+// one body so that the view, the counters and the paper can never be reset by one and not the other (docs/30, docs/50).
+void attach_the_view(bool wash) {
   if (root().bits == nullptr) return;
   // **The view of the app that starts is the view of every app** (0.136.0): an app that took the whole glass and ended
   // —by its own will, by an error, or by another app taking the front— does not pass it on to the next one, and the bar
@@ -2251,7 +2304,7 @@ void attach() {
   // between two apps, and the next one started on the ghost of it—. `g_page_owes_nothing` is false the moment anything
   // reaches the view, composed or drawn, and when it says there is ink that nobody counted the wash is the sixteen-level
   // one, which cleans without the flash of the full one (found by this suite, 9/11).
-  const bool ink_on_the_glass = g_levels != 0 || g_ink_on_the_view;
+  const bool ink_on_the_glass = wash && (g_levels != 0 || g_ink_on_the_view);
   if (ink_on_the_glass) {
     // **The budget of quick paints is the passes and not the boxes the page was drawn with** (0.179.5): a page of forty words
     // is one page and not forty updates, and counting the boxes made every page of text owe the full wash (docs/50).
@@ -2272,13 +2325,25 @@ void attach() {
   // **A page that was not washed is not white** (0.169.2): at the boot of a run there is nothing in the counters to wash —the
   // picture of the splash is on the glass and it never passed through a primitive of the page— and the app's own
   // `ui.clear(15, …)` is then the pass that paints the page whole, which is what it is for (docs/30, docs/50).
-  g_page_owes_nothing = ink_on_the_glass;
+  //
+  // **I una vista que no s'ha rentat amb una imatge al darrere sí que és blanca** (0.189.39): the app that starts under its
+  // own picture gets a view the system handed white and a `ui.clear(15)` of paper is paper —what is on the glass is the
+  // picture, and the page of the app is owed whole and clean by `owe_the_page()`, which is the pass that takes it away—.
+  g_page_owes_nothing = wash ? ink_on_the_glass : true;
   // **A view that has never been drawn owes a draw**, like a canvas that has just been made: the app that
   // is starting is the one that has to fill it (docs/90).
   root().needs_draw = true;
   root().redraw_w = 0;
   root().redraw_h = 0;
 }
+
+}  // namespace
+
+void attach() { attach_the_view(/*wash=*/true); }
+
+// **I la vista d'un arrencament amb imatge, sense el rentat** (0.189.39): the picture washes the whole panel a moment later,
+// so the clean page between two apps would be paid twice (docs/30, docs/50).
+void attach_under_a_picture() { attach_the_view(/*wash=*/false); }
 
 bool clear(uint8_t level, const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
@@ -2298,6 +2363,14 @@ bool clear(uint8_t level, const char* mode) {
   draw_clear(root(), level, chosen, mode != nullptr);
   g_page_owes_nothing = false;
   g_paper_level = level;
+  // **And the controls stand on that paper again** (0.186.0): a control is composed into the page only where it has
+  // damage of its own, so filling the view takes the pixels of every one of them and nothing asked them for it —the
+  // page came back **without the control that had not moved**, and no present put it there again. The New button of
+  // the 2048 sits at `y` eight and its `x` is measured from the width alone: a view that grew downwards left it
+  // exactly where it was, and the word came off the glass for ever — *«el botó new desapareix»* (the paper's owner,
+  // 14/11)—. It is the rule a hole in the page already follows, which is why the helper is the one that fills a hole
+  // (docs/30, docs/90).
+  invalidate_covered(0, 0, 0, root().width, root().height, 0, 0);
   // **The page is white again, so the band is not there any more**: it is a picture drawn into the page, and the next
   // present has to put it back (docs/50, docs/90).
   keyboard_page_cleared();
@@ -2552,6 +2625,42 @@ bool end_draw(int16_t slot) {
   return true;
 }
 
+// **The pixels of a control reach the canvas that holds it now and not at the end of the turn** (0.189.9): the layers of a
+// page are the order of its children, and the two halves of a present —every `on_draw` first, every composition after— put
+// a control without a buffer under the buffers of its brothers whatever their order is. The bar of a menu paints its row
+// **and the card of the open menu** straight into the page, and the box of the terminal, composed afterwards, took the card
+// away: `File` unfolded in the kernel and the glass never saw it (the editor and the shell, both of them, found on the
+// emulator; docs/30, docs/90).
+//
+// The offsets are the ones `compose_tree` uses: the origin of the control is the sum of every place between it and the first
+// canvas that paints, which is the canvas its damage lands on.
+bool compose_self(int16_t slot) {
+  const Canvas* control = find(slot);
+  if (control == nullptr || control->bits == nullptr || control->parent < 0) return false;
+  const int16_t holder = painting_holder(control->parent);
+  if (holder < 0 || g_canvases[holder].bits == nullptr) return false;
+  if (control->damage_count == 0) return true;
+  int32_t offset_x = 0;
+  int32_t offset_y = 0;
+  for (int16_t walk = slot; walk != holder && walk >= 0; walk = g_canvases[walk].parent) {
+    offset_x += g_canvases[walk].x;
+    offset_y += g_canvases[walk].y;
+  }
+  Canvas& into = g_canvases[holder];
+  for (uint8_t d = 0; d < control->damage_count; ++d) {
+    compose_region(into, g_canvases[slot], offset_x, offset_y, g_canvases[slot].damage[d]);
+  }
+  g_canvases[slot].damage_count = 0;
+  // **And the page is not the white one the system handed over any more**: the same two things `compose_tree` says when a
+  // control's pixels reach the view, because a page that composed its ink here and said nothing would have a `ui.clear(15)`
+  // for free and keep the ghost of the control that had just painted on it (docs/30, docs/50).
+  if (holder == 0) {
+    g_page_owes_nothing = false;
+    g_ink_on_the_view = true;
+  }
+  return true;
+}
+
 bool needs_draw(int16_t slot) {
   const Canvas* target = find(slot);
   return (target != nullptr) && target->needs_draw;
@@ -2608,6 +2717,15 @@ bool canvas_clear(int16_t slot, uint8_t level, const char* mode) {
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
                  width, height, level, chosen, mode != nullptr);
   close_draw(target);
+  // **A box of paper takes the ink of every control inside it, and nothing asked them for it** (0.186.0): a control is
+  // composed into its father only where it has damage of its own, and `place` and `resize` mark only the day they change
+  // something —so a page that clears itself and paints its primitives again came back **without the control that had not
+  // moved**, and no present put it back. The New button of the 2048 sits at `y` eight and its `x` is measured from the
+  // width alone: a view that grew downwards left it exactly where it was, unmarked, and the word came off the glass for
+  // ever — *«el botó new desapareix»* (the paper's owner, 14/11, and the emulator showed the same: the page of a height
+  // that changed kept the score and the button off it)—. It is the rule a hole in the page already follows, which is why
+  // the helper is the one that fills one (docs/30, docs/90).
+  invalidate_covered(slot, 0, 0, width, height, 0, 0);
   return true;
 }
 
@@ -4115,21 +4233,6 @@ uint8_t tabs_tab_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y) {
 // ---- a list (docs/90) ----
 
 namespace {
-
-// **The band of the footer is the box the paginator is designed in, and not a third of a row** (0.176.0): the owner,
-// *«el paginador ha de ser igual a tot arreu, si no no s'entén que és un control paginador»*. It was a third of the row
-// clamped between twenty-four and thirty-seven, so **the same control came out at twenty pixels in a list of short rows,
-// at twenty-four under a grid and at twenty-five in a `ui.dots`** —three sizes of one thing, and a size is what tells a
-// person that two drawings are the same control—. Now the strip is always the design: a ball of twenty-five, twelve of
-// air under it, thirty-seven of band. A tall row gives it nothing extra and a short one gives it what it needs (docs/30,
-// docs/92).
-uint16_t list_footer(uint16_t row_height) {
-  (void)row_height;
-  // **The four rows before the box are the rule and its air** (0.176.0): the line that closes the rows is drawn where a
-  // separator would be, and the strip's box —thirty-seven, the ball and the twelve of air under it— begins four rows
-  // under it, which is exactly where it begins under a grid and inside a `ui.dots` (docs/30, docs/92).
-  return static_cast<uint16_t>(kDotDesignH + kFootRule);
-}
 
 // How many rows of that height fit in that height at all, cut at thirty-two: a page longer than that is a page
 // nobody reads (docs/90).
@@ -5834,7 +5937,9 @@ GridCells icon_grid_cells(const Canvas& grid, uint8_t count, uint8_t index, uint
   cells.cell_h = icon + 8 + line_h + 8;
   // **The band of the foot is the paginator's and not a number of the grid** (0.176.0): thirty-seven is the box the
   // design asks for, so the strip under a grid is the same strip a list has and a `ui.dots` has (docs/30, docs/92).
-  cells.footer = (height > 160) ? static_cast<int32_t>(kDotDesignH) : 0;
+  // **I la tira és només la tinta** (0.187.0): the finger no longer asks where the dots are —the whole box of the grid is
+  // the place a swipe turns its page—, so this number is the paint's and of the rows that fit, and nothing else (docs/30).
+  cells.footer = grid_footer(height);
   int32_t rows = (cells.cell_h > 0) ? ((height - cells.footer) / cells.cell_h) : 0;
   if (rows < 1) rows = 1;
   cells.rows = rows;
@@ -6488,7 +6593,12 @@ bool menu_bar_draw(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint
   int32_t radius = 12;
   const int32_t most = ((grid.menu_w < menu_h) ? grid.menu_w : menu_h) / 3;
   if (radius > most) radius = most;
-  draw_round_fill(*target.canvas, menu_x, menu_y, grid.menu_w, menu_h, radius, background, mode);
+  // **The paper of the card is a wash and the ink over it is cheap** (0.189.9): the card covers whatever the app had
+  // under it, and a `du` keeps five sixteenths of the ink it finds, so a menu over a page of letters came out as a white
+  // sheet with the words of the page showing through it —the editor's `File` on the emulator—. The paper goes down with
+  // the same quality the hole of a card that goes away uses, and the rings and the words over it with the cheap pass
+  // (docs/30, docs/50, docs/90).
+  draw_round_fill(*target.canvas, menu_x, menu_y, grid.menu_w, menu_h, radius, background, hal::UpdateMode::kGl16);
   for (int32_t i = 0; i < 3; ++i) {
     if (grid.menu_w - 2 * i < 2 || menu_h - 2 * i < 2) break;
     const int32_t r = (radius > i) ? (radius - i) : 1;
@@ -6724,6 +6834,10 @@ class Keyboard {
   virtual ~Keyboard() {}
   virtual const char* id() const = 0;
   virtual const LayoutDef& layout(uint8_t kind) const = 0;
+  // **El teclat que no és una banda** (0.189.21): the `serial` keyboard draws nothing on the glass —the keys come from the
+  // wire— and its whole life is a claim on the serial port, so the band, the finger, the height and the paint are not its
+  // business. One question and not a second class of keyboard held apart (docs/30, docs/50, docs/90).
+  virtual bool is_the_wire() const { return false; }
 
   bool show(uint8_t kind);
   bool hide();
@@ -6752,6 +6866,9 @@ class Keyboard {
   bool key_at(uint16_t x, uint16_t y, int8_t& row, int8_t& index) const;
 
   bool shown_ = false;
+  // **El port només es dóna si l'ha pres el teclat** (0.189.21): an app that claimed the wire for itself and then opens a box
+  // keeps its claim when the box loses the focus —the keyboard gives back what it took and not what was already taken—.
+  bool wire_claimed_ = false;
   uint8_t kind_ = kKeyboardAlpha;
   // **The capitals are a lock** (0.84.4): the key turns them on and the key turns it off, and a letter does not put
   // them back (docs/90).
@@ -6793,9 +6910,25 @@ class AzertyKeyboard final : public Keyboard {
   }
 };
 
+// **El tercer teclat: el cable** (0.189.21, l'amo: *«Afegir teclat alternatiu als dos que ja tenim: "USBSerial", aquest
+// teclat fa us de la crida per obtenir el port serie»*). It has no rows and no face: its alphabet is whatever a person has on
+// the other end of the cable, and what it does when it comes up is **claim the serial port** so the log and the prompt stop
+// mixing with the keys (docs/30, docs/50).
+class SerialKeyboard final : public Keyboard {
+ public:
+  const char* id() const override { return "serial"; }
+  bool is_the_wire() const override { return true; }
+  // A layout it never draws: the parent asks for one and this answers the digits, which is the shorter of the two.
+  const LayoutDef& layout(uint8_t kind) const override {
+    (void)kind;
+    return kNumericLayout;
+  }
+};
+
 QwertyKeyboard g_qwerty;
 AzertyKeyboard g_azerty;
-Keyboard* const g_keyboards[] = {&g_qwerty, &g_azerty};
+SerialKeyboard g_serial;
+Keyboard* const g_keyboards[] = {&g_qwerty, &g_azerty, &g_serial};
 const uint8_t kKeyboardCount = static_cast<uint8_t>(sizeof(g_keyboards) / sizeof(g_keyboards[0]));
 Keyboard* g_keyboard = &g_qwerty;
 
@@ -7284,7 +7417,36 @@ bool Keyboard::key_at(uint16_t x, uint16_t y, int8_t& row, int8_t& index) const 
   return false;
 }
 
+// **Qui demana el port quan aixeca el teclat del cable** (0.189.21): the app that is on the glass, or the prompt when there is
+// none —a box with the focus is always a page's, but the name has to be said anyway, and this is the same one the kernel puts
+// on `serial.claim()` from Lua (docs/30, docs/50).
+const char* the_one_in_front() {
+  const char* id = luabind::app_id();
+  return (id != nullptr && id[0] != '\0') ? id : "the prompt";
+}
+
 bool Keyboard::show(uint8_t kind) {
+  // **El teclat del cable no necessita ni vidre ni lletra: només el port** (0.189.21). It comes up when a box that takes keys
+  // takes the focus —the same moment the band would— and what it does is take the wire: the system stops writing there and
+  // what a person types goes to the box. No `g_attached` and no face, because nothing is drawn (docs/30, docs/50, docs/90).
+  if (is_the_wire()) {
+    kind_ = (kind == kKeyboardNumeric) ? kKeyboardNumeric : kKeyboardAlpha;
+    if (shown_) return true;
+    shown_ = true;
+    held_ = false;
+    needs_paint_ = false;
+    clean_ = false;
+    dx_ = dy_ = dw_ = dh_ = 0;
+    const bool was_taken = serial::claimed();
+    if (!serial::claim(the_one_in_front(), "the serial keyboard is up")) {
+      // **Un port que ja és d'algú altre no es pren**: the box stays focused and the wire stays where it is; the log says who
+      // has it, and the person typing gets nothing because a wire with two owners is not a wire (docs/30).
+      shown_ = false;
+      return false;
+    }
+    wire_claimed_ = !was_taken;
+    return true;
+  }
   if (!g_attached || root().bits == nullptr) return false;
   const uint16_t before = height();
   kind_ = (kind == kKeyboardNumeric) ? kKeyboardNumeric : kKeyboardAlpha;
@@ -7306,6 +7468,17 @@ bool Keyboard::show(uint8_t kind) {
 }
 
 bool Keyboard::hide() {
+  // **I quan la caixa perd el focus, el port torna al sistema** (0.189.21): the same moment the band would go down, the claim
+  // goes with it —and only the claim of the name that took it, so a port an app asked for itself is not given back by a
+  // keyboard that never had it— (docs/30, docs/50).
+  if (is_the_wire()) {
+    const bool was_the_wire = shown_;
+    shown_ = false;
+    held_ = false;
+    if (was_the_wire && wire_claimed_) (void)serial::release_owner(the_one_in_front(), "the box let the wire go");
+    wire_claimed_ = false;
+    return true;
+  }
   const uint16_t before = height();
   const bool was = shown_;
   shown_ = false;
@@ -7320,6 +7493,9 @@ bool Keyboard::hide() {
 }
 
 uint16_t Keyboard::height() const {
+  // **The wire takes no rows of the glass**: an app that lays its page above `keyboard_height()` gets the whole view, which is
+  // the point of a keyboard that is not on the glass (docs/30, docs/90).
+  if (is_the_wire()) return 0;
   if (!shown_) return 0;
   return static_cast<uint16_t>(current_layout().count * static_cast<int32_t>(key_h_));
 }
@@ -7328,6 +7504,8 @@ uint16_t Keyboard::height() const {
 // the glass after it, so a control of the page under the band is covered and does not have to know that the
 // keyboard is there (docs/90).
 void Keyboard::paint() {
+  // **El teclat del cable no es pinta, perquè no hi és** (0.189.21).
+  if (is_the_wire()) return;
   if (!shown_ || key_h_ == 0) return;
   Canvas& view = root();
   if (view.bits == nullptr || view.width == 0) return;
@@ -7460,6 +7638,8 @@ void Keyboard::paint() {
 }
 
 bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
+  // **No hi ha res a tocar**: the band of the wire is the other end of a cable (0.189.21).
+  if (is_the_wire()) return false;
   // **On cau cada contacte** (0.179.46): the band is asked once per contact and its answer is the one that decides who
   // owns it, so a finger that types nothing has to be readable from the log: where it landed, whether the band was on the
   // glass, the top row of it and how deep a key is. A line per press and not per frame.
@@ -7537,6 +7717,30 @@ const char* keyboard_at(uint8_t index) {
 }
 
 const char* keyboard_current() { return g_keyboard->id(); }
+
+// **El teclat del cable, preguntat i alimentat** (0.189.21): while the `serial` keyboard is the one chosen and a box took the
+// focus, the bytes that arrive on the port are the box's and nothing else —no prompt, no console of the app— and this is the
+// pair the shell's feed asks (docs/30, docs/50).
+bool keyboard_is_the_wire() { return g_keyboard->is_the_wire() && g_keyboard->visible(); }
+
+// **Un byte del port és una tecla de la caixa amb el focus**: the same door the band uses (`luabind::ui_keyboard_typed`), so
+// the box is edited by one layer and not by two. `\r` and `\n` are the enter, the delete arrives as eight or as one hundred
+// and twenty-seven, and **anything that is not ascii is dropped**: the door of the key takes one letter below one hundred and
+// twenty-seven and half of a UTF-8 letter in a box is worse than nothing (docs/30, docs/90).
+bool keyboard_type_the_wire(const char* data, size_t len) {
+  if (data == nullptr || !keyboard_is_the_wire()) return false;
+  for (size_t i = 0; i < len; ++i) {
+    const int byte = static_cast<uint8_t>(data[i]);
+    if (byte == '\r' || byte == '\n') {
+      luabind::ui_keyboard_typed(13);
+    } else if (byte == 8 || byte == 127) {
+      luabind::ui_keyboard_typed(8);
+    } else if (byte >= 32 && byte < 127) {
+      luabind::ui_keyboard_typed(byte);
+    }
+  }
+  return true;
+}
 
 // **Selecting a keyboard is selecting the object the band talks to** (0.93.0): the state of the one that goes is its
 // own and does not leak into the next, and a band that is on the glass is taken down and put up again with the same
@@ -7731,23 +7935,22 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
 // **The quality a present asks for when the app does not name one**: the lowest one that cleans, and the fast modes
 // first. The panel is the one thing in this system that is slow and that blinks, so the quality is not the app's taste and
 // this layer has no business keeping a second table of its own: `cleaner_for` is the table, it is asked with the levels the
-// page has put down and the passes it has taken since the last wash, and it answers `du` for nothing, **`a2` (290 ms, one
-// blink) for a page of text**, `gl16` for a page with a few grays and `gc16` only for a page that has taken so many quick
-// passes that the ghost is the page (docs/30, docs/50).
-hal::UpdateMode quality_of_the_page() {
-  // **The quality is always the lowest one that cleans, and the fast modes come first** (0.179.60): the whole policy of
-  // what an e-ink pass costs lives in `cleaner_for` and this is the page's turn to ask it. It answers `du` when the page
-  // has put nothing down, `a2` —two levels, one blink, **290 ms**— for a page of text, `gl16` for a page with a few
-  // grays, and `gc16` only when the page has taken so many quick passes that the ghost is the page. It used to answer
-  // `gl16` (450 ms) for everything and `gc16` past the budget, which is a page of letters paying four hundred and fifty
-  // milliseconds a letter's worth of change, and it was the same policy written twice and differently (docs/30, docs/50).
-  // **A page is `gl16`, and the two-level passes are not for a page** (0.179.64): asking the page for the cheapest pass that
-  // cleans (`cleaner_for` answers `a2` for a page of text) leaves this panel with the engine stuck —the log of the board
-  // says `blit 0,48 540x912` and then `LUTAFSR was not read in 3006 ms (busy stayed low)`, which is three seconds of every
-  // paint and a glass that draws nothing—. `a2`, `du` and `du4` are the modes of a **region** here: the rows of the editor
-  // go up in `du` and the letter appears. What a page pays is `gl16` (450 ms, sixteen levels, no flash) and `gc16` when the
-  // quick passes have left a ghost, and that is the trade this panel takes (docs/30, docs/50).
-  return (g_updates >= kManyPaints) ? hal::UpdateMode::kGc16 : hal::UpdateMode::kGl16;
+// page has put down and the passes it has taken since the last wash, and it answers `du` for nothing, **`a2` (290 ms) for
+// text**, `gld16` (450 ms, sixteen levels, **no blink**) for a page with a few grays and `gc16` only for a page that has
+// taken so many quick passes that the ghost is the page (docs/30, docs/50).
+//
+// **I la tinta mana també per a la caixa d'un control** (0.189.2, l'amo: *«és una puta llista de text blanc i negre, la llista
+// no decidirà a quina qualitat pintar-se, ho faran els elements de la llista un per un»*). The turn of a list used to name
+// `gl16` itself and a page of letters paid 450 ms and a blink per swipe; the answer is the one `cleaner_for` already had —
+// text is two levels — and the only thing kept of the old rule is the **hazard this board measured**: a pass of `a2` over
+// the **whole view** left the engine with no image (`blit 0,48 540x912` and `LUTAFSR` not read in 3006 ms, 0.179.64), so a
+// damage that is the whole view still pays `gl16`. A box of a control is not the view, and it goes with its ink (docs/50).
+hal::UpdateMode quality_of_the_page(bool the_whole_view) {
+  const hal::UpdateMode ink = cleaner_for(g_levels, g_updates);
+  if (the_whole_view && quality_rank(ink) < quality_rank(hal::UpdateMode::kGl16)) {
+    return hal::UpdateMode::kGl16;
+  }
+  return ink;
 }
 
 // **When the damage is the page and not a part of it** (0.179.5): a page built again, a turn, the first paint of an app,
@@ -7776,6 +7979,25 @@ bool the_damage_is_the_page() {
   return page != 0 && covered >= page / 2u;
 }
 
+// **When the damage is the whole view** (0.189.2): the one shape this panel does not take in a two-level pass, measured on
+// the board at 0.179.64 (`blit 0,48 540x912`, the engine never started). It is the view and not "most of it": the box of a
+// list is half of the glass and it is a box of a control (docs/50).
+bool the_damage_is_the_whole_view() {
+  if (root().damage_count == 0) return false;
+  uint16_t x0 = 0xFFFF;
+  uint16_t y0 = 0xFFFF;
+  uint16_t x1 = 0;
+  uint16_t y1 = 0;
+  for (uint8_t i = 0; i < root().damage_count; ++i) {
+    const Damage& region = root().damage[i];
+    if (region.x < x0) x0 = region.x;
+    if (region.y < y0) y0 = region.y;
+    if (region.x + region.w > x1) x1 = static_cast<uint16_t>(region.x + region.w);
+    if (region.y + region.h > y1) y1 = static_cast<uint16_t>(region.y + region.h);
+  }
+  return x0 == 0 && y0 == 0 && x1 >= root().width && y1 >= root().height;
+}
+
 // **What the regions that named their own quality say about the whole paint** (0.179.5): a quality the app wrote —a plate
 // with `gc16`, a `du4` of its own— is the one thing this layer does not know better, so the page goes up with the strongest
 // of them and not with the one the system would have guessed; when nobody named one, the page gets what the ink of the glass
@@ -7792,7 +8014,7 @@ hal::UpdateMode quality_of_the_damage() {
   // **The quality the app named is the app's**, and the page's own is what it gets when it named none: what comes out of
   // here is one paint of the page, and the ink of a page that asked for the wash cannot be the one of a page that did not
   // (docs/30, docs/50). A `du` of the whole page is caught after this, by the rule the panel's own hazard asks for.
-  return any ? named : quality_of_the_page();
+  return any ? named : quality_of_the_page(the_damage_is_the_whole_view());
 }
 
 bool present() {
@@ -7853,8 +8075,7 @@ bool present() {
   return ok;
 }
 
-bool present_all(hal::UpdateMode mode) {
-  if (!g_attached || root().bits == nullptr) return false;
+bool present_all(hal::UpdateMode mode) {  if (!g_attached || root().bits == nullptr) return false;
   // **A whole page under a card waits too** (0.179.22): an app that asks for a wash while the panel is out would wash the
   // card away, so the canvas is composed, the damage is dropped and the page is owed for when the card goes (docs/30).
   if (g_page_held) {
@@ -7883,6 +8104,41 @@ bool present_all(hal::UpdateMode mode) {
   g_paints = 0;
   g_updates = 0;
   sweep_released();
+  return ok;
+}
+
+// **Les caixes de la pàgina damunt d'una imatge que hi ha al vidre, amb el deute sencer encara per pagar** (0.189.38,
+// l'amo: *«Fes que al arrencar l'app no refresqui la seva vista (no comunicant damage al panell?) a la pantalla eink, així es
+// queda l'splash amb la barra de progrés que creix mentre l'app carrega completament … Un cop acabat, amaguem la barra de
+// progrés i refresquem la vista sencera»*): the app names a picture in its manifest, the system washes the glass with it and
+// owes the whole page, and the present that pays that debt is the one that takes the picture away. This is the other door:
+// what the app has drawn since goes up **in its own box**, over the picture, and **the debt stays** —so the bar of a start
+// grows over the splash and the page arrives whole when the app is ready— (docs/30, docs/50).
+//
+// **It is `present()` in every other way**: the composition is the same, an app whose page is not owed gets the same pain,
+// and a page under a card keeps the rule of the card (nothing reaches the glass and the page is owed), because washing the
+// glass under a card washes the card (0.179.22).
+bool present_over() {
+  if (!g_attached || root().bits == nullptr) {
+    log_printf(pal::kLogWarn, "UI", "a present arrived with no page attached");
+    return false;
+  }
+  if (g_page_held) {
+    compose_tree(0, -1, 0, 0);
+    root().damage_count = 0;
+    g_owe_all = true;
+    return true;
+  }
+  compose_tree(0, -1, 0, 0);
+  keyboard_paint();
+  // **I la qualitat és la del dibuix i no la de la pàgina** (0.189.42, l'amo: *«la barra de progrés parpalleja molt»*):
+  // `present()` promou un `du` que no va nomenar ningú a la qualitat de la pàgina —un full de text mereix setze nivells—, i
+  // aquí això és el contrari del que cal: la caixa que puja sobre la imatge és una barra de nou píxels, i una passada de dos
+  // nivells la fa **parpallejar vuit vegades** (una per passa) sobre un tros de paper en blanc. El que l'app ha dibuixat va
+  // amb la tinta que va demanar, i el rentat de la pàgina arriba igualment amb el present que paga el deute (docs/30, docs/50).
+  const bool ok = paint_root();
+  sweep_released();
+  // **And the debt is not paid here**: `g_owe_all` stays as it was, which is the whole difference with `present()`.
   return ok;
 }
 

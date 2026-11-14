@@ -162,6 +162,73 @@ static void test_present_sends_the_damage_with_its_quality() {
   TEST_ASSERT_EQUAL_UINT8(0, ui::damage_count());        // and nothing is pending now
 }
 
+// **La barra d'un arrencament damunt de la imatge de l'app** (0.189.38, l'amo: *«Fes que al arrencar l'app no refresqui la
+// seva vista (no comunicant damage al panell?) a la pantalla eink, així es queda l'splash amb la barra de progrés que creix
+// mentre l'app carrega completament … Un cop acabat, amaguem la barra de progrés i refresquem la vista sencera»*): the
+// picture an app names in its manifest washes the glass and the system **owes the whole page**, and that debt is what takes
+// the picture away —so the present that pays it is the page of the app and not the bar of its start—. What this case
+// measures is the door of a start: `present_over()` sends **the box** of what the app has drawn and leaves the debt, and the
+// `present()` that comes after is the whole view with the cleaner. Two paints, and the first one is not the page.
+static void test_the_boxes_of_a_start_go_up_over_the_picture_and_the_page_after(void) {
+  fresh_view();
+  ui::owe_the_page();
+  const uint32_t before = glass().paint_count();
+  TEST_ASSERT_TRUE(ui::fill_rect(100, 50, 40, 20, 0, nullptr));
+  TEST_ASSERT_TRUE(ui::present_over());
+  // **One paint i és la caixa del que l'app ha dibuixat**, no la pàgina: the splash of the manifest is still on the glass
+  // under it (docs/30, docs/50).
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
+  const emu::MemorySurface::Paint* bar = glass().paint_at(before);
+  TEST_ASSERT_NOT_NULL(bar);
+  TEST_ASSERT_EQUAL_UINT16(100, bar->x);
+  TEST_ASSERT_EQUAL_UINT16(50, bar->y);
+  TEST_ASSERT_EQUAL_UINT16(40, bar->w);
+  TEST_ASSERT_EQUAL_UINT16(20, bar->h);
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(100, 50));
+
+  // **I el deute segueix sencer**: the present an app makes when it is ready is the whole view with the cleaner, which is
+  // the one that washes the picture away (docs/30, docs/50).
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT32(before + 2, glass().paint_count());
+  const emu::MemorySurface::Paint* page = glass().paint_at(before + 1);
+  TEST_ASSERT_NOT_NULL(page);
+  TEST_ASSERT_EQUAL_UINT16(0, page->x);
+  TEST_ASSERT_EQUAL_UINT16(0, page->y);
+  TEST_ASSERT_EQUAL_UINT16(ui::width(), page->w);
+  TEST_ASSERT_EQUAL_UINT16(ui::height(), page->h);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, page->mode);
+  // **I la imatge ja no hi és**, que és el que la pàgina sencera fa: the rectangle of the start is paper in the buffer the
+  // whole view was painted from, because the app cleared its page before it presented (docs/30).
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(100, 50));
+}
+
+// **Un arrencament amb imatge no paga el rentat entre dues apps** (0.189.39, l'amo: *«Revisa a veure quants refrescos es fan
+// desde que es tanca l'app que t'ha cridat, l'splash i després la nostra app»*): the app that comes with a picture in its
+// manifest is about to wash the whole panel with it, so the clean page between two apps was a whole `gc16` painting a page
+// nobody sees. What this case measures is the two things at once: **`attach_under_a_picture()` asks the glass for nothing**,
+// and the page of the app that comes is still owed **whole and clean**, which is the pass that takes the picture away.
+static void test_a_start_under_a_picture_does_not_clean_the_glass_first(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 10, 40, 20, 0, nullptr));
+  TEST_ASSERT_TRUE(ui::present());
+  const uint32_t before = glass().paint_count();
+
+  ui::attach_under_a_picture();
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(before, glass().paint_count(), "the clean page between two apps was asked for");
+
+  // **I la pàgina de l'app arriba sencera i neta**, que és la passada que fa fora la imatge i el fantasma d'abans.
+  ui::owe_the_page();
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
+  const emu::MemorySurface::Paint* page = glass().paint_at(before);
+  TEST_ASSERT_NOT_NULL(page);
+  TEST_ASSERT_EQUAL_UINT16(0, page->x);
+  TEST_ASSERT_EQUAL_UINT16(0, page->y);
+  TEST_ASSERT_EQUAL_UINT16(ui::width(), page->w);
+  TEST_ASSERT_EQUAL_UINT16(ui::height(), page->h);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, page->mode);
+}
+
 // Two regions drawn with two qualities are two paints, each with its own: a photo and the line of text
 // under it are not the same kind of ink (docs/30).
 static void test_two_qualities_are_two_paints() {
@@ -413,6 +480,29 @@ static void test_a_canvas_is_cut_at_its_border() {
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(20, 0));
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(0, 10));
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(45, 45));
+}
+
+// **A page that clears itself asks its controls to draw again** (0.186.0): the paper of a `clear` takes the ink of
+// every control inside the box, and a control is composed into its father **only where it has damage of its own** —so
+// the page came back without the control that had not moved, and no present put it there again—. That is the 2048 with
+// no New button: «el botó new desapareix» (the paper's owner, 14/11). The rule is the one a hole in the page already
+// follows, and this is the case that holds it (docs/30, docs/90).
+static void test_a_page_that_clears_itself_asks_its_controls_to_draw_again() {
+  fresh_view();
+  int16_t slot = -1;
+  TEST_ASSERT_TRUE(ui::create(40, 20, -1, true, slot));
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(slot, 0, 0, 40, 20, 0, "du"));
+  TEST_ASSERT_TRUE(ui::place(slot, 100, 50));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(110, 55));
+
+  // The app's own hand: paper over the whole page, and the control has not moved, so nothing of it is marked.
+  TEST_ASSERT_TRUE(ui::clear(15, nullptr));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(110, 55));   // the control is on the page again
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(100, 50));   // and its whole box is
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(140, 55));  // outside it the page is paper
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(110, 70));
 }
 
 // **A canvas that paints nothing is composed as nothing**: a present with nothing painted anywhere does
@@ -1026,6 +1116,26 @@ static void test_a_du_of_the_whole_glass_is_painted_as_a_wash(void) {
   TEST_ASSERT_TRUE(ui::fill_rect(10, 10, 40, 40, 0, "du"));
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_INT(static_cast<int>(hal::UpdateMode::kDu), static_cast<int>(glass().last_mode()));
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
+// **La qualitat la diu la tinta, i la vista sencera és l'única excepció** (0.189.2, l'amo: *«és una puta llista de text blanc i
+// negre, la llista no decidirà a quina qualitat pintar-se, ho faran els elements de la llista un per un»*). La regla de la
+// 0.179.64 —una pàgina sempre a `gl16`— era una mesura del panell i no una política de la pàgina: el que el panell no va
+// acceptar va ser una passada de dos nivells **de la vista sencera** (`blit 0,48 540x912` i `LUTAFSR` sense llegir en
+// 3006 ms). Aquí es veuen les dues cares: la caixa d'un control de text puja amb `a2` —290 ms, un parpelleig— i la vista
+// sencera del mateix text puja amb `gl16` (docs/50).
+static void test_the_ink_of_a_box_brings_two_levels_and_the_whole_view_does_not(void) {
+  fresh_view();
+  // **Mitja pàgina de lletres**: level 0 and level 15 and nothing between them, which is what a list of text is.
+  TEST_ASSERT_TRUE(ui::fill_rect(0, 10, 400, 400, 0, nullptr));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(hal::UpdateMode::kA2), static_cast<int>(glass().last_mode()));
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+  // **I la vista sencera, el mateix text**: the pass the panel did not take, and the one the guard keeps out.
+  TEST_ASSERT_TRUE(ui::clear(0, nullptr));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(hal::UpdateMode::kGl16), static_cast<int>(glass().last_mode()));
   TEST_ASSERT_TRUE(glass().set_ink(false));
 }
 
@@ -1828,15 +1938,16 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
 
 // **The system chooses the wash between two apps, and it chooses it from what the page showed** (docs/50):
 // black and white and nothing else is a page the two-level wash takes away in 290 ms, a few grays take the
-// sixteen-level wash without the black flash, and a photograph —or a page that has taken many quick paints,
-// because what is left is ghost— takes the full wash in 450. No app says which one: it cannot know what the
-// one before it left.
+// sixteen-level pass **that does not blink** (0.189.5), and a photograph —or a page that has taken many quick
+// paints, because what is left is ghost— takes the full wash in 450. No app says which one: it cannot know what
+// the one before it left.
 static void test_the_cleaner_between_apps_follows_the_page() {
   const uint16_t text = static_cast<uint16_t>((1u << 0) | (1u << 15));
   TEST_ASSERT_TRUE_MESSAGE(hal::UpdateMode::kA2 == kernel::ui::cleaner_for(text, 3),
                            "a page of text does not take the two-level wash");
-  // A mid grey is no longer a page of text, and a pair of them is still few grays.
-  TEST_ASSERT_TRUE(hal::UpdateMode::kGl16 == kernel::ui::cleaner_for(text | (1u << 8) | (1u << 4), 3));
+  // A mid grey is no longer a page of text, and a pair of them is still few grays: sixteen levels and no flash.
+  TEST_ASSERT_TRUE_MESSAGE(hal::UpdateMode::kGld16 == kernel::ui::cleaner_for(text | (1u << 8) | (1u << 4), 3),
+                           "a page with a few grays does not blink");
   TEST_ASSERT_TRUE_MESSAGE(hal::UpdateMode::kGc16 == kernel::ui::cleaner_for(0xFFFF, 3),
                            "a photograph does not take the full wash");
   // **Many quick paints leave ghost, and only a full wash takes ghost away.**
@@ -2619,10 +2730,12 @@ void test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away(void) {
 // dial and the face; each child says its id and its rows. The list is what `cfg keyboard` prints, and a name that is not
 // one of the children is refused instead of silently selecting another (docs/30, docs/70, docs/90).
 void test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name() {
-  TEST_ASSERT_EQUAL_UINT8(2, ui::keyboard_count());
+  TEST_ASSERT_EQUAL_UINT8(3, ui::keyboard_count());
   TEST_ASSERT_EQUAL_STRING("qwerty", ui::keyboard_at(0));
   TEST_ASSERT_EQUAL_STRING("azerty", ui::keyboard_at(1));
-  TEST_ASSERT_NULL(ui::keyboard_at(2));
+  // **I el tercer és el cable** (0.189.21): una banda que no hi és i un port que es reclama.
+  TEST_ASSERT_EQUAL_STRING("serial", ui::keyboard_at(2));
+  TEST_ASSERT_NULL(ui::keyboard_at(3));
   TEST_ASSERT_EQUAL_STRING("qwerty", ui::keyboard_current());
   TEST_ASSERT_TRUE(ui::keyboard_select("azerty"));
   TEST_ASSERT_EQUAL_STRING("azerty", ui::keyboard_current());
@@ -2630,6 +2743,12 @@ void test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name() {
   TEST_ASSERT_EQUAL_STRING("azerty", ui::keyboard_current());
   TEST_ASSERT_TRUE(ui::keyboard_select("qwerty"));
   TEST_ASSERT_EQUAL_STRING("qwerty", ui::keyboard_current());
+  // **El del cable es tria com els altres i no deixa res al vidre**: no és una banda, o sigui que no ocupa cap fila.
+  TEST_ASSERT_TRUE(ui::keyboard_select("serial"));
+  TEST_ASSERT_EQUAL_STRING("serial", ui::keyboard_current());
+  TEST_ASSERT_FALSE(ui::keyboard_is_the_wire());
+  TEST_ASSERT_EQUAL_UINT16(0, ui::keyboard_height());
+  TEST_ASSERT_TRUE(ui::keyboard_select("qwerty"));
 }
 
 // **The caret is a block on the glass and never outside it**: an empty box has the bar at the left of the inside,
@@ -4214,6 +4333,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_drawing_stays_on_the_canvas_and_leaves_damage);
   RUN_TEST(test_present_sends_the_damage_with_its_quality);
   RUN_TEST(test_two_qualities_are_two_paints);
+  RUN_TEST(test_the_boxes_of_a_start_go_up_over_the_picture_and_the_page_after);
+  RUN_TEST(test_a_start_under_a_picture_does_not_clean_the_glass_first);
   RUN_TEST(test_damage_of_the_same_quality_merges);
   RUN_TEST(test_present_with_a_quality_overrides_the_damage);
   RUN_TEST(test_the_damage_is_translated_to_where_the_view_sits);
@@ -4228,6 +4349,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_view_of_nothing_is_refused);
   RUN_TEST(test_a_child_canvas_lands_where_it_is_placed);
   RUN_TEST(test_a_canvas_is_cut_at_its_border);
+  RUN_TEST(test_a_page_that_clears_itself_asks_its_controls_to_draw_again);
   RUN_TEST(test_a_canvas_that_paints_nothing_composes_nothing);
   RUN_TEST(test_the_views_are_as_many_as_the_memory_gives_and_are_given_back);
   RUN_TEST(test_a_view_made_again_takes_the_canvases_with_it);
@@ -4249,6 +4371,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_window_shows_the_glass_in_the_colours_of_the_panel);
   RUN_TEST(test_a_du_of_the_whole_glass_is_painted_as_a_wash);
   RUN_TEST(test_a_present_of_the_system_keeps_the_quality_the_app_named);
+  RUN_TEST(test_the_ink_of_a_box_brings_two_levels_and_the_whole_view_does_not);
   RUN_TEST(test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it);
   RUN_TEST(test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away);
   RUN_TEST(test_the_trace_of_a_rich_page_is_richer_than_a_flat_one);

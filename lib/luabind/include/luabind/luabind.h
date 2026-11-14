@@ -112,6 +112,9 @@ void set_file_ops(const FileOps& ops);
 struct AppInfo {
   char id[40];
   char title[48];
+  // **La versió del manifest** (0.189.22): the number the app says it is, which is what a launcher needs to know that the cell
+  // it has cached —its title and its picture— is of an older app and has to be read again (docs/30, docs/40).
+  char version[16];
   // **The picture, ready for `canvas:image`**: the path the disk answers for the icon of the app
   // (`/apps/<id>/res/icon.png`), or empty when its manifest names none (docs/40).
   char icon[96];
@@ -144,6 +147,11 @@ void set_apps_ops(const AppsOps& ops);
 struct SessionOps {
   void* (*acquire)(const char* key, size_t bytes, size_t& got);
   bool (*release)(const char* key);
+  // **La sessió també es pot llençar des de l'app** (0.189.16): `sys.session_destroy(key)` takes the block of that key out
+  // of the memory **and** its file out of `/session/<id>/<key>`, which is what `release` (keeps the file) and `clear`
+  // (zeroes the bytes and the next run reads the file back anyway) do not do. The three numbers come back to the app so a
+  // page can say what it threw away, and the id of the running app is the kernel's to know (docs/30, docs/75).
+  bool (*destroy)(const char* key, uint32_t& blocks, uint32_t& files, size_t& bytes);
   // **A number that only goes up when a block is given back**: the relief takes every session memory when a block does
   // not fit, and an object of the app that still points at one has to be refused instead of writing into freed memory
   // (docs/75).
@@ -151,6 +159,47 @@ struct SessionOps {
 };
 
 void set_session_ops(const SessionOps& ops);
+
+// **El port sèrie, cedit a una app** (0.189.20): the wire of a board is the way in —the prompt, the log— and a channel an
+// app may need whole, and these three calls are the switch: `serial.claim()` takes it (the id of the running app is the
+// kernel's to put), `serial.release()` gives it back, and `serial.claimed()` says who has it so a page can draw the truth.
+// While it is ceded **the system writes nothing to it**: no prompt, no log echo, no table of `stats`; the app's own words
+// still go there, because the app is who has the port (docs/30, docs/50). An app that ends gives it back by itself —the
+// kernel does it when the app closes, like the light— so a wire never stays ceded to nobody.
+struct SerialOps {
+  bool (*claim)(const char* by);
+  bool (*release)(const char* by);
+  bool (*claimed)();
+};
+
+void set_serial_ops(const SerialOps& ops);
+
+// **Els ajustos del sistema, per a una app** (0.189.13): until now a setting was a thing only the prompt could read, and
+// an app that had to obey one —the launcher and `sort apps by usage`— had no door at all: `/cfg` is the mount of the
+// *app's own* folder and the system's keys are not in it (docs/30, docs/70). This is that door, and it is **one struct of
+// plain values filled by the kernel** and not nine function pointers, because what an app wants is a snapshot of the
+// settings and not a conversation: `sys.settings()` turns it into a Lua table with the same words `cfg` prints.
+struct Settings {
+  // The words, as the prompt writes them: `sd`, `qwerty`, `home_eink`, `monday`, `+01:00`.
+  const char* unit = "";
+  const char* keyboard = "";
+  const char* boot = "";
+  const char* home = "";
+  const char* week = "monday";
+  const char* tz = "+00:00";
+  // The three switches and the one number, with the types a page wants to compare.
+  bool leap = true;
+  bool dst = false;
+  bool sort_by_usage = false;
+  uint32_t turn = 0;
+};
+
+struct SettingsOps {
+  // Fills `into` with what the system has now. False when this build keeps no settings at all.
+  bool (*read)(Settings& into);
+};
+
+void set_settings_ops(const SettingsOps& ops);
 
 // **A session of the shell for an app** (0.159.0): the shell is the system's and not the wire's, so an app can ask
 // for one and talk to it through three pipes —the lines in, the answers out and the complaints out— with no console
@@ -167,6 +216,10 @@ struct ShellOps {
   size_t (*read)(uint8_t id, char* out, size_t cap);
   size_t (*read_error)(uint8_t id, char* out, size_t cap);
   uint32_t (*dropped)(uint8_t id);
+  // **Les paraules de les comandes del prompt** (0.189.9): the names of everything the shell answers —`help`, `mem`, `apps`,
+  // …— so the app of the shell can offer them as a list a person picks from instead of typing one (docs/30). It fills `names`
+  // with pointers the kernel owns and answers how many there are, which is what an app asks for with `sys.commands()`.
+  uint8_t (*commands)(const char** names, uint8_t cap);
 };
 
 void set_shell_ops(const ShellOps& ops);
@@ -320,6 +373,11 @@ struct PowerOps {
   bool (*keep_awake)(bool on);
   bool (*keeping_awake)();
   const char* (*wakes)();
+  // **El son amb les tecles vives** (0.189.25): the board keeps its supply and the chip sleeps until a key is pressed, so the
+  // page stays on the glass and the app comes back at the next boot —a deep sleep is a reset and not a resume—. The reason
+  // is the app's and goes to the log with the name of who asked; **when it works it does not return**, and false is a board
+  // whose keys cannot wake it, said before anything is painted (docs/30, docs/50, docs/90).
+  bool (*sleep_with_the_keys)(const char* reason);
   // The processor speed: what it is, and the change to a step the board has. A
   // step it does not have is refused, never rounded (docs/30).
   uint32_t (*cpu_mhz)();
@@ -536,6 +594,15 @@ struct UIOps {
   // air between them (docs/30, docs/50). The quality is the byte of `hal::UpdateMode`, which this library does not name
   // (it includes no HAL) and the kernel turns back into its own.
   bool (*present_each)(uint8_t mode);
+  // **Les caixes de la pàgina i el deute de la pàgina encara per pagar** (0.189.38): the present of an app that is starting
+  // over the picture its manifest names —the bar of a progress grows on the splash and the page arrives whole when the app
+  // is ready—. False when there is no page behind it, the same answer `present` gives (docs/30, docs/50).
+  bool (*present_over)();
+  // **El vidre es queda amb el que té mentre l'app acaba una pàgina** (0.189.42): while it is held a present composes the page
+  // and does not reach the glass, and the release paints the page **whole and clean** in one pass. It is the door of a card of
+  // the system over the page —and of the picture of a start, which is the same thing: something of the system is on the glass
+  // and the app is finishing what comes after it— (docs/30, docs/50).
+  bool (*hold_page)(bool on);
   bool (*idle)();
   // Another size for the view. The system answers by making a new canvas and calling `on_resize`, and
   // an app that asks for one it cannot have is told no (docs/30).
@@ -617,6 +684,12 @@ struct UIOps {
   bool (*canvas_invalidate_rect)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
   bool (*canvas_begin_draw)(int16_t slot);
   bool (*canvas_end_draw)(int16_t slot);
+  // **I el que ha pintat, al seu pare, en aquest mateix moment** (0.189.9): a control with a buffer of its own is composed
+  // into the canvas that holds it **right after its `on_draw`**, and not at the end of the turn, because the layers are the
+  // order of the children and a control without a buffer —the bar of a menu— paints straight into the page: composed at the
+  // end, the page of the box arrived after the card of the menu and covered it (the `File` of the editor and of the shell,
+  // both of them dead on the emulator; docs/30, docs/90).
+  bool (*canvas_compose)(int16_t slot);
   // **The faces of a text** (docs/30): one loaded from a portable font file, the one a canvas draws with,
   // and the one the app's own view uses. `handle` -1 is the font of the system, and a handle that was given
   // back is refused instead of read.
@@ -963,6 +1036,11 @@ bool call_resize(uint16_t width, uint16_t height);
 bool ui_has_focusable();
 bool ui_button_event(const char* kind, uint32_t key);
 void ui_touch_progress(uint16_t x, uint16_t y, bool down);
+// **El gest, un cop decidit** (0.189.0): the kernel decides what a contact was **before** it tells the page anything, and a
+// contact that walked is never a press —the controls hear **nothing** of its frames—: they hear this, once, at the end, with
+// the point the finger landed on and how far it went. A page turn, a scroll of a box and a swipe of an app's own are the only
+// three things a gesture can mean on a page (the app reads the rest with `touch.gesture()`) (docs/30, docs/90).
+void ui_gesture(uint16_t x, uint16_t y, int16_t dx, int16_t dy);
 
 // **One key of the system's keyboard arrives here** (docs/30, docs/90): the letter as its code, or 8 for the
 // delete and 13 for the enter, and this layer writes it into the text box that asked for the keyboard —the field
@@ -1115,6 +1193,13 @@ bool call_hook(const char* name);
 // between two turns of the app (docs/60).
 bool call_alarm(const alarms::Entry& entry, int64_t late_ms);
 
+// **The one thing the system tells an app that is not a key** (0.189.23): calls `on_event(ev)` with
+// `ev = {kind = 'apps', what = 'install'|'remove', generation = n}`, because the list of apps changed under the page. False
+// when the app has no `on_event` or when the call failed. Like every hook it runs between two turns, with the app's
+// coroutine suspended, so it cannot await: it is a knock on the door and the page does the work in its own turn (docs/30,
+// docs/40).
+bool call_apps_event(const char* what, uint32_t generation);
+
 // True when those bytes asked to leave the app: three ESC in a row, or a line
 // that says !!exit while the app is not reading one. Whoever drives the loop is
 // the one that closes the app.
@@ -1146,6 +1231,23 @@ uint32_t turn_budget_default();
 uint32_t turn_budget_min();
 uint32_t turn_budget_max();
 bool set_turn_budget(uint32_t instructions);
+
+// **El parpalleig del cursor, que és de la persona i no d'aquest fitxer** (0.189.34, l'amo: *«Crea una opcio nova de cfg
+// anomenada "cursor delay" Allarga el parpalleig del cursor a 850milis. Aquest valor es comú a tots els cursors del
+// sistema»*): every caret of this system —the box of one line, the box of several taken by the finger or by the dial, the
+// terminal of the shell while the band is down and the note of the time clock— blinks with **this** number of
+// milliseconds, and it is one number so that two cursors on one glass cannot turn at two speeds (docs/30, docs/90).
+//
+// It is set by the boot from what `cfg cursor delay` wrote and not by an app: a page that changed it would change the
+// cursor of every other page. Eight hundred and fifty is what the system ships with, and it is slower than the seven
+// hundred it had because a pass of the block on this glass costs a hundred and twenty milliseconds and a cursor that turns
+// before a person has read where it is, is ink spent by nobody (docs/50, docs/92).
+int64_t caret_blink_ms();
+int64_t caret_blink_default_ms();
+// False when the number is outside what a blink may be, and then nothing changes.
+int64_t caret_blink_min_ms();
+int64_t caret_blink_max_ms();
+bool set_caret_blink_ms(int64_t ms);
 
 }  // namespace luabind
 

@@ -8,9 +8,9 @@
 // chunk.
 #include "json/json.h"
 #include <stdio.h>
-
 #include "luabind/luabind.h"
 #include "qr/qr.h"
+#include "rle/rle.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +24,10 @@ extern "C" {
 
 #include "pal/pal.h"
 #include "hal/hal.h"
+// **La traça del gest** (0.188.2): a swipe that does not turn a page has three reasons and none of them is visible on the
+// board —a finger that landed on nothing, a travel that nobody asked, a control that is already on its last page—, and this
+// is the line that tells them apart without a flash per guess (docs/30, docs/90).
+#include "hal/log.h"
 
 namespace luabind {
 
@@ -1419,6 +1423,9 @@ const size_t kFsWindow = 512;
 FileOps g_file_ops = {};  // every operation starts absent: install_fs_ops() fills them
 AppsOps g_apps_ops = {};  // the door of the apps and the wish to start one, filled by the kernel (0.153.0)
 SessionOps g_session_ops = {};  // the memory of a session, per app and per key, filled by the kernel (0.179.0)
+// **The settings of the system**, which an app reads and never writes (0.189.13): a page that has to obey a switch —the
+// launcher and `sort apps by usage`— asks here, and the prompt's `cfg` is the only door that changes one (docs/30).
+SettingsOps g_settings_ops = {};
 // **A session of the shell for an app** (0.159.0), filled by the kernel: the shell is the system's, and this library
 // never includes the kernel (docs/20, docs/30).
 ShellOps g_shell_ops = {};
@@ -1426,6 +1433,7 @@ AppOps g_app_ops = {};
 NetOps g_net_ops = {};    // same rule: without them net.* answers E_UNSUPPORTED
 PowerOps g_power_ops = {};  // and power.* too
 LedOps g_led_ops = {};      // and led.*
+SerialOps g_serial_ops = {};  // and serial.*
 ImuOps g_imu_ops = {};      // and imu.*
 EnvOps g_env_ops = {};      // and env.*
 ButtonOps g_button_ops = {};  // and button.*
@@ -1602,6 +1610,32 @@ int l_sys_session(lua_State* L) {
   snprintf(block->key, sizeof(block->key), "%s", key);
   luaL_getmetatable(L, kSessionMeta);
   lua_setmetatable(L, -2);
+  return 1;
+}
+
+// **`sys.session_destroy(key)`** (0.189.16): una app llença una sessió seva —la memòria i el fitxer—, i és l'única porta
+// que ho fa de debò: `release()` dóna el bloc i el desa al disc, i `clear()` posa els bytes a zero i la propera arrencada
+// el torna a llegir del fitxer. The answer is the three numbers of what went, so a page a person pressed can say
+// "32768 B forgotten" instead of guessing; an object of the app that still holds the block answers `alive() == false` from
+// then on, because the kernel counts that memory as given back (docs/30, docs/75).
+int l_sys_session_destroy(lua_State* L) {
+  const char* key = luaL_checkstring(L, 1);
+  if (g_session_ops.destroy == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no session memory");
+  }
+  uint32_t blocks = 0;
+  uint32_t files = 0;
+  size_t bytes = 0;
+  if (!g_session_ops.destroy(key, blocks, files, bytes)) {
+    return push_nil_error(L, "E_UNAVAIL", "that session cannot be destroyed now");
+  }
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, static_cast<lua_Integer>(blocks));
+  lua_setfield(L, -2, "blocks");
+  lua_pushinteger(L, static_cast<lua_Integer>(files));
+  lua_setfield(L, -2, "files");
+  lua_pushinteger(L, static_cast<lua_Integer>(bytes));
+  lua_setfield(L, -2, "bytes");
   return 1;
 }
 
@@ -2286,6 +2320,10 @@ int l_apps_info(lua_State* L) {
   lua_setfield(L, -2, "title");
   lua_pushstring(L, info.icon);
   lua_setfield(L, -2, "icon");
+  // **I la versió** (0.189.22): el número que l'app diu que és, perquè una pàgina que guarda una cel·la pugui saber si el que té
+  // guardat és de l'app d'abans (docs/30, docs/40).
+  lua_pushstring(L, info.version);
+  lua_setfield(L, -2, "version");
   lua_pushboolean(L, info.launcher ? 1 : 0);
   lua_setfield(L, -2, "launcher");
   lua_pushboolean(L, info.on_card ? 1 : 0);
@@ -2310,6 +2348,23 @@ int l_sys_reboot(lua_State* L) {
   const char* reason = luaL_optstring(L, 1, nullptr);
   if (!g_app_ops.reboot(reason)) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board cannot restart itself");
+  }
+  return 0;
+}
+
+// **sys.deepsleep([reason])** (0.189.25): la lluna de la targeta de la barra, per a una app que és una pàgina i vol la placa
+// adormida amb una tecla per tornar —un lector, un rellotge—. It is not `power.sleep('deep')`, which on this board is a power
+// off waiting for an hour, and it is not `sys.reboot`, which comes back by itself: here the board **keeps its supply** and the
+// chip sleeps until a person presses a key, so what stays on the glass is the page and what comes back is this app, at the
+// next boot (a deep sleep is a reset). The reason is the app's and goes to the log with the name of who asked; with none, it
+// is the app's own name. Never returns when it works (docs/30, docs/50, docs/90).
+int l_sys_deepsleep(lua_State* L) {
+  if (g_power_ops.sleep_with_the_keys == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system cannot sleep with its keys awake");
+  }
+  const char* reason = luaL_optstring(L, 1, nullptr);
+  if (!g_power_ops.sleep_with_the_keys(reason)) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board cannot sleep with its keys awake");
   }
   return 0;
 }
@@ -3032,6 +3087,59 @@ int l_json_get_int(lua_State* L) {
   return 1;
 }
 
+// **`rle.pack(text)` i `rle.unpack(text)`, la run-length del sistema** (0.189.6): the same facility `zip` is for
+// containers —a thing the system offers and an app asks for by name— over a string of Lua's, which is binary-safe and
+// is what a cache of icons is written to and read from. **The block is the extra memory and not the Lua heap**: the
+// packed stream of a cache is the size of the cache, and a block asked for and given back in the same call is not a
+// leak of a megabyte; the interpreter's heap would keep it until the collector decided (docs/30, docs/75).
+int l_rle_pack(lua_State* L) {
+  size_t len = 0;
+  const char* in = luaL_checklstring(L, 1, &len);
+  if (len == 0) {
+    lua_pushstring(L, "");
+    return 1;
+  }
+  if (len > 0x7FFFFFFFu) return push_nil_error(L, "E_INVAL", "too long to pack");
+
+  const uint32_t need = rle::packed_capacity(static_cast<uint32_t>(len));
+  void* block = pal::extra_memory().allocate(need, true);
+  if (block == nullptr) return push_nil_error(L, "E_NOMEM", "no room to pack");
+
+  const uint32_t got = rle::pack(reinterpret_cast<const uint8_t*>(in), static_cast<uint32_t>(len),
+                                 static_cast<uint8_t*>(block), need);
+  if (got == 0) {
+    pal::extra_memory().release(block);
+    return push_nil_error(L, "E_INVAL", "the stream cannot be packed");
+  }
+  lua_pushlstring(L, static_cast<const char*>(block), static_cast<size_t>(got));
+  pal::extra_memory().release(block);
+  return 1;
+}
+
+// **And back**: the length is the header's, so the block is asked for before anything is unpacked, and a stream that
+// is not one of ours says so with a word instead of a picture made of rubbish (docs/30).
+int l_rle_unpack(lua_State* L) {
+  size_t len = 0;
+  const char* in = luaL_checklstring(L, 1, &len);
+  if (len < rle::kHeader) return push_nil_error(L, "E_INVAL", "not a stream of runs");
+
+  const uint32_t want = rle::unpacked_size(reinterpret_cast<const uint8_t*>(in), static_cast<uint32_t>(len));
+  if (want == 0) return push_nil_error(L, "E_INVAL", "not a stream of runs");
+
+  void* block = pal::extra_memory().allocate(want, true);
+  if (block == nullptr) return push_nil_error(L, "E_NOMEM", "no room to unpack");
+
+  const uint32_t got = rle::unpack(reinterpret_cast<const uint8_t*>(in), static_cast<uint32_t>(len),
+                                   static_cast<uint8_t*>(block), want);
+  if (got != want) {
+    pal::extra_memory().release(block);
+    return push_nil_error(L, "E_INVAL", "the stream is broken");
+  }
+  lua_pushlstring(L, static_cast<const char*>(block), static_cast<size_t>(got));
+  pal::extra_memory().release(block);
+  return 1;
+}
+
 // console.is_foreground(): false inside an alarm window. An app that arms an
 // alarm in its main chunk needs this, or every window it gets in arms another one
 // and the system calls itself forever (docs/60).
@@ -3120,6 +3228,47 @@ int l_led_pixel(lua_State* L) {
 }
 
 // led.off(): black, which is the same as set(0, 0, 0) and reads better.
+// **`serial.claim()`: el port passa a ser de l'app** (0.189.20, docs/30, docs/50): while it is ceded the system writes nothing
+// to the wire —no prompt, no log echo, no table of `stats`— and the app's own words still go there, because the app is who
+// has it. The answer is `true`, or `nil, E_BUSY` when somebody else has it: two owners of one wire is the mess this door
+// exists to avoid. The id of the app is the kernel's to put, and the kernel is also the one that gives it back when the app
+// closes, like the light.
+int l_serial_claim(lua_State* L) {
+  (void)L;
+  if (g_serial_ops.claim == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no serial port to cede");
+  }
+  if (!g_serial_ops.claim(nullptr)) {
+    return push_nil_error(L, "E_BUSY", "the serial port is already somebody else's");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **`serial.release()`: i torna al sistema**, which is also what the kernel does when the app that asked ends.
+int l_serial_release(lua_State* L) {
+  (void)L;
+  if (g_serial_ops.release == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no serial port to cede");
+  }
+  if (!g_serial_ops.release(nullptr)) {
+    return push_nil_error(L, "E_UNAVAIL", "the serial port was not ceded");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **`serial.claimed()`: si el port és d'algú**, which is the question a page asks before it says "the port is mine" on the
+// glass (docs/30).
+int l_serial_claimed(lua_State* L) {
+  (void)L;
+  if (g_serial_ops.claimed == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no serial port to cede");
+  }
+  lua_pushboolean(L, g_serial_ops.claimed() ? 1 : 0);
+  return 1;
+}
+
 int l_led_off(lua_State* L) {
   (void)L;
   if (g_led_ops.set_colour == nullptr) {
@@ -3963,10 +4112,64 @@ int l_ui_present(lua_State* L) {
   return 1;
 }
 
+// **Les caixes de la pàgina damunt de la imatge de l'arrencada** (0.189.38, l'amo: *«Fes que al arrencar l'app no refresqui la
+// seva vista … així es queda l'splash amb la barra de progrés que creix mentre l'app carrega completament … Un cop acabat,
+// amaguem la barra de progrés i refresquem la vista sencera»*): the app names a picture in its manifest, the system washes
+// the glass with it and **owes the whole page**, and that debt is what takes the picture away. This present puts what the app
+// has drawn since on the glass **in its own box** and leaves the debt for the present that comes after —the page of the app
+// whole and clean—, which is what makes a bar of progress grow over the splash of a start (docs/30, docs/50).
+//
+// **It draws the page the same way `ui.present()` does**, because a control that changed has to be drawn before it is
+// composed: an app that called this and skipped the draw would send the pixels of the frame before (docs/30, docs/90).
+int l_ui_present_over(lua_State* L) {
+  if (g_ui_ops.present_over == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  ui_restore_the_ring_if_a_card_went(L);
+  if (l_ui_root(L) == 1) {
+    const int height = lua_gettop(L) - 1;
+    lua_getfield(L, -1, "draw");
+    if (lua_isfunction(L, -1)) {
+      lua_pushvalue(L, -2);
+      if (lua_pcall(L, 1, 0, 0) != LUA_OK) return lua_error(L);
+    }
+    lua_settop(L, height);
+  }
+  ++g_ui_present_count;
+  if (!g_ui_ops.present_over()) {
+    const char* why = (g_ui_ops.last_error != nullptr) ? g_ui_ops.last_error() : "";
+    if (why != nullptr && why[0] != '\0') {
+      lua_pushnil(L);
+      lua_createtable(L, 0, 2);
+      lua_pushstring(L, "E_INVAL");
+      lua_setfield(L, -2, "code");
+      lua_pushstring(L, why);
+      lua_setfield(L, -2, "reason");
+      return 2;
+    }
+    return push_nil_error(L, "E_INVAL", "the panel did not take it");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **El vidre es queda amb el que té mentre l'app acaba una pàgina** (0.189.42, l'amo: *«veig que l'splash s'envà just abans de
+// que les fonts es posin a la vista.. podriem treure l'splash després?»*): `ui.hold_page(true)` makes every present of the app
+// compose its page and **not reach the glass** —the picture of the start stays on it—, and `ui.hold_page(false)` paints the
+// page **whole and clean** in one pass, which is the moment the picture goes and the page arrives complete (docs/30, docs/50).
+int l_ui_hold_page(lua_State* L) {
+  if (g_ui_ops.hold_page == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const bool on = lua_toboolean(L, 1) != 0;
+  if (!g_ui_ops.hold_page(on)) return push_nil_error(L, "E_NOPAGE", "there is no page to hold");
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 // ui.idle(): whether the paint that was asked for has finished. It is asked and not waited for,
 // because the ink takes 120 to 450 ms and the app has other things to do (docs/30).
-int l_ui_idle(lua_State* L) {
-  if (g_ui_ops.idle == nullptr) {
+int l_ui_idle(lua_State* L) {  if (g_ui_ops.idle == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
   lua_pushboolean(L, g_ui_ops.idle() ? 1 : 0);
@@ -4155,6 +4358,23 @@ bool g_ui_touch_inside = false;
 // stopped a text box from putting a caret (docs/30, docs/90).
 uint16_t g_ui_touch_x0 = 0;
 uint16_t g_ui_touch_y0 = 0;
+// **Quan va caure el dit** (0.188.9): a row of a list is activated by a **tap** and by nothing else —touch and lift without
+// moving—, and the travel alone cannot say it: the frames it is measured with are the ones a paint can swallow (a touch of a
+// list froze the loop for four seconds on the board and the travel measured was zero). A contact of more than four hundred
+// milliseconds is a long press, and a long press on a row does nothing (docs/30, docs/90).
+int64_t g_ui_touch_ms0 = 0;
+const int32_t kRowTapMs = 400;
+// **And where the finger was the last time anyone said** (0.187.0): `touch.cpp` ends a contact with `ui_touch_progress(0, 0,
+// false)` —the lift has no frame of its own—, so the travel of the whole contact, which is what tells a tap from a
+// gesture, is measured from the landing to this point and not to the zero the lift carries (docs/30, docs/90).
+uint16_t g_ui_touch_x = 0;
+uint16_t g_ui_touch_y = 0;
+// **I qui tenia el focus quan el dit va caure** (0.186.1): a finger lands the ring on the control it touched, and a contact
+// that turns out to be a gesture has to give the page back the way it found it —otherwise the row the swipe stopped over is
+// left wearing the ring, which is the *«es seleccionen items»* of the owner's report— (docs/30, docs/90).
+int16_t g_ui_touch_focus_slot = -1;
+uint16_t g_ui_touch_focus_generation = 0;
+uint8_t g_ui_touch_focus_item = 0;
 bool g_ui_touch_moved = false;
 // **A contact that has lost its control** (0.113.0): the app releases the box the finger is on, and the finger that is
 // still on the glass is not a press on whatever the app builds in its place —the contact began on another control—. It
@@ -4243,10 +4463,16 @@ bool g_caret_on = true;
 bool g_caret_dirty = false;
 int64_t g_caret_next_ms = 0;
 uint8_t g_caret_blinks = 0;
-// **Set-cents mil·lisegons per parpelleig** (0.179.69): the period of the block is a decision about this glass and not about a
-// cursor of a computer screen: a pass costs a hundred and twenty milliseconds of ink, and a block that turns faster than a
-// person reads it is ink spent by nobody. Every blink is one cell and no more than one cell (docs/30, docs/90).
-const int64_t kCaretBlinkMs = 700;
+// **Vuit-cents cinquanta mil·lisegons per parpelleig** (0.179.69 i 0.189.34): the period of the block is a decision about
+// this glass and not about a cursor of a computer screen: a pass costs a hundred and twenty milliseconds of ink, and a block
+// that turns faster than a person reads it is ink spent by nobody. Every blink is one cell and no more than one cell
+// (docs/30, docs/90). **I el número és de la persona** (`cfg cursor delay`): the constant of this file is what the board
+// ships with and the value in force is the one the boot put here, so every cursor of the system turns at the same speed
+// (docs/30, docs/90).
+const int64_t kCaretBlinkDefaultMs = 850;
+const int64_t kCaretBlinkMinMs = 100;
+const int64_t kCaretBlinkMaxMs = 5000;
+int64_t g_caret_blink_ms = kCaretBlinkDefaultMs;
 
 const char kCanvasMeta[] = "lunokOS.UICanvas";
 
@@ -8075,7 +8301,7 @@ void caret_start(lua_State* L, int object, bool whole = true) {
   // of nothing else, so it starts again here (docs/30, docs/90).
   g_caret_blinks = 0;
   g_caret_present_mark = g_ui_present_count;
-  g_caret_next_ms = now_ms() + kCaretBlinkMs;
+  g_caret_next_ms = now_ms() + caret_blink_ms();
 }
 
 void caret_stop(lua_State* L) {
@@ -8922,6 +9148,12 @@ int l_canvas_draw(lua_State* L) {
     }
     lua_pop(L, 1);
     if (g_ui_ops.canvas_end_draw != nullptr) g_ui_ops.canvas_end_draw(canvas->slot);
+    // **I el que ha pintat va al pare en aquest mateix moment** (0.189.9): the layers of a page are the order of its
+    // children, and a control without a buffer —the bar of a menu, which paints its card straight into the page— is
+    // painted before the buffers of the controls made before it are composed: the card of the menu reached the page and
+    // the box of the terminal took it away, so `File` unfolded with nothing hanging from it (the editor and the shell,
+    // found on the emulator; docs/30, docs/90).
+    if (g_ui_ops.canvas_compose != nullptr) g_ui_ops.canvas_compose(canvas->slot);
   }
 
   // **The children are asked even when this control has nothing to redraw**: a child that changed has to
@@ -9369,22 +9601,98 @@ struct FocusTarget {
 // and takes a block that holds one stop per slot, then gives it back when the event is over. It used to be an array
 // of thirty-two on the stack, and a page with more controls than that had its stops cut at the thirty-second
 // (docs/75, docs/90).
+// **The list of stops is asked once and kept** (0.189.10). Until this version it was built on **every event** —a touch
+// frame, a key press, a walk of the dial— with one entry per slot of the table of canvases, which on this board is
+// `2 849 × 32 B = 91 168 B` (measured on the emulator, 14/11). Two things came out of that:
+//
+//   - **the ask is what made the memory short**: a block of 91 168 B does not fit the extra memory of a page that already
+//     holds its canvases, the allocator's relief was called, and it is the relief that takes the session memories of the
+//     apps —`home_eink gives back 'apps': 32768 B, the memory is short` and then
+//     `the memory is short: 1 block(s), 32768 B given back for an ask of 91168 B`, which is this line and no other—, so the
+//     launcher paid its own cache for every tap it answered (docs/75);
+//   - **and when the block could not be had at all, `capacity` was set to zero and the page stopped answering anything**:
+//     no ring, no finger, no key, and not one line in the log to say it. The launcher's twelve cells were walked and none
+//     of them became a stop, so a tap fell on the page and opened nothing (found on the emulator, 14/11, docs/30, docs/90).
+//
+// So: the block lives between events, it starts at the floor of a page and grows only when a page really needs more, and a
+// memory that has nothing to give is asked again for less rather than leaving the page with no stops at all.
+//
+// **The floor is two hundred and fifty-six** (8 192 B): the longest page of this system is the list of commands of the
+// shell —fifty-three stops with its title, its sentence and its `Back`— and the launcher is twelve, so the floor is five
+// times the biggest and the tail of a page never falls outside it. A page that does not fit grows on its next event and
+// says so once (docs/30, docs/75, docs/90).
+const int kStopsFloor = 256;
+// **The smallest block worth a walk**: sixteen stops are half a kilobyte and the launcher fits in them, so a memory that
+// is nearly full still leaves a page answering something. There is no static array to fall back to: the eight kilobytes
+// one took did not fit the internal RAM of the Paper either —`region dram0_0_seg' overflowed by 8088 bytes`, measured—
+// and a fallback that does not link is not a fallback (docs/75).
+const int kStopsLeast = 16;
+static FocusTarget* g_stops = nullptr;
+static int g_stops_capacity = 0;
+// What the next block has to hold: a page that did not fit says so here, and the event after it asks for twice as much.
+static int g_stops_wanted = 0;
+static bool g_stops_short_said = false;
+
+int ui_stops_ceiling() { return (g_ui_ops.slots != nullptr) ? static_cast<int>(g_ui_ops.slots()) : 32; }
+
+// **A page that filled the block asks for twice as much next time**: one warning, and the next event of the same page
+// walks with room for all of it. It is a number that grows and never shrinks, because the page that needed it is the page
+// the app is on (docs/30, docs/90).
+void ui_stops_more_room(int capacity) {
+  int more = (capacity > 0) ? capacity * 2 : kStopsFloor * 2;
+  const int ceiling = ui_stops_ceiling();
+  if (more > ceiling) more = ceiling;
+  if (more <= g_stops_wanted) return;
+  g_stops_wanted = more;
+  hal::logf(pal::kLogWarn, "UI", "the list of stops is full at %d: the page answers those and the next walk asks for %d\r\n",
+            capacity, more);
+}
+
+// The block of stops of this event, and how many it holds: the same one until a page says it needs more, and **a smaller one
+// rather than none** when the memory is nearly full — the ladder is the whole of what a page can do about it, and every
+// refusal remembers that the next event has to ask again (docs/75, docs/90).
+FocusTarget* ui_stops_block(int& capacity) {
+  const int ceiling = ui_stops_ceiling();
+  int want = (g_stops_wanted > kStopsFloor) ? g_stops_wanted : kStopsFloor;
+  if (want > ceiling) want = ceiling;
+  if (g_stops == nullptr || g_stops_capacity < want) {
+    for (int ask = want; ask >= kStopsLeast; ask /= 2) {
+      FocusTarget* block =
+          static_cast<FocusTarget*>(pal::extra_memory().allocate(sizeof(FocusTarget) * static_cast<size_t>(ask), true));
+      if (block == nullptr) continue;
+      // The block that is there is given back only when the new one is in hand, so a page never loses the stops it had.
+      if (g_stops != nullptr) pal::extra_memory().release(g_stops);
+      g_stops = block;
+      g_stops_capacity = ask;
+      hal::logf(pal::kLogInfo, "UI", "the list of stops: %d of %d slots, %u B\r\n", ask, ceiling,
+                static_cast<unsigned>(sizeof(FocusTarget) * static_cast<size_t>(ask)));
+      break;
+    }
+    if (g_stops == nullptr && !g_stops_short_said) {
+      g_stops_short_said = true;
+      hal::logf(pal::kLogWarn, "UI", "the memory has no room for the list of stops: the page answers nothing yet\r\n");
+    }
+  }
+  capacity = g_stops_capacity;
+  return g_stops;
+}
+
+// **A block of stops has no life of its own**: it is the page's and it goes when the interpreter goes, so an app that ends
+// leaves nothing behind (docs/75).
+void ui_stops_release() {
+  if (g_stops != nullptr) pal::extra_memory().release(g_stops);
+  g_stops = nullptr;
+  g_stops_capacity = 0;
+  g_stops_wanted = 0;
+  g_stops_short_said = false;
+}
+
 struct FocusList {
   FocusTarget* items = nullptr;
   int capacity = 0;
 
-  FocusList() {
-    const int slots = (g_ui_ops.slots != nullptr) ? static_cast<int>(g_ui_ops.slots()) : 32;
-    capacity = (slots > 0) ? slots : 32;
-    items = static_cast<FocusTarget*>(pal::extra_memory().allocate(
-        sizeof(FocusTarget) * static_cast<size_t>(capacity), true));
-    if (items == nullptr) {
-      capacity = 0;
-    }
-  }
-  ~FocusList() {
-    if (items != nullptr) pal::extra_memory().release(items);
-  }
+  FocusList() { items = ui_stops_block(capacity); }
+  ~FocusList() = default;
   FocusList(const FocusList&) = delete;
   FocusList& operator=(const FocusList&) = delete;
 };
@@ -9780,7 +10088,9 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       }
     }
 
-    if (ui_in_the_card(child->slot) && ui_target_is_focusable(L, -1) && !ui_grid_has_cells(L, -1)) {
+    const bool focusable_here = ui_target_is_focusable(L, -1);
+    const bool grid_here = ui_grid_has_cells(L, -1);
+    if (ui_in_the_card(child->slot) && focusable_here && !grid_here) {
       // **A strip of tabs is one stop per tab** (0.99.0): the arrows walk into the strip and from one tab to the
       // next, out of it at either end, and the centre chooses the tab the ring is on. One stop for the whole strip
       // made the arrows change the tab instead of moving the dial, which is the owner's complaint of 7/11 and what
@@ -9806,6 +10116,8 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
           lua_rawseti(L, objects, count + 1);
           ++count;
         }
+        // A strip that did not fit the block of stops says so, like any other page (0.189.10).
+        if (count >= capacity) ui_stops_more_room(capacity);
       } else if (count < capacity) {
         FocusTarget& target = targets[count];
         target.slot = child->slot;
@@ -9820,6 +10132,11 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
         lua_pushvalue(L, -1);
         lua_rawseti(L, objects, count + 1);
         ++count;
+      } else {
+        // **La pàgina no hi cap i ho diu** (0.189.10): the block of stops was full, so this control is not a stop of this
+        // walk and the page would answer everything else and not it. The next walk of the same page asks for twice as much
+        // (docs/30, docs/90).
+        ui_stops_more_room(capacity);
       }
     }
     ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, targets, capacity, count,
@@ -9991,35 +10308,6 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity) {
     lua_pop(L, 1);  // the card
   }
   ui_walk_targets(L, root_at, 0, 0, 0, 0, info.width, info.height, 0, targets, capacity, count, order, objects);
-  // **The ring is the card's while the card is up** (0.172.0): the control that had it is found in the tree —it is not in the
-  // list of stops any more, which is the whole point— and its ring is taken away here; the card then takes it. The owner asked
-  // for exactly this: *«quan es mostra el modal, es busca a l'arbre quina té el focus, li treus i li dones al botó per defecte
-  // del modal»* (docs/30, docs/90).
-  if (g_modal_slot >= 0) {
-    if (!g_modal_was_up) {
-      g_modal_was_up = true;
-      g_modal_was_slot = g_ui_focus_slot;
-      g_modal_was_generation = g_ui_focus_generation;
-      g_modal_was_item = g_ui_focus_item;
-    }
-    if (count > 0 && ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item) < 0) {
-      if (g_ui_focus_slot >= 0 && ui_push_slot_from(L, root_at, g_ui_focus_slot, 0)) {
-        const int had_it = lua_gettop(L);
-        if (ui_set_field_bool(L, had_it, "focused", false)) {
-          ui_invalidate(L, had_it);
-          // **And the app hears that the ring went** (0.173.1): the control is not a stop any more, so the walk cannot
-          // tell it through `ui_apply_focus`, and a page that keeps its own idea of the focus —the caret of a box, the
-          // ink of a key— would keep the old one while a card is up. `on_focus(self, false)` is the contract of every
-          // focusable control and a card is the dial moving (docs/30, docs/90).
-          ui_call_hook(L, had_it, "on_focus", true, false);
-        }
-        lua_settop(L, root_at);
-      }
-      ui_apply_focus(L, targets, count, objects, 0);
-    }
-    lua_pop(L, 1);  // the root
-    return count;
-  }
   lua_pop(L, 1);  // the root
   // **And the card gone gives the ring back** (0.172.0): the control that had it takes it again if it is still there, and a
   // page that was built again in the meantime leaves the ring where the app put it (docs/30, docs/90). **One block and not
@@ -11353,7 +11641,63 @@ int push_shell(lua_State* L, uint8_t id) {
   return 1;
 }
 
+// **`sys.commands()`**: the words of the prompt, which is what the app of the shell offers as a list so a person picks a
+// command instead of typing it (0.189.9). The kernel owns the table and answers how many there are; this asks twice —once
+// for the count and once for the names— because that is what an array of an unknown length costs and the list is forty
+// words (docs/30).
+int l_sys_commands(lua_State* L) {
+  if (g_shell_ops.commands == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system has no shell to give");
+  }
+  const uint8_t total = g_shell_ops.commands(nullptr, 0);
+  const char* names[64];
+  const uint8_t copied = g_shell_ops.commands(names, static_cast<uint8_t>((total > 64) ? 64 : total));
+  lua_createtable(L, copied, 0);
+  for (uint8_t i = 0; i < copied; ++i) {
+    lua_pushstring(L, names[i]);
+    lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+  }
+  return 1;
+}
+
 // **`sys.shell()`**: a session of the shell, or `nil` and why there is none (docs/30).
+// **`sys.settings()`**: a snapshot of what the system is set to, in the words `cfg` prints, so a page that has to obey a
+// switch reads the same value a person reads at the prompt (0.189.13, docs/30, docs/70).
+//
+// It is a copy and not a door: an app that changed a setting would be an app that changes the board for every other app,
+// and the settings are the person's. `cfg` is where they are written, and this is where they are read.
+int l_sys_settings(lua_State* L) {
+  if (g_settings_ops.read == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no settings");
+  }
+  Settings now;
+  if (!g_settings_ops.read(now)) {
+    return push_nil_error(L, "E_UNAVAIL", "the settings are not there yet");
+  }
+  lua_createtable(L, 0, 10);
+  lua_pushstring(L, (now.unit != nullptr) ? now.unit : "");
+  lua_setfield(L, -2, "unit");
+  lua_pushstring(L, (now.keyboard != nullptr) ? now.keyboard : "");
+  lua_setfield(L, -2, "keyboard");
+  lua_pushstring(L, (now.boot != nullptr) ? now.boot : "");
+  lua_setfield(L, -2, "boot");
+  lua_pushstring(L, (now.home != nullptr) ? now.home : "");
+  lua_setfield(L, -2, "home");
+  lua_pushstring(L, (now.week != nullptr) ? now.week : "monday");
+  lua_setfield(L, -2, "week");
+  lua_pushstring(L, (now.tz != nullptr) ? now.tz : "+00:00");
+  lua_setfield(L, -2, "tz");
+  lua_pushboolean(L, now.leap);
+  lua_setfield(L, -2, "leap");
+  lua_pushboolean(L, now.dst);
+  lua_setfield(L, -2, "dst");
+  lua_pushboolean(L, now.sort_by_usage);
+  lua_setfield(L, -2, "sort_by_usage");
+  lua_pushinteger(L, static_cast<lua_Integer>(now.turn));
+  lua_setfield(L, -2, "turn");
+  return 1;
+}
+
 int l_sys_shell(lua_State* L) {
   if (g_shell_ops.open == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this system has no shell to give");
@@ -11429,8 +11773,12 @@ void seal_globals(lua_State* L) {
   set_function(L, "caps", l_sys_caps);
   set_function(L, "delay", l_sys_delay);
   set_function(L, "shell", l_sys_shell);
+  set_function(L, "commands", l_sys_commands);
   set_function(L, "session", l_sys_session);
+  set_function(L, "session_destroy", l_sys_session_destroy);
+  set_function(L, "settings", l_sys_settings);
   set_function(L, "reboot", l_sys_reboot);
+  set_function(L, "deepsleep", l_sys_deepsleep);
   lua_setglobal(L, "sys");
 
   // time: the wall clock. It can jump when somebody sets it; sys.time_ms() is
@@ -11492,6 +11840,12 @@ void seal_globals(lua_State* L) {
   set_function(L, "get_int", l_json_get_int);
   lua_setglobal(L, "json");
 
+  // rle: the run-length of the system, the same way `zip` is there for a container (docs/30).
+  lua_createtable(L, 0, 2);
+  set_function(L, "pack", l_rle_pack);
+  set_function(L, "unpack", l_rle_unpack);
+  lua_setglobal(L, "rle");
+
   // net: starting things that take a while, and waiting for them as promises.
   // There is no blocking call here on purpose (docs/30).
   lua_createtable(L, 0, 12);
@@ -11531,6 +11885,14 @@ void seal_globals(lua_State* L) {
   set_function(L, "effect", l_led_effect);
   set_function(L, "system", l_led_system);
   lua_setglobal(L, "led");
+
+  // **serial: el port de la placa cedit a qui el vol** (0.189.20): the wire that is the way in and can be a channel instead.
+  // While it is ceded the system writes nothing to it and the app's own words still go there (docs/30, docs/50).
+  lua_createtable(L, 0, 3);
+  set_function(L, "claim", l_serial_claim);
+  set_function(L, "release", l_serial_release);
+  set_function(L, "claimed", l_serial_claimed);
+  lua_setglobal(L, "serial");
 
   lua_newtable(L);
   set_function(L, "read", l_imu_read);
@@ -11577,6 +11939,10 @@ void seal_globals(lua_State* L) {
   set_function(L, "invert", l_ui_invert);
   set_function(L, "focus", l_ui_focus);
   set_function(L, "present", l_ui_present);
+  // **I el present d'un arrencament, sobre la imatge que el manifest demana** (0.189.38, docs/30).
+  set_function(L, "present_over", l_ui_present_over);
+  // **I aguantar la pàgina perquè el vidre es quedi amb la imatge fins que sigui tota** (0.189.42, docs/30).
+  set_function(L, "hold_page", l_ui_hold_page);
   set_function(L, "idle", l_ui_idle);
   set_function(L, "resize", l_ui_resize);
   set_function(L, "damage", l_ui_damage);
@@ -11854,7 +12220,6 @@ int make_the_task(lua_State* L) {
 // compiler says so (`defined but not used`, on 8/11). What they touch is the anonymous namespace's, which the
 // enclosing `luabind` sees (docs/20).
 void set_shell_ops(const ShellOps& ops) { g_shell_ops = ops; }
-
 void set_console_attached(bool attached) { g_console_attached = attached; }
 
 void set_console_away(void (*write)(const char* text, size_t len)) { g_console_away = write; }
@@ -12043,6 +12408,9 @@ void stop() {
   g_ui_swipe_y0 = 0;
   g_ui_swipe_y = 0;
   g_ui_swipe_tap = 0;
+  // **And the block of stops goes with it** (0.189.10): it is the page's scratch and not the system's, so an app that
+  // ends gives it back and the next one asks for the size its own page needs (docs/75, docs/90).
+  ui_stops_release();
 #endif  // LUNOK_GLASS
   lua_close(g_state);
   g_state = nullptr;
@@ -12191,6 +12559,10 @@ const char* app_path() { return g_app_path; }
 void set_file_ops(const FileOps& ops) { g_file_ops = ops; }
 void set_apps_ops(const AppsOps& ops) { g_apps_ops = ops; }
 void set_session_ops(const SessionOps& ops) { g_session_ops = ops; }
+
+void set_serial_ops(const SerialOps& ops) { g_serial_ops = ops; }
+
+void set_settings_ops(const SettingsOps& ops) { g_settings_ops = ops; }
 void set_app_ops(const AppOps& ops) { g_app_ops = ops; }
 void set_net_ops(const NetOps& ops) { g_net_ops = ops; }
 
@@ -12681,6 +13053,13 @@ int16_t ui_list_of_the_stop(lua_State* L, int objects, int index) {
 // or a finger that goes on being whatever it was. **Nothing is painted here**: a page turned by the dial has to put the
 // ring on a row of the new page first, and the paint of a ring that arrives after the page would be a ring on the old one
 // (docs/30, docs/90).
+// **And a finger asks the page from the control and from nowhere else** (0.187.0): **the whole box of the list is the place
+// a swipe turns a page**, from its first row to the dots —the paginator is inside the control, so a gesture on it is a
+// gesture of the control like any other—. It used to be the strip of the dots (0.186.3) and then the bottom third of the
+// box (0.186.4), and both were a guess about where a finger lands: the rule of 0.186.1 already says that **a contact that
+// has walked is a gesture and not a tap**, so a swipe over a row picks nothing and the list has nothing to protect. The
+// owner: *«pots fer que tot el control clami el swipe? si després es fa a la part del paginador continuarà sent dins del
+// control llista o grid, oi?»* (docs/30, docs/90).
 bool ui_turn_the_page_of_the_list(lua_State* L, int16_t list_slot, int8_t delta) {
   if (g_ui_ops.list_page_of == nullptr || g_ui_ops.canvas_caps == nullptr || delta == 0) return false;
   const int base = lua_gettop(L);
@@ -12726,6 +13105,10 @@ bool ui_turn_the_page_of_the_list(lua_State* L, int16_t list_slot, int8_t delta)
   if (next < 1) next = 1;
   if (next > last) next = last;
   const bool moved = next != page;
+  // **I la pàgina, dita** (0.188.2): which list, which page and how many it has, when it moves and when it is already at the
+  // end —the third reason a swipe does nothing— (docs/30, docs/90).
+  hal::logf(pal::kLogDebug, "UI", "list %d: page %d of %d%s\r\n", static_cast<int>(list_slot),
+            static_cast<int>(next), static_cast<int>(last), moved ? "" : " (already there)");
   if (moved) {
     ui_set_field_number(L, list, "page", next);
     ui_invalidate(L, list);
@@ -13077,7 +13460,12 @@ bool ui_button_event(const char* kind, uint32_t key) {
         const int again = ui_collect_targets(g_state, targets, list.capacity);
         const int stop = ui_stop_of_the_list(targets, again, list_slot, direction < 0);
         if (stop >= 0) ui_apply_focus(g_state, targets, again, top + 1, stop);
-        ui_draw_and_present("gl16");
+        // **La qualitat no és del gir, és del que hi ha a la pàgina** (0.189.2, l'amo: *«és una puta llista de text blanc i
+        // negre, la llista no decidirà a quina qualitat pintar-se, ho faran els elements de la llista un per un»*). Un gir
+        // que nomena el mode pinta la caixa sencera amb aquest i trepitja el que cada fila havia demanat; sense mode, el
+        // sistema pren **la més forta de les que les files han nomenat** —`a2`, dos nivells i un parpelleig de 290 ms, per a
+        // una fila de text— i només cau a la de la pàgina (`gl16`) quan cap no n'ha nomenada cap (docs/30, docs/50).
+        ui_draw_and_present(nullptr);
         lua_settop(g_state, top);
         return true;
       }
@@ -13111,6 +13499,12 @@ bool ui_has_focusable() {
   lua_settop(g_state, top);
   return count > 0;
 }
+
+// **El feedback d'un dit amb la tinta barata** (0.188.3): the same draw and present as `ui_feedback`, with `du` instead of
+// the two-level pass, for the ring of a contact that is still on the glass. `ui_feedback` is written further up inside the
+// private namespace of this file and cannot reach `ui_draw_and_present`, which is declared below it —that is why this one
+// lives here, with the page— (docs/30, docs/50).
+void ui_feedback_cheap() { ui_draw_and_present("du"); }
 
 // **The page draws what it owes and then the glass is painted**: what `ui.present` does, for the system when it is the
 // one that changed a control —a caret moved by a finger is not a letter, and a box has no `on_change` to tell the app
@@ -13230,20 +13624,28 @@ void caret_poll() {
   }
   if (!g_caret_dirty && g_caret_next_ms <= 0) {
     if (!band_up) {
-      return;
+      // **Una caixa que vol cursor el té sense la banda** (0.189.9): a terminal of this system is read with the keyboard
+      // down, and a terminal with no cursor is a page that looks dead. A box that asks with `blink` keeps its block —the
+      // block of the cell the caret is in, which is a `du` of one letter every seven hundred milliseconds— and everything
+      // else waits for the band, which is the rule this layer had (docs/30, docs/50, docs/90).
+      const int mark = lua_gettop(g_state);
+      const int asked = keyboard_object(g_state, /*say=*/false);
+      const bool wants = (asked != 0) && ui_field_bool(g_state, asked, "blink", false);
+      lua_settop(g_state, mark);
+      if (!wants) return;
     }
     g_caret_on = true;
     g_caret_dirty = true;
     g_caret_blinks = 0;
     g_caret_present_mark = g_ui_present_count;
-    g_caret_next_ms = now + kCaretBlinkMs;
+    g_caret_next_ms = now + caret_blink_ms();
   }
   if (!g_caret_dirty && now < g_caret_next_ms) return;
   if (g_caret_dirty && g_ui_present_count != g_caret_present_mark) {
 
     // The app painted the box after the focus or the key: the block is already there, and the clock starts from now.
     g_caret_dirty = false;
-    g_caret_next_ms = now + kCaretBlinkMs;
+    g_caret_next_ms = now + caret_blink_ms();
     // **I el comptador torna a començar**: a page that was painted is a person writing or moving the caret, and the block
     // has earned its blinks again (0.179.35).
     g_caret_blinks = 0;
@@ -13294,7 +13696,7 @@ void caret_poll() {
   lua_settop(g_state, top);
   ui_draw_and_present("du");
   g_caret_dirty = false;
-  g_caret_next_ms = now + kCaretBlinkMs;
+  g_caret_next_ms = now + caret_blink_ms();
 }
 
 // **A box of several lines that has registered the gesture** (0.88.0): the app says it wants to hear the swipes with an
@@ -13370,8 +13772,7 @@ int ui_stop_of_slot(lua_State* L, int objects, int count, int16_t slot) {
 //
 // False when the finger is not on a grid, when that page does not exist —the first one back, the last one forward— or
 // when it is already the page the grid is on, and then the finger goes on being whatever it was.
-bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, int objects, int index,
-                           int8_t delta) {
+bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, int objects, int index, int8_t delta) {
   if (g_ui_ops.icon_grid_page_cell == nullptr || g_ui_ops.canvas_parent == nullptr) return false;
   if (index < 0 || index >= count || delta == 0) return false;
   const int base = lua_gettop(L);
@@ -13393,6 +13794,11 @@ bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, 
     lua_settop(L, base);
     return false;
   }
+  // **I la graella sencera demana la seva pàgina, de dalt a baix de la seva caixa** (0.187.0): the strip of the dots was the
+  // only place a grid heard «another page» (0.186.3) and then a third of its box (0.186.4), and both were a guess about where
+  // a finger would land: **a contact that has walked is a gesture and not a tap** (`kTapSlop`, 0.186.1), so a swipe over a
+  // cell cannot pick it and the box has nothing to protect. The owner: *«pots fer que tot el control clami el swipe?»*
+  // (docs/30, docs/90).
   // The tree, from the root down: the object that has this slot, and nothing else left on the stack.
   l_ui_root(L);
   const bool found = ui_push_slot_from(L, lua_gettop(L), grid_slot, 0);
@@ -13443,9 +13849,137 @@ bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, 
       break;
     }
   }
-  ui_draw_and_present("gl16");
+  // **I la graella tampoc no tria la seva tinta** (0.189.2): the cells of the page name the quality they were drawn with —a
+  // word is `a2`, a photograph is `gc16`— and a turn that named one would paint all of them with it (docs/30, docs/50).
+  ui_draw_and_present(nullptr);
   lua_settop(L, base);
   return true;
+}
+
+// **A finger that has walked asks for a page, and that is above the tap that would come after it** (0.186.1). The owner,
+// with the list of the faces and the one of the libraries on the board: *«estic fent swipe esquerra/dreta i es
+// seleccionen items de la llista… és impossible passar pàgina, es selecciona un element i s'acaba obrint; el gest no
+// deixa tocs»*. The page turn belongs to the **travel** and not to a frame: a slow swipe is answered on the way, one
+// frame at a time, and a flick the panel reported as one jump arrives here with its whole travel and no frame in
+// between —so it is asked twice, and the contact is spent either way— (docs/30, docs/90).
+// **I el control sencer és el lloc del gest** (0.187.0, el mateix amo: *«pots fer que tot el control clami el swipe?»*): the
+// bottom of a list or a grid was the only place it heard «another page» (0.186.3) and then a third of its box (0.186.4), and
+// **a contact that has walked is already a gesture and not a tap** (0.186.1), so a swipe over a row picks nothing and there is
+// no zone to guess. Every box of one page is a box of the same quality, so the page is drawn and one present puts it on the
+// glass.
+bool ui_turn_the_page_of_a_travel(int objects, FocusTarget* targets, int capacity, int count, int index, int dx,
+                                  int dy, int top) {
+  // **Només els costats passen pàgina** (0.188.5, l'amo: *«per passar pàgina vull dreta/esquerra no amunt/avall… recorda
+  // que la pantalla està girada, el touch està llegint verticals on són horizontals»*). A page of a list turns with the
+  // hand going **left or right** —right is the page before this one, left the page after, since the 0.189.1— and a finger
+  // that goes up or down asks for nothing: the vertical was a second way in (0.179.51) and it was the one that stole the
+  // gesture when the glass reported the two axes differently from the page, which is what the owner saw (docs/30, docs/90).
+  // **I el costat mana en cas de dubte**: a hand that swipes sideways **always** drifts, so up to forty pixels of drift are
+  // forgiven and the sides win while their travel is at least the threshold; past that the finger was really going up or
+  // down, and up or down is not a page any more (0.188.5).
+  const int walked_x = (dx < 0) ? -dx : dx;
+  const int walked_y = (dy < 0) ? -dy : dy;
+  const int kDriftPx = kPageSwipeSlop;
+  const bool sideways = (walked_x >= kPageSwipeSlop) && ((walked_x + kDriftPx) >= walked_y);
+  // **Es diu què ha caminat el dit i què hi havia sota** (0.188.2): the numbers a person cannot see on the glass —the
+  // travel, the control of the walk and the list of the landing— are the ones that say why a page did not turn (docs/30).
+  if (walked_x >= kTapSlop || walked_y >= kTapSlop) {
+    hal::logf(pal::kLogDebug, "UI", "swipe %d,%d: %s, index %d, list %d, %d stops\r\n", dx, dy,
+              sideways ? "sideways" : "not a page (the sides turn a page)", index, g_ui_swipe_list, count);
+  }
+  if (!sideways) return false;
+  // **Dreta enrere i esquerra endavant** (0.189.1, l'amo: *«gira els eixos dreta-esquerra, que abans estava bé»*). A finger
+  // that walks to the **right** asks for the page before this one and one that walks to the left for the page after it,
+  // which is the way this read until the 0.188.6 —where the two were swapped, *«pel meu gust gira al revés, esquerra-dreta
+  // intercanviats»*— and the way the owner has now asked it back (docs/30, docs/90).
+  const int8_t delta = static_cast<int8_t>((dx > 0) ? -1 : 1);
+  int16_t list_slot = -1;
+  bool turned = ui_grid_turn_the_page(g_state, targets, count, objects, index, delta);
+  if (!turned) {
+    // **La llista és la del lloc on el gest va començar** (0.183.2): `index` is the control under the finger in this frame
+    // and a swipe of a hand leaves the row it began on, so the list the gesture belongs to is the one the landing found
+    // —the same rule as the bar and the page, which hear a contact because it began on them and not because it passed over
+    // them— (docs/30, docs/90).
+    list_slot = (g_ui_swipe_list >= 0) ? g_ui_swipe_list : ui_list_of_the_stop(g_state, objects, index);
+    turned = list_slot >= 0 && ui_turn_the_page_of_the_list(g_state, list_slot, delta);
+  }
+  if (!turned) return false;
+  // **The gesture is the whole page turn**: the finger is not a press of the cell it happens to be over, so the contact is
+  // spent —the release must not pick anything— and the gesture turns one page and no more (docs/30, docs/90).
+  g_ui_swipe_page = true;
+  g_ui_swipe_moved = true;
+  g_ui_swipe_tap_armed = false;
+  g_ui_touch_inside = false;
+  g_ui_touch_moved = true;
+  if (list_slot < 0) {
+    lua_rawgeti(g_state, objects, index + 1);
+    if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
+    lua_pop(g_state, 1);
+    return true;
+  }
+  // **The rows of the new page are other controls**: the page is drawn so the list places them, the ring goes to **the
+  // first row of the page the finger asked for** —the same place a grid gives it, going forward or back, because a swipe
+  // is not a walk and a finger that went back is looking at the top of the page it turned to— and one present puts both
+  // on the glass (docs/30, docs/90).
+  lua_settop(g_state, top);
+  ui_draw_the_page();
+  const int again = ui_collect_targets(g_state, targets, capacity);
+  const int stop = ui_stop_of_the_list(targets, again, list_slot, false);
+  if (stop >= 0) ui_apply_focus(g_state, targets, again, top + 1, stop);
+  // **I el gir no tria la tinta de la llista** (0.189.2, l'amo: *«la llista no decidirà a quina qualitat pintar-se, ho faran
+  // els elements de la llista un per un»*): the rows of the new page have named their own —`a2` for a row of text, `gl16`
+  // for one with a photograph on it— and the page goes up with **the strongest of those**, which is the only way a list of
+  // letters stops paying 450 ms and a flash per swipe (docs/30, docs/50).
+  ui_draw_and_present(nullptr);
+  return true;
+}
+
+// **El gest, un cop decidit** (0.189.0, l'amo: *«fes un mètode per retardar els events que s'envien als UIControl. Si es
+// decideix que és un gest no s'envien mai els events i s'envia el gest»*). The kernel decides what a contact was **before**
+// the page hears anything: a contact that walked is never a press, so the controls never see its frames and this is the only
+// thing they hear —once, at the end—. It can mean three things on a page and nothing else; the rest of the gestures are the
+// app's and they reach it through `touch.gesture()`:
+//
+//  - **una pàgina girada**: the list or the grid the finger landed on, by the travel of the whole contact (`dx`, `dy`);
+//  - **una caixa desplaçada**: a box of several lines that registered the gesture moves its window by the rows the finger
+//    walked —the sign is the finger's, a finger that goes up shows what is further down—;
+//  - **i res**: a finger over the paper, over a row, over a button. A row is a place a person taps and a gesture is not
+//    a tap (docs/30, docs/90).
+void ui_gesture(uint16_t x, uint16_t y, int16_t dx, int16_t dy) {
+  if (g_state == nullptr) return;
+  FocusList list;
+  FocusTarget* targets = list.items;
+  const int top = lua_gettop(g_state);
+  const int count = ui_collect_targets(g_state, targets, list.capacity);
+  const int objects = top + 1;
+  const int index = ui_hit(targets, count, x, y);
+  // **La pàgina és la primera pregunta**: a list and a grid answer for themselves and the page turn takes the whole gesture
+  // when it happens, the same road the frames used to take (docs/30, docs/90).
+  if (ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, dx, dy, top)) {
+    lua_settop(g_state, top);
+    return;
+  }
+  // **I si no, una caixa de diverses línies amb el gest registrat**: the window moves by the rows the finger walked, which is
+  // what the frame path did one frame at a time before this version (docs/30, docs/90).
+  if (index >= 0 && index < count && g_ui_ops.textbox_multiline_line != nullptr) {
+    lua_rawgeti(g_state, objects, index + 1);
+    const bool a_box = ui_field_bool(g_state, -1, "__textbox_multiline", false) && ui_swipeable(g_state, -1);
+    if (a_box) {
+      LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
+      const lua_Integer scale = ui_field_number(g_state, -1, "scale", 3);
+      const int32_t line = (canvas != nullptr)
+                               ? g_ui_ops.textbox_multiline_line(canvas->slot,
+                                                                 static_cast<uint8_t>((scale < 1) ? 1 : scale))
+                               : 0;
+      if (line > 0) {
+        // **El signe és del dit**: a finger that goes up shows what is further down, which is what a sheet of paper does.
+        const int32_t rows = -static_cast<int32_t>(dy) / line;
+        if (rows != 0) ui_swipe_by(-1, static_cast<int>(rows));
+      }
+    }
+    lua_pop(g_state, 1);
+  }
+  lua_settop(g_state, top);
 }
 
 // **The finger is the same event as the dial**: a touch that starts on a button focuses it and holds
@@ -13453,6 +13987,12 @@ bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, 
 // `touch::poll` has just put in the view's coordinates (docs/30, docs/50, docs/90).
 void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   if (g_state == nullptr) return;
+  // **Where the finger is, kept for the lift** (0.187.0): the release arrives with no point of its own, and the travel of
+  // the contact is what says whether it was a tap or a gesture.
+  if (down) {
+    g_ui_touch_x = x;
+    g_ui_touch_y = y;
+  }
   // **A turn with nobody on the glass and nothing held costs nothing**: the panel is read every turn,
   // and walking the whole tree only to find that there is no finger is work the app pays for no reason.
   if (!down && g_ui_touch_slot < 0 && !g_ui_touch_orphan) return;
@@ -13467,6 +14007,21 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     if (g_ui_touch_slot >= 0) {
       const int index =
           ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation, g_ui_touch_item);
+      // **A contact that travelled is a gesture and not a tap** (0.187.0): the finger that swiped a list ended over a row,
+      // and the release used to click that row —the page never turned and the item opened, which is the owner's report:
+      // *«es selecciona un element i s'acaba obrint (rep el toc i no hauria, el gest no deixa tocs)»*. The travel is the one
+      // of the whole contact, from the landing to this point, so it is known even when the panel reported the walk as one
+      // jump; the threshold is the twenty pixels a contact stops being a tap at, the same number `touch.cpp` uses to call it
+      // a `drag` (docs/30, docs/90).
+      const int walked_x = static_cast<int>(g_ui_touch_x) - static_cast<int>(g_ui_touch_x0);
+      const int walked_y = static_cast<int>(g_ui_touch_y) - static_cast<int>(g_ui_touch_y0);
+      const bool walked = (walked_x >= kTapSlop || walked_x <= -kTapSlop ||
+                           walked_y >= kTapSlop || walked_y <= -kTapSlop);
+      if (walked) {
+        // Nothing is pressed and nothing is clicked: the contact belongs to the gesture that is about to be answered.
+        g_ui_touch_moved = true;
+        g_ui_touch_inside = false;
+      }
       // **La passada neta d'un lliscament, un cop, en aixecar el dit** (0.179.35): the rows of a box went up with `du`
       // while the finger walked and this is the one `gld16` that takes the blur away —one at the lift, and not one for each
       // row as it was: four hundred and fifty milliseconds a step, four and a half seconds for a swipe of ten rows, which
@@ -13507,7 +14062,21 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
                 ui_field_bool(g_state, -1, "__textbox", false) || ui_field_bool(g_state, -1, "__textbox_multiline", false);
             lua_pop(g_state, 1);
           }
-          if (!the_same_box) {
+          // **Una fila només s'activa amb un toc de debò** (0.188.9, l'amo: *«els elements de la llista no han de ser sensibles
+          // a res que no sigui TAP directe, un tap és tocar i aixecar sense moure»*): a row is activated by a contact that
+          // **did not walk** and **lasted less than a long press**. The travel is not enough on its own, because the frames
+          // it is measured with are the ones a paint can swallow: on the board a touch of a list froze the loop for four
+          // seconds, the lift found the same two points it had at the landing, and the row under the finger was activated by
+          // a swipe (`long …,877 dx 0`). **A contact of more than four hundred milliseconds is not a tap**, and a row does
+          // nothing with it — no ink, no focus, no click (docs/30, docs/90).
+          bool a_row_here = false;
+          if (index >= 0 && index < count) {
+            lua_rawgeti(g_state, objects, index + 1);
+            a_row_here = ui_field_bool(g_state, -1, "__row", false);
+            lua_pop(g_state, 1);
+          }
+          const bool a_tap = !a_row_here || (now_ms() - g_ui_touch_ms0) <= kRowTapMs;
+          if (!the_same_box && a_tap) {
             ui_apply_focus(g_state, targets, count, objects, index);
             ui_activate(g_state, count, objects, index, /*by_finger=*/true);
           }
@@ -13549,7 +14118,28 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
           }
           lua_pop(g_state, 1);
         }
-        if (let_go) ui_draw_and_present("gl16");
+        if (let_go) ui_draw_and_present("du");
+      }
+      // **And the page the gesture was asking for** (0.187.0): a slow swipe was answered frame by frame on the way, and this
+      // is the other half —a flick the panel reported as one jump arrives with its whole travel and no frame in between—. A
+      // page that cannot be turned (the first one, going back) turns nothing and spends the contact all the same.
+      if (walked && !g_ui_swipe_page && (index >= 0 || g_ui_swipe_list >= 0)) {
+        ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, walked_x, walked_y, top);
+      }
+      // **I el focus, si el gest no va girar cap pàgina** (0.186.1): the ring goes back where it was when the finger landed —or
+      // nowhere, if it was nowhere, which is what a page used with a finger looks like— and the row the swipe stopped over is
+      // not left looking chosen. **I només es pinta si el focus era un altre** (0.186.4): a swipe over a page that was already
+      // as it found it used to present the whole list again, which is ink for nothing and reads as a page that redraws itself
+      // (docs/30, docs/90).
+      if (walked && !g_ui_swipe_page) {
+        const int back =
+            ui_target_index(targets, count, g_ui_touch_focus_slot, g_ui_touch_focus_generation, g_ui_touch_focus_item);
+        const int now_focused =
+            ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item);
+        if (back != now_focused) {
+          ui_apply_focus(g_state, targets, count, objects, back);
+          ui_draw_and_present("du");
+        }
       }
       g_ui_touch_slot = -1;
       g_ui_touch_generation = 0;
@@ -13582,9 +14172,11 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     return;
   }
 
-  // **And a finger is the selector going away** (0.179.7): a page used with a finger is a page with no ring anywhere, and
-  // it goes before the press is acted on so the control that had it is painted without it in the same turn (docs/30, docs/90).
-  if (ui_ring_shown(false)) ui_feedback();
+  // **I un dit ja no s'endú el cercle en caure** (0.188.8): taking the ring away on the landing was ink **before the gesture
+  // had begun** —the row of the ring was repainted on every touch of the glass, four hundred and fifty milliseconds of
+  // `gl16` on this board and the canvas of the list when the ring was the list—, and the 2048 does not pay it because a touch
+  // there paints one cell. The ring goes away **at the lift**, which is where a tap moves it to the row that was tapped and
+  // a swipe gives it back: a contact that is still on the glass changes nothing of the page (docs/30, docs/50, docs/90).
 
   // **A finger that is still on the glass after its control was given back presses nothing** (0.113.0): the rows of the
   // swipe are not it and neither is the press of the control the app has built in the place of the one that went, which
@@ -13605,60 +14197,9 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     if ((index >= 0 || g_ui_swipe_list >= 0) && !g_ui_swipe_page) {
       const int dx = static_cast<int>(x) - static_cast<int>(g_ui_swipe_x0);
       const int dy = static_cast<int>(y) - static_cast<int>(g_ui_swipe_y0);
-      const bool sideways = (dx >= kPageSwipeSlop || dx <= -kPageSwipeSlop);
-      const bool upwards = (dy >= kPageSwipeSlop || dy <= -kPageSwipeSlop);
-      // **Una pàgina es passa cap als dos costats i també cap amunt i avall** (0.179.51): the owner, with the list of the
-      // faces on the board: *«L'app fonts no passa pàgina de la llista amb swipe»*. The gesture was the sideways one and
-      // nothing else, and a finger on a list that never scrolls goes **up** as often as it goes left —the two mean the same
-      // thing on a page of paper, and this system has no scroll to give them another meaning—. The axis the finger walked
-      // most is the one that says which way: left and up are the page after this one, right and down the one before
-      // (docs/30, docs/90).
-      if (sideways || upwards) {
-        int8_t delta = 0;
-        if (sideways && (!upwards || (dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy))) {
-          delta = static_cast<int8_t>((dx < 0) ? 1 : -1);
-        } else {
-          delta = static_cast<int8_t>((dy < 0) ? 1 : -1);
-        }
-        // **A list turns with the same finger** (0.179.4): the paginator of the control is the one that says which page is
-        // on the glass and the finger is one more way of asking for the next one, the same promise `about` kept by hand with a
-        // drag of its own. What the system does is join the two, and the app hears `on_page` as it does from the dial.
-        int16_t list_slot = -1;
-        bool turned = ui_grid_turn_the_page(g_state, targets, count, objects, index, delta);
-        if (!turned) {
-          // **La llista és la del lloc on el gest va començar** (0.183.2): `index` is the control under the finger in this frame
-          // and a swipe of a hand leaves the row it began on, so the list the gesture belongs to is the one the landing found
-          // —the same rule as the bar and the page, which hear a contact because it began on them and not because it passed
-          // over them— (docs/30, docs/90).
-          list_slot = (g_ui_swipe_list >= 0) ? g_ui_swipe_list : ui_list_of_the_stop(g_state, objects, index);
-          turned = list_slot >= 0 && ui_turn_the_page_of_the_list(g_state, list_slot, delta);
-        }
-        if (turned) {
-          // **The gesture is the whole page turn**: the finger is not a press of the cell it happens to be over, so the
-          // contact is spent —the release must not pick anything— and the gesture turns one page and no more.
-          g_ui_swipe_page = true;
-          g_ui_swipe_moved = true;
-          g_ui_swipe_tap_armed = false;
-          g_ui_touch_inside = false;
-          if (list_slot < 0) {
-            lua_rawgeti(g_state, objects, index + 1);
-            if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
-            lua_pop(g_state, 1);
-          } else {
-            // **The rows of the new page are other controls**: the page is drawn so the list places them, the ring goes to
-            // **the first row of the page the finger asked for** —the same place a grid gives it, going forward or back,
-            // because a swipe is not a walk and a finger that went back is looking at the top of the page it turned to— and
-            // one present puts both on the glass (docs/30, docs/90).
-            lua_settop(g_state, top);
-            ui_draw_the_page();
-            const int again = ui_collect_targets(g_state, targets, list.capacity);
-            const int stop = ui_stop_of_the_list(targets, again, list_slot, false);
-            if (stop >= 0) ui_apply_focus(g_state, targets, again, top + 1, stop);
-            ui_draw_and_present("gl16");
-          }
-          lua_settop(g_state, top);
-          return;
-        }
+      if (ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, dx, dy, top)) {
+        lua_settop(g_state, top);
+        return;
       }
     }
     // **The finger that walks a box with a gesture moves the window** (0.88.0): the rows it has travelled are paid one
@@ -13755,7 +14296,45 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     return;
   }
 
-  const int hit = ui_hit(targets, count, x, y);
+  int hit = ui_hit(targets, count, x, y);
+  // **Un contenidor no és una cosa que un dit triï** (0.188.4, l'amo: *«per qué es refresca una llista que no ha tocat ningú?…
+  // refrescar la llista sencera no té sentit a menys que canviïs de pàgina. El focus o similar seria només una entrada de la
+  // llista»*). A `ui.list` and a `ui.icon_grid` are boxes: their ring is a frame around every row, and taking it costs **the
+  // whole canvas of ink** —`paint 22,114 496x776`, four hundred and fifty milliseconds of `gl16` to say what a row already
+  // says—. A finger on the dots or on the paper between two rows is not choosing anything, so the container keeps the ring
+  // and the contact is only a **page gesture**: the list is remembered here and the page is asked for at the lift
+  // (docs/30, docs/90).
+  if (hit >= 0) {
+    lua_rawgeti(g_state, objects, hit + 1);
+    const bool container =
+        ui_field_bool(g_state, -1, "__list", false) || ui_field_bool(g_state, -1, "__icon_grid", false);
+    const int16_t container_slot = targets[hit].slot;
+    lua_pop(g_state, 1);
+    if (container) {
+      // **El contacte és només el gest de la pàgina**: the travel is measured from here and the lift will ask this list, the
+      // same rule the row of a list follows (0.183.2), so a swipe that begins on the paper turns the page as one that begins on
+      // a row (docs/30, docs/90). **Res no es prem i el cercle no es mou**: the ring the app put on a row is the app's, and a
+      // finger on the dots is not a way of taking it away.
+      g_ui_touch_focus_slot = g_ui_focus_slot;
+      g_ui_touch_focus_generation = g_ui_focus_generation;
+      g_ui_touch_focus_item = g_ui_focus_item;
+      g_ui_swipe_list = container_slot;
+      g_ui_swipe_x0 = x;
+      g_ui_swipe_y0 = y;
+      g_ui_touch_x0 = x;
+      g_ui_touch_y0 = y;
+      g_ui_touch_ms0 = now_ms();
+      g_ui_touch_slot = container_slot;
+      g_ui_touch_generation = targets[hit].generation;
+      g_ui_touch_item = targets[hit].item;
+      g_ui_touch_inside = false;
+      g_ui_touch_moved = false;
+      g_ui_touch_orphan = false;
+      g_ui_touch_pressed = -1;
+      lua_settop(g_state, top);
+      return;
+    }
+  }
   // **Quin control rep el dit, dit una vegada per premsa** (0.179.78): a tap that lands on a box of one line and does nothing is a
   // question with two answers —the box is not a target at all, or it is and the caret's road is not reached— and this line is the
   // one that tells them apart without a flash per guess. One line a press, and only with the band on the glass (docs/30, docs/90).
@@ -13785,7 +14364,20 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     return;
   }
   if (hit >= 0) {
-    ui_apply_focus(g_state, targets, count, objects, hit);
+    // **Qui tenia el focus abans que el dit hi caigués** (0.186.1): a gesture gives the ring back to it, because a swipe that
+    // leaves the row under the finger wearing the ring is a page that looks like somebody picked something.
+    g_ui_touch_focus_slot = g_ui_focus_slot;
+    g_ui_touch_focus_generation = g_ui_focus_generation;
+    g_ui_touch_focus_item = g_ui_focus_item;
+    // **El cercle es mou en aixecar el dit, no en caure-hi** (0.188.8, l'amo: *«si el swipe no va bé, per què el panell
+    // desplegable de la barra de títol sí que funciona, i el joc 2048 fa swipe en totes direccions?»*). The ring of the row
+    // under the finger used to move **on the landing**, and a row lives inside the canvas of its list: moving it invalidated
+    // the whole box and the app painted `500x580` at the quality of a page —four hundred and fifty milliseconds of ink, and
+    // on this board the panel held the engine **4745 ms**— **before the gesture had begun**. The 2048 and the shade of the
+    // bar are never touched by this because a cell is a small box and a shade is a few rows: their loop keeps turning and
+    // the fingers arrive whole. Here the loop stopped, the frames of the swipe were lost and the travel measured was zero
+    // (`long …,877 dx 0` and no `drag` at all). The focus is applied **at the lift**, where a tap activates and a swipe gives
+    // the ring back (docs/30, docs/50, docs/90).
     // **Where the finger landed**, for the gesture that is a page turn: the sideways travel of a finger over a grid is
     // measured from here and not from the last frame, so a page does not turn twice for one swipe (0.175.0, docs/90).
     // **And it is the point every control measures its own tap from** (0.179.29): the same landing, for the same reason.
@@ -13795,6 +14387,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     g_ui_swipe_y0 = y;
     g_ui_touch_x0 = x;
     g_ui_touch_y0 = y;
+    g_ui_touch_ms0 = now_ms();
     g_ui_touch_moved = false;
     g_ui_touch_slot = targets[hit].slot;
     g_ui_touch_generation = targets[hit].generation;
@@ -14093,7 +14686,17 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         ui_invalidate(g_state, base);
       }
     }
-    if (ui_set_field_bool(g_state, -1, "pressed", true)) ui_invalidate(g_state, -1);
+    // **Una fila d'una llista no es prem: només s'activa amb un toc** (0.188.4, l'amo: *«les entrades de la llista
+    // només haurien de ser sensibles al tap simple, ni al long, ni al drag ni al leave ni al down ni al swipe… només un toc
+    // directe els activa amb el focus»*). The press is ink a row does not owe: it made the landing of a finger paint the row
+    // —four hundred and fifty milliseconds of `gl16` **before the gesture had begun**, and on the board the loop froze
+    // there—. A row is a place a person taps; what the finger does on the way down is not the row's business, and the click
+    // itself does not read this field: it is the release inside the same box that activates it (docs/30, docs/90).
+    // **La fila es mira per l'índex absolut de l'objecte** (0.188.8): `-1` is not the control after a branch of the chain above
+    // has put the stack back, and asking the wrong value whether it is a row is a press that a row pays for anyway (measured:
+    // `paint 20,376 500x64 gl16` on the landing of a finger over a row of `about`) (docs/30, docs/90).
+    const bool a_row = ui_field_bool(g_state, hit_object, "__row", false);
+    if (!a_row && ui_set_field_bool(g_state, hit_object, "pressed", true)) ui_invalidate(g_state, hit_object);
     // **Which control the contact is holding down** (0.183.3): the release of a press belongs to the control that took the
     // finger and not to the one under it when the finger comes up, so the slot is written here and let go in
     // `ui_touch_progress` (docs/30, docs/90).
@@ -14334,6 +14937,43 @@ bool call_alarm(const alarms::Entry& entry, int64_t late_ms) {
   return true;
 }
 
+// **La trucada a la porta de l'app quan la llista d'apps canvia** (0.189.23, l'amo: *«el sistema ha d'avisar al launcher
+// registrat a la variable cfg home per fer-li refescar la seva llista d'apps»*): the table it gets is the vocabulary of the
+// system and not a string an app has to parse —`kind` says what the door is talking about, `what` is the verb, `id` is the
+// app of the change and `generation` is the number of the list, so a page that has already answered a later change does not
+// answer an older one— (docs/30, docs/40). It runs in the main thread with the app suspended, like every hook: it cannot
+// await, and that is what makes it safe between two turns.
+bool call_apps_event(const char* what, uint32_t generation) {
+  if (g_state == nullptr) return false;
+
+  lua_State* L = g_state;
+  const int top = lua_gettop(L);
+  lua_getglobal(L, "on_event");
+  if (!lua_isfunction(L, -1)) {
+    lua_settop(L, top);
+    return false;
+  }
+
+  lua_createtable(L, 0, 3);
+  lua_pushstring(L, "apps");
+  lua_setfield(L, -2, "kind");
+  lua_pushstring(L, (what != nullptr) ? what : "");
+  lua_setfield(L, -2, "what");
+  lua_pushinteger(L, static_cast<lua_Integer>(generation));
+  lua_setfield(L, -2, "generation");
+
+  if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+    con_text("on_event: ");
+    const char* message = lua_tostring(L, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+    lua_settop(L, top);
+    return false;
+  }
+  lua_settop(L, top);
+  return true;
+}
+
 bool run_source(const char* name, const char* source, size_t len) {
   if (g_state == nullptr) return false;
   if (g_task != nullptr) return false;  // one app at a time, always
@@ -14515,6 +15155,24 @@ bool set_turn_budget(uint32_t instructions) {
   if (instructions < kTurnBudgetMin || instructions > kTurnBudgetMax) return false;
   const uint32_t blocks = (instructions + kHookInstructions - 1) / kHookInstructions;
   g_turn_budget = blocks * kHookInstructions;
+  return true;
+}
+
+// **El parpalleig del cursor, llegit i escrit de fora** (0.189.34): the value is the anonymous namespace's, like the slice
+// of a turn, and these four are the ones `cfg` and the boot are allowed to see. What a blink may be is bounded here and
+// not in the door: a cursor of ten milliseconds is a page painted for nobody and one of a minute is a cursor that looks
+// dead (docs/30, docs/90).
+int64_t caret_blink_ms() { return (g_caret_blink_ms > 0) ? g_caret_blink_ms : kCaretBlinkDefaultMs; }
+
+int64_t caret_blink_default_ms() { return kCaretBlinkDefaultMs; }
+
+int64_t caret_blink_min_ms() { return kCaretBlinkMinMs; }
+
+int64_t caret_blink_max_ms() { return kCaretBlinkMaxMs; }
+
+bool set_caret_blink_ms(int64_t ms) {
+  if (ms < kCaretBlinkMinMs || ms > kCaretBlinkMaxMs) return false;
+  g_caret_blink_ms = ms;
   return true;
 }
 

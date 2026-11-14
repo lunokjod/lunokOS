@@ -9,6 +9,7 @@
 
 #include "kernel/fs_ops.h"
 #include "kernel/led.h"
+#include "kernel/serial.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
@@ -230,7 +231,7 @@ const uint32_t kQrSide = 45;
 uint8_t g_qr[kQrSide * kQrSide];
 
 void print_qr(const char* payload) {
-  pal::IConsole* console = pal::system().console();
+  pal::IConsole* console = serial::console();
   if (console == nullptr) return;
   qr::Info info;
   if (!qr::encode(payload, qr::Level::kM, qr::Mode::kAuto, g_qr, sizeof(g_qr), info)) {

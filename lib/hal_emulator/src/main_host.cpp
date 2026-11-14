@@ -164,6 +164,7 @@ void usage() {
   printf("  --touch           the finger of the board, which is there by itself: a GT911 on the bus\n");
   printf("  --no-touch        no finger at all: the panel is not asked\n");
   printf("  --touch-scan <ms> how often that panel reports, and so how often the kernel asks it (0 is the chip's own, 10 ms)\n");
+  printf("  --no-touch-int    the panel without its interrupt line: the driver asks the chip instead of being told\n");
   printf("  --lua-cpu <ns>    what one instruction of an app costs at 160 MHz (%d; 0 = free)\n",
          kLuaInstructionNs);
   printf("  --no-delay        no waiting at all: the model keeps the times, the clock does not pay them\n");
@@ -288,6 +289,13 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       // the kernel with nothing every other turn, which is the case worth trying (docs/85).
       if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) return false;
       opts.touch_scan_ms = static_cast<int32_t>(number);
+      continue;
+    }
+    if (strcmp(arg, "--no-touch-int") == 0) {
+      // **Un vidre que no avisa** (0.188.0): the panel of the board pulls a line down when it has a frame, and the driver
+      // reads nothing on the turns nobody warned. This is the glass of a driver that has to ask the status register instead,
+      // which is the model where `--touch-scan` means something (docs/50, docs/85).
+      opts.touch_interrupt = false;
       continue;
     }
     if (strcmp(arg, "--dump") == 0) {

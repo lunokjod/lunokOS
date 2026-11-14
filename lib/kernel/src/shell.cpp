@@ -33,6 +33,8 @@
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/net.h"
+#include "kernel/serial.h"
+#include "kernel/usage.h"
 #include "kernel/bar.h"
 #include "kernel/power.h"
 #include "kernel/repository.h"
@@ -248,7 +250,10 @@ void out_bytes(const void* data, size_t len) {
     session_put(g_sink, g_to_error ? Pipe::kErr : Pipe::kOut, data, len);
     return;
   }
-  pal::IConsole* console = pal::system().console();
+  // **Mentre el port és cedit a una app, el sistema no hi escriu** (0.189.20): `serial::console()` answers nullptr and
+  // every line of the prompt, of an error and of a table goes nowhere. The app's own words do not come through here —they
+  // go through the interpreter's console— and that is why the app that has the port keeps it (docs/30, docs/50).
+  pal::IConsole* console = serial::console();
   if (console == nullptr) return;
   console->write(data, len);
 }
@@ -562,7 +567,12 @@ void print_help(const char* only) {
   help_line("  version           version and board", only);
   help_line("  caps              what this board has", only);
   help_line("  mem               free memory and buffers", only);
+  help_line("  sessions          the memory of a session each app is holding, and where it is", only);
+  help_line("  sessions destroy [<id> [<key>]]  forget every session, all of one app, or one of them, in the memory", only);
+  help_continuation("                    and on the disk", only);
   help_line("  apps              the apps of the flash and of the card", only);
+  help_continuation("                    (with `cfg sort on`, from the most used to the least, with the count of each,", only);
+  help_continuation("                    and the ones nobody has opened after them in the door's order)", only);
   help_line("  apps info <id>    the manifest of an app of this disk, key by key", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
@@ -574,7 +584,11 @@ void print_help(const char* only) {
       "                    lives, the keyboard, the picture of the boot and the app that comes up with the board;", only);
   help_continuation(
       "                    `cfg tz [<offset>]`, `cfg leap [on|off]`, `cfg dst [on|off]`, `cfg week [monday|sunday]` and", only);
-  help_continuation("                    `cfg turn [<instructions>]`, the slice of Lua a turn is worth", only);
+  help_continuation("                    `cfg sort [on|off]`, whether the launcher draws the apps by how many times they",
+                    only);
+  help_continuation("                    have been opened, and `cfg turn [<instructions>]`, the slice of Lua a turn is worth",
+                    only);
+  help_continuation("                    and `cfg cursor delay [<ms>]`, how long the block of ink lasts before it turns", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -593,6 +607,8 @@ void print_help(const char* only) {
   help_line("  power last        how far the last sleep was from the hour it was given", only);
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
   help_line("  led [rrggbb|off]  the light of the board", only);
+  help_line("  serial [claim|release]  cede the serial port to an app, or take it back: while it is ceded the", only);
+  help_continuation("                    system writes nothing here and the log stays in the ring", only);
   help_line("  button            the button, right now", only);
   help_line("  sleep [light|deep] <ms>  sleep, and come back at a time", only);
   help_line("  sleep at <epoch seconds>  the same, at a time of the clock", only);
@@ -608,6 +624,7 @@ void print_help(const char* only) {
   help_line("  clear             clear the screen", only);
   help_line("  reboot            restart", only);
   help_line("  poweroff          cut the power of the board, if it can (docs/50)", only);
+  help_line("  deepsleep         sleep with the supply still on, and come back when a key is pressed", only);
   // **Two lines and not one with a comma** (0.158.0): `help` answers a word of the syntax, and a line that says
   // `exit, logout` answers neither of the two —the rule is `help pow` is not `power`, and a comma is not a
   // space— (docs/30).
@@ -650,6 +667,54 @@ void print_caps() {
     out(hal::cap_name(i));
     out(has ? "  yes" : "  no");
     newline();
+  }
+}
+
+// **`sessions`: les memòries de sessió que hi ha a la PSRAM ara mateix, i les que només són un fitxer al disc** (0.189.7):
+// who holds one, under which key, how many bytes, and **the path of the VFS of the cold copy** —which is the difference
+// between a cache this board has today and a cache it will still have after a restart, and the thing a person needs to see
+// to know that a session was parked— (docs/30, docs/70, docs/75). The rows come from the same table the allocator gives back
+// when the memory is short, so what a person reads is what the board is really holding.
+// **One row of `sessions` on the glass, and the two numbers its tail needs** (0.189.36): a visitor and not an array of rows,
+// because the sessions of this board are however many the apps have asked for and the stack of the task that prints them is
+// eight kilobytes —an array of rows was a ceiling dressed as a caller, and a session that did not fit in it was a session a
+// person could not see— (docs/30, docs/75).
+struct SessionRows {
+  uint32_t rows = 0;
+  uint32_t in_memory = 0;
+};
+
+bool print_one_session(const session::Entry& row, void* user) {
+  SessionRows* mine = static_cast<SessionRows*>(user);
+  ++mine->rows;
+  if (row.in_memory) ++mine->in_memory;
+  const char* place = row.in_memory ? (row.on_disk ? "memory+disk" : "memory    ") : "disk only  ";
+  // **Les cometes van enganxades al nom** (0.189.16): it was `'%-12s'`, so a key of four letters came out as `'apps        '`
+  // and the column that a person reads was padded inside the quotes; the padding is now outside them.
+  char quoted[24];
+  snprintf(quoted, sizeof(quoted), "'%s'", row.key);
+  char line[120];
+  snprintf(line, sizeof(line), "  %-14s %-14s %7u B  %s %s\r\n", row.app, quoted, static_cast<unsigned>(row.size), place,
+           row.path);
+  out(line);
+  return true;
+}
+
+void print_sessions() {
+  out("session memory   ");
+  out_num(session::count());
+  out(" block(s), ");
+  out_num(static_cast<uint32_t>(session::bytes_held()));
+  out(" B\r\n");
+  SessionRows mine;
+  (void)session::each(print_one_session, &mine);
+  if (mine.rows == 0) out("  (none: no app is holding a cache)\r\n");
+  if (mine.rows > 0 && mine.in_memory < mine.rows) {
+    out("  ");
+    out_num(mine.rows - mine.in_memory);
+    out(" of them are only a file, at ");
+    out(session::kDoor);
+    out("\r\n");
   }
 }
 
@@ -712,8 +777,6 @@ void print_mem() {
     out_num(session::bytes_held() / 1024);
     out(" KB in ");
     out_num(session::count());
-    out("/");
-    out_num(session::kMaxBlocks);
     out(" block(s)\r\n");
   }
   pal::IQueue* queue = pal::system().queue();
@@ -729,8 +792,19 @@ void print_mem() {
 
 // The app list is not stored anywhere: it is walked and printed as it is found,
 // one manifest at a time (docs/40).
+// **And the count of the uses rides along when the page that counts is read** (0.189.14): `context` is a `PrintApps` or
+// nothing, and with it a line says how many times the app has been opened and an app that was already printed in that
+// order is not printed twice.
+struct PrintApps {
+  const usage::Table* uses = nullptr;  // the count of the uses, or nullptr when the listing is not in that order
+  bool skip_used = false;              // true for the pass that prints the apps the count does not name
+  uint32_t printed = 0;                // the lines that went to the glass, so a board with no app says it
+};
+
 bool print_app(const apps::Entry& entry, void* context) {
-  (void)context;
+  PrintApps* print = static_cast<PrintApps*>(context);
+  const uint32_t opened = (print != nullptr && print->uses != nullptr) ? usage::count_of(*print->uses, entry.id) : 0;
+  if (print != nullptr && print->skip_used && opened > 0) return true;
   const size_t id_len = strlen(entry.id);
   const size_t version_len = strlen(entry.version);
   out("  ");
@@ -763,15 +837,52 @@ bool print_app(const apps::Entry& entry, void* context) {
     out("]");
     colour_off();
   }
+  // **Why this line is above the one under it** (0.189.14): the listing is ordered by how many times an app has been
+  // opened, and a list in an order nobody can see the reason of is a list that looks shuffled. The number is only said
+  // when the person asked for that order with `cfg sort on` (docs/30, docs/40).
+  if (opened > 0) {
+    colour(kColourDim);
+    out("  [");
+    out_num(opened);
+    out(opened == 1 ? " use]" : " uses]");
+    colour_off();
+  }
   newline();
+  if (print != nullptr) ++print->printed;
   return true;
 }
 
+// **The apps of the disk, in the order the person asked for** (0.189.14): with `cfg sort on` the list goes from the app
+// that has been opened most to the least and then the ones nobody has opened yet, and without it the list is the door's,
+// which is what it always was (docs/30, docs/40, docs/75).
+//
+// **The counted apps are read one by one** (`apps::read`) and the rest by a single walk, which is what keeps the listing
+// what it was: no table of apps in memory, no ceiling on how many there may be, and the same walk as before for the ones
+// the count does not name.
 void print_apps() {
-  if (apps::for_each(nullptr, &print_app, nullptr) == 0) {
-    out("  no apps\r\n");
+  usage::Table uses;
+  const uint8_t counted = cfg::sort_by_usage() ? usage::read(uses) : 0;
+
+  PrintApps print;
+  if (counted > 0) {
+    print.uses = &uses;
+    // **From the most used to the least**, and an id the disk no longer has is skipped: the count of an app that was
+    // removed stays in the block, because the day it comes back its number comes with it (docs/40).
+    for (uint8_t i = 0; i < uses.rows; ++i) {
+      if (uses.count[i] == 0) continue;
+      apps::Entry entry;
+      if (!apps::read(uses.ids[i], entry)) continue;
+      print_app(entry, &print);
+    }
+    // **And the ones that have never been opened come after**, in the door's order: an app that has just been installed
+    // has no count yet and it belongs on the list, after the ones the person uses (docs/40).
+    print.skip_used = true;
   }
+
+  (void)apps::for_each(nullptr, &print_app, &print);
+  if (print.printed == 0) out("  no apps\r\n");
 }
+
 
 // **`panel`**: which rectangle a partial paint asks the glass for, and whether it takes one that does not start at the
 // edge of its own image (0.179.12). The rule of the 0.118.7 costs the pixels between that edge and the change on every
@@ -1476,7 +1587,17 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
 
   // The app gets a view of its own, white and with nothing pending; the glass is
   // not touched until it presents (docs/30).
-  ui::attach();
+  //
+  // **I QUAN HI HA UNA IMATGE AL DARRERE, EL RENTAT ENTRE DUES APPS NO ES PAGA** (0.189.39, l'amo: *«Revisa a veure quants
+  // refrescos es fan desde que es tanca l'app que t'ha cridat, l'splash i després la nostra app»*): the picture washes the
+  // whole panel a few lines below, so the clean page of the app that has just gone was a whole `gc16` and its 290 to 450 ms
+  // painting a page that nobody was going to see. The view is the same white one and the page the app draws is owed whole
+  // and clean by `owe_the_page()`, which is the pass that takes the picture away (docs/30, docs/50).
+  if (shows_a_picture) {
+    ui::attach_under_a_picture();
+  } else {
+    ui::attach();
+  }
   // **The app's own picture, before the app is loaded and before the Lua machine
   // exists** (0.151.17, and 0.114.0 before it): a manifest that names one gets
   // the whole glass washed and the image in the middle —the system's `splash` and
@@ -1498,6 +1619,10 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
     if (made > 0 && static_cast<size_t>(made) < sizeof(picture)) {
       if (!splash::show(picture)) {
         log_printf(pal::kLogDebug, "SPLASH", "%s: %s", id, splash::last_error());
+        // **La pàgina es deu igualment** (0.189.39): the clean page between two apps was not paid and the picture that was
+        // going to cover it is not on the glass, so the first page of this app is the one that has to arrive whole and clean
+        // or it lands on the ink of the app before (docs/30, docs/50).
+        ui::owe_the_page();
       } else {
         // **The picture washes the strip of the system and nothing else says so** (0.164.3): the splash washes the whole
         // glass —the bar with it— and the bar paints itself only when something of it changes, so the title that comes
@@ -2747,6 +2872,10 @@ bool apps_remove(const char* id) {
   out(", ");
   out_num(gone.bytes);
   out(" bytes\r\n");
+  // **I la llista d'apps ha canviat** (0.189.23): el canvi es deixa a la porta i el bucle del nucli el diu al llançador
+  // (`cfg home`) entre dos torns, si és que hi és. Una app esborrada amb el prompt a la mà no té ningú que l'escolti, i no
+  // cal: la pàgina que arrenqui després llegeix la llista de la porta i ja no la veu (docs/30, docs/40).
+  apps::note_a_change("remove", id);
   return true;
 }
 
@@ -2901,6 +3030,10 @@ void install_report(bool ok, const char* why) {
     out(", ");
     out_num(g_install_bytes);
     out(" bytes\r\n");
+    // **I el llançador ho ha de saber** (0.189.23): the list of apps changed in this very command, and the app that draws
+    // it —the one `cfg home` names— is told between two turns. Here and not after the answer below, because the id of the
+    // app is cleared at the end of this function (docs/30, docs/40).
+    apps::note_a_change("install", g_install_app);
     // **A copy that lands beside one the flash already has is run by its redirected id** (0.164.0): the door presents
     // the flash's copy as `<id>` and the card's as `*<id>` —whose name says the unit, `Editor-SD`—, so a person who
     // installed an app to try a version has to know which name runs what they have just downloaded. The question is the
@@ -3578,6 +3711,10 @@ bool close_console_session() {
   g_editor.reset();
   pal::IConsole* console = pal::system().console();
   if (console != nullptr && console->virtual_terminal()) {
+    // **La sessió de consola s'acaba i les cachés es desen abans** (0.189.11): the run goes away with the program, and a
+    // cache that was in the memory and not on the card would go with it. The lines of what is parked are the ones of
+    // `park_all`, one per block, with the app, the key, the bytes and the path (docs/30, docs/75).
+    session::park_all("the session of the console was closed");
     out("logout: the session is closed\r\n");
     console->flush();  // the line has to be out before the run stops, or it is a word cut in half
     shutdown();        // on the emulator it is the program that ends, which is the session going away
@@ -3644,6 +3781,17 @@ bool reboot(const char* reason) {
   splash::show(splash::kReboot);
   out("restarting...\r\n");
   splash::wait();
+  // **I les cachés, al disc abans que la PSRAM desaparegui** (0.189.11): a restart is the same loss of memory as a power
+  // off, and the picture is already on the glass, so the card is written while a person looks at it. One line per block
+  // with the app, the key, the bytes and the path of the file (docs/30, docs/75).
+  session::park_all("the board is restarting");
+  // **I el mateix que a l'apagada** (0.189.18): the file that is really on the disk, the console, the volumes, the store
+  // and the rest of the card —a restart also cuts the boards of the volumes for a moment, and a card that is written and
+  // then restarted without its pause is a card that loses the folder it was writing— (docs/70, docs/75).
+  const session::Checked parked = session::check_parked();
+  log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY", "%u of %u session file(s) are on the disk",
+             static_cast<unsigned>(parked.ok), static_cast<unsigned>(parked.files));
+  power::settle_before_leaving("the board is restarting");
   pal::system().reboot();
   return true;
 }
@@ -3712,6 +3860,10 @@ bool go_back_one_view() {
 
 void close_app() {
   if (!g_app_alive) return;
+  // **I el port sèrie que l'app tenia torna al sistema** (0.189.20, la mateixa regla que el llum): a wire ceded to an app that
+  // is not there any more is a port a person cannot get back, and giving it back here —before anything is written— is what
+  // makes `app closed` readable at the prompt (docs/30, docs/50).
+  (void)serial::release_owner(app_id(), "the app that had it is gone");
   // The colour the app took goes with it, and it goes **off** and not back to some
   // other colour: a light that outlives its app is power spent by nobody. On a board
   // with no light both calls do nothing (docs/30, docs/75).
@@ -3723,7 +3875,23 @@ void close_app() {
   luabind::call_hook("on_pause");
   luabind::call_hook("on_save");
   luabind::call_hook("on_close");
+  // **La caché de l'app va al disc abans que la memòria es torni** (0.189.7): the app id is read **before** the interpreter
+  // goes, because the id is the interpreter's, and the blocks of this app are written to `/session/<id>/<key>` so the next
+  // run of the app starts warm. **The block stays in the memory**: what a person sees in `sessions` after this is the
+  // cache the app built, and the allocator takes it away only when something else does not fit (docs/30, docs/75).
+  char parked_id[24];
+  snprintf(parked_id, sizeof(parked_id), "%s", app_id());
+  // **I el teclat baixa amb la pàgina que el va aixecar** (0.189.21): the band's object is the system's and does not outlive the page
+  // that asked for it (`ui::attach` already says it for the next app); with the `serial` keyboard it is not a picture but **a
+  // claim on the port**, and one left behind would make the prompt that comes after it deaf. It goes with a live interpreter,
+  // so the box it was typing into is forgotten the way it should be (docs/30, docs/50).
+  ui::keyboard_hide();
   luabind::stop();
+  const uint32_t written = session::flush(parked_id);
+  if (written > 0) {
+    log_printf(pal::kLogInfo, "MEMORY", "%s ended and wrote %u session block(s) to /session", parked_id,
+               static_cast<unsigned>(written));
+  }
   g_app_alive = false;
   // **The views go with the app that had them** (0.163.0): a count that outlived its app would make the next one
   // open with pages on top of its first one, which are pages nobody pushed (docs/30).
@@ -3880,11 +4048,47 @@ LeaveOutcome close_the_app() {
 // a function and not a second copy: a power off that skips the wait leaves the last page of somebody's app on the glass (docs/50).
 bool power_off(const char* reason) {
   if (reason != nullptr && reason[0] != '\0') log_printf(pal::kLogInfo, "POWER", "power off: %s", reason);
+  // **Una placa que no es pot tallar ho diu abans de gastar el repòs** (0.189.18): the picture, the wait and the margin are
+  // for a board that is really going to lose its supply; one that is powered by its cable says so and goes on running.
+  const bool can_go = platform().power() != nullptr && platform().power()->can_power_off();
   splash::show(power::going_down_picture(/*deep=*/false));
   pal::IConsole* console = pal::system().console();
   if (console != nullptr) console->flush();  // the line has to be out before the supply goes
   splash::wait();
-  if (!platform().power()->power_off()) return false;
+  // **I totes les sessions van al disc abans que el corrent es talli** (0.189.11): this is the last moment the memory of the
+  // board can be read, and a cache that is not written here is a cache lost for ever. The picture is up, so the card is
+  // written while a person sees that the board is going down (docs/30, docs/75).
+  session::park_all("the board is going off");
+  // **I es comprova, i es renta tot el que es pugui rentar, i es reposa** (0.189.18): the number of session files that are
+  // really on the disk, the console and the two volumes, the store, and the two seconds a card needs after the last sector
+  // —which is the part no call of the filesystem can do for it—. All of it before the supply goes, and only if the supply
+  // can go (docs/70, docs/75).
+  if (can_go) {
+    const session::Checked parked = session::check_parked();
+    log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
+               "%u of %u session file(s) are on the disk", static_cast<unsigned>(parked.ok),
+               static_cast<unsigned>(parked.files));
+    power::settle_before_leaving("the board is going off");
+  }
+  if (!can_go || platform().power() == nullptr || !platform().power()->power_off()) return false;
+  shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
+  return true;
+}
+
+// **El son que deixa la placa encesa i les tecles vives** (0.189.25, l'amo: *«Fes la B … l'afegeixes al panell desplegable del
+// sistema entre el botó de poweroff i el de reboot»*): what a person asks for when they want the page to stay on the glass and
+// the board to be there when a key is pressed —no `poweroff`, which leaves a board that only a key of the supply brings back,
+// and no `sleep`, which on this board is the same thing with an hour—. The way down is `power::deep_sleep_with_the_keys`, which
+// closes the app with its goodbye hooks, writes the sessions, paints the picture of the sleep and puts the chip down with the
+// supply **held**; the app comes back at the next boot, because a deep sleep is a reset and not a resume (docs/30, docs/50,
+// docs/90).
+bool deep_sleep(const char* reason) {
+  if (reason != nullptr && reason[0] != '\0') log_printf(pal::kLogInfo, "POWER", "deep sleep: %s", reason);
+  // **Una placa que no pot despertar-se amb una tecla ho diu abans de gastar la imatge i el repòs** (0.189.25): the same rule
+  // the way off follows with `can_power_off` (0.189.18), so a board without a key of the RTC domain answers now and not after
+  // two seconds of a picture that promised a sleep nobody can leave (docs/50, docs/75).
+  if (!power::can_deep_sleep_with_the_keys()) return false;
+  if (!power::deep_sleep_with_the_keys()) return false;
   shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
   return true;
 }
@@ -4105,13 +4309,49 @@ void say_boot_pictures() {
 }
 
 bool command_cfg(const char* argument) {
-  char words[2][kWordCap];
+  char words[3][kWordCap];
   size_t count = 0;
-  if (!read_words(argument, words, 2, count)) return false;
-  if (count > 2) {
+  if (!read_words(argument, words, 3, count)) return false;
+  if (count > 3) {
     usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-              "leap [on|off]|dst [on|off]|week [monday|sunday]|turn [<instructions>]]\r\n");
+              "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|"
+              "cursor delay [<ms>]]\r\n");
     return false;
+  }
+  // **El parpalleig del cursor** (0.189.34, l'amo: *«Crea una opcio nova de cfg anomenada "cursor delay"… Aquest valor es
+  // comú a tots els cursors del sistema»*): the option is two words and the number is a third, so it is asked before the
+  // rest of the door and with the whole argument in hand —`cfg cursor delay` says what it is, `cfg cursor delay 850` writes
+  // it, and a number that is not a blink is refused with the two ends of the range— (docs/30, docs/90).
+  if (strcmp(words[0], "cursor") == 0) {
+    if (count >= 2 && strcmp(words[1], "delay") != 0) {
+      usage_out("usage: cfg cursor delay [<ms>]\r\n");
+      return false;
+    }
+    if (count == 3) {
+      int32_t delay = 0;
+      if (!cfg::parse_cursor_delay(words[2], delay)) {
+        out("cfg: cursor delay is ");
+        out_num(cfg::cursor_delay_default());
+        out(" ms by default, and a blink goes from ");
+        out_num(luabind::caret_blink_min_ms());
+        out(" to ");
+        out_num(luabind::caret_blink_max_ms());
+        out(" ms\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_cursor_delay(delay);
+      out("settings: cursor delay ");
+      out_num(cfg::cursor_delay());
+      out(" ms\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    out("settings: cursor delay ");
+    out_num(cfg::cursor_delay());
+    out(" ms (this build's default is ");
+    out_num(cfg::cursor_delay_default());
+    out(")\r\n");
+    return true;
   }
 
   if (count == 2) {
@@ -4210,6 +4450,23 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
+    // **L'ordre de les apps d'una pàgina d'inici** (0.189.13): the launcher draws the apps in the order the door gives
+    // them, and this switch is the person's word for it to draw them by how many times they have been opened. The setting
+    // is read by the page (`sys.settings()`, docs/30) and the counting is the page's own session (docs/75); here it is
+    // only the switch, and `cfg` stays the one door that writes a setting of the system.
+    if (strcmp(words[0], "sort") == 0) {
+      bool on = false;
+      if (!cfg::parse_switch(words[1], on)) {
+        out("cfg: sort apps by usage is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_sort_by_usage(on);
+      out("settings: sort apps by usage ");
+      out(cfg::sort_by_usage() ? "on" : "off");
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     // **The slice of Lua a turn is worth** (0.174.7): the one number that decides how long a finger on the glass and a
     // key of the board wait for the app to give the turn back. It is applied at once —the next turn of the app already
     // uses it— and kept in the store for the next boot, like every other setting of this door (docs/20, docs/75).
@@ -4234,7 +4491,8 @@ bool command_cfg(const char* argument) {
     }
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-                "leap [on|off]|dst [on|off]|week [monday|sunday]|turn [<instructions>]]\r\n");
+                "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|"
+                "cursor delay [<ms>]]\r\n");
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
@@ -4317,6 +4575,12 @@ bool command_cfg(const char* argument) {
       return true;
     }
     // **The calendar, read in the same words it is written** (0.170.0).
+    if (strcmp(words[0], "sort") == 0) {
+      out("settings: sort apps by usage ");
+      out(cfg::sort_by_usage() ? "on" : "off");
+      newline();
+      return true;
+    }
     if (strcmp(words[0], "dst") == 0) {
       out("settings: dst ");
       out(cfg::dst() ? "on" : "off");
@@ -4355,6 +4619,9 @@ bool command_cfg(const char* argument) {
     out("  keyboard: ");
     out(ui::keyboard_current());
     newline();
+    out("  cursor delay: ");
+    out_num(cfg::cursor_delay());
+    out(" ms\r\n");
     out("  home: ");
     out((cfg::home_app()[0] != '\0') ? cfg::home_app() : "none");
     newline();
@@ -4380,9 +4647,17 @@ bool command_cfg(const char* argument) {
   out("  week: ");
   out((cfg::week_start() == 7) ? "sunday" : "monday");
   newline();
+  out("  sort apps by usage: ");
+  out(cfg::sort_by_usage() ? "on" : "off");
+  newline();
   out("  turn: ");
   out_num(cfg::turn_instructions());
   out(" instructions of Lua\r\n");
+  // **I el parpalleig del cursor, que és de tots els cursors del sistema** (0.189.34): one number for the box of one line,
+  // the box of several lines and the terminal of the shell, said here so a person sees the one the board is using (docs/30).
+  out("  cursor delay: ");
+  out_num(cfg::cursor_delay());
+  out(" ms\r\n");
   char dir[64];
   if (cfg::dir_for_app(dir, sizeof(dir), "<id>")) {
     out("  an app's: ");
@@ -4528,6 +4803,76 @@ bool execute(char* line) {
     print_mem();
     return true;
   }
+  if (strncmp(line, "sessions", 8) == 0 && (line[8] == '\0' || line[8] == ' ')) {
+    char words[3][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 8, words, 3, count)) return false;
+    if (count == 0) {
+      print_sessions();
+      return true;
+    }
+    // **`sessions destroy [<id> [<key>]]`** (0.189.17): the only door that throws a cache away on purpose, and the three
+    // forms are the three questions a person asks in front of the listing —everything, all of one app, or that one
+    // session—. It has to do it in the memory **and** on the disk: a file that stays is the very cache a person asked to
+    // forget, and the next run of the app would read it back (docs/30, docs/75).
+    //
+    // **El mot d'un sol argument pot ser una app o una clau** (0.189.16): la llista de `sessions` ensenya les dues coses,
+    // `home_eink` **i** `apps`, i un mot que és a la pantalla no es pot quedar sense efecte. Es prova com a app —totes les
+    // sessions d'aquella pàgina— i, si no hi ha cap app amb aquell nom, com a clau —aquella sessió, de l'app que la
+    // tingui—; la línia diu quina de les dues ha estat.
+    if (strcmp(words[0], "destroy") == 0 && count <= 3) {
+      session::Forgotten gone;
+      bool by_key = false;
+      if (count == 1) {
+        gone = session::forget(nullptr);
+      } else if (count == 2) {
+        gone = session::forget(words[1]);
+        if (gone.blocks == 0 && gone.files == 0) {
+          const session::Forgotten named = session::forget_key(words[1]);
+          if (named.blocks > 0 || named.files > 0) {
+            gone = named;
+            by_key = true;
+          }
+        }
+      } else {
+        gone = session::forget(words[1], words[2]);
+      }
+
+      out("sessions destroy");
+      if (count == 1) {
+        out(" (every app)");
+      } else if (by_key) {
+        out(" (the session '");
+        out(words[1]);
+        out("', of every app)");
+      } else {
+        out(" ");
+        out(words[1]);
+        if (count == 3) {
+          out(" '");
+          out(words[2]);
+          out("'");
+        }
+      }
+      out(": ");
+      out_num(gone.blocks);
+      out(" block(s) and ");
+      out_num(gone.files);
+      out(" file(s) forgotten, ");
+      out_num(static_cast<uint32_t>(gone.bytes));
+      out(" B of memory\r\n");
+      // **I un mot que no és res es diu**, amb la llista a sota: un destroy que contesta zeros a seques deixa una persona
+      // preguntant-se si ha escrit malament el nom o si la comanda no fa res (docs/30).
+      if (count == 2 && !by_key && gone.blocks == 0 && gone.files == 0) {
+        out("sessions: nothing is called '");
+        out(words[1]);
+        out("'; `sessions` lists the apps and the keys\r\n");
+      }
+      return true;
+    }
+    error_out("sessions: use `sessions` or `sessions destroy [<id> [<key>]]`\r\n");
+    return false;
+  }
   if (strncmp(line, "apps", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
     char words[2][kWordCap];
     size_t count = 0;
@@ -4661,6 +5006,17 @@ bool execute(char* line) {
     }
     return true;
   }
+  // **El son amb les tecles vives** (0.189.25): the board keeps its power and the chip sleeps until a key is pressed; the page
+  // stays on the glass and the app comes back at the next boot. It is the middle way between `sleep` —which waits for an hour—
+  // and `poweroff`, which leaves a board nothing but the key of the supply brings back (docs/30, docs/50).
+  if (strcmp(line, "deepsleep") == 0) {
+    out("deep sleep...\r\n");
+    if (!deep_sleep("the prompt")) {
+      error_out("this board cannot sleep with its keys awake: no key of it can wake the chip\r\n");
+      return false;
+    }
+    return true;
+  }
   // Cutting the power is not a sleep: nothing is armed and the button is the only way back in. The
   // board that can do it does not come back from the call at all, so the only line that can follow
   // is the one of a board that cannot —the ATOMs hold nothing to switch— and the person is told
@@ -4740,6 +5096,46 @@ bool execute(char* line) {
   if (strncmp(line, "led", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
     return command_led(line + 3);
   }
+  // **`serial`**: el port sèrie cedit a una app —o a una persona— i el silenci del sistema mentre ho és (0.189.20). Three
+  // words and nothing else: with no word it says who has the port, `claim` takes it and `release` gives it back, and the
+  // one who took it is the one who can give it back (docs/30, docs/50).
+  if (strncmp(line, "serial", 6) == 0 && (line[6] == '\0' || line[6] == ' ')) {
+    char words[1][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 6, words, 1, count)) return false;
+    if (count == 0) {
+      if (serial::claimed()) {
+        // **I mentre és cedit no es pot contestar**: the system writes nothing to the port, so this line goes nowhere and
+        // is written anyway —it costs nothing and it is the log that keeps it (docs/30).
+        out("serial: ceded to ");
+        out(serial::owner());
+        out("\r\n");
+      } else {
+        out("serial: the system's (nothing is ceded)\r\n");
+      }
+      return true;
+    }
+    if (strcmp(words[0], "claim") == 0) {
+      if (serial::claimed()) {
+        error_out("serial: the port is already ");
+        error_out(serial::owner());
+        error_out("'s\r\n");
+        return false;
+      }
+      // **La resposta s'escriu abans de tancar el port**, perquè si no el silenci s'enduria la pròpia confirmació.
+      out("serial: the port is the prompt's, and the system writes nothing to it until `serial release`\r\n");
+      return serial::claim("the prompt", "a person asked for it");
+    }
+    if (strcmp(words[0], "release") == 0) {
+      // **I el retorn s'anuncia després de recuperar-lo**, que és quan es pot llegir: mentres era cedit la línia hauria
+      // anat al no-res igualment.
+      const bool had = serial::release("a person asked for it");
+      out(had ? "serial: the port is the system's again\r\n" : "serial: nothing was ceded\r\n");
+      return true;
+    }
+    error_out("usage: serial [claim|release]\r\n");
+    return false;
+  }
   if (strncmp(line, "button", 6) == 0 && (line[6] == '\0' || line[6] == ' ')) {
     return command_button(line + 6);
   }
@@ -4759,6 +5155,11 @@ bool execute(char* line) {
 }
 
 void feed(const char* data, size_t len) {
+  // **Amb el teclat del cable, el que arriba pel port és de la caixa amb el focus** (0.189.21): the `serial` keyboard is a
+  // claim on the wire and nothing on the glass, and every byte that arrives while a box that takes keys has the focus is a
+  // key of that box —the same door the band uses—. Neither the prompt nor the console of the app sees it, which is the whole
+  // point: `cat /dev/ttyUSB0` and type (docs/30, docs/50, docs/90).
+  if (ui::keyboard_type_the_wire(data, len)) return;
   // While an app runs the keyboard is the app's: it echoes, it edits, and it is
   // the one that gets the lines (docs/30). The shell sees nothing of this.
   // **Unless the app is detached** (0.160.0): `run x &` gave the console back to the shell, so the lines are the
@@ -5026,12 +5427,35 @@ uint32_t session_dropped(uint8_t id) {
   return (session == nullptr) ? 0 : (session->out.dropped + session->err.dropped);
 }
 
+// **Les comandes del prompt, en una sola llista** (0.189.9): the words a person can type, in the order `help` says them.
+// It is the list the app of the shell offers in its menu (`sys.commands()`), so a person picks a command instead of typing
+// it, and it is the same list `help` walks for its lines —one list and not two, because two lists of the same commands is
+// one list that will disagree with itself (docs/30).
+const char* const kCommandNames[] = {
+    "help",     "version",  "caps",     "mem",      "sessions", "apps",     "mounts",   "splash",
+    "panel",    "cfg",      "run",      "stop",     "home",     "repo",     "lua",      "keys",
+    "fonts",    "wifi",     "provision", "ntp",     "tz",       "date",     "alarm",    "sleep",
+    "poweroff", "deepsleep", "reboot",   "battery",  "led",      "serial",   "imu",      "touch",    "buttons",  "log",
+    "panic",    "stats",    "free",     "echo",     "cat",      "ls",       "cd",       "pwd",
+    "mkdir",    "rm",       "mv",       "cp",       "hexdump",  "fs",       "clear",    "history",
+};
+
+// **What the app of the shell asks for** (0.189.9): the names, and how many there are. The pointers are this file's and they
+// outlive the call, which is what a caller needs to print or list them (docs/30).
+uint8_t shell_commands(const char** names, uint8_t cap) {
+  const uint8_t total = static_cast<uint8_t>(sizeof(kCommandNames) / sizeof(kCommandNames[0]));
+  if (names == nullptr || cap == 0) return total;
+  const uint8_t copied = (total < cap) ? total : cap;
+  for (uint8_t i = 0; i < copied; ++i) names[i] = kCommandNames[i];
+  return copied;
+}
+
 // **The table the interpreter reads** (0.159.0): the kernel is the only one that knows how a session is opened and
 // given back, and `luabind` never includes the kernel, so the six calls arrive as six function pointers
 // (docs/20, docs/30).
 void install_shell_ops() {
   luabind::set_shell_ops(luabind::ShellOps{&open_session, &close_session, &session_write, &session_read,
-                                           &session_read_error, &session_dropped});
+                                           &session_read_error, &session_dropped, &shell_commands});
 }
 
 }  // namespace shell

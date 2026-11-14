@@ -15,6 +15,14 @@ namespace kernel {
 // Every change bumps one of the three, and the number goes up in the same commit as the change. Apps
 // do not declare against it; docs/20 says what happens when the API has to change.
 //
+// **AND EVERY APP AND EVERY LIBRARY RAISES ITS OWN NUMBER TOO** (0.186.0, the paper's owner: *«les
+// apps i llibreries també pugen de versió amb els canvis… tot ha de pujar de versió si és modificat»*):
+// a commit that touches `apps/<id>/` raises the `version` of that app's `manifest.json`, and one that
+// touches `lib/<name>/` raises the `version` of that library's `library.json`, with the same X/Y/Z
+// word inside the thing itself (`apps/about/res/libs.txt` is generated from those numbers, and a
+// library that moved without saying so is an About page that lies). `tools/check_version.py` is what
+// refuses it, in the CI and from the task `lunokOS: check versions` (docs/40, docs/80).
+//
 // 0.3.0 (31/10): http.get, a page with TLS, and the radio that is switched on for
 // work and switched off when the queue is empty.
 // 0.4.0 (31/10): both sleeps, the wake by timer and by button, and the app that
@@ -7847,7 +7855,1064 @@ namespace kernel {
 //   - **mesurat a l'emulador** (`about` amb un detall a sobre, targeta de 304 files): `← Back` a l'esquerra, `Close ✕` a la dreta i
 //     `Settings`, `Poweroff` i `Reboot` amb la paraula sota la marca, tot llegible; el cas
 //     `test_a_key_with_a_word_puts_the_mark_where_it_says` subjecta els tres costats.
-static const char kVersion[] = "0.185.3";
+// 0.186.0: **el paper d'una pàgina esborra la tinta dels controls i el sistema els torna a preguntar** (l'amo: *«2048
+// te problemes de redibuixat de la vista, el botó new desapareix»*).
+//   - **`clear()` i `canvas_clear` demanen els controls que es tornin a dibuixar** (`invalidate_covered`): un control
+//     es compon al pare **només per on té mal**, i `place` i `resize` només marquen el dia que canvien alguna cosa, o
+//     sigui que una pàgina que fa `ui.clear` i torna a pintar les seves primitives tornava **sense el control que no
+//     s'havia mogut** i cap `present` el posava de tornada. El botó New del 2048 és a `y` vuit i la seva `x` es mesura
+//     només de l'amplada: una vista que creix cap avall el deixava exactament on era, sense marca, i la paraula
+//     marxava del vidre per sempre. És la regla que ja seguia un forat a la pàgina, i per això el helper és el que omple
+//     un forat (`invalidate_covered`, 0.173.2).
+//   - **I el 2048 diu la qualitat de cada caixa, que és el que fa que cada quadrat sigui el SEU pintat**: un
+//     `ui.present()` **sense** qualitat va pel camí de la pàgina (`present()`), on quatre caixes són una pàgina i la
+//     pàgina puja d'un sol cop —mesurat: `paint 0,0 540x912 mode 3 gl16` per un moviment, o sigui el vidre sencer
+//     parpellejant a cada fregada—; un present que **nomena** la qualitat va per `present_all`, que pinta cada caixa on
+//     és, i el parpelleig és el del quadrat (`paint 274,197 124x123 mode 3 gl16`, una passada per quadrat que canvia).
+//     La qualitat és `gl16` i no `gld16`: costa els mateixos 450 ms, i és l'única d'aquest vidre que **neteja i guarda
+//     els setze grisos** —una cel·la que es buida surt paper i no el fantasma del número que hi havia, i una fitxa que
+//     s'enfosqueix fins al negre ensenya el número blanc (docs/30, docs/50).
+//   - **`apps/2048/game.lua` té una sola `paintPage()`** (el paper, el tauler, els dígits i la línia) i la fa servir a
+//     l'arrencada i quan el sistema li dona una altra vista, en lloc de repetir el bloc sencer dues vegades.
+//   - **mesurat a l'emulador**: el moviment pinta `274,197`, `404,197` i `404,590` de `124x123` a `mode 3 gl16` (tres
+//     caixes, i no `12,8 516x705 mode 5 gld16`), el «New» després de «Sure?» surt negre sense el fantasma del mot
+//     anterior, i el tauler nou no deixa cap fitxa de la partida vella al vidre. I el cas del botó que marxa, amb una
+//     app d'escombraries al disc de l'emulador (una etiqueta, `ui.clear` i un `present` sense moure res): **abans del
+//     canvi la pàgina quedava en blanc** i després hi torna a haver l'etiqueta.
+//   - **I cada carpeta puja la seva versió** (`tools/check_version.py` mira ara les carpetes i no només `kVersion`;
+//     la tasca `lunokOS: check versions` i el CI el fan córrer): `apps/2048` 0.1.0 → **0.1.2** —dos números, perquè el
+//     redibuix es va canviar dues vegades: el primer, sense la qualitat nomenada, és el que va fer parpellejar el vidre
+//     sencer, i el segon és el que hi ha—, `apps/about` 0.5.1 → **0.5.2** (el seu `res/libs.txt` és generat i en diu
+//     les versions), i les sis llibreries que el commit anterior tocava sense pujar-ne cap —`hal`, `hal_emulator`,
+//     `hal_esp32`, `hal_paper`, `luabind` i `kernel`— a 0.1.1, amb `hal_paper` a 0.2.1 i `libs.txt` regenerat
+//     (docs/40, docs/45, docs/80).
+// 0.186.1: **el gest mana sobre el toc, i un contacte que ha caminat no activa res** (l'amo: *«estic fent swipe
+// esquerra/dreta i es seleccionen items de la llista… és impossible passar pàgina, es selecciona un element i s'acaba
+// obrint; el gest no deixa tocs»*).
+//   - **L'aixecament mira el viatge**: `ui_touch_progress` tenia dos camins per decidir si un contacte era un toc —el
+//     requadre on s'acabava i el `g_ui_touch_moved` dels controls de text— i cap dels dos mirava **quant havia caminat el
+//     dit des d'on va caure**, o sigui que un lliscament sobre una llista triava la fila on s'aturava i l'app l'obria. Ara
+//     el viatge sencer es mesura amb els vint píxels de sempre (`kTapSlop`) i, si n'hi ha, el contacte queda gastat: ni
+//     fila, ni botó, ni focus. **El punt de l'aixecament no arriba de `touch.cpp`** (`ui_touch_progress(0, 0, false)`):
+//     l'última posició del dit es guarda aquí (`g_ui_touch_x/y`) perquè el viatge tingui dos extrems.
+//   - **La pàgina es demana al viatge i no a un frame** (`ui_turn_the_page_of_a_travel`): el mateix codi el fan servir el
+//     camí del dit —un lliscament lent— i l'aixecament —un fregat que el panell va dir d'un sol salt—, i el bloc que hi
+//     havia dins del `if (down)` ara és aquesta funció i prou.
+//   - **I el focus torna a qui el tenia**: el dit que cau posa l'anella al control que toca, i un gest ha de deixar la
+//     pàgina com la va trobar —la fila sota el dit no es queda triada— (docs/30, docs/90). Mesurat a l'emulador amb
+//     `fonts` i `about`: fregar cap enrere a la primera pàgina ja no obre cap fitxer ni cap llibreria, fregar cap
+//     endavant torna a fer `fonts: page 2`, i un toc segueix obrint la fila.
+// 0.186.2: **el home_eink diu com va la cua en el lloc on anirà el paginador** (l'amo: *«mentre el home_eink carrega icones
+// al grid: mostrar barra de progrés on estarà el paginator. La barra de progrés desapareix en quant el control es refresca
+// en acabat de carregar les icones, noms i dibuixa el paginador de punts»*).
+//   - **És un control i no un dibuix**: `ui.progress(width, kFootH)` —la barra del sistema, la mateixa que qualsevol altra
+//     pàgina— col·locada a `(kMargin, top + height - kFootH)` i amb `value` de 0 a 100 segons els torns de la cua que porten
+//     fets. `kFootH` és **37**, que és la caixa que `icon_grid_cells` dóna al peu d'una graella (`kDotDesignH`: la bola de
+//     vint-i-cinc i dotze píxels d'aire), o sigui que la barra ocupa exactament la tira del paginador.
+//   - **I marxa quan la cua s'acaba**: `finish_the_bar` dóna el control i invalida la graella, que torna a pintar la seva
+//     tira —els punts del paginador, quan hi ha més d'una pàgina—; si la pàgina es torna a fer abans (`build` per un manifest
+//     que se'n va o per una altra vista), `give_back` ja el dóna.
+//   - **No és filla de la graella**: una graella compta els fills com a cel·les (`icon_grid_draw`), o sigui que la barra és
+//     un germà col·locat sobre la tira i composta després de la graella (docs/30, docs/90).
+//   - **Mesurat a l'emulador** (`--dump` del vidre): `paint 20,855 500x37` a cada app que arriba de la cua (tretze torns,
+//     tretze pintades de la tira) i al final la tira surt **paper net** sense la barra; en una placa amb més d'una pàgina és
+//     la mateixa caixa on `icon_grid_draw` pinta els punts.
+// 0.186.3: **el gest d'una llista i d'una graella només val a la tira del paginador** (l'amo: *«farem que el swipe del
+// control List i Grid serà només a la zona d'abaix on està el paginador de boletes. Ja que no hi ha manera d'evitar que la
+// llista rebi l'event de touch abans o després del gest, farem que el swipe no interfereixi amb la llista/grid per error»*).
+//   - **La tira és la del sistema i no una de l'app**: el nucli dóna la seva alçada per la taula d'operacions
+//     (`list_footer_of` = 41: els 37 de la caixa del paginador i els 4 del filet; `grid_footer_of` = 37, i 0 en una
+//     graella de menys de 160 píxels), i `icon_grid_cells` fa servir la mateixa funció (`grid_footer`) que el dit, o sigui
+//     que la tinta i el gest no poden discrepar.
+//   - **Un dit que cau damunt d'una fila o d'una cel·la no demana cap pàgina**: es mou i no passa res —ni pàgina, ni fila
+//     triada—, que és el que fa que el gest no interfereixi amb el control per error. **El dial no hi passa**: les fletxes
+//     d'una llista canvien de pàgina des de qualsevol fila, i per això `at_y` negatiu vol dir «no és un dit».
+//   - **Mesurat a l'emulador amb `fonts` i amb `about`**: fregar damunt d'una fila (`drag 420,452`) no obre res i no passa
+//     pàgina; fregar damunt dels punts (`drag 420,867`, dins de la tira 845..886) fa `fonts: page 2` i, a l'About, la
+//     segona boleta de les quatre queda plena. Els dos casos són a `test_apps` (`test_a_swipe_over_a_list_does_not_leave_a_row_pressed`
+//     i `test_a_swipe_in_the_strip_of_dots_turns_the_page_of_a_list`).
+// 0.186.4: **la zona del gest és tot el terç de baix del control i no els quaranta-un píxels del paginador** (l'amo:
+// *«l'àrea del swipe no pot ser només el paginador, ha de ser tota la zona d'abaix de la llista/grid»*, i abans *«no hi ha
+// manera de passar pàgina ni al about ni al fonts»*).
+//   - **El número surt de la tinta i no d'un altre lloc**: `list_page_zone(height, row_height)` = `max(height / 3,
+//     list_footer(row_height) + row_height)` i `grid_page_zone(height)` = `max(height / 3, grid_footer(height))`, a la
+//     taula d'operacions com a `list_page_zone` i `grid_page_zone` (que rellevinen `list_footer_of` i `grid_footer_of`, que
+//     ja no tenien cap altre client). La tira del paginador és el terra de la zona —una tira de quaranta-un píxels amb el
+//     dit del paper no s'encerta— i el terç és qui mana quan el control és alt.
+//   - **El gest que no canvia res no repinta la llista**: el focus que el dit va prendre en caure torna a qui el tenia, però
+//     el repintat (`ui_draw_and_present("gl16")`) ara **només es fa si el focus era un altre**. Era el que l'amo veia:
+//     *«la llista es redibuixa tot i no haver-se embrutat?»*.
+//   - **Mesurat a l'emulador** (Xvfb, xdotool i `--dump`, amb `fonts` i `about`): a `fonts` la llista fa 776 píxels d'alçada
+//     i files de 74, o sigui que la zona és de 258 (de 632 a 890) — `drag 450,780 dx -390` fa `fonts: page 2` i pinta la
+//     caixa sencera una vegada (`paint 22,114 496x776`), que és una pàgina que canvia; `drag 450,400 dx -390` (la meitat de
+//     dalt) **no passa pàgina, no tria cap fila i no repinta la caixa**: només dues files (`paint 22,114 496x74` i
+//     `paint 22,336 496x74`, l'anella que marxa i la que arriba), i un `tap 270,202` continua obrint el fitxer. A `about` la
+//     llista fa 580 i la zona 193 (de 625 a 818): `drag 450,760 dx -390` deixa la pàgina 2 de 4 amb les files noves
+//     (`hal_atom`, `hal_emulator`…) i la segona boleta plena.
+// 0.187.0: **el swipe d'una llista i d'una graella és de tot el control i no d'una zona** (l'amo: *«pots fer que tot el
+// control clami el swipe? si després es fa a la part del paginador continuarà sent dins del control llista o grid, oi?»*).
+//   - **La zona marxa sencera**: `list_page_zone` i `grid_page_zone` surten de la taula d'operacions, i `at_y` marxa de
+//     `ui_turn_the_page_of_the_list`, d'`ui_grid_turn_the_page` i d'`ui_turn_the_page_of_a_travel` —ningú no pregunta on va
+//     caure el dit—. El paginador és **dins** de la caixa del control, o sigui que un gest damunt seu sempre hi era i no calia
+//     cap excepció.
+//   - **I no calia perquè el viatge ja decideix**: des de 0.186.1 un contacte que ha caminat vint píxels és un gest i no un
+//     toc, o sigui que un lliscament damunt d'una fila no la tria ni l'obre. La zona era una segona barrera per al mateix
+//     problema, i el que feia era que el gest no s'encertés: l'amo, *«no hi ha manera de passar pàgina ni al about ni al
+//     fonts»* amb la tira de quaranta-un píxels, i amb el terç de baix encara calia buscar-lo.
+//   - **Tests**: `test_a_swipe_in_the_middle_of_a_list_turns_the_page` (llista de 400, dit a 200 de la caixa, lluny dels punts
+//     de 379) i `test_a_swipe_over_a_list_does_not_leave_a_row_pressed`, que ara espera `page 2` en lloc de no esperar-lo; la
+//     tira de boletes i el gest que no troba pàgina es queden com eren.
+//   - **Mesurat a l'emulador** (Xvfb, xdotool, `--dump`, amb `fonts` i `about`): a `fonts`, la llista fa 776 píxels i el dit
+//     cau a la fila del mig (`[D][TOUCH] the contact at 450,400`) i camina 390 a l'esquerra → `fonts: page 2`, amb dues files
+//     pintades pel camí (`22,114 496x74` i `22,336 496x74`) i la caixa de la pàgina nova una vegada (`22,114 496x776`); un
+//     toc després (`tap 270,202`) obre `inter-latin1.ttf`, o sigui que el toc no l'ha menjat el gest. A `about` la llista fa
+//     580 i el dit cau a 599 (`drag 451,599 dx -390`): la pàgina és la 2 de 4, amb la segona boleta plena i les files noves
+//     (`hal_atom`, `hal_emulator`, `hal_esp32`…). A la 0.186.4 el mateix swipe a `450,400` no passava pàgina.
+// 0.188.0: **el tàctil avisa en lloc de ser preguntat** (l'amo: *«implementa la interrupció del tàctil i treu el pooling»*).
+//   - **La línia de la placa, escoltada**: el GT911 té una sortida INT que baixa quan un escaneig té un frame. Al Paper és
+//     **GPIO36** —la mateixa que el xip mira en sortir del reset per triar adreça— i és d'entrada, o sigui que no s'hi pot
+//     escriure i sí que s'hi pot escoltar. És el que fa el codi del fabricant: `M5EPD.cpp` crida `TP.begin(21, 22, 36)` i el
+//     seu `GT911::begin` fa `attachInterrupt(pin_int, ..., FALLING)` (docs/50, docs/95).
+//   - **`lib/hal_esp32`**: `esp32_gt911(bus, int_pin)` configura el pin com a `GPIO_INTR_NEGEDGE` sense pull (el xip el
+//     mena) i hi penja un handler **a IRAM** que només aixeca un `volatile bool` —una interrupció no pot esperar el flash, i
+//     el bus no és cosa d'una interrupció—. `read()` respon **zero sense tocar el bus** quan la línia encara no ha avisat, i
+//     el flamenc es baixa en llegir el frame, quan el registre d'estat diu que no n'hi ha i quan el xip no contesta.
+//   - **`lib/hal::ITouch::warns()`**, fals per defecte: un vidre que avisa es pot preguntar a cada torn perquè no costa res,
+//     i un que no avisa es pregunta al ritme de `scan_ms` (docs/50).
+//   - **`lib/kernel/src/touch.cpp`**: la porta dels deu mil·lisegons (`ask_the_chip`, 0.174.4) **només val per als vidres que
+//     no avisen** (`if (g_glass->warns() || ask_the_chip(now))`); amb la línia cablejada el frame es pren **el torn que
+//     arriba el flamenc** i no fins a deu mil·lisegons després (docs/50, docs/95).
+//   - **L'emulador modela la línia** (`--no-touch-int` la treu, i llavors torna el sondeig de sempre, que és el món de
+//     `--touch-scan`): amb la línia, un torn sense avís no gasta ni bus ni compta com a lectura perduda (`missed_` es queda a
+//     zero), que és exactament el que es guanya (docs/85).
+//   - **Què es guanya i què no**: amb ningú a la pantalla, les lectures de 400 µs cada deu mil·lisegons (un 4 % d'un bus de
+//     100 kHz que es comparteix amb el RTC, la FRAM i el SHT3x) **desapareixen**; amb un dit, la lectura és la mateixa
+//     (1 830 µs per frame) perquè el frame s'ha de llegir igual. **La precisió no canvia**: els punts són els del xip, i el
+//     flamenc només diu «hi ha alguna cosa». I **el swipe no en depenia**: el viatge ja arribava sencer (docs/30).
+// 0.188.1: **el swipe esquerra/dreta de les llistes, revisat** (l'amo: *«no detecta bé el swipe esquerra/dreta per les
+// llistes»*). Dues causes, totes dues trobades llegint el codi i la configuració de la unitat.
+//   - **El ritme d'escombrat era suposat i era el dolent** (la important): el driver deia al nucli **deu mil·lisegons**
+//     (`kGt911ScanMs`, «el període amb què treballen els dos drivers del fabricant»), i el nucli tanca un contacte quan el
+//     vidre ha callat **tres escombrats** = trenta mil·lisegons. Però el ritme és a la configuració del xip, al byte
+//     `0x8056` (`5 + (byte & 0x0F)` Hz, la fórmula del `M5GFX`), i aquesta unitat diu **vint hertz**: **un escombrat cada
+//     cinquanta mil·lisegons**. Entre dos frames del dit el nucli el donava per anat, o sigui que **un swipe de mà es
+//     trencava en un grapat de contactes d'un frame cada un** i la pàgina només es passava amb un fregat ràpid (un sol frame
+//     amb quaranta píxels o més). Ara `scan_ms()` es llegeix del xip a l'arrencada (`gt911_scan_ms`), la finestra de silenci
+//     passa a **cent cinquanta mil·lisegons** i la línia d'arrencada diu el número: `…, 2 fingers, 50 ms a scan`.
+//   - **I l'eix amb més viatge s'emportava la paret**: una mà que llisca de costat arrossega, i seixanta píxels a l'esquerra
+//     amb vuitanta cap avall sortien com «avall» —la pàgina **anterior**— i el contacte quedava gastat. Ara **fins a quaranta
+//     píxels d'arrossegament es perdonen** i el costat mana; passat aquest marge el dit anava de debò amunt o avall
+//     (docs/30, docs/50, docs/95).
+//   - **Tests**: `test_a_swipe_on_a_slow_glass_is_one_gesture` (un vidre de cinquanta mil·lisegons dóna **un** `drag` de
+//     −120 px i no un grapat de contactes) i `test_a_sideways_swipe_that_drifts_down_still_turns_the_page` (60 a l'esquerra
+//     i 80 avall fan `page 2`). Tots dos escrits i compilats; executar-los vol el permís de l'amo.
+// 0.188.2: **el swipe es diu, i la pàgina també** (l'amo: *«no hi ha manera de veure res… veig drags i longs, però cap
+// swipe»*). Un swipe que no gira pàgina té tres motius i cap es veu al vidre: un dit que cau a paper, un viatge que ningú no
+// demana, un control que ja és a l'última pàgina. Dues línies de depuració (`[D][UI]`, docs/30) ho diuen:
+//   - `[D][UI] swipe -70,0: sideways, index 5, list 6` — el viatge, l'eix que mana i el control i la llista on va caure el
+//     dit. `not a page yet` vol dir que el viatge encara no arriba als quaranta píxels; `up or down` que l'eix vertical s'ha
+//     emportat el gest.
+//   - `[D][UI] list 6: page 2 of 4` — la llista que gira i on va; `(already there)` vol dir que la pàgina demanada és la que
+//     ja hi era (la primera quan es va enrere, l'última quan s'hi va endavant).
+//   **La traça va penjada del camí del gest i no d'un interruptor**, perquè el problema que la va demanar no es pot reproduir
+//   a l'emulador: a l'emulador la cadena surt sencera i el que falta és a la placa. Amb el registre del nucli, però, `PANEL`
+//   ofega la resta de línies: **encara no hi ha cap filtre per etiqueta** (només `log echo`), i és una feina pendent.
+// 0.188.3: **el dit que cau ja no congela el nucli pintant la llista sencera** (l'amo, amb el log de la placa: *«veig
+// drags i longs, però cap swipe»*, i la línia que ho diu tot: `LUTAFSR 0000 17220 ms after the paint` just després del
+// contacte). La causa no era el gest:
+//   - **El gest arribava i el nucli no hi era per veure'l**: en el frame de la caiguda, `ui_touch_progress` treu l'anella de
+//     la pàgina (`ui_ring_shown(false) && ui_feedback()`), i **l'anella viu dins del canvas de la seva llista**: treure-la
+//     invalida `496x776` píxels, que passen de mitja pantalla i es paguen a la qualitat d'una pàgina —`gl16`, 450 ms de
+//     tinta—. El panell va retenir el motor 17 220 ms, el dit va acabar el contacte mentre ningú llegia el vidre i el viatge
+//     mesurat va quedar a zero: cap pàgina i cap línia de traça.
+//   - **`ui_feedback_cheap()`**: el mateix dibuix i el mateix present, amb la tinta de `du` —120 ms i cinc nivells— per al
+//     feedback d'un contacte que encara és al vidre. La qualitat de la pàgina es paga un cop, quan el contacte s'acaba o
+//     quan la pàgina gira.
+//   - **I els dos pintats de l'aixecament també són `du`** (el focus que torna i la premuda que es deixa anar): eren dos
+//     `gl16` de la llista sencera per cada swipe.
+//   - **Mesurat a l'emulador** (vidre de 50 ms, `about`): la caiguda ja no pinta la llista, i el swipe diu la veritat —
+//     `[D][UI] swipe -70,0: sideways, index -1, list 6` i `[D][UI] list 6: page 2 of 4`— amb la pàgina 2 de 4 al vidre. A la
+//     placa queda per veure si el `gl16` d'una sola fila (la premuda, 450 ms) encara es menja un swipe curt; si ho fa, el
+//     següent pas és que **mentre hi hagi un dit al vidre tot present vagi amb `du`**.
+// 0.188.4: **una fila d'una llista només s'activa amb un toc, i el toc no pinta res pel camí** (l'amo: *«les entrades de la
+// llista només haurien de ser sensibles al tap simple, ni al long, ni al drag ni al leave ni al down ni al swipe… només un
+// toc directe els activa amb el focus»*, i abans *«per què es refresca una llista que no ha tocat ningú?… refrescar la
+// llista sencera no té sentit a menys que canviïs de pàgina»*).
+//   - **La premuda d'una fila marxa**: `pressed` no es posa en caure el dit sobre un `__row`, perquè és tinta que la fila no
+//     deu —una fila no té estat de premut, només un toc que l'activa— i era un `gl16` de quatre-cents cinquanta mil·lisegons
+//     **abans que el gest hagués començat**. El clic no el llegeix: activa l'aixecament dins del mateix requadre
+//     (`ui_activate`, que ni tan sols arriba a prémer res en aquest camí).
+//   - **I l'anella d'un dit viu va amb `du`** (`ui_feedback_cheap`), no amb la passada de dues tintes que paga qualitat de
+//     pàgina; els dos pintats de l'aixecament (el focus que torna i la premuda que es deixa anar) també.
+//   - **Mesurat a l'emulador** (vidre de 50 ms, `about`, 0.188.4): un **toc** en una fila pinta **una fila** (`paint 20,312
+//     500x64 a2`, l'anella) i després la pàgina de destí (`paint 0,0 540x912 gl16`), i obre (`about: open alarms 0.1.0`);
+//     un **swipe** pinta una fila en caure el dit (`paint 20,312 500x64 gl16`), diu `[D][UI] swipe -70,0: sideways, index 1,
+//     list 6` i `[D][UI] list 6: page 2 of 4`, i pinta la llista **una vegada** (`paint 20,312 500x580`), que és una pàgina
+//     que canvia. Abans d'aquesta versió la caiguda d'un dit sobre una llista amb l'anella a la llista sencera pintava
+//     `496x776` i congelava el nucli (el log de l'amo: `LUTAFSR 0000 17220 ms after the paint`).
+// 0.188.5: **la pàgina es passa de costat i prou** (l'amo: *«per passar pàgina vull dreta/esquerra no amunt/avall… recorda
+// que la pantalla està girada, el touch està llegint verticals on són horizontals»*).
+//   - **El gest vertical marxa** (`ui_turn_the_page_of_a_travel`): el 0.179.51 el va afegir perquè una llista no fa scroll i
+//     amunt volia dir el mateix que esquerra, però amb la pantalla girada era **el vertical qui s'emportava el gest del
+//     costat**, i una pàgina que només passa quan el dit va amunt no és el que cap mà fa per girar full. Ara només el costat:
+//     **la dreta és la pàgina anterior i l'esquerra la següent** (0.188.6, i el sentit girat del tot a la 0.189.1), i quaranta
+//     píxels d'arrossegament es perdonen.
+//   - **I el gir es diu a la línia del contacte**: `[D][TOUCH] the contact at 450,352 is the page's (page turn 0)` — el gir
+//     entre el marc del xip i el de la pàgina (`kChipPage` 270 menys la rotació del panell), que és el número que decideix si
+//     una mà que va de costat es llegeix de costat. Amb això i la traça del swipe, un log diu si el gest i el dibuix parlen el
+//     mateix idioma.
+//   - **Mesurat a l'emulador** (vidre de 50 ms, `about`): horitzontal → `page turn 0`, `[D][UI] swipe -70,0: sideways` i
+//     `[D][UI] list 6: page 2 of 4`; vertical → `[D][UI] swipe 0,-180: not a page (the sides turn a page)` i el vidre no canvia.
+// 0.188.6: **el sentit del swipe, girat** (l'amo, amb el log de la placa on ja es veia el gest sencer —`page turn 0`,
+// `swipe -252,-4: sideways`, `list 6: page 2 of 4`— i dues files pintades per l'anella i la llista una vegada per la pàgina:
+// *«pel meu gust gira al revés, esquerra-dreta intercanviats»*). Esquerra demana la pàgina **anterior** i dreta la
+// **següent**: el full segueix la mà, que és el que fa el paper quan s'arrossega. Les sis proves que feien un swipe
+// horitzontal s'han girat amb ells (una llista, una graella, la tira dels punts, el mig del control i la que arrossega cap
+// avall), i `test_a_swipe_up_turns_the_page_of_a_list` passa a dir-se
+// **`test_a_swipe_up_or_down_is_not_a_page_of_a_list`** i a esperar que el vertical no giri res (0.188.5).
+// 0.188.7: **el tàctil de debò: l'avís arriba abans que el marc** (l'amo: *«al emulador sí que hi ha drags, al dispositiu
+// real NI UN»*). I tenia raó, i era culpa de la interrupció de la 0.188.0:
+//   - **El flamenc cau quan el xip comença a tenir alguna cosa**, i el bit de «hi ha marc» de l'estat `0x814E` s'encén uns
+//     mil·lisegons després —deu segons el full, i el driver de Linux **espera vint** exactament per això—. El driver llegia
+//     l'estat **una vegada, a l'instant del flamenc**, trobava el bit a zero, llançava el marc **i baixava el flamenc**: com
+//     que la línia no torna a pujar fins que algú escriu el zero a l'estat, **no arribava cap flamenc més** i la resta del
+//     contacte era invisible. Un toc que funcionava un cop i un swipe que no existia mai.
+//   - **I la xarxa de seguretat**: si la línia no torna a caure (un flamenc perdut, un xip que arrenca amb la línia baixa), el
+//     registre d'estat es llegeix igualment **un cop cada dos escombrats** (400 µs cada cent mil·lisegons). El camí ràpid és
+//     la línia; això evita que un flamenc perdut deixi el tàctil sense ànima per sempre.
+//   - **Pendent de mesurar a la placa**: el que s'ha de veure és que `[I][TOUCH] drag` torna a sortir amb el viatge sencer i
+//     que `[D][UI] swipe dx,dy` el segueix. A l'emulador no es pot reproduir: el model del panell té el marc a punt sempre
+//     que algú el demana, i el desfasament entre la línia i el registre és del xip de debò (docs/50, docs/85, docs/95).
+// 0.188.8: **per què el panell de la barra i el 2048 fan swipe i una llista no** (l'amo: *«si el swipe no va bé, per què el
+// panell desplegable de la barra de títol sí que funciona, i el joc 2048 fa swipe en totes direccions? Què hi ha mal fet en
+// les apps About i Fonts?»*). Res, a les apps: el que canvia és **quanta tinta es paga en tocar**.
+//   - **El 2048 pinta una cel·la** (`124x123`) i el panell de la barra unes files: el seu bucle no s'atura mai i els dits
+//     arriben sencers. Una llista és **un sol canvas amb tota la pàgina de files a dins**, i moure-hi l'anella invalida la
+//     caixa sencera: el log de l'amo ho diu amb números —`paint 20,312 500x580 mode 3 gl16` i `LUTAFSR 0000 4745 ms after
+//     the paint`—, i amb el bucle parat **el gest no es pot mesurar** (`long …,877 dx 0` i cap `drag`).
+//   - **El cercle ja no s'endú en caure el dit** (0.188.8): it used to be taken away at the landing, which repainted the row
+//     of the ring, and the whole list when the ring was the list. The ring goes away **at the lift**, which is where a tap
+//     moves it to the row that was tapped and a swipe gives it back (docs/30, docs/50).
+//   - **I la premuda mira l'objecte per l'índex absolut** (`hit_object`): `-1` no és el control després que una branca de la
+//     cadena hagi tornat la pila, i preguntar-li a un altre valor si és una fila era una premuda que la fila pagava igualment
+//     (`paint 20,376 500x64 gl16` en caure el dit).
+//   - **I cada contacte diu quants marcs ha vist**: `[D][TOUCH] the contact is over (1 was the owner), 25 frames in 1139 ms`.
+//     És la resposta a *«segur que no estem perdent events del tàctil?»* en una línia: un swipe d'un segon sobre un vidre de
+//     vint hertz són **vint-i-cinc marcs**, i un contacte d'un sol marc és una línia perduda (docs/50, docs/95).
+//   - **Mesurat a l'emulador** (vidre de 50 ms, `about`): un **toc** no pinta res en caure el dit, pinta **una fila** en
+//     aixecar-lo (`paint 20,376 500x64 a2`) i obre (`about: open board_atom 0.1.0`); un **swipe** deixa com a molt una fila
+//     pel camí i després la pàgina (`paint 20,312 500x580`), amb `25 frames in 1139 ms` de contacte.
+// 0.188.9: **una fila d'una llista només s'activa amb un TOC** (l'amo: *«els elements de la llista no han de ser sensibles a
+// res que no sigui TAP directe, un tap és tocar i aixecar sense moure»*). Fins ara la decisió era només el viatge, i el
+// viatge es mesura amb **marcs que una pintada s'empassa**: a la placa un toc de llista va congelar el bucle quatre segons, el
+// relleu va trobar els mateixos dos punts que a l'arribada i la fila s'obria amb un swipe (`long …,877 dx 0`). Ara, per a una
+// `__row`, calen les tres coses alhora: el relleu **dins del mateix requadre**, **sense viatge** i **menys de quatre-cents
+// mil·lisegons** (`kRowTapMs`). Una premuda llarga, un swipe, un `down` i un `leave` no fan res a una fila: ni tinta, ni
+// focus, ni clic. **La resta de controls no canvien** (un botó, una caixa de text i una targeta tenen el seu propi tacte).
+//   - **Mesurat a l'emulador** (vidre de 50 ms, `about`): toc curt → una fila pintada (`paint 20,312 500x128 a2`) i
+//     `about: open board_atom 0.1.0`; premuda de dos segons (`long …, 42 frames in 2021 ms`) → **cap pintada i cap obertura**.
+// 0.189.0: **la pàgina espera que el contacte estigui decidit** (l'amo: *«fes un mètode per retardar els events que s'envien
+// als UIControl. Si es decideix que és un gest no s'envien mai els events i s'envia el gest»*). Fins ara el nucli enviava
+// **cada marc** a `ui_touch_progress` i la pàgina decidia el que volia dir a cada un: dos consumidors del mateix stream, i el
+// que un gest fos una premuda depenia de quants marcs arribessin. Ara la pàgina **no sent res** mentre el dit és a sobre i en
+// sentir una sola cosa, al final, quan la decisió ja està presa:
+//   - **un toc**: la premuda i el relleu del punt on va caure, al mateix torn (`ui_touch_progress`), que és el que feia abans;
+//   - **un gest**: `luabind::ui_gesture(x, y, dx, dy)` amb el punt d'arribada i el viatge del contacte sencer **i cap
+//     premuda**, o sigui una pàgina girada (`ui_turn_the_page_of_a_travel`), la finestra d'una caixa moguda pels rengles que
+//     el dit ha caminat, o res. Una fila, un botó i una targeta d'una pàgina no reben mai el gest.
+//   - **El que la pàgina ha sentit, mesurable**: `kernel::touch::last_contact()` (`kNothing`/`kAPress`/`kAGesture`, el punt,
+//     el viatge, els marcs i els mil·lisegons) és el que la prova nova de `test_touch` mira, i el que el registre diu.
+//   - **Mesurat a l'emulador** (vidre de 50 ms, `about` amb 25 files): swipe esquerra → **cap pintada** i
+//     `[D][UI] swipe -296,0: sideways` + `list 6: page 1 of 4 (already there)`, `10 frames in 416 ms`; swipe dreta →
+//     **una sola pintada** (`paint 20,312 500x580 gl16`) i `list 6: page 2 of 4`, `17 frames in 413 ms`; toc → `paint
+//     20,312 500x128 a2` i `about: open hal_emulator 0.1.1`, `1 frames in 22 ms`; premuda de dos segons → `long …, 33 frames
+//     in 1601 ms`, **cap pintada i cap obertura**.
+// 0.189.1: **el sentit del swipe, girat una altra vegada, i aquesta és la bona** (l'amo: *«gira els eixos dreta-esquerra, que
+// abans estava bé»*). La 0.188.6 havia canviat els dos costats —esquerra endavant i dreta enrere— i amb la placa a la mà el
+// que li va bé és el de sempre: **la dreta demana la pàgina anterior i l'esquerra la següent**, una línia a
+// `ui_turn_the_page_of_a_travel` (`delta = (dx > 0) ? -1 : 1`). Les proves que fan un swipe horitzontal s'han girat amb ell:
+// una graella (0.101), la tira dels punts, el mig del control, la que arrossega cap avall i la que ha de no girar res, que
+// ara camina cap a la dreta (la primera pàgina no en té cap abans). **El que no canvia**: el costat i prou (0.188.5), els
+// quaranta píxels d'arrossegament, i el viatge sencer del contacte com un sol gest (0.189.0).
+//   - **I la traça del swipe diu quantes parades té la pàgina** (`… index 1, list -1, 9 stops`): un gest que no troba res
+//     sota el dit i un gest que troba una pàgina sense llista es veien iguals al registre, i aquest torn m'ha costat mitja
+//     hora entendre que el que passava era que la pàgina encara no era al vidre (0.188.2, docs/30).
+//   - **Mesurat a l'emulador** (vidre de 50 ms, `about` amb 25 files, 9 parades): des de la pàgina 1, swipe cap a
+//     **l'esquerra** (`swipe -296,0: sideways, index 1, list -1, 9 stops`) → `list 6: page 2 of 4` i una sola pintada
+//     (`paint 20,312 500x580 gl16`); des de la pàgina 2, swipe cap a la **dreta** (`swipe 296,0: …`) → `list 6: page 1 of 4`
+//     i una sola pintada. Cap de les dues no pinta res abans de la pàgina (0.189.0).
+// 0.189.2: **la qualitat la diu la tinta del que ha canviat, també en una caixa d'un control** (l'amo: *«per què la llista
+// d'About es redibuixa a màxima qualitat? `paint 20,312 500x580 mode 3 gl16`. ÉS UNA PUTA LLISTA DE TEXT blanc i negre, la
+// llista no decidirà a quina qualitat pintar-se, ho faran els elements de la llista un per un»*), i tenia raó: el gir de la
+// llista escrivia `gl16` pel seu compte i la caixa sencera es pintava amb aquest mode, trepitjant el que cada fila havia
+// demanat. Tres canvis, i el primer és el que es veu:
+//   - **el gir no nomena cap mode**: `ui_turn_the_page_of_a_travel`, `ui_grid_turn_the_page` i el gir de la llista que fa el
+//     dial passen `nullptr` a `ui_draw_and_present`, i el present fa el que ja deia la regla de la 0.179.5 —**la més forta de
+//     les qualitats que les regions han nomenat**, i si no n'ha nomenat cap, la de la tinta— (docs/30, docs/50);
+//   - **`quality_of_the_page` torna a preguntar `cleaner_for`** (`a2` per a text, `gl16` per a uns quants grisos, `gc16` per a
+//     una fotografia, `gc16` passat el pressupost de passades) en lloc de tornar `gl16` sempre. El que es queda de la regla de
+//     la 0.179.64 és **el perill que aquest panell va mesurar i prou**: una passada de dos nivells **de la vista sencera** va
+//     deixar el motor sense imatge (`blit 0,48 540x912`, `LUTAFSR` sense llegir en 3006 ms), o sigui que un dany que és la
+//     vista sencera encara paga `gl16` (`the_damage_is_the_whole_view`). La caixa d'un control no és la vista (docs/50);
+//   - **les proves que comptaven `gl16` s'han posat al dia**: la pàgina i la caixa de `test_a_page_goes_up_with_the_quality_its_ink_asks_for`
+//     esperen `a2`, la de quaranta línies compta `a2` o `gl16` com a «una línia ha pujat», i una de nova
+//     (`test_a_turn_of_a_text_list_goes_up_in_two_levels`) fa un swipe d'una `ui.list` de text i mira el mode del pintat de
+//     la caixa: **`a2`**.
+//   - **Mesurat a l'emulador** (vidre de 50 ms, `about` amb 25 files, 9 parades): el gir deia `paint 20,312 500x580 mode 3
+//     gl16` i ara diu `paint 20,312 500x580 mode 7 a2` —**290 ms i un parpelleig** en lloc de 450 ms—; el primer pintat de la
+//     pàgina de l'`about` (`20,20 500x872`) també surt `a2`, i el llançador, que és una pàgina sencera de C++, continua
+//     sortint `gc16` perquè el seu full ho nomena. **Falta confirmar-ho a la placa**: el número que ho diu és `blit` del
+//     driver i que `LUTAFSR` torni; si el panell no accepta `a2` en 500x580, el que cal tocar és aquesta excepció.
+// 0.189.3: **cada fila del prestatge de les fonts diu què és el fitxer amb dues tintes**. El nom del fitxer és el que dona
+// `fs.list('/fonts')` i el prestatge ja el guardava; una cara oberta per `ui.load_font` no el porta enlloc, i per això el
+// nom gran és el del fitxer sense l'extensió que porta. La fila passa de dues línies a quatre, i de dos grisos a dues
+// tintes i prou:
+//   - **el nom, en gran i en una banda blanca sobre negre** (`color` 15 i `background` 0), que és la línia que es llegeix
+//     d'un cop d'ull;
+//   - **i a sota, en negre sobre el paper i petit**: els detalls de la cara (`16x8 a cell, 96 glyphs` o
+//     `outlines, 6811 codes`), el tipus amb els bytes (`bdf  5.9 kB`, i `MB` quan en té), i **el nom del fitxer sencer**
+//     (`unifont-16.bdf`).
+//   - **L'alçada de la fila es mesura del que hi cap** i no d'un tant per cent: `line_height(kBody) + 10 + 2 +
+//     3 × line_height(kSmall) + 4` (cent divuit píxels amb la cara del disc, i mai menys de setanta-dos, que és el que
+//     demana un dit). Amb la fila nova hi caben sis fonts per pàgina en lloc de vuit, i el prestatge es pagina sol.
+//   - **Mesurat a l'emulador** (vidre de 50 ms): el prestatge diu `19 rows, 17 of them faces`, la fila és
+//     `atkinsonhyperlegible-latin1` a `ttf  21.8 kB`, i el gir de pàgina puja la caixa de la llista amb
+//     `paint 22,114 496x776 mode 7 a2`.
+// 0.189.4: **el 2048 pinta el tauler en una passada, la pàgina en una altra, i guarda la màxima amb el seu dia**. Tres
+// coses del joc i una del seu pintat:
+//   - **la pàgina d'arrencada és UNA caixa**: `ui.clear(15)` sobre una pàgina que el sistema ja ha donat blanca no afegeix
+//     cap caixa (0.168.0), i les setze cel·les, les dues etiquetes i el botó eren set caixes desunides i **set passades**
+//     per una sola pàgina (mesurat: `paint 12,197 516x385`, quatre de `124x123`, `12,8 516x73` i `12,727 504x30`). Ara la
+//     vista sencera es marca amb un `ui.rect` del mode de la pàgina i tot el que es dibuixa després hi cau a dins i
+//     s'ajunta: una passada de `gl16` amb un parpelleig;
+//   - **un moviment són tres passades i no una per fitxa**: el marcador amb `du` (120 ms), el tauler sencer amb `gld16`
+//     —setze nivells, cap parpelleig— i el peu només quan diu una altra cosa. El tauler es marca com una caixa (el paper
+//     del requadre i les setze cel·les a dins), o sigui que un moviment de dues fitxes paga **una** forma d'ona de 516 px
+//     i no quatre de 123: la passada d'un mode nomenat és una per caixa, i una caixa per cel·la és mitja feina;
+//   - **el botó «New» no pregunta res**: un toc comença la partida. El segon toc i el «Sure?» demanaven dues decisions per
+//     a un desig, i el desat de la jugada anterior és el que torna si el toc va ser un error;
+//   - **i la partida guarda també la màxima i el dia** (`/data/2048/game.txt`, quatre línies: les setze fitxes, la
+//     puntuació, la màxima i la data `AAAA-MM-DD` de `time.date`, que és el rellotge de la persona amb el seu fus). La
+//     línia `Best 344 - 2026-11-14` va sota l'Score en la mida petita, i un rellotge que no s'ha posat mai no escriu cap
+//     dia. Un desat vell (dues línies) s'obre i només perd la màxima.
+// 0.189.5: **el 2048 pinta cada cosa a la qualitat que la seva tinta demana, i res no es queda sense repintar**. La 0.189.4
+// havia portat el joc al mínim —el marcador amb `du` i el tauler amb `gld16`— i el minim no és la mesura: `du` deixa cinc
+// setzens del que troba i `gld16` dos, tots dos sense netejar (docs/85), o sigui que els dígits d'abans i la fitxa que se'n va
+// es quedaven al vidre amb una cinquena part de la seva tinta:
+//   - **el tauler torna a `gl16`**, que és el que **neteja** i guarda els setze grisos: una cel·la que s buida queda paper i no
+//     l'ombra de la fitxa que hi havia. Es paga amb un parpelleig de la caixa del tauler, que és la forma d'ona d'aquest panell
+//     per netejar —no n'hi ha cap que netegi sense parpellejar— i continua essent **una sola passada** de 516x516;
+//   - **i la tira sencera (puntuació, màxima i botó) és una caixa i una passada de `gld16`**, que és el mode de la banda del
+//     teclat quan una lletra canvia: setze nivells, cap parpelleig, i aterra al nivell. **No cal cap rectangle que la marqui**:
+//     el marc de la puntuació s'acaba on comença el botó i les dues etiquetes es toquen, o sigui que el dany de les tres
+//     s'ajunta sol en una regió. El botó **es marca a cada moviment** (`the_button:invalidate()`), perquè un control que
+//     ningú no marca és un control que no refresca mai la seva tinta i el marc de premut que hi va deixar un toc s'hi quedaria.
+//   - **I res més de la pàgina es marca**: entre la tira i el peu no hi ha cap caixa que els englobi —eren `540x716` per a
+//     dues fitxes i un número, dos terços del vidre—, i el peu només quan diu una altra cosa.
+//   - **Mesurat a l'emulador** (vidre de 50 ms): un moviment que canvia el marcador són dues passades, `paint 12,6 516x65 mode
+//     5 gld16` (les tres caixes de la tira en una) i `paint 12,206 516x516 mode 3 gl16` (el tauler sencer en una); un que no
+//     el canvia, només el botó: `paint 428,8 100x63 mode 5 gld16`. La pàgina d'arrencada continua sent una de sola
+//     (`paint 0,0 540x912 gl16`).
+// 0.189.6: **el sistema té una run-length, com té el `zip` per a un contenidor**: `lib/rle`, una llibreria pura sense
+// reserves de memòria —el cridador dóna l'entrada, la sortida i el lloc— i `rle.pack(text)` / `rle.unpack(text)` a Lua
+// perquè una app pugui comprimir la seva caché (docs/30, docs/75).
+//   - **El format és PackBits amb capçalera pròpia**: `R`, `L`, `E` i la mida que descomprimeix en quatre bytes little
+//     endian, i després tirades de control: `0..127` = una literal de `control + 1` bytes, `128..255` = el byte següent
+//     repetit `257 - control` vegades. **El sostre és una promesa**: `rle::packed_capacity(n) = 7 + n + (n + 127) / 128`,
+//     o sigui que un cridador que va fer lloc per a això i rep zero sap que el stream està trencat i no que li faltava
+//     memòria.
+//   - **I `unpack` no fa mitges imatges**: la mida es llegeix del capçal abans de descomprimir, i un stream que en diu una
+//     i en porta una altra, o que va tallat, torna zero amb `E_INVAL` en lloc de retornar el que hi havia.
+//   - **El bloc temporal és de la memòria extra** (`pal::extra_memory()`), demanat i tornat dins la mateixa crida del pont:
+//     el que es comprimeix és de la mida d'una caché i no pot quedar-se al heap de l'intèrpret fins que el recollidor
+//     decideixi.
+//   - **Del carregador d'imatges no hi havia res per aprofitar**: el lector de BMP **refusa el RLE** del format amb
+//     `kUnsupported` (`lib/img/src/bmp.cpp`, «RLE compression exists in the format and is not read») i el PNG no en té
+//     —és deflate, i el llegeix `lib/inflate`, que és el que fan servir el `.epub` i el `.woff`—. Una caché d'icones de
+//     la Paper és paper amb una marca al mig, que és exactament el que una run-length fa bé i el que una finestra de
+//     trenta-dos kilobytes no val.
+//   - **I el lector de BMP ja ho deia malament** (0.189.6): the file's own comment said a compressed picture was refused
+//     with `kUnsupported`, and the code answered `kUnknown` —«això no és cap imatge»— because the header parse only
+//     answered yes or no. The compression the format allows and this reader does not do is marked now (`Header::compressed`)
+//     and both `bmp_info` and `decode_bmp` answer `kUnsupported`, which is the word a caller needs to tell a file of a
+//     family we read from a file nobody reads. The PNG does not have the question at all: it is deflate.
+//   - **La prova**: `test/test_rle` amb quatre casos (anada i tornada d'una imatge de paper, el sostre del pitjor cas i
+//     els dos refusos, un blob que no és cap stream de tirades, i les vores d'un stream buit i d'un de sol byte).
+// 0.189.7: **el tauler del 2048 no es repinta mai: un moviment toca les cel·les que han canviat i res més**. Les tres
+// versions anteriors li havien donat una caixa per al tauler sencer —una passada, que era el que la 0.189.4 demanava— i
+// una casella que no havia canviat viatjava igual; ara el joc guarda **el tauler que és al vidre** (`before`, copiat abans
+// de moure'l) i pinta el diff:
+//   - **primer les caselles que ara són buides** (`kClearMode`, `gl16`): paper i el marc, que és el que treu del vidre la
+//     tinta de la fitxa que se n'ha anat —`gld16` en deixa dos de setze, i dos de setze d'una fitxa negra és un quadrat
+//     gris on hi havia una casella—;
+//   - **i després els cuadrats amb número que han canviat** (`kTileMode`, `gld16`): setze nivells, **sense parpelleig**, que
+//     és el que una fitxa demana (és un requadre ple i un número, no una paraula que desapareix);
+//   - **cap caixa cobreix el tauler i l'aire entre cel·les no viatja**: les cel·les estan separades per vuit píxels, o sigui
+//     que `merge_all` no les ajunta i el panell pinta una forma d'ona per casella (docs/30, docs/50).
+//   - **El peu va amb la passada que neteja** quan el seu missatge canvia, perquè un missatge que canvia són paraules que
+//     han de marxar i no només arribar; la tira (marcador, màxima i botó) va amb `gld16` i no parpelleja, i la cara del botó
+//     es marca a cada moviment perquè la passada d'una premuda deixa la seva tinta.
+//   - **I la pàgina d'arrencada no es repinta dues vegades**: `markChanges` no fa res fins que `paintPage` ha posat la
+//     interfície al vidre (`pageUp`), que és el que fa que una partida nova d'arrencada no pinti catorze caselles buides
+//     abans de la pàgina.
+//   - **Mesurat a l'emulador** (vidre de 50 ms): l'arrencada és **una** passada (`paint 0,0 540x912 mode 3 gl16`); un
+//     moviment que buida una casella i n'omple dues és `paint 428,8 100x63 gld16` (la cara del botó), `paint 142,337
+//     124x123 gl16` (la casella buidada) i dues de `124x123 gld16` (les fitxes que arriben) —**cap de les quals cobreix el
+//     tauler**—, i la imatge del vidre no té cap fantasma: les caselles buidades surten amb el seu marc i el seu paper.
+// 0.189.8: **la memòria d'una sessió ja no es perd: viu a `/session/<id>/<key>`**. Fins ara `sys.session` era PSRAM i prou
+// —es perdia en apagar la placa, que és quan un llançador torna a començar de zero— i ara el bloc es desa al disc i es
+// recupera quan l'app el torna a demanar:
+//   - **el bloc va a `/session/<id>/<key>`** i la porta `/session` és la targeta (`sd/session`) quan hi ha targeta i el flaix
+//     (`littlefs/session`) quan no n'hi ha —una porta i no dues, perquè dues files del mateix camí són una taula que ningú
+//     pot llegir—; el nom de la clau es neteja (`:` espais i `/` passen a `_`, i `.`/`..` es refusen), perquè una clau
+//     d'app amb una barra dins seria una carpeta i escriuria sobre el que no toca (docs/30, docs/70);
+//   - **quan l'app s'acaba, les seves cachés s'escriuen i el bloc es queda a la memòria** (`session::flush`): el que una
+//     persona veu a `sessions` després és el que l'app ha construït, i la memòria només es torna quan falta —que és el
+//     camí del relleu de l'allocator, que ara **escriu abans d'alliberar**— (docs/75);
+//   - **i la petició que ve després del disc és la caché que hi havia**: `acquire` mira la mida del fitxer abans de fer el
+//     bloc (un bloc de la mida del que l'app demana o del que el fitxer té, el més gros) i el llegeix a sobre; una caché que
+//     va créixer l'última vegada torna sencera i una app no veu mai un bloc de zeros on tenia el seu (docs/30, docs/75);
+//   - **`sessions` al prompt**: una fila per bloc —`id`, `key`, bytes i si la targeta ja té el fitxer— i el total
+//     (`session memory   1/8 block(s), 32768 B`).
+//   - **Mesurat a l'emulador** (targeta a la ranura, `home_eink`): `home_eink asks for 'apps': 32768 B, made` a la primera
+//     arrencada; en tancar l'app (tres tocs) `home_eink parks 'apps': 32768 B to /session/home_eink/apps in 99 ms` i el
+//     fitxer de **32 768 B** a `emulator/sd/session/home_eink/apps`; a l'arrencada següent
+//     `home_eink asks for 'apps': 32768 B, restored 32768 B from the disk` i l'app diu `cache kept`. La prova nova
+//     `test_a_session_goes_to_the_disk_and_comes_back` mesura el camí sencer: escriure, demanar (torna el text), el relleu
+//     de l'allocator (també l'escriu) i el fitxer que sobreviu al bloc.
+// 0.189.9: **l'app `shell` té pàgines de debò i un selector de comandes**. El que hi havia era una barra
+// de menú del sistema (`ui.menu_bar`) el desplegable de la qual **no va sortir mai al vidre**, i ara les dues
+// paraules del capdamunt són dos botons de l'app que obren una pàgina de l'app:
+//   - **`Commands`** és la llista de les quaranta-vuit paraules que el nucli ja sap dir (`sys.commands()`, el
+//     mateix `kernel::shell::shell_commands` del prompt, així que la pàgina i el prompt no es poden
+//     contradir), una fila per paraula en un `ui.list` que es passa sol les pàgines, i **un dit sobre una fila
+//     posa la paraula a la línia del prompt sense enviar-la**: la persona encara ha de prémer Enter, que és el
+//     que fa del selector una ajuda i no un llançador (docs/30, docs/90);
+//   - **`File`** és una pàgina i no un desplegable: `New session`, `Close session`, `All commands` i un `Back`,
+//     perquè un botó que la caixa del sistema pinta amb el paper del seu marc no arriba mai al vidre i una
+//     pàgina sí (docs/30, docs/90);
+//   - **el que un botó demana es fa a la volta següent** (`wish`): el sistema crida el ganxo **des de dins de
+//     l'activació del control**, i una pàgina que allibera els controls i en fa de nous allà deixa el nucli amb
+//     un control que ja no hi és, que és una pàgina que es pinta i després no respon a res (vist a l'emulador
+//     amb `All commands` i `Back`, docs/30, docs/90);
+//   - **i el cursor d'un terminal hi és amb el teclat baixat** (`box.blink`): el bloc d'aquest sistema
+//     parpellejava només mentre la banda era al vidre, i una pàgina que es llegeix amb el teclat a baix es veia
+//     morta (una cel·la de tinta cada set-cents mil·lisetgons, mesurada a l'emulador).
+//   - **Mesurat a l'emulador**: `sys.commands()` en torna **48**; un botó de `ui.text_width('File', 4) + 32`
+//     —la paraula més els setze píxels de cada costat— es pinta com `F...` perquè el dibuix reserva la caixa
+//     menys trenta-dos i una paraula que l'omple just no hi cap, i amb **quaranta** es llegeix sencera; la
+//     pàgina de les comandes es pinta en una sola passada (`paint 0,0 540x912 mode 3 gl16`); i un toc a la
+//     fila de `version` la deixa al prompt —`> version` amb el bloc darrere— **sense executar-la**.
+// 0.189.10: **la llista d'objectius del dit ja no es demana a cada esdeveniment i mai no queda buida**. El llançador
+// va deixar d'obrir apps amb un toc i la causa era aquesta llista, no l'app:
+//   - **es reservava amb una entrada per cada lloc de la taula de llenços** —`2 849 × 32 B = 91 168 B`— i es reservava i
+//     s'alliberava **a cada esdeveniment**: cada marc d'un dit, cada tecla, cada volta del dial (mesurat a l'emulador, 14/11);
+//   - **era aquesta la petició que deixava la memòria curta**: 91 168 B no hi caben en una pàgina que ja té els seus llenços,
+//     el relleu de l'allocator es cridava, i és el relleu qui es queda les memòries de sessió de les apps
+//     (`the memory is short: 1 block(s), 32768 B given back for an ask of 91168 B` és exactament aquesta línia), o sigui que
+//     el llançador pagava la seva pròpia caché per cada toc que responia (docs/75);
+//   - **i quan el bloc no es podia aconseguir, `capacity` es posava a zero i la pàgina deixava de respondre a tot**: ni el
+//     cercle, ni el dit, ni les tecles, i **cap línia al registre**. Les dotze cel·les del llançador es recorrien i cap no
+//     esdevenia objectiu, i un toc queia sobre la pàgina i no obria res (vist a l'emulador, docs/30, docs/90);
+//   - **ara el bloc es queda entre esdeveniments** i només es torna quan l'intèrpret s'acaba (`ui_stops_release` a `stop()`);
+//     comença en el que fa una pàgina (`kStopsFloor`, **256 objectius = 8 192 B**, que és cinc vegades la pàgina més llarga
+//     del sistema —les 53 parades de la llista de comandes del shell— i vint-i-nou vegades menys que abans) i creix al doble
+//     quan una pàgina no hi cap, amb un avís de registre i el número que demana la volta següent;
+//   - **i si la memòria no en té, se'n demana menys** (256 → 128 → 64 → 32 → 16 objectius, mig quilobyte el més petit) en
+//     lloc de quedar-se amb zero, i un avís de registre ho diu; **no hi ha cap bloc estàtic de reserva** perquè els 8 192 B
+//     de `.bss` que vaig provar no enllacen la Paper (`region dram0_0_seg overflowed by 8088 bytes`, mesurat).
+//   - **Mesurat a l'emulador** (targeta a la ranura): `[I][UI] the list of stops: 256 of 2849 slots, 8192 B` una sola vegada
+//     per app; `home_eink asks for 'apps': 32768 B, restored 32768 B from the disk` i `home: cache kept` (abans la caché es
+//     donava per curta de memòria); un toc a la cel·la del 2048 obre l'app amb la caché calenta i amb la caché freda
+//     (`home: cache cold, 32768 bytes` → `home: 2048` → `[I][APPS] 2048`); i el shell respon igual (un toc a la fila
+//     `version` la deixa al prompt sense executar-la).
+// 0.189.11: **les sessions es desen abans que la placa plega, i la memòria curta té un ordre**. Fins ara un bloc de sessió
+// que era a la PSRAM quan la placa s'apagava o es reiniciava es perdia —el disc només rebia el que s'havia escrit en tancar
+// una app o quan el relleu de l'allocator se'l quedava—, i el relleu s'enduia **totes** les cachés alhora, la de l'app que
+// era al vidre inclosa:
+//   - **`session::park_all` abans d'apagar o de reiniciar** (i en tancar la sessió de la consola): cada bloc que hi ha a la
+//     memòria s'escriu al seu fitxer i **es queda on és**, perquè el run encara el pot llegir. La línia del registre diu
+//     **qui, sota quina clau, quants bytes, a quin camí del VFS i per què**: `lua parks 'one': 1024 B to /session/lua/one in
+//     13 ms (the board is going off)` i el resum `sessions parked (the board is going off): 2 of 2 block(s), 3072 B, at
+//     /session` (mesurat a l'emulador, docs/30, docs/70, docs/75);
+//   - **`session::relieve(current, keep, asked)` és el relleu i té dos passos**: primer les cachés de les apps que **no** són
+//     al vidre —2 560 B dels dos blocs d'una altra app per una petició de 512 B, i l'app de davant no paga— i només si això no
+//     cobreix la petició, la de l'app que és al davant, que la trobarà al disc quan la demani. El bloc que la petició està
+//     movent no es toca mai (0.179.6). El PAL dona un sol punter de funció, així que el nucli instal·la un pas intermedi que hi
+//     posa `luabind::app_id()` (docs/75);
+//   - **`sessions` ensenya també les sessions que només són un fitxer**, amb la clau, els bytes i **la ruta del VFS**:
+//     després d'un reinici, sense cap app que hagi demanat res, la fila diu `disk only /session/lua/probe` (docs/30, docs/70);
+//   - **`sessions destroy [<id>]`**: esborra de la **memòria i del disc** —una memòria buida amb el fitxer a lloc és un
+//     destroy que torna a la següent arrencada de l'app—, i diu què ha fet: `sessions destroy lua: 1 block(s) and 1
+//     file(s), 4096 B` i `sessions destroy (every app): 0 block(s) and 2 file(s)`;
+//   - **una sessió que no és a la memòria es busca al disc** i es torna sencera (`lua asks for 'probe': 4096 B, restored
+//     4096 B from the disk`, amb els bytes que hi havia), i si no hi és es fa de zero; si no hi ha lloc, Lua rep `E_NOMEM` i
+//     l'app segueix sense caché (docs/30).
+// 0.189.12: **la sessió `state` és obligatòria i està escrita com a contracte**. No hi ha codi nou de nucli: el que hi ha és
+// la norma i el format, perquè una cosa que han de fer dotze apps i que ningú no pot inventar-se a la seva manera ha
+// d'estar escrita una vegada i bé (docs/30, docs/45):
+//   - **`docs/30` té la secció «La sessió `state`: la vista com la va deixar la persona»**: què s'hi guarda —el focus pel
+//     **nom** del control, la pàgina d'una llista, la pestanya, les caselles i el contingut de les caixes—, el **format de
+//     text** amb una cosa per línia i una `v1` al davant com a versió de la forma, **el codi sencer que es copia** (desar,
+//     llegir, escapar), quan es desa (a cada canvi de forma, i també a `on_pause`/`on_save`/`on_close`) i quan es llegeix
+//     (a `build()`, abans de col·locar res). **I què no hi va mai**: preferències a `/cfg`, documents a `fs.data`, cachés
+//     amb la seva pròpia clau;
+//   - **el codi del contracte es va provar abans de publicar-lo** amb un Lua de debò (`lua /tmp/run_state.lua` sobre el
+//     bloc extret del document, 0.189.12) i li va sortir **dos errors**: `unescape` deia `'\\\\(.)'`, que en un patró de
+//     Lua són **dos** backslashes —els patrons de Lua escapen amb `%` i no amb `\`— i deixava `hello\nworld` i `a\\b`
+//     tal com eren; i una sessió **buida** tornava una taula en lloc de `nil`, o sigui que una app nova llegia un estat
+//     que no hi era. Ara la mesura és: `hello\nworld` torna amb el salt, `a\b` amb el seu backslash, `x=y` amb l'igual,
+//     una forma `v2` torna `nil` i un bloc buit torna `nil`;
+//   - **i la norma per a qui toqui el codi**: `.github/instructions/apps-state-session.instructions.md`, que s'aplica a
+//     `apps/**/*.lua`, diu que cada cop que es toca una app es repassa la seva sessió `state` i que `kLayout` puja si un
+//     control canvia de nom (docs/45 § 5 bis, llista de què s'hi ha de mapejar).
+// 0.189.13: **`cfg sort` i `sys.settings()`: una app pot llegir els ajustos del sistema, i el llançador ordena les apps
+// pels usos** (docs/30, docs/40, docs/75):
+//   - **la clau `sort` a `cfg`**, que és un booleà i val les sis paraules d'un interruptor —`on`, `true`, `yes` i `off`,
+//     `false`, `no`— perquè una persona escriu la que li ve al cap i el magatzem només en guarda dues (`parse_switch` fa
+//     la traducció); `cfg sort` sense res la llegeix i el llistat sencer de `cfg` la diu en una línia més
+//     (`  sort apps by usage: on|off`);
+//   - **`sys.settings()`**, la porta que faltava: una app llegia `/cfg/<id>` i prou, i l'ajust del sistema no era a
+//     l'abast de cap pàgina. Torna una taula de deu camps amb el que `cfg` imprimeix (`unit`, `keyboard`, `boot`, `home`,
+//     `week`, `tz`, `leap`, `dst`, `sort_by_usage`, `turn`) i **no escriu res**: qui escriu un ajust és `cfg`, i les
+//     preferències són de la persona (docs/30);
+//   - **`home_eink` compta els usos d'una app en una sessió pròpia** (`sys.session('usage', …)`, una línia `id<TAB>count`),
+//     i amb l'ajust encès dibuixa el grid de més usada a menys, amb el nom com a desempat perquè una pàgina no es mogui
+//     d'una arrencada a l'altra. El recompte s'escriu **al toc** i no al tancament de l'app, perquè un llançament que falla
+//     és igualment un llançament que la persona ha fet;
+//   - **la decisió presa en nom de l'amo**: l'ordre es decideix **en construir la pàgina**, no a cada toc —un grid que es
+//     reordena sota el dit és el que 0.154.0 va treure—, i el comptador és una sessió a part i no la `state`, que és per a
+//     la forma de la vista (docs/30, docs/45).
+// 0.189.14: **la comanda `apps` del prompt diu el mateix ordre i els mateixos números que el grid** (docs/30, docs/40):
+//   - **`session::copy(app, key, out, cap)`**, la porta que faltava: els bytes d'un bloc vist per qui no n'és l'amo —la
+//     memòria si hi és, perquè és la còpia més nova, i el fitxer de `/session/<app>/<key>` si no—, i **sempre una còpia i
+//     mai un punter**, perquè el relleu de l'allocator pot donar el bloc en aquell mateix torn (docs/75);
+//   - **`kernel::usage`**, el lector únic del recompte: busca la sessió que es diu `usage` **pel nom de la clau i no pel de
+//     l'app** —així un llançador que es digui d'una altra manera es llegeix igual—, en treu una taula de vint-i-quatre files
+//     (id de quaranta bytes i el número, a la pila i sense demanar memòria) i l'ordena de més usada a menys amb el nom com a
+//     desempat. Una línia que no és `id<TAB>count`, un compte que no és de dígits i un text tallat a mitges es llegeixen com
+//     el que són: res, i mai un número inventat;
+//   - **`apps` amb `cfg sort on`**: les apps comptades surten de més usada a menys (`apps::read` una a una, i un id que el
+//     disc ja no té es salta) i **les que ningú no ha obert surten després en l'ordre de la porta**, perquè una app acabada
+//     d'instal·lar també hi ha de ser; cada línia diu el número (`[3 uses]`), que és el que fa que l'ordre s'expliqui sol.
+//     Sense l'ajust el llistat és el de sempre, la mateixa passejada i el mateix ordre.
+// 0.189.15: **la barra de càrrega del home_eink es una línia fina a dalt, enganxada a la barra del sistema** (l'amo: *«la
+// barra de progrés de home_eink es massa alta, posa-la a dalt, sota la barra de sistema (enganxada), ben fineta, semblarà un
+// navegador web carregant un recurs i es entenedor per tothom»*). És només l'app i no el nucli:
+//   - **`ui.progress(view.width, kBarH)` a `(0, 0)`**, que és la primera fila del vidre que una app té —la tira del sistema
+//     és a sobre i no és seva—, de **tota l'amplada** i de **sis píxels** de caixa (`kFootH`, els trenta-set de la tira del
+//     paginador, desapareix d'aquest fitxer: la línia no ocupa cap tira);
+//   - **el farciment passa a ser la tinta** (`fill = 0`, `track = border = background = 15`): el to clar de fàbrica no es
+//     veu en sis píxels, i el que fa llegir «encara arriba» és una línia fosca que creix (docs/50);
+//   - **quan la cua s'acaba es dóna i prou**: el forat es torna paper i no cal repintar cap cel·la del grid, perquè el grid
+//     comença a vuit i la línia n'ocupa sis —`finish_the_bar` ja no invalida la graella—; els punts del paginador són del peu
+//     del grid i no d'aquesta línia (docs/40, docs/90).
+// 0.189.16: **les sessions es poden esborrar de debò, i una per una** (l'amo, amb el prompt a la mà: *«Sembla que clear no
+// funciona. Revisa-ho»*, *«Afegeix un "destroy <id> <key>"»* i *«Afegir crida lua session destroy <key> o similar, perquè
+// l'app pugui destruir una sessió propia (tant de psram com de disc) programaticament»*):
+//   - **l'esborrat no estava trencat: se li demanava una clau** (`apps` és el nom de la sessió, no l'id de l'app, i el mot
+//     buscava una app que es digués així). El que una persona llegeix a la llista és l'un o l'altre, i ara **el mot es prova
+//     com a id i, si no hi ha cap app amb aquell nom, com a clau** —la sessió d'aquella clau, de l'app que la tingui— i la
+//     línia ho diu: `sessions destroy (the session 'apps', of every app): 1 block(s) and 1 file(s), 32768 B`. Un mot que no
+//     és res contesta zeros **i una línia que diu que no hi ha res amb aquell nom**, en comptes de deixar una persona
+//     preguntant-se si ha escrit malament;
+//   - **`sessions destroy <id> <key>`**: una sola sessió d'una app, la memòria i el fitxer de `/session/<id>/<key>` (i la
+//     carpeta si s'ha quedat buida). És la parella que surt a la llista i la que no existia: fins ara, treure la caché d'un
+//     `apps` s'emportava també el `usage` de la mateixa app;
+//   - **`sys.session_destroy(key)`** des de Lua, amb l'id de l'app posat pel nucli: la mateixa parella des de dins, que és
+//     el que una pàgina necessita per esborrar la seva caché quan la persona ho demana. Torna `{blocks, files, bytes}` i un
+//     objecte que encara tingui el bloc respon `alive() == false` després (la generació del nucli puja aleshores). Les tres
+//     portes d'una sessió queden dites: `release()` dóna el bloc i el desa, `clear()` posa els bytes a zero, i
+//     **`destroy` és l'única que ho llença tot** (docs/30, docs/75).
+// 0.189.17: **una sola paraula per esborrar una sessió: `destroy`, amb tres formes** (l'amo: *«Si conviuen els dos, elimina
+// "clear", destroy fa el mateix i m'agrada mes»*). El verb que queda és un i les formes són les tres preguntes que una
+// persona fa davant de la llista (docs/30, docs/75):
+//   - **`sessions destroy`**: s'ho carrega tot, la memòria i el disc;
+//   - **`sessions destroy <id>`**: tot el d'aquella app —i si cap app no es diu així, el que s'ha dit és el nom d'una
+//     sessió i cau aquella, la de l'app que la tingui, que és el que va fer falta la 0.189.16 perquè un mot de la pantalla
+//     no es quedés sense efecte—;
+//   - **`sessions destroy <id> <key>`**: aquella sessió i prou, amb la veïna de la mateixa app intacta.
+//   - **I cap resta del verb antic ni a l'ajuda, ni a les comandes, ni a la documentació**: `help` té una sola línia
+//     (`sessions destroy [<id> [<key>]]`), les línies de registre diuen `sessions destroy …` i les notes d'aquest fitxer
+//     també, i les proves que nomenaven la comanda s'han reapuntat. `sys.session_destroy(key)` no canvia: des de dins d'una
+//     app ja era un sol verb.
+// 0.189.18: **escriure no és haver escrit: el recompte, el flush dels dispositius i el repòs abans de tallar el corrent**
+// (l'amo, amb el registre d'una apagada a la mà —`2 of 2 block(s), 33792 B` en 119 ms i el corrent tallat tot seguit—:
+// *«Haurà donat temps a gravar-ho tot al SD?? s'ha apagat tot molt ràpid. Fes flush a tots els dispositius que es puguin
+// abans d'iniciar el procés d'apagada. I fes flush, tant de l'sd, com la flash, com l'nvs com el serial. I preferiblement
+// dona un parell de segons de marge abans d'iniciar el procés final d'apagada o reinici»*):
+//   - **`session::check_parked`**: el que contesta la pregunta és un `stat` —la mida del fitxer contra la del bloc, bloc a
+//     bloc— i el registre diu `2 of 2 session file(s) are on the disk`, amb `[W]` quan en falta un. És la mesura que el
+//     dubte demanava i no la paraula del que ha escrit (docs/75);
+//   - **`power::settle_before_leaving(why)`**: la consola buidada, **cada volum rentat una vegada** encara que hi apuntin
+//     cinc portes del VFS, el magatzem de claus commès, i **el repòs** —2 000 ms (`power::kLeavingMs`, canviat d'un lloc
+//     amb `set_leaving_ms`)—, que és el que cap crida pot fer per una targeta: el seu controlador copia el buffer a la
+//     memòria flaix uns mil·lisegons després de l'últim sector. Cada pas té la seva línia de registre (docs/50, docs/75);
+//   - **`IStorage::flush()` i `IKeyValue::commit()`** al HAL, amb la veritat de cada backend: a l'emulador `sync()` del PC,
+//     i a l'ESP32 cap, perquè **no hi ha `sync()` que es pugui enllaçar** (declarat i sense implementació, trobat per
+//     l'enllaçador el 14/11) i perquè cada fitxer s'obre, s'escriu i es tanca dins la mateixa crida;
+//   - **`IPower::can_power_off()`**: la baixada pregunta si la placa té el corrent a la mà **abans** de gastar el repòs, i
+//     així un ATOM —que no es pot apagar— no espera dos segons per sentir-ho. La Paper diu que sí;
+//   - **el reinici passa pel mateix camí** que l'apagada: un `reboot` també talla els busos dels volums i mereix la mateixa
+//     comprovació i el mateix repòs. La prova nova mesura el recompte (i que un fitxer esborrat es vegi al compte) i el
+//     flush; la prova de l'apagada que ja hi havia posa el repòs a zero per no esperar-lo.
+// 0.189.19: **la pàgina calenta del llançador es pinta una vegada i no tres** (l'amo, amb dos registres a la mà: *«perqué
+// home_eink refresca 3 vegades la seva vista recent obert?»*). És només l'app i no el nucli:
+//   - **què passava**: el bloc de la sessió guarda **el que la pàgina ha dibuixat** (dotze app) i la porta de les apps
+//     contesta **una més** (l'app que necessita una altra placa, que la graella no dibuixa mai). El `reconcile` veia una
+//     llista diferent i tornava a fer la pàgina sencera; i el torn següent, la cua de `step` trobava la mateixa app i la
+//     tornava a fer. Tres pintades de tot el vidre —`gc16` del bloc, `gl16` de la porta, `gl16` sense l'app— a cada
+//     arrencada, que és el que es veu com «refresca tres vegades» (docs/30, docs/40);
+//   - **el filtre abans de comparar**: `reconcile` treu de la llista de la porta el que la pàgina no dibuixaria —l'altre
+//     llançador, l'app d'una altra placa, el manifest que no es pot llegir, i ho diu amb la mateixa línia que la cua— amb
+//     **una lectura de manifest per id que la pàgina no coneixia**, que és el que la cua hauria pagat igualment d'un en un;
+//     i el manifest queda a `known`, o sigui que la cua no el torna a demanar. Si la llista filtrada és la de la pàgina, **no
+//     es fa res**: una sola pintada de tot el vidre en tornar;
+//   - **la prova**: `test_the_warm_page_of_the_launcher_is_painted_once` arrenca el llançador **de debò** dues vegades sobre el
+//     mateix disc —una app que hi corre i una que necessita una altra placa—, i a la segona compta les pintades de `paint
+//     0,0 540x912`: **una**, amb l'app de l'altra placa dita igualment i sense cap `home: app`.
+// 0.189.20: **el port sèrie es pot cedir a una app, i mentres ho és el sistema no hi escriu ni hi llegeix** (l'amo: *«Crea
+// una crida i comanda per tancar i obrir el port serie al sistema (l'app pren el control del port serie) i unaltra
+// crida/comanda per alliberar el serial. Al tancar les apps s'ha de comprovar per alliberar-lo, com es fa amb els leds dels
+// m5atom. Quan el port serie està reclamat per una app el sistema no hi escriu ni llegeix, deixant el canal de comunicacions
+// disponible per el que l'usuari necessiti»*):
+//   - **`kernel::serial`**, un senyal i un propietari: `claim(by, why)` —fals si ja és d'algú, i el registre diu de qui—,
+//     `release(why)`, **`release_owner(by, why)`** (que és el que fa que el port d'una app no es quedi cedit quan s'acaba, i
+//     que no toqui el d'una persona) i **`console()`**, la porta que tots els escriptors del sistema ja preguntaven: mentre
+//     el port és cedit contesta `nullptr` i el `!= nullptr` que hi havia fa el silenci de franc (docs/30, docs/50);
+//   - **què calla**: el prompt (`shell::out_bytes`), l'eco del registre (`log::emit`), la taula de `stats` (`meter::dump`),
+//     el QR del provisioning (`net::print_qr`) i `log`. **Què no calla**: les paraules de l'app, que van per la consola de
+//     l'intèrpret i no per aquesta porta —és ella qui té el port—;
+//   - **qui llegeix**: el sistema llegeix una vegada per torn i `shell::feed` entrega els bytes a l'app del davant sense
+//     quedar-se'n cap (0.160.0), o sigui que el «no llegeix» ja era cert i el que faltava era el silenci de tornada. Una
+//     persona que el cedeix des del prompt es queda un teclat sense eco per poder escriure `serial release`;
+//   - **Lua**: `serial.claim()`, `serial.release()` i `serial.claimed()`, amb l'id de l'app posat pel nucli (o `"the prompt"`
+//     quan és el prompt de l'intèrpret); **comanda**: `serial`, `serial claim` i `serial release`, amb la confirmació escrita
+//     **abans** de tancar la porta i el retorn **després** d'obrir-la, que és l'única manera que es puguin llegir;
+//   - **el port d'una app torna sol**: `close_app` fa `serial::release_owner(app_id())` **abans de dir res**, com el llum del
+//     M5Atom. `serial` entra a la llista de `sys.commands()` (`49` paraules) i a `help`;
+//   - **les proves**: `test_the_serial_port_is_ceded_and_the_system_goes_quiet` (el prompt cedit: `version` no diu res, el
+//     segon `claim` es refusa i en tornar la resposta es llegeix) i `test_the_serial_port_is_ceded_by_an_app_and_comes_back_when_it_ends`
+//     (una app de debò que demana el port, escriu pel port i el deixa anar en tancar-se).
+// 0.189.21: **el tercer teclat és el cable: `cfg keyboard serial`** (l'amo: *«Afegir teclat alternatiu als dos que ja tenim:
+// "USBSerial", aquest teclat fa us de la crida per obtenir el port serie. Tot el que es tecleja al port serie es passa al
+// control amb focus. Actualitza la comanda "cfg keyboard" ara te: <qwerty>, <azerty> i <serial>. Quan el teclat escollit per
+// l'usuari es USBSerial no es mostra cap teclat táctil a la pantalla […] Quan es treu el focus al control el port serie es
+// restableix i el sistema torna a enviar logs/vterm/shell per allà»*):
+//   - **`SerialKeyboard`**, el tercer fill del pare dels teclats i no una banda: `is_the_wire()` és el senyal que fa que el
+//     pare no mesuri, no pinti i no senti el dit; `id()` és `serial`, i el que fa el `show` és **reclamar el port** amb
+//     `serial::claim(the_one_in_front(), …)` i el que fa el `hide` és donar-lo —**només el que el teclat ha pres**, o sigui
+//     que una app que havia reclamat el port per a ella el conserva— (docs/30, docs/50);
+//   - **cap banda al vidre**: `height()` és zero i `ui.caps()` no baixa, o sigui que una pàgina que es col·loca sobre la
+//     banda no canvia de mida; `cfg keyboard` el llista (`keyboard_at(2)`) i la tria es desa a l'NVS com les altres;
+//   - **els bytes del port són tecles de la caixa amb el focus**: `shell::feed` pregunta `ui::keyboard_type_the_wire` abans
+//     de donar res ni al prompt ni a la consola de l'app, i `ui` els passa a `luabind::ui_keyboard_typed` —la porta de la
+//     banda— amb `\r`/`\n` com a `Enter`, `8`/`127` com a esborrar i **res que no sigui ASCII**, perquè la porta de la tecla
+//     només pren una lletra per sota de 127 (docs/30, docs/90);
+//   - **i el port torna sol**: `close_app` baixa el teclat (`ui::keyboard_hide`) abans de tancar l'intèrpret, perquè una
+//     caixa que deixa el focus amb el teclat aixecat deixaria el prompt sord; i `serial::claim` respon `true` quan el mateix
+//     nom el demana dos cops (el teclat i l'app són el mateix amo i el mateix fil) (docs/50);
+//   - **les proves**: `test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name` (tres fills, `serial` a la
+//     llista i `height` zero) i `test_the_serial_keyboard_types_in_the_box_with_the_focus` (una app de debò amb una caixa,
+//     `cfg keyboard serial`, dos bytes pel port que es veuen a `on_change`, el port reclamat pel nom de l'app i el port
+//     tornat en tancar-la).
+//
+// 0.189.22 — **una versió de menys és una cel·la que menteix** (l'amo: *«L'app home_eink guarda l'id d'aplicació i la versió
+// amb les dades de la sessió? … Si tens una app en una versió anterior has de descartar l'entrada d'aquesta app del caché de
+// la sessió "apps" per refrescar l'icona i el numero de versió»*, i *«la llista d'aplicacions del sistema amb les de la
+// sessió per afegir i treure les apps que faci falta del grid del launcher»*):
+//   - **`apps.info` diu la versió**: `AppInfo` té `char version[16]` i `lua_info` la copia del manifest (`""` si no en
+//     porta). És l'única manera que té un llançador de saber si la cel·la que té guardada és de l'app d'abans, perquè
+//     `apps.list` no obre cap manifest i no ho pot dir (docs/30, docs/40);
+//   - **el bloc del llançador la desa**: el registre passa a `id<TAB>title<TAB>icon<TAB>slot<TAB>picture<TAB>version` i la
+//     marca a `HEC2`, perquè un registre de la forma vella no es llegeixi a mitges: la primera arrencada després d'aquesta
+//     versió és una caché freda i prou (docs/75);
+//   - **i la comprova una app per torn** un cop la pàgina és al vidre: `apps.info(id)` per cada registre del bloc, i quan el
+//     número ha canviat la cel·la torna a pintar-se amb la icona del disc i el títol nou, el dibuix es desa **al mateix
+//     número** (és la mateixa app) i el bloc queda amb la versió d'avui; el log diu `home: alpha is 0.2.0 (was 0.1.0), the
+//     picture is read again`. Un manifest que avui no es pot llegir no esborra el registre, i la llista de la porta mana:
+//     una app que hi entra o en surt canvia el grid (docs/30, docs/40);
+//   - **les proves**: `test_the_launcher_refreshes_the_version_it_has_cached` (dues arrencades amb la mateixa app en 0.1.0 i
+//     0.2.0, el bloc desat amb el número nou i el títol nou, cap rastre de l'antic, i una app que entra i una que surt del
+//     grid).
+//
+// 0.189.23 — **el sistema avisa el llançador quan la llista d'apps canvia** (l'amo: *«quan s'instali una app ("repo install
+// <id>") o s'elimini ("apps remove <id>") el sistema ha d'avisar al launcher registrat a la variable cfg home per fer-li
+// refescar la seva llista d'apps. Com pot el sistema enviar alguna cosa a l'app? per una notificació?»*):
+//   - **la resposta a la pregunta**: no hi ha cap notificació. El sistema no pot dibuixar dins d'una app —`ui.notification_bar`
+//     és un control que la pàgina pinta i no un canal— i l'únic camí que hi ha cap a una app en marxa és un **ganxo global**
+//     cridat entre dos torns, amb la coroutine suspesa, com `on_alarm` i `on_light`; o sigui que el que s'ha fet és el que ja
+//     hi havia, amb un ganxo nou (docs/30, docs/40);
+//   - **`on_event(ev)`**: `ev = {kind = 'apps', what = 'install'|'remove', generation = n}`. Un de sol per
+//     lliurament, no pot esperar, i la pàgina ha de **marcar i tornar**: la feina es fa al torn següent. **El nom de l'app no
+//     hi viatja**: quaranta bytes de DRAM per un nom que la pàgina no necessita —torna a preguntar la llista sencera— i el
+//     registre el diu en el moment del canvi (docs/40, docs/75);
+//   - **la porta compta els canvis**: `apps::note_a_change(what, id)` puja `apps::generation()`, desa **un** canvi esperant
+//     (`take_the_change`) i el diu al registre (`[I][APPS] the list changed (install squares), generation 3`). Un de sol
+//     perquè qui el rep no mira quin és: torna a preguntar la llista sencera (docs/30);
+//   - **les dues comandes el deixen**: `repo install <id>` quan l'app ha quedat en marxa a `install_report`, i `apps remove
+//     <id>` quan l'esborrat s'ha comprovat; una comanda que falla no mou res (docs/30, docs/70);
+//   - **i el bucle del nucli el lliura a l'app que `cfg home` nomena**, després del torn de l'app, al mateix lloc que
+//     `on_light`. Si al vidre hi ha una altra app, el canvi es llença: no es perd res, perquè la pàgina que arrenqui torna a
+//     llegir la llista de la porta (`reconcile`) (docs/30, docs/40);
+//   - **`home_eink` l'escolta**: `on_event` imprimeix `home: the list changed (…)` i posa una marca; el seu bucle torna a
+//     preguntar la porta i a desar el bloc, o sigui que l'app que ha arribat es queda a la caché i la que ha marxat en surt
+//     sense tornar a fer la graella (docs/30, docs/75);
+//   - **les proves**: `test_removing_an_app_says_the_list_changed` (el número puja amb `apps remove` i no amb un error) i
+//     `test_the_launcher_hears_the_list_changed` (una app que arriba amb la pàgina al vidre: el ganxo corre a l'app, la
+//     pàgina passa a dues cel·les i el bloc queda amb la nova).
+//
+// 0.189.24 — **la placa no s'encenia sense el cable, i el motiu era l'ordre de l'arrencada** (l'amo: *«El poweroff deixa la
+// placa tonta? no puc arrencar-la sense punxarla a un usb?! revisa els exemples d'M5Paper oficials per si trobes algun
+// exemple de com dormir o apagar deixant els botons físics actius per despertar l'esp32»*):
+//   - **el que passava**: el GPIO2 que aguanta el corrent s'escrivia des de `caps()`, i `caps()` arriba **després del
+//     splash** —un `gc16` del panell sencer—; el commutador del SY7088 deixa anar la placa al voltant d'un segon després de
+//     la tecla, o sigui que amb la bateria la placa **s'apagava a mitges de la seva pròpia arrencada** i el cable era
+//     l'única cosa que la sostenia. No és que el `poweroff` la deixés tonta: és que no hi havia cap arrencada que acabés
+//     sense USB (docs/50);
+//   - **què s'hi ha fet**: `IPlatform::hold_the_power()`, cridat a `setup()` de la placa i a la **primera línia** de
+//     `kernel::boot()`, que és on ho fa la biblioteca del fabricant (`M5EPD::begin()` → `enableMainPower()` com a primera
+//     instrucció). A l'emulador només compta (`emu::held_the_power()`) i a les plaques que no aguanten el corrent amb un pin
+//     no fa res (docs/50);
+//   - **el que diuen els exemples oficials sobre els botons**: res, perquè no hi ha res a dir. Amb la placa apagada
+//     **l'ESP32 no té corrent**, i les dues úniques entrades són el **PWR del dial premut i aguantat ~2 s** (*«Power on:
+//     Press and hold the power button (rotary switch)»*, manual del Paper) i **l'alarma del BM8563**, que arriba al mateix
+//     circuit d'alimentació —és el que fa `M5.shutdown(5)` de l'exemple `RTC_WakeUp`, que només és `disableMainPower()`
+//     amb l'alarma armada abans—. **Amb el cable posat** el corrent no cau i el que deixava la placa callada era el son
+//     profund, que s'armava **sense cap despertar**: ara arma `ext0` sobre el GPIO38 (la tecla PWR, del domini RTC) i
+//     prémer-la la torna a despertar. Un `esp_sleep_enable_ext1_wakeup` sobre les tres tecles seria un **son amb el corrent
+//     aguantat**, que és una altra cosa que `poweroff` i que aquesta versió no fa (docs/50);
+//   - **les proves**: `test_the_boot_holds_the_power_before_anything_else` (l'arrencada la demana, i cada arrencada la torna
+//     a demanar).
+//
+// 0.189.25 — **el son que deixa les tecles vives** (l'amo: *«Fes la B, però afegeix una nova crida per aquest mode, es
+// deepsleep oi? l'afegeixes al panell desplegable del sistema entre el botó de poweroff i el de reboot. Recorda a posar una
+// icona a joc amb el que hi ha»*): la tercera manera de deixar la placa, entre `poweroff` —que talla el corrent i només la
+// tecla del dial torna a engegar— i `sleep <hora>` —el mateix amb una alarma—. Aquí **el corrent es queda posat** i el xip
+// dorm amb una tecla com a despertar, o sigui que la pàgina queda a la tinta i la placa és allà quan es prem;
+//   - **`IPower::sleep_with_the_keys()` i `can_sleep_with_the_keys()`**: la placa que sap fer-ho ho diu, i la que no
+//     (`false`) ho diu **abans** que el sistema gasti una imatge i dos segons (docs/50);
+//   - **al Paper**: el GPIO2 **no es baixa** —això és el que el distingeix d'apagar-se—, el panell reposa i la GPIO23 i la
+//     GPIO5 baixen, el BM8563 es desarma i s'arma **`ext0` sobre el GPIO38** (la tecla del dial, del domini RTC). `ext1` no
+//     serveix: els seus dos modes a l'ESP32 són **totes baixes** —les tres tecles alhora— o **alguna alta**, que és com està
+//     la línia sense ningú a sobre (docs/50);
+//   - **`deepsleep` al prompt**, **la lluna de la targeta** (entre Poweroff i Reboot, i el que és la sisena marca de
+//     `tools/iconart.py`, `data/res/icons/deepsleep.png`) i **`sys.deepsleep([reason])`** des de Lua: tres portes i un sol
+//     camí, `shell::deep_sleep`, que tanca l'app amb els seus comiats, escriu les sessions, pinta la imatge del son i deixa
+//     el disc reposat abans que el xip pari (docs/30, docs/50);
+//   - **el que costa**: el repòs deixa de ser zero (xip i PSRAM en self-refresh, uns quants mil·liamps, dies i no mesos), i
+//     per això és una comanda a part i no el que fa `poweroff`; el que **no** es pot és despertar un xip sense corrent;
+//   - **les proves**: `test_a_board_without_a_waking_key_refuses_to_sleep_with_the_keys` (l'ATOM diu `E_UNSUPPORTED` i el
+//     Paper diu que sí) i `test_the_card_of_the_bar_carries_the_six_marks`, que ara compta la lluna.
+//
+// 0.189.26 — **la galeria de lletres guarda la mostra de cada cara en una sessió** (l'amo: *«l'app Fonts es una galeria de
+// tipus de lletra i guarda una mostra del tipus de lletra amb el nom de la font … a una sessió de sistema. Quan s'obre l'app
+// Fonts es busquen aquestes sessions de sistema per recuperar la previsualització de la font, que s'usarà com a títol de
+// l'entry corresponent a la llista de fonts»*): el títol d'una fila del prestatge era el nom escrit **amb la lletra del
+// sistema**; ara és el nom **dibuixat amb la seva pròpia lletra** —«DejaVu Sans» en DejaVu Sans— i **desat com una
+// imatge** en un bloc de sessió, o sigui que el segon obre el torna a pintar com una còpia (`cv:blit`) i la cara no ha de
+// ser viva per ensenyar-lo;
+//   - **una sessió per cara** (0.189.26): la clau d'una sessió és de quinze bytes i un nom de fitxer és més llarg, així que
+//     la clau és un **hash FNV-1a del nom** (`s1a2b3c4`) i **el capçal del bloc diu de quin fitxer i de quina mida és** —un
+//     xoc de noms es veu al capçal i una cara que ha canviat es torna a dibuixar— (docs/30);
+//   - **el bloc és 4 224 B** (128 de capçal en text i 4 096 de píxels a quatre bits), demanats sempre de la mateixa mida
+//     perquè la mida d'una mostra només se sap després de dibuixar-la; una mostra que no hi cap **no es desa** i la fila es
+//     dibuixa igualment —la caché és un estalvi i no una condició de la pàgina—, i el sostre de vuit blocs del nucli vol dir
+//     que una galeria de més de vuit cares en deixa sense (docs/75);
+//   - **la cara es dóna abans de desar el dibuix**: aquesta placa té tres llocalls de cares i un prestatge de nou no en cap,
+//     i el que la pàgina desa és el dibuix (docs/75);
+//   - **les proves**: `test_the_gallery_keeps_the_preview_of_a_face_in_a_session` (el primer obre diu `made`, el segon diu
+//     `kept` i no torna a dir `made`, i el bloc és a `/session/fonts/s…`).
+//
+// 0.189.27 — **la galeria de lletres recorda la seva vista, que és el que li faltava** (l'amo: *«afegeix la sessió state a
+// fonts i guarda tot el necessari. I recorda a carregar-ho al iniciar i posar-ho tot bé»*): `fonts` era l'única app amb
+// pàgina sense la sessió `state` que la norma 0.189.12 demana a totes (docs/30, docs/45). Ara desa **tres coses i cap més**:
+//   - **`page`**, la pàgina del prestatge —una llista que en té cinc i la persona n'era a la tercera—;
+//   - **`focus`**, la fila que tenia el cercle, **pel nom del fitxer** i no pel número d'un control;
+//   - **`marked`**, la fila **que té el seu exemplar obert**, que la llista pinta amb la seva pròpia marca;
+//   - **es llegeix abans de col·locar res** i el que hi ha es **acota**: una pàgina que avui no existeix i un nom que ja no
+//     és a la porta no són un cercle, són una pàgina sense cercle, i el bloc d'una altra forma (`kLayout`) es llença sencer;
+//   - **es desa a cada canvi de forma** —girar la pàgina, obrir un exemplar, tornar-ne amb el botó o amb el pessic— i a les
+//     **tres portes del comiat** (`on_pause`, `on_save`, `on_close`), perquè una app no sempre veu venir el tancament;
+//   - **i a l'arrencada, si el bloc diu que hi havia un exemplar obert, s'obre**: el prestatge ja hi ha posat el cercle i la
+//     marca, i obrir-lo és el mateix camí que fa un dit (un `run fonts <fitxer>` mana sobre això, que és una ordre explícita);
+//   - **el compte de blocs de la galeria baixa a set mostres**: el bloc de `state` és un dels vuit del nucli (docs/75);
+//   - **les proves**: `test_the_gallery_comes_back_on_the_specimen_it_was_left_on` (un dit obre un exemplar, l'app es tanca i
+//     el segon obre diu `came back to <fitxer>` i torna a obrir la pàgina).
+//
+// 0.189.28 — **la pàgina calenta del llançador es quedava sense cap cel·la** (l'amo, amb el log de la placa a la mà: *«home: 12
+// ids: 2048 about calculator … wipe»*, dotze línies de *«needs another board»* i *«home: 0 cells»*, i el seu comentari: *«Em
+// temo que ens hem deixat alguna cosa»*): una regressió **meva de la 0.189.22**. `reconcile` decideix què ha de tenir la
+// graella preguntant `launcher` i `works_here`, i des de la 0.189.22 agafa el manifest de `known[id]` quan ja hi és —que és
+// el que fa que una pàgina calenta no torni a llegir dotze manifests—, però **el registre que ve del bloc només porta títol,
+// icona i versió**: amb els dos camps absents, totes les apps de la pàgina es llegien com «d'una altra placa» i la graella
+// anava a zero; i com que el bloc es desa amb les cel·les que hi ha, **la caché quedava esborrada** i el mal era permanent;
+//   - **el registre diu el que la pàgina sap**: `fill_from` hi posa `works_here = true` i `launcher = false`, que no és cap
+//     mentida —una fila del bloc és una fila que aquesta pàgina va dibuixar, i aquesta pàgina només dibuixa el que corre
+//     aquí— (docs/30, docs/40);
+//   - **i qui té l'última paraula és la comprovació d'una versió per torn**, que ara també mira `launcher` i `works_here`:
+//     una app que ha canviat de manifest surt de la graella (`home: <id> is not of this page any more (…)`), el seu registre
+//     s'oblida i la pàgina es torna a fer. Abans això no ho mirava ningú (docs/30);
+//   - **les proves**: la de la pàgina calenta (`test_the_warm_page_of_the_launcher_is_painted_once`) ara diu el que faltava —
+//     `home: alpha needs another board` no hi pot ser i `home: 0 cells` tampoc—, que és exactament el cas que la va deixar
+//     passar.
+//
+// 0.189.29 — **el terminal del sistema, amb els menús del sistema** (l'amo: *«L'app lua Shell no te menús contextuals, i ha
+// de ser amb menús contextuals com l'editor. Has fet una guarrada amb botons i vistes extra. Usa sempre que puguis
+// UIControls»*, *«El menú contextual: File i Commands, si la llista de comandes no hi cap, organitza-ho per temes en
+// submenús»*, *«Tampoc li funciona el teclat, polso sobre el cursor i no es desplega»*, *«L'app ha de refrescar el mínim
+// possible. Només les zones afectades i amb qualitat de tinta adient»*, *«Pot obrir sessions noves i posalsi nom (tap llarg a
+// la pestanya)… Pot tancar-les totes menys l'última»* i *«ha d'usar la sessió "state" per guardar els logs de les terminals
+// oberts (últimes línies), els títols, quina pestanya estava activa»*): `apps/shell` es reescriu amb controls del sistema i
+// no amb pàgines de botons;
+//   - **`ui.menu_bar`** amb `File` (obrir, batejar, tancar, tancar les altres) i **`Commands`**, que és la llista de comandes
+//     **per temes** (vuit i `Other`) perquè un `ui.menu` en té dotze i el nucli en respon cinquanta; la targeta d'un tema és
+//     un `ui.menu` i la paraula triada va a la línia del prompt sense enviar-se (docs/30);
+//   - **el teclat**: el sistema pregunta `readonly` i `keyboard` **en el moment del toc**, i la pàgina els posava segons on era
+//     el cursor —o sigui que el toc que havia de moure el cursor anava a una caixa que deia que no prenia tecles i la banda no
+//     pujava mai—. Ara la caixa pren tecles sempre i `on_the_line` desfà el que cau abans del prompt (docs/30);
+//   - **la tinta**: els controls es fan una vegada i `layout()` els torna a col·locar quan la vista canvia, en lloc de
+//     d'alliberar-los i fer-los de nous a cada canvi; una línia que arriba és un `du` de la caixa i una pàgina que no ha
+//     canviat no paga res (docs/50);
+//   - **les sessions**: un toc llarg sobre una pestanya en pregunta el nom amb una targeta, `closeable` és fals mentre n'hi ha
+//     una de sola —l'última no es tanca— i el `File` té `Close session` i `Close others` (docs/30);
+//   - **i la vista es recorda**: `state` desa `tabs`, `tab` i un `text:t<n>`/`text:l<n>` per pestanya —el títol i les últimes
+//     línies—; la sessió no torna, perquè un tub d'una app que s'ha anat és un tub de ningú, i el que torna és la memòria del
+//     que s'hi va llegir (docs/30, docs/45);
+//   - **les proves**: `test_the_shell_app_keeps_its_sessions_in_the_state` (una línia que el shell contesta, el bloc amb
+//     `tabs=1`, `tab=1`, `text:t1=Shell 1` i `text:l1=`, i el segon obre dient quantes sessions n'ha recuperat).
+//
+// 0.189.30 — **la galeria de lletres: el títol més gran i només les mostres de la pàgina** (l'amo: *«Fes mes gran el títol
+// del tipus de lletra i posa fons blanc, a la part d'abaix fes-la gris molt claret de fons. i un tipus de lletra lleugerament
+// mes gran. Carrega de les sessions només els tipus de lletra que et calen per aquesta pàgina. Si l'usuari passa pàgina ja
+// carregaràs aquelles. No les carreguis totes de cop»*):
+//   - **el títol és una mostra i ara es llegeix**: el nom de la cara es dibuixa a `kTitle` (un pas i mig més que el cos) **en
+//     tinta negra sobre paper blanc** —era blanc sobre negre— i les tres línies de sota van **sobre un gris molt clar**
+//     (`13` dels setze) i a `kDetail`, un pas més grans; la fila sencera creix i `kRow` en surt (docs/30, docs/92);
+//   - **la marca del bloc puja a `FSP2`**, perquè una mostra blanca-sobre-negre no es pinti mai en una banda blanca, i el
+//     bloc passa a **8 192 B de píxels** perquè una mostra més gran hi càpiga (docs/75);
+//   - **i només es demanen les mostres de la pàgina**: les files es fan buides i el títol —la còpia del bloc o la cara que
+//     s'obre i el dibuixa— es fa **quan la fila és al vidre** i quan una pàgina gira. El comptador de files d'una pàgina és el
+//     del control i no un número d'aquest fitxer: es pregunta al **primer torn del bucle**, quan el panell ja ha donat a la
+//     llista la resta de la pàgina (docs/30, docs/75);
+//   - **les proves**: les de la galeria (`test_the_gallery_keeps_the_preview_of_a_face_in_a_session` i la del `state`) no
+//     canvien, i la de la pàgina calenta tampoc.
+//
+// 0.189.31 — **la pàgina de detall: el text més gran, els passatges d'un llibre i la porta a baix de tot** (l'amo: *«A la
+// vista detalls: Tot el text mes gran. El botó de "back to the shelf" abaix de tot amb una icona de "back" a l'esquerra i el
+// text a la dreta. Entre els detalls i el botó un TextBoxMultiline sense vores i read only ple de text, en un passatge del
+// llibre "The Time Machine.epub" d'H.G. Wells»*):
+//   - **tot el text de l'exemplar puja un pas**: el nom de la cara a `kSpecHead` i les frases de sota a `kSpecNote`, les dues
+//     constants noves al costat de `kBig` i `kSmall` que la prestatgeria ja feia servir (docs/30, docs/92);
+//   - **i entre els detalls i la porta hi ha un requadre de text**: un `ui.textbox_multiline` **sense vores**, **de només
+//     lectura** (el cursor hi és i el teclat no puja) i amb `wrap`, amb **cinc passatges de *The Time Machine*** (1895, domini
+//     públic) que el fitxer escriu en ascii —les cometes i els guions llargs del llibre són dos bytes aquí—. El requadre rep
+//     el lloc amb un `weight`, o sigui que el que els detalls i el botó deixen, i el dit el mou (`on_swipe`) quan els
+//     passatges no hi càpiguen (docs/30, docs/90);
+//   - **i la porta és un botó amb la marca del sistema**: `icon = 'back'` amb `icon_side = 'left'`, o sigui la fletxa a
+//     l'esquerra i la paraula a la dreta, que és el dibuix de `res/icons/back.png` i no un d'aquest fitxer (docs/30, docs/92);
+//   - **i l'app diu on és tot quan se li demana** (`run fonts shelf`): `fonts: backrows y0 y1`, `fonts: passagebox x y w h` i
+//     `fonts: passagerows files línies`, que és el que la prova nova mesura (docs/85);
+//   - **la prova**: `test_the_specimen_gives_the_passages_their_room_and_the_way_back_below` (el requadre té caixa i més text
+//     del que ensenya, i el botó és a sota i dins del vidre).
+//
+// 0.189.32 — **la lleixa és de cares i tot el text és més gran** (l'amo: *«Treu els arxius que no son fonts reconegudes de la
+// llista. Fes mes gran tot el text, sobretot el títol»*):
+//   - **un fitxer que no és una cara no és una fila**: `/fonts` és una carpeta on una persona deixa una llicència, un readme o
+//     una cara d'un format que el nucli no llegeix, i la fila d'aquell fitxer era grisa, no es podia prémer i prenia el lloc
+//     d'una cara. Ara **no es llista** —`read_the_shelf` la deixa fora i `add_entry` perd el camí de la fila grisa—,
+//     **el motiu s'escriu a la consola una línia per fitxer** (`fonts: LICENCE.txt none 8 147 not a face`, que és el que va
+//     fer servir sempre) i **el subtítol de la pàgina compta els que s'han deixat fora** (`12 faces on /fonts, 2 file(s) left
+//     out`) (docs/30, docs/70);
+//   - **i tot el text és més gran, sobretot el títol**: el títol d'una fila —la mostra de la cara— passa de quatre passes a
+//     **sis** (44 → 66 px), les tres frases de sota de dues a **tres** (22 → 33 px), el capçal de la pàgina i el subtítol a les
+//     mateixes mides, i a la pàgina del detall el nom a `kSpecHead` (sis passes) i les frases a `kSpecNote` (quatre). La fila
+//     passa de 126 a **181 px** i la pàgina del prestatge ensenya quatre files i prou (docs/30, docs/92);
+//   - **i el bloc d'una mostra dobla** (docs/75): el dibuix d'un nom es fa a la mida del títol, i un nom de 480 x 66 és
+//     31 680 píxels (15 840 B a quatre bits), o sigui que `kSamplePixels` va de 8 192 a **16 384 B** i el bloc de 8 320 a
+//     **16 512 B**. Set mostres són 115 584 B de PSRAM i els mateixos 115 584 B de disc, i el relleu del nucli les torna quan
+//     la memòria va curta (docs/30, docs/75);
+//   - **i la porta de tornar deixa de dependre de la fila**: `kDoor` és 112 px i no `kRow`, perquè un botó de 181 porta una
+//     marca del mateix quadrat i li deixava a la paraula un terç del vidre (docs/30, docs/92);
+//   - **les proves**: `test_the_shelf_lists_the_faces_and_leaves_the_other_files_out` (el motiu a la consola, la fila que no
+//     hi és i el recompte del subtítol) i la de la pàgina del detall, que continua demanant tres files al requadre.
+//
+// 0.189.33 — **la porta de tornar, el text dels passatges i la barra de l'arrencada** (l'amo: *«El botó "back" de la vista
+// detalls es molt lleig, l'icona es horrible, busca'n una de millor. Fes el botó mes petit i discret, que no ocupi tot
+// l'ample, alineat a l'esquerra. Revisa el TextBox Multiline, no sembla que sigui el tipus de lletra de dalt, fes el tipus de
+// lletra mes gran. Afegeix una progressbar al centre de la pantalla mentre hi sigui l'splash. Aquesta barra només l'has de
+// mostrar quan l'app arrenca (abans de dibuixar res)»*):
+//   - **la marca de tornar és un xevró sòlid** (`tools/iconart.py`: el glif `angle-left` en lloc d'`arrow-left`) i els dos
+//     PNG tornats a fer —`data/res/icons/back.png` i el mestre de 448 a `tools/icons/system/`—: una diagonal prima és el
+//     primer que aquest panell converteix en escala (docs/45, docs/92). La marca la fa servir també la cantonada de la targeta
+//     de la barra, que també guanya el dibuix;
+//   - **i la porta del detall és petita i a l'esquerra**: `kDoorW` × `kDoorH` (200 × 72) en lloc de tot l'ample per 112, amb
+//     la paraula `Back`, i dins d'una **fila** de flux horitzontal perquè un panell vertical estira els fills a l'ample de la
+//     columna i una fila no. `caps` torna la caixa dins del pare, o sigui que el lloc del botó que diu `run fonts shelf` (i el
+//     que prem la prova) és la fila més el botó (docs/30, docs/90);
+//   - **els passatges es dibuixen amb la cara de l'exemplar** (`cv:font`, el mateix camp d'un `ui.label`) i a `kSpecNote` en
+//     lloc de `kBody`: la prosa de sota d'una pàgina d'una cara era la cara del sistema, que és una pàgina que menteix (docs/30);
+//   - **i una barra de progrés al mig del vidre mentre dura l'arrencada**: `raise_the_bar`/`bar_says`/`drop_the_bar` al
+//     començament de l'app, abans de `build_shelf` i per a la lectura de la porta i prou. La pàgina encara no ha pintat res, o
+//     sigui que el `ui.present()` de cada pas danya la caixa de la barra i no la targeta del nucli, que queda al voltant; un
+//     mode amb nom seria la pàgina sencera (docs/30, docs/50). La barra camina **vuit vegades com a molt** (`kBarSteps`) i el
+//     registre diu quan se'n va (`fonts: the bar of the start is gone`);
+//   - **i la prova de la pàgina del detall segueix valent**: el botó continua imprès amb `fonts: backrows` i `fonts: backbox`
+//     en coordenades del vidre i continua a sota del requadre.
+//
+// 0.189.34 — **el parpalleig del cursor és de la persona i els menús del shell tornen a obrir-se** (l'amo: *«l'app Lua Shell
+// no funciona: continua sense sortir el teclat. Els menús contextuals no obren. Crea una opcio nova de cfg anomenada "cursor
+// delay" Allarga el parpalleig del cursor a 850milis. Aquest valor es comú a tots els cursors del sistema. Revisa els controls
+// que utilitzen el cursor i usa el valor del cfg per decidir el parpalleig. Revisa l'app del editor i del timeclock que usen
+// caixes de text»*):
+//   - **`cfg cursor delay [<ms>]`** (docs/30, docs/70, docs/85): el temps que el bloc de tinta dura abans de girar-se, desat
+//     a `cfg/cursor` com el text decimal que una persona llegeix i posat a `luabind` a l'arrencada, com `cfg turn`. El valor
+//     de sèrie passa de 700 a **850 ms** i el rang és de 100 a 5 000. `kCaretBlinkMs` deixa de ser una constant i es diu
+//     `caret_blink_ms()`, que és el que fan servir els quatre llocs del rellotge del cursor, o sigui que **tots els cursors
+//     del sistema giren al mateix ritme**: la caixa d'una línia, la de diverses, el terminal del shell i la nota del rellotge
+//     de fitxar, que no canvien ni una línia perquè el número és del nucli i no d'ells;
+//   - **els menús del shell no s'obrien per una raó d'ordre**: la targeta d'un menú desplegat la pinta la barra **al paper de
+//     la pàgina** sota la seva fila, i els controls es componen en l'ordre en què es van fer —l'últim, davant—, o sigui que
+//     una barra feta la primera pintava la targeta i el terminal hi pintava el seu paper negre a sobre. Ara la barra es fa
+//     **l'última** i, mentre un menú penja, és **tan alta com la pàgina** (`bar_tall`, el mateix dibuix que l'editor té des de
+//     la 0.84.0), perquè una barra d'una fila no té lloc per a la targeta (docs/30, docs/90);
+//   - **i el teclat del shell no depèn del camí del dit**: la caixa demana la banda des del seu propi `on_focus` (el mateix
+//     `kb:show` que fa la targeta d'un nom), o sigui que el mateix toc que li posa el cercle li posa el teclat, i la banda
+//     marxa quan el cercle se'n va (`kb:hide`), amb la targeta d'un nom com a excepció perquè té un camp propi (docs/30);
+//   - **les proves**: `test_cfg_cursor_delay_is_one_blink_for_every_cursor` (el valor de sèrie, la clau, el rang i les dues
+//     paraules de l'opció). Les del shell i les del detall de les cares no canvien.
+//
+// 0.189.35 — **la pàgina d'una cara diu què és, no gasta un bloc de més i es tanca amb el dit** (l'amo: *«On posa "l'hora i
+// el rellotge" de l'app Fonts, a la vista detall de la font, que significa? es una especie de placeholder?»*, *«[W][MEMORY]
+// fonts asks for 's12201f79': 16512 B, and the table of 8 is full <- has posat un límit al número de sessions? I el tamany?
+// també està limitat?»* i *«A la vista detall registra el swipe a l'esquerra per fer "back"»*):
+//   - **la fila dels accents diu què és** (docs/30): no era cap rellotge ni cap farciment —era una frase catalana triada
+//     perquè porta accents dins de paraules (`l'hora`, `rellotge`), en una pàgina que és en anglès—. Ara és **els codis
+//     accentuats del joc Latin-1 i una frase que ho diu** (`À É Í Ó Ú à è ì ò ù Ç ç · the accented letters of a page`),
+//     mesurada amb la cara com les quatre files de sobre (`fit_face`) i no a una passa fixa;
+//   - **el bloc d'una mostra que no hi cap es demana a una fila que no es veu** (docs/30, docs/75): el límit és el de la
+//     taula del nucli —**vuit blocs** (`session::kMaxBlocks`)— i la mida és la que demana aquesta app (16 512 B = 128 de
+//     capçal i 16 384 de píxels, la de la 0.189.32); el que l'app podia triar és **quin bloc es queda**. Quan `sys.session`
+//     diu que no, `give_a_block_back` torna el bloc de **cada fila que no és a la pàgina** amb `sys.session_destroy` i la
+//     petició es fa **una segona vegada**. El que es perd no es veu: el dibuix és al llenç de la fila i el bloc només és la
+//     còpia que sobreviu a l'app, o sigui que el que es paga és que el pròxim arrencament torni a obrir la cara. El registre
+//     diu `fonts: the block of <nom> is given back for this page`;
+//   - **i el swipe a l'esquerra de l'exemplar és la porta de tornar** (docs/30): el sistema no té cap gest de nom `swipe`
+//     —un dit que llisca és un `drag` amb un `dx` i un `dy`— i el que torna és el `drag` de **`kBackSlop` (64) píxels o més**
+//     a l'esquerra amb més camí de costat que de dalt a baix, amb el mateix camí que el botó (`go_back`: la vista se'n va i
+//     el cercle es queda a la fila que s'havia obert). Fora d'un exemplar (`specimen_face == nil`) el `drag` del prestatge
+//     es llença com abans;
+//   - **les proves**: `test_the_swipe_to_the_left_of_the_specimen_is_the_way_back` camina un dit de 240 píxels a l'esquerra
+//     sobre el requadre dels passatges i espera `fonts: back by the swipe, -240 px` i el prestatge. Les dues proves de la
+//     lleixa i de la pàgina del detall no canvien.
+//
+// 0.189.36 — **les sessions d'una app no tenen número** (l'amo: *«el número... ja haviem parlat que no vull límits
+// artificials. Les apps han de poder fer totes les sesions que vulguin. fins que la ram o el disc rebenti!»*):
+//   - **la taula de vuit blocs del nucli desapareix i el que hi ha és una llista** (docs/30, docs/75): `session::kMaxBlocks`
+//     era un sostre que no tenia res a veure amb la memòria —una galeria de disset cares l'omplia amb megabytes de PSRAM
+//     lliures i la novena petició s'enduia un `[W] ... and the table of 8 is full`—, o sigui que una app no podia fer més de
+//     vuit sessions ni que la placa anés buida. Ara un bloc és un **node de 48 B a la RAM de la placa** que es fa quan l'app
+//     demana el bloc i es torna quan el bloc es torna: el sostre és el que contesti l'assignador, i quan no hi cap el
+//     registre diu `there is no room for the row of a session` o `there is no room` i l'app segueix sense caché. **Fa servir
+//     344 B menys de RAM** (124 572 → 124 228 B) perquè la taula de vuit files era estàtica i els nodes no hi són fins que
+//     serveixen;
+//   - **`mem` i `sessions` ensenyen el número que hi ha i no el número que hi cabia** (docs/30, docs/85): `count()` és un
+//     `uint32_t` i les dues ordres deixen de llegir `/8` —una placa amb vint-i-una sessions deia `8/8`—. El llistat passa a
+//     ser un **visitador** (`session::each`) en comptes d'un array de files a la pila del prompt: cada fila s'escriu al vidre
+//     quan arriba, i una placa amb cent sessions en diu cent (docs/75);
+//   - **i el llistat del disc creix amb la carpeta** (docs/70): el `Names` que copiava els noms de `/session/<app>` tenia les
+//     vuit files de la taula i una carpeta amb nou fitxers es llistava a mitges —un `sessions destroy` que deia «8 file(s)»
+//     sobre vint-i-un—. Ara comença a la pila i creix a la memòria de casa, amb un sostre que només és el de la placa;
+//   - **les proves**: `test_the_sessions_of_a_board_are_as_many_as_the_memory_gives` obre **vint-i-una sessions alhora**, hi
+//     escriu, llegeix la vint-i-unena, compta vint-i-una files al llistat i les torna totes fins a zero. Les proves del shell
+//     i de les apps que deien `kMaxBlocks` passen a `kSessionRows`, que és la mida del seu array i no un límit del sistema.
+//
+// 0.189.37 — **el drag de tornar va cap a on sigui** (l'amo: *«com el faig cap a la dreta?»*):
+//   - **la pàgina d'una cara es tanca amb un drag de costat, a l'esquerra o a la dreta** (docs/30): el que mirava el signe
+//     era `gesture.dx <= -kBackSlop`, o sigui que mig gest de la mateixa pàgina no feia res. Una persona no sap per on
+//     espera aquesta pàgina —un mòbil es posa enrere amb el dit cap a la dreta i un llibre gira amb ell cap a l'esquerra—,
+//     o sigui que ara és `math.abs(gesture.dx) >= kBackSlop` amb més camí de costat que de dalt a baix: `kBackSlop` (64)
+//     píxels cap a qualsevol de les dues bandes, i el signe només queda al registre (`fonts: back by the swipe, 240 px` és
+//     un dit cap a la dreta). Un drag que va sobretot cap amunt o avall segueix essent el requadre dels passatges que
+//     llisca, i el drag del prestatge es llença com abans;
+//   - **les proves**: `test_the_swipe_to_the_left_of_the_specimen_is_the_way_back` camina **els dos costats** —240 px a
+//     l'esquerra i, després de tornar a obrir l'exemplar, 240 px a la dreta— i espera `fonts: back by the swipe, -240 px`
+//     i `fonts: back by the swipe, 240 px` amb el prestatge després de cada un.
+//
+// 0.189.38 — **la barra de progrés creix sobre l'splash i la pàgina arriba sencera al final** (l'amo: *«l'intenció es mostrar
+// una barra de progrés sobre l'splash de Fonts: Fes que al arrencar l'app no refresqui la seva vista (no comunicant damage al
+// panell?) a la pantalla eink, així es queda l'splash amb la barra de progrés que creix mentre l'app carrega completament.
+// pujarem la progressbar a la pantalla (només la barra de progrés) mentre seguim carregant. Un cop acabat, amaguem la barra
+// de progrés i refresquem la vista sencera»*):
+//   - **la imatge del manifest és a vidre i el sistema deu la pàgina sencera**, i aquest deute és el que la fa fora: el
+//     `ui.present()` de la barra pagava el deute i pintava la pàgina blanca de l'app al **primer pas** de la barra, o sigui
+//     que l'splash desapareixia abans de començar a carregar (docs/30, docs/50);
+//   - **`ui.present_over()` és el present d'un arrencament** (docs/30, docs/50): compon la pàgina com `ui.present()`, posa al
+//     vidre **les caixes del que l'app ha dibuixat des de l'últim present** i **deixa el deute sencer**, o sigui que la
+//     barra creix damunt de la imatge i la pàgina de l'app arriba amb el `ui.present()` del final. Amb la pàgina que no es
+//     deu fa exactament el mateix que `ui.present()`, i amb una targeta del sistema a sobre val la regla de la targeta
+//     (no hi puja res i la pàgina es deu igualment). Una app que no paga mai el deute no ensenya mai la seva pàgina: és la
+//     porta d'un arrencament i de res més;
+//   - **i la galeria de tipus de lletra la fa servir a `raise_the_bar` i a `bar_says`** (docs/30): la barra de l'inici i les
+//     seves vuit passes van sobre el `res/splash.png` del manifest, i `build_shelf` tanca la barra i paga el deute amb el
+//     `ui.present()` que ja hi havia, que és la pàgina sencera i neta;
+//   - **les proves**: `test_the_boxes_of_a_start_go_up_over_the_picture_and_the_page_after` (a `test_ui`) mesura la
+//     conseqüència al panell de l'emulador: amb la pàgina deguda, `ui.present_over()` fa **un** pintat i és la caixa del
+//     rectangle que l'app ha dibuixat, i el `ui::present()` de després és el **vidre sencer amb `gc16`**.
+//
+// 0.189.39 — **un arrencament amb imatge no paga el rentat entre dues apps** (l'amo, amb el registre a la mà: *«Revisa a veure
+// quants refrescos es fan desde que es tanca l'app que t'ha cridat, l'splash i després la nostra app»*):
+//   - **el registre d'un arrencament de `fonts` deia quatre pintats grans**: `[I][UI] paint 0,0 540x912 gc16` (el rentat de
+//     `ui::attach`, la pàgina de l'app que es tanca), `[I][SPLASH] … the page is paper` (la imatge del manifest), i després
+//     **dos més que no són del sistema**: el `0,0 540x912 gc16` que paga el **deute de la pàgina** amb el primer
+//     `ui.present()` de l'app (0.189.38 el deixa per al final: `ui.present_over()` no el paga) i la caixa de la barra;
+//   - **`ui::attach_under_a_picture()`** (docs/30, docs/50): the same view as `attach()` —white, nothing drawn, the keyboard
+//     and the faces given back, the paper of the page white again— **and it asks the glass for nothing**, because the picture
+//     of the manifest washes the whole panel a few lines below: **un `gc16` de 540×912 i els seus 290 a 450 ms menys per
+//     cada arrencament** d'una app que porta splash. `run_app` tria aquesta porta quan hi ha imatge i, si la imatge no es pot
+//     llegir, la pàgina es deu igualment (`owe_the_page`) perquè el fantasma de l'app anterior no quedi a sota;
+//   - **les proves**: `test_a_start_under_a_picture_does_not_clean_the_glass_first` (a `test_ui`) compta els pintats del
+//     panell: després d'una pàgina amb tinta, `attach_under_a_picture()` **no n'afegeix cap**, i el `present()` que paga el
+//     deute n'afegeix **un** i és el vidre sencer amb `gc16`.
+//
+// 0.189.40 — **la barra de l'arrencada és una línia, va sota el «loading...» i diu el nom de la cara que llegeix** (l'amo:
+// *«Fes la barra mes fina, pósala mes avall, sota del "loading" i assota, vull que posis un label amb el nom del tipus de
+// lletra que s'està carregant»*):
+//   - **les mides i el lloc surten de mesurar la imatge, no d'un gust** (docs/30): el `res/splash.png` de la galeria, bolcat
+//     del vidre amb `--dump`, té l'emoji del títol fins a la fila **433**, la ratlla a **501**, «Fonts» a **529..560**,
+//     «loading...» a **594..609** i la marca «lunokOS» a partir de **669**. La barra era `line_height(kSmall)` —vint-i-dos
+//     píxels i una placa— i estava al mig de la pàgina, o sigui **damunt de la paraula «Fonts»**. Ara és **320×10** i va a la
+//     fila **618** del vidre, i el nom de la cara **320×22** a la **634**: els seixanta píxels lliures entre la frase i la
+//     marca, sense tapar res;
+//   - **i el lloc es diu al vidre i no a la vista** (docs/30, docs/50): la vista de l'app comença a la fila 48 —la franja del
+//     sistema—, o sigui que un número escrit com si fos de la vista va posar la barra **damunt de la marca «lunokOS»** al
+//     primer intent, i es va veure al bolcat. `kBarGlassY - view.y` és la línia que ho arregla;
+//   - **el nom va amb la passa de la barra i no amb el fitxer**: el text del label s'escriu a cada fitxer (un dibuix dins del
+//     llenç, que no costa res) i arriba al vidre amb el present de la passa, que són vuit i no disset. El registre diu el
+//     que el vidre diu: `fonts: loading <nom de la família>`;
+//   - **i el nom va en tinta i no en gris** (0.189.39 a part): un nivell vuit en aquest vidre és un gris que la passada de dos
+//     nivells d'un arrencament no reprodueix, i el nom sortia com una taca. També es va veure al bolcat;
+//   - **una errada de Lua pel camí**: `family_of` s'escriu més avall al fitxer i des de `read_the_shelf` és `nil` —l'app
+//     petava amb `attempt to call a nil value (global 'family_of')` al segon fitxer—, o sigui que el nom surt del `match` del
+//     nom del fitxer allà mateix;
+//   - **les proves**: cap de nova. La de la barra de l'arrencada no en tenia i aquesta feina s'ha vist amb el bolcat del
+//     vidre (`--dump`, un fotograma cada 450 ms) i amb el registre de l'emulador.
+//
+// 0.189.41 — **la barra de l'arrencada, més fina, més avall i sense el nom a sota** (l'amo: *«Baixa una mica mes la
+// progressbar i fes-la mes fina (menys alta) el text queda horrible. Treu-lo. Amb la barra serà suficient»*):
+//   - **el label deixa d'existir** (docs/30): the name of the family under the bar was a line of text at the size of the
+//     page under a line of ink, and a person said it was horrible to look at, which is the whole of the argument. The app
+//     no longer creates it, no longer places it, no longer writes it and no longer gives it back;
+//   - **i la barra és nou files a la fila 636 del vidre** (docs/30, docs/90): it was ten at 618 —with the name under it in
+//     the sixty pixels between «loading...» (594..609) and the watermark «lunokOS» (669)— and now the line goes where the
+//     name began. **Nou i no sis**: the frame of a bar of this system is one pixel and it is only drawn above eight, so eight
+//     or less is a track with no edge, which on paper is a smear; nine is the thinnest a line can be and still be a line;
+//   - **el nom de la família no es perd: va al registre**, una línia `fonts: loading <família>` per passa de la barra
+//     (vuit i no disset), que és on es llegeix un arrencament que s'atura a mitges (docs/85);
+//   - **les proves**: `test_the_bar_of_the_start_is_a_line_under_the_loading_of_the_picture` passa a mesurar **nou** files,
+//     la fila **636** i que **no hi ha cap `fonts: startname`** al registre —el nom a sota és fora—, i segueix demanant que
+//     el nom que va al registre sigui una cara de la porta i no un `OFL.txt`.
+static const char kVersion[] = "0.189.41";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

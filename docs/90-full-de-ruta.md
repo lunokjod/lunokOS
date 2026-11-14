@@ -618,8 +618,8 @@ sistema i mostri la font»*. Fins a la 0.174.0 `/fonts` era un **àlies** d'una 
 - **i el visor** (`apps/fonts`, amb icona pròpia: un full amb una `Aa` sobre una regla) obre **els quatre lectors del
   nucli** —`.lfont`, `.bdf`, `.pcf` i TrueType— perquè el format el diu **el fitxer i no l'extensió**: la mateixa
   olfacte de quatre signatures que fa servir `font::load_any`. Cada fitxer es carrega una vegada i es torna, perquè
-  aquesta placa en guarda tres alhora, i un fitxer que no és una cara **diu el motiu** en comptes de desaparèixer (el
-  `LICENCE.txt` de la carpeta és el cas que ho ensenya);
+  aquesta placa en guarda tres alhora, i un fitxer que no és una cara **no és una fila**: el motiu el diu la consola i la
+  lleixa només ensenya cares (el `LICENCE.txt` de la carpeta és el cas que ho ensenya, 0.189.32);
 - **la pàgina d'una cara** és el que la cara sap fer: el nom i el que el nucli n'ha tret —outlines o una cel·la de bits,
   quants codis, quina línia— i després les mateixes paraules dibuixades amb ella a les mides que li toquen. **Una cara de
   bits es queda a la seva mida i als seus dobles** (una cel·la de 6x12 ampliada quatre vegades és un borrall i no una

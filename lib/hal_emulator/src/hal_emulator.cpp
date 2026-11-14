@@ -22,6 +22,11 @@
 #include "emu_storage.h"
 #include "pal/pal.h"
 
+// **Quantes vegades el nucli ha agafat el corrent de la placa** (0.189.24): un PC no en té cap que aguantar, i el que una
+// prova pot mesurar és que la crida hi és i que es fa abans de qualsevol altra cosa (docs/50, docs/85). It lives at the file's
+// own scope because the platform is one namespace and the counter a test reads is another.
+static uint32_t g_held_the_power = 0;
+
 namespace emu {
 namespace {
 
@@ -582,6 +587,20 @@ class FakePower : public IPower {
     // does and not what the PC could do (docs/85).
     if (!emu::model().powers_off) return false;
     fprintf(stderr, "power: off (the emulator ends; rtc.bin and fram.bin are written)\n");
+    return true;
+  }
+
+  // **I la mateixa resposta, preguntada** (0.189.18): the shutdown asks this before the margin, so that a board that cannot
+  // be cut does not wait two seconds to be told so (docs/75).
+  bool can_power_off() const override { return emu::model().powers_off; }
+  bool can_sleep_with_the_keys() const override { return emu::model().keys_wake; }
+
+  // **El son amb les tecles vives** (0.189.25): the PC keeps its own power whether it wants to or not, so what is imitated is
+  // the part a test can read —the board says whether it has a key to wake it, and a board that does ends the process the way
+  // a chip that restarted does— (docs/50, docs/85).
+  bool sleep_with_the_keys() override {
+    if (!emu::model().keys_wake) return false;
+    fprintf(stderr, "power: asleep with the keys awake (the emulator ends; the supply is kept)\n");
     return true;
   }
 
@@ -1220,6 +1239,10 @@ class EmulatorPlatform : public IPlatform {
   const char* family() const override { return board::family(); }
   bool emulator() const override { return board::emulator(); }
 
+  // **Un PC no té cap pin que aguanti la seva alimentació** (0.189.24): the call is counted so a case of this suite can say
+  // that the boot asks for it, which is the half of the Paper's problem a host can check (docs/50, docs/85).
+  void hold_the_power() override { ++g_held_the_power; }
+
   // One board, and it is the one this emulator was told to be: an app is accepted or
   // refused here exactly as it would be on that board, which is the only way a manifest
   // tried on the PC means anything on the glass (docs/40, docs/85). The default of
@@ -1417,5 +1440,7 @@ bool led_pixel(uint32_t index, uint8_t& r, uint8_t& g, uint8_t& b) {
 // The emulator's clock, moved by hand: a test that watches a five-second breath does not wait
 // five seconds for it (docs/30, docs/85).
 void advance_ms(int64_t delta) { hal::emulator_advance_clock(delta); }
+
+uint32_t held_the_power() { return g_held_the_power; }
 
 }  // namespace emu

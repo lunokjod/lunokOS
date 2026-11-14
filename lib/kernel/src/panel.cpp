@@ -8,6 +8,7 @@
 #include "kernel/bar.h"
 #include "kernel/display.h"
 #include "kernel/log.h"
+#include "kernel/power.h"
 #include "kernel/shell.h"
 #include "kernel/touch.h"
 #include "kernel/ui.h"
@@ -47,39 +48,42 @@ const uint16_t kHandleGap = 14;
 // The two rows that close the card, which are the same line the bar has under itself.
 const uint16_t kLineH = 2;
 
-// **Els cinc botons de la targeta** (0.185.0): the arrow of the way back in the left corner and the cross of the way out in the
-// right one —the two of 0.179.52— and **the three of the system in a row in the middle**: the settings, the restart and the power
-// off. All five are **one key**: a `UIButton` of this system with **no frame and no shadow** (`framed` false), so what a person
+// **Els sis botons de la targeta** (0.185.0, i la sisena des de la 0.189.25): the arrow of the way back in the left corner and the
+// cross of the way out in the right one —the two of 0.179.52— and **the four of the system in a row in the middle**: the settings,
+// the power off, **the deep sleep** and the restart. All six are **one key**: a `UIButton` of this system with **no frame and no
+// shadow** (`framed` false), so what a person
 // sees is the mark and nothing else, and it sinks by turning over while the finger is on it, which is the press every button of
 // this glass has (the owner: *«vull que siguin UIButton, però sense vores (afegir propietat al botó si no la te ja) i amb una
 // imatge/icona com a contingut»*) (docs/30, docs/45, docs/92).
-// **Les cinc claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
+// **Les sis claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
 // icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*). Una clau del sistema ja no és un quadrat d'una
 // icona: és **una icona amb el seu nom**, i el nom és dins del botó, o sigui que prémer el nom és prémer la clau.
 //
 //   - **les cantonades són amples** —`← Back` i `Close ✕`, amb la marca a la vora de fora, que és el que fa que les dues
 //     cantonades mirin enfora— i el repartiment el fa el dibuix del botó (`ui::kMarkLeft` i `ui::kMarkRight`);
-//   - **les tres del mig són altes**: la marca a sobre i la paraula a sota, dins del mateix rectangle, i la paraula a escala 1
-//     de la cara del sistema (a escala 2 no hi caben les dues coses en una clau de 128);
-//   - **`Settings` va separada de la parella** amb quaranta-vuit píxels en lloc dels dotze d'entre claus, que és el que el dibuix
+//   - **les quatre del mig són altes**: la marca a sobre i la paraula a sota, dins del mateix rectangle, i la paraula a dos passos
+//     de la cara del sistema, que és el que fa que quatre n'hi càpiguen (0.189.25);
+//   - **`Settings` va separada de les altres tres** amb quaranta-vuit píxels en lloc dels dotze d'entre claus, que és el que el dibuix
 //     de l'amo marcava amb `|||` (docs/30, docs/45, docs/92).
 const uint16_t kCornerTop = 20;   // la fila de les dues cantonades
 const uint16_t kCornerW = 190;    // una clau ampla: la marca i la paraula al costat
 const uint16_t kCornerH = 64;
 const uint16_t kKeyMargin = 24;
-const uint16_t kRowTop = 108;     // la fila de les tres del mig
-const uint16_t kMiddleW = 150;    // una clau alta: la marca a sobre i la paraula a sota
+const uint16_t kRowTop = 108;     // la fila de les quatre del mig
+const uint16_t kMiddleW = 112;    // una clau alta: la marca a sobre i la paraula sota
 const uint16_t kMiddleH = 104;
 const uint16_t kRowGap = 12;      // l'aire entre dues claus del mig
-const uint16_t kSettingsGap = 48;  // i el doble entre Settings i la parella
-// **La paraula, a tres passos de la cara del sistema** (0.185.3): a un pas fa onze píxels i no es llegeix —es va veure a
-// l'emulador—, i a tres són trenta-tres, que és el que cap en una clau de cent quatre files amb la marca a sobre (docs/30, docs/92).
+const uint16_t kSettingsGap = 48;  // i el doble entre Settings i les altres tres
+// **La paraula, a tres passos a les cantonades i a dos al mig** (0.185.3, 0.189.25): a un pas fa onze píxels i no es llegeix —es va
+// veure a l'emulador—, a tres són trenta-tres, i quatre claus amb paraules de trenta-tres passos no caben en cinc-centes quaranta.
 const uint8_t kWordScale = 3;
+const uint8_t kMiddleWordScale = 2;
 
-// **Quin botó és quin** (0.185.0): the five of the card, in the order the row of the three is drawn —the settings first and then
-// the pair that stops the board— (docs/30).
-enum class Key : uint8_t { kBack = 0, kClose = 1, kSettings = 2, kPowerOff = 3, kReboot = 4 };
-const uint8_t kKeyCount = 5;
+// **Quin botó és quin** (0.185.0): the six of the card, in the order the row of four is drawn —the settings first and then the three
+// that stop the board, with **the deep sleep between the power off and the restart**, which is where the owner asked for it: the
+// closer to off a way down is, the closer they sit— (docs/30).
+enum class Key : uint8_t { kBack = 0, kClose = 1, kSettings = 2, kPowerOff = 3, kDeepSleep = 4, kReboot = 5 };
+const uint8_t kKeyCount = 6;
 
 bool g_open = false;
 // **Quina clau té el dit a sobre** (0.185.2): the card is painted on the glass and not by a page of controls, so a press is a
@@ -100,6 +104,9 @@ struct KeyBox {
   uint16_t h = 0;
   uint8_t mark = ui::kMarkAbove;
   const char* word = nullptr;
+  // **L'escala de la paraula és de la clau i no de la targeta** (0.189.25): the corners have room for the system's three steps and
+  // the four of the middle do not, so each key carries how big its word is drawn (docs/30, docs/92).
+  uint8_t scale = kWordScale;
 };
 
 KeyBox key_box(Key which) {
@@ -123,18 +130,23 @@ KeyBox key_box(Key which) {
     box.word = "Close";
     return box;
   }
-  // **Settings, Poweroff, Reboot**, en aquest ordre i amb la separació de l'amo entre la primera i la parella.
-  const int16_t total = static_cast<int16_t>(3 * kMiddleW + kSettingsGap + kRowGap);
+  // **Settings, Poweroff, Deepsleep i Reboot**, en aquest ordre i amb la separació de l'amo entre la primera i les altres tres.
+  const int16_t total = static_cast<int16_t>(4 * kMiddleW + kSettingsGap + 2 * kRowGap);
   const int16_t left = static_cast<int16_t>((width - total) / 2);
   int16_t at = left;
   if (which == Key::kPowerOff) at = static_cast<int16_t>(left + kMiddleW + kSettingsGap);
-  if (which == Key::kReboot) at = static_cast<int16_t>(left + 2 * kMiddleW + kSettingsGap + kRowGap);
+  if (which == Key::kDeepSleep) at = static_cast<int16_t>(left + 2 * kMiddleW + kSettingsGap + kRowGap);
+  if (which == Key::kReboot) at = static_cast<int16_t>(left + 3 * kMiddleW + kSettingsGap + 2 * kRowGap);
   box.x = at;
   box.y = static_cast<int16_t>(kRowTop);
   box.w = kMiddleW;
   box.h = kMiddleH;
   box.mark = ui::kMarkAbove;
-  box.word = (which == Key::kSettings) ? "Settings" : ((which == Key::kPowerOff) ? "Poweroff" : "Reboot");
+  box.scale = kMiddleWordScale;
+  box.word = (which == Key::kSettings) ? "Settings"
+             : (which == Key::kPowerOff) ? "Poweroff"
+             : (which == Key::kDeepSleep) ? "Sleep"
+                                          : "Reboot";
   return box;
 }
 
@@ -146,6 +158,10 @@ const char* key_icon(Key which) {
       return "close";
     case Key::kSettings:
       return "settings";
+    case Key::kDeepSleep:
+      // **La lluna** (0.189.25): the system's marks are glyphs of the clipart it already carries, and the one of a board that
+      // sleeps with its keys awake is the moon of `tools/iconart.py` (`data/res/icons/deepsleep.png`) (docs/45, docs/50).
+      return "deepsleep";
     case Key::kReboot:
       return "reboot";
     default:
@@ -163,6 +179,10 @@ const char* key_icon(Key which) {
 bool key_is_there(Key which) {
   if (which == Key::kClose) return shell::the_page_in_front_can_be_left();
   if (which == Key::kBack) return apps::views() > 0;
+  // **I el son amb les tecles vives, només si la placa en té una** (0.189.25): the same rule as the cross —a key that does
+  // nothing says the system can do something it cannot— and it is asked of the board and not of the model of the glass
+  // (docs/30, docs/45, docs/50).
+  if (which == Key::kDeepSleep) return power::can_deep_sleep_with_the_keys();
   return true;
 }
 
@@ -214,7 +234,7 @@ void paint_the_key(hal::ISurface& surface, Key which, bool pressed) {
   const KeyBox box = key_box(which);
   ui::paint_a_button(surface, static_cast<uint16_t>(box.x), static_cast<uint16_t>(bar::height() + box.y), box.w,
                      box.h, /*background=*/15, /*border=*/0, pressed, /*focused=*/false, /*primary=*/false,
-                     box.word, /*color=*/0, kWordScale, /*framed=*/false, key_icon(which), box.mark);
+                     box.word, /*color=*/0, box.scale, /*framed=*/false, key_icon(which), box.mark);
 }
 
 void paint() {
@@ -297,6 +317,17 @@ void power_the_board_off() {
   shell::power_off("the card of the bar");
 }
 
+// **La lluna: la placa s'adorm i torna amb una tecla** (0.189.25, l'amo: *«l'afegeixes al panell desplegable del sistema entre el
+// botó de poweroff i el de reboot»*): the card drops the hold of the page without painting —`power::deep_sleep_with_the_keys` paints
+// the picture of the sleep, which is the paint the card would have paid— and asks the shell for the one sequence the prompt asks
+// for with `deepsleep`, so two ways down of the same board are two things kept in step (docs/30, docs/50).
+void sleep_with_the_keys() {
+  g_open = false;
+  ui::forget_the_page_hold();
+  log_printf(pal::kLogInfo, "PANEL", "the moon key: the board sleeps with its keys awake");
+  shell::deep_sleep("the card of the bar");
+}
+
 // **Els ajustos** (0.185.0): the settings of this system live in `cfg`, which is a line of the prompt and not a page yet —there is
 // no app of settings on the disk—, so the key opens the console in the glass, which is the app that speaks `cfg`, **with the page
 // that asked for it behind it** (`back`): closing the console comes back to where a person was (docs/30, docs/40).
@@ -325,6 +356,9 @@ void run_the_key(Key which) {
       return;
     case Key::kReboot:
       restart_the_board();
+      return;
+    case Key::kDeepSleep:
+      sleep_with_the_keys();
       return;
     default:
       power_the_board_off();

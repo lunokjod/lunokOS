@@ -150,9 +150,173 @@ funció.
 | `sys.delay(ms)` ⏳ | promesa | Espera sense tocar la cua d'alarmes ni el port sèrie |
 | `sys.time_ms()` | enter | Rellotge monòton en mil·lisegons. **Mai salta enrere** |
 | `sys.turn()` | enter | **Quantes instruccions val un torn de l'app** (0.174.7): el pressupost que el comptador de l'intèrpret compara, que és un ajust de la placa —`cfg turn <n>`— i no una constant. Una app que raoni sobre torns (`luaperf` en mesura el preu) el pregunta aquí i no se'n copia el número, perquè qui el canvia és una persona al prompt (docs/20, docs/75) |
-| `sys.session(key, bytes)` | **un objecte** o `nil, error` | **Una memòria de sessió, que el nucli guarda per a aquesta app sota aquesta clau** (0.179.0): la demana una vegada i la troba cada cop que l'app torna a arrencar —fins que la placa s'apaga o reinicia, o fins que falta memòria i el sistema la dóna—; les claus són **de l'app i no del sistema** (`"apps"` és un bloc per al llançador i un altre per a l'app que vingui després), el bloc és **a zero** el primer cop (així una app distingeix una caché freda d'una de calenta) i pot ser més petit del que s'ha demanat: `size()` diu el que té de debò. `read(offset, n)`, `write(offset, text)` —que torna els bytes que hi han cabut—, `clear()`, `size()`, **`release()`** (0.179.3, l'app dóna el bloc abans d'acabar) i **`alive()`** (0.179.8, i és la pregunta que fa un bloc quan el sistema se l'ha pogut quedar: `true` mentre sigui el bloc que el nucli va donar, `false` des que el relleu de l'allocator l'ha donat per falta de memòria; les altres crides d'un bloc que se n'ha anat aixequen `the session memory was given back` i no llegeixen res, i una app que pregunti abans d'usar-lo i en demani un altre quan la resposta és `false` no perd la pàgina, docs/75); `nil, E_NOMEM` vol dir que no hi ha lloc i l'app segueix sense caché. **I cada moviment seu surt al registre** (0.179.3): `[I][MEMORY] home_eink asks for 'apps': 32768 B, made`, `… and it has them`, `… grown from 4096`, `[I][MEMORY] hog gives back 'hog': 4096 B` i, quan és el sistema qui el pren, `[I][MEMORY] … the memory is short` amb `[W][MEMORY] the memory is short: 2 block(s), 1081344 B given back for an ask of 1024 B` al darrere —**el sistema només hi va quan una petició ha fallat**, i el bloc que la petició està movent es queda: `[I][MEMORY] home_eink keeps 'apps': 32768 B, it is the block that asked` (0.179.6, docs/75) |
+| `sys.session(key, bytes)` | **un objecte** o `nil, error` | **Una memòria de sessió, que el nucli guarda per a aquesta app sota aquesta clau** (0.179.0): la demana una vegada i la troba cada cop que l'app torna a arrencar. **I des de la 0.189.8 tampoc no es perd en apagar la placa**: el bloc s'escriu a **`/session/<id>/<key>`** (la targeta, o el flaix si no n'hi ha) quan l'app s'acaba —el bloc es queda a la memòria i només se'l queda l'allocator quan falta— i la petició que ve després d'un arrencada el llegeix del disc: `[I][MEMORY] home_eink asks for 'apps': 32768 B, restored 32768 B from the disk`. **I abans d'apagar o de reiniciar la placa s'escriuen tots els blocs que hi ha a la memòria** (`park_all`, 0.189.11), amb una línia per bloc que diu l'`id`, la `key`, els bytes, la ruta i el motiu: `lua parks 'one': 1024 B to /session/lua/one in 13 ms (the board is going off)`. **`sessions` al prompt** diu què hi ha ara a la memòria **i què només és un fitxer** —`id`, `key`, bytes, `memory`/`memory+disk`/`disk only` i **la ruta del VFS**—, i **`sessions destroy [<id> [<key>]]`** esborra de la memòria i del disc (0.189.11, i amb una sola paraula des de la 0.189.17): **sense res, tot**; **amb un id, tot el d'una app**; **amb dos, aquella sessió i prou**; les claus són **de l'app i no del sistema** (`"apps"` és un bloc per al llançador i un altre per a l'app que vingui després), el bloc és **a zero** el primer cop (així una app distingeix una caché freda d'una de calenta) i pot ser més petit del que s'ha demanat: `size()` diu el que té de debò. `read(offset, n)`, `write(offset, text)` —que torna els bytes que hi han cabut—, `clear()`, `size()`, **`release()`** (0.179.3, l'app dóna el bloc abans d'acabar) i **`alive()`** (0.179.8, i és la pregunta que fa un bloc quan el sistema se l'ha pogut quedar: `true` mentre sigui el bloc que el nucli va donar, `false` des que el relleu de l'allocator l'ha donat per falta de memòria; les altres crides d'un bloc que se n'ha anat aixequen `the session memory was given back` i no llegeixen res, i una app que pregunti abans d'usar-lo i en demani un altre quan la resposta és `false` no perd la pàgina, docs/75); `nil, E_NOMEM` vol dir que no hi ha lloc i l'app segueix sense caché. **I cada moviment seu surt al registre** (0.179.3): `[I][MEMORY] home_eink asks for 'apps': 32768 B, made`, `… and it has them`, `… grown from 4096`, `[I][MEMORY] hog gives back 'hog': 4096 B` i, quan és el sistema qui el pren, `[I][MEMORY] … the memory is short` amb `[W][MEMORY] the memory is short: 2 block(s), 1081344 B given back for an ask of 1024 B` al darrere —**el sistema només hi va quan una petició ha fallat**, i el bloc que la petició està movent es queda: `[I][MEMORY] home_eink keeps 'apps': 32768 B, it is the block that asked` (0.179.6, docs/75). **I la falta de memòria té un ordre** (0.189.11): primer van al disc les cachés de les apps que **no** són al vidre i només si això no cobreix la petició la de l'app que hi és, que la torna a trobar quan la demana. **I el nombre de sessions d'una app no té sostre** (0.189.36, l'amo: *«Les apps han de poder fer totes les sesions que vulguin. fins que la ram o el disc rebenti!»*): la taula de vuit blocs del nucli va marxar i un bloc és un node de quaranta-vuit bytes que es fa quan es demana i es torna quan es torna, o sigui que l'única resposta que no és un bloc és la de la memòria (`there is no room`), i `sessions` i `mem` diuen el número que hi ha i no el que hi cabia |
+| `sys.session_destroy(key)` | **una taula** o `nil, error` | **Una app llença una sessió seva** (0.189.16): la del `key`, **de la memòria i del disc**, i les altres sessions de l'app no es toquen. És l'única de les tres portes que ho fa de debò: `release()` dóna el bloc **i el desa al disc**, i `clear()` posa els bytes a zero i la propera arrencada torna a llegir el fitxer. Torna `{blocks, files, bytes}` —què hi havia i què s'ha esborrat: `32768` bytes d'una caché, o zeros si no hi era, que no és cap error—, i el rellotge de generacions fa que un objecte de l'app que encara tingui el bloc respongui `alive() == false` i que les seves crides aixequin `the session memory was given back` (docs/30, docs/75). És el que fa servir una pàgina que ha d'esborrar la seva caché quan la persona ho demana, sense passar pel prompt |
 | `sys.reboot([reason])` | no torna | **Reinicia la placa** (0.171.0): la imatge del moment (el dibuix `reboot` del splash) va al vidre, s'espera la tinta i la placa torna a arrencar. `reason` és el que queda al log —`[I][APPS] wipe restarts the board: the NVS was erased`—, i el que fa la feina és el mateix `reboot` del prompt (docs/50). **No torna**: la VM de l'app mor amb la placa, i per això el que calgui desar s'ha de desar abans |
+| `sys.deepsleep([reason])` | no torna, o `nil, error` | **La placa s'adorm amb les tecles vives** (0.189.25): la imatge del `sleep` va al vidre, l'app es tanca amb els seus comiats, les sessions s'escriuen i el xip dorm **mantenint el corrent**, amb la **tecla del dial (GPIO38)** com a despertar. És la lluna de la targeta de la barra i el `deepsleep` del prompt, i les tres coses són el mateix camí (docs/50). **No és `power.sleep('deep')`**, que en aquesta placa és una apagada esperant una hora, ni `sys.reboot`, que torna sol: aquí torna quan una persona prem una tecla, i **l'app torna a començar** —un son profund és un reset— amb la pàgina a la tinta mentrestant. `reason` va al log amb el nom de qui ho demana. Una placa que no té cap tecla en un pin que el xip vigili respon `nil, E_UNSUPPORTED` **sense gastar la imatge** |
 | `sys.shell()` | objecte de sessió o `nil, error` | **Una sessió del shell del sistema** (0.159.0): el mateix shell que atén el prompt, amb **tres canonades** en comptes d'un terminal. Vegeu «Una sessió del shell» més avall |
+| `sys.commands()` | **una taula de paraules** | **Les comandes que respon el prompt** (0.189.9): `49` paraules, les mateixes que el nucli llegeix a `help` i a la línia de text, perquè una pàgina que les llista i el prompt no es poden contradir. És el que fa servir el selector de comandes de l'app `shell`, que hi posa una fila per paraula i deixa la triada a la línia del prompt **sense enviar-la** |
+| `sys.settings()` | **una taula de deu camps** o `nil, error` | **Els ajustos del sistema, llegits per una app** (0.189.13): el mateix que `cfg` imprimeix al prompt, perquè una pàgina que ha d'obeir un interruptor no el pot inventar. Els camps són `unit` (la unitat on viuen les apps: `sd`, `littlefs` o buit), `keyboard`, `boot` (la imatge de l'arrencada), `home` (l'app que surt amb la placa, o buit), `week` (`monday`/`sunday`), `tz` (l'offset escrit com el prompt, `+01:00`), `leap`, `dst` i **`sort_by_usage`** (booleans) i `turn` (les instruccions de Lua que val un torn). **És només de lectura**: qui escriu un ajust és `cfg`, i les preferències són de la persona —una app que necessiti un commutador propi el guarda a la seva sessió (docs/30, docs/75)—. Un sistema que no en sàpiga (o que no tingui el magatzem) respon `nil, E_UNSUPPORTED` o `nil, E_UNAVAIL`, i una pàgina que ho toleri es queda amb l'ordre i els valors que tenia. El primer lector és `home_eink`, que dibuixa el grid de més usada a menys quan `sort_by_usage` és cert (docs/40) |
+
+## La sessió `state`: la vista com la va deixar la persona (0.189.12)
+
+**Tota app que té pàgina té una sessió que es diu `state`, i el que hi ha a dins és la forma de la vista i res més.** És
+el que fa que una app es pugui tancar —o que una persona marxi a una sub-vista i torni mitja hora després, o que la placa
+s'apagui— i que la pàgina torni **exactament com la va deixar**: el control que tenia el cercle, la pàgina d'una llista, la
+pestanya triada, les caselles marcades, el que hi ha escrit a les caixes i fins on era desplaçada una caixa llarga.
+
+**No són preferències.** Una preferència és una decisió de la persona sobre com vol l'app —el tema, la unitat, l'idioma,
+l'ordre dels elements— i viu a `/cfg` o al fitxer de dades de l'app (`fs.data`), no aquí. El criteri, en una línia: **si
+l'app ho pot decidir tota sola i la persona no ho trobaria a faltar, és forma; si la persona ho tria i vol que duri, és
+preferència.** Un tema fosc és una preferència encara que canviï la vista; la pestanya on era és forma.
+
+### El bloc i el format
+
+`sys.session('state', 1024)` —**un kilobyte és de sobres**: vuitanta línies de quaranta caràcters— i un format de text amb
+**una cosa per línia**, que és el que fa que es pugui llegir amb un `hexdump` i sobreviure a una versió de l'app:
+
+| Línia | Què diu |
+|---|---|
+| `v1` | **la primera línia és la versió del format** (vegeu «quan la vista canvia de forma») |
+| `focus=<nom>` | el control que tenia el cercle, pel **nom que l'app li dóna** i no pel seu número |
+| `page=<n>` | la pàgina d'una `ui.list` o d'una `ui.icon_grid` |
+| `tab=<n>` | la pestanya d'una `ui.tabs` |
+| `scroll=<n>` | la primera fila visible d'una `ui.textbox_multiline` o d'una llista llarga |
+| `marked=<n>` | la fila triada d'una llista, quan la tria és part de la vista |
+| `check:<nom>=0\|1` | una casella |
+| `text:<nom>=<text>` | el contingut d'una caixa, amb `\n` i `\\` escapats |
+
+**El codi que desa i recupera és el mateix a totes les apps** i es copia sencer: no és una cosa que cada app pugui
+inventar-se, perquè una app que ho fa a la seva manera és una app on el format canvia sense que ningú ho vegi.
+
+```lua
+-- The state of this page, and the pair that writes it and reads it. **Copy this block into the app** and change
+-- `kLayout`: it is the same in every app because "which control had the ring" is the same question everywhere
+-- (docs/30, docs/45).
+local kStateBytes = 1024
+local kLayout = 'v1'   -- bumped when a control is renamed or the page changes shape
+
+local state = nil      -- the block: asked once and kept for the life of the app
+local function the_state()
+  if state == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state = block
+  end
+  return state
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  -- **A Lua pattern does not escape with a backslash** —`%` is its escape— so one `\\` in the literal is one
+  -- backslash in the text, and `\\(.)` would be asking for two of them (found by running this very snippet, 0.189.12).
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+-- **What the page is now**, one line per thing: the four numbers, the checkboxes and the boxes.
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+-- **What the page was**: `nil` when there is nothing to read back, or when the state is of another shape —a state that is
+-- not this page's is worse than no state, because it would put the ring on a control that no longer exists.
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  -- **Un bloc sense ni la línia de la forma no és un estat buit, és un bloc que no és d'aquesta pàgina**: an empty session
+  -- reads as nothing, so an app that is opened for the first time builds its page and decides everything itself.
+  if first then return nil end
+  return now
+end
+```
+
+- **Els números tornen com a text** (`now.page` és `"2"`): l'app fa `tonumber` i **acota** el valor abans de fer-lo
+  servir (`math.min(math.max(1, page), #pages)`), perquè una llista que avui té tres pàgines i ahir en tenia cinc no pot
+  deixar la pàgina en una que no existeix.
+- **El focus va pel nom i no pel número**: els noms són de l'app (`'ok'`, `'search'`, `'tab-settings'`) i el número d'un
+  control és un forat de la taula de llenços que canvia quan la pàgina es torna a fer.
+- **Un `nil` de `sys.session` no és cap error**: vol dir que no hi ha hagut lloc per al bloc i l'app va sense record.
+
+### Quan es desa i quan es llegeix
+
+| Moment | Què es fa |
+|---|---|
+| **En construir la pàgina** (`build()`) | es llegeix el bloc **abans** de col·locar res, i la pàgina es fa amb la pestanya, la pàgina i el focus que diu |
+| **Cada vegada que la forma canvia** | es desa: una pestanya triada, una pàgina girada, una casella premuda, una lletra escrita, una fila marcada. **Escriure al bloc és copiar un kilobyte a la PSRAM**, no una escriptura al disc: costa el que costa una línia de text |
+| **Abans de marxar a una sub-vista** | es desa, i la sub-vista que torna el llegeix i deixa la pàgina com era |
+| **`on_pause`, `on_save` i `on_close`** | les tres portes que el shell crida quan l'app s'acaba (docs/40): es desa aquí **també**, perquè una app pot no haver vist venir el tancament |
+| **Apagar o reiniciar la placa** | no és cosa de l'app: el nucli desa tots els blocs abans de plegar (0.189.11, docs/75) |
+
+### Quan la vista canvia de forma
+
+La primera línia és la forma, i **quan una app canvia el nom d'un control, en treu un o n'afegeix un de nou, `kLayout` puja
+de número** (`v1` → `v2`). L'state d'abans es llença i la pàgina arrenca com una app nova: és millor que un cercle en un
+control que no existeix o una casella que es diu igual que una altra cosa. **I no es migra**: migrar una forma de la vista
+d'una versió a una altra és codi que ningú no tornarà a mirar.
+
+### El que **no** hi va
+
+- **Preferències**: el tema, la unitat, l'idioma, l'ordre, la mida de la lletra triada per la persona → `/cfg` o
+  `fs.data` (docs/40, docs/70).
+- **Els documents i les dades de l'app**: la partida del 2048, el llibre obert, les notes → el seu fitxer amb `fs.data`.
+  La *posició* on era el llibre és forma; el llibre és dada.
+- **El que l'app torna a construir llegint el disc** (una caché, una llista de fitxers): això és una altra sessió, amb la
+  seva clau (`apps`, `index`…), no `state`.
+- **Res del maquinari ni de la persona**: ni la bateria, ni l'hora, ni el nom.
+
+**I una pàgina que dibuixa una cosa que costa fer-la torna a dibuixar-la d'una còpia** (0.189.26): la galeria de tipus de
+lletra (`fonts`) desa **una mostra de cada cara per sessió** —el nom de la font dibuixat amb la seva pròpia lletra— i el
+títol de la fila és un `cv:blit` d'aquell bloc i no una lletra composta a cada obre. **I només les de la pàgina que es veu**
+(0.189.30, l'amo: *«Carrega de les sessions només els tipus de lletra que et calen per aquesta pàgina … No les carreguis
+totes de cop»*): les files es fan buides i el títol es demana quan la fila és al vidre i quan una pàgina gira, o sigui que
+un prestatge de nou cares no obra nou cares per ensenyar-ne tres. La clau d'una sessió és de quinze
+bytes i un nom de fitxer és més llarg, o sigui que la clau és un hash del nom (`s1a2b3c4`) i **el capçal del bloc diu de
+quin fitxer i de quina mida és**: un nom que caigués a la mateixa clau es veu al capçal i una cara que ha canviat es
+torna a dibuixar. És el mateix patró que la caché d'icones del llançador, amb el seu número de versió al capçal
+(docs/75).
+
+### Per què una sessió i no un fitxer
+
+Perquè el bloc viu a la PSRAM mentre l'app corre —desar-hi és una còpia, i una pàgina que gira cada dues-centes
+mil·lisegons no toca la targeta— i **el disc el fa el nucli** quan toca: en tancar l'app, quan la memòria va curta i abans
+d'apagar (0.189.7 i 0.189.11, docs/75). Un fitxer propi seria el mateix amb la meitat de garanties, i el dia que
+l'allocator va curt la caché del fitxer no es podria tornar. I es pot esborrar d'una comanda: `sessions destroy [<id>
+[<key>]]` o `sys.session_destroy(key)` des de dins de l'app (docs/75).
 
 ## Una sessió del shell (0.159.0)
 
@@ -189,7 +353,7 @@ sh:close()                           -- o escriure 'exit\n' al stdin, que és co
 - **El que costa**: 1 024 B de respostes i 256 B de queixes **demanats al heap** mentre la sessió viu, i res quan es
   tanca. **Una sessió alhora**: la segona rep `E_BUSY` amb el motiu, i no una cua que ningú buida (docs/75).
 
-## L'app `shell`: el terminal amb pestanyes (0.162.0)
+## L'app `shell`: el terminal amb pestanyes (0.162.0, els menús des de la 0.189.29)
 
 **`apps/shell` és el shell del sistema al vidre i no una segona implementació**: cada pestanya és una
 sessió de `sys.shell()` i l'app només fa de pàgina. La composició és la d'un terminal —**la barra de
@@ -198,23 +362,35 @@ s'assembla a cap document del sistema: aquí no es llegeix, aquí s'escriu.
 
 | La peça | Què fa |
 |---|---|
-| `ui.menu_bar`, títol **File** | **New** obre una sessió (i una pestanya) i **Close** tanca la que és al davant. És `on_pick(self, title, entry)` qui ho rep |
-| `ui.tabs` amb `closeable = true` | una pestanya per sessió, amb una **creu a la dreta** que el sistema dibuixa i que arriba com a `on_close(self, index)`; el cos de la pestanya arriba com a `on_change(self, index)` i el dit, per `tabs:tap(x, y)` |
-| `ui.textbox_multiline` amb `color = 15` i `background = 0` | el full del terminal. **La lletra blanca sobre negre és una decisió de la pàgina**, i el color 0 no vol dir «sense color» sinó negre |
+| `ui.menu_bar` amb **File** i **Commands** | els menús són **del sistema** (0.189.29, l'amo: *«ha de ser amb menús contextuals com l'editor. Has fet una guarrada amb botons i vistes extra. Usa sempre que puguis UIControls»*): `File` té `New session`, `Rename session`, `Close session` i `Close others` —les dues de tancar amb `enabled = false` quan no es poden fer— i `Commands` té **els temes** |
+| `ui.menu` per tema | **la llista de comandes no cap en un menú** (el nucli en respon cinquanta i un `ui.menu` en té dotze), així que `Commands` ofereix els temes —`Files`, `Disk`, `Apps`, `System`, `Power`, `Time`, `Network`, `Hardware` i `Other`— i un dit sobre un tema obre una targeta amb les seves paraules. Un mot que el nucli afegeixi i que la taula no conegui va a `Other` i no es perd |
+| `ui.tabs` amb `closeable = (#tabs > 1)` | una pestanya per sessió. **La creu hi és només quan hi ha més d'una**: l'última no es pot tancar (l'amo: *«Pot tancar-les totes menys l'última»*), i la pàgina tampoc no la deixa per `File`. **Un toc llarg sobre una pestanya en pregunta el nom** en una targeta del sistema (`Cancel` / `Name it`), i el nom arriba al bloc de `state` |
+| `ui.textbox_multiline` amb `color = 15`, `background = 0` i `blink = true` | el full del terminal. **La lletra blanca sobre negre és una decisió de la pàgina**, i el color 0 no vol dir «sense color» sinó negre. `blink` és el que fa que el cursor hi sigui amb el teclat baixat |
 | `session.stdin:write` / `stdout:read` | el que una persona escriu a l'última línia se'n va a la sessió; el que la sessió contesta s'afegeix al text de la pestanya |
 
-- **La caixa és de només lectura i la línia del prompt no ho és.** Una pàgina que es llegeix no ha
-  de poder-se tocar, però l'última línia és on s'escriu, i el que decideix és **el cursor**:
-  l'app mira `box.cursor` a cada torn i posa `box.readonly = false` (i `box.keyboard = true`) quan és
-  a l'última línia. Aquesta regla viu a l'app i no al control perquè **la caixa de diverses línies no
-  té ganxo de cursor mogut** —`on_change` només arriba quan canvia el text—; si algun dia el té, el
-  lloc d'aquesta regla és el control.
+- **La caixa pren tecles sempre, i el que cau abans del prompt es torna a posar** (0.189.29): la regla
+  de «la caixa és de només lectura i l'última línia no» era certa com a idea i **no es podia complir**,
+  perquè el sistema pregunta `readonly` i `keyboard` **en el moment del toc** i el toc que havia de
+  moure el cursor anava a una caixa que deia que no prenia tecles: la banda no pujava mai (l'amo:
+  *«Tampoc li funciona el teclat, polso sobre el cursor i no es desplega»*). Ara `readonly` és fals
+  sempre i `on_the_line` **desfà** qualsevol edició que no comenci pel text de la pestanya i el prompt.
 - **Una línia que acaba en salt de línia és una comanda** i surt del full: el shell és qui l'ecoïa, i
   la resposta torna per `stdout` com tota la resta. Una línia que no acaba en salt es queda a la
   pàgina, que és el que fa un terminal mentre s'escriu.
 - **La creu és una promesa**: `on_close` crida `session:close()` abans de treure la pestanya. Una
   pestanya que marxa amb la sessió oberta deixa una sessió que ningú no llegeix (i la segona sessió
   rep `E_BUSY`, o sigui que la pàgina es quedaria sense cap pestanya nova possible).
+- **La tinta és la justa** (0.189.29, l'amo: *«L'app ha de refrescar el mínim possible. Només les zones
+  afectades i amb qualitat de tinta adient (la justa i necessària per tapar el que hi ha)»*): els
+  controls es fan **una vegada** i `layout()` els torna a col·locar quan la vista canvia (la banda del
+  teclat, la pantalla sencera), en lloc d'alliberar-los i fer-los de nou a cada canvi; una línia que
+  arriba és un `du` de la caixa —escriu a sobre del que hi ha sense parpellejar— i una pàgina que no ha
+  canviat no paga cap tinta.
+- **I la vista es recorda** (0.189.29): `state` desa `tabs`, `tab` i un `text:t<n>`/`text:l<n>` per
+  pestanya —el títol i **les últimes línies** del terminal—, i el segon obre torna amb les mateixes
+  pestanyes, els mateixos noms i la mateixa pestanya al davant. **La sessió no torna** —un tub d'una app
+  que s'ha anat és un tub de ningú— i el que torna és el que una persona llegeix: el seu tros de
+  scrollback amb sessions noves a sota (docs/45).
 
 ## Saber on s'executa
 
@@ -273,7 +449,7 @@ end
 ```
 
 **El que sí que hi és sempre**: `sys`, `fs`, `net`, `http`, `json`, `qr` (un QR s'imprimeix en text i una placa sense
-pantalla el necessita per al provisioning), `button`, `led`, `power`, `imu`, `env`, `alarm`, `time`, `apps`, `app`,
+pantalla el necessita per al provisioning), `button`, `led`, `serial`, `power`, `imu`, `env`, `alarm`, `time`, `apps`, `app`,
 `require` i la consola. La frontera és el **vidre** i no «el que dibuixa»: una placa amb pantalla i sense tàctil té `ui` i
 no té dit, i una sense pantalla no té cap de les dues (docs/50).
 
@@ -286,7 +462,7 @@ llegís caminant `/apps` seria un segon lector del mateix fitxer.
 | Crida | Torna | Notes |
 |---|---|---|
 | `apps.list()` | taula de cadenes | **Els noms de la porta i res més**: un `id` per app, en l'ordre que el disc els dona. **No obre cap manifest**, o sigui que és el que un llançador pot ensenyar de seguida —el nom amb una icona genèrica— i el que arriba abans que el disc tregui res |
-| `apps.info(id)` | taula o `nil, error` | **El manifest d'aquella app**, llegit quan l'app ho demana: `{id, title, icon, launcher, card, works_here}`. `icon` és **el camí que el disc contesta** (`/apps/<id>/res/icon.png`), o `""` si el manifest no en nomena cap; `launcher` és el `"launcher": true`; `card` diu de quin disc ha sortit i `works_here` si aquesta placa la pot arrencar. El no diu per què (`E_INVAL`): un nom que la porta no té, o un manifest que aquest sistema no llegeix |
+| `apps.info(id)` | taula o `nil, error` | **El manifest d'aquella app**, llegit quan l'app ho demana: `{id, title, icon, version, launcher, card, works_here}`. `icon` és **el camí que el disc contesta** (`/apps/<id>/res/icon.png`), o `""` si el manifest no en nomena cap; `version` és el `"version"` del manifest tal com l'escriu (`"0.2.0"`), o `""` si no en porta (0.189.22: és el número que deixa saber a un llançador que la cel·la que té guardada és d'una app d'abans); `launcher` és el `"launcher": true`; `card` diu de quin disc ha sortit i `works_here` si aquesta placa la pot arrencar. El no diu per què (`E_INVAL`): un nom que la porta no té, o un manifest que aquest sistema no llegeix |
 
 **Per què són dues crides i no una** (0.154.0): una pàgina que espera tots els manifests i totes les imatges abans
 d'ensenyar res arriba tard, i una app lenta o un manifest trencat atura les altres. Amb les dues, el llançador dibuixa
@@ -311,6 +487,64 @@ demana el manifest de les que són noves. El log d'un retorn diu, en aquest ordr
 —la pàgina, del bloc—, `home: 10 ids: …` —la porta, que hi està d'acord— i cap `home: app`; i el d'una app instal·lada
 diu `home: 11 ids`, `home: 11 cells` i `home: app newone` (mesurat a l'emulador amb una carpeta posada a la targeta
 mentre corria).
+
+**I el que la pàgina no dibuixaria no compta com un canvi** (0.189.19): la porta llista l'app que necessita una altra placa
+i la que és un altre llançador, i la pàgina no en dibuixa cap de les dues. Descobrir-ho un torn més tard, a la cua, feia
+**una altra pàgina sencera** per una cel·la que no hi era mai, i passava **a cada arrencada**, perquè el bloc només guarda
+el que la pàgina ha dibuixat i la porta sempre en contesta una més. Mesurat: el llançador pintava el vidre **tres vegades**
+en tornar (`gc16` de la pàgina del bloc, `gl16` de la llista de la porta i `gl16` sense l'app que no hi corre); ara el
+filtre es fa **abans de comparar**, amb **una lectura de manifest per id que la pàgina no coneixia** —la mateixa que la cua
+hauria pagat d'un en un—, i la pàgina que no canvia **no es torna a fer**: una sola pintada.
+
+**I una versió de menys és una cel·la que menteix** (0.189.22, l'amo: *«Si tens una app en una versió anterior has de
+descartar l'entrada d'aquesta app del caché de la sessió "apps" per refrescar l'icona i el numero de versió»*): el bloc
+desa la **versió** de cada app a més del títol, la icona i el número del dibuix, i en tornar el llançador **comprova una
+app per torn** contra el disc —no totes de cop: el mateix ritme amb què arriben els manifests quan la caché és freda, i la
+pàgina ja és al vidre—. Quan el número ha canviat, la cel·la es torna a pintar amb l'**icona del disc** i el **títol nou**,
+el seu dibuix es torna a desar **al mateix número** (l'app és la mateixa app) i el bloc queda amb la versió d'avui; el log
+diu `home: alpha is 0.2.0 (was 0.1.0), the picture is read again`. Un manifest que avui no es pot llegir **no esborra** el
+que hi havia, i una versió buida al manifest també compta com un canvi (una app sense número no és una app que no ha
+canviat). Com que el registre va néixer sense aquest camp, el bloc porta ara la marca `HEC2`: el primer arrencada després
+de la 0.189.22 és una caché freda i prou.
+
+**I un registre del bloc no és un manifest** (0.189.28, i és un error que es va veure a la placa): `reconcile` decideix què
+ha de tenir la graella preguntant `launcher` i `works_here`, i **el que ve del bloc només porta títol, icona i versió** —
+amb els dos camps absents, totes les apps d'una pàgina calenta es llegien com «needs another board» i la graella quedava a
+zero cel·les (`12 ids`, dotze «needs another board», `0 cells`). Ara el registre diu el que la pàgina sap de debò —**una
+fila del bloc és una fila que aquesta pàgina va dibuixar**, i aquesta pàgina només dibuixa el que corre aquí— i qui té
+l'última paraula és la **comprovació d'una versió per torn**, que ara també mira `launcher` i `works_here`: una app que ha
+canviat de manifest surt de la graella i la pàgina es torna a fer (docs/40, docs/75).
+
+**I quan la llista canvia amb la pàgina al vidre, el sistema la truca** (0.189.23): `repo install <id>` i `apps remove
+<id>` deixen el canvi a la porta de les apps —el número de la llista puja i el registre diu `[I][APPS] the list changed
+(install squares), generation 3`— i el bucle del nucli el lliura, **entre dos torns**, a l'app que `cfg home` nomena, amb
+`on_event({kind = "apps", what = "install"|"remove", generation = n})`. **No hi ha cap notificació**: el
+sistema no pot dibuixar dins d'una app (`ui.notification_bar` és un control que la pàgina pinta, no un canal), i el que hi
+ha és el mateix camí que `on_alarm` i `on_light` —un ganxo global, cridat amb la coroutine de l'app suspesa, que **no pot
+esperar** i que ha de **marcar i tornar**—. **El nom de l'app instal·lada no viatja a l'event**: la pàgina torna a preguntar
+la llista sencera i el nom sortia quaranta bytes de DRAM amunt (docs/75). La pàgina fa la feina al seu torn: `home_eink` posa una marca, torna a preguntar
+la llista a la porta i afegeix o treu les cel·les que han canviat, sense tornar a fer la graella sencera (docs/40, docs/75).
+Una app que no declara `on_event` no rep res i el registre ho diu; una app que no és la de `cfg home` tampoc, i no cal que
+ho rebi: la llista la torna a llegir quan arrenca.
+
+## El recompte d'usos: `cfg sort` i la sessió `usage` (0.189.13, 0.189.14)
+
+**Un booleà del sistema diu si les apps es mostren de la més usada a la menys**, i el comptador és **una sessió d'una
+pàgina** i no una taula del nucli:
+
+- **`cfg sort on|off`** (`true`/`false` i `yes`/`no` són la mateixa cosa) és l'ajust —el prompt el té a la llista de
+  comandes del README i el seu ús surt a `cfg`—, i **`sys.settings().sort_by_usage`** és com una app el llegeix. Vegeu la
+  fila de `sys.settings()` més amunt.
+- **El recompte viu a la sessió `usage` de la pàgina que dibuixa la graella** —avui `home_eink`—, amb **una línia per
+  app**: `id<TAB>count`. Les claus d'una sessió són de l'app (docs/75), i el nom `usage` és la part que és del sistema: **el
+  prompt el llegeix pel nom de la clau i no pel de l'app**, o sigui que un llançador que es digui d'una altra manera funciona
+  igual (docs/40).
+- **`apps` i el grid diuen el mateix**: la comanda llegeix **els mateixos bytes** (`session::copy`, la memòria si hi és i el
+  fitxer si no) i els ordena igual —de més usada a menys i el nom com a desempat—, i a més a més **diu el número a cada
+  línia** (`[3 uses]`) perquè una llista en un ordre que no s'explica sembla barrejada. Zero usos no és cap error: és el que
+  té una app que ningú no ha obert, i surt després de les que sí.
+- **Un recompte no és una preferència i no va a `state`**: el que la persona tria és *si* s'ordena (això és `cfg`), i el
+  número és el que la pàgina ha après.
 
 ## `app`
 
@@ -665,6 +899,30 @@ llegeix l'app amb `epub.entries`, `epub.name` i `epub.read`, i **l'ordre dels ca
 de quatre claus sense arbre (docs/75). Si una app necessita un arbre, es parla i es mira el número
 abans, com tot el que creix.
 
+## `rle`
+
+**El comprimidor del sistema, com `zip` ho és per a un contenidor** (0.189.6): una *run-length* de bytes, que és
+el que una caché d'icones —nibbles de paper amb una marca fosca al mig— demana. Viu a `lib/rle`, no té cap reserva
+de memòria i la fa servir qui vulgui, el nucli inclòs (docs/75).
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `rle.pack(text)` | cadena o `nil, error` | El text comprimit: **`R`, `L`, `E` i la mida que descomprimeix** (set bytes) i després les tirades. `""` per a un text buit; `E_NOMEM` si no hi ha lloc pel bloc temporal |
+| `rle.unpack(text)` | cadena o `nil, error` | El text sencer, o `E_INVAL` si el que s'ha llegit no és un stream de tirades o està tallat. **La mida es demana abans de descomprimir**, o sigui que un stream que menteix no arriba a fer mitja imatge |
+
+- **El format és PackBits**, el que un byte de control diu tot sol: un control de `0..127` és una **tirada literal**
+  de `control + 1` bytes que venen tal com són, i un de `128..255` és una **repetició** del byte següent `257 - control`
+  vegades (de dues a cent vint-i-nou). Una tirada de tres bytes iguals o més és una repetició i la resta és literal,
+  o sigui que el pitjor cas creix **un byte cada cent vint-i-vuit** (`rle::packed_capacity`). El mateix `RLE` que
+  llegeixen els BMP de Windows, però amb capçalera pròpia perquè un blob d'aquesta casa es pugui reconèixer.
+- **`rle` no és un `zip`**: `lib/inflate` descomprimeix deflate i el fa servir el `.epub`, el `.woff` i el PNG; una
+  caché d'icones no val una finestra de trenta-dos kilobytes d'història i una taula de Huffman, i una imatge de paper
+  és exactament el que una run-length fa bé. **El descompressor d'imatge no en tenia cap per aprofitar**: el lector
+  de BMP **refusa el RLE** del format (`kUnsupported`, `lib/img/src/bmp.cpp`) i el PNG no en té —és deflate—, o sigui
+  que `lib/rle` és el que faltava i no el que ja hi era (docs/30, docs/75).
+- **El bloc temporal és de la memòria extra i es dóna abans de tornar**: el que es comprimeix és de la mida de la
+  caché, i un bloc demanat i tornat dins la mateixa crida no és cap reserva que quedi (docs/75).
+
 ## `net`
 
 | Crida | Torna | Notes |
@@ -903,6 +1161,26 @@ sobre `/data/<id>/store.json`, amb claus de 15 caràcters com a màxim.
 | `store.clear()` | — |
 
 
+## `serial`: el port sèrie cedit (0.189.20)
+
+El port sèrie d'una placa és **dues coses alhora**: la manera d'entrar-hi quan no hi ha vidre —el prompt, el registre, l'eco— i
+un fil que una app pot necessitar **sencer**. Aquest mòdul és l'interruptor, i és **un sol propietari**:
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `serial.claim()` | `true` o `nil, error` | **El port passa a ser de l'app.** Mentres ho és, **el sistema no hi escriu res** —ni prompt, ni eco del registre, ni la taula de `stats`— i les paraules de l'app (el seu `console.print`, el seu `sys.read_line`, els codis de `term`) **hi segueixen anant**, perquè és ella qui el té. `E_BUSY` si ja és d'algú altre: dos amos d'un fil és el desori que aquesta porta existeix per evitar |
+| `serial.release()` | `true` o `nil, error` | I torna al sistema. `E_UNAVAIL` si no era cedit; només el qui el té el pot donar |
+| `serial.claimed()` | booleà | Si el port és d'algú, que és el que una pàgina pregunta abans de dir «el port és meu» al vidre |
+
+- **Qui llegeix**: el sistema llegeix el port **una vegada per torn** (`kernel::poll`) i `shell::feed` entrega el que arriba a
+  l'app que és al davant i **no es queda res** (0.160.0). O sigui que «el sistema no llegeix» ja és el que passa quan una app
+  hi és; el que afegeix la cessió és **el silenci de tornada**.
+- **Qui dona el port**: `serial.release()`, i **el nucli quan l'app s'acaba** —la mateixa regla que el llum del M5Atom: un port
+  cedit a una app que ja no hi és és un port que una persona no pot recuperar—. El de la persona no es toca.
+- **I des del prompt** hi ha la comanda `serial` (sense res diu de qui és), `serial claim` i `serial release`. Una persona que
+  cedeix el port es queda **un teclat que no fa eco** per poder escriure `serial release` a cegues: és l'única manera de tornar
+  sense desendollar la placa (docs/50).
+
 ## `led`
 
 El llum de la placa: **un** LED al ATOM Lite i **vint-i-cinc** al Matrix (5 per 5, un panell). El
@@ -1072,12 +1350,13 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | Crida | Torna | Notes |
 |---|---|---|
 | `ui.caps()` | `{width, height, levels, x, y}` | La grandària de la **vista**, els seus nivells (16) i **on està** dins del vidre. L'alçada és **el que queda sobre el teclat** mentre la banda és al vidre (0.84.0) |
-| `ui.clear(level, [mode])` | `true` o `nil, error` | Tota la vista d'un nivell |
+| `ui.clear(level, [mode])` | `true` o `nil, error` | Tota la vista d'un nivell. **I els controls que hi havia es tornen a dibuixar** (0.186.0): el paper de la vista se'n duu la tinta de tots ells, i el sistema els demana el dibuix com fa amb un forat a la pàgina —abans, el control que no havia mogut la seva caixa no tornava mai i la pàgina es quedava sense ell (el botó `New` del `2048`, docs/45, docs/90)— |
 | `ui.rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Un rectangle; `level` per defecte 0 (negre) |
 | `ui.pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
 | `ui.invert(x, y, w, h, [mode])` | `true` o `nil, error` | **Gira una caixa: la tinta es torna paper i el paper tinta**, nivell a nivell (el 5 es torna 10), que és el dibuix que diu «aquest és el que respondrà» en aquest vidre (0.178.0). És una primitiva i no una manera de pintar perquè el que es gira és **el que ja hi ha**: el paper d'una imatge, els seus grisos i la lletra del mig (docs/92) |
 | `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode` **el sistema tria la qualitat de la pàgina** (0.179.5): `gl16` —setze nivells i cap flaix— i `gc16` quan el panell ja ha rebut tantes passades que li queda fantasma; **una qualitat que l'app va nomenar en un dibuix es respecta**. Amb `mode`, tot el que està pendent es pinta amb aquesta i prou —**en les seves caixes**, perquè dues caixes que no es toquen no es converteixen en una de sola que també cobreix l'aire del mig (0.179.57, docs/50)—. **Si el panell diu que no perquè encara mou la tinta del pintat anterior, la pàgina no es perd** (0.118.2): queda pendent i el sistema la torna a demanar tot sol quan el vidre la pot prendre, o sigui que un `nil` aquí **no** vol dir que la pàgina no s'arribarà a veure mai (docs/50, docs/92 §33) |
 | `ui.damage()` | número | Quantes regions esperen un `present` |
+| `ui.present_over()` | `true` o `nil, error` | **El present d'un arrencament** (0.189.38, l'amo: *«així es queda l'splash amb la barra de progrés que creix mentre l'app carrega completament»*): l'app ha posat una imatge al manifest, el sistema ha rentat el vidre amb ella i **deu la pàgina sencera**, i aquest deute és el que la fa fora. Aquesta crida posa al vidre **les caixes del que l'app ha dibuixat** —la barra de progrés, i prou— damunt de la imatge i **deixa el deute sencer**, o sigui que la pàgina de l'app arriba tota amb el `ui.present()` del final. Amb una pàgina que no es deu fa el mateix que `ui.present()`, i amb una targeta del sistema a sobre val la regla de la targeta (no hi puja res). **Una app que no paga mai el deute no ensenya mai la seva pàgina** (docs/50) |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema**. **No fa falta per posar-hi el nom de l'app**: el sistema ja hi escriu el `title` del `manifest.json` quan obre l'app. La crida és per dir-hi **una altra cosa** i per un motiu concret — el lector hi posa el llibre obert, el rellotge de fitxatge hi posa el dia— |
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
 | `ui.full_screen([on])` | si té la pantalla sencera, amb argument; `true` o `nil, error`, sense | **La pantalla sencera** (0.136.0): la barra de les 48 files marxa i la vista és tot el vidre, `540 × 960` des de la fila 0, i l'app rep `on_resize`. Sense argument només respon si la té (la mateixa forma que `ui.rotation`). **El camí de tornada és del sistema i no de l'app**: tres tocs seguits al vidre tornen la barra, l'app no els sent mai i només rep `on_resize` amb la mida de tornada; i una app que s'acaba —per les bones o per un error— torna el vidre tota sola |
@@ -1088,7 +1367,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.canvas(w, h)` | **un objecte** o `nil, error` | Un control **amb vista pròpia**: un buffer i un lloc, que el sistema compon amb la resta quan l'app fa `ui.present` (vegeu a sota) |
 | `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això; amb `focusable = true` també entra al recorregut del dial i del tàctil, amb `on_activate` com a clic |
 | `ui.label(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una línia de text: fons, color, cara, alineació i retall amb `...` (vegeu a sota) |
-| `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **`framed`** (0.185.0) el deixa **sense vora i sense ombra**: el paper de la seva pàgina és la seva cara i la tinta és només el contingut, i **`icon`** (0.185.0) hi posa **una marca del sistema** en lloc de la paraula —`back`, `close`, `settings`, `reboot` o `poweroff`, les cinc de la targeta de la barra—. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
+| `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **`framed`** (0.185.0) el deixa **sense vora i sense ombra**: el paper de la seva pàgina és la seva cara i la tinta és només el contingut, i **`icon`** (0.185.0) hi posa **una marca del sistema** en lloc de la paraula —`back`, `close`, `settings`, `reboot`, `poweroff` o `deepsleep` (la lluna, 0.189.25), les sis de la targeta de la barra—. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
 | `ui.checkbox(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una fila: un **quadrat amb una X a dins quan està marcat** (res quan no) i el lloc de les paraules, que són un fill. **És enfocable i clicable**, i el clic **gira l'estat** i avisa amb `on_change` (vegeu a sota) |
 | `ui.progress(w, h)` | **un objecte** o `nil, error` | Una **barra**: fons, pista i el tros fet, tot del sistema. `value` és 0 a 100 i **un negatiu és «encara no ho sé»**. **No és enfocable** (3/11, 0.69.0) |
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)`. **Des de la 0.117.0 cal entrar-hi amb el botó central** (`editing`): fora, les fletxes segueixen caminant el dial; dins, són el número, i el centre les torna al sistema (3/11, 0.69.0, 0.117.0) |
@@ -1099,7 +1378,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **El paginador del sistema**: `pages`, `current`, `level` (la tinta, 0 per defecte) i `background`, amb la bola de la pàgina on ets plena i més gran (25) i les altres d'anella (19), unides per un pal de 3 (0.94.1); si les pàgines no hi caben, la finestra de les que hi caben i **tres boles més petites a cada cap** que no arriba (0.139.0). **No és enfocable**, i amb una sola pàgina dibuixa el seu paper i cap bola (0.176.0). **La caixa del disseny és de 37** (la bola de 25 i dotze d'aire a sota) i una caixa més baixa encongeix tota la tira amb el mateix factor: **el peu d'una llista i el d'una graella li demanen sempre aquesta caixa**, o sigui que el paginador és el mateix a tot arreu (0.176.0, docs/92 §27). **Accepta fins a 512 pàgines** (0.138.0): abans eren un byte amb un topall de 32, i un capítol d'un llibre en té més |
 | `ui.list_entry(w, h)` | **un objecte** o `nil, error` | **Una fila d'una llista que l'app construeix** (0.104.0): paper, tinta, separador, `marked` i focus, i el contingut és un fill |
 | `ui.grid_entry(w, h)` | **un objecte** o `nil, error` | **Una cel·la d'una graella que l'app construeix** (0.105.0): el mateix control que `ui.list_entry` sense la línia del separador, i el contingut és un fill (una icona amb el seu nom, un box de dues cel·les, una imatge) |
-| `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). **El peu és el paginador del sistema** (0.174.2, el mateix dibuix de `ui.dots` i **amb la mateixa caixa de 37 i la mateixa tinta que el control**: bola de 25, anelles de 19 i el pal que les enfila) i va **al fons de la caixa, el més avall que pot estar** (0.183.2, l'amo: *«el paginador ha d'estar el mes avall possible del control per deixar el màxim d'espai a les entrades»*), i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0; la caixa del disseny des de 0.176.0). **Un dit que camina de costat —o cap amunt o cap avall— també la passa, i una passa més enllà de l'última fila visible també** (0.179.4, 0.179.51), i **el gest és de la llista on el dit va caure** encara que el dit surti de la fila (0.183.2) |
+| `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). **El peu és el paginador del sistema** (0.174.2, el mateix dibuix de `ui.dots` i **amb la mateixa caixa de 37 i la mateixa tinta que el control**: bola de 25, anelles de 19 i el pal que les enfila) i va **al fons de la caixa, el més avall que pot estar** (0.183.2, l'amo: *«el paginador ha d'estar el mes avall possible del control per deixar el màxim d'espai a les entrades»*), i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0; la caixa del disseny des de 0.176.0). **Un dit que camina de costat —també la passa, i una passa més enllà de l'última fila visible també** (0.179.4; **el costat i prou**, 0.188.5; **la dreta és la pàgina anterior i l'esquerra la següent**, 0.189.1), i **el gest és de la llista on el dit va caure** encara que el dit surti de la fila (0.183.2) |
 | `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (el bloc que el sistema fa parpellejar; l'app el llegeix), `mask` (puntets en lloc de lletres), `color`, `scale`, **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat), **`readonly`** (una pàgina que es llegeix i no s'escriu: el cursor hi és i el teclat no puja mai, 0.116.0), **`framed`** (si el control té vora; `false` la deixa fora i el paper de la pàgina arriba a la vora, 0.116.0) i **`clear`** (el botó de la creu que buida la caixa, **posat per defecte**; `false` el treu, 0.184.0). **És enfocable** (3/11, 0.72.0, 0.91.0, 0.92.0, 0.116.0) |
 | `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 656 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (`box.keyboard`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0). **Des de 0.107.0 les tecles fan 64 píxels d'alt** i la lletra ocupa l'alçada de la tecla, i el backspace té la icona del seu símbol |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
@@ -1111,7 +1390,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc que el sistema fa parpellejar), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |
 | `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
 | `ui.notification_bar(w, h)` | **un objecte** o `nil, error` | **La banda dels avisos**: `items` (cada avís és una paraula o `{title=, text=}`, **el més nou al final**), `color`, `dim`, `background`, `border` i `scale`. Les targetes s'apilen cap amunt amb **la més nova a baix**, tres com a molt; el que no hi cap **no es perd**: es compta amb un `+N`. La creu dispara `on_close(self, item)` i la targeta `on_pick(self, item)` (3/11, 0.80.0) |
-| `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0). El peu és el **paginador del sistema** i **un dit que camina de costat —o cap amunt o avall, 0.179.51— passa la pàgina** (0.175.0, docs/30). **El cursor l'escriu el sistema** quan una cel·la pren el cercle (0.179.4) |
+| `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0). El peu és el **paginador del sistema** i **un dit que camina de costat passa la pàgina** (0.175.0; el costat i prou, 0.188.5, docs/30; **la dreta és la pàgina anterior i l'esquerra la següent**, 0.189.1). **El cursor l'escriu el sistema** quan una cel·la pren el cercle (0.179.4) |
 | `ui.frame(x, y, w, h, [level], [mode])` | `true` o `nil, error` | El **voltant** d'una caixa, d'un píxel, i el mig sense tocar |
 | `ui.line(x0, y0, x1, y1, [level], [mode])` | `true` o `nil, error` | De punt a punt |
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
@@ -1298,6 +1577,98 @@ i el contracte.
   deu píxels)—, i la llicència de DejaVu al costat, `/fonts/LICENCE.txt`. El lector i l'editor les fan
   servir i no en guarden cap còpia, i **les tres de bits hi són perquè la placa ensenya els quatre lectors
   en una sola pàgina**: és el que fa l'app `fonts` (docs/40, docs/90).
+
+  **I la lleixa és de cares i de res més** (0.189.32, l'amo: *«Treu els arxius que no son fonts reconegudes de la llista»*):
+  `/fonts` és una carpeta on una persona deixa una llicència, un readme o una cara d'un format que aquest nucli no llegeix,
+  i la fila d'aquell fitxer era una fila grisa que no es podia prémer i prenia el lloc d'una cara. Ara **no es llista**: les
+  files són les cares, el subtítol compta les que s'han deixat fora i **el motiu s'escriu a la consola, una línia per
+  fitxer** (`fonts: LICENCE.txt none 8 147 not a face`), que és on es respon la pregunta «la meva font no surt» (docs/30,
+  docs/70). **I tot el text de la pàgina és més gran** (l'amo: *«Fes mes gran tot el text, sobretot el títol»*): el títol
+  d'una fila —la mostra de la cara— a sis passes (66 px) i les tres frases de sota a tres (33 px), i a la pàgina del detall
+  el nom a `kSpecHead` i les frases a `kSpecNote`, dues passes més amunt de les que tenien (docs/30, docs/92).
+
+  **I la pàgina d'una cara diu el que és i torna a la prestatgeria per una porta amb la marca del sistema**
+  (0.189.31): el nom a `kSpecHead` i les frases a `kSpecNote` —més grans que la resta de la pàgina—, les files de
+  la mostra a les quatre mides de sempre, **un `ui.textbox_multiline` sense vores i de només lectura entre els detalls i
+  la porta**, ple de cinc passatges de *The Time Machine* (H. G. Wells, 1895, domini públic) —a un paràgraf per línia i
+  amb `wrap`, o sigui que la mida de la pàgina i no el fitxer decideix on acaba cada línia, i el dit el mou quan no hi
+  cap—, i el botó de tornar **a baix de tot, amb `icon = 'back'` a l'esquerra i la paraula a la dreta**
+  (`icon_side = 'left'`), que és el dibuix de `res/icons/back.png` i no un d'aquesta app. El requadre dels passatges rep
+  amb un **`weight`** el que els detalls i el botó deixen, o sigui que la pàgina d'una cara de quatre línies i la d'una de
+  nou fan el mateix dibuix (docs/90).
+
+  **I TRES COSES MÉS, PERQUÈ LA PÀGINA ES PUGUI MIRAR** (0.189.33, l'amo: *«El botó "back" de la vista detalls es molt
+  lleig, l'icona es horrible, busca'n una de millor. Fes el botó mes petit i discret, que no ocupi tot l'ample, alineat a
+  l'esquerra. Revisa el TextBox Multiline, no sembla que sigui el tipus de lletra de dalt, fes el tipus de lletra mes gran.
+  Afegeix una progressbar al centre de la pantalla mentre hi sigui l'splash. Aquesta barra només l'has de mostrar quan l'app
+  arrenca (abans de dibuixar res)»*):
+  - **la porta és petita i va a l'esquerra**: `kDoorW` per `kDoorH` (200 × 72) i la paraula `Back`. Un botó de l'ample de la
+    columna era una porta tan ampla com la pàgina, i la marca —un quadrat de l'alçada del botó— era una imatge de 64 px
+    ampliada a 108, que en aquest vidre és una taca d'esglaons. Dins d'una **fila** de flux horitzontal el fill conserva
+    l'ample amb què es va fer (un panell vertical els estira tots a l'ample de la columna), i la fila, que sí que és de
+    l'ample de la columna, el deixa a l'esquerra (docs/30, docs/90);
+  - **la marca de tornar és un xevró sòlid i no una fletxa de traços** (`tools/iconart.py`, el glif `angle-left` de Font
+    Awesome en lloc de `arrow-left`): una diagonal prima és el primer que aquest panell converteix en escala, i el xevró es
+    llegeix a quaranta píxels i a cent seixanta (docs/45, docs/92);
+  - **els passatges es dibuixen amb la cara de l'exemplar** (`cv:font`, el mateix camp que un `ui.label`) i a `kSpecNote`
+    en lloc de `kBody`: una pàgina d'una cara on la prosa de sota és una altra cara és una pàgina que menteix, i el cos puja
+    un pas. Les files del requadre es parteixen amb la mesura d'aquella cara i no amb la del sistema (docs/30, docs/90);
+  - **i una barra de progrés al mig del vidre mentre dura l'arrencada**: la pàgina ha de preguntar al nucli per **cada
+    fitxer de la porta** abans de dibuixar cap fila —cada un és una cara oberta i tornada, el que aquesta app fa més
+    lentament— i mentre dura hi ha al vidre la targeta de l'app, que el nucli va pintar abans que el guió existís. La barra
+    hi cap **sense esborrar-la**: la pàgina de l'app és blanca i no ha pintat res, o sigui que el control danya la seva
+    caixa i el `ui.present()` pinta aquella caixa i prou (un mode amb nom és la pàgina sencera, i la pàgina sencera és la
+    targeta que se'n va). Es fa **una vegada**, abans de `build_shelf`, i es deixa anar abans del prestatge: una pàgina que
+    es torna a construir no la torna a ensenyar, i la barra camina **vuit vegades com a molt** perquè una barra que costa
+    el que costa el que informa és una pàgina que s'ha fet més lenta per dir que treballava (docs/30, docs/50).
+
+  **I TRES COSES QUE ES VAN PREGUNTAR DE LA PÀGINA** (0.189.35):
+  - **la fila dels accents diu què és** (l'amo: *«On posa "l'hora i el rellotge" de l'app Fonts, a la vista detall de la
+    font, que significa? es una especie de placeholder?»*): no era cap rellotge ni cap farciment —era una frase catalana
+    triada perquè porta accents **dins de paraules** (`l'hora`, `rellotge`), en una pàgina que és en anglès i que per tant
+    no podia dir-ho—. Ara la fila és **els codis accentuats del joc Latin-1 i una frase que diu què són** (`À É Í Ó Ú à è ì
+    ò ù Ç ç · the accented letters of a page`), escrita amb `string.char` com la resta de la fila i mesurada amb la cara
+    (`fit_face`) com les quatre de sobre, i la nota de sota continua dient la meitat que falta (`the codes a face has not
+    are blank`) (docs/30);
+  - **el bloc d'una mostra que no hi cap es demana a una fila que no es veu** (l'amo: *«has posat un límit al número de
+    sessions? I el tamany? també està limitat?»*): la resposta curta era que el número era el de la taula del nucli —vuit
+    blocs— i la mida la d'aquesta app (16 512 B); la que va arribar amb la **0.189.36** és que **la taula ja no hi és** i el
+    número és el que doni la memòria (docs/75). El que l'app pot triar és quin bloc es queda, i el tria: quan `sys.session`
+    diu que no, **torna el bloc d'una fila que no és a la pàgina** amb `sys.session_destroy` i **torna a demanar una
+    vegada** (`fonts: the block of <nom> is given back for this page`) —una pàgina que allibera setze kilobytes d'una fila
+    que no es veu és una petició que sí que hi cap—. El dibuix és al llenç de la fila i no al bloc, o sigui que el que es
+    perd és només que el pròxim arrencament el torni a dibuixar (docs/75);
+  - **i el swipe de costat és la porta de tornar, cap a on sigui** (l'amo: *«A la vista detall registra el swipe a
+    l'esquerra per fer "back"»* i, a la 0.189.37, *«com el faig cap a la dreta?»*): el sistema no té cap gest de nom
+    `swipe` —un dit que llisca és un `drag` amb un `dx` i un `dy` (docs/30)— i el que torna és el `drag` que ha caminat de
+    costat **`kBackSlop` (64) píxels o més**, a l'esquerra o a la dreta, amb més camí de costat que de dalt a baix (el signe
+    només queda al registre: `fonts: back by the swipe, 240 px` és un dit cap a la dreta). Pren el mateix camí que el botó
+    (`go_back`: la vista se'n va i el cercle es queda a la fila que s'havia obert), i fora d'un exemplar el `drag` del
+    prestatge es llença com abans, que allà no hi ha enlloc on tornar. Un `drag` que va sobretot cap amunt o avall segueix
+    essent el requadre dels passatges que llisca.
+
+  **I LA BARRA DE L'INICI CREIX SOBRE L'SPLASH I LA PÀGINA ARRIBA SENCERA AL FINAL** (0.189.38, l'amo: *«l'intenció es
+  mostrar una barra de progrés sobre l'splash de Fonts: Fes que al arrencar l'app no refresqui la seva vista (no comunicant
+  damage al panell?) a la pantalla eink, així es queda l'splash amb la barra de progrés que creix mentre l'app carrega
+  completament … Un cop acabat, amaguem la barra de progrés i refresquem la vista sencera»*): el `res/splash.png` del
+  manifest es pinta al vidre abans que el guió existeixi i el sistema **deu la pàgina sencera** —aquest deute és el que fa
+  fora la imatge—, o sigui que el `ui.present()` de la barra pagava el deute i pintava la pàgina blanca de l'app **al primer
+  pas**. Ara la barra i les seves vuit passes fan `ui.present_over()`: el vidre rep **només la caixa de la barra**, damunt de
+  la imatge, i el deute es queda per al `ui.present()` que `build_shelf` ja fa un cop la barra s'ha deixat anar, que és la
+  pàgina de l'app sencera i neta (docs/30, docs/50).
+
+  **I LA BARRA ÉS UNA LÍNIA I PROU** (0.189.40 i 0.189.41, l'amo: *«Fes la barra mes fina, pósala mes avall, sota del
+  "loading" i assota, vull que posis un label amb el nom del tipus de lletra que s'està carregant»* i, quan el va veure,
+  *«Baixa una mica mes la progressbar i fes-la mes fina (menys alta) el text queda horrible. Treu-lo. Amb la barra serà
+  suficient»*): el `res/splash.png` mesurat al vidre té l'emoji del títol fins a la fila **433**, la ratlla a **501**,
+  «Fonts» a **529..560**, «loading...» a **594..609** i la marca «lunokOS» des de **669**. La barra era del gruix del cos de
+  la lletra i estava **al mig de la pàgina, damunt de la paraula «Fonts»**; ara és **320 × 9** a la fila **636**, dins dels
+  seixanta píxels lliures entre la frase i la marca, i **no hi ha cap nom a sota**: el `ui.label` de la família que es
+  llegeix es va treure perquè una línia de text sota una línia de tinta no és una cosa que es vulgui mirar. **Nou píxels és el
+  mínim**: el marc d'una barra d'aquest sistema fa un píxel i només es dibuixa per sobre de vuit, o sigui que vuit o menys és
+  una pista sense vora i sobre el paper una taca. **El lloc va en files del vidre i no de la vista** —la vista comença
+  quaranta-vuit files més avall— i el nom de la família no es perd: surt **al registre**, `fonts: loading <família>`, una
+  línia per passa de la barra (vuit i no disset) (docs/30, docs/50, docs/85).
 
   **I una llibreria de vuit cares més, totes sota l'OFL** (11/11, 0.178.4): `literata-latin1.ttf`
   (31 120 B), `merriweather-latin1.ttf` (28 728 B), `atkinsonhyperlegible-latin1.ttf` (22 328 B),
@@ -1571,7 +1942,9 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 | `button.focused` | `true` o `false` (fals per defecte) | **L'estat del focus**, que porta el sistema: mentre és cert, el marc pinta **una pausa de dos píxels i una banda de set** —el doble marc del control seleccionat—, negra sobre fons clar i blanca sobre fons fosc |
 | `button.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil poden aturar-s'hi. Un botó amb `false` continua pintant-se i pot rebre clics de l'app, però no entra al recorregut del sistema |
 | `button.framed` | `true` o `false` (cert per defecte) | **Sense vores i sense ombra** (0.185.0): el paper de la seva pàgina és la cara del botó i la tinta és només el contingut. **S'enfonsa girant-se**: amb el dit a sobre la cara va a la tinta i la marca al paper, que és el mateix senyal que ja gastava un botó seleccionat |
-| `button.icon` | un mot o `nil` | **Una marca del sistema en lloc de la paraula** (0.185.0): `back` (fletxa), `close` (creu), `settings` (roda dentada), `reboot` (fletxa circular) o `poweroff` (el símbol d'apagar). La dibuixa el nucli, en dos nivells i de la mida de la cara, i **un mot que no és del joc no en dibuixa cap** |
+| `button.icon` | un mot o `nil` | **Una marca del sistema en lloc de la paraula** (0.185.0): `back` (el xevró que torna, 0.189.33), `close` (creu), `settings`
+(roda dentada), `reboot` (fletxa circular), `poweroff` (el símbol d'apagar) o `deepsleep` (la lluna, 0.189.25). La dibuixa el nucli, en dos nivells i de la
+mida de la cara, i **un mot que no és del joc no en dibuixa cap** |
 | `button.icon_side` | `'above'`, `'left'` o `'right'` | **On va la marca quan el botó també porta paraula** (0.185.3): a sobre (`'above'`, per defecte), a l'esquerra del títol o a la dreta. La marca es queda un quadrat de l'alçada de la cara i la paraula es centra a la resta, o sigui que en un botó més ample que alt les dues coses van de costat. **Un botó sense títol té la marca al mig** i aquest camp no es llegeix |
 
 - **Un botó sense vores és la seva marca** (0.185.0, l'amo: *«vull que siguin UIButton, però sense vores (afegir propietat al botó
@@ -2314,10 +2687,12 @@ llista **pagina**, i el peu diu en quina pàgina ets.
   triada d'aquesta, i el control ho sap (zero).
 - **Les fletxes del dial canvien la pàgina** mentre la llista té el focus i l'app ho sap per `on_page(self, page)`.
   El peu només ensenya el galó del costat on hi ha alguna cosa, i al final del recorregut la tecla torna al dial.
-- **I el dit la canvia igual** (0.179.4): un gest de quaranta píxels passa a la pàgina següent cap a l'esquerra **i cap
-  amunt**, i a l'anterior cap a la dreta **i cap avall** (0.179.51: una llista no fa scroll, o sigui que el gest vertical
-  vol dir el mateix que l'horitzontal, i el costat que el dit ha caminat més és el que mana). És **una pàgina per
-  contacte i mai una premuda** —la fila on s'aixeca el dit no es tria—, i una llista que és a l'última pàgina no fa res si
+- **I el dit la canvia igual** (0.179.4): un gest de quaranta píxels passa a la pàgina anterior cap a l'esquerra i a la
+  següent cap a la dreta (0.188.6: el dit arrossega la pàgina, i fins aleshores era al revés). **Només els costats** (0.188.5, l'amo: *«per passar pàgina vull dreta/esquerra no
+  amunt/avall… recorda que la pantalla està girada, el touch està llegint verticals on són horizontals»*): el gest
+  vertical (0.179.51) s'ha tret, perquè amb la pantalla girada era el que s'emportava el gest del costat. Fins a quaranta
+  píxels d'arrossegament es perdonen, i passat aquest marge el dit anava de debò amunt o avall i no demana res. És **una
+  pàgina per contacte i mai una premuda** —la fila on s'aixeca el dit no es tria—, i una llista que és a l'última pàgina no fa res si
   el dit hi va cap a l'esquerra: no dona la volta. És el mateix gest de la graella i el mateix avís per `on_page`, o sigui
   que **una app no ha de llegir cap gest per girar una pàgina**: el paginador és del control i el control el gira ell
   (docs/30, docs/90).
@@ -2411,11 +2786,21 @@ recórrer amb el dit no pot perdre la pàgina en el moment de tocar-la—. Un to
 hi desplaça el text (docs/30, docs/90).
 
 **Des de 0.93.0 el teclat és una classe amb un pare comú.** `Keyboard` té la banda, el dit, el dial, el bloc de la
-tecla triada i la cara; cada fill (`QwertyKeyboard`, `AzertyKeyboard`) només diu el seu id i les seves files.
-L'app no canvia res: `ui.keyboard()` i les mateixes crides parlen amb el fill que el sistema tingui triat. Es tria a
-la consola amb **`cfg keyboard qwerty`** o **`cfg keyboard azerty`** —`cfg keyboard` en dona la llista—, la tria es desa
+tecla triada i la cara; cada fill (`QwertyKeyboard`, `AzertyKeyboard`, i des de la 0.189.21 `SerialKeyboard`) només
+diu el seu id, les seves files i, si és el del cable, que no dibuixa res. L'app no canvia res: `ui.keyboard()` i les
+mateixes crides parlen amb el fill que el sistema tingui triat. Es tria a
+la consola amb **`cfg keyboard qwerty`**, **`cfg keyboard azerty`** o **`cfg keyboard serial`** —`cfg keyboard` en dona la llista—, la tria es desa
 a l'NVS i l'arrencada la torna a posar. Un teclat nou és un fill més i una fila a la llista, no una altra banda
 (docs/70, docs/90).
+
+**El tercer és el cable** (0.189.21): `serial` no pinta cap banda —`kb:height()` és **zero** i `ui.caps()` no baixa— i el
+que fa quan una caixa que pren tecles el demana (`kb:show()`, o un dit sobre la caixa) és **reclamar el port sèrie** com fa
+`serial.claim()`: el sistema deixa d'escriure-hi i **cada byte que arriba pel port entra a la caixa amb el focus** per la
+mateixa porta que les tecles de la banda (o sigui que `on_change` el veu i el prompt no). `\r` i `\n` són el `Enter`, `8` i
+`127` la tecla d'esborrar i **qualsevol byte que no sigui ASCII es descarta** (la porta de la tecla només pren una lletra per
+sota de 127). Quan la caixa perd el focus —`kb:hide()`, o un dit fora— el port **torna al sistema** i el teclat només dóna
+el que ell va prendre: una app que havia reclamat el port per a ella el conserva. Si el port ja era d'algú altre, `show`
+falla i la banda no hi és (docs/30, docs/50, docs/90).
 
 | Crida | Què fa |
 |---|---|
@@ -3189,6 +3574,19 @@ vidre i es poden provar al PC (docs/85).
   finestra no es tanca, un toc no se sap si és sol. L'altra manera —dir-lo de seguida i després
   esmenar-lo— faria que cada app desfés el que ja havia fet amb el primer toc. El `triple` sí que surt
   de seguida, perquè no hi ha res més llarg que tres.
+- **El nucli decideix abans que la pàgina senti res** (0.189.0, l'amo: *«fes un mètode per retardar
+  els events que s'envien als UIControl. Si es decideix que és un gest no s'envien mai els events i
+  s'envia el gest»*). Mentre el dit és a sobre, els controls **no reben cap fotograma**: el contacte
+  es guarda i, quan el dit marxa, el nucli diu **una sola cosa** —la premuda i el relleu d'un toc, o
+  **un gest** (`ui_gesture`) amb el punt on va caure i el viatge del contacte sencer—. Per a un gest:
+  una `ui.list` o una `ui.icon_grid` giren **una** pàgina (el viatge sencer, el costat i prou, i cap
+  gir si el contacte no va de costat —**la dreta és la pàgina anterior i l'esquerra la següent**—), una caixa de diverses línies amb `on_swipe` mou la seva
+  finestra pels rengles que el dit ha caminat, i **una fila, un botó o una targeta no reben res**: ni
+  tinta, ni focus, ni clic. **Quiet i sense creuar el segon és un toc**, encara que duri vuit-cents
+  mil·lisegons; passat el llindar ja és un `long`, i un gest que no és un toc no activa res. Un
+  contacte que ha caminat **no és mai una premuda**: `kernel::touch::last_contact()` diu què se n'ha
+  dit a la pàgina (`kNothing`, `kAPress` o `kAGesture`), amb el punt, el viatge, els fotogrames i el
+  temps.
 - **Cada gest surt al registre, amb el lloc i amb quants dits** (0.179.28): una línia `[I][TOUCH]` per
   gest, del tipus `[I][TOUCH] tap 200,400 dx 0 dy 0 spread 0, 1 finger(s), 380 ms`, i el mateix per a
   `drag`, `long`, `two`, `pinch`, `double` i `triple` (`2 finger(s)` quan el gest és de dos). Un gest
@@ -3245,6 +3643,37 @@ vidre i es poden provar al PC (docs/85).
 - **I dins la pàgina, vint píxels fan que el control deixi de ser de ningú** (0.179.29): passat el mateix número
   amb què es decideix `tap` o `drag`, el control es desprèn i **no clica en aixecar-se encara que el dit acabi a
   dins del seu requadre**. El toc quiet continua clicant: el que es descarta és el contacte que camina.
+- **I el que mana és el viatge del contacte sencer, no el requadre on s'acaba** (0.186.1): l'aixecament mira
+  quant ha caminat el dit **des d'on va caure** fins allà on és —el número és el mateix vint de dalt— i, si ha
+  caminat, no activa res: ni la fila on s'ha aturat, ni el botó, ni el focus que el dit va posar en caure (torna
+  a qui el tenia, i si no el tenia ningú, no el té ningú). **Un gest que no troba pàgina tampoc no tria res**:
+  fregar cap enrere a la primera pàgina d'una llista no obre la fila de sota el dit ni la deixa triada
+  —l'amo: «*estic fent swipe esquerra/dreta i es seleccionen items de la llista… es impossible passar pàgina, es
+  selecciona un element i s'acaba obrint (rep el toc i no hauria, el gest no deixa tocs)*»—. La pàgina es demana
+  al viatge, i es pregunta **dues vegades**: a cada frame del camí (un lliscament lent) i a l'aixecar (un
+  fregat ràpid que el panell va dir d'un sol salt) (`lib/luabind/src/luabind.cpp`, `ui_turn_the_page_of_a_travel`).
+- **I el gest d'una llista o d'una graella és de tot el control** (0.187.0; abans era només la tira del paginador
+  des de 0.186.3 i tot el terç de baix des de 0.186.4): **qualsevol lloc de la caixa** —les files, el mig, els punts—
+  demana la pàgina, perquè el paginador és **dins** del control i un gest damunt seu és un gest del control com
+  qualsevol altre. L'amo: *«pots fer que tot el control clami el swipe? si després es fa a la part del paginador
+  continuarà sent dins del control llista o grid, oi?»*. No cal cap zona perquè **un contacte que ha caminat ja és un
+  gest i no un toc** (des de 0.186.1, els vint píxels de `kTapSlop`): un lliscament damunt d'una fila no la tria ni
+  l'obre, i per tant la llista no té res a protegir. **Un toc quiet continua sent un toc** i obre la fila de sota el
+  dit, i un toc damunt dels punts salta a aquella pàgina (docs/30, docs/90).
+- **I el gest que no canvia res no repinta la llista** (0.186.4, l'amo: *«la llista es redibuixa tot i no haver-se
+  embrutat?»*): el focus que el dit havia pres en caure es torna a qui el tenia, però **només es pinta si era un
+  altre**; un lliscament que no troba pàgina i que no mou el cercle deixa el vidre com era (docs/30, docs/90).
+- **I el costat mana en cas de dubte** (0.188.1, l'amo: *«no detecta bé el swipe esquerra/dreta per les llistes»*): una
+  mà que llisca de costat **sempre** arrossega cap avall o amunt, i abans l'eix amb més viatge s'emportava la paret —un
+  lliscament a l'esquerra amb una mica d'arrossegament podia sortir com «avall», que és la pàgina **anterior**, i el
+  contacte quedava gastat—. Ara **fins a quaranta píxels d'arrossegament es perdonen** (`kPageSwipeSlop`) i, des de la
+  **0.188.5, el vertical ja no passa pàgina**: el gest de la pàgina és el costat i prou, perquè amb la pantalla girada era el
+  vertical qui s'emportava el gest de debò (l'amo: *«per passar pàgina vull dreta/esquerra no amunt/avall»*). **Un gest que
+  no troba pàgina no tria res** i no deixa el contacte gastat (docs/30, docs/90).
+- **I el ritme del vidre és el del vidre** (0.188.1): el nucli tanca un contacte quan el xip ha callat **tres
+  escombrats**, i el número d'un escombrat surt de la configuració del xip (`0x8056`, vint hertz en aquesta unitat, o
+  sigui cinquanta mil·lisegons). Amb una finestra de trenta mil·lisegons suposats, un swipe d'una mà es trencava en
+  contactes d'un sol frame i la pàgina només es passava amb un fregat ràpid (docs/50, docs/95).
 - **Un toc lent és un toc** (0.179.29): el sostre de quatre-cents mil·lisegons que tenia un `tap` deixava un
   forat —un dit premut sis-cents mil·lisegons i aixecat quiet no era `tap` ni `long`, i una app que llegeix
   `touch.gesture()` no rebia res mentre el control de sota clicava—. `held_ms` diu quant ha durat. Un
@@ -3327,10 +3756,12 @@ i res més (0.179.42, 0.179.49).
 - **I amb una sola pàgina la fletxa no hi és**: una app que no ha empès cap vista no té on tornar, i un botó que no pot
   fer res és pitjor que cap botó —la mateixa regla que la creu sobre un llançador (0.179.25)—. El sistema ho pregunta
   abans de pintar (`apps::views() > 0`), i la cantonada de la targeta és paper: un toc allà és un toc a la targeta.
-- **I les cinc claus són el mateix botó, sense vores** (0.185.0, l'amo: *«afegeix al panell lliscat … l'icona de Reinciar,
+- **I les sis claus són el mateix botó, sense vores** (0.185.0, l'amo: *«afegeix al panell lliscat … l'icona de Reinciar,
   d'Apagar i de Settings … aquests botons no tinguin vores, l'icona és tot el que es veu i com qualsevol botó s'enfonsa al pitjar»*).
-  La targeta porta **cinc claus de seixanta-quatre píxels**: la fletxa a la cantonada esquerra i la creu a la dreta, com fins ara,
-  i **una fila de tres al mig** centrada —`settings` (roda dentada), `reboot` (fletxa circular) i `poweroff` (el símbol d'apagar)—,
+  La targeta porta **sis claus de seixanta-quatre píxels**: la fletxa a la cantonada esquerra i la creu a la dreta, com fins ara,
+  i **una fila de quatre al mig** centrada —`settings` (roda dentada), `poweroff` (el símbol d'apagar), **`deepsleep` (la lluna,
+  0.189.25)** i `reboot` (fletxa circular), en aquest ordre, que és el que va demanar l'amo: *«l'afegeixes al panell desplegable
+  del sistema entre el botó de poweroff i el de reboot»*—,
   totes amb `framed = false` i `icon` a la mateixa clau del sistema: el paper de la targeta és la seva cara, la marca és tota la
   tinta que hi ha, i **el botó s'enfonsa girant-se** quan el dit hi és a sobre (una passada `du` de la clau i després l'acció).
   Les cinc es calculen en una sola taula (`key_is_there`, `key_x`, `key_y`, `run_the_key`) i la que no pot fer res no es pinta ni
@@ -3553,7 +3984,7 @@ altra, la teva app una, i la resta és marge per a un diàleg sobre una pàgina 
 | `power.keep_awake(b)` | booleà | L'app diu que està fent una cosa que no s'ha d'interrompre |
 | `power.cpu()` | número | La velocitat del processador, en MHz |
 | `power.cpu(mhz)` | número o `nil, error` | La canvia. **Els passos són 80, 160 i 240**: un altre número es refusa amb `E_INVAL` i **no s'arrodoneix** |
-| `power.off()` ⏳ | booleà | Apaga la placa de debò: talla el corrent, no arma res i només el botó la torna a encendre. **Al prompt ja hi és** (`poweroff`, que diu si la placa no en té el control, docs/50); des de Lua encara no —`sys.reboot()` sí que hi és des de la 0.171.0, i aquesta és la que li falta— |
+| `power.off()` ⏳ | booleà | Apaga la placa de debò: talla el corrent, no arma res i només el botó la torna a encendre. **Al prompt ja hi és** (`poweroff`, que diu si la placa no en té el control, docs/50); des de Lua encara no —`sys.reboot()` sí que hi és des de la 0.171.0, i aquesta és la que li falta—. **`sys.deepsleep()` no és això** (0.189.25): deixa el corrent posat i el xip dorm amb una tecla per tornar, que és una altra baixada |
 
 - **Un son necessita una hora per tornar.** Sense `in_ms` ni `until` no hi ha res per amollar i es
   refusa amb `E_INVAL`: una placa que dorm sense hora espera un dit al botó (docs/60). També es

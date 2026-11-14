@@ -115,22 +115,32 @@ void Gt911Panel::reset() {
 
 uint8_t Gt911Panel::read(hal::TouchPoint* out, uint8_t capacity) {
   if (out == nullptr || capacity == 0) return 0;
+  const uint8_t down = fingers_down();
+  // **I el frame que el xip té a la mà** (0.188.0): a finger that moved or came down since the last frame was taken, or a new
+  // scan while a finger is on the glass —the chip scans by itself and keeps what it found—. It is what the interrupt line of
+  // the board is about, and the model counts it here so that «nothing to take» and «nothing was asked» are not the same read.
+  const uint32_t now = static_cast<uint32_t>(pal::system().millis());
+  const uint32_t scan = scan_ms();
+  const uint32_t boundary = now - (now % scan);
+  const bool waiting = latched_ || (down > 0 && taken_ms_ != boundary);
+  // **Amb la línia cablejada, un torn sense avís no toca el bus** (0.188.0): a glass that warns is not asked when it has
+  // nothing, so that turn costs neither the hundred-kilohertz bus nor a miss —the chip was never read—. A glass that has to be
+  // asked pays the status on every read, which is the number below and the problem of `missed_` (docs/50, docs/85).
+  if (warns() && !waiting) return 0;
   // **The bus first, and the emulator pays it**: three transactions of a hundred-kilohertz bus is what a
   // turn costs on the board, and a read that is free here would make a caller that reads ten times a
   // turn look reasonable (docs/50, docs/85). With the waits off (`--no-delay`, every test) the read is
   // the model and not the clock; the scan window below stays either way, because a frame that was
   // taken is a fact of the chip and not a delay.
-  const uint8_t down = fingers_down();
   if (options().delays) pal::delay_us(read_us(down));
 
   // **One frame per scan.** The chip scans by itself and sets the bit that says it has something to
   // hand over; the driver takes it away with a zero. A read that arrives in a window whose frame was
   // already taken finds nothing —the hardware answers "nobody" while a finger is down— and that is the
-  // problem a caller polling faster than the glass has to survive (docs/50).
-  const uint32_t now = static_cast<uint32_t>(pal::system().millis());
-  const uint32_t scan = scan_ms();
-  const uint32_t boundary = now - (now % scan);
-  if (taken_ms_ == boundary) {
+  // problem a caller polling faster than the glass has to survive (docs/50). **A glass that avisa no té aquest
+  // problema** (0.188.0): it is read when it says so and never twice in a window, so the frame it has pending is the frame
+  // to hand over and `missed_` stays at zero (docs/50, docs/85).
+  if (!warns() && taken_ms_ == boundary) {
     ++missed_;
     return 0;
   }

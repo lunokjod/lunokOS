@@ -589,9 +589,21 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
 **Un bloc per (app, clau) que el nucli guarda i l'app torna a trobar**: `sys.session('apps', 32768)` és una caché que el
 llançador construeix una vegada i troba a cada arrencada de l'app —que en una placa amb tres tecles és cada cop que una
 app s'acaba— fins que la placa s'apaga o reinicia. Les claus són **de l'app**: el nucli sap qui corre (`luabind::app_id`)
-i la taula és una fila per app i clau, o sigui que `"apps"` no és el mateix bloc per a dues apps. La taula és de **vuit
-blocs** (`session::kMaxBlocks`) i cada nom de **setze bytes**, i el bloc es demana a la memòria extra amb
-`pal::extra_memory().allocate(bytes, true)` i es compta al pressupost de l'app com qualsevol altre.
+i el bloc és una parella (app, clau), o sigui que `"apps"` no és el mateix bloc per a dues apps. Cada nom és de **setze
+bytes** i el bloc es demana a la memòria extra amb `pal::extra_memory().allocate(bytes, true)` i es compta al pressupost de
+l'app com qualsevol altre.
+
+**I el nombre de blocs no té sostre** (0.189.36, l'amo: *«el número... ja haviem parlat que no vull límits artificials. Les
+apps han de poder fer totes les sesions que vulguin. fins que la ram o el disc rebenti!»*): fins a la 0.189.35 era **una
+taula de vuit files** (`session::kMaxBlocks`) i una app que en demanava nou rebia `nullptr` amb la placa buida —una galeria
+de disset cares s'aturava a la vuitena i el registre deia `and the table of 8 is full`, que és un sostre que no té res a
+veure amb la memòria—. Ara un bloc és un **node d'una llista**: **quaranta-vuit bytes a la RAM de la placa** (el punter, els
+dos noms de setze bytes, el punter als bytes i la mida) que es fa quan l'app demana el bloc i es torna quan el bloc es torna.
+El sostre és el que contesti l'assignador i prou: quaranta-vuit bytes són el que costava una fila de la taula vella, o sigui
+que **cent sessions costen el que una cara d'un tipus de lletra** (4 800 B de nodes i els bytes de cada caché a la memòria
+extra). Quan no hi ha lloc el registre ho diu una vegada —`there is no room for the row of a session`, o `there is no room`
+per als bytes— i l'app segueix **sense caché**, que no és un error seu. La RAM de la placa **baixa 344 B** (124 572 →
+124 228 B) perquè la taula de vuit files era estàtica i els nodes no existeixen fins que serveixen.
 
 **I és el primer que es dóna quan una petició falla**, que és la part que fa que aquesta memòria sigui barata de tenir.
 **Quan es decideix que falta memòria és una pregunta de l'amo** (0.179.6): *«Només s'ha de fer si falla una alocació de
@@ -627,14 +639,140 @@ memòria que fa desaparèixer una pàgina i ningú no sap per què: `[I][MEMORY]
 qui el dóna (`block:release()`), i quan és el sistema —el relleu de l'allocator— **una línia per bloc** amb el motiu
 `the memory is short` i **una de groga amb el total i la petició que el va fer anar-hi**: `[W][MEMORY] the memory is short:
 2 block(s), 1 081 344 B given back for an ask of 1 024 B` (0.179.6).
-Una taula sense cap fila lliure i una petició que no hi cap també es diuen, amb `[W]`, i són dues coses diferents (docs/30).
+Una petició que no hi cap també es diu, amb `[W]`: `there is no room`, o `there is no room for the row of a session` quan
+el que no hi cap és el node de quaranta-vuit bytes (0.189.36). **Ja no hi ha una segona manera de dir que no**: la taula de
+vuit files va marxar amb la 0.189.36 i amb ella el `and the table of 8 is full`, que era un sostre que no tenia res a veure
+amb la memòria (docs/30).
 
-**Què s'hi guarda i a quin preu, mesurat a l'emulador**: el llançador hi deixa els manifests (títol i camí de la icona) i
+**Què s'hi guarda i a quin preu, mesurat a l'emulador**: el llançador hi deixa els manifests (títol, camí de la icona i
+**el número de versió** des de la 0.189.22) i
 **les icones ja descodificades** (72 × 72 a quatre bits són 2 592 B cada una, deu apps són 25 920 B i el bloc sencer
 32 768), i la segona pàgina **no llegeix ni un fitxer**: el log diu `home: cache warm, 11 apps, 10 pictures` i no hi ha
 cap `home: app` perquè la cua de manifests és buida, i el bolcat del vidre de la pàgina calenta és **idèntic** al de la
 freda (1 377 píxels de diferència, tots dins de la barra del sistema, que és el rellotge). `mem` en diu quants blocs hi
-ha i quants bytes: `session memory  32 KB in 1/8 block(s)`.
+ha i quants bytes: `session memory  32 KB in 1 block(s)`.
+
+**I el número de versió cap al mateix registre** (0.189.22): el que el bloc desa d'una app és
+`id<TAB>title<TAB>icon<TAB>slot<TAB>picture<TAB>version`, amb la versió del manifest al darrere, que és el que deixa saber
+a la pàgina que la cel·la que té al bloc és d'una app d'abans. Un registre de la forma vella no s'ha de llegir a mitges, i
+per això la marca del bloc puja a `HEC2`: la primera arrencada després de la 0.189.22 és una caché freda i prou (docs/30,
+docs/40).
+
+**I l'avís de la llista d'apps costa vuit bytes de DRAM, comptats** (0.189.23): el primer intent guardava el nom de l'app
+que havia canviat i el verb en un `struct` de 56 B, i l'enllaç de la placa va dir el que el pressupost no perdona —
+`region 'dram0_0_seg' overflowed by 40 bytes`—. El que s'hi va quedar és un `uint32_t` amb el número de la llista i un
+`uint8_t` amb el verb (ningú, a l'altra banda, necessita el nom: la pàgina torna a preguntar la llista sencera), i el nom el
+diu el registre en el moment del canvi. Mesurat: la DRAM de la banda passa de **124 548 B a 124 556 B** i el flash de
+2 414 569 B a 2 415 297 B (docs/30, docs/40).
+
+**I el mateix llançador hi té un segon bloc, molt més barat** (0.189.13): amb `cfg sort on` la pàgina es dibuixa de la
+més usada a la menys, i el recompte és **una clau pròpia** (`sys.session('usage', …)`) d'**una línia per app**,
+`id<TAB>count` —una vintena d'apps són menys de 400 B—, que baixa de 1 024 a 512 o 256 B si el sistema no en té
+tants, i si no hi cap sencera **es queden les més usades** i el registre diu quantes en queden fora. És el bloc que el
+relleu de l'allocator es pot endur sense que la pàgina perdi res que no pugui tornar a comptar: una app que no té el
+bloc es dibuixa en l'ordre de la porta, que és el que feia abans de l'ajust.
+
+**I el prompt el llegeix sense ser-ne l'amo** (0.189.14): `apps` demana els bytes del bloc amb `session::copy` —la
+memòria si hi és, el fitxer si no— i el que rep és **una còpia** i no un punter, perquè el relleu el pot donar en aquell
+mateix torn; el que llegeix són 1 024 B i una taula de vint-i-quatre files a la pila (id de quaranta bytes i el número),
+que és la mida que el bloc pot tenir amb els ids més llargs (docs/30, docs/40).
+
+**I la galeria de tipus de lletra desa una mostra per cara** (0.189.26, i la mida de les 0.189.30 i 0.189.32): el títol d'una
+fila de `fonts` és el nom de la font dibuixat amb la seva pròpia lletra, i el que es desa és **el dibuix i no la lletra** —una
+cara ocupa un dels tres
+llocalls de cares del sistema, i un prestatge de nou no en cap—. Cada bloc és **128 B de capçal i 16 384 B de píxels**
+(16 512 B, demanats sempre de la mateixa mida perquè la mida d'una mostra només se sap després de dibuixar-la): el títol va
+pujar a sis passes la 0.189.32 i una mostra d'un nom de 480 x 66 és 31 680 píxels, o sigui 15 840 B, i amb els 8 192 B de
+la 0.189.30 una quarta part de les mostres no s'hauria desat mai. Una mostra que no hi cap **no es desa** i la fila es
+dibuixa igualment: la caché és un estalvi i no una condició de la pàgina. El sostre és **la memòria de la placa i no un
+número** (0.189.36): la taula de vuit blocs que deixava una galeria de més de **set** cares sense bloc ja no hi és, o sigui
+que un prestatge de disset s'emporta disset mostres si la PSRAM les té, i **disset mostres són 280 704 B de PSRAM i els
+mateixos 280 704 B de disc** quan es desen (docs/30).
+
+**I EL BLOC D'UNA FILA QUE NO ES VEU ES TORNA** (0.189.35, l'amo: *«[W][MEMORY] fonts asks for 's12201f79': 16512 B, and the
+table of 8 is full <- has posat un límit al número de sessions? I el tamany? també està limitat?»*): la primera resposta va ser
+que el límit era el de la taula del nucli (vuit blocs) i la mida la de l'app (16 512 B demanats sempre de la mateixa mida);
+la segona, la que va arribar amb la **0.189.36**, és que la taula no hi és i que el sostre és la memòria. El que sí que pot
+triar l'app és **quin bloc es queda**, i ara el tria: quan `sys.session` diu que no, la galeria **torna el bloc d'una fila
+que no és a la pàgina** (`sys.session_destroy` de la seva clau) i **torna a demanar** una vegada. No es perd res que una
+persona pugui veure: el bloc és la **còpia que sobreviu a l'app** i el dibuix ja és al vidre, al llenç de la seva fila —el
+que es perd és que el pròxim arrencament el torni a dibuixar amb la cara, que és el que costava la caché de desar—.
+El registre diu `fonts: the block of <nom> is given back for this page` i, si la segona petició també falla, la fila es
+dibuixa i l'avís del nucli es queda com a testimoni (docs/30).
+
+**I només es demanen les mostres de la pàgina** (0.189.30, l'amo: *«Carrega de les sessions només els tipus de lletra que
+et calen per aquesta pàgina. Si l'usuari passa pàgina ja carregaràs aquelles. No les carreguis totes de cop»*): les files
+d'una pàgina del prestatge es fan buides i el títol —la còpia del bloc o la cara que s'obre i el dibuixa— es fa **quan la
+fila és al vidre**. Un prestatge de nou cares ja no obre nou cares per ensenyar-ne tres: el que costa un gir de pàgina és
+el que costen les seves files i prou.
+
+### Desar-les abans de plegar, i l'ordre quan falta memòria (0.189.11)
+
+**Un bloc que era a la PSRAM quan la placa s'apagava es perdia**: el disc només rebia el que s'escrivia en tancar una app
+o quan el relleu de l'allocator se'l quedava, i un `poweroff` o un `reboot` amb una caché calenta la llençava. Ara hi ha
+tres portes i totes tres diuen el mateix, bloc a bloc:
+
+| Quan | Qui ho crida | Què diu el registre |
+|---|---|---|
+| `poweroff` | `shell::power_off` | `lua parks 'one': 1024 B to /session/lua/one in 13 ms (the board is going off)` |
+| `reboot` | `shell::reboot` | `… (the board is restarting)` |
+| `logout` d'un terminal virtual | `shell::close_console_session` | `… (the session of the console was closed)` |
+
+I el resum darrere, que és la línia que una persona busca:
+`sessions parked (the board is going off): 2 of 2 block(s), 3072 B, at /session`. **Els blocs no es tornen**: el run encara
+els pot llegir i el que marxa és la placa, no la taula.
+
+**I el relleu té dos passos**, que és el que va demanar l'amo: les cachés de les apps que **no** són al vidre primer, i la
+de l'app que hi és només si la primera passada no cobreix la petició. Mesurat: amb un bloc de 1 024 B de l'app de davant i
+2 560 B de dues cachés d'una altra app, una petició de **512 B** s'aguanta **només** amb les de l'altra app, i l'app de
+davant no paga res; una de **8 192 B** no hi cap i llavors sí que va al disc la de davant, que la tornarà a trobar quan la
+demani (`restored … from the disk`). El bloc que la petició està movent no es toca mai (0.179.6) i la línia groga diu les
+dues passades: `the memory is short: 2 block(s) of other apps (2560 B) and 0 of the app in front (0 B) given back for an
+ask of 512 B`.
+
+El PAL dona **un sol punter de funció** (`void (*)(void*, size_t)`), així que el nucli no hi pot passar l'id de l'app que
+és al vidre: instal·la un pas intermedi —`relieve_memory` a `kernel.cpp`— que llegeix `luabind::app_id()` i crida
+`session::relieve(current, keep, asked)`. `session::release_all` queda com la porta de sempre —«no hi ha cap app a
+protegir, van tots»—, que és el que fan servir les proves i el cas d'una petició que falla sense app.
+
+**`sessions` ensenya també el que només és un fitxer**: després d'un reinici, sense cap app que hagi demanat res, la fila
+diu `disk only   /session/lua/probe` amb la clau i els bytes, que és la caché que tornarà la propera vegada que l'app
+arrenqui. I **`sessions destroy [<id> [<key>]]`** esborra de la memòria **i del disc** —una memòria buida amb el fitxer a lloc és
+un destroy que torna a la següent arrencada—; les tres formes són les tres preguntes: **`sessions destroy`** (tot),
+**`sessions destroy <id>`** (tot el d'una app) i **`sessions destroy <id> <key>`** (una de sola, i les altres de la mateixa
+app es queden); mesurat: `sessions destroy lua: 1 block(s) and 1 file(s), 4096 B` i `sessions destroy (every app): 0
+block(s) and 2 file(s), 0 B`. **El mateix des de dins d'una app**: `sys.session_destroy(key)` fa la parella amb l'id que
+posa el nucli, amb el mateix parell de meitats —el bloc de la memòria i el fitxer de `/session/<id>/<key>`, i la carpeta si
+s'ha quedat buida— (docs/30).
+
+### Escriure no és haver escrit: el recompte, el flush i el repòs (0.189.18)
+
+**Un `poweroff` que va dir `2 of 2 block(s), 33792 B` en 119 ms i va tallar el corrent tot seguit** va deixar l'amo amb el
+dubte raonable —*«Haurà donat temps a gravar-ho tot al SD?? s'ha apagat tot molt ràpid»*—, i el dubte és correcte: que
+`write_block` torni vol dir que el sistema ha escrit, no que el medi tingui els bytes. La baixada de la placa té ara **cinc
+passos i tots surten al registre**:
+
+| Pas | Què fa | La línia |
+|---|---|---|
+| 1 | la imatge del moment i **la consola buidada** (`console->flush()`), que és el buffer del port sèrie | `[I][SPLASH] /res/splash/poweroff.png, …` |
+| 2 | s'espera la tinta (`splash::wait`), perquè el que una persona llegeix i el vidre diguin el mateix | — |
+| 3 | **`session::park_all`**, un fitxer per bloc | `home_eink parks 'apps': 32768 B to /session/home_eink/apps in 106 ms` |
+| 4 | **`session::check_parked`**, que és el que respon la pregunta: es fa un `stat` de cada fitxer i **es compara la seva mida amb la del bloc** | `2 of 2 session file(s) are on the disk` (i amb `[W]` si no) |
+| 5 | **`power::settle_before_leaving`**: consola, **cada volum una vegada** encara que hi apuntin cinc portes (`/apps`, `/cfg`, `/fonts`, `/session`, `/nvs`), el magatzem de claus, i **el repòs** | `…: the console, 2 of 2 volume(s) and the store are written` i `a margin of 2000 ms before the current goes (a card finishes writing after the last sector)` |
+
+- **El repòs és el que cap crida pot fer per la targeta**: el controlador d'una targeta copia el seu buffer propi a la
+  memòria flaix uns mil·lisegons després que hagi arribat l'últim sector, i tallar el corrent al mig d'això és com es perd
+  una carpeta. Són **2 000 ms** (`power::kLeavingMs`) i es poden canviar d'un lloc (`power::set_leaving_ms`), que és el que
+  fa una prova per no esperar-los.
+- **El `flush()` d'un volum diu la veritat de cada backend i no una crida decorativa**: a l'emulador el disc és una carpeta
+  del PC i es fa un `sync()` de debò; **a l'ESP32 no hi ha cap `sync()` que es pugui enllaçar** (declarat a `unistd.h` i
+  sense implementació —l'enllaçador ho va dir el 14/11—) i el backend contesta que no té res a mig fer, que és cert: cada
+  fitxer s'obre, s'escriu i es tanca dins la mateixa crida, i littlefs i FatFs escriuen en tancar.
+- **`can_power_off()`** (nou al HAL): la baixada pregunta **abans** si la placa té el corrent a la mà, perquè una placa
+  alimentada pel cable no ha d'esperar dos segons per sentir que no es pot apagar. La Paper diu que sí, l'emulador diu el
+  que diu el model, i l'ATOM que no.
+- **El reinici passa pel mateix camí**: `reboot` també comprova els fitxers, renta els volums i reposa, perquè un reinici
+  talla els busos dels volums igual que una apagada.
 
 ## La taula de canvas i la RAM interna (pendent, i és un risc)
 
@@ -1009,3 +1147,46 @@ Mesurat amb `-fstack-usage` (`python3 tools/check_stack.py --all --budget 4096`,
 - **El preu, amb números**: la RAM interna de l'ATOM Matrix passa de **119 096 B (36,3 %)** a **121 144 B (37,0 %)**
   i la flash de 2 218 733 B a 2 218 681 B. La cadena més fonda baixa a **~5,6 KB**, que és menys del que era abans
   d'aquest canvi tot i haver-hi tres marcs més.
+
+## La llista d'objectius del dit, de 91 168 B a 8 192 B (0.189.10)
+
+**El recorregut que decideix on pot caure un dit o el dial reservava un objectiu per cada lloc de la taula de
+llenços** i ho feia **a cada esdeveniment**: cada marc d'un contacte, cada tecla, cada volta del dial. Amb la
+taula d'aquesta placa són `2 849 × 32 B = 91 168 B` per esdeveniment, i això va tenir dues conseqüències que es
+van veure juntes:
+
+- **la petició de 91 168 B és la que deixava la memòria curta**: no hi cap en una pàgina que ja té els seus
+  llenços (la vista de la Paper són 246 240 B), el PAL crida el relleu, i **és el relleu qui es queda les
+  memòries de sessió de les apps** (docs/75, la secció de la memòria de sessió). El registre del llançador ho
+  deia amb els dos números: `home_eink gives back 'apps': 32768 B, the memory is short` i
+  `the memory is short: 1 block(s), 32768 B given back for an ask of 91168 B`. O sigui que **el llançador pagava
+  la seva pròpia caché per cada toc que responia**;
+- **i quan el bloc no es podia aconseguir, el recorregut es quedava amb zero objectius i la pàgina deixava de
+  respondre a tot** —ni el cercle del dial, ni el dit, ni les tecles— sense una línia al registre. Les dotze
+  cel·les del llançador es recorrien, es veien amb la caixa bona, i cap no esdevenia objectiu: un toc cau sobre
+  la pàgina i no obre res (mesurat a l'emulador, 14/11).
+
+Ara:
+
+| | Abans | Ara (0.189.10) |
+|---|---|---|
+| Mida del bloc | 91 168 B (una entrada per lloc) | **8 192 B** (256 objectius) |
+| Quan es demana | a cada esdeveniment, i es torna | **una vegada per app**, es queda fins que l'intèrpret s'acaba |
+| Si la memòria no en té | `capacity = 0`: la pàgina no respon | **es demana més petit**: 256 → 128 → 64 → 32 → 16, i la pàgina respon els que hi caben |
+
+- **El bloc es queda entre esdeveniments** i es torna a `luabind::stop()`, que és quan l'app s'ha acabat: la
+  petició passa de seixanta per segon a una per app, i el relleu ja no té cap motiu per quedar-se una memòria de
+  sessió.
+- **El mínim és el que fa una pàgina**: 256 objectius són **cinc vegades la pàgina més llarga del sistema** (les
+  53 parades de la llista de comandes del shell, amb títol, frase i `Back`) i **vint vegades les dotze cel·les
+  del llançador**. Una pàgina que no hi cap ho diu al registre i la volta següent en demana el doble, fins al
+  sostre de la taula.
+- **I el zero pràcticament desapareix**: si la memòria extra no pot donar els 8 192 B, el recorregut en demana la meitat,
+  i la meitat, fins a **16 objectius (512 B)** —que és mitja dotzena de cel·les i mig centenar de pàgines del sistema més
+  petites que la del llançador—. **No hi ha cap bloc estàtic de reserva**: els 8 192 B de `.bss` que vaig provar de posar-hi
+  no enllacen la Paper (`region `dram0_0_seg' overflowed by 8088 bytes`), i un recurs que no enllaça no és un recurs. Si ni
+  16 objectius es poden aconseguir, la pàgina ho diu al registre en lloc de callar i ho torna a demanar al següent
+  esdeveniment.
+- **Mesurat a l'emulador**: `[I][UI] the list of stops: 256 of 2849 slots, 8192 B` surt **una sola vegada** per
+  app; la caché del llançador es recupera del disc (`asks for 'apps': 32768 B, restored 32768 B from the disk`) i
+  s'hi queda (`home: cache kept`); i un toc a la cel·la del 2048 obre l'app amb la caché calenta i amb la freda.

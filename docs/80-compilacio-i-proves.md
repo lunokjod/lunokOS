@@ -196,7 +196,12 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
 
 - la **llei 10**: `tools/check_version.py` recorre els commits del push o de la pull request i refusa
   el que canvia fitxers sense pujar `kernel::kVersion`; els dos commits de 0.88.2 que se'n van escapar
-  són el motiu (docs/80);
+  són el motiu (docs/80). **I des de la 0.186.0 mira també les carpetes**: el commit que toca
+  `apps/<id>/` ha de pujar el `version` del seu manifest i el que toca `lib/<nom>/` el del seu
+  `library.json`, perquè «tot ha de pujar de versió si és modificat» (l'amo, 14/11). El commit
+  `ff66590` tocava sis llibreries sense pujar-ne cap, i és el que el comprovador nou va trobar el
+  primer dia; la tasca `lunokOS: check versions` fa les dues comprovacions (el rang de commits i el
+  `libs.txt` del About) abans de fer el commit (docs/40, docs/45);
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30). **Els directoris d'include es

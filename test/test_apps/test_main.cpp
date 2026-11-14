@@ -35,6 +35,7 @@
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/panel.h"
+#include "kernel/serial.h"
 #include "kernel/session.h"
 #include "kernel/splash.h"
 #include "luabind/luabind.h"
@@ -62,7 +63,10 @@ namespace {
 int g_console_saved = -1;
 int g_console_sink = -1;
 const char* const kConsolePath = "/tmp/lunok-app-tests.out";
-
+// **The room this file gives the listing of the sessions** (0.189.36): the system has no ceiling any more —a session is a node
+// of a list and it is made while the memory has room—, so these eight rows are the array of the test and nothing else. It is
+// bigger than any case of this file holds, which is what makes `entries` answer the count the case expects (docs/30, docs/75).
+const uint32_t kSessionRows = 8;
 // What the console said while it was captured, said again on the console of the test: a failure inside a captured call
 // is the one time a person needs to read it.
 void console_replay() {
@@ -249,6 +253,16 @@ bool add_app(hal::IStorage* storage, const char* id, const char* manifest, const
   return add_app_file(storage, id, manifest, source, "app.lua");
 }
 
+// **Quantes vegades surt un text** (0.189.19): the launcher painted the whole page three times when it came back and the
+// count is what says it —a `strstr` finds the first one and a page that paints twice looks like a page that paints once
+// (docs/50, docs/85).
+int count_of(const char* text, const char* word) {
+  if (text == nullptr || word == nullptr || word[0] == '\0') return 0;
+  int found = 0;
+  for (const char* at = text; (at = strstr(at, word)) != nullptr; at += strlen(word)) ++found;
+  return found;
+}
+
 // **A face of the repository, in the disk of this emulator** (4/11): the suite keeps its own volume, so what it
 // lists has to be written here — `data/res/fonts/` is the disk's `/res/fonts` and the emulator does not read the
 // disk of the build (docs/70, docs/85). Binary and not text: a `.ttf` is outlines with zero bytes inside.
@@ -341,6 +355,20 @@ bool boot_once() {
                "console.print(\"body \" .. r.body)\n"))
     return false;
   if (!write_text(storage, "/res/hola.txt", "una linia\n")) return false;
+
+  // **La llista de comandes del prompt, vista des d'una app** (0.189.9): `sys.commands()` is the kernel's own
+  // table —the same one `help` and the prompt answer from— so the page of the shell and what a person can type
+  // cannot disagree, and this app is what says the list really arrives (docs/30, docs/40).
+  if (!add_app(storage, "words",
+               "{\"title\":\"Words\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+               "local w = sys.commands()\n"
+               "console.print(\"words \" .. tostring(#w))\n"
+               "console.print(\"first \" .. tostring(w[1]))\n"
+               "console.print(\"last \" .. tostring(w[#w]))\n"
+               "local seen = {}\n"
+               "for i = 1, #w do seen[w[i]] = true end\n"
+               "console.print(\"sessions \" .. tostring(seen[\"sessions\"] == true))\n"))
+    return false;
 
   g_booted = true;
   return true;
@@ -681,6 +709,23 @@ void test_an_app_runs_and_writes(void) {
   TEST_ASSERT_TRUE(boot_once());
   TEST_ASSERT_TRUE(run_captured("run hello", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "hello from an app"), g_out);
+  TEST_ASSERT_FALSE(kernel::app_running());
+}
+
+// **La llista de comandes arriba a una app sencera** (0.189.9): the page of the commands of the app `shell` is
+// the kernel's own table —`sys.commands()` answers the same `kCommandNames` that `help` and the prompt read—,
+// so the count, the first word, the last one and a word that is in the middle are what says the list is the
+// list and not a copy that drifted (docs/30, docs/40).
+//
+// The app is on the disk of this run and it is started like any other, so what is measured is the road a person
+// takes: the shell starts an app, the app asks, the answer is printed.
+void test_the_commands_of_the_prompt_reach_an_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  TEST_ASSERT_TRUE(run_captured("run words", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 48"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first help"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last history"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sessions true"), g_out);
   TEST_ASSERT_FALSE(kernel::app_running());
 }
 
@@ -1264,6 +1309,51 @@ void test_an_app_writes_inside_its_own_ground(void) {
   storage->remove("/apps/writer/app.lua");
   storage->remove("/apps/writer/manifest.json");
   storage->remove("/apps/writer");
+}
+
+// **A save is there for the run after it** (0.186.0): the 2048 keeps its board in `fs.data('game.txt')` —the ground of
+// the app, `/data/2048` on the disk a person can write— and asks for it every time it starts, and what makes that a save
+// and not a page of memory is that **the run that comes later finds it**. The case runs one app twice: «no save» the
+// first time and the file it wrote the second, which is the whole of what «el joc ha de guardar la partida al seu
+// directori de dades d'aplicació» asks (docs/30, docs/40, docs/70).
+void test_a_save_is_there_for_the_run_after_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // A disk that never had a save: the folder of the app does not exist yet, which is the first run of any game.
+  storage->remove("data/saver/save.txt");
+  storage->remove("data/saver");
+  TEST_ASSERT_TRUE(add_app(storage, "saver",
+                            "{\"title\":\"Saver\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "local text, why = fs.read(fs.data('save.txt'))\n"
+                            "if text == nil then\n"
+                            "  console.print('no save ' .. tostring(why and why.code))\n"
+                            "  fs.mkdir(fs.data())\n"
+                            "  console.print('wrote ' .. tostring(fs.write(fs.data('save.txt'), '4,2\\n56\\n')))\n"
+                            "else\n"
+                            "  console.print('save ' .. (text:gsub('\\n', ' ')))\n"
+                            "end\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run saver", g_out, sizeof(g_out)));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "E_INVAL"), g_out);
+  // The reason a first game has no save is `E_NOENT` —there is no such file— and not a ground it may not write.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no save E_NOENT"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wrote 7"), g_out);
+
+  TEST_ASSERT_TRUE(run_captured("run saver", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "save 4,2 56 "), g_out);
+
+  // And it is on the disk, in the ground of the app and nowhere else.
+  hal::Stat info;
+  TEST_ASSERT_TRUE(storage->stat("data/saver/save.txt", info));
+  TEST_ASSERT_EQUAL_UINT32(7, info.size);
+
+  storage->remove("data/saver/save.txt");
+  storage->remove("data/saver");
+  storage->remove("/apps/saver/app.lua");
+  storage->remove("/apps/saver/manifest.json");
+  storage->remove("/apps/saver");
 }
 
 // **`fs.write` on raw memory goes in place and not to a temporary file** (0.65.1): `/rtc` is *one* file and it has no
@@ -3472,6 +3562,46 @@ void test_ui_focus_puts_the_dial_where_the_app_says(void) {
   storage->remove("/apps/focuser");
 }
 
+// **Una pàgina llarga respon a l'últim dels seus controls** (0.189.10): the list of stops that a finger walks used to be
+// **one entry per slot of the table of canvases, asked and given back on every event** —`2 849 × 32 B = 91 168 B`—, and
+// when the memory could not give it the list stayed at zero and the page answered nothing at all: the launcher's twelve
+// cells were walked, none of them became a stop, and a tap opened nothing (found on the emulator, 14/11). It is
+// `256 stops = 8 192 B` and kept between events now, and a page that does not fit grows on its next walk.
+//
+// This case is the whole of it from the outside: a page of **one hundred and twenty** buttons —ten times the launcher's
+// cells, twice the shell's longest list— and a finger on the **last** one, which is the control a truncated list would
+// have left out (docs/30, docs/75, docs/90).
+void test_a_long_page_answers_its_finger_on_the_last_stop(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "many",
+                           "{\"title\":\"Many\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "for i = 1, 120 do\n"
+                           "  local b = ui.button(500, 7)\n"
+                           "  b.on_click = function() console.print('pressed ' .. i) end\n"
+                           "  b:place(20, (i - 1) * 7 + 8)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(3000):await()\n"));
+  pump_captured(20, g_out, sizeof(g_out), "run many");
+  TEST_ASSERT_TRUE(kernel::app_running());
+  capture_begin();
+  // The last button of the page: the seventh pixel of the second half of its row, which is inside it and inside the view.
+  luabind::ui_touch_progress(100, static_cast<uint16_t>(119 * 7 + 8 + 3), true);
+  luabind::ui_touch_progress(0, 0, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pressed 120"), g_out);
+  close_any_app();
+  pump_turns(10);
+  storage->remove("/apps/many/app.lua");
+  storage->remove("/apps/many/manifest.json");
+  storage->remove("/apps/many");
+}
+
 // **The showcase runs, and its pages are built and given back on the same glass** (0.94.2): the app that shows every control
 // of the system is the page that says what the system has, and it is also the only one that walks a path nothing else
 // walks —a page of controls that is **released whole and built again** when the tabs choose another one, children before
@@ -4995,6 +5125,379 @@ void test_the_emulator_is_the_board_it_was_told_to_be(void) {
   storage->remove("/apps/panelish");
 }
 
+// **El port sèrie cedit per una app, i tornat quan l'app s'acaba** (0.189.20): una app que parla amb el que hi ha a l'altre
+// costat del cable demana el port i el sistema calla —ni prompt, ni eco del registre, ni taula de `stats`— mentres les
+// paraules de l'app hi segueixen anant, perquè és ella qui el té. Quan s'acaba el dóna, com fa el llum del M5Atom: un port
+// cedit a una app que no hi és és un port que una persona no pot recuperar (docs/30, docs/50).
+void test_the_serial_port_is_ceded_by_an_app_and_comes_back_when_it_ends(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "talker",
+                           "{\"title\":\"Talker\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "assert(serial.claimed() == false)\n"
+                           "assert(serial.claim() == true)\n"
+                           "console.print('the wire is mine')\n"
+                           "assert(serial.claimed() == true)\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  TEST_ASSERT_FALSE(kernel::serial::claimed());
+  pump_captured(600, g_out, sizeof(g_out), "run talker");
+  // **L'app té el port** i el seu nom és el que queda dit.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::serial::claimed(), g_out);
+  TEST_ASSERT_EQUAL_STRING("talker", kernel::serial::owner());
+  // **La consola del sistema no hi és i el port físic sí**: és el que fa que el silenci sigui una línia i no una còpia.
+  TEST_ASSERT_NULL(kernel::serial::console());
+  TEST_ASSERT_NOT_NULL(pal::system().console());
+  // **I les paraules de l'app hi són**, que és el que vol dir «la té ella».
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the wire is mine"), g_out);
+
+  // **En tancar-se, com el llum.**
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::serial::claimed());
+  TEST_ASSERT_EQUAL_STRING("", kernel::serial::owner());
+  TEST_ASSERT_NOT_NULL(kernel::serial::console());
+
+  storage->remove("/apps/talker/app.lua");
+  storage->remove("/apps/talker/manifest.json");
+  storage->remove("/apps/talker");
+}
+
+// **El teclat del cable: el que es tecleja al port va a la caixa amb el focus** (0.189.21, l'amo: *«Afegir teclat alternatiu
+// als dos que ja tenim: \"USBSerial\" … Tot el que es tecleja al port serie es passa al control amb focus»*). Amb `cfg
+// keyboard serial` no hi ha cap banda al vidre (`height` és zero), el port queda reclamat mientras la caixa el té, i els
+// bytes que arriben pel port entren a la caixa per la mateixa porta que fa servir la banda —o sigui que `on_change` els veu
+// i el prompt no en veu cap—. Quan la caixa el deixa anar, el port torna al sistema (docs/30, docs/50, docs/90).
+void test_the_serial_keyboard_types_in_the_box_with_the_focus(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  kernel::ui::keyboard_select("qwerty");
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "typist",
+                           "{\"title\":\"Typist\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox(400, 40)\n"
+                           "box:place(20, 20)\n"
+                           "box.on_change = function(self, text) console.print('text ' .. text) end\n"
+                           "ui.focus(box)\n"
+                           "local kb = ui.keyboard()\n"
+                           "kb.target = box\n"
+                           "console.print('shown ' .. tostring(kb:show('alpha')) .. ' height ' .. tostring(kb:height()))\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  // **El teclat és el del cable** i el que aixeca la caixa no deixa res al vidre.
+  pump_captured(20, g_out, sizeof(g_out), "cfg keyboard serial");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::serial::claimed() == false, g_out);
+  pump_captured(900, g_out, sizeof(g_out), "run typist");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "shown true height 0"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::serial::claimed(), g_out);
+  TEST_ASSERT_EQUAL_STRING("typist", kernel::serial::owner());
+  TEST_ASSERT_NULL(kernel::serial::console());
+
+  // **El que arriba pel port és de la caixa**: dues lletres i el seu `on_change`.
+  capture_begin();
+  kernel::shell::feed("hi", 2);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "text hi"), g_out);
+
+  // **I en tancar-se l'app el port torna al sistema** (el teclat baixa amb la pàgina que el va aixecar).
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::serial::claimed());
+  TEST_ASSERT_NOT_NULL(kernel::serial::console());
+
+  pump_captured(20, nullptr, 0, "cfg keyboard qwerty");
+  storage->remove("/apps/typist/app.lua");
+  storage->remove("/apps/typist/manifest.json");
+  storage->remove("/apps/typist");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **La caché del llançador porta la versió, i una app que canvia de versió es torna a llegir** (0.189.22, l'amo: *«L'app
+// home_eink guarda l'id d'aplicació i la versió amb les dades de la sessió? … Si tens una app en una versió anterior has de
+// descartar l'entrada d'aquesta app del caché de la sessió \"apps\" per refrescar l'icona i el numero de versió»*). El bloc
+// desa `id`, títol, icona, slot, si el dibuix hi és i **la versió**; en tornar, cada app del bloc es pregunta al disc **una
+// per torn** i quan el número ha canviat la cel·la es torna a pintar amb l'icona de debò i el títol nou. I la llista de la
+// porta mana: una app que hi entra i una que en surt canvien el grid (docs/30, docs/40, docs/75).
+void test_the_launcher_refreshes_the_version_it_has_cached(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/home_eink.lua", "/apps/home_eink/home_eink.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/manifest.json", "/apps/home_eink/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/home_eink/res/icon.png"));
+  const char kAlphaOne[] =
+      "{\"title\":\"Alpha\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+      "\"icon\":\"res/icon.png\"}";
+  const char kAlphaTwo[] =
+      "{\"title\":\"Alpha two\",\"version\":\"0.2.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+      "\"icon\":\"res/icon.png\"}";
+  TEST_ASSERT_TRUE(add_app(storage, "alpha", kAlphaOne, "console.print('alpha here')\n"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/alpha/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/alpha/res/icon.png"));
+  TEST_ASSERT_TRUE(add_app(storage, "elsewhere",
+                           "{\"title\":\"Elsewhere\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"m5stack-atom-matrix\"]}",
+                           "console.print('elsewhere here')\n"));
+
+  // **La primera volta omple el bloc**, i el bloc diu la versió que ha llegit.
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: cache kept"), g_out);
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  static char block[2048];
+  const size_t kept_one = kernel::session::copy("home_eink", "apps", block, sizeof(block) - 1);
+  block[kept_one] = '\0';
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "\t0.1.0\n"), block);
+
+  // **La segona, amb l'app en una altra versió i un altre títol**: es pregunta al disc i la cel·la es refà.
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/alpha/manifest.json", kAlphaTwo));
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: cache warm"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: alpha is 0.2.0 (was 0.1.0), the picture is read again"), g_out);
+  // **I el bloc es torna a desar amb el número nou i el títol nou.**
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  const size_t kept_two = kernel::session::copy("home_eink", "apps", block, sizeof(block) - 1);
+  block[kept_two] = '\0';
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "\t0.2.0\n"), block);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "Alpha two"), block);
+  TEST_ASSERT_NULL_MESSAGE(strstr(block, "0.1.0"), block);
+
+  // **I la llista de la porta mana**: una app que hi entra i una que en surt canvien el grid.
+  TEST_ASSERT_TRUE(add_app(storage, "charlie",
+                           "{\"title\":\"Charlie\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('charlie here')\n"));
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: 2 cells"), g_out);
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  storage->remove("/apps/charlie/app.lua");
+  storage->remove("/apps/charlie/manifest.json");
+  storage->remove("/apps/charlie");
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: 1 cells"), g_out);
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+
+  storage->remove("/apps/home_eink/res/icon.png");
+  storage->remove("/apps/home_eink/res");
+  storage->remove("/apps/home_eink/home_eink.lua");
+  storage->remove("/apps/home_eink/manifest.json");
+  storage->remove("/apps/home_eink");
+  storage->remove("/apps/alpha/res/icon.png");
+  storage->remove("/apps/alpha/res");
+  storage->remove("/apps/alpha/app.lua");
+  storage->remove("/apps/alpha/manifest.json");
+  storage->remove("/apps/alpha");
+  storage->remove("/apps/elsewhere/app.lua");
+  storage->remove("/apps/elsewhere/manifest.json");
+  storage->remove("/apps/elsewhere");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **Una app esborrada diu que la llista ha canviat** (0.189.23, l'amo: *«quan s'instali una app ("repo install <id>") o
+// s'elimini ("apps remove <id>") el sistema ha d'avisar al launcher registrat a la variable cfg home per fer-li refescar la
+// seva llista d'apps»*): la comanda deixa el canvi a la porta de les apps (`apps::note_a_change`), el número de la llista
+// puja i una línia el diu; el bucle del nucli és qui el porta a l'app que toca, entre dos torns (docs/30, docs/40).
+// **Una comanda que no ha canviat res no mou el número**: `apps remove nadie` és un error i no un avís.
+void test_removing_an_app_says_the_list_changed(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "alpha",
+                           "{\"title\":\"Alpha\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('alpha here')\n"));
+
+  const uint32_t before = kernel::apps::generation();
+  TEST_ASSERT_TRUE(run_captured("apps remove alpha", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps: alpha removed from"), g_out);
+  TEST_ASSERT_EQUAL_UINT32(before + 1, kernel::apps::generation());
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the list changed (remove alpha), generation"), g_out);
+
+  // **I una app que no hi és no és cap canvi**: el número es queda on era i el prompt diu què ha passat.
+  const uint32_t after = kernel::apps::generation();
+  TEST_ASSERT_TRUE(run_captured("apps remove nadie", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie"), g_out);
+  TEST_ASSERT_EQUAL_UINT32(after, kernel::apps::generation());
+}
+
+// **I el llançador que `cfg home` nomena el sent** (0.189.23): the app that draws the list is the one the setting names, and
+// the change is delivered **between two turns** as `on_event({kind = 'apps', …})` —the only way the system has of telling an
+// app something that is not a key—. The hook does not draw: it marks, and the turn after it asks the door again, adds the
+// cell that has arrived and writes the block with it (docs/30, docs/40, docs/75).
+void test_the_launcher_hears_the_list_changed(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  kernel::cfg::set_home_app("home_eink");
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/home_eink.lua", "/apps/home_eink/home_eink.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/manifest.json", "/apps/home_eink/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/home_eink/res/icon.png"));
+  TEST_ASSERT_TRUE(add_app(storage, "alpha",
+                           "{\"title\":\"Alpha\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('alpha here')\n"));
+
+  // **La pàgina, amb una cel·la i el bloc desat.**
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: 1 cells"), g_out);
+
+  // **Una app arriba amb la pàgina al vidre i el sistema ho diu.**
+  TEST_ASSERT_TRUE(add_app(storage, "charlie",
+                           "{\"title\":\"Charlie\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('charlie here')\n"));
+  const uint32_t was = kernel::apps::generation();
+  kernel::apps::note_a_change("install", "charlie");
+  TEST_ASSERT_EQUAL_UINT32(was + 1, kernel::apps::generation());
+  pump_captured(400, g_out, sizeof(g_out));
+  // **El ganxo ha corregut a l'app** i la pàgina s'ha refet amb la llista de la porta.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: the list changed (install), generation"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: 2 cells"), g_out);
+
+  // **I la nova es queda al bloc**, que és el que fa que la propera arrencada no la torni a demanar.
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  static char block[2048];
+  const size_t kept = kernel::session::copy("home_eink", "apps", block, sizeof(block) - 1);
+  block[kept] = '\0';
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "charlie"), block);
+
+  storage->remove("/apps/charlie/app.lua");
+  storage->remove("/apps/charlie/manifest.json");
+  storage->remove("/apps/charlie");
+  storage->remove("/apps/alpha/app.lua");
+  storage->remove("/apps/alpha/manifest.json");
+  storage->remove("/apps/alpha");
+  storage->remove("/apps/home_eink/res/icon.png");
+  storage->remove("/apps/home_eink/res");
+  storage->remove("/apps/home_eink/home_eink.lua");
+  storage->remove("/apps/home_eink/manifest.json");
+  storage->remove("/apps/home_eink");
+  kernel::cfg::set_home_app(nullptr);
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **Una pàgina calenta es pinta una vegada i no tres** (0.189.19, l'amo: *«perqué home_eink refresca 3 vegades la seva vista
+// recent obert?»*): the page that comes back from the block is one paint; the door's list came one app longer than the block
+// —the app of another board that the page never draws— and that made the page be laid out again, and then `step` found the
+// same app and laid it out a third time. The case runs the launcher **twice** on the same disk and counts the paints of the
+// whole glass in the second one: one, with the app of the other board said in the same turn and the cache untouched
+// (docs/30, docs/40, docs/50).
+void test_the_warm_page_of_the_launcher_is_painted_once(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/home_eink.lua", "/apps/home_eink/home_eink.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/manifest.json", "/apps/home_eink/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/home_eink/res/icon.png"));
+  TEST_ASSERT_TRUE(add_app(storage, "alpha",
+                           "{\"title\":\"Alpha\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"icon\":\"res/icon.png\"}",
+                           "console.print('alpha here')\n"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/alpha/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/alpha/res/icon.png"));
+  // **I l'app d'una altra placa**, que és la que feia que la pàgina es tornés a fer a cada arrencada.
+  TEST_ASSERT_TRUE(add_app(storage, "elsewhere",
+                           "{\"title\":\"Elsewhere\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"m5stack-atom-matrix\"]}",
+                           "console.print('elsewhere here')\n"));
+
+  // La primera volta: la pàgina es fa del disc i el bloc queda escrit al final de la cua.
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: cache kept"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: elsewhere needs another board"), g_out);
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  // **La segona, que és la que una persona ve cada cop que una app s'acaba**: una sola pintada de tota la pàgina.
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: cache warm"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, count_of(g_out, "paint 0,0 540x912"), g_out);
+  // **I l'app de l'altra placa es diu igualment**, i cap manifest es torna a llegir: el filtre és de la porta i no de la cua.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: elsewhere needs another board"), g_out);
+  // **I la cel·la que el bloc tenia segueix a la pàgina** (0.189.28, i aquestes dues línies són les que faltaven): el registre
+  // del bloc no és un manifest —porta títol, icona i versió i no `works_here`—, i una pàgina que hi llegeix `works_here` deixa
+  // anar **totes** les cel·les que tenia: l'amo ho va veure a la placa com `12 ids`, dotze «needs another board» i `0 cells`.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: alpha needs another board"),
+                           "the row of the cache was read as a manifest");
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: 0 cells"), "the warm page went down to no cells");
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: app "), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+
+  storage->remove("/apps/home_eink/res/icon.png");
+  storage->remove("/apps/home_eink/res");
+  storage->remove("/apps/home_eink/home_eink.lua");
+  storage->remove("/apps/home_eink/manifest.json");
+  storage->remove("/apps/home_eink");
+  storage->remove("/apps/alpha/res/icon.png");
+  storage->remove("/apps/alpha/res");
+  storage->remove("/apps/alpha/app.lua");
+  storage->remove("/apps/alpha/manifest.json");
+  storage->remove("/apps/alpha");
+  storage->remove("/apps/elsewhere/app.lua");
+  storage->remove("/apps/elsewhere/manifest.json");
+  storage->remove("/apps/elsewhere");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **The launcher of the glass** (0.153.0): the app of `apps/home_eink` on a real disk, reading the door of the apps and
 // nothing else. It lists what the door presents —and not itself, and not another launcher—, it counts the apps of
 // another board in its line instead of the grid, it says the one whose picture does not come up, and **a press of the
@@ -5184,14 +5687,14 @@ void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
   pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " cells"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: cache kept"), g_out);
-  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
 
   // **The relief of the allocator, which is the door it uses** (0.179.6): every session memory goes, and the launcher's
   // `cache` object is a block of somebody else's from this line on.
   kernel::session::release_all();
-  TEST_ASSERT_EQUAL_UINT8(0, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
 
   // **And a key paints the page again**: the cell the ring lands on is drawn with its picture, which is the draw that used
   // to raise. Nothing of this may reach the console as a `present:` failure (docs/30, docs/50).
@@ -5207,16 +5710,20 @@ void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
 
-  // **And the turn after asks for another one, outside every draw**: a block that is asked for again is zeroed, so it says
-  // `cache cold`, and the page writes its records into it once the names have all arrived (docs/30, docs/75). Both lines
-  // come after the draw that found the block gone, which is the order the loop of this app has (docs/30).
+  // **And the turn after asks for another one, outside every draw**: since the 0.189.7 the relief writes the block to
+  // `/session/<id>/<key>` before giving it back, so the ask that follows **finds the cache it had** instead of a cold one
+  // —the page is not repainted from letters because the pictures are still there, which is the whole point of the
+  // card— (docs/30, docs/75). The two lines still come after the draw that found the block gone, which is the order the
+  // loop of this app has.
   const char* taken = strstr(g_out, "home: the cache of the session was given back");
-  const char* cold = strstr(g_out, "home: cache cold, ");
   const char* kept = strstr(g_out, "home: cache kept");
-  TEST_ASSERT_NOT_NULL_MESSAGE(cold, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(taken, g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(kept, g_out);
-  TEST_ASSERT_TRUE_MESSAGE(taken < cold, g_out);
-  TEST_ASSERT_TRUE_MESSAGE(cold < kept, g_out);
+  // **I el que hi havia és al disc**: the block of the launcher was written before the relief took it.
+  hal::Stat parked;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/session/home_eink/apps", parked), g_out);
+  TEST_ASSERT_EQUAL_UINT32(32768, parked.size);
+  TEST_ASSERT_TRUE_MESSAGE(taken < kept, g_out);
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(1, kernel::session::count(), g_out);
 
   kernel::shell::close_app();
@@ -5241,6 +5748,231 @@ void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
     storage->remove(dir);
   }
   kernel::session::release_all();
+
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **La caché d'una sessió viu al disc i torna** (0.189.7): a block is written to `/session/<id>/<key>` when the app gives
+// it back or when the allocator takes it, and the ask that comes after finds the bytes it wrote instead of a block of
+// zeros. What this case measures is the round trip, the two ways a block leaves the memory, and the rows the prompt
+// prints with `sessions` —who, which key, what size and whether the card has it— (docs/30, docs/75).
+void test_a_session_goes_to_the_disk_and_comes_back(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+
+  size_t got = 0;
+  void* block = kernel::session::acquire("probe", "cache", 512, got);
+  TEST_ASSERT_NOT_NULL(block);
+  TEST_ASSERT_EQUAL_UINT32(512, static_cast<uint32_t>(got));
+  memcpy(block, "a warm cache", 12);
+
+  // **Les files que imprimeix la comanda**: the id of the app, the key of its session, the size, and whether the card has
+  // the file already, which is the difference between a cache this board has and one it will still have tomorrow.
+  kernel::session::Entry rows[kSessionRows];
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::entries(rows, kSessionRows));
+  TEST_ASSERT_EQUAL_STRING("probe", rows[0].app);
+  TEST_ASSERT_EQUAL_STRING("cache", rows[0].key);
+  TEST_ASSERT_EQUAL_UINT32(512, static_cast<uint32_t>(rows[0].size));
+  TEST_ASSERT_FALSE(rows[0].on_disk);
+
+  // **The app gives it back**: it is written first and it leaves the memory after.
+  TEST_ASSERT_TRUE(kernel::session::release("probe", "cache"));
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+  hal::Stat info;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/session/probe/cache", info), "the card has no file of that session");
+  TEST_ASSERT_EQUAL_UINT32(512, info.size);
+
+  // **I la petició de després és la caché que hi havia** i no un bloc de zeros: that is the whole point of the card.
+  block = kernel::session::acquire("probe", "cache", 512, got);
+  TEST_ASSERT_NOT_NULL(block);
+  TEST_ASSERT_EQUAL_STRING_LEN("a warm cache", static_cast<const char*>(block), 12);
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::entries(rows, kSessionRows));
+  TEST_ASSERT_TRUE_MESSAGE(rows[0].on_disk, "the block and its file are the same session");
+
+  // **I el relleu de l'allocator també l'escriu**: a block the memory takes is a cache the board keeps on the card, which is
+  // what makes the relief a moment of the memory and not a page that starts cold.
+  memcpy(block, "taken by the memory", 19);
+  kernel::session::release_all();
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+  block = kernel::session::acquire("probe", "cache", 512, got);
+  TEST_ASSERT_NOT_NULL(block);
+  TEST_ASSERT_EQUAL_STRING_LEN("taken by the memory", static_cast<const char*>(block), 19);
+
+  // **I el que queda al disc és el que sobreviu**: the block goes and the file stays, which is what a restart reads.
+  kernel::session::release_all();
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/session/probe/cache", info));
+  TEST_ASSERT_EQUAL_UINT32(512, info.size);
+
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **Abans que la placa plega, tot el que és a la memòria va al disc** (0.189.11): a board that is restarted or switched off
+// loses the PSRAM and keeps the card, so `park_all` is the last thing the system does with a session. The case measures the
+// three things that make it useful: **the file is there and it is whole**, the block **stays in the memory** —a park is not
+// a release and the run may still be reading it— and the listing says where the file is, which is what a person needs to
+// know that the cache of their launcher will be there tomorrow (docs/30, docs/70, docs/75).
+void test_the_sessions_are_parked_before_the_board_goes_down(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  kernel::session::release_all();
+  kernel::session::forget(nullptr);
+
+  size_t got = 0;
+  void* launcher = kernel::session::acquire("launcher", "apps", 256, got);
+  TEST_ASSERT_NOT_NULL(launcher);
+  memcpy(launcher, "launcher cache", 14);
+  void* reader = kernel::session::acquire("reader", "index", 128, got);
+  TEST_ASSERT_NOT_NULL(reader);
+  memcpy(reader, "reader index", 12);
+
+  hal::Stat info;
+  TEST_ASSERT_FALSE_MESSAGE(kernel::vfs::stat("/session/launcher/apps", info), "the card already had that file");
+
+  TEST_ASSERT_EQUAL_UINT32(2, kernel::session::park_all("a test goes down"));
+
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/session/launcher/apps", info), "the parker wrote no file");
+  TEST_ASSERT_EQUAL_UINT32(256, info.size);
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/session/reader/index", info));
+  TEST_ASSERT_EQUAL_UINT32(128, info.size);
+  // **I la memòria no s'ha tocat**: what is parked is still the app's while the run lasts.
+  TEST_ASSERT_EQUAL_UINT32(2, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(384, static_cast<uint32_t>(kernel::session::bytes_held()));
+
+  kernel::session::Entry rows[kSessionRows];
+  TEST_ASSERT_EQUAL_UINT8(2, kernel::session::entries(rows, kSessionRows));
+  TEST_ASSERT_TRUE(rows[0].in_memory);
+  TEST_ASSERT_TRUE_MESSAGE(rows[0].on_disk, "the block and the file it has just written are the same session");
+  TEST_ASSERT_EQUAL_STRING("/session/launcher/apps", rows[0].path);
+  TEST_ASSERT_EQUAL_STRING("/session/reader/index", rows[1].path);
+
+  // **A park with nothing in the memory is not a fault**: the board says zero and goes.
+  kernel::session::forget(nullptr);
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::park_all("a test with nothing"));
+
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **Quan falta memòria, les cachés de les altres apps van primer** (0.189.11, i és el que va demanar l'amo): the caches of
+// the apps that are not on the glass are the ones nobody is looking at, so they pay first; the cache of the app in front is
+// the one that would have to build its page again, and it is taken only when parking the others did not cover the ask. The
+// case is the order and nothing else —the bytes, the two passes and the block the ask is about staying where it is— because
+// that is what the allocator's relief does with the answer (docs/30, docs/75).
+void test_the_memory_is_short_and_the_other_apps_go_before_the_one_in_front(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  kernel::session::release_all();
+  kernel::session::forget(nullptr);
+
+  size_t got = 0;
+  void* front = kernel::session::acquire("front", "cache", 1024, got);
+  TEST_ASSERT_NOT_NULL(front);
+  memcpy(front, "the page in front", 17);
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("other", "cache", 2048, got));
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("other", "picture", 512, got));
+  TEST_ASSERT_EQUAL_UINT32(3, kernel::session::count());
+
+  // **An ask of 512 B is covered by the other app alone**: 2 560 B of its two caches go and the page in front keeps its own.
+  kernel::session::relieve("front", nullptr, 512);
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(1024, static_cast<uint32_t>(kernel::session::bytes_held()));
+  hal::Stat info;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/session/other/cache", info), "the cache of the other app is not on the card");
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/session/other/picture", info));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::vfs::stat("/session/front/cache", info), "the app in front paid for a small ask");
+  // **I el que s'ha donat no s'ha perdut**: the block of the front app is the same one it had, with its bytes.
+  size_t again = 0;
+  TEST_ASSERT_EQUAL_PTR(front, kernel::session::acquire("front", "cache", 1024, again));
+  TEST_ASSERT_EQUAL_STRING_LEN("the page in front", static_cast<const char*>(front), 17);
+
+  // **An ask that the others cannot cover takes the one in front too**, and it goes to the card first.
+  kernel::session::relieve("front", nullptr, 8192);
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/session/front/cache", info), "the app in front went without being parked");
+  TEST_ASSERT_EQUAL_UINT32(1024, info.size);
+  // And it comes back from the card the next time it is asked for, which is the price of the memory being short.
+  void* back = kernel::session::acquire("front", "cache", 1024, got);
+  TEST_ASSERT_NOT_NULL(back);
+  TEST_ASSERT_EQUAL_STRING_LEN("the page in front", static_cast<const char*>(back), 17);
+
+  // **The block the ask is about is never taken** (0.179.6): it is the one the allocator is moving.
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("other", "cache", 2048, got));
+  TEST_ASSERT_EQUAL_UINT32(2, kernel::session::count());
+  kernel::session::relieve("front", back, 8192);
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_PTR(back, kernel::session::acquire("front", "cache", 1024, got));
+
+  kernel::session::forget(nullptr);
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **`sessions destroy [<id> [<key>]]` esborra la memòria i el disc** (0.189.11): the only door that throws a cache away on
+// purpose, and the one that has to be honest —a destroy that empties the memory and leaves the file is a destroy that comes
+// back at the next run of the app—. The case also measures the listing of a **cold** session: a file with no block is a row
+// of its own, with its path, which is what a person reads after a restart and before any app has asked for anything
+// (docs/30, docs/70).
+void test_sessions_destroy_forgets_one_app_or_all_of_them(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  kernel::session::release_all();
+  kernel::session::forget(nullptr);
+
+  size_t got = 0;
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("keep", "cache", 256, got));
+  void* gone = kernel::session::acquire("drop", "cache", 512, got);
+  TEST_ASSERT_NOT_NULL(gone);
+  memcpy(gone, "to be forgotten", 15);
+  TEST_ASSERT_EQUAL_UINT32(2, kernel::session::count());
+  // **The session of `drop` is parked and let go**, so it is a file and nothing else: that is the cold row.
+  TEST_ASSERT_TRUE(kernel::session::release("drop", "cache"));
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
+
+  kernel::session::Entry rows[kSessionRows];
+  TEST_ASSERT_EQUAL_UINT8(2, kernel::session::entries(rows, kSessionRows));
+  TEST_ASSERT_TRUE(rows[0].in_memory);
+  TEST_ASSERT_EQUAL_STRING("keep", rows[0].app);
+  TEST_ASSERT_FALSE_MESSAGE(rows[1].in_memory, "the file of a released block is not a block any more");
+  TEST_ASSERT_TRUE(rows[1].on_disk);
+  TEST_ASSERT_EQUAL_STRING("drop", rows[1].app);
+  TEST_ASSERT_EQUAL_STRING("cache", rows[1].key);
+  TEST_ASSERT_EQUAL_UINT32(512, static_cast<uint32_t>(rows[1].size));
+  TEST_ASSERT_EQUAL_STRING("/session/drop/cache", rows[1].path);
+
+  // **`sessions destroy drop`**: the file goes and the app that was not named keeps its block.
+  const kernel::session::Forgotten one = kernel::session::forget("drop");
+  TEST_ASSERT_EQUAL_UINT32(0, one.blocks);
+  TEST_ASSERT_EQUAL_UINT32(1, one.files);
+  hal::Stat info;
+  TEST_ASSERT_FALSE_MESSAGE(kernel::vfs::stat("/session/drop/cache", info), "the file of the forgotten app is still there");
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::entries(rows, kSessionRows));
+  TEST_ASSERT_EQUAL_STRING("keep", rows[0].app);
+
+  // **`sessions destroy`**: both halves, for every app.
+  TEST_ASSERT_TRUE(kernel::session::release("keep", "cache"));
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/session/keep/cache", info));
+  const kernel::session::Forgotten all = kernel::session::forget(nullptr);
+  TEST_ASSERT_EQUAL_UINT32(1, all.files);
+  TEST_ASSERT_FALSE(kernel::vfs::stat("/session/keep/cache", info));
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::session::entries(rows, kSessionRows));
 
   emu::Options opts = emu::options();
   opts.board = nullptr;
@@ -6132,7 +6864,8 @@ void test_a_swipe_over_a_list_does_not_leave_a_row_pressed(void) {
   emu::Gt911Panel* panel = emu::touch_panel();
   TEST_ASSERT_NOT_NULL(panel);
   const kernel::ui::Canvas& view = kernel::ui::canvas();
-  // The finger lands on the first row and walks a hundred pixels to the left, so the page turns under a row that was pressed.
+  // The finger lands on the first row and walks a hundred pixels to the left: **the whole box of a list is the place a swipe
+  // turns its page** (0.187.0), so the page goes on and nothing of its own is picked.
   const uint16_t start_x = static_cast<uint16_t>(view.x + 20 + 150);
   const uint16_t start_y = static_cast<uint16_t>(view.y + 20 + 28);
   capture_begin();
@@ -6144,8 +6877,8 @@ void test_a_swipe_over_a_list_does_not_leave_a_row_pressed(void) {
   pump_turns(80);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
-  // **No row stays pressed**: the page turned, the finger is not on the glass any more and a row that is still pressed a
-  // second later is the press of a gesture that nobody released.
+  // **No row stays pressed**: the finger is not on the glass any more and a row that is still pressed a second later is the
+  // press of a gesture that nobody released.
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "stuck "), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
   // **And the list answers the next tap**: the sweep let go of the press and did not leave the list deaf, which is what a
@@ -6162,6 +6895,362 @@ void test_a_swipe_over_a_list_does_not_leave_a_row_pressed(void) {
   storage->remove("/apps/rowpress/app.lua");
   storage->remove("/apps/rowpress/manifest.json");
   storage->remove("/apps/rowpress");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A list turns its page from the strip of the dots and from nowhere else** (0.186.3): the owner — *«farem que el swipe
+// del control List i Grid serà només a la zona d'abaix on està el paginador de boletes… farem que el swipe no interfereixi
+// amb la llista/grid per error»* —. The strip is the kernel's band (`list_footer`: thirty-seven of dots and the four rows
+// of the rule above them). **I des de la 0.187.0 la zona ja no existeix i aquest cas queda com el del paginador mateix**
+// (`list_page_zone` va fora): el paginador és **dins** del control, o sigui que el gest hi val com a qualsevol altre lloc de
+// la caixa, i un dit que cau damunt d'una fila també (el cas del mig, a sota).
+void test_a_swipe_in_the_strip_of_dots_turns_the_page_of_a_list(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "strip",
+                           "{\"title\":\"Strip\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local l = ui.list(300, 200)\n"
+                           "l:place(20, 20)\n"
+                           "l.row_height = 56\n"
+                           "for i = 1, 9 do\n"
+                           "  local row = ui.list_entry(300, 56)\n"
+                           "  row.background = 15\n"
+                           "  row.on_click = function() console.print('pick row ' .. i) end\n"
+                           "  l:add(row)\n"
+                           "end\n"
+                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.present('gc16')\n"
+                           "console.print('press up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run strip");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // The box of the list is 200 high at y = 20, and its strip is the last forty-one pixels of it.
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 20 + 150);
+  const uint16_t strip_y = static_cast<uint16_t>(view.y + 20 + 200 - 20);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, strip_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 100), strip_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(80);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/strip/app.lua");
+  storage->remove("/apps/strip/manifest.json");
+  storage->remove("/apps/strip");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **La zona del gest és tot el control** (0.187.0): the owner, with the lists of the libraries and of the faces on the board
+// — *«pots fer que tot el control clami el swipe? si després es fa a la part del paginador continuarà sent dins del control
+// llista o grid, oi?»* —. The strip of the dots (0.186.3) and then the bottom third (0.186.4) were a guess about where a
+// finger lands, and **the rule of 0.186.1 already says that a contact that has walked is a gesture and not a tap**: a swipe
+// over a row of the middle picks nothing, so the list has nothing to protect and the whole box may ask for the page.
+void test_a_swipe_in_the_middle_of_a_list_turns_the_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "middle",
+                           "{\"title\":\"Middle\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local l = ui.list(300, 400)\n"
+                           "l:place(20, 20)\n"
+                           "l.row_height = 56\n"
+                           "for i = 1, 9 do\n"
+                           "  local row = ui.list_entry(300, 56)\n"
+                           "  row.background = 15\n"
+                           "  row.on_click = function() console.print('pick row ' .. i) end\n"
+                           "  l:add(row)\n"
+                           "end\n"
+                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.present('gc16')\n"
+                           "console.print('press up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run middle");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // **Al mig de la caixa**: the box is 400 high at y = 20, so a finger at 20 + 200 is over the fourth of its six rows of the
+  // page —nowhere near the dots, which begin at 20 + 400 - 41 = 379— and it is still asking for a page.
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 20 + 150);
+  const uint16_t middle_y = static_cast<uint16_t>(view.y + 20 + 200);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, middle_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 100), middle_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(80);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/middle/app.lua");
+  storage->remove("/apps/middle/manifest.json");
+  storage->remove("/apps/middle");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **El gir d'una llista de text puja amb dos nivells i no amb setze** (0.189.2, l'amo: *«és una puta llista de text blanc i
+// negre, la llista no decidirà a quina qualitat pintar-se, ho faran els elements de la llista un per un»*). El que es mira és
+// la conseqüència al vidre: la caixa de la llista es pinta **una vegada** en aixecar el dit i el mode és `a2` —290 ms i un
+// parpelleig— perquè el que hi ha dibuixat és negre i blanc i res entremig. Abans era `gl16` perquè el gir ho deia, i la
+// llista de l'`about` pagava 450 ms per cada swipe (docs/30, docs/50).
+static void test_a_turn_of_a_text_list_goes_up_in_two_levels(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "levels",
+                           "{\"title\":\"Levels\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local l = ui.list(300, 400)\n"
+                           "l:place(20, 20)\n"
+                           "l.row_height = 56\n"
+                           "for i = 1, 9 do\n"
+                           "  local row = ui.list_entry(300, 56)\n"
+                           "  row.title = 'row ' .. i\n"
+                           "  l:add(row)\n"
+                           "end\n"
+                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.present()\n"
+                           "console.print('press up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run levels");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 20 + 150);
+  const uint16_t middle_y = static_cast<uint16_t>(view.y + 20 + 200);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, middle_y));
+  pump_turns(20);
+  // **Cap a l'esquerra, que és la pàgina següent** (0.189.1).
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 100), middle_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(80);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  // **The last paint of the box of the list**, which is the only thing the turn owes: 300 wide and 400 high.
+  const emu::MemorySurface::Paint* turn = nullptr;
+  for (uint32_t i = 0; i < emu::MemorySurface::kMaxPaints; ++i) {
+    const emu::MemorySurface::Paint* paint = glass->paint_at(glass->paint_count() - 1 - i);
+    if (paint != nullptr && paint->w == 300 && paint->h == 400) {
+      turn = paint;
+      break;
+    }
+  }
+  TEST_ASSERT_NOT_NULL_MESSAGE(turn, "the box of the list was painted on the turn");
+  // **Dos nivells**: the ink of the page is level 0 and level 15, so `cleaner_for` answers the pass of 290 ms and the
+  // sixteen-level one stays for a box with grays on it (docs/50).
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kA2, turn->mode);
+
+  close_any_app();
+  storage->remove("/apps/levels/app.lua");
+  storage->remove("/apps/levels/manifest.json");
+  storage->remove("/apps/levels");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **Un swipe de costat que arrossega cap avall segueix essent de costat** (0.188.1, l'amo: *«no detecta bé el swipe
+// esquerra/dreta per les llistes»*): una mà no camina recta, i abans l'eix amb més viatge s'emportava la paret —seixanta
+// píxels a l'esquerra amb vuitanta cap avall sortien com «avall», la pàgina **anterior**, i el contacte quedava gastat—.
+// Ara **fins a quaranta píxels d'arrossegament es perdonen** i la pàgina va endavant (docs/30).
+static void test_a_sideways_swipe_that_drifts_down_still_turns_the_page() {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "drift",
+                           "{\"title\":\"Drift\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local l = ui.list(300, 200)\n"
+                           "l:place(20, 20)\n"
+                           "l.row_height = 56\n"
+                           "for i = 1, 9 do\n"
+                           "  local row = ui.list_entry(300, 56)\n"
+                           "  row.background = 15\n"
+                           "  row.on_click = function() console.print('pick row ' .. i) end\n"
+                           "  l:add(row)\n"
+                           "end\n"
+                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.present('gc16')\n"
+                           "console.print('press up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run drift");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 20 + 150);
+  const uint16_t start_y = static_cast<uint16_t>(view.y + 20 + 28);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  // **Seixanta a l'esquerra i vuitanta avall** (el costat que passa endavant des de la 0.189.1): més avall que no pas de
+  // costat, i tot i així és un swipe de pàgina.
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 60), static_cast<uint16_t>(start_y + 80)));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(80);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/drift/app.lua");
+  storage->remove("/apps/drift/manifest.json");
+  storage->remove("/apps/drift");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A gesture that turns no page picks nothing** (0.186.1): the owner, with the lists of the faces and of the libraries on
+// the board — *«estic fent swipe esquerra/dreta i es seleccionen items de la llista… és impossible passar pàgina, es
+// selecciona un element i s'acaba obrint (rep el toc i no hauria, el gest no deixa tocs)»* —. A finger that has walked is
+// a gesture, and a gesture that finds no page to turn —going back from the first one— is still a gesture: the row it
+// stops over is not picked. It used to be, because the click of the lift never looked at the travel, so every swipe
+// against the first page opened the item under the finger. **And the list answers the next tap**, which is the half that
+// says the contact was spent and not the page made deaf.
+void test_a_swipe_that_turns_no_page_picks_nothing(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "swipeback",
+                           "{\"title\":\"Swipe back\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local l = ui.list(300, 200)\n"
+                           "l:place(20, 20)\n"
+                           "l.row_height = 56\n"
+                           "local rows = {}\n"
+                           "for i = 1, 12 do\n"
+                           "  local row = ui.list_entry(300, 56)\n"
+                           "  row.background = 15\n"
+                           "  row.on_click = function() console.print('pick row ' .. i) end\n"
+                           "  l:add(row)\n"
+                           "  rows[i] = row\n"
+                           "end\n"
+                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.focus(rows[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('press up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run swipeback");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 20 + 60);
+  const uint16_t start_y = static_cast<uint16_t>(view.y + 20 + 28);
+  // The finger walks **right** on the first page: there is no page before it, so nothing is turned (the right is the page
+  // before this one since the 0.189.1).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x + 120), start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(80);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "page "), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
+
+  // And the list answers a tap on the same row: the contact was spent, the page was not made deaf.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pick row 1"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/swipeback/app.lua");
+  storage->remove("/apps/swipeback/manifest.json");
+  storage->remove("/apps/swipeback");
 
   opts = emu::options();
   opts.board = nullptr;
@@ -6483,13 +7572,13 @@ void test_an_app_that_names_a_splash_carries_it(void) {
   TEST_ASSERT_LESS_THAN_MESSAGE(20000, launcher_bytes, launcher_path);
 }
 
-// **Les cinc marques de la targeta viuen al disc i són dibuixos** (0.185.1): the keys of the card of the bar carry the marks of
-// `tools/iconart.py` —the arrow, the cross, the wheel, the circle that starts again and the switch— and the kernel reads them
-// from `/res/icons`, so the five of them have to be in the repository and be a PNG with something in it (a key of the card that
-// finds no file falls back to the lines of `draw_icon`, which is a mark and not a drawing, and this case keeps the day from
-// passing without anybody noticing) (docs/30, docs/45).
-void test_the_card_of_the_bar_carries_the_five_marks(void) {
-  static const char* const kMarks[] = {"back", "close", "settings", "reboot", "poweroff"};
+// **Les sis marques de la targeta viuen al disc i són dibuixos** (0.185.1, la sisena des de la 0.189.25): the keys of the card of the
+// bar carry the marks of `tools/iconart.py` —the arrow, the cross, the wheel, the switch, **the moon** and the circle that starts
+// again— and the kernel reads them from `/res/icons`, so the six of them have to be in the repository and be a PNG with something in
+// it (a key of the card that finds no file falls back to the lines of `draw_icon`, which is a mark and not a drawing, and this case
+// keeps the day from passing without anybody noticing) (docs/30, docs/45).
+void test_the_card_of_the_bar_carries_the_six_marks(void) {
+  static const char* const kMarks[] = {"back", "close", "settings", "reboot", "poweroff", "deepsleep"};
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
   size_t found = 0;
   for (size_t m = 0; m < sizeof(kMarks) / sizeof(kMarks[0]); ++m) {
@@ -6513,7 +7602,7 @@ void test_the_card_of_the_bar_carries_the_five_marks(void) {
     TEST_ASSERT_TRUE_MESSAGE(there, kMarks[m]);
     ++found;
   }
-  TEST_ASSERT_EQUAL_UINT32(5, static_cast<uint32_t>(found));
+  TEST_ASSERT_EQUAL_UINT32(6, static_cast<uint32_t>(found));
 }
 
 // The store answers how full it is in **entries**, which is the number that says whether the
@@ -7352,16 +8441,17 @@ void test_a_page_goes_up_with_the_quality_its_ink_asks_for(void) {
 
   emu::MemorySurface* glass = emu::memory_surface();
   TEST_ASSERT_NOT_NULL(glass);
-  // **The page is one paint and it is sixteen levels without a flash**: the head and the six doors are seven boxes and one
-  // page, a page is one paint, and the quality is the one the ink deserves (docs/30, docs/50).
+  // **The page is one paint and it is two levels**: the head and the six doors are seven boxes and one page, a page is one
+  // paint, and the quality is the one the ink deserves —**`a2` for text**, 290 ms and one blink, since the 0.189.2— (docs/30,
+  // docs/50).
   const emu::MemorySurface::Paint* page = nullptr;
   for (uint32_t i = 0; i < emu::MemorySurface::kMaxPaints; ++i) {
     const emu::MemorySurface::Paint* paint = glass->paint_at(glass->paint_count() - 1 - i);
     if (paint != nullptr && paint->w == 300 && paint->h > 300) page = paint;
   }
   TEST_ASSERT_NOT_NULL_MESSAGE(page, "the page was painted as one box of 300 wide");
-  // **Sixteen levels without a flash, which is what a page of this panel takes** (0.179.64, docs/50).
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGl16, page->mode);
+  // **Dos nivells i un parpelleig, que és el que demana una pàgina de lletres** (0.189.2, docs/50).
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kA2, page->mode);
   TEST_ASSERT_EQUAL_UINT16(kernel::ui::canvas().y + 20, page->y);
 
   // **And the box that changed is one box**, a line of words with the same quality and not the page again (docs/50).
@@ -7374,7 +8464,7 @@ void test_a_page_goes_up_with_the_quality_its_ink_asks_for(void) {
     }
   }
   TEST_ASSERT_NOT_NULL_MESSAGE(box, "the line that changed was painted, and only it");
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGl16, box->mode);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kA2, box->mode);
   TEST_ASSERT_EQUAL_UINT16(kernel::ui::canvas().y + 20, box->y);
 
   kernel::shell::close_app();
@@ -7427,19 +8517,21 @@ void test_a_page_of_one_bit_is_never_sent_to_the_full_wash(void) {
 
   emu::MemorySurface* glass = emu::memory_surface();
   TEST_ASSERT_NOT_NULL(glass);
-  // **Forty-one paints and not one of them is the four-blink wash**: the page, and then one box a line.
+  // **Forty-one paints and not one of them is the four-blink wash**: the page, and then one box a line. **Since the 0.189.2
+  // the box of a line goes up in `a2`**, which is the two-level pass of a thing of text, so both are counted: what this case
+  // watches is the wash and not which of the two cheap passes came out (docs/30, docs/50).
   uint32_t lines = 0;
   uint32_t full = 0;
   for (uint32_t i = 0; i < emu::MemorySurface::kMaxPaints; ++i) {
     const emu::MemorySurface::Paint* paint = glass->paint_at(glass->paint_count() - 1 - i);
     if (paint == nullptr) continue;
     if (paint->mode == hal::UpdateMode::kGc16) ++full;
-    if (paint->mode == hal::UpdateMode::kGl16) ++lines;
+    if (paint->mode == hal::UpdateMode::kGl16 || paint->mode == hal::UpdateMode::kA2) ++lines;
   }
   // **The last paints of the run and not all of them**: the glass of the emulator keeps the last eight, and eight is
   // more than enough —the budget of 32 is spent long before, so every paint this case can see is past it—.
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, full, "a page of one bit was sent to the full wash");
-  TEST_ASSERT_GREATER_OR_EQUAL_UINT32_MESSAGE(6, lines, "the boxes went up, and all of them in gl16");
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32_MESSAGE(6, lines, "the boxes went up, and none of them in the full wash");
 
   kernel::shell::close_app();
   pump_captured(5, nullptr, 0);
@@ -8517,10 +9609,11 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(board_line, g_out);
   char board_text[160] = {0};
   int score = 0;
+  int best = 0;
   int over = 1;
   int sum = 0;
-  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(board_line, "[2048] board: %159[0-9,] score=%d over=%d sum=%d",
-                                          board_text, &score, &over, &sum),
+  TEST_ASSERT_EQUAL_INT_MESSAGE(5, sscanf(board_line, "[2048] board: %159[0-9,] score=%d best=%d over=%d sum=%d",
+                                          board_text, &score, &best, &over, &sum),
                                 board_line);
   int tiles = 0;
   int twos = 0;
@@ -8579,10 +9672,13 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   char after_text[160] = {0};
   int after_score = 0;
   int after_sum = 0;
-  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(after_line, "[2048] board: %159[0-9,] score=%d over=%d sum=%d",
-                                          after_text, &after_score, &over, &after_sum),
+  TEST_ASSERT_EQUAL_INT_MESSAGE(5, sscanf(after_line, "[2048] board: %159[0-9,] score=%d best=%d over=%d sum=%d",
+                                          after_text, &after_score, &best, &over, &after_sum),
                                 after_line);
   TEST_ASSERT_GREATER_THAN_INT_MESSAGE(sum, after_sum, after_line);
+  // **I la màxima ha pujat amb la puntuació** (0.189.4): the best is the highest score this board has ever reached, so
+  // after a move that added to the score it can never be under it.
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(after_score, best, after_line);
   TEST_ASSERT_TRUE_MESSAGE(after_sum - sum == 2 || after_sum - sum == 4, after_line);
   // **Fifteen commas and sixteen exponents**, and one more tile than there were: the merge did not happen yet and
   // the spawn did.
@@ -8601,18 +9697,22 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(again_line, g_out);
   char again_text[160] = {0};
   int again_sum = 0;
-  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(again_line, "[2048] board: %159[0-9,] score=%d over=%d sum=%d",
-                                          again_text, &after_score, &over, &again_sum),
+  int again_best = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(5, sscanf(again_line, "[2048] board: %159[0-9,] score=%d best=%d over=%d sum=%d",
+                                          again_text, &after_score, &again_best, &over, &again_sum),
                                 again_line);
   TEST_ASSERT_EQUAL_STRING_MESSAGE(after_text, again_text, "the game came back as it was");
   TEST_ASSERT_EQUAL_INT_MESSAGE(after_sum, again_sum, again_line);
+  // **I la màxima torna amb la partida**: it is the fourth line of the save, so a game that comes back carries the best
+  // and its day with it (docs/30, docs/45).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(best, again_best, again_line);
 
-  // **The New button is not faked by this case, and it is said rather than hidden**: the rule it follows —one tap
-  // says «Sure?» and the second throws the game away— is the app's (`tapAt`), and it was checked on the board by
-  // hand. The finger this case can make is `finger_down`/`finger_up` on the emulated panel, and a sequence that
-  // reaches the app as a `tap` there was not found: forty turns of finger painted the button and ten painted
-  // nothing at all, which is a fact about the harness and not about the app (11/11). A case that guessed would be a
-  // case that lies the day the harness changes.
+  // **The New button is not faked by this case, and it is said rather than hidden**: one tap starts a new game
+  // (`tapAt`), with no question in between and the best score kept, and it was checked on the board by hand (0.189.4).
+  // The finger this case can make is `finger_down`/`finger_up` on the emulated panel, and a sequence that reaches the
+  // app as a `tap` there was not found: forty turns of finger painted the button and ten painted nothing at all, which
+  // is a fact about the harness and not about the app (11/11). A case that guessed would be a case that lies the day
+  // the harness changes.
 
   kernel::shell::close_app();
   pump_captured(5, nullptr, 0);
@@ -9115,14 +10215,14 @@ void test_the_picture_of_an_app_goes_up_before_it_is_read(void) {
 void test_the_memory_of_a_session_is_the_apps_and_not_the_systems(void) {
   TEST_ASSERT_TRUE(boot_once());
   kernel::session::release_all();
-  TEST_ASSERT_EQUAL_UINT8(0, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
   TEST_ASSERT_EQUAL_UINT32(0, kernel::session::bytes_held());
 
   size_t got = 0;
   uint8_t* mine = static_cast<uint8_t*>(kernel::session::acquire("launcher", "apps", 256, got));
   TEST_ASSERT_NOT_NULL(mine);
   TEST_ASSERT_EQUAL_UINT32(256, got);
-  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
   // **A block that is new is zeroed**, which is how an app tells a cold cache from a warm one.
   for (size_t i = 0; i < got; ++i) TEST_ASSERT_EQUAL_UINT8(0, mine[i]);
   mine[0] = 0x5A;
@@ -9137,7 +10237,7 @@ void test_the_memory_of_a_session_is_the_apps_and_not_the_systems(void) {
   TEST_ASSERT_EQUAL_UINT8(0x5A, same[0]);
   TEST_ASSERT_EQUAL_UINT8(0xA5, same[255]);
   TEST_ASSERT_EQUAL_UINT32(first_generation, kernel::session::generation());
-  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
 
   // **Another app with the same key is another block**: the key is of the app and not of the system.
   size_t other = 0;
@@ -9146,7 +10246,7 @@ void test_the_memory_of_a_session_is_the_apps_and_not_the_systems(void) {
   TEST_ASSERT_EQUAL_UINT32(64, other);
   TEST_ASSERT_TRUE(theirs != mine);
   TEST_ASSERT_EQUAL_UINT8(0, theirs[0]);
-  TEST_ASSERT_EQUAL_UINT8(2, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(2, kernel::session::count());
   TEST_ASSERT_EQUAL_UINT32(320, kernel::session::bytes_held());
 
   // **A block that is asked for bigger grows and keeps what was in it**, and the bytes that are new are zero.
@@ -9163,11 +10263,11 @@ void test_the_memory_of_a_session_is_the_apps_and_not_the_systems(void) {
   size_t keep_got = 0;
   uint8_t* keep_me = static_cast<uint8_t*>(kernel::session::acquire("keeper", "cache", 256, keep_got));
   TEST_ASSERT_NOT_NULL(keep_me);
-  TEST_ASSERT_EQUAL_UINT8(3, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(3, kernel::session::count());
   const size_t held = kernel::session::bytes_held();
   kernel::session::release_all(keep_me, 512);
   // The two caches of the other pages went and the one the ask is about is still the app's, with the same size.
-  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
   TEST_ASSERT_EQUAL_UINT32(held - 576, kernel::session::bytes_held());
   size_t still_got = 0;
   TEST_ASSERT_EQUAL_PTR(keep_me, kernel::session::acquire("keeper", "cache", 256, still_got));
@@ -9176,7 +10276,7 @@ void test_the_memory_of_a_session_is_the_apps_and_not_the_systems(void) {
   // **And the relief takes every one of them**: the table is empty, the number of the session has gone up, and a block that
   // comes back is zeroed and is not the promise of the old one.
   kernel::session::release_all();
-  TEST_ASSERT_EQUAL_UINT8(0, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
   TEST_ASSERT_EQUAL_UINT32(0, kernel::session::bytes_held());
   TEST_ASSERT_TRUE(kernel::session::generation() > first_generation);
   size_t fresh = 0;
@@ -10916,12 +12016,137 @@ void test_a_page_that_paints_itself_paints_its_own_hole(void) {
   kernel::boot(hal::platform());
 }
 
+// **La galeria guarda la mostra de cada cara en una sessió i la torna a pintar com una còpia** (0.189.26, l'amo: *«l'app
+// Fonts … guarda una mostra del tipus de lletra amb el nom de la font … a una sessió de sistema. Quan s'obre l'app Fonts es
+// busquen aquestes sessions de sistema per recuperar la previsualització de la font, que s'usarà com a títol de l'entry»*):
+// el primer obre dibuixa el nom **amb la seva pròpia cara** i el desa (`made`), i el segon el troba i el copia (`kept`) sense
+// tornar a obrir la cara per a la mostra; el bloc queda a `/session/fonts/<clau>`, i `sessions` el llista (docs/30, docs/75).
+void test_the_gallery_keeps_the_preview_of_a_face_in_a_session(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/res/icon.png", "/apps/fonts/res/icon.png"));
+
+  // **El primer obre dibuixa la mostra i la desa.**
+  kernel::log_echo(true);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-bold.ttf made "), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-bold.ttf kept "),
+                           "the first open found a preview that it had not made yet");
+
+  // **El segon la troba i la copia**: the block is the picture of the row, so the face does not have to draw it again.
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-bold.ttf kept "), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-bold.ttf made "),
+                           "the second open drew the preview again instead of copying it");
+
+  // **I el bloc és una sessió de l'app**: the head of the block carries the file and its size, which is what makes an
+  // unchanged face a copy and a replaced one a new drawing.
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  pump_captured(80, g_out, sizeof(g_out), "sessions");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/session/fonts/s"), g_out);
+
+  storage->remove("/apps/fonts/res/icon.png");
+  storage->remove("/apps/fonts/res");
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+  storage->remove("/res/fonts/dejavusans-bold.ttf");
+  emu::Options after = emu::options();
+  after.board = nullptr;
+  after.display = false;
+  emu::set_options(after);
+  kernel::boot(hal::platform());
+}
+
 // **The viewer of the faces opens every format the system reads** (0.174.1, the owner: *«fes una app visualitzadora de
 // fonts. Que obri tots els formats suportats per el sistema i mostri la font»*). The shelf asks the kernel to load each
 // file of `/fonts` once and says what it is —a `.lfont`, a `.bdf`, a `.pcf` and a TrueType, which are the four readers of
 // `font::load_any`— and a file that is not a face says the reason instead of disappearing. Then a finger on a row opens
 // the specimen, the face draws its own words at its own sizes, and the way back is a button and the pinch. **The three
 // places of the door are in it**: the flash, the card and the app's own `apps/<id>/fonts` (docs/30, docs/70, docs/85).
+// **La galeria torna a l'exemplar que la persona tenia obert** (0.189.27, la norma 0.189.12 de docs/30): `state` desa la
+// pàgina del prestatge, la fila del cercle i **la fila que té l'exemplar obert**, i la pàgina el llegeix abans de col·locar
+// res. El cas obre un exemplar amb un dit, tanca l'app, la torna a obrir i el que ha de veure és el mateix exemplar i no el
+// prestatge: `fonts: came back to <fitxer>` i la pàgina oberta (docs/30, docs/45).
+void test_the_gallery_comes_back_on_the_specimen_it_was_left_on(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/res/icon.png", "/apps/fonts/res/icon.png"));
+
+  // **On és la fila, dit per l'app** (`run fonts shelf`): a case presses a name and not a coordinate it would have to know.
+  kernel::log_echo(true);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts shelf");
+  int row_x = -1;
+  int row_y = -1;
+  const char* at = strstr(g_out, "fonts: row dejavusans-bold.ttf ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(at, g_out);
+  TEST_ASSERT_EQUAL_INT(2, sscanf(at + strlen("fonts: row dejavusans-bold.ttf "), "%d %d", &row_x, &row_y));
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + row_x), static_cast<uint16_t>(view.y + row_y)));
+  pump_turns(40);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open dejavusans-bold.ttf"), g_out);
+
+  // **La forma queda al bloc quan l'app es tanca**, i el segon obre torna a l'exemplar i no al prestatge.
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: came back to dejavusans-bold.ttf"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open dejavusans-bold.ttf"), g_out);
+
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
+    pump_turns(10);
+  }
+  storage->remove("/apps/fonts/res/icon.png");
+  storage->remove("/apps/fonts/res");
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+  storage->remove("/res/fonts/dejavusans-bold.ttf");
+  emu::Options after = emu::options();
+  after.board = nullptr;
+  after.display = false;
+  after.touch = false;
+  emu::set_options(after);
+  kernel::boot(hal::platform());
+}
+
 void test_the_font_viewer_opens_every_format_the_system_reads(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -12222,6 +13447,9 @@ void test_the_idle_sleep_is_a_switch(void) {
 // ATOM has no hold on its supply; the Paper has one, and the model of the emulator says so.
 void test_poweroff_cuts_the_power_of_the_board_that_can(void) {
   TEST_ASSERT_TRUE(boot_once());
+  // **El repòs de la targeta no es paga en una prova** (0.189.18): el número és el que l'amo va demanar per a la placa —dos
+  // segons— i aquí es posa a zero perquè la suite no els esperi; es torna a deixar com era abans de sortir.
+  kernel::power::set_leaving_ms(0);
 
   // The ATOM, which is the board a test starts on: no hold, so the line says why and the system
   // goes on running. A command that looked like it worked and left the board on is worse.
@@ -12237,6 +13465,100 @@ void test_poweroff_cuts_the_power_of_the_board_that_can(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "powering off..."), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cannot cut its own power"), g_out);
   TEST_ASSERT_FALSE(kernel::running());
+  kernel::power::set_leaving_ms(kernel::power::kLeavingMs);
+}
+
+// **El que s'ha escrit es compta, i el que es pot rentar es renta abans que el corrent marxi** (0.189.18, l'amo: *«Haurà
+// donat temps a gravar-ho tot al SD?? s'ha apagat tot molt ràpid»*): `park_all` diu quantes escriptures ha fet i
+// `check_parked` demana al disc si hi són, fitxer a fitxer i amb la mida; `settle_before_leaving` passa per la consola, pels
+// volums i pel magatzem i després deixa el repòs que cap crida pot fer per una targeta. La prova mesura les dues coses i
+// també la que importa: que un fitxer que no hi és **es vegi** al compte (docs/70, docs/75).
+// **El corrent de la placa s'aguanta abans de qualsevol altra cosa** (0.189.24, l'amo: *«El poweroff deixa la placa tonta? no
+// puc arrencar-la sense punxarla a un usb?!»*): the supply of the Paper is held by a pin and the switch gives up about a second
+// after the key, so a boot that spends that second in the console and in the splash never finishes on the battery —a cable
+// feeds the board, which is why the fault only showed when it was asked to start alone—. The call is the **first** thing a
+// boot does, twice is not an error, and it is the same first instruction the maker's own `M5EPD::begin()` runs (docs/50).
+// **Una placa que no pot despertar-se amb una tecla ho diu abans de gastar res** (0.189.25, l'amo: *«Fes la B … l'afegeixes al
+// panell desplegable del sistema entre el botó de poweroff i el de reboot»*): `sys.deepsleep()` és la lluna de la targeta, el
+// `deepsleep` del prompt i una sola cosa, i qui respon és la placa, que és l'única que sap si una tecla seva pot despertar un
+// xip adormit. L'ATOM té tres tecles i cap d'elles no és en un pin que el xip vigili mentre dorm, o sigui que la crida diu
+// `E_UNSUPPORTED` i l'app segueix; el Paper, amb la tecla del dial a GPIO38, és el que sí (docs/30, docs/50).
+void test_a_board_without_a_waking_key_refuses_to_sleep_with_the_keys(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-atom");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "nap",
+                           "{\"title\":\"Nap\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local ok, err = sys.deepsleep('the app asked')\n"
+                           "console.print('nap ' .. tostring(ok) .. ' ' .. tostring(err and err.code))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run nap", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "nap nil E_UNSUPPORTED"), g_out);
+  // **I la placa que sí que pot ho diu sense intentar-ho**, que és el que fa que el botó hi sigui a la targeta i que el
+  // prompt no gasti una imatge i dos segons per una cosa que no pot fer (docs/50, docs/75).
+  TEST_ASSERT_FALSE_MESSAGE(hal::platform().power()->can_sleep_with_the_keys(),
+                            "the ATOM says a key of it can wake a chip that sleeps");
+  use_board("m5stack-paper");
+  TEST_ASSERT_NOT_NULL(hal::platform().power());
+  TEST_ASSERT_TRUE_MESSAGE(hal::platform().power()->can_sleep_with_the_keys(),
+                           "the Paper says no key of it can wake a chip that sleeps");
+
+  storage->remove("/apps/nap/app.lua");
+  storage->remove("/apps/nap/manifest.json");
+  storage->remove("/apps/nap");
+}
+
+void test_the_boot_holds_the_power_before_anything_else(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  const uint32_t before = emu::held_the_power();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_GREATER_THAN_UINT32(before, emu::held_the_power());
+
+  // **I cada arrencada el torna a agafar**: the board that comes back from a poweroff has nothing held until it does, and the
+  // call costs a pin that is already high when it is the same boot asking twice (docs/50).
+  const uint32_t once = emu::held_the_power();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_GREATER_THAN_UINT32(once, emu::held_the_power());
+}
+
+void test_the_board_counts_what_it_wrote_and_rests_before_the_current_goes(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  size_t got = 0;
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("hold", "one", 128, got));
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("hold", "two", 64, got));
+  kernel::session::park_all("a test");
+
+  // **Dos de dos**: les dues cachés són al disc, amb la mida que tenen a la memòria.
+  const kernel::session::Checked both = kernel::session::check_parked();
+  TEST_ASSERT_EQUAL_UINT32(2, both.files);
+  TEST_ASSERT_EQUAL_UINT32(2, both.ok);
+
+  // **I un fitxer que no hi és es veu**: el compte baixa a un de dos i no menteix.
+  TEST_ASSERT_TRUE(storage->remove("/session/hold/two"));
+  const kernel::session::Checked one = kernel::session::check_parked();
+  TEST_ASSERT_EQUAL_UINT32(2, one.files);
+  TEST_ASSERT_EQUAL_UINT32(1, one.ok);
+
+  // **El repòs és un número i es pot canviar**: la suite no espera dos segons i la placa sí.
+  TEST_ASSERT_EQUAL_UINT32(kernel::power::kLeavingMs, kernel::power::leaving_ms());
+  kernel::power::set_leaving_ms(0);
+  const kernel::power::Leaving done = kernel::power::settle_before_leaving("a test");
+  TEST_ASSERT_TRUE(done.console);
+  TEST_ASSERT_TRUE(done.store);
+  TEST_ASSERT_TRUE(done.volumes >= 1);
+  TEST_ASSERT_EQUAL_UINT8(done.volumes, done.volumes_ok);
+  TEST_ASSERT_EQUAL_UINT32(0, done.margin_ms);
+  kernel::power::set_leaving_ms(kernel::power::kLeavingMs);
+
+  // Neteja: les dues sessions i el seu fitxer.
+  kernel::session::forget("hold");
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
 }
 
 // The demo app that shows handles by hand is a file in the repository, so it is
@@ -13414,7 +14736,58 @@ void test_the_shelf_has_a_foot_of_its_own(void) {
   kernel::boot(hal::platform());
 }
 
-// **The Shell app is the shell of the system in the glass** (0.162.0): the page on which a board with a pen and no
+// **La pàgina del shell es recorda: les pestanyes, els títols i la cua de cada terminal** (0.189.29, l'amo: *«ha d'usar la
+// sessió "state" per guardar els logs de les terminals oberts (últimes línies), els títols, quina pestanya estava activa…
+// per recuperar l'estat al arrencar l'app de nou»*): el bloc desa `tabs`, `tab` i un `text:t<n>`/`text:l<n>` per pestanya, i
+// el segon obre el llegeix i diu quantes n'ha recuperat. **La sessió no torna** —un tub d'una app que s'ha anat és un tub de
+// ningú— i el que torna és el que una persona llegeix: el títol i les últimes línies (docs/30, docs/45).
+void test_the_shell_app_keeps_its_sessions_in_the_state(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/shell"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/shell/shell.lua", "/apps/shell/shell.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/shell/manifest.json", "/apps/shell/manifest.json"));
+
+  // **Un obre una sessió i una línia que el shell contesta**, que és el que la pàgina ha de tenir a la pestanya.
+  pump_captured(120, g_out, sizeof(g_out), "run shell");
+  TEST_ASSERT_EQUAL_STRING("shell", kernel::shell::app_id());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::session_write(1, "echo hola del state\n", 22), "the session took the line");
+  pump_captured(300, nullptr, 0);
+
+  // **I el bloc diu la forma**: una pestanya, el seu títol i la seva cua.
+  static char block[4096];
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  const size_t got = kernel::session::copy("shell", "state", block, sizeof(block) - 1);
+  block[got] = '\0';
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "tabs=1"), block);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "tab=1"), block);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "text:t1=Shell 1"), block);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "text:l1="), block);
+
+  // **I el segon obre els llegeix**: la pàgina diu quantes sessions ha recuperat del bloc.
+  pump_captured(200, g_out, sizeof(g_out), "run shell");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "shell: 1 session(s) from the state, on 1"), g_out);
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+
+  storage->remove("/apps/shell/shell.lua");
+  storage->remove("/apps/shell/manifest.json");
+  storage->remove("/apps/shell");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **The shell app is the shell of the system in the glass** (0.162.0): the page on which a board with a pen and no
 // keyboard can still type a line. What is measured from here is the half of it that belongs to the kernel —**the app
 // that ships opens a session of the shell and not an interpreter of its own**— and that the session answers with what
 // the shell answers: the line written into it is a command and the version of the kernel comes back.
@@ -14798,7 +16171,7 @@ void test_the_faces_app_opens_more_specimens_than_the_board_keeps(void) {
 //
 // The shelf of this case is twenty files written into `/fonts`: the app lists them and `sniff` reads the name and not the
 // bytes, so a file of one byte per row is a row of the list and the twenty of them are three pages (docs/85).
-void test_a_swipe_up_turns_the_page_of_a_list(void) {
+void test_a_swipe_up_or_down_is_not_a_page_of_a_list(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
@@ -14861,18 +16234,20 @@ void test_a_swipe_up_turns_the_page_of_a_list(void) {
     return true;
   };
 
-  // **Cap amunt: la pàgina següent**, and the row it ends over is not picked.
+  // **Cap amunt ja no és cap pàgina** (0.188.5, l'amo: *«per passar pàgina vull dreta/esquerra no amunt/avall»*): the same
+  // vertical swipe that turned the page until this version is a contact that walks and asks for nothing, and the row it
+  // ends over is not picked either.
   capture_begin();
   TEST_ASSERT_TRUE(swipe(row_y, row_y - 160));
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: page 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: page 2"), "a swipe up is not a page");
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: open "), "the swipe picked the row it ended over");
 
-  // **I cap avall torna a la primera**, which is the other half of the same rule.
+  // **I cap avall tampoc**, which is the other half of the same rule.
   capture_begin();
   TEST_ASSERT_TRUE(swipe(row_y, row_y + 160));
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: page 1"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: page 2"), "a swipe down is not a page");
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: open "), "the swipe picked the row it ended over");
 
   kernel::shell::close_app();
@@ -14891,11 +16266,371 @@ void test_a_swipe_up_turns_the_page_of_a_list(void) {
   storage->remove("/apps/fonts");
 }
 
+// **La lleixa és de cares i de res més** (0.189.32, l'amo: *«Treu els arxius que no son fonts reconegudes de la llista»*):
+// `/fonts` és una carpeta on una persona deixa una llicència, un readme o una cara d'un format que aquest nucli no llegeix, i
+// la fila d'un fitxer així era una fila grisa que no es podia prémer i prenia el lloc d'una cara. El cas escriu una cara i un
+// fitxer que no ho és, i mesura les dues meitats de la regla: **el motiu es diu a la consola** —que és el que respon «la meva
+// font no surt»— i **la fila no hi és** (docs/30, docs/85).
+void test_the_shelf_lists_the_faces_and_leaves_the_other_files_out(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavuserif.ttf"));
+  TEST_ASSERT_TRUE(write_text(storage, "/res/fonts/a-licence.txt", "the licence of a face is not a face\n"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+
+  kernel::log_echo(true);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts shelf");
+
+  // **El motiu, dit**: the file that is not a face says what it is and why it is not on the page, one line per file.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: a-licence.txt none "), g_out);
+  // **I la fila, fora**: no row of the list carries its name, which is the whole of what this case is about.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: row a-licence.txt"), "a file that is not a face is not a row");
+  // **I la cara, dins**: a face of the door is a row, or the shelf would be empty for the wrong reason.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: row dejavuserif.ttf "), g_out);
+  // **I el recompte diu quants fitxers s'han deixat fora**: the line of the console says the count of the rows and the count
+  // of what the page does not show (docs/30).
+  int rows = -1;
+  int left_out = -1;
+  for (const char* at = strstr(g_out, "fonts: "); at != nullptr; at = strstr(at + 7, "fonts: ")) {
+    if (sscanf(at, "fonts: %d rows, %d file(s) of the door are not faces", &rows, &left_out) == 2) break;
+  }
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(1, rows, g_out);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(1, left_out, g_out);
+
+  // **I la barra de l'arrencada hi era i ja no hi és** (0.189.33): the start raises a bar over the card of the app and lets it
+  // go before the shelf, and the line is the only trace of it a console has —a page that kept it would be a shelf with a bar
+  // in the middle of it for ever (docs/30)—.
+  const char* bar = strstr(g_out, "fonts: the bar of the start is gone");
+  TEST_ASSERT_NOT_NULL_MESSAGE(bar, g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(bar + 1, "fonts: the bar of the start is gone"), "the bar is raised once");
+
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
+    pump_turns(10);
+  }
+  kernel::log_echo(false);
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+  storage->remove("/res/fonts/a-licence.txt");
+}
+
+// **La pàgina de detall: tot el text més gran, els passatges d'un llibre i la manera de tornar a baix de tot** (0.189.31,
+// l'amo: *«A la vista detalls: Tot el text mes gran … Entre els detalls i el botó un TextBoxMultiline sense vores i read only
+// ple de text … El botó de "back to the shelf" abaix de tot amb una icona de "back" a l'esquerra i el text a la dreta»*):
+// the page is a column of the system's panel, the box of lines takes with a `weight` the room the details and the button
+// leave, and this case measures the three things a change of the layout moves —the box has a box of its own and more text
+// than the rows it shows, and the button is under the box and still on the glass— without a single pixel of a face
+// (docs/30, docs/85).
+void test_the_specimen_gives_the_passages_their_room_and_the_way_back_below(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusansmono.ttf"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  auto tap = [&](int x, int y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
+
+  // **La fila d'una cara, on l'app diu que és** (`run fonts shelf`, docs/85): a case presses a name and not a coordinate it
+  // would have to know.
+  kernel::log_echo(true);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts shelf");
+  const char* row = strstr(g_out, "fonts: row dejavusansmono.ttf ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(row, g_out);
+  int row_x = -1;
+  int row_y = -1;
+  TEST_ASSERT_EQUAL_INT(2, sscanf(row + strlen("fonts: row dejavusansmono.ttf "), "%d %d", &row_x, &row_y));
+
+  // **Un exemplar que ja era obert** (docs/30): the shape of the app is the one the case of before left, and a page that came
+  // back on a specimen has to go back to the shelf before a row of it is pressed —which is the same door this case is about.
+  if (strstr(g_out, "fonts: came back to ") != nullptr) {
+    const char* door = strstr(g_out, "fonts: backbox ");
+    TEST_ASSERT_NOT_NULL_MESSAGE(door, g_out);
+    int door_x = 0;
+    int door_y = 0;
+    TEST_ASSERT_EQUAL_INT(2, sscanf(door + strlen("fonts: backbox "), "%d %d", &door_x, &door_y));
+    capture_begin();
+    TEST_ASSERT_TRUE(tap(door_x, door_y));
+    capture_end(g_out, sizeof(g_out));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+  }
+
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(row_x, row_y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open dejavusansmono.ttf"), g_out);
+
+  // **El requadre dels passatges té una caixa de debò**: a box of no room is a column whose details grew past the page, and a
+  // box with room and nothing in it is the failure on the other side (docs/30).
+  int box_x = 0;
+  int box_y = 0;
+  int box_w = 0;
+  int box_h = 0;
+  const char* room = strstr(g_out, "fonts: passagebox ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(room, g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(
+      4, sscanf(room + strlen("fonts: passagebox "), "%d %d %d %d", &box_x, &box_y, &box_w, &box_h), g_out);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, box_w, g_out);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, box_h, g_out);
+
+  // **I més text que les files que s'hi veuen**: the passages of the book are five and a page of the glass shows some of them,
+  // which is what the bar of the box and the swipe of the finger are for (docs/90).
+  int rows_shown = 0;
+  int lines_total = 0;
+  const char* counted = strstr(g_out, "fonts: passagerows ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(counted, g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(
+      2, sscanf(counted + strlen("fonts: passagerows "), "%d %d", &rows_shown, &lines_total), g_out);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(3, rows_shown, g_out);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(rows_shown, lines_total, g_out);
+
+  // **I la manera de tornar, a sota del requadre i dins del vidre**: the button is the last thing of the column, and a page
+  // that pushes it off the glass is a page a finger cannot leave (docs/30).
+  int edge_top = 0;
+  int edge_bottom = 0;
+  const char* edge = strstr(g_out, "fonts: backrows ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(edge, g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(edge + strlen("fonts: backrows "), "%d %d", &edge_top, &edge_bottom), g_out);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(box_y + box_h, edge_top, g_out);
+  TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(static_cast<int>(view.height), edge_bottom, g_out);
+
+  // And the door is the door it says: a finger on it is the shelf again (docs/30).
+  const char* door = strstr(g_out, "fonts: backbox ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(door, g_out);
+  int back_x = 0;
+  int back_y = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(door + strlen("fonts: backbox "), "%d %d", &back_x, &back_y), g_out);
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(back_x, back_y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
+    pump_turns(10);
+  }
+  kernel::log_echo(false);
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+}
+
+// **La barra de l'arrencada és una línia sota el «loading...» i no hi ha res més** (0.189.40 i 0.189.41, l'amo: *«Fes la
+// barra mes fina, pósala mes avall, sota del "loading" i assota»* i *«el text queda horrible. Treu-lo. Amb la barra serà
+// suficient»*): el que el cas mesura són els números del vidre que `run fonts shelf` diu —la caixa de la barra, en **files del
+// vidre**—: fa **nou files** i no una placa del cos de la lletra; és a la fila **636**, que és sota el «loading...» de
+// `res/splash.png` (que ocupa 594..609) i **abans** de la seva marca «lunokOS» (que comença a 669); i **no hi ha cap nom a
+// sota**: el text que hi havia es va treure i el nom de la família només va al registre, una línia per passa de la barra
+// (docs/30, docs/85).
+void test_the_bar_of_the_start_is_a_line_under_the_loading_of_the_picture(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusansmono.ttf"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+
+  kernel::log_echo(true);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts shelf");
+
+  const char* bar = strstr(g_out, "fonts: startbar ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(bar, g_out);
+  int bar_x = 0;
+  int bar_y = 0;
+  int bar_w = 0;
+  int bar_h = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(bar, "fonts: startbar %d %d %d %d", &bar_x, &bar_y, &bar_w, &bar_h), g_out);
+
+  // **Una línia i no una placa**: nine rows of ink —which is the thinnest a bar of this system has, because its frame is not
+  // drawn under eight— and the width of the door of this page (docs/30, docs/90).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(9, bar_h, g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(320, bar_w, g_out);
+  // **I a sota del «loading...» de la imatge i per sobre de la seva marca**: 616 is where the sentence of the picture ends
+  // and 669 where «lunokOS» begins, measured on the dump of a run (docs/30, docs/50).
+  TEST_ASSERT_TRUE_MESSAGE(bar_y > 616, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(bar_y + bar_h < 669, g_out);
+  // **I cap nom a sota** (0.189.41): the label the start had is gone and the app does not even say its box (docs/30).
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: startname"), g_out);
+  // **El nom de la família només va al registre, i només quan el fitxer és una cara**: `OFL.txt` and `LICENCE.txt` are not
+  // faces and the console never says them as what the bar is loading (docs/30, docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: loading "), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: loading OFL"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: loading LICENCE"), g_out);
+
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
+    pump_turns(10);
+  }
+  kernel::log_echo(false);
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+}
+
+// **El swipe a l'esquerra de l'exemplar és la porta de tornar** (0.189.35, l'amo: *«A la vista detall registra el swipe a
+// l'esquerra per fer "back"»*): this system has no gesture of the name `swipe` —a finger that slides is a `drag` with an
+// `dx` and a `dy` (docs/30)— so the case walks a finger to the left over the biggest thing of the page, the box of the
+// passages, and waits for the page of the face to go away and the shelf to come back (docs/30, docs/50, docs/85). **And
+// then it walks it to the right** (0.189.37, l'amo: *«com el faig cap a la dreta?»*), which is the same road: the side of
+// the finger is not a question this page asks.
+void test_the_swipe_to_the_left_of_the_specimen_is_the_way_back(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusansmono.ttf"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  auto tap = [&](int x, int y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
+  // **El dit que camina**: it goes down where the case says, walks the distance in four frames and leaves, which is the
+  // whole of what a swipe is to `touch.cpp` —a contact that moved is a `drag` and says how far (docs/30, docs/50). The
+  // `walk` is signed: negative is a finger to the left and positive to the right, which is the two sides the page answers
+  // to (0.189.37).
+  auto swipe_sideways = [&](int x, int y, int walk) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    for (int step = 1; step <= 4; ++step) {
+      const int at = x + (walk * step) / 4;
+      if (!panel->finger_move(0, static_cast<uint16_t>(view.x + at), static_cast<uint16_t>(view.y + y))) return false;
+      pump_turns(40);
+    }
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
+
+  kernel::log_echo(true);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts shelf");
+  const char* row = strstr(g_out, "fonts: row dejavusansmono.ttf ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(row, g_out);
+  int row_x = -1;
+  int row_y = -1;
+  TEST_ASSERT_EQUAL_INT(2, sscanf(row + strlen("fonts: row dejavusansmono.ttf "), "%d %d", &row_x, &row_y));
+
+  // **Un exemplar que ja era obert** (docs/30): the shape of the app is the one the case of before left, and a page that
+  // came back on a specimen has to be left before a row of the shelf is pressed.
+  if (strstr(g_out, "fonts: came back to ") != nullptr) {
+    const char* door = strstr(g_out, "fonts: backbox ");
+    TEST_ASSERT_NOT_NULL_MESSAGE(door, g_out);
+    int door_x = 0;
+    int door_y = 0;
+    TEST_ASSERT_EQUAL_INT(2, sscanf(door + strlen("fonts: backbox "), "%d %d", &door_x, &door_y));
+    capture_begin();
+    TEST_ASSERT_TRUE(tap(door_x, door_y));
+    capture_end(g_out, sizeof(g_out));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+  }
+
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(row_x, row_y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open dejavusansmono.ttf"), g_out);
+
+  // **I el swipe, al mig del vidre**: two hundred and forty pixels to the left and none down is a swipe, and the app says
+  // how far it went before the page of the face goes (docs/30).
+  capture_begin();
+  TEST_ASSERT_TRUE(swipe_sideways(static_cast<int>(view.width) / 2 + 120, static_cast<int>(view.height) / 2, -240));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back by the swipe, -240 px"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+
+  // **I el mateix dit cap a l'altra banda** (0.189.37, l'amo: *«com el faig cap a la dreta?»*): a person does not know which
+  // way this page expects, so the drag that goes back is the one that went sideways and not the one that went left. The
+  // specimen is opened again —the row of the shelf is the same one— and the finger walks **to the right**: the page goes
+  // and the log says the sign the finger had (docs/30, docs/50).
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(row_x, row_y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open dejavusansmono.ttf"), g_out);
+  capture_begin();
+  TEST_ASSERT_TRUE(swipe_sideways(static_cast<int>(view.width) / 2 - 120, static_cast<int>(view.height) / 2, 240));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back by the swipe, 240 px"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
+    pump_turns(10);
+  }
+  kernel::log_echo(false);
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_the_options_of_the_emulator_start_empty);
   RUN_TEST(test_an_app_runs_and_writes);
+  RUN_TEST(test_the_commands_of_the_prompt_reach_an_app);
   RUN_TEST(test_a_failing_app_says_why_and_the_shell_survives);
   RUN_TEST(test_the_exit_code_reaches_the_shell);
   RUN_TEST(test_open_hands_the_file_to_the_app);
@@ -14921,6 +16656,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_nvs_mount_shows_the_keys_as_files);
   RUN_TEST(test_an_app_reads_its_own_resources_with_fs);
   RUN_TEST(test_an_app_writes_inside_its_own_ground);
+  RUN_TEST(test_a_save_is_there_for_the_run_after_it);
   RUN_TEST(test_a_write_to_raw_memory_goes_in_place);
   RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
   RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
@@ -14941,6 +16677,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_last_wake_is_measured_and_kept);
   RUN_TEST(test_the_idle_sleep_is_a_switch);
   RUN_TEST(test_poweroff_cuts_the_power_of_the_board_that_can);
+  RUN_TEST(test_the_board_counts_what_it_wrote_and_rests_before_the_current_goes);
+  RUN_TEST(test_the_boot_holds_the_power_before_anything_else);
+  RUN_TEST(test_a_board_without_a_waking_key_refuses_to_sleep_with_the_keys);
   RUN_TEST(test_a_sleep_cut_short_is_not_a_measurement);
   RUN_TEST(test_the_civil_calendar_round_trips);
   RUN_TEST(test_the_alarm_is_the_hour_and_the_minute);
@@ -14974,6 +16713,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);
   RUN_TEST(test_an_app_downloads_a_page);
   RUN_TEST(test_ui_focus_puts_the_dial_where_the_app_says);
+  RUN_TEST(test_a_long_page_answers_its_finger_on_the_last_stop);
   RUN_TEST(test_the_http_command_writes_where_it_is_told);
   RUN_TEST(test_the_http_command_refuses_a_place_that_is_not_there);
   RUN_TEST(test_an_app_downloads_a_page_to_a_file);
@@ -14994,9 +16734,19 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_for_another_board_is_listed_and_refused);
   RUN_TEST(test_the_emulator_is_the_board_it_was_told_to_be);
   RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
+  RUN_TEST(test_the_serial_port_is_ceded_by_an_app_and_comes_back_when_it_ends);
+  RUN_TEST(test_the_serial_keyboard_types_in_the_box_with_the_focus);
+  RUN_TEST(test_the_warm_page_of_the_launcher_is_painted_once);
+  RUN_TEST(test_the_launcher_refreshes_the_version_it_has_cached);
+  RUN_TEST(test_removing_an_app_says_the_list_changed);
+  RUN_TEST(test_the_launcher_hears_the_list_changed);
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
   RUN_TEST(test_a_step_of_the_dial_in_the_launcher_paints_the_cells_it_crosses);
   RUN_TEST(test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page);
+  RUN_TEST(test_a_session_goes_to_the_disk_and_comes_back);
+  RUN_TEST(test_the_sessions_are_parked_before_the_board_goes_down);
+  RUN_TEST(test_the_memory_is_short_and_the_other_apps_go_before_the_one_in_front);
+  RUN_TEST(test_sessions_destroy_forgets_one_app_or_all_of_them);
   RUN_TEST(test_the_picture_of_a_cell_is_turned_over_with_the_cell);
   RUN_TEST(test_a_field_the_app_never_wrote_reads_its_default);
   RUN_TEST(test_the_ring_that_comes_back_costs_the_cell_it_is_on);
@@ -15005,13 +16755,18 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_finger_that_walks_sideways_over_a_grid_turns_the_page);
   RUN_TEST(test_a_finger_that_walks_sideways_over_a_list_turns_the_page);
   RUN_TEST(test_a_swipe_over_a_list_does_not_leave_a_row_pressed);
+  RUN_TEST(test_a_swipe_in_the_strip_of_dots_turns_the_page_of_a_list);
+  RUN_TEST(test_a_swipe_in_the_middle_of_a_list_turns_the_page);
+  RUN_TEST(test_a_turn_of_a_text_list_goes_up_in_two_levels);
+  RUN_TEST(test_a_sideways_swipe_that_drifts_down_still_turns_the_page);
+  RUN_TEST(test_a_swipe_that_turns_no_page_picks_nothing);
   RUN_TEST(test_the_cursor_of_a_grid_follows_the_ring_without_the_app);
   RUN_TEST(test_a_dial_step_past_the_last_row_of_a_page_turns_it);
   RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_every_app_of_the_repository_carries_an_icon);
   RUN_TEST(test_an_app_that_names_a_splash_carries_it);
-  RUN_TEST(test_the_card_of_the_bar_carries_the_five_marks);
+  RUN_TEST(test_the_card_of_the_bar_carries_the_six_marks);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
@@ -15085,6 +16840,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_card_that_goes_away_takes_its_ink_with_it);
   RUN_TEST(test_a_page_that_paints_itself_paints_its_own_hole);
   RUN_TEST(test_the_font_viewer_opens_every_format_the_system_reads);
+  RUN_TEST(test_the_gallery_comes_back_on_the_specimen_it_was_left_on);
+  RUN_TEST(test_the_gallery_keeps_the_preview_of_a_face_in_a_session);
   RUN_TEST(test_a_folder_is_made_with_the_fathers_it_needs);
   RUN_TEST(test_a_card_over_the_page_takes_the_walk_and_gives_it_back);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);
@@ -15112,6 +16869,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_reader_turns_its_page_with_a_finger_and_with_the_keys);
   RUN_TEST(test_the_shelf_has_a_foot_of_its_own);
   RUN_TEST(test_the_shell_app_is_a_page_with_a_session_of_the_shell);
+  RUN_TEST(test_the_shell_app_keeps_its_sessions_in_the_state);
   RUN_TEST(test_the_cross_of_the_panel_closes_the_app);
   RUN_TEST(test_the_arrow_of_the_panel_goes_back_one_view);
   RUN_TEST(test_a_slide_over_a_button_does_not_click_it);
@@ -15123,7 +16881,11 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);
-  RUN_TEST(test_a_swipe_up_turns_the_page_of_a_list);
+  RUN_TEST(test_a_swipe_up_or_down_is_not_a_page_of_a_list);
+  RUN_TEST(test_the_shelf_lists_the_faces_and_leaves_the_other_files_out);
+  RUN_TEST(test_the_specimen_gives_the_passages_their_room_and_the_way_back_below);
+  RUN_TEST(test_the_swipe_to_the_left_of_the_specimen_is_the_way_back);
+  RUN_TEST(test_the_bar_of_the_start_is_a_line_under_the_loading_of_the_picture);
   RUN_TEST(test_the_eraser_app_empties_the_store_after_the_card_is_accepted);
   RUN_TEST(test_the_eraser_app_empties_the_card_it_may_not_write);
   UNITY_END();

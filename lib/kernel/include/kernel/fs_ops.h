@@ -13,6 +13,11 @@ void install_fs_ops();
 // and the weekday of a date is the calendar of this system and not a second copy of the rule (docs/30, docs/60).
 void install_time_ops();
 
+// **Els ajustos, per a una app** (0.189.13): `sys.settings()` is a snapshot of what `cfg` prints —the unit, the keyboard,
+// the boot picture, the home app, the week, the hour, the three switches and the slice of a turn— and this is the call that
+// fills it. It is a read: `cfg` is where a setting is written, and the settings are the person's (docs/30, docs/70).
+void install_settings_ops();
+
 // **A path the way the app that is running sees it**: absolute, with `/res/x` turned into the app's own
 // `apps/<id>/res/x` and `/cfg/x` into `/cfg/<id>/x`, because those two are doors of an app and not disks
 // (docs/70). False when the path is not one an app may name. It is what any kernel call that takes a path

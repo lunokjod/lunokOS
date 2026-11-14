@@ -1108,6 +1108,143 @@ static void test_the_numbers_of_the_band_follow_the_seed_of_the_run(void) {
   TEST_ASSERT_NOT_EQUAL(one, pal::system().random());
 }
 
+// **`rle.pack` i `rle.unpack` des de Lua** (0.189.6): the module is `lib/rle` with the ergonomics of a string, which is
+// what a cache of icons is written to and read from —the app never sees a byte, it sees a text it can hand back—. The
+// case walks the three answers the two calls have: a text that packs to less than it was, a text that packs and comes
+// back as it was, and one that is not a stream of runs at all (docs/30).
+void test_rle_packs_and_unpacks_a_text_of_lua(void) {
+  pal::init();
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("local paper = string.rep(string.char(255), 400)\n"
+                       "local packed = rle.pack(paper)\n"
+                       "assert(type(packed) == 'string', type(packed))\n"
+                       "assert(#packed < #paper, #packed .. ' of ' .. #paper)\n"
+                       "assert(rle.unpack(packed) == paper, 'the paper did not come back')\n"
+                       // **Un text que no repeteix res** també ha de tornar sencer, que és el cas en què el stream creix.
+                       "local mixed = ''\n"
+                       "for i = 0, 200 do mixed = mixed .. string.char(i % 251) end\n"
+                       "assert(rle.unpack(rle.pack(mixed)) == mixed, 'the mixed text did not come back')\n"
+                       // **I el buit és el buit**: ni capçalera ni error.
+                       "assert(rle.pack('') == '', 'the empty text')\n"
+                       // **I el que no és un stream de tirades té la seva paraula** i no una imatge de brossa.
+                       "local back, why = rle.unpack('this is not a stream of runs')\n"
+                       "assert(back == nil, tostring(back))\n"
+                       "assert(type(why) == 'table' and why.code == 'E_INVAL', tostring(why and why.code))"));
+  luabind::stop();
+}
+
+namespace {
+
+// **The snapshot of the settings that this test hands to the door** (0.189.13): the shape of the table is what is under
+// test here and not where the numbers come from —that is `kernel/src/settings_ops.cpp`, which reads `cfg`—.
+bool fake_read_settings(luabind::Settings& into) {
+  into.unit = "sd";
+  into.keyboard = "qwerty";
+  into.boot = "logo";
+  into.home = "home_eink";
+  into.week = "sunday";
+  into.tz = "+02:00";
+  into.leap = false;
+  into.dst = true;
+  into.sort_by_usage = true;
+  into.turn = 12000;
+  return true;
+}
+
+}  // namespace
+
+// **`sys.settings()`: els ajustos del sistema, llegits per una app** (0.189.13, docs/30): the table is the one `cfg` prints at
+// the prompt —nine words and a number, with `sort_by_usage` among them— and an app reads it instead of inventing a default.
+// The check walks every field, because a table that answers nine of ten is a page that silently keeps a value the person
+// changed, which is the fault this door exists to avoid.
+void test_sys_settings_answers_what_the_prompt_prints(void) {
+  pal::init();
+  luabind::SettingsOps ops;
+  ops.read = &fake_read_settings;
+  luabind::set_settings_ops(ops);
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("local s = sys.settings()\n"
+                       "assert(type(s) == 'table', type(s))\n"
+                       "assert(s.unit == 'sd', tostring(s.unit))\n"
+                       "assert(s.keyboard == 'qwerty', tostring(s.keyboard))\n"
+                       "assert(s.boot == 'logo', tostring(s.boot))\n"
+                       "assert(s.home == 'home_eink', tostring(s.home))\n"
+                       "assert(s.week == 'sunday', tostring(s.week))\n"
+                       "assert(s.tz == '+02:00', tostring(s.tz))\n"
+                       "assert(s.leap == false, tostring(s.leap))\n"
+                       "assert(s.dst == true, tostring(s.dst))\n"
+                       "assert(s.sort_by_usage == true, tostring(s.sort_by_usage))\n"
+                       "assert(s.turn == 12000, tostring(s.turn))"));
+  luabind::stop();
+}
+
+// **I un sistema que no en sap diu per què** (0.189.13): a launcher that reads this table has to be able to go on with the
+// order the door gave it, so the answer is `nil` and a code and not a table of zeroes that would look like a setting of the
+// person (docs/30).
+void test_sys_settings_without_a_door_says_unsupported(void) {
+  pal::init();
+  luabind::set_settings_ops(luabind::SettingsOps());
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("local s, err = sys.settings()\n"
+                       "assert(s == nil, tostring(s))\n"
+                       "assert(type(err) == 'table' and err.code == 'E_UNSUPPORTED', tostring(err and err.code))"));
+  luabind::stop();
+}
+
+namespace {
+
+// **La porta que la prova deixa veure** (0.189.16): `sys.session_destroy` l'únic que fa aquí és passar la clau al nucli i
+// tornar-li els tres números, o sigui que el que es mira és que la clau hi arribi sencera i que la taula digui el que el
+// nucli ha dit —l'id de l'app el posa el kernel, que és l'únic que sap qui corre (docs/30, docs/75)—.
+char g_destroyed_key[16] = {};
+uint32_t g_destroyed_blocks = 1;
+
+bool fake_session_destroy(const char* key, uint32_t& blocks, uint32_t& files, size_t& bytes) {
+  snprintf(g_destroyed_key, sizeof(g_destroyed_key), "%s", key);
+  blocks = g_destroyed_blocks;
+  files = 1;
+  bytes = 32768;
+  return true;
+}
+
+uint32_t fake_session_generation() { return 7; }
+
+}  // namespace
+
+// **`sys.session_destroy(key)`: una app llença una sessió seva** (0.189.16, docs/30): la memòria i el fitxer, i el pont el
+// que fa és dir la clau i tornar el que el nucli diu que hi havia. La prova comprova les dues meitats de l'acord: que la
+// clau arriba tal com l'app l'ha escrita, i que la resposta té els tres números que una pàgina pot ensenyar.
+void test_sys_session_destroy_says_how_much_went(void) {
+  pal::init();
+  luabind::SessionOps ops = {};
+  ops.destroy = &fake_session_destroy;
+  ops.generation = &fake_session_generation;
+  luabind::set_session_ops(ops);
+  g_destroyed_key[0] = '\0';
+  g_destroyed_blocks = 1;
+
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("local gone = sys.session_destroy('apps')\n"
+                       "assert(type(gone) == 'table', type(gone))\n"
+                       "assert(gone.blocks == 1, tostring(gone.blocks))\n"
+                       "assert(gone.files == 1, tostring(gone.files))\n"
+                       "assert(gone.bytes == 32768, tostring(gone.bytes))"));
+  TEST_ASSERT_EQUAL_STRING("apps", g_destroyed_key);
+
+  // **I una sessió que no hi era són zeros i no un error**: esborrar el que no hi ha és el que la persona ha demanat.
+  g_destroyed_blocks = 0;
+  TEST_ASSERT_TRUE(run("local gone = sys.session_destroy('usage')\n"
+                       "assert(gone.blocks == 0, tostring(gone.blocks))"));
+  TEST_ASSERT_EQUAL_STRING("usage", g_destroyed_key);
+
+  // **I un sistema sense memòria de sessió diu per què** en lloc de callar.
+  luabind::set_session_ops(luabind::SessionOps());
+  TEST_ASSERT_TRUE(run("local gone, err = sys.session_destroy('apps')\n"
+                       "assert(gone == nil, tostring(gone))\n"
+                       "assert(type(err) == 'table' and err.code == 'E_UNSUPPORTED', tostring(err and err.code))"));
+  luabind::stop();
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1164,6 +1301,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_app_knows_its_id_and_its_file);
   RUN_TEST(test_the_instructions_of_an_app_are_paid_for);
   RUN_TEST(test_the_numbers_of_the_band_follow_the_seed_of_the_run);
+  RUN_TEST(test_rle_packs_and_unpacks_a_text_of_lua);
+  RUN_TEST(test_sys_settings_answers_what_the_prompt_prints);
+  RUN_TEST(test_sys_settings_without_a_door_says_unsupported);
+  RUN_TEST(test_sys_session_destroy_says_how_much_went);
   UNITY_END();
   return 0;
 }

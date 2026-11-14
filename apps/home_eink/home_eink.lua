@@ -87,25 +87,32 @@ local kCellH = kIcon + 8 + kNameLine + 8
 
 local kMargin = 20
 local kTop = 8
+-- **The strip of the loading bar** (0.189.15, the owner: *«la barra de progrés ... posa-la a dalt, sota la barra de sistema
+-- (enganxada), ben fineta, semblarà un navegador web carregant un recurs i es entenedor per tothom»*): six pixels of box on
+-- the very top of the page —which is the glass under the strip of the system, because the view of an app begins there
+-- (docs/30)— and four of ink inside them, because the control keeps a pixel of air round its own fill. It is a line and
+-- not a band: a bar as tall as a row says one number with the room of a footer (docs/90, docs/92).
+local kBarH = 6
 
 -- ------------------------------------------------------------------ the cache of the session
 
 -- **What is kept, and where**: a header of eight bytes —the magic and the side of a picture, so a cache of another size of
 -- cell is not painted on this one—, the records of the apps and then their pictures, four bits a pixel and in the order of
--- the block (`cv:capture` and `cv:blit` are a copy and not a decode). A record is `id`, the title, the icon and the number
--- of the picture, and the number is how this file knows whether a picture is in the block or has to be read from the disk.
+-- the block (`cv:capture` and `cv:blit` are a copy and not a decode). A record is `id`, the title, the icon, the number of
+-- the picture and **the version of the manifest** (0.189.22), and the number is how this file knows whether a picture is in
+-- the block or has to be read from the disk.
 -- **The size asked for, and what it falls back to when the board cannot give it** (0.179.1): a block that holds the records
 -- and no picture is still worth having —the manifests are what the queue pays for one per turn— and a block that holds
 -- neither is not the end of the page. The pieces come down and the last one is the records alone —1 536 B, plus the eight of
 -- the header— which is what a board with a crowd of apps or with the memory spent gets (docs/30, docs/75).
 local kCacheSteps = { 32768, 24576, 16384, 8192, 1544 }
-local kCacheMagic = 'HEC1'
+local kCacheMagic = 'HEC2'
 local kCacheText = 8
 local kCacheTextBytes = 1528
 local kCachePictures = kCacheText + kCacheTextBytes
 
 local cache = nil          -- the block, or nil when the system gave none
-local cached = {}          -- the id of an app to { title=, icon=, slot= }, as the block says
+local cached = {}          -- the id of an app to { title=, icon=, slot=, version= }, as the block says
 local cached_order = {}    -- the ids the block gave, in the order it gave them (the sorted order of the page)
 local slots = 0            -- how many pictures the block holds
 local warm = {}            -- the ids whose picture is in the block, so a paint is a copy
@@ -117,8 +124,30 @@ local known = {}
 local cells = {}      -- the id of an app to its three controls, so a manifest can land in a cell that is already drawn
 local queue = {}
 local head = 1
+-- **La segona cua: les versions** (0.189.22): the ids the block gave are asked the disk **one per turn**, after the queue that
+-- fills the cells, so a page that came back from the block is still instant and the check of a version never holds a turn of
+-- the glass. It is the same rhythm the manifests arrive at when the cache is cold, and the answer only costs a paint when the
+-- number has moved (docs/30, docs/40).
+local verify = {}
+local vhead = 1
 local again = false   -- something left the page, so it is laid out again
 local grid = nil
+-- **La línia del carregament** (0.189.15, abans 0.186.2): the queue of manifests and pictures takes one app a turn, and
+-- while it runs this is the control that says how far it is. It is a thin line on the top of the page, flush under the
+-- strip of the system —the place a browser puts it, and the one a person reads without being told— and it goes the moment
+-- the queue is over.
+local bar = nil
+
+-- **How many times each app has been opened** (0.189.13): with `cfg sort on` the person asked this page to draw the apps
+-- from the most opened to the least, and the count is this page's own memory —a session of its own, `usage`, and not the
+-- `state` one, because a count is what the page has learned and not the shape of the view (docs/30, docs/75)—. It is
+-- written on the tap and not when the app ends: a launch is counted even when the app cannot start, which is what a person
+-- means by "I use this one".
+local kUsageKey = 'usage'
+local kUsageSteps = { 1024, 512, 256 }
+local usage = nil            -- the block, or nil when the system gave none
+local uses = {}              -- the id of an app to how many times it has been opened
+local sort_by_usage = false  -- what `cfg sort` says, read once when the page starts
 
 -- **What a picture takes in the block**, in bytes: four bits a pixel and the stride of the canvas the kernel makes.
 local function picture_bytes()
@@ -161,11 +190,15 @@ local function load_cache()
   if zero ~= nil then text = text:sub(1, zero - 1) end
   local count = 0
   local drawn = 0
+  -- **Un registre porta la versió** (0.189.22): `id`, the title a person reads, the path of the picture, the number of its
+  -- picture in the block and **the version of the manifest it was read from**. Without that number the block cannot tell an
+  -- app that has been updated from one that has not, and the icon and the title of the old version would outlive the app that
+  -- wrote them —which is the one thing a cache of pictures cannot be allowed to do— (docs/30, docs/40).
   for line in text:gmatch('[^\n]+') do
-    local id, title, icon, slot, has = line:match('^([^\t]+)\t([^\t]*)\t([^\t]*)\t(%d+)\t([01])$')
+    local id, title, icon, slot, has, version = line:match('^([^\t]+)\t([^\t]*)\t([^\t]*)\t(%d+)\t([01])\t([^\t]*)$')
     if id ~= nil then
       slot = tonumber(slot)
-      cached[id] = { title = title, icon = icon, slot = slot }
+      cached[id] = { title = title, icon = icon, slot = slot, version = version }
       cached_order[#cached_order + 1] = id
       if slot + 1 > slots then slots = slot + 1 end
       if has == '1' then
@@ -212,7 +245,9 @@ local function save_cache()
     if info ~= nil then
       local title = info.title
       local icon = info.icon
-      if not title:find('[\t\n]') and not icon:find('[\t\n]') and not id:find('[\t\n]') then
+      local version = info.version or ''
+      if not title:find('[\t\n]') and not icon:find('[\t\n]') and not id:find('[\t\n]') and
+         not version:find('[\t\n]') then
         local was = cached[id]
         if was ~= nil then
           slot = was.slot
@@ -220,10 +255,10 @@ local function save_cache()
           slot = slots
           slots = slots + 1
         end
-        cached[id] = { title = title, icon = icon, slot = slot }
+        cached[id] = { title = title, icon = icon, slot = slot, version = version }
         local has = warm[id] and '1' or '0'
         if has == '1' then held = held + 1 end
-        text[#text + 1] = string.format('%s\t%s\t%s\t%d\t%s', id, title, icon, slot, has)
+        text[#text + 1] = string.format('%s\t%s\t%s\t%d\t%s\t%s', id, title, icon, slot, has, version)
       end
     end
   end
@@ -238,14 +273,159 @@ local function save_cache()
   console.print(string.format('home: cache kept, %d apps, %d pictures', #text, held))
 end
 
+-- **And what the person has opened, which is the other thing this page remembers** (0.189.13): one line an app,
+-- `id<TAB>count`, and the block is read whole —the text ends at the first zero, which is the kernel's zeroing and not a
+-- line with a broken tail—. A count of an app that is no longer on the disk stays here and costs one line: the door is not
+-- asked to prune a number that would come back the day the app does (docs/30, docs/75).
+local function load_usage()
+  usage = nil
+  uses = {}
+  local block, err = nil, nil
+  for i = 1, #kUsageSteps do
+    block, err = sys.session(kUsageKey, kUsageSteps[i])
+    if block ~= nil then break end
+  end
+  if block == nil then
+    console.print('home: no count of the uses: ' .. tostring(err and err.message or err))
+    return
+  end
+  usage = block
+  local text = usage:read(0, usage:size())
+  local zero = text:find('\0', 1, true)
+  if zero ~= nil then text = text:sub(1, zero - 1) end
+  local count = 0
+  for line in text:gmatch('[^\n]+') do
+    local id, n = line:match('^([^\t]+)\t(%d+)$')
+    if id ~= nil then
+      uses[id] = tonumber(n) or 0
+      count = count + 1
+    end
+  end
+  if count > 0 then
+    console.print(string.format('home: count of the uses, %d app(s)', count))
+  end
+end
+
+-- **The order of the page, when the person asked for it** (0.189.13): from the most opened to the least, and the name
+-- breaks a tie —so two apps with the same count, which is every app the first day, keep the order of the door and the page
+-- does not move from one start to the next—. With the switch off the list is left as the door gave it (docs/40).
+local function by_usage(names)
+  if not sort_by_usage then return end
+  table.sort(names, function(a, b)
+    local opened, other = uses[a] or 0, uses[b] or 0
+    if opened ~= other then return opened > other end
+    return a < b
+  end)
+end
+
+-- **A tap is one use, and it is written now** (0.189.13): the app the person chose may take the glass for good, so waiting
+-- for the end of it would lose the count of the one launch that matters. The block is asked whether it is still ours,
+-- because the relief of the allocator takes the sessions of an app when the memory is short and a write to a block that
+-- was given back raises (docs/30, docs/75). The lines are written from the most used, so a block too small to hold them
+-- all keeps the apps this page needs and drops the tail of once-opened ones.
+local function save_usage()
+  if usage == nil then return end
+  if not usage:alive() then
+    console.print('home: the count of the uses was given back')
+    usage = nil
+    return
+  end
+  local order = {}
+  for id in pairs(uses) do order[#order + 1] = id end
+  table.sort(order, function(a, b)
+    local opened, other = uses[a] or 0, uses[b] or 0
+    if opened ~= other then return opened > other end
+    return a < b
+  end)
+  local room = usage:size() - 1
+  local lines = {}
+  local length = 0
+  local left = 0
+  for i = 1, #order do
+    local line = string.format('%s\t%d', order[i], uses[order[i]])
+    local need = #line + ((#lines > 0) and 1 or 0)
+    if length + need > room then
+      left = #order - i + 1
+      break
+    end
+    lines[#lines + 1] = line
+    length = length + need
+  end
+  if left > 0 then
+    console.print(string.format('home: %d app(s) do not fit in the count of the uses', left))
+  end
+  -- **The zero that closes the text**: a shorter list written over a longer one would leave the tail of the old one in the
+  -- block, and a block is read whole (docs/30).
+  usage:write(0, table.concat(lines, '\n') .. '\0')
+end
+
+local function bump_usage(id)
+  uses[id] = (uses[id] or 0) + 1
+  save_usage()
+end
+
 -- ------------------------------------------------------------------ the page
 
 local function give_back()
+  if bar ~= nil then
+    bar:release()
+    bar = nil
+  end
   if grid ~= nil then
     grid:release()
     grid = nil
   end
   cells = {}
+end
+
+-- **How far the queue is, in per cent**: the turns it has taken out of the ones it has. A queue with nothing in it is a
+-- page that has nothing to wait for, and that is 100 before the first cell.
+local function queue_percent()
+  local total = #queue
+  if total == 0 then return 100 end
+  local done = head - 1
+  if done < 0 then done = 0 end
+  if done > total then done = total end
+  return math.floor(done * 100 / total)
+end
+
+-- **The bar is the top of the page and it is a line** (0.189.15): as wide as the glass, six pixels tall, flush under the
+-- strip of the system and filled with ink —which is how a browser says "this is still arriving"—. It used to sit in the band
+-- of the paginator, thirty-seven pixels of a control at the foot, and the owner asked for this instead: the bar of a page
+-- that is loading is the thin line everybody has already learned to read, and the foot belongs to the dots (docs/30,
+-- docs/90).
+--
+-- It is a sibling of the grid and not a child of it, because a grid counts its children as cells (docs/30, docs/90).
+local function show_the_bar(width)
+  if head > #queue then return end
+  if bar == nil then
+    bar = ui.progress(width, kBarH)
+    if bar == nil then return end
+    -- **The fill is the ink and the track is the paper** (0.189.15): the bar of the system fills with the light tone of
+    -- the palette, which is right in a box of twenty-eight pixels and invisible in a line of six. A dark line that grows
+    -- is what a person reads as "loading", and the ink of a strip six pixels tall and as wide as the glass is a few
+    -- thousand pixels and not the hundred thousand of a black box (docs/50, docs/92).
+    bar.fill = 0
+    bar.track = 15
+    bar.border = 15
+    bar.background = 15
+  else
+    bar:resize(width, kBarH)
+  end
+  bar.value = queue_percent()
+  -- **Flush under the strip of the system**: the view of an app is the glass under the bar, so zero is the row the system
+  -- stops at (docs/30).
+  bar:place(0, 0)
+end
+
+-- **I la barra marxa quan la cua s'ha acabat** (0.186.2): the release fills the hole it leaves with paper and asks what
+-- was under it to draw —and what was under it is the paper above the grid, because the grid begins at `kTop` and the strip
+-- is thinner than that—. No cell of the grid is repainted, then: the foot with the dots of the paginator is the grid's
+-- business and was never this strip's (docs/30, docs/90).
+local function finish_the_bar()
+  if bar == nil then return end
+  bar:release()
+  bar = nil
 end
 
 -- **A picture that could not be drawn is said once** (0.179.0, and it was said at the arrival of the manifest before):
@@ -357,6 +537,9 @@ local function add_cell(cell_w, cell_h, name_w, id)
 
   -- The finger and the centre of the dial both come here: the click of a cell is the click of a control (docs/30).
   cell.on_click = function()
+    -- **The use is counted before the app is asked for** (0.189.13): a launch that fails is still a launch the person made,
+    -- and the count is what the page sorts by when `cfg sort` is on.
+    bump_usage(id)
     local ok, err = app.run(id)
     if ok then
       console.print('home: ' .. id)
@@ -439,6 +622,12 @@ local function build()
   -- its foot, and the console says how many names the door answered (0.157.0).
   console.print(string.format('home: %d cells', #ids))
 
+  -- **And the strip of the foot says how far the queue is while it runs** (0.189.15): the cells are up with their letters
+  -- and the names and the pictures are still arriving one a turn, so the line under the strip of the system —and not the
+  -- band of the dots— is the place that says it. **It is as wide as the glass** and not as wide as the grid: a loading bar
+  -- that stops twenty pixels short of the edges is a control of a form, and this one is the edge of the page (docs/90).
+  show_the_bar(view.width)
+
   if #ids == 0 then
     -- **An empty grid says why it is empty** instead of showing nothing: a disk with no app and a page that failed look
     -- the same on the glass, and only one of them is a fault (docs/45).
@@ -509,6 +698,53 @@ local function step()
   end
 end
 
+-- ------------------------------------------------------------------ the version of what is kept
+
+-- **Una versió de menys és una cel·la que menteix** (0.189.22, l'amo: *«Si tens una app en una versió anterior has de
+-- descartar l'entrada d'aquesta app del caché de la sessió \"apps\" per refrescar l'icona i el numero de versió»*): the
+-- record of the block carries the version it was read from, and the disk is asked one app per turn —the same rhythm as the
+-- queue of manifests, and the page is already on the glass— whether that number is still the one the app says. When it is
+-- not, the record takes the new title, the new path and the new version and **gives its picture back** (`warm[id] = nil`):
+-- the cell draws the letter and the icon of the disk again and stores the new picture in the same place of the block, so
+-- nothing of the old version survives (docs/30, docs/40, docs/75).
+-- **El que la comprovació d'un torn ha trobat**: `nil` quan no hi havia res a mirar, `'changed'` quan la cel·la s'ha
+-- tornat a pintar amb la versió nova, i **`'gone'` quan el disc diu que l'app ja no és d'aquesta pàgina** —un llançador o una
+-- app d'una altra placa—, que és el cas que la caché no pot veure i que abans queia a la graella per sempre (0.189.28).
+local function check_the_version_of(id)
+  local record = cached[id]
+  if record == nil then return nil end
+  local info = apps.info(id)
+  if info == nil then return nil end            -- un manifest que no es pot llegir avui no esborra el que hi havia
+  -- **La porta té l'última paraula sobre si l'app és d'aquesta pàgina** (0.189.28): a cache says the row was drawn here,
+  -- and a manifest that has changed since —a board list, a `launcher`— is the one thing the block cannot know. The record is
+  -- forgotten and the page is laid out again, which is where the door's list and the page meet (docs/30, docs/40).
+  if info.launcher or not info.works_here then
+    console.print(string.format('home: %s is not of this page any more (%s)', id,
+                                info.launcher and 'a launcher' or 'it needs another board'))
+    cached[id] = nil
+    warm[id] = nil
+    known[id] = nil
+    return 'gone'
+  end
+  if info.version == record.version then return nil end
+  console.print(string.format('home: %s is %s (was %s), the picture is read again', id,
+                              (info.version ~= '') and info.version or 'a version with no number',
+                              (record.version ~= '') and record.version or 'no version'))
+  record.title = info.title
+  record.icon = info.icon
+  record.version = info.version
+  -- **El número del seu dibuix no es toca**: the picture of the new version is written over the old one and the block does
+  -- not grow a hole for an app that is still the same app (docs/75).
+  warm[id] = nil
+  known[id] = info
+  local cell = cells[id]
+  if cell ~= nil then
+    if cell.name ~= nil then cell.name.text = info.title end
+    if cell.picture ~= nil then cell.picture:invalidate() end
+  end
+  return 'changed'
+end
+
 -- ------------------------------------------------------------------ the app
 
 -- **The names of the door and nothing read yet**: this is what makes the page arrive at once, and it is the only call of
@@ -528,8 +764,11 @@ local function ask_the_door()
   end
   -- **The page is in the order of the names of the door and it does not move after** (0.154.0): the titles arrive one at a
   -- time, and a grid that reorders itself when one lands is a grid whose cells jump under the finger. The order of the
-  -- disk is not one a person can learn either, so the names are sorted once, here, before the first cell.
+  -- disk is not one a person can learn either, so the names are sorted once, here, before the first cell. **And the person
+  -- may have asked for another order** (0.189.13): with `cfg sort on` the apps they open most come first, and the name is
+  -- the tie (docs/40).
   table.sort(ids)
+  by_usage(ids)
   console.print(string.format('home: %d ids: %s', #ids, table.concat(ids, ' ')))
   return true
 end
@@ -541,7 +780,14 @@ local function fill_from(names)
     local id = names[i]
     local was = cached[id]
     if was ~= nil then
-      known[id] = { title = was.title, icon = was.icon }
+      -- **El registre del bloc no és un manifest, i el que la pàgina en sap s'hi posa** (0.189.28, i va ser una regressió meva de
+      -- la 0.189.22): `reconcile` pregunta `launcher` i `works_here` a cada fila, i el que ve del bloc només porta títol, icona i
+      -- versió. Amb els dos camps absents, **totes** les apps de la pàgina que venia del bloc es llegien com «needs another board»
+      -- i la graella quedava a zero cel·les (l'amo ho va veure al log de la placa: 12 ids, 12 «needs another board», 0 cells).
+      -- I no és una mentida: **una fila del bloc és una fila que aquesta pàgina va dibuixar**, i aquesta pàgina només dibuixa el
+      -- que corre aquí; el que pot haver canviat és el manifest, i d'això se n'encarrega `check_the_version_of`, que ara també té
+      -- la paraula sobre si l'app encara és d'aquesta pàgina (docs/30, docs/40).
+      known[id] = { title = was.title, icon = was.icon, version = was.version or '', works_here = true, launcher = false }
     else
       queue[#queue + 1] = id
     end
@@ -552,11 +798,43 @@ end
 -- before anything is read —it is what makes the return instant— and the door answers in the turn after. When its list is the
 -- one the page has, nothing happens at all; when an app was installed or removed in this session, the page is laid out
 -- again with the door's list, which is the price of not showing a page that lies (docs/30, docs/40).
+--
+-- **I el que la pàgina no dibuixaria no és un canvi** (0.189.19): the door lists the app that needs another board and the
+-- app that is another launcher, and this page draws neither of them. Discovering it one turn later in `step` set `again`,
+-- and `again` is a whole `build()` —another paint of the grid for a cell that was never there— at **every** start, because
+-- the cache keeps only what the page drew and the door always answers one more (the owner, 14/11: *«perqué home_eink
+-- refresca 3 vegades la seva vista recent obert?»*: it was the page of the block, the page of the door's list and the page
+-- without the app that does not run here). The list is filtered here, with **one manifest read for each id the page does
+-- not know yet**, which is exactly what the queue of `step` would have paid one turn at a time. A page whose list is the
+-- same after the filter is a page that is already on the glass (docs/30, docs/40).
 local function reconcile()
   local before_count = #ids
   local before_first = ids[1]
   local before_last = ids[#ids]
   if not ask_the_door() then return false end
+
+  -- **Les que no són d'aquesta pàgina es queden fora abans de comparar**, i el manifest que s'ha llegit queda a `known`
+  -- perquè la cua no el torni a demanar.
+  local keep = {}
+  for i = 1, #ids do
+    local id = ids[i]
+    local info = known[id]
+    if info == nil then info = apps.info(id) end
+    if info == nil then
+      console.print('home: ' .. id .. ' has no manifest this system reads')
+    elseif info.launcher then
+      console.print('home: ' .. id .. ' is a launcher')
+    elseif not info.works_here then
+      console.print('home: ' .. id .. ' needs another board')
+    else
+      keep[#keep + 1] = id
+      known[id] = info
+    end
+  end
+  ids = keep
+  table.sort(ids)
+  by_usage(ids)
+
   if #ids == before_count and ids[1] == before_first and ids[#ids] == before_last then
     local same = true
     for i = 1, #ids do
@@ -573,6 +851,14 @@ end
 -- the block does not have— asks the door first, which is what this launcher did before there was a cache (docs/30, docs/75).
 measure()
 load_cache()
+-- **The word of the person about the order, and what this page has learned about them** (0.189.13): `sys.settings()` is
+-- read once, because `cfg sort` is a setting and not something this page changes while it is up, and a system that keeps
+-- no settings answers `nil, error` —the page is then the door's order, which is what it was before the switch existed—
+-- (docs/30, docs/40). The count is read before the first cell so that the page that comes out of the block is already in
+-- the order the person chose, and the door's answer in the turn after finds it and does not lay the page out again.
+local settings = sys.settings()
+if settings ~= nil then sort_by_usage = settings.sort_by_usage == true end
+load_usage()
 local from_cache = false
 if #cached_order > 0 then
   for i = 1, #cached_order do
@@ -583,7 +869,13 @@ if #cached_order > 0 then
   end
 end
 if from_cache then
-  fill_from(cached_order)
+  by_usage(ids)
+  fill_from(ids)
+  -- **I el que ha vingut del bloc es comprova, una app per torn**: the version of each record against the version the disk
+  -- says, because a page that comes back whole can still be a page of yesterday's apps (0.189.22, docs/30).
+  for i = 1, #ids do
+    if cached[ids[i]] ~= nil then verify[#verify + 1] = ids[i] end
+  end
 else
   ask_the_door()
   fill_from(ids)
@@ -631,6 +923,23 @@ local kept = false
 -- **The door is asked in the turn after a page that came from the block** (0.179.1): a page of the cache is on the glass
 -- before anything of the disk is read, and the turn that follows is the one that says whether it is still the disk's list.
 local checked = not from_cache
+-- **I un avís de la porta torna a fer les dues coses** (0.189.23): `on_event` is the knock the system gives the launcher
+-- that `cfg home` names when an app is installed or removed (`repo install`, `apps remove`), and all it does here is drop
+-- these two marks —the knocks never draw, because a hook runs between two turns and the page is drawn in its own turn—.
+local apps_changed = false
+
+-- **El sistema diu que la llista d'apps ha canviat** (0.189.23, docs/30, docs/40): `ev.kind` is what the door is talking
+-- about and `ev.what` the verb (`install` or `remove`). This page does not need to know which app: it asks the door again
+-- (`reconcile`), which is the one thing that tells it what the grid has to have — the same path a page of yesterday takes
+-- when the disk is another one—. **The marks are dropped and not answered here**: a hook cannot await and a page drawn from
+-- inside one would draw between turns, so the turn after this one is the one that reconciles, adds or removes the cells that
+-- changed and paints only those (docs/30, docs/50).
+function on_event(ev)
+  if type(ev) ~= 'table' or ev.kind ~= 'apps' then return end
+  console.print(string.format('home: the list changed (%s), generation %d', tostring(ev.what),
+                              tonumber(ev.generation) or 0))
+  apps_changed = true
+end
 
 while true do
   local painted = false
@@ -642,8 +951,19 @@ while true do
     load_cache()
     kept = false
   end
+  -- **L'avís del sistema s'atén al torn i no dins del ganxo** (0.189.23): `checked` fa que la porta es torni a preguntar
+  -- —`reconcile` afegeix o treu les cel·les que han canviat i no toca les altres— i `kept` fa que el bloc es torni a escriure
+  -- al final de la cua, o sigui que l'app que ha arribat es queda a la caché i la que ha marxat en surt (docs/30, docs/75).
+  if apps_changed then
+    apps_changed = false
+    checked = false
+    kept = false
+  end
   if head <= #queue then
     step()
+    -- **The bar moves with the turn it has just taken**: one app of the queue is one step of the strip, and the cell it
+    -- filled is painted in the same present (0.186.2).
+    if bar ~= nil then bar.value = queue_percent() end
     painted = true
   elseif again then
     -- **The page is laid out again once**, and only when an app left it: a grid whose cells are laid out for a name that
@@ -657,11 +977,28 @@ while true do
       build()
       painted = true
     end
+  elseif vhead <= #verify then
+    -- **Una versió per torn** (0.189.22): the check runs after the list of the door and the page are the ones of this run, and
+    -- the turn only paints when a cell changed (the picture of the new version and its name). The cache is written after it,
+    -- so what is kept is the number that the disk has today (docs/30, docs/40).
+    -- **I una app que ja no és d'aquesta pàgina fa que la pàgina es torni a fer** (0.189.28): el bloc la tenia dibuixada i el
+    -- disc diu que no hi va, i qui decideix què hi ha a la graella és la llista de la porta i no el que hi havia.
+    local seen = check_the_version_of(verify[vhead])
+    vhead = vhead + 1
+    if seen == 'changed' then
+      painted = true
+    elseif seen == 'gone' then
+      checked = false
+      painted = true
+    end
   elseif head > #queue and not kept then
     -- **And the cache is written once the page is whole** (0.179.0): every manifest has arrived and every picture it could
     -- draw is in the block, so the next run of this launcher —which is every time an app ends— has no disk to read
-    -- (docs/30, docs/75).
+    -- (docs/30, docs/75). **The line under the strip goes in this same turn** (0.189.15): the queue is over, so the top of
+    -- the page is paper again and the dots of the paginator are where they always were, at the foot of the grid.
     kept = true
+    finish_the_bar()
+    painted = true
     save_cache()
   end
 

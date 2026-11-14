@@ -17,10 +17,10 @@ que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 | Interfície | Què abstrau | Lite | Matrix | Paper | T-Koala | Emulador |
 |---|---|---|---|---|---|---|
 | `IClock` | hora de paret, rellotge monòton, **un sol** despertador, i tornar a prendre l'hora al xip | ✓ | ✓ | ✓ (**amb la BM8563**: l'hora sobreviu al cable, el xip arma el despert i corregeix el comptador després de cada son) | ✓ | ✓ |
-| `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space | ✓ | ✓ | ✓ | ✓ (LittleFS i targeta) | ✓ |
-| `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space, **`flush`** (0.189.18: el que el backend tingui a mig fer; a l'emulador és un `sync()` del PC i a l'ESP32 no n'hi ha cap d'enllaçable, perquè cada fitxer es tanca dins la crida que l'escriu) | ✓ | ✓ | ✓ | ✓ (LittleFS i targeta) | ✓ |
+| `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs`, i **`commit`** (0.189.18: la baixada el demana abans de tallar el corrent, i el backend de la placa ja el fa a cada `set`) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | ✓ (provat a la placa) | ✓ (el mateix codi; pendent de provar a la placa) | **la ràdio és de mentida i la pàgina no**: `curl` la baixa de debò (docs/85) |
-| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada** | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | ✓ (son i velocitat; **no hi ha indicador de bateria** i no es pot apagar) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
+| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada**; **`can_power_off()`** (0.189.18) diu si la placa té el corrent a la mà **sense intentar-ho**, perquè la baixada no gasti el repòs d'una targeta en una placa que no es pot apagar | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | ✓ (son i velocitat; **no hi ha indicador de bateria** i no es pot apagar) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
 | `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | 1 (LED verd a GPIO5, només encès/apagat) | el del model: 1, 25, 0 o 1 |
 | `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | — (cap tecla; el botó és RST) | ✓ (les del model) |
 | `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | — | de mentida |
@@ -44,6 +44,10 @@ class IPlatform {
   virtual const char* board_name(uint32_t index) const {
     return (index == 0) ? id() : nullptr;
   }
+  // **L'alimentació de la placa, agafada abans de qualsevol altra cosa** (0.189.24): una placa que s'aguanta el corrent
+  // amb un pin rep aquesta crida a la primera línia de l'arrencada; la que no, no fa res (docs/50 § «Apagar tot el que es
+  // pot apagar»). És idempotent i no pot fallar.
+  virtual void hold_the_power() {}
   virtual const Caps& caps() const = 0;
   virtual uint32_t heap_limit_kb() const = 0;
   virtual IClock* clock() = 0;
@@ -452,6 +456,33 @@ I el que hi ha avui, sense prometre res que no s'hagi mesurat:
 | BM8563 (pila de botó) | No la governa el sistema: la pila la manté quan no hi ha corrent. El que consumeix la I2C quan està en repòs **no està mesurat** |
 | Llums WS2812 | Un color encès consumeix mentre hi és; el nucli els apaga quan l'app marxa (docs/30) |
 
+**L'agafada del corrent va la primera, i això era un error de dos segons** (0.189.24, l'amo: *«El poweroff deixa la placa
+tonta? no puc arrencar-la sense punxarla a un usb?!»*): el **GPIO2** s'aguantava des de `caps()`, i `caps()` arriba
+**després del splash** —un `gc16` del panell sencer, segons de tinta—. El commutador del SY7088 deixa anar la placa **al
+voltant d'un segon** després de prémer la tecla, o sigui que amb la bateria la placa **s'apagava a mitges de la seva pròpia
+arrencada** i només el cable la sostenia. Ara es fa **abans de qualsevol altra cosa**: a `setup()` de la placa i a la
+primera línia de `kernel::boot()`, que és com ho fa la pròpia biblioteca del fabricant (`M5EPD::begin()` fa
+`enableMainPower()` a la primera instrucció). És `IPlatform::hold_the_power()`, una crida que a l'emulador només compta
+(`emu::held_the_power()`) i que a les plaques que no aguanten el seu corrent amb un pin no fa res.
+
+**I encendre-la quan està apagada és una tecla, no un GPIO**: la placa Paper no té cap manera d'engegar l'ESP32 des dels
+botons, perquè **quan està apagada l'ESP32 no té corrent**. Les dues úniques entrades són el **PWR del dial, premut i
+aguantat uns 2 s** (ho diu el manual del fabricant: *«Power on: Press and hold the power button (rotary switch)»*), que és
+un circuit, i **l'alarma del BM8563**, que arriba al mateix circuit d'alimentació i és el que fa servir `M5.shutdown(5)`
+de l'exemple oficial `RTC_WakeUp`. **Amb el cable posat és una altra història** (0.189.24): la placa no es pot apagar
+—ho diu el fabricant— i el que la deixa callada és el **son profund**, que abans s'armava sense cap despertar i deixava
+una placa que només un reset tornava a engegar. Ara el son arma **`ext0` sobre el GPIO38** (la tecla PWR, que és del domini
+RTC), i prémer-la la torna a despertar; amb la bateria el corrent ja ha caigut abans d'aquesta línia i l'armat no vol dir res.
+Un `esp_sleep_enable_ext1_wakeup` sobre GPIO37/38/39 seria un **son amb el corrent aguantat** (una tecla desperta i la
+pàgina torna a començar), que és una altra cosa que `poweroff`, i és el que fa el **`deepsleep`** de la 0.189.25: la placa
+**no baixa el GPIO2**, adorm el panell i baixa la GPIO23 i la GPIO5, desarma el xip del rellotge —ningú no ha demanat que
+torni sola— i arma **`ext0` sobre el GPIO38**; una premsa de la tecla del dial la torna a engegar. **El repòs costa**: el
+xip i vuit megues de PSRAM en self-refresh són uns quants mil·liamps i no zero, o sigui dies de bateria i no mesos, i per
+això és una comanda a part (`deepsleep`, la lluna de la targeta, `sys.deepsleep()`) i no el que fa `poweroff`. Les tres
+baixades de la placa queden així: **`poweroff`** talla el corrent (mesos, i només la tecla del dial), **`sleep <hora>`**
+talla el corrent amb una alarma que la torna a engegar, i **`deepsleep`** deixa el corrent posat amb una tecla per tornar.
+El que **no** es pot fer és despertar un xip que no té corrent: això no ho fa cap placa.
+
 ## La consola
 
 Els primers bytes que surten per un terminal a 115200 **no són nostres**: abans de `Serial.begin()` el
@@ -622,7 +653,7 @@ coincideixen entre ells i amb el que la placa ja ha dit:
 | Per tancar el frame | **S'escriu un zero a `0x814E`**. Sense això el mateix dit es llegeix per sempre més, que és la manera més fàcil de fer una app que no respira |
 | Dits alhora | El xip en pot reportar **cinc**, però **mana la seva configuració**: la unitat de la Paper diu **2** (`0x804C`, config 66, mesurat l'1/11), que és el «two-point touch» que anuncia el fabricant. El driver llegeix aquest número i el que no passarà mai és el que una app ha de rebre |
 | «Pressió» | El camp de **mida** és l'àrea que el xip mesura sota el dit, no una pressió: dos dits que premen igual de fort donen dues mides diferents. S'exposa com a `size` i no s'inventa una escala |
-| Velocitat | És un valor de la configuració del xip; el `M5GFX` el llegeix de `0x8056` i en fa `5 + (byte & 0x0F)` Hz. **No es dóna per bo**: es llegeix i es mesura al xip (docs/95, E-6) |
+| Velocitat | És un valor de la configuració del xip, i **es llegeix**: el byte de `0x8056` —quinze després de l'inici del bloc— són els hertzs que fa servir tothom (`5 + (byte & 0x0F)`, la fórmula que aplica el `M5GFX`), i el driver en fa els mil·lisegons d'un escombrat (0.188.1). La unitat de la Paper diu **vint hertz**, o sigui **un escombrat cada cinquanta mil·lisegons**, i la línia d'arrencada ho diu (`…, 2 fingers, 50 ms a scan`). **Importa perquè el nucli tanca un contacte després de tres escombrats de silenci**: amb deu mil·lisegons suposats la finestra era de trenta i un dit que caminava es donava per anat entre dos frames seus —el swipe es trencava en contactes d'un frame i la pàgina es passava «quan volia»— (0.188.1, docs/95) |
 | Gestos | El xip en té de propis, i **ni el driver de M5 ni el d'Espressif els llegeixen**. Aquí tampoc: un toc, una premuda llarga, un arrossegament o dos dits són **formes del flux de punts**, volen dir el mateix a qualsevol vidre i es poden provar al PC amb un fals; un gest que inventa el xip només el pot fer servir una placa (docs/85) |
 | Què costa llegir-lo | **Tres transaccions al bus del xip, que és de 100 kHz** i nou bits per byte (vuit i l'acknowledge), o sigui **90 µs el byte**: llegir l'estat, el marc dels punts i escriure el zero que el tanca. Sense dit són **400 µs** des de 0.174.4 (quatre bytes i una transacció: el zero no s'escriu quan el xip no té cap marc), amb un dit **1 830** (dinou bytes) i amb dos **2 550** (vint-i-set). El probe de l'arrencada és el producte id més els **186 bytes** de configuració: **~17 ms**, una vegada (mesurat al codi i a l'emulador, 1/11, docs/85) |
 
@@ -634,6 +665,36 @@ aquestes lectures com a `missed` des del primer dia. Un vidre que no digui la se
 pregunta a cada torn, que és el que es feia abans. I el zero de tancament **s'escriu només quan el xip té un marc**
 (bit 7 de l'estat), com fan els dos drivers del fabricant: dir-li que no té res quan no té res eren tres bytes al bus a
 cada lectura (docs/95).
+
+**I des de la 0.188.0, el vidre avisa en lloc de ser preguntat.** El GT911 té una sortida `INT` que **baixa quan un
+escombrat té un marc**, i al Paper eixa línia és **GPIO36**: la mateixa que el xip mira en sortir del reset per triar
+adreça (0x14 o 0x5D) i que, com que és **d'entrada**, no es pot conduir però **sí escoltar**. És el que fa el codi del
+fabricant —`M5EPD.cpp` crida `TP.begin(21, 22, 36)` i `GT911::begin` hi penja `attachInterrupt(pin_int, ...,
+FALLING)`— i el que fa ara aquest HAL:
+
+- `esp32_gt911(bus, int_pin)` configura el pin com a **`GPIO_INTR_NEGEDGE`** sense pull (el xip el mena) i hi penja un
+  handler **a IRAM** que només aixeca un `volatile bool`. Una interrupció no pot esperar el flash, i **el bus no és cosa
+  d'una interrupció**: el marc es llegeix fora, al torn.
+- `read()` respon **zero sense tocar el bus** quan la línia encara no ha avisat, i baixa el flamenc quan ha llegit el
+  marc, quan l'estat diu que no n'hi ha i quan el xip no contesta.
+- `ITouch::warns()` diu si aquest vidre avisa, i el nucli se'n refia: **un vidre que avisa es pregunta a cada torn**
+  (no costa res) i un que no avisa es pregunta al ritme de `scan_ms()`. La porta dels deu mil·lisegons de la 0.174.4 es
+  queda per als que no avisen.
+
+**El que es guanya i què no**: amb ningú a la pantalla, les lectures de **400 µs** cada deu mil·lisegons —un **4 %** d'un
+bus de 100 kHz que es comparteix amb el rellotge, la FRAM i el SHT30— **desapareixen**, i el marc es pren **el torn que
+arriba el flamenc** en lloc de fins a deu mil·lisegons després. Amb un dit, la lectura és la mateixa (**1 830 µs** per
+marc) perquè el marc s'ha de llegir igual. **La precisió no canvia**: els punts són els del xip i la línia només diu
+«hi ha alguna cosa» (docs/95).
+
+**I des de la 0.189.0 el nucli decideix abans que la pàgina senti res.** Cada marc del vidre anava a
+`luabind::ui_touch_progress` i la pàgina decidia a cada un què volia dir; els controls, doncs, veien **els fotogrames
+d'un gest** i el que un lliscament fos una premuda depenia de quants marcs arribessin —que és el que va obrir una fila
+amb un swipe quan una pintada s'empassava els torns (docs/95, 0.188.9)—. Ara `kernel::touch::poll()` **no envia cap
+fotograma** mentre el dit és a sobre: al final del contacte diu una sola cosa a la pàgina —la premuda i el relleu del
+punt on va caure (`ui_touch_progress`), o **un gest** (`ui_gesture`) amb el punt i el viatge del contacte sencer— i la
+decisió queda escrita a `kernel::touch::last_contact()`, que és el que la prova de `test_touch` mesura. El gest no és
+un toc: un contacte que ha caminat no activa mai una fila, un botó ni una targeta (docs/30).
 
 **El que hi ha escrit, l'1/11**: `ITouch` al HAL, el driver sencer (les dues adreces, la configuració,
 el marc dels cinc punts, el zero de tancament), **les tres crides de Lua** (`touch.caps`, `touch.read`,
@@ -942,6 +1003,20 @@ paper. El que fa ara el sistema:
   tantes passades que li queda fantasma. El pressupost de fantasma és **el de passades i no el de caixes**: es
   compten les passades que el vidre ha rebut des de l'última rentada (`kManyPaints`, 32) i no els rectangles amb
   què s'ha dibuixat la pàgina, perquè quaranta paraules són una pàgina i quaranta passades són quaranta taques;
+- **i el gir d'una pàgina no nomena cap mode** (0.189.2, l'amo: *«és una puta llista de text blanc i negre, la llista
+  no decidirà a quina qualitat pintar-se, ho faran els elements de la llista un per un»*). El gir d'una `ui.list` i el
+  d'una `ui.icon_grid` deien `gl16` i la caixa sencera es pintava amb aquest mode, trepitjant el que cada fila havia
+  demanat: la llista de l'`about` —25 files de lletres— pagava **450 ms i cap flaix per cada swipe** quan la seva
+  tinta és de dos nivells. Ara el gir no nomena res i el sistema fa el que ja deia la regla: **la més forta de les
+  qualitats que les regions han nomenat**, i si no n'ha nomenat cap, la de la tinta del que ha canviat
+  (`cleaner_for`: `a2` per a text, `gl16` per a uns quants grisos, `gc16` per a una fotografia). **Mesurat a
+  l'emulador** (vidre de 50 ms, `about`): el gir era `paint 20,312 500x580 mode 3 gl16` i ara és
+  `paint 20,312 500x580 mode 7 a2`;
+- **i l'única cosa que es queda de la regla vella és el perill que aquest panell va mesurar** (0.189.2): una passada
+  de dos nivells **de la vista sencera** va deixar el motor sense imatge —`blit 0,48 540x912` i `LUTAFSR` sense
+  llegir en 3006 ms, la 0.179.64—, o sigui que un dany que és la vista sencera continua pagant `gl16`
+  (`the_damage_is_the_whole_view`). La caixa d'un control no és la vista: mig vidre de lletres va amb `a2`, i això és
+  el que **s'ha de confirmar a la placa** amb la llista de l'`about` a la mà;
 - **una qualitat que l'app va nomenar es respecta**: `ui.rect(…, 'gc16')` és l'app dient què necessita la seva
   tinta, i una regió que no en porta és d'un control que es dibuixa amb `du`, que és el barat i no una promesa
   sobre el panell (`Damage::named`). El `present` amb `mode` no canvia: el que diu l'app és el que va al vidre;
@@ -969,6 +1044,12 @@ paper. El que fa ara el sistema:
   sigui que l'app que torna una vista i no ha dibuixat res demanava una pàgina sencera, no trobava cap regió i el
   vidre es quedava amb la targeta del panell a sobre. Ara la passada que paga el deute marca la vista sencera amb la
   qualitat que li han donat, i les caixes que hi havia es descarten perquè la pàgina les tapa totes.
+- **i el deute es pot deixar sense pagar per pintar-hi a sobre** (0.189.38, l'amo: *«així es queda l'splash amb la
+  barra de progrés que creix mentre l'app carrega completament»*): el deute és el que fa fora la imatge de
+  l'arrencada, o sigui que una app que vol una barra de progrés damunt del seu propi splash no podia fer servir
+  `ui.present()` —pintava la pàgina blanca al primer pas—. `ui::present_over()` compon la pàgina igual i posa al
+  vidre **només les caixes** del que l'app ha dibuixat des de l'últim present, amb el deute sencer encara pendent per
+  al `ui.present()` del final, que és el que el paga amb `gc16` i ensenya la pàgina de l'app sencera i neta.
 
 **Mesurat a l'emulador, canviant de la pantalla d'inici a una app**: el que era un `gc16` de 540×912 (la rentada)
 i un `gc16` de la pàgina és ara un `a2` de 540×912 i un `gl16` de la pàgina; l'arrencada del llançador amb deu

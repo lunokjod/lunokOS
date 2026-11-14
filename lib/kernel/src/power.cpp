@@ -3,6 +3,7 @@
 #include "kernel/meter.h"
 #include "kernel/power.h"
 #include "kernel/splash.h"
+#include "kernel/vfs.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -12,6 +13,7 @@
 #include "kernel/shell.h"
 #include "kernel/led.h"
 #include "kernel/log.h"
+#include "kernel/session.h"
 #include "alarms/alarms.h"
 #include "hal/alarm.h"
 #include "luabind/luabind.h"
@@ -318,6 +320,10 @@ void boot(hal::IPlatform& platform) {
     ops.keep_awake = &keep_awake;
     ops.keeping_awake = &keeping_awake;
     ops.wakes = &wakes;
+    // **El son de la lluna, per a una app** (0.189.25): `sys.deepsleep()` is the same sequence the prompt's `deepsleep` and the
+    // key of the card run —the app says goodbye, the sessions are written and the picture of the sleep goes on the glass— so
+    // the three ways down of this system are one and not three (docs/30, docs/50).
+    ops.sleep_with_the_keys = &shell::deep_sleep;
   }
   luabind::set_power_ops(ops);
 
@@ -421,6 +427,43 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   if (g_clock != nullptr) g_clock->resync();
   report_wake(false);
   return true;
+}
+
+// **El son que deixa la placa encesa i una tecla per tornar** (0.189.25): it is a deep sleep in everything the system has to
+// do —the app says goodbye, is written down and comes back at the next boot, because a deep sleep is a reset and not a
+// resume— and the one thing that changes is the board: it keeps its supply instead of cutting it, so a key can wake it. The
+// hour is none, and that is why it is not `sleep(kDeep, 0)`, which the system refuses on purpose (docs/50, docs/90).
+bool can_deep_sleep_with_the_keys() {
+  return g_power != nullptr && g_power->can_sleep_with_the_keys();
+}
+
+bool deep_sleep_with_the_keys() {
+  if (g_power == nullptr || !g_power->can_sleep_with_the_keys()) return false;
+  meter::Scope scope(meter::kSleep);
+  // What was in front is written down **before** it is closed: closing stops the interpreter and forgets which app it was,
+  // and the board is going to restart with that app (docs/90).
+  save_session();
+  if (shell::app_running()) shell::close_app();
+  // **Cap hora**: the board comes back when a person presses a key, so there is no deadline to be late for (docs/60).
+  save_deadline(0);
+
+  // **La imatge del son, que és la d'un son i no la d'una apagada** (0.189.25): a person who finds the board dark has to know
+  // that it comes back —with a key— and the picture is the one the system already has for a sleep (docs/30, docs/50, docs/92).
+  splash::show(going_down_picture(/*deep=*/true));
+  // The line is emptied before the clocks stop: the UART keeps bytes in flight after a write returns (docs/50).
+  pal::IConsole* console = pal::system().console();
+  if (console != nullptr) console->flush();
+  splash::wait();
+  // **I el disc, amb el que es pugui rentar i el repòs de la targeta** (0.189.18): the chip stopping is not the supply going,
+  // but an SPI that stops in the middle of a sector is a card that has to be told so —so the same step as the way off, and
+  // the same margin (docs/70, docs/75).
+  session::park_all("the board sleeps with its keys awake");
+  const session::Checked parked = session::check_parked();
+  log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
+             "%u of %u session file(s) are on the disk", static_cast<unsigned>(parked.ok),
+             static_cast<unsigned>(parked.files));
+  settle_before_leaving("the board sleeps with its keys awake");
+  return g_power->sleep_with_the_keys();
 }
 
 void note_activity() { g_last_activity_ms = mono_now(); }
@@ -627,6 +670,63 @@ void forget_session() {
   write_text(kAppKey, nullptr);
   write_text(kPathKey, nullptr);
   write_text(kWakeKey, nullptr);
+}
+
+// **El repòs abans de tallar el corrent** (0.189.18): the number is one and it starts at the two seconds the owner asked
+// for. A test that cuts the supply sets it to zero and a board that one day wants another number changes it here.
+uint32_t g_leaving_ms = kLeavingMs;
+
+uint32_t leaving_ms() { return g_leaving_ms; }
+
+void set_leaving_ms(uint32_t ms) { g_leaving_ms = ms; }
+
+// **Tot el que pot quedar a mig fer, acabat** (0.189.18): four devices and one rest, in the order that matters. The
+// console first, because what a person reads is written line by line and the port has a buffer of its own; the volumes
+// after, once each and however many doors of the VFS point at them (`/apps`, `/cfg`, `/fonts`, `/session` and `/nvs` are
+// rows over the same two disks); the store of the board last, and then the margin (docs/70, docs/75).
+Leaving settle_before_leaving(const char* why) {
+  Leaving done;
+  const char* reason = (why != nullptr && why[0] != '\0') ? why : "the board is going down";
+
+  if (pal::IConsole* console = pal::system().console()) {
+    console->flush();
+    done.console = true;
+  }
+
+  // **Un disc compta una vegada encara que hi apuntin cinc portes**: `/apps`, `/cfg`, `/fonts`, `/session` i `/nvs` són
+  // files de la mateixa taula sobre dos discs, i rentar el mateix volum cinc cops seria dir-li a la targeta cinc vegades
+  // que escrigui el que ja ha escrit. `kVolumes` és el que la taula del VFS pot tenir.
+  const uint8_t kVolumes = 8;
+  hal::IStorage* seen[kVolumes];
+  for (uint32_t i = 0; i < vfs::mount_count() && done.volumes < kVolumes; ++i) {
+    hal::IStorage* storage = nullptr;
+    char rel[8];
+    if (!vfs::resolve(vfs::mount_path(i), storage, rel, sizeof(rel)) || storage == nullptr) continue;
+    bool already = false;
+    for (uint8_t j = 0; j < done.volumes; ++j) {
+      if (seen[j] == storage) already = true;
+    }
+    if (already) continue;
+    seen[done.volumes] = storage;
+    ++done.volumes;
+    if (storage->flush()) ++done.volumes_ok;
+  }
+
+  if (hal::IKeyValue* store = hal::platform().nvs()) done.store = store->commit();
+
+  log_printf(pal::kLogInfo, "POWER", "%s: the console, %u of %u volume(s) and the store are written", reason,
+             static_cast<unsigned>(done.volumes_ok), static_cast<unsigned>(done.volumes));
+
+  // **I el repòs, que és el que cap crida pot fer per la targeta**: the controller of a card writes its own buffer into the
+  // flash some milliseconds after the last sector has arrived, and there is no call of the filesystem that waits for it
+  // (docs/75).
+  done.margin_ms = g_leaving_ms;
+  if (done.margin_ms > 0) {
+    log_printf(pal::kLogInfo, "POWER", "a margin of %u ms before the current goes (a card finishes writing after the last sector)",
+               static_cast<unsigned>(done.margin_ms));
+    pal::delay_us(done.margin_ms * 1000U);
+  }
+  return done;
 }
 
 }  // namespace power

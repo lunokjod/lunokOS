@@ -96,7 +96,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > l'amplada de la lletra i parpelleja sol** (0.92.0): el sistema el gira cada 600 ms i torna a pintar la caixa, i
 > l'app no hi ha de portar cap rellotge. **El teclat és una classe amb un pare comú** (0.93.0): `QwertyKeyboard` i
 > `AzertyKeyboard` comparteixen la banda, el dit, el dial i la cara, i només canvien les files; es tria amb
-> `cfg keyboard qwerty` o `cfg keyboard azerty` i la tria sobreviu a l'arrencada.
+> `cfg keyboard qwerty`, `cfg keyboard azerty` o `cfg keyboard serial` i la tria sobreviu a l'arrencada.
 >
 > **La placa sap dormir.** `sleep [light|deep] <ms>` a la shell i `power.sleep({mode, in_ms})` des
 > de Lua: el son lleuger torna i el profund reinicia la placa, i en tornar l'app que hi havia al
@@ -231,7 +231,8 @@ pio test -e test             # proves natives
 `LUNOK_GUI=sdl`, `LUNOK_GUI=x11` o `LUNOK_GUI=none` força el backend de la finestra; sense cap
 d'ells, la build tria SDL2 si el troba, després X11, i finalment un emulador sense finestra.
 
-Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `apps remove <id>` (esborra l'app
+Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps` (`cfg sort on` la fa sortir **de l'app més usada a la
+menys**, amb el número de cada una i les que ningú ha obert al darrere, en l'ordre de la porta), `apps remove <id>` (esborra l'app
 d'aquell nom —`reader` o `reader-SD`, que és la còpia de la targeta—, del disc on és, i els seus ajustos i
 dades es queden),
 `mounts`, `run <id> [path] [&]` (l'ampersand al final **deixa l'app en segon pla**: el prompt torna de
@@ -242,10 +243,11 @@ sempre),
 `hexdump <fitxer>` (els bytes en hex i en visible), `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
 `ntp`, `http <url>`, `repo [owner/repo] [dir]` i `repo info <app>` (les carpetes d'un directori del repositori i el manifest d'una app, de GitHub), `repo install <app>` (el directori sencer d'una app, al disc que `cfg` diu), `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power
 idle [on|off]` (si la placa pot dormir-se sola fins a la pròxima alarma), `led`,
-`button`, `sleep [light|deep] <ms>` (o `sleep at <hora>` per a una hora concreta), `cfg`
+`button`, `sleep [light|deep] <ms>` (o `sleep at <hora>` per a una hora concreta), `serial` (`claim` i `release`: el port
+sèrie queda cedit a qui el demana i mentres ho és **el sistema no hi escriu**), `cfg`
 (`auto`, `sd` o `littlefs`: on van els ajustos de les apps; i `cfg keyboard`, `cfg boot`, `cfg home`,
-`cfg tz`, `cfg leap` i `cfg week`: els ajustos del sistema, el de l'hora de la persona i els dos del
-calendari), `log`,
+`cfg tz`, `cfg leap`, `cfg week` i `cfg sort`, els ajustos del sistema, el de l'hora de la persona, els dos del
+calendari i el de l'ordre de les apps del llançador), `log`,
 `verbose on|off`, `clear`, `reboot` i `poweroff` (talla el corrent de la placa si en té el control; si
 no, ho diu). **`exit` i `logout`** tanquen la sessió de la consola, i què vol dir tancar depèn de la consola:
 **en un port sèrie** (la placa) la sessió no es pot tancar de debò, així que el sistema ho diu i espera un

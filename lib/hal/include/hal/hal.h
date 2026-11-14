@@ -136,6 +136,14 @@ class IStorage {
   virtual bool mkdir(const char* rel) = 0;
   virtual bool rename(const char* from, const char* to) = 0;
   virtual bool space(uint64_t& total, uint64_t& free) = 0;
+  // **El que el volum tingui a mig fer, acabat** (0.189.18, l'amo: *«Haurà donat temps a gravar-ho tot al SD?? s'ha apagat
+  // tot molt ràpid. Fes flush a tots els dispositius que es puguin abans d'iniciar el procés d'apagada»*): every file of
+  // this system is opened, written and closed inside one call —`write_block` is the only writer of a session— so the
+  // medium has the bytes by the time `close` answers, and what this door adds is the half a backend may still be keeping
+  // in its own buffers. **A backend that has nothing pending answers true and says so in its own comment** instead of
+  // pretending it did something; what the caller does with it is log the answer and then let the board rest (docs/70,
+  // docs/75).
+  virtual bool flush() { return true; }
   // **Empty the volume** (0.171.0, docs/70, docs/90): every file and every folder of its root goes and the volume
   // stays mounted with the format it has — the card is FAT before and after, and what a person gets is an empty card—.
   // It is what the page of the eraser means by formatting, and `removed` says how many files went so the page can
@@ -164,6 +172,10 @@ class IKeyValue {
   // The namespaces themselves, for the /nvs mount to list them as directories
   // (docs/70). Same convention: first = true starts again.
   virtual bool next_namespace(const char*& ns, bool& first) = 0;
+  // **El que el magatzem tingui a mig fer, acabat** (0.189.18): the board's `set` commits its namespace when it closes
+  // it, and a backend that keeps its write in a buffer of its own says here that it has written it. What the caller does
+  // with the answer is say it in the log before the current is cut (docs/75).
+  virtual bool commit() { return true; }
   // How full the store is, in **entries**: the NVS is not bytes, it holds a fixed number
   // of entries and a store with none left refuses the next save. `used` of `total` is the
   // number that says whether the next alarm fits; `total` is 0 when the backend has no
@@ -322,6 +334,21 @@ class IPower {
   // loud instead of looking like it worked: the ATOMs have no hold on their supply and the Paper
   // does not drop while the cable is in.
   virtual bool power_off() { return false; }
+  // **Si aquesta placa sap tallar-se el corrent, preguntat sense intentar-ho** (0.189.18): `power_off()` is the act, and a
+  // board that cannot do it only says so after the picture and the wait —so the shutdown sequence has to know **before** it
+  // spends the margin of a card's rest on a board that was never going to be cut—. True is a board with a hold on its own
+  // supply; the default is the honest «no» of the one that is powered by its cable (docs/50, docs/75).
+  virtual bool can_power_off() const { return false; }
+  // **El son que deixa les tecles vives** (0.189.25): the board **keeps its own supply up** —it is drawing current, and that is
+  // the whole point— puts what it can to rest, and sleeps the chip with a key as the wake, so a person presses and the board
+  // comes back. **It is not `sleep(kDeep)`**: on a board whose deep sleep is a power off, nothing wakes it but the clock; and it
+  // is not `power_off()`, which cuts everything. False is a board with no key wired to a pin the chip can watch while it
+  // sleeps, said out loud instead of looking like it worked. A board that can does not come back from here: it restarts
+  // (docs/50).
+  virtual bool sleep_with_the_keys() { return false; }
+  // **I la mateixa resposta, preguntada** (0.189.25): the way down asks this **before** it spends its picture, its wait and its
+  // margin, so a board that cannot be woken by a key says so instead of looking like it went to sleep (docs/50, docs/75).
+  virtual bool can_sleep_with_the_keys() const { return false; }
   // Where this board can be woken from: "timer", "button", "console" or "none".
   // Said by the board, because it is the wiring that decides it (docs/50).
   virtual const char* wakes() = 0;
@@ -475,6 +502,12 @@ class ITouch {
   // with the clock, the FRAM and the air sensor (docs/50, docs/95). Zero is "this glass does not say", and then the
   // caller asks on every turn, which is what every glass did before.
   virtual uint32_t scan_ms() const { return 0; }
+  // **Whether the glass warns instead of being asked** (0.188.0): a controller whose interrupt line is wired answers a
+  // read that has nothing to hand over **without touching the bus**, so the caller can ask it on every turn and take a
+  // frame on the turn it lands instead of up to a scan later. False is a glass that has to be asked at the rate
+  // `scan_ms` says, because every ask is the status of the chip on a bus shared with the clock, the FRAM and the sensor
+  // (docs/50, docs/95). **It is not called `interrupts()`** because Arduino has that name taken by a macro of its own.
+  virtual bool warns() const { return false; }
   // **Whether the frame that was just handed over is of a finger that is still there** (0.83.0). A controller that
   // scans the glass by itself hands over the frame of its last scan, and a finger that came down and went away
   // between two reads is a tap that is **already over** when the caller hears about it: `true` here would say the
@@ -623,6 +656,11 @@ class IPlatform {
   virtual const char* board_name(uint32_t index) const {
     return (index == 0) ? id() : nullptr;
   }
+  // **The supply of the board is held from here and as early as the boot can** (0.189.24): a board that latches its own power
+  // —the Paper does, with a pin and a switch that gives up about a second after the key— dies in the middle of a boot that
+  // takes longer than that to reach the platform, and a cable hides it because the cable is what is feeding it. The kernel
+  // calls this **before anything else**, and a board whose power does not depend on a pin does nothing (docs/50).
+  virtual void hold_the_power() {}
   virtual const Caps& caps() const = 0;
   virtual uint32_t heap_limit_kb() const = 0;
   // The extra memory of the board, as the board sees it (docs/75). The interpreter puts its big

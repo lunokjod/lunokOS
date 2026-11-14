@@ -175,14 +175,36 @@ Sense cable: `poweroff` → la placa s'ha d'apagar del tot (la pantalla no hi é
 perquè **la consola desapareix**). Prémer PWR → arrenca i `power last` **no** ha de dir cap deriva
 nova.
 
-Amb cable: `poweroff` → el corrent no cau, el xip queda en son profund **sense cap font de
-despertar** i la placa només torna si es treu el cable. Apuntar si això és el que es vol o si s'hi
-ha de posar el botó com a despertar (EXT0 a GPIO38).
+Amb cable: `poweroff` → el corrent no cau i el xip queda en son profund; des de la 0.189.24 el son
+arma **`ext0` sobre el GPIO38**, així que prémer la tecla del dial l'ha de tornar a despertar. Si no
+ho fa, apuntar-ho: és el que diu si l'armat arriba abans que el corrent caigui.
 
 | Què apuntar | On va |
 |---|---|
 | Amb bateria: es queda apagada i el botó la torna (sí / no) | `docs/50` §«`poweroff`: apagar sense tornar» |
-| Amb cable: com es torna a encendre, i si es vol canviar | Decisió a `docs/90` |
+| Amb cable: la tecla el desperta (sí / no) | `docs/50` §«Apagar tot el que es pot apagar» |
+
+### A-10 · **El consum del `deepsleep`**, que és l'única cosa que en decideix l'ús (10 minuts, amb un mesurador USB)
+
+La 0.189.25 deixa la placa **encesa i adormida** amb una tecla per tornar, i el número que la fa
+servir o no és **el que consumeix en repòs**. No està mesurat, i per això docs/50 diu «dies i no
+mesos» i no un número.
+
+1. Amb el cable i un mesurador d'USB: apuntar el consum al prompt, amb la ràdio encesa i apagada.
+2. `deepsleep` i deixar el mesurador quiet un minut: **el número del repòs** (xip + PSRAM en
+   self-refresh + els reguladors; la meitat d'aquest corrent és la PSRAM i no el xip).
+3. Prémer la tecla del dial: la placa ha de tornar **sola** (si cal un reset, l'`ext0` no ha armat
+   res i és un error i no un número).
+4. Amb la bateria, i amb el mesurador en sèrie: els mateixos dos números, que haurien de quadrar
+   amb els del punt 1 i 2 llevat del que consumeixi el carregador.
+5. Apuntar-ho a `docs/50` §«Apagar tot el que es pot apagar», canviant «uns quants mil·liamps» pel
+   número. **La decisió de si això és prou per a un e-reader** és de l'amo, amb el número a la mà.
+
+| Què apuntar | On va |
+|---|---|
+| El repòs en mA (cable) | `docs/50` |
+| El repòs en mA (bateria) i els dies que en surten amb 1 150 mAh | `docs/50`, `docs/90` |
+| Si la tecla el desperta de debò | `docs/50` (i si no, un error a `docs/90`) |
 
 ### A-9 · La FRAM contesta i aguanta el corrent tret (5 minuts)
 

@@ -75,11 +75,18 @@ FONTS = (
 # és el de Font Awesome 5 i el nom és el de la família; el comment de cada línia
 # és el que es veu quan el dibuix s'obre en un editor (docs/45).
 MARKS = {
-    "back": (0xF060, "arrow-left: the way back"),
+    # **El xevró i no la fletxa** (0.189.33, l'amo: *«l'icona es horrible, busca'n una de millor»*): the `arrow-left` of the
+    # set is a shaft of two thin strokes, and a thin diagonal is the first thing an e-ink panel with four levels turns into a
+    # staircase. The solid chevron is one shape of a single weight, it is read at forty pixels as well as at a hundred and
+    # sixty, and it says «back» without a tail to lose (docs/45, docs/92).
+    "back": (0xF104, "angle-left: the way back"),
     "close": (0xF00D, "times: the way out"),
     "settings": (0xF013, "cog: the things of the system"),
     "reboot": (0xF01E, "redo: a circle that starts again"),
     "poweroff": (0xF011, "power-off: the switch"),
+    # **La lluna** (0.189.25): the board is still on, drawing current, and asleep until a key is pressed —which is neither the
+    # switch of the power off nor the circle of the restart— (docs/45, docs/50).
+    "deepsleep": (0xF186, "moon: the board sleeps with its keys awake"),
 }
 
 

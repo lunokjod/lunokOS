@@ -33,6 +33,9 @@ Model model_of(const char* name) {
     out.fram = true;
     out.keeps_the_hour = true;
     out.powers_off = true;
+    // **La tecla del dial desperta un son que aguanta el corrent** (0.189.25): GPIO38 is a pin of the RTC domain and the chip
+    // can watch it while it sleeps (docs/50, docs/85).
+    out.keys_wake = true;
     out.heap_kb = 320;
     // The chip has 8 MB of PSRAM and the ESP32 maps **4** of them: what the system counts is the
     // mapped region, because the other half needs the bank-switched `himem` nobody uses (docs/50,

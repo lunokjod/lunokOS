@@ -355,6 +355,14 @@ uint32_t init(hal::IPlatform& platform) {
     }
     add("/res", "res", "littlefs", littlefs, false);
     add("/data", "data", "littlefs", littlefs, true);
+    // **La caché de les sessions quan no hi ha targeta** (0.189.7): `/session/<id>/<key>` is where the memory of a session
+    // is written when the app that owns it ends, so the cache of a launcher outlives the board (docs/30, docs/75).
+    // **La targeta mana**: when there is one the door is `sd/session`, and the flash only has it on a board that has no
+    // card at all —one door and not two, because two rows of the same path are a table nobody can read.
+    if (platform.storage("/sd") == nullptr) {
+      littlefs->mkdir("session");
+      add("/session", "session", "littlefs", littlefs, true);
+    }
     // **The faces of the system are one row and not a copy per app** (3/11). A real face is ten to
     // twenty kilobytes and an app that wants one used to carry its own copy in `apps/<id>/res/`,
     // so the same DejaVu sat in two apps and the disk paid it twice. `/fonts` is the disk's
@@ -375,6 +383,11 @@ uint32_t init(hal::IPlatform& platform) {
     // folder of the apps is made— (docs/30, docs/70).
     sd->mkdir("fonts");
     add("/sd", "", "sd", sd, true);
+    // **And the folder of the sessions of the apps** (0.189.7): `/session` is `sd/session` when there is a card —the folder
+    // is made here, the same way the one of the apps is— and `littlefs/session` when there is not, because a cache that
+    // is lost every time the board is switched off is not a cache (docs/30, docs/75).
+    sd->mkdir("session");
+    add("/session", "session", "sd", sd, true);
   }
 
   // /rtc: the RTC memory as one file the size of the memory. It is the only memory that survives a

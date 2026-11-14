@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 
+#include "emu/options.h"
 #include "hal/hal.h"
 
 namespace emu {
@@ -33,6 +34,9 @@ class Gt911Panel : public hal::ITouch {
   // **A frame the chip kept after the finger left says so**: the emulator knows if a finger is on the glass right now,
   // and it is what tells a tap that is over from a key held down (docs/50, docs/85).
   bool finger_still_down() const override { return fingers_down() > 0; }
+  // **La línia del panell està cablejada** (0.188.0): this model has the interrupt of the board unless `--no-touch-int` says
+  // otherwise, and a read that nobody warned about costs neither bus nor a miss (docs/50, docs/85).
+  bool warns() const override { return options().touch_interrupt; }
 
   // **The fingers are the test's.** Slot 0 or 1, in the chip's own frame, which on this board is the
   // page's own frame and the right way up (docs/95, E-6). False when the slot does not exist, when the

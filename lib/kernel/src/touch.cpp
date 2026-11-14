@@ -277,6 +277,14 @@ const int32_t kQuietMs = 30;
 // When a frame was last handed over. `-1` is a glass that has said nothing since the app started or since the last
 // finger left.
 int32_t g_seen_ms = -1;
+// **Quants marcs ha lliurat el vidre des que el dit va caure, i quan va caure** (0.188.8): the two numbers that tell a swipe
+// the driver measured nothing from a glass that said nothing —and the owner asked the question in those words:
+// *«segur que no estem perdent events del tàctil?»*— (docs/50, docs/95).
+uint16_t g_contact_frames = 0;
+int32_t g_contact_ms = 0;
+// **El que la pàgina ha sentit de l'últim contacte** (0.189.0): filled once, when the finger leaves, and left as it is while no
+// finger is down —so a page that asks reads the decision of the contact that just ended— (docs/30, docs/50).
+LastContact g_last_contact;
 // When the chip was last asked. `-1` is a glass nobody has asked yet, and the gate below is what keeps a turn of a
 // millisecond from asking a chip that scans every ten (0.174.4, docs/50, docs/95).
 int32_t g_asked_ms = -1;
@@ -336,7 +344,11 @@ void poll() {
   // turns (0.174.4): what is measured as `touch.read` is the reads of the chip and not the turns that had nothing to
   // ask it (docs/30, docs/95).
   uint8_t taken = 0;
-  if (ask_the_chip(now)) {
+  // **Un vidre que avisa es pregunta a cada torn** (0.188.0): a glass with its interrupt line wired answers a turn that has
+  // nothing to hand over without touching the bus, so asking it is free and the frame is taken on the turn the line says it
+  // is there —instead of up to a scan later, which is what the gate of 0.174.4 costs—. A glass that has to be asked pays the
+  // status of the chip on every read, and that one is asked at the rate it can have news (docs/50, docs/95).
+  if (g_glass->warns() || ask_the_chip(now)) {
     meter::Scope scope(meter::kTouchRead);
     taken = g_glass->read(g_frame, kMaxPoints);
   }
@@ -348,6 +360,7 @@ void poll() {
     // docs/50, docs/90).
     if (!g_glass->finger_still_down()) ui::keyboard_touch(0, 0, false);
     g_count = taken;
+    ++g_contact_frames;
     g_seen_ms = now;
     // **The turn is for the frame that just came and for nothing else**: `turn_frame` writes the view's coordinates over
     // the chip's in the same buffer, so turning a frame that is being kept turned it again on every poll and the finger
@@ -371,12 +384,53 @@ void poll() {
   if (g_count == 0) {
     // **El contacte s'ha acabat**: the owner hears the lift, and the next contact decides its own.
     if (g_contact != kNoContact) {
-      log_printf(pal::kLogDebug, "TOUCH", "the contact is over (%d was the owner)", static_cast<int>(g_contact));
+      // **Quants marcs ha vist aquest contacte** (0.188.8): the question *«segur que no estem perdent events del tàctil?»*
+      // cannot be answered from a log that says the travel was zero: a contact of twelve hundred milliseconds over a glass
+      // of twenty hertz is **twenty-four frames** and a contact of one is a lost line. The count is said here, with the time
+      // it lasted, so a swipe that measured nothing says whether the glass was silent or the driver was (docs/50, docs/95).
+      log_printf(pal::kLogDebug, "TOUCH", "the contact is over (%d was the owner), %u frames in %d ms",
+                 static_cast<int>(g_contact), static_cast<unsigned>(g_contact_frames),
+                 static_cast<int>(now_ms() - g_contact_ms));
     }
+    g_contact_frames = 0;
     if (g_contact == kTheKeyboard) ui::keyboard_touch(0, 0, false);
-    if (g_contact == kThePage) luabind::ui_touch_progress(0, 0, false);
+    if (g_contact == kThePage) {
+      // **I el contacte es decideix aquí i només aquí** (0.189.0, l'amo: *«fes un mètode per retardar els events que s'envien
+      // als UIControl. Si es decideix que és un gest no s'envien mai els events i s'envia el gest»*). The page has heard
+      // **nothing** of this contact —no frame went to it— and it hears one thing now:
+      //
+      //  - **un toc**: the press and the release of the point the finger landed on, in the same turn, which is what a still
+      //    finger of any length did before this version;
+      //  - **un gest**: `ui_gesture` with the landing point and the travel of the whole contact, and **no press at all** —so a
+      //    swipe paints nothing, focuses nothing and clicks nothing, which is what the row of a list was doing wrong—.
+      //
+      // A long press is a gesture here and not a tap: an app hears it at `touch.gesture()` as it always did, and the page
+      // does nothing with it (docs/30, docs/50, docs/90).
+      const int16_t walked_x = static_cast<int16_t>(static_cast<int32_t>(g_last_x) - static_cast<int32_t>(g_start_x));
+      const int16_t walked_y = static_cast<int16_t>(static_cast<int32_t>(g_last_y) - static_cast<int32_t>(g_start_y));
+      g_last_contact = LastContact();
+      g_last_contact.x = g_start_x;
+      g_last_contact.y = g_start_y;
+      g_last_contact.frames = static_cast<uint8_t>((g_contact_frames > 255) ? 255 : g_contact_frames);
+      g_last_contact.ms = static_cast<uint16_t>((now_ms() - g_contact_ms > 65535) ? 65535 : (now_ms() - g_contact_ms));
+      if (!g_moved && !g_long_said) {
+        g_last_contact.told = Told::kAPress;
+        luabind::ui_touch_progress(g_start_x, g_start_y, true);
+        luabind::ui_touch_progress(0, 0, false);
+      } else {
+        g_last_contact.told = Told::kAGesture;
+        g_last_contact.dx = walked_x;
+        g_last_contact.dy = walked_y;
+        luabind::ui_gesture(g_start_x, g_start_y, walked_x, walked_y);
+      }
+    }
     g_contact = kNoContact;
   } else if (g_contact == kNoContact) {
+    // **El contacte comença aquí, i el seu compte arrenca de zero** (0.188.8): the same two numbers, so the line at the end
+    // says how many frames this contact was and how long it took. **The count is cleared when the last one ended and not
+    // here**, because the first frame of a contact is counted before this branch is reached and clearing it now would take
+    // that frame away from the account (docs/50, docs/95).
+    g_contact_ms = now_ms();
     // **Un contacte nou vol dir que el dit de la banda de abans ja no hi és** (0.179.45): the band keeps `held_` between
     // frames so a finger that stays on a key types once, and a lift that the glass never reported —a frame lost while a
     // paint held the turns, which this panel does by the hundred— left it set for ever; from that moment the band answered
@@ -398,12 +452,18 @@ void poll() {
       g_contact = kTheKeyboard;
     } else {
       g_contact = kThePage;
-      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the page's",
-                 static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y));
-      luabind::ui_touch_progress(g_frame[0].x, g_frame[0].y, true);
+      // **I el gir amb què s'ha llegit, a la mateixa línia** (0.188.5): the page turn between the chip's frame and the page's
+      // is the number that says whether a hand that goes sideways will be read as sideways, and the owner asked for the
+      // sides only — *«recorda que la pantalla està girada»* —, so the number that decides it is said with the first contact
+      // of a run instead of being guessed (docs/50, docs/95).
+      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the page's (page turn %u)",
+                 static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y),
+                 static_cast<unsigned>((kChipPage + 360 - (display::rotation() % 360)) % 360));
     }
   } else if (g_contact == kThePage) {
-    luabind::ui_touch_progress(g_frame[0].x, g_frame[0].y, true);
+    // **La pàgina no rep res mentre el contacte és viu** (0.189.0): the decision is taken when the finger leaves (see above),
+    // so a frame that arrives here is kept by the gesture machine and told to nobody. This is what makes a swipe cost no ink
+    // and a tap cost one press and one release (docs/30, docs/50).
   } else if (g_contact == kTheKeyboard) {
     ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true);
   }
@@ -531,6 +591,8 @@ uint8_t points(hal::TouchPoint* out, uint8_t capacity) {
   for (uint8_t i = 0; i < count; ++i) out[i] = g_frame[i];
   return count;
 }
+
+const LastContact& last_contact() { return g_last_contact; }
 
 bool take_gesture(Gesture& out) {
   if (g_queue_count == 0) return false;

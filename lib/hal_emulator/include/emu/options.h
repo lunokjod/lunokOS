@@ -99,6 +99,11 @@ struct Options {
   // a measurement the board still owes, docs/95 E-6). A larger number is a chip slower than the turn of
   // the kernel, which is the hardware problem a caller that polls too fast has to survive (docs/85).
   int32_t touch_scan_ms = 0;
+  // **La línia per la qual el panell avisa** (0.188.0): the GT911 of this board pulls INT down when a scan has a frame, and
+  // a driver that listens to it reads nothing —not even the status— on a turn where nobody warned. On by default because
+  // that is what the board has; `--no-touch-int` is the glass of a driver that has to ask, which is the model of 0.174.4 and
+  // the one `--touch-scan` is about (docs/50, docs/85).
+  bool touch_interrupt = true;
   // **Whether the emulator pays the time the hardware takes.** On —the binary— a read of the disk sleeps
   // what the flash sleeps, a paint sleeps the bus and the ink, a read of the panel sleeps its three
   // transactions and the console goes out at the speed of the UART: that is what makes a run with
@@ -219,6 +224,11 @@ bool led_pixel(uint32_t index, uint8_t& r, uint8_t& g, uint8_t& b);
 // five-second breath in a millisecond, and it moves **the same clock the kernel reads**,
 // so the effect and the turn that paints it agree (docs/30, docs/85).
 void advance_ms(int64_t delta);
+
+// **Quantes vegades l'arrencada ha agafat el corrent de la placa** (0.189.24): un PC no té cap pin que aguanti la seva
+// pròpia alimentació, i el que sí que es pot mesurar és que el nucli ho demana **abans de qualsevol altra cosa** —que és
+// el que la placa Paper necessita i el que el seu firmware de fàbrica fa a la primera instrucció— (docs/50, docs/85).
+uint32_t held_the_power();
 
 }  // namespace emu
 

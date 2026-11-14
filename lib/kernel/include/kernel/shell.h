@@ -119,6 +119,11 @@ LeaveOutcome leave_one_page();
 LeaveOutcome close_the_app();
 bool power_off(const char* reason);
 
+// **El son que deixa la placa encesa i una tecla per tornar** (0.189.25): the command `deepsleep` and the key of the card of the
+// bar ask for the same sequence, so it is one function and not two —the picture, the line out, the disk and the store, and the
+// chip asleep with the supply still held—. `reason` is what goes in the log (docs/30, docs/50).
+bool deep_sleep(const char* reason);
+
 // The app of the alarm goes to the front: what was in front is closed and this
 // app is started in its place (docs/60).
 bool raise_app(const char* id);

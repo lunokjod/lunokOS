@@ -143,7 +143,7 @@ El que el codi llegeix avui, amb la mida que hi cap:
 | `title` | cadena | **Sí** | 47 B | Nom que es mostra |
 | `entry` | cadena | **Sí** | 47 B | Fitxer Lua d'entrada, relatiu al directori de l'app |
 | `boards` | taula de cadenes | **Sí** | 8 noms de 23 B | Les plaques on l'app funciona: el nom d'una placa o el d'una família (`esp32`) |
-| `version` | cadena | No | 15 B | Versió de l'app, text lliure |
+| `version` | cadena | No | 15 B | Versió de l'app, en `x.y.z` **i puja cada cop que l'app canvia** (0.186.0): la mateixa regla X/Y/Z del sistema dins de l'app, i el commit que en toca un fitxer en puja el número. `tools/check_version.py` ho refusa si no és així (docs/45, docs/80) |
 | `author` | cadena | No | 31 B | Qui l'ha escrita (0.120.0) |
 | `description` | cadena | No | 159 B | Què és l'app; dues línies amb `\n` si cal (0.120.0) |
 | `opens` | cadena | No | 8 extensions d'11 B | Les extensions que aquesta app sap obrir, separades per espais (0.120.0) |
@@ -379,7 +379,7 @@ Totes les funcions són opcionals. Si existeixen, es criden en aquest ordre:
 |---|---|
 | `on_load()` | Després de carregar l'entry i abans d'obrir res |
 | `on_open(args)` | Quan l'app passa a tenir el port (o rep un fitxer) |
-| `on_event(ev)` | Per cada esdeveniment, si l'app en declara |
+| `on_event(ev)` | Quan el sistema té una cosa a dir-li. **Avui una de sola** (0.189.23): `{kind = "apps", what = "install"|"remove", generation = n}`, la llista d'apps ha canviat sota la pàgina (més avall, i docs/30) |
 | `on_alarm(id, payload, meta)` | Quan venç una alarma seva |
 | `on_button(kind, held_ms, key)` | Quan es prem una tecla (docs/30) |
 | `on_light()` | Quan un moment del sistema s'acaba i el llum torna a ser de l'app, perquè el torni a pintar si durant la interrupció ha canviat d'idea (docs/30) |
@@ -391,10 +391,10 @@ Totes les funcions són opcionals. Si existeixen, es criden en aquest ordre:
 Si una app no declara `on_open`, s'executa el cos de l'entry i prou: és la manera curta d'escriure
 una app.
 
-**Què es crida avui (1/11)**: `on_alarm`, `on_button`, `on_light`, `on_resize`, `on_pause`, `on_save` i
-`on_close`. Els tres de comiat es
+**Què es crida avui (14/11)**: `on_alarm`, `on_event` (una sola mena: la llista d'apps), `on_button`, `on_light`,
+`on_resize`, `on_pause`, `on_save` i `on_close`. Els tres de comiat es
 criden abans de tancar una app, tant si la tanca un `raise` com si la treu la persona amb ESC o
-`!!exit`. `on_load`, `on_open` i `on_event` encara no existeixen. Cap ganxo no pot esperar: es criden
+`!!exit`. `on_load` i `on_open` encara no existeixen. Cap ganxo no pot esperar: es criden
 entre dos torns del nucli, amb la coroutine de l'app suspesa.
 
 `on_event`, `console.on_data` i les lectures directes (`console.read_line()`) són **excloents dins de la
@@ -492,6 +492,80 @@ amb `[W][HOME]` i la placa es queda al prompt: **no hi ha bucle d'arrencada**.
 **No trepitja el registre de sessió**: una placa que se'n va anar a dormir dins d'una app torna a
 *aquella* app, i l'app de casa només s'engega quan no ha tornat res (docs/30, docs/60, docs/90). I no
 arriba cap `app.args.restore`: no ve de cap son, ve d'un arrencada.
+
+## L'ordre de les apps al llançador (0.189.13)
+
+Una pàgina d'inici les llista en l'ordre **que li dona la porta de les apps** (el flaix i després la
+targeta, i el llançador els ordena pel nom), perquè un ordre que no depèn de res és un ordre que una
+persona aprèn. **Però la persona pot demanar-ne un altre**: `cfg sort on` —i `cfg sort off` per tornar a
+l'ordre de la porta— fa que el llançador dibuixi les apps **de la més usada a la menys**, amb el nom com
+a desempat, i `cfg sort` ho diu; `sys.settings().sort_by_usage` és com una app ho llegeix (docs/30).
+
+- **Qui compta és el llançador i les dades són seves**: `home_eink` guarda `id<TAB>count` per app en una
+  **sessió pròpia** (`sys.session('usage', …)`, 1 024 B, que baixa a 512 o 256 si el sistema no en té
+  tants), no a `/cfg` i no a la sessió `state`. Un recompte és **el que la pàgina ha après**, no la
+  forma de la vista, i la regla de què va a cada lloc és la de docs/30 § «La sessió `state`»; el bloc és
+  el mateix mecanisme que la caché de les icones, o sigui que sobreviu a apagar la placa i el relleu de
+  l'allocator se'l pot endur quan falta memòria (docs/75).
+- **Es compta al toc i no al tancament**: un llançament que falla és igualment un llançament que la
+  persona ha fet, i l'app que arrenca pot quedar-se el vidre molt de temps.
+- **L'ordre es decideix quan la pàgina es construeix**, no a cada toc. Un grid que es reordena sota el dit
+  és exactament el que 0.154.0 va treure del llançador, i la pàgina que es veu és la que la persona ha
+  triat mirar. Amb la caché calenta el recompte es llegeix **abans** del primer dibuix, així que la
+  pàgina surt ja ordenada i la porta no la torna a construir.
+- **Una cacera d'ids que ja no hi són** no es fa: el recompte d'una app esborrada es queda al bloc i costa
+  una línia, perquè el dia que l'app torni el número torna amb ella.
+
+**I el prompt diu el mateix ordre, amb els mateixos números** (0.189.14): `apps` llegeix la sessió `usage` de la pàgina
+que compta —`session::copy`, la memòria si hi és i el fitxer si no— i llista de més usada a menys, amb el nom com a
+desempat, i **escriu el número a cada línia** (`[3 uses]`); les apps que ningú ha obert van després, en l'ordre de la
+porta, perquè una app acabada d'instal·lar també ha de sortir a la llista. La clau `usage` és el que el sistema en sap: el
+prompt la busca **pel nom de la clau i no pel de l'app**, o sigui que una pàgina d'inici que es digui d'una altra manera es
+llegeix igual (docs/30, docs/75).
+
+**I la caché del llançador porta el número de versió** (0.189.22): cada registre del bloc `apps` desa `id`, títol, la ruta
+de la icona, el número del dibuix, si el dibuix hi és i **la `version` del manifest**, i en tornar el llançador pregunta al
+disc **una app per torn** (`apps.info`, una lectura de manifest per app, el mateix ritme que la cua d'una caché freda) si el
+número és encara aquell. Si no ho és, la cel·la es torna a pintar amb la icona de debò i el títol nou, el dibuix es desa **al
+mateix número** i el bloc queda amb la versió d'avui; el log diu `home: alpha is 0.2.0 (was 0.1.0), the picture is read
+again`. Una app que canvia de versió és el cas que el bloc no podia veure: la llista de la porta és la mateixa —el nom no ha
+canviat— i la icona que es veia era la d'abans. La comprovació **no torna a fer la pàgina** (una cel·la canviada és una
+caixa, no el vidre sencer) i un manifest que avui no es pot llegir no esborra el registre.
+
+**I el sistema avisa la pàgina quan la llista canvia** (0.189.23, l'amo: *«quan s'instali una app ("repo install <id>") o
+s'elimini ("apps remove <id>") el sistema ha d'avisar al launcher registrat a la variable cfg home per fer-li refescar la
+seva llista d'apps»*): les dues comandes deixen el canvi a la porta de les apps —el número de la llista puja i una línia el
+diu, `the list changed (install squares), generation 3`— i el **bucle del nucli** el porta a l'app que `cfg home` nomena,
+**entre dos torns**, amb `on_event({kind = "apps", what = …, generation = n})`. **El nom de l'app no hi va**: són quaranta
+bytes de DRAM que la placa no té, el registre el diu en el moment del canvi i la pàgina no el necessita —pregunta la llista
+sencera— (docs/30, docs/75). No és una notificació a la pantalla:
+el sistema no té cap camí per dibuixar dins d'una app, i `ui.notification_bar` és un control que la pàgina pinta i no un
+canal. El ganxo **no dibuixa i no pot esperar**: la pàgina es marca, i el torn següent torna a preguntar la llista a la
+porta (`reconcile`), afegeix o treu les cel·les que han canviat i desa el bloc amb la llista nova. Si l'app que hi ha al
+vidre no és la de `cfg home`, el canvi es llença i no es perd res: la propera arrencada de la pàgina veu la llista sencera.
+**Per què hi és, si les dues comandes es teclegen al prompt**: perquè el prompt no és l'únic que instal·la —una app pot
+demanar `sys.shell('repo install …')`— i perquè el dia que la pàgina torni a ser al vidre amb la llista d'abans, el camí
+que l'ha de corregir ja hi és i està provat (docs/30).
+
+## La línia del carregament del llançador (0.189.15)
+
+Mentre la cua de manifests i d'icones va arribant —un app per torn—, `home_eink` dibuixa **una línia de sis píxels
+enganxada a la barra del sistema** (`bar:place(0, 0)`, que és el vidre que hi ha just sota la tira del sistema, perquè la
+vista d'una app comença allà) i **tan ampla com el vidre**. És el que fa un navegador quan carrega un recurs, i és el que
+l'amo va demanar: *«la barra de progrés ... és massa alta, posa-la a dalt, sota la barra de sistema (enganxada), ben
+fineta»*.
+
+- **El control és el del sistema** (`ui.progress(w, 6)`), no un dibuix de l'app: si demà el sistema canvia com es pinta una
+  barra, aquesta canvia amb ell.
+- **El farciment és la tinta i la pista és el paper** (`fill = 0`, `track = border = background = 15`): el to de fàbrica
+  del `ui.progress` és el clar de la paleta, que està bé en una caixa de vint-i-vuit píxels i **no es veu en una línia de
+  sis**; una línia fosca que creix és el que una persona llegeix com «encara arriba», i són uns quants milers de píxels i no
+  els cent mil d'una caixa negra (docs/50).
+- **No ocupa res del grid**: comença a zero i el grid comença a `kTop` (vuit), i quan la cua s'acaba el control es dóna
+  (`bar:release()`) i el forat es torna paper —**cap cel·la no es repinta**, perquè no hi havia cap cel·la a sota—. Els
+  punts del paginador són del peu del grid i no d'aquesta línia.
+- **Es fa servir el mateix `ui.progress` de sempre i no un control nou**: el que ha canviat és la caixa (sis píxels i tota
+  l'amplada), el lloc (`0, 0`) i els dos colors del farciment.
 
 ## Una app mínima
 

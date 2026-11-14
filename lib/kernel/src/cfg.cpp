@@ -63,6 +63,14 @@ const char kWeekKey[] = "week";
 // `luabind`, which is the module that counts it: this door keeps the choice and puts it there at boot (docs/20, docs/75).
 const char kTurnKey[] = "turn";
 const size_t kTurnCap = 8;  // "200000" and the null
+// **El parpalleig del cursor** (0.189.34): the key of the store and the room the number has in it, which is a number of
+// milliseconds and nothing else —the option is called `cursor delay` at the prompt, and the store keeps the one word of the
+// key, because a key of a key-value store is one word (docs/30, docs/70).
+const char kCursorKey[] = "cursor";
+const size_t kCursorCap = 8;  // "5000" and the null
+// **Si el llançador ordena les apps pels usos** (0.189.13): kept as the words a person reads in the store —`on` and
+// `off`— like the calendar and the hour of summer, and off until somebody asks for it (docs/30, docs/40).
+const char kSortKey[] = "sort";
 const char kOn[] = "on";
 const char kOff[] = "off";
 const char kMonday[] = "monday";
@@ -89,6 +97,9 @@ bool g_leap_years = true;
 // the winter (0.182.0, docs/60).
 bool g_dst = false;
 uint8_t g_week_start = 1;
+// **A launcher shows the door's order until a person asks for another** (0.189.13): the count of uses is the launcher's
+// and this is only the switch that says whether it sorts by it (docs/30, docs/40).
+bool g_sort_by_usage = false;
 
 bool same(const char* a, const char* b) { return a != nullptr && b != nullptr && strcmp(a, b) == 0; }
 
@@ -151,6 +162,21 @@ bool remember_turn() {
   snprintf(text, sizeof(text), "%u", static_cast<unsigned>(luabind::turn_budget()));
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kTurnKey, text, strlen(text));
+}
+
+bool remember_cursor() {
+  if (g_nvs == nullptr) return false;
+  char text[kCursorCap] = {0};
+  snprintf(text, sizeof(text), "%d", static_cast<int>(luabind::caret_blink_ms()));
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kCursorKey, text, strlen(text));
+}
+
+bool remember_sort() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_sort_by_usage ? kOn : kOff;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kSortKey, word, strlen(word));
 }
 
 bool remember_tz() {
@@ -334,6 +360,26 @@ void boot(hal::IPlatform& platform) {
   // typo, a zero— falls back to the one this build ships and says so, because an app that is never cut is a board that
   // stops answering the hand and nobody would know why (docs/20, docs/75).
   luabind::set_turn_budget(luabind::turn_budget_default());
+  // **I el parpalleig del cursor torna al del build abans de llegir el disc** (0.189.34): the same rule the slice and the
+  // offset follow —a second boot of the same object does not inherit what the run before wrote— (docs/30, docs/90).
+  luabind::set_caret_blink_ms(luabind::caret_blink_default_ms());
+  char raw_cursor[kCursorCap] = {0};
+  size_t cursor_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kCursorKey, raw_cursor, sizeof(raw_cursor) - 1, cursor_len) && cursor_len > 0 &&
+        cursor_len < sizeof(raw_cursor)) {
+      raw_cursor[cursor_len] = '\0';
+      int32_t delay = 0;
+      if (parse_cursor_delay(raw_cursor, delay)) {
+        luabind::set_caret_blink_ms(delay);
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "cursor delay '%s' is not a blink of %d to %d ms; the cursor blinks at %d",
+                   raw_cursor, static_cast<int>(luabind::caret_blink_min_ms()),
+                   static_cast<int>(luabind::caret_blink_max_ms()), static_cast<int>(luabind::caret_blink_ms()));
+      }
+    }
+  }
   char raw_turn[kTurnCap] = {0};
   size_t turn_len = 0;
   if (g_nvs != nullptr) {
@@ -353,12 +399,30 @@ void boot(hal::IPlatform& platform) {
     }
   }
   apply();
+  // **I si el llançador ordena les apps pels usos** (0.189.13): a word that is neither `on` nor `off` leaves the switch
+  // where it was —off— and says so, like the calendar does with a week that is not a week (docs/30, docs/40).
+  char raw_sort[kNameCap] = {0};
+  size_t sort_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kSortKey, raw_sort, sizeof(raw_sort) - 1, sort_len) && sort_len > 0 &&
+        sort_len < sizeof(raw_sort)) {
+      raw_sort[sort_len] = '\0';
+      if (same(raw_sort, kOn) || same(raw_sort, kOff)) {
+        g_sort_by_usage = same(raw_sort, kOn);
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "sort '%s' is not on or off; the launcher keeps the door's order", raw_sort);
+      }
+    }
+  }
   log_printf(pal::kLogInfo, "CFG",
-             "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, dst %s, week %s, turn %u",
+             "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, dst %s, week %s, turn %u, "
+             "sort apps by usage %s, cursor delay %d ms",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot,
              (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60,
              g_leap_years ? kOn : kOff, g_dst ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday,
-             static_cast<unsigned>(luabind::turn_budget()));
+             static_cast<unsigned>(luabind::turn_budget()), g_sort_by_usage ? kOn : kOff,
+             static_cast<int>(luabind::caret_blink_ms()));
 }
 
 const char* unit() { return g_unit; }
@@ -367,6 +431,30 @@ const char* unit() { return g_unit; }
 // force —the block ceiling of what was asked— and not the one that was typed, so what `cfg turn` prints is what the hook
 // compares with (docs/20, docs/75).
 uint32_t turn_instructions() { return luabind::turn_budget(); }
+
+// **The launcher's switch** (0.189.13): off until the store says `on`, and it is a word and not a bit for the same reason
+// the calendar's is —a person reads the store with `nvs` (docs/30, docs/70).
+bool sort_by_usage() { return g_sort_by_usage; }
+
+bool set_sort_by_usage(bool on) {
+  g_sort_by_usage = on;
+  return remember_sort();
+}
+
+// **The six words a switch takes** (0.189.13): the person writes the one their head reaches for and the store keeps the
+// two the prompt prints, so `cfg sort yes` and `cfg sort on` end in the same line of the key-value store (docs/30).
+bool parse_switch(const char* text, bool& on) {
+  if (text == nullptr) return false;
+  if (same(text, "on") || same(text, "true") || same(text, "yes")) {
+    on = true;
+    return true;
+  }
+  if (same(text, "off") || same(text, "false") || same(text, "no")) {
+    on = false;
+    return true;
+  }
+  return false;
+}
 
 uint32_t turn_default() { return luabind::turn_budget_default(); }
 
@@ -387,6 +475,35 @@ bool parse_turn(const char* text, uint32_t& instructions) {
 bool set_turn_instructions(uint32_t instructions) {
   if (!luabind::set_turn_budget(instructions)) return false;
   return remember_turn();
+}
+
+// **El parpalleig del cursor, que és una preferència i no una constant** (0.189.34): the number lives in `luabind`, which
+// owns the clock of the caret, and this door keeps what the person chose and puts it there at the boot — the same shape the
+// slice of a turn has, and for the same reason: an app cannot change the cursor of every other page (docs/30, docs/90).
+int32_t cursor_delay() { return static_cast<int32_t>(luabind::caret_blink_ms()); }
+
+int32_t cursor_delay_default() { return static_cast<int32_t>(luabind::caret_blink_default_ms()); }
+
+bool parse_cursor_delay(const char* text, int32_t& delay) {
+  if (text == nullptr || text[0] == '\0') return false;
+  // **Digits and nothing else**: a blink is a count of milliseconds, so a sign, a space, a unit or a `ms` is not one.
+  int32_t value = 0;
+  for (const char* c = text; *c != '\0'; ++c) {
+    if (*c < '0' || *c > '9') return false;
+    value = value * 10 + static_cast<int32_t>(*c - '0');
+    if (value > static_cast<int32_t>(luabind::caret_blink_max_ms())) return false;
+  }
+  if (value < static_cast<int32_t>(luabind::caret_blink_min_ms()) ||
+      value > static_cast<int32_t>(luabind::caret_blink_max_ms())) {
+    return false;
+  }
+  delay = value;
+  return true;
+}
+
+bool set_cursor_delay(int32_t delay) {
+  if (!luabind::set_caret_blink_ms(delay)) return false;
+  return remember_cursor();
 }
 
 const char* preference() { return g_preference; }

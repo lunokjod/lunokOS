@@ -67,6 +67,8 @@ bool lua_info(const char* id, luabind::AppInfo& out, char* why, size_t why_cap) 
   }
   snprintf(out.id, sizeof(out.id), "%s", entry.id);
   snprintf(out.title, sizeof(out.title), "%s", entry.title);
+  // **I la versió, que és el que diu si una cel·la guardada és d'aquesta app o de l'anterior** (0.189.22, docs/30).
+  snprintf(out.version, sizeof(out.version), "%s", entry.version);
   // **The picture is a path the disk answers** —`/apps/<id>/res/icon.png`— and not the name the manifest writes: a
   // launcher hands it to `canvas:image` and the system is the one that knows where the app is (docs/30, docs/40).
   if (entry.icon[0] != '\0') {

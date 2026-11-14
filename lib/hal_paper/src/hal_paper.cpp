@@ -105,8 +105,13 @@ void hold_power() {
 // hands says the three keys are on the right of the portrait page, not on the left, and that is what
 // `Face::kRight` says. It used to say `kLeft`, which put the emulator's buttons on the wrong side of the
 // page (docs/50, docs/85).
+// **La tecla del dial que també és el botó d'encesa** (0.189.24): the centre key closes GPIO38 to ground, and that is the one
+// a person presses to start the board and the one this file arms as the wake of a deep sleep that the cable is holding up
+// (docs/50).
+const int kPowerKeyPin = 38;
+
 const KeySpot kKeys[] = {
-    {38, Face::kRight, Spot::kCentre, KeyKind::kCompound, 0},  // centre (PWR)
+    {kPowerKeyPin, Face::kRight, Spot::kCentre, KeyKind::kCompound, 0},  // centre (PWR)
     {37, Face::kRight, Spot::kUp, KeyKind::kCompound, 0},
     {39, Face::kRight, Spot::kDown, KeyKind::kCompound, 0},
 };
@@ -149,6 +154,11 @@ const SdPins kSdPins = {4, 14, 12, 13, SPI2_HOST, 10000};
 // hang on these two wires, so a driver of any of them asks for the one bus (docs/50).
 const int kI2cSdaPin = 21;
 const int kI2cSclPin = 22;
+// **La línia per la qual el GT911 diu que té un frame** (0.188.0): GPIO36, la mateixa que el xip mira en sortir del reset per
+// triar la seva adreça —i que en aquesta placa no es pot conduir, perquè és d'entrada: el que sí que es pot és escoltar-la—.
+// És el número que fa servir el codi del fabricant (`M5EPD.cpp`, `TP.begin(21, 22, 36)`) i el que aquesta `hal` li passa al
+// driver perquè no pregunti el registre d'estat a cada torn (docs/50, docs/95).
+const int kTouchIntPin = 36;
 // The BM8563, which is the board's real-time clock: the one with a coin cell behind it.
 const uint8_t kBm8563Address = 0x51;
 
@@ -259,9 +269,38 @@ class PaperPower : public Esp32Power {
   // and the library's own timed `shutdown(seconds)` clears the alarm first as well.
   //
   // This does not return. The `false` is for the compiler and never reaches the glass.
-  bool power_off() override {
+  // **Aquesta placa té el corrent a la mà** (0.189.18): the hold of the supply is the SY7088 and the pins below, so the
+  // shutdown can spend the margin of a card's rest knowing that the current is really going to be cut (docs/50, docs/75).
+  bool can_power_off() const override { return true; }
+  bool can_sleep_with_the_keys() const override { return true; }
+
+  // **El son que deixa la placa encesa i les tecles vives** (0.189.25, l'amo: *«Fes la B … l'afegeixes al panell desplegable
+  // del sistema entre el botó de poweroff i el de reboot»*): the hold of the supply stays **up** —that is what makes a key able
+  // to wake a chip that would otherwise be gone— and what goes down is the panel and the ports, after the glass has been asked
+  // to rest, exactly as the way off does. The clock chip is disarmed: nobody asked this board to come back by itself.
+  //
+  // **La tecla que el desperta és la del dial, GPIO38**, and it is the only one: `esp_sleep_enable_ext1_wakeup` takes several
+  // pins but its two modes are **all low** —which would ask for the three at once— or **any high** —which is what the line is
+  // while nobody presses it, because the board pulls it up—, so a wake on «any of the three, pressed» is not one of its two
+  // (docs/50). `ext0` is a level on one pin of the RTC domain, and GPIO38 is that pin: it is the key the board itself uses to
+  // start, so pressing it is what a person does to a board that is asleep.
+  bool sleep_with_the_keys() override {
     if (Bm8563* chip = paper_chip()) chip->disarm();
-    // The maker waits 600 ms before the supplies go, so that whatever was still on its way out has
+    // Nothing is left in flight when the chip stops its clocks: the line out, and the maker's own wait before the supplies go.
+    fflush(stdout);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    if (glass_ != nullptr) glass_->rest();
+    turn_supply_off(kPanelPowerPin);
+    turn_supply_off(kExtPowerPin);
+    // **El corrent no es toca**: kMainPowerPin stays high, and that is the difference between this sleep and being off.
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(kPowerKeyPin), 0);
+    esp_deep_sleep_start();  // does not return: the chip restarts when the key is pressed
+    return false;
+  }
+
+  bool power_off() override {
+    if (Bm8563* chip = paper_chip()) chip->disarm();    // The maker waits 600 ms before the supplies go, so that whatever was still on its way out has
     // finished. This board has no panel painting to wait for, and the number is still theirs.
     fflush(stdout);
     vTaskDelay(pdMS_TO_TICKS(600));
@@ -273,9 +312,14 @@ class PaperPower : public Esp32Power {
     turn_supply_off(kPanelPowerPin);
     turn_supply_off(kExtPowerPin);
     gpio_set_level(static_cast<gpio_num_t>(kMainPowerPin), 0);
-    // Nothing brings the board back but the button, or the cable being plugged again: a timer wake
-    // armed by an earlier sleep would be a board that turns itself on.
+    // **I el que queda és el son, amb la tecla PWR per tornar** (0.189.24, l'amo: *«…deixant els botons físics actius per
+    // despertar l'esp32»*): with the cable in the board **cannot switch itself off** —the maker says so and the hold going low
+    // is not enough— so the deep sleep below is what stops it, and a sleep with every wake source disabled is a board only a
+    // reset brings back. GPIO38 is a pin of the RTC domain, which is what `ext0` asks for, and the key closes it to ground, so
+    // a person who presses PWR for the second the board has always asked for gets it back. On the battery the power is gone
+    // before this line and the arming means nothing (docs/50).
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(kPowerKeyPin), 0);
     esp_deep_sleep_start();  // does not return
     return false;
   }
@@ -294,6 +338,13 @@ class PaperPlatform : public IPlatform {
   const char* id() const override { return board::id(); }
   const char* family() const override { return board::family(); }
   bool emulator() const override { return board::emulator(); }
+
+  // **El corrent d'aquesta placa s'aguanta el primer, i no quan algú pregunta què sap fer** (0.189.24): the SY7088 keeps the
+  // board alive while the pin is high and gives up about a second after the key is pressed. This used to happen inside
+  // `caps()`, which the boot asks for **after** the splash —a `gc16` of the whole panel—, so on the battery the board switched
+  // itself off half way through its own boot and only a cable could start it; the maker's own `M5EPD::begin()` enables the
+  // main power as its very first instruction (docs/50, docs/75).
+  void hold_the_power() override { hold_power(); }
 
   // Built on first use and never in the constructor: this object is constructed
   // before setup() runs, and the power hold wants the GPIO driver awake. Mounting
@@ -404,7 +455,7 @@ class PaperPlatform : public IPlatform {
 
   // The glass of this board, on the same two wires as the clock chip, the FRAM and the air sensor
   // (docs/50).
-  ITouch* touch() const override { return esp32_gt911(esp32_i2c(kI2cSdaPin, kI2cSclPin)); }
+ITouch* touch() const override { return esp32_gt911(esp32_i2c(kI2cSdaPin, kI2cSclPin), kTouchIntPin); }
 
   // The panel and its controller, on the wires the card uses (docs/50). The driver powers it and
   // says what it answered; **nothing paints yet**, because a paint needs something to paint and the

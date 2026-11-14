@@ -118,6 +118,34 @@ bool set_turn_instructions(uint32_t instructions);
 // The real path of one app's settings, for a person to read: "/sd/cfg/<id>".
 bool dir_for_app(char* out, size_t cap, const char* app);
 
+// **Si el llançador ordena les apps pels usos** (0.189.13): the switch is off by default, because the door of the apps has
+// an order of its own —the flash's folder and then the card's— and a launcher that shuffles a person's page without being
+// asked is a page nobody can find anything on. With it on, `home_eink` shows the apps from the most used to the least, and
+// the count is the launcher's own business in a session of its own (docs/30, docs/40).
+//
+// It is a **preference of the system and not a shape of a page**, so it lives here and not in the session `state` of the
+// app: what it says is how a person wants the launcher to behave, and the person asked for it with `cfg sort on`.
+bool sort_by_usage();
+// Saved as the two words a person reads in the store, `on` and `off`, like the calendar and the hour of summer.
+bool set_sort_by_usage(bool on);
+// **The six words a switch takes** (0.189.13): `on`, `true` and `yes` are one and the same, and `off`, `false` and `no`
+// are the other. A person writes the word their head reaches for, and the store still keeps only `on` or `off`.
+bool parse_switch(const char* text, bool& on);
+
+// **El parpalleig del cursor, que és de tots i no d'una pàgina** (0.189.34, l'amo: *«Crea una opcio nova de cfg anomenada
+// "cursor delay" Allarga el parpalleig del cursor a 850milis. Aquest valor es comú a tots els cursors del sistema»*): the
+// milliseconds a block of ink lasts before it turns, which is the box of one line, the box of several, the terminal of the
+// shell and the note of the time clock at once. It is kept as the decimal text a person reads with `nvs` —`850`— and the
+// boot puts it in `luabind`, which is the module that owns the clock of the caret: this door keeps the choice, like the
+// slice of a turn (docs/30, docs/75).
+int32_t cursor_delay();
+int32_t cursor_delay_default();
+// `delay` holds the number of milliseconds when the text is one a blink may be, and false when it is not.
+bool parse_cursor_delay(const char* text, int32_t& delay);
+// Applies it now —the next blink already uses it— and saves it. False when the number is not a blink or when there is
+// nowhere to keep it.
+bool set_cursor_delay(int32_t delay);
+
 }  // namespace cfg
 }  // namespace kernel
 

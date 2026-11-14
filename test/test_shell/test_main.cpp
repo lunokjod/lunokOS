@@ -17,12 +17,16 @@
 #include "hal/hal.h"
 #include "hal/log.h"
 #include "kernel/apps.h"
+#include "kernel/cfg.h"
 #include "kernel/display.h"
 #include "kernel/kernel.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/repository.h"
+#include "kernel/serial.h"
+#include "kernel/session.h"
 #include "kernel/shell.h"
+#include "kernel/usage.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
@@ -40,6 +44,12 @@ namespace {
 int g_console_saved = -1;
 int g_console_sink = -1;
 const char* const kConsolePath = "/tmp/lunok-shell-out.txt";
+
+// **The room this file gives the listing of the sessions** (0.189.36): the system has no ceiling any more —a session is a
+// node of a list and it is made while the memory has room—, so the eight rows here are the array of the test and nothing
+// else. It is bigger than any case of this file holds, which is what makes `entries` answer the count the case expects
+// (docs/30, docs/75).
+const uint32_t kSessionRows = 8;
 
 // The captured console, said again on the console of the test: a failure is the one time it is worth reading.
 void console_replay() {
@@ -387,9 +397,320 @@ void test_unknown_command_fails(void) {
   TEST_ASSERT_FALSE(kernel::execute("no_existeix"));
 }
 
+// **`cfg sort` és el commutador del llançador** (0.189.13, docs/40): a switch takes **six** words —`on`, `true` and `yes` are
+// one and the same and `off`, `false` and `no` are the other—, and the setting is the same one whichever of the three a person
+// writes. A word that is not one of the six is refused and **the setting does not move**: an app reads this number to decide
+// how to draw its grid, so a typo has to leave the page as it was and not half-changed (docs/30).
+void test_cfg_sort_takes_the_six_words_of_a_switch(void) {
+  ensure_booted();
+  TEST_ASSERT_FALSE(kernel::cfg::sort_by_usage());
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort on"));
+  TEST_ASSERT_TRUE(kernel::cfg::sort_by_usage());
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort yes"));
+  TEST_ASSERT_TRUE(kernel::cfg::sort_by_usage());
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort true"));
+  TEST_ASSERT_TRUE(kernel::cfg::sort_by_usage());
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort off"));
+  TEST_ASSERT_FALSE(kernel::cfg::sort_by_usage());
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort no"));
+  TEST_ASSERT_FALSE(kernel::cfg::sort_by_usage());
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort false"));
+  TEST_ASSERT_FALSE(kernel::cfg::sort_by_usage());
+  // **I la paraula que no és cap de les sis no mou res**: says `cfg: sort apps by usage is on or off` and the answer is the
+  // word it had.
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort on"));
+  TEST_ASSERT_FALSE(kernel::execute("cfg sort maybe"));
+  TEST_ASSERT_TRUE(kernel::cfg::sort_by_usage());
+  // **I sense res la diu**, com la resta d'interruptors d'aquest prompt.
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort"));
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort off"));
+  TEST_ASSERT_FALSE(kernel::cfg::sort_by_usage());
+}
+
+// **El parpalleig del cursor és una preferència i no una constant** (0.189.34, l'amo: *«Crea una opcio nova de cfg anomenada
+// "cursor delay" Allarga el parpalleig del cursor a 850milis. Aquest valor es comú a tots els cursors del sistema»*): the
+// option is two words and a number, the number is the one **every** cursor of the system blinks at —it lives in `luabind`,
+// which is the module that owns the clock of the caret— and a number that is not a blink is refused with the two ends of the
+// range and leaves the one in force alone (docs/30, docs/90).
+void test_cfg_cursor_delay_is_one_blink_for_every_cursor(void) {
+  ensure_booted();
+  // **Vuit-cents cinquanta és el que aquest build porta**, i la porta ho diu sense que li demanin cap número.
+  TEST_ASSERT_EQUAL_INT32(850, kernel::cfg::cursor_delay_default());
+  TEST_ASSERT_EQUAL_INT32(850, static_cast<int32_t>(luabind::caret_blink_ms()));
+  TEST_ASSERT_TRUE(kernel::execute("cfg cursor delay"));
+  // **I s'escriu amb dues paraules i un número**, que és el número que el rellotge del cursor fa servir des d'aquell moment.
+  TEST_ASSERT_TRUE(kernel::execute("cfg cursor delay 1200"));
+  TEST_ASSERT_EQUAL_INT32(1200, kernel::cfg::cursor_delay());
+  TEST_ASSERT_EQUAL_INT32(1200, static_cast<int32_t>(luabind::caret_blink_ms()));
+  // **Un número que no és un parpalleig no mou res**: ten milliseconds is a page painted for nobody and a minute is a cursor
+  // that looks dead, and the one in force stays where it was.
+  TEST_ASSERT_FALSE(kernel::execute("cfg cursor delay 10"));
+  TEST_ASSERT_FALSE(kernel::execute("cfg cursor delay 90000"));
+  TEST_ASSERT_FALSE(kernel::execute("cfg cursor delay fast"));
+  TEST_ASSERT_EQUAL_INT32(1200, kernel::cfg::cursor_delay());
+  // **I la segona paraula ha de ser `delay`**: `cfg cursor` tot sol és el que la diu, i `cfg cursor speed 300` no és una
+  // opció d'aquest prompt.
+  TEST_ASSERT_TRUE(kernel::execute("cfg cursor"));
+  TEST_ASSERT_FALSE(kernel::execute("cfg cursor speed 300"));
+  TEST_ASSERT_EQUAL_INT32(1200, kernel::cfg::cursor_delay());
+  // I es torna al que el build porta, perquè la prova de després trobi el sistema com el va deixar.
+  TEST_ASSERT_TRUE(kernel::execute("cfg cursor delay 850"));
+  TEST_ASSERT_EQUAL_INT32(850, kernel::cfg::cursor_delay());
+}
+
+// **El port sèrie cedit: mentres ho és, el prompt no hi escriu res** (0.189.20): `serial claim` gives the wire to the person
+// —or to an app— and the system stops writing to it: no answer, no version, no error; `serial release` gives it back and the
+// answer is read because the line is written **after** the port has come home. The second claim is refused, because two
+// owners of one wire is what this door exists to avoid (docs/30, docs/50).
+void test_the_serial_port_is_ceded_and_the_system_goes_quiet(void) {
+  ensure_booted();
+  static char said[4096];
+
+  // **El port és del sistema de sortida** i ho diu.
+  TEST_ASSERT_FALSE(kernel::serial::claimed());
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("serial"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the system's"), said);
+
+  // **Es cedeix i la confirmació es llegeix** (s'escriu abans de tancar-lo).
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("serial claim"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the port is the prompt's"), said);
+  TEST_ASSERT_TRUE(kernel::serial::claimed());
+  TEST_ASSERT_EQUAL_STRING("the prompt", kernel::serial::owner());
+  // **I el port del sistema ja no hi és**, que és el que fan servir tots els escriptors del nucli.
+  TEST_ASSERT_NULL(kernel::serial::console());
+  TEST_ASSERT_NOT_NULL(pal::system().console());
+
+  // **Mentres és cedit, `version` no diu res.**
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("version"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_EQUAL_STRING("", said);
+  // **I un segon claim es refusa** amb la seva línia, que tampoc no es pot llegir.
+  TEST_ASSERT_FALSE(kernel::execute("serial claim"));
+
+  // **Es torna, i la resposta sí que es llegeix** perquè el port ja és del sistema quan s'escriu.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("serial release"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the system's again"), said);
+  TEST_ASSERT_FALSE(kernel::serial::claimed());
+  TEST_ASSERT_NOT_NULL(kernel::serial::console());
+
+  // **I el prompt torna a parlar.**
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("version"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "lunokOS"), said);
+}
+
 void test_empty_line_is_not_an_error(void) {
   ensure_booted();
   TEST_ASSERT_TRUE(kernel::execute(""));
+}
+
+
+// **El recompte d'usos que llegeix el prompt és el de la pàgina que els compta** (0.189.14, docs/30, docs/40, docs/75): the
+// count is a session named `usage` that the page writes —one `id<TAB>count` an app—, and this reads it from the same door: the
+// order is the most opened first and the name breaks a tie, and an app the count does not name comes after the ones it does.
+void test_the_count_of_the_uses_comes_back_in_the_order_of_the_page(void) {
+  ensure_booted();
+  size_t got = 0;
+  void* block = kernel::session::acquire("page", "usage", 256, got);
+  TEST_ASSERT_NOT_NULL(block);
+  TEST_ASSERT_EQUAL_UINT32(256, static_cast<uint32_t>(got));
+  memset(block, 0, got);
+  const char kUses[] = "beta\t3\nalpha\t7\ngamma\t3\n";
+  memcpy(block, kUses, sizeof(kUses) - 1);
+
+  kernel::usage::Table table;
+  TEST_ASSERT_EQUAL_UINT8(3, kernel::usage::read(table));
+  TEST_ASSERT_EQUAL_STRING("alpha", table.ids[0]);
+  TEST_ASSERT_EQUAL_UINT32(7, table.count[0]);
+  TEST_ASSERT_EQUAL_STRING("beta", table.ids[1]);
+  TEST_ASSERT_EQUAL_UINT32(3, table.count[1]);
+  TEST_ASSERT_EQUAL_STRING("gamma", table.ids[2]);
+  TEST_ASSERT_EQUAL_UINT32(3, table.count[2]);
+  // **Una app que el recompte no nomena són zero vegades** i no un error, que és el que fa que una app nova surti a la
+  // llista igualment (docs/40).
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::usage::count_of(table, "delta"));
+  TEST_ASSERT_EQUAL_UINT32(7, kernel::usage::count_of(table, "alpha"));
+
+  TEST_ASSERT_TRUE(kernel::session::release("page", "usage"));
+}
+
+// **`apps` en l'ordre dels usos** (0.189.14, docs/30, docs/40): with `cfg sort on` the text list shows the apps the person has
+// opened from the most to the least and then the ones nobody has opened yet —a new app has no count and it belongs on the list—,
+// and with the switch off the list is the door's, which is what it always was. The apps are written on the disk of the test and
+// the count in a session, so what is read here is the same pair of numbers the board reads.
+void test_apps_lists_the_apps_in_the_order_of_the_uses(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  const char kManifest[] =
+      "{\"title\":\"Lunok sorted\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}";
+  const char* names[] = {"aaa", "mmm", "zzz"};
+  char path[96];
+  for (uint8_t i = 0; i < 3; ++i) {
+    snprintf(path, sizeof(path), "/apps/%s", names[i]);
+    storage->mkdir(path);
+    snprintf(path, sizeof(path), "/apps/%s/manifest.json", names[i]);
+    TEST_ASSERT_TRUE(write_text(storage, path, kManifest));
+    snprintf(path, sizeof(path), "/apps/%s/app.lua", names[i]);
+    TEST_ASSERT_TRUE(write_text(storage, path, "console.print('hi')"));
+  }
+
+  // `zzz` s'ha obert dos cops, `aaa` un, i `mmm` cap: el recompte no en diu res.
+  size_t got = 0;
+  void* block = kernel::session::acquire("page", "usage", 256, got);
+  TEST_ASSERT_NOT_NULL(block);
+  memset(block, 0, got);
+  const char kUses[] = "zzz\t2\naaa\t1\n";
+  memcpy(block, kUses, sizeof(kUses) - 1);
+
+  static char said[4096];
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort on"));
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("apps"));
+  capture_end(said, sizeof(said));
+  const char* used_most = strstr(said, "zzz");
+  const char* used_once = strstr(said, "aaa");
+  const char* never = strstr(said, "mmm");
+  TEST_ASSERT_NOT_NULL(used_most);
+  TEST_ASSERT_NOT_NULL(used_once);
+  TEST_ASSERT_NOT_NULL(never);
+  TEST_ASSERT_TRUE(used_most < used_once);
+  TEST_ASSERT_TRUE(used_once < never);
+
+  // **I sense l'ajust mana l'ordre de la porta**, que és el nom.
+  TEST_ASSERT_TRUE(kernel::execute("cfg sort off"));
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("apps"));
+  capture_end(said, sizeof(said));
+  used_most = strstr(said, "zzz");
+  used_once = strstr(said, "aaa");
+  never = strstr(said, "mmm");
+  TEST_ASSERT_NOT_NULL(used_most);
+  TEST_ASSERT_NOT_NULL(used_once);
+  TEST_ASSERT_NOT_NULL(never);
+  TEST_ASSERT_TRUE(used_once < never);
+  TEST_ASSERT_TRUE(never < used_most);
+
+  TEST_ASSERT_TRUE(kernel::session::release("page", "usage"));
+  for (uint8_t i = 0; i < 3; ++i) {
+    snprintf(path, sizeof(path), "/apps/%s/app.lua", names[i]);
+    storage->remove(path);
+    snprintf(path, sizeof(path), "/apps/%s/manifest.json", names[i]);
+    storage->remove(path);
+    snprintf(path, sizeof(path), "/apps/%s", names[i]);
+    storage->remove(path);
+  }
+}
+
+// **`sessions destroy` té tres formes i una sola paraula** (0.189.17): el verb és `destroy` i prou —`destroy` tot, `destroy
+// <id>` tot el d'una app, i `destroy <id> <key>` una de sola— perquè dues comandes que fan el mateix són dues comandes que
+// s'han de recordar per separat. La llista de `sessions` ensenya l'id de l'app **i** la clau, i el 14/11 un mot que era a la
+// pantalla va contestar `0 block(s)`: per això la forma d'un sol mot prova primer com a app i, si no hi ha cap app amb aquell
+// nom, com a clau. El que es mesura és la conseqüència: quants blocs queden a la memòria, i que el que no s'havia de tocar hi
+// segueix (docs/30, docs/75).
+void test_sessions_destroy_takes_all_an_app_or_one_session(void) {
+  ensure_booted();
+  const uint32_t before = kernel::session::count();
+  size_t got = 0;
+
+  // Dues sessions d'una app i una d'una altra: `apps` i `usage`, com el llançador.
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("page", "apps", 256, got));
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("page", "usage", 128, got));
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("other", "apps", 64, got));
+  TEST_ASSERT_EQUAL_UINT32(before + 3, kernel::session::count());
+
+  // **`destroy <id>` són totes les sessions d'aquella app** i només d'aquella.
+  TEST_ASSERT_TRUE(kernel::execute("sessions destroy page"));
+  TEST_ASSERT_EQUAL_UINT32(before + 1, kernel::session::count());
+  kernel::session::Entry rows[kSessionRows];
+  TEST_ASSERT_EQUAL_UINT32(before + 1, kernel::session::entries(rows, kSessionRows));
+  TEST_ASSERT_EQUAL_STRING("other", rows[before].app);
+
+  // **`destroy <id> <key>` és la parella exacta** i deixa la veïna de la mateixa app.
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("page", "apps", 256, got));
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("page", "usage", 128, got));
+  TEST_ASSERT_TRUE(kernel::execute("sessions destroy page usage"));
+  TEST_ASSERT_EQUAL_UINT32(before + 2, kernel::session::count());
+
+  // **`destroy <clau>` és el nom que surt a la llista** quan no és cap app: cau la sessió d'aquell nom i no les altres.
+  // Es torna a demanar la `usage` de `page` perquè hi sigui i la caiguda es pugui mesurar.
+  TEST_ASSERT_NOT_NULL(kernel::session::acquire("page", "usage", 128, got));
+  TEST_ASSERT_EQUAL_UINT32(before + 3, kernel::session::count());
+  TEST_ASSERT_TRUE(kernel::execute("sessions destroy usage"));
+  TEST_ASSERT_EQUAL_UINT32(before + 2, kernel::session::count());
+  const uint32_t after_key = kernel::session::entries(rows, kSessionRows);
+  for (uint32_t i = 0; i < after_key; ++i) {
+    TEST_ASSERT_TRUE_MESSAGE(strcmp(rows[i].key, "usage") != 0, "the session named 'usage' is still there");
+  }
+
+  // **`destroy` a seques s'ho carrega tot**, la memòria i el disc.
+  TEST_ASSERT_TRUE(kernel::execute("sessions destroy"));
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::session::entries(rows, kSessionRows));
+
+  // **I un mot que no és res es diu i no peta**, en comptes de contestar zeros a seques; una parella que no hi és tampoc.
+  TEST_ASSERT_TRUE(kernel::execute("sessions destroy nosuchthing"));
+  TEST_ASSERT_TRUE(kernel::execute("sessions destroy page nosuchkey"));
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+
+  // **I un verb que no és `destroy` és la línia d'ús**, no una sessió esborrada per accident.
+  TEST_ASSERT_FALSE(kernel::execute("sessions forget page"));
+  TEST_ASSERT_FALSE(kernel::execute("sessions destroy a b c"));
+}
+
+// **Una app fa tantes sessions com vulgui** (0.189.36, the owner: *«el número... ja haviem parlat que no vull límits
+// artificials. Les apps han de poder fer totes les sesions que vulguin. fins que la ram o el disc rebenti!»*): the limit of
+// eight blocks per board was a table of rows and not a memory, so a gallery that asks for one block per face answered
+// `and the table of 8 is full` with megabytes free. What this case measures is the consequence and not the field: **twenty
+// one sessions at once**, all of them alive, the last one keeping what was written into it, the listing saying twenty-one
+// and the board going back to zero when each app gives its own back (docs/30, docs/75).
+void test_the_sessions_of_a_board_are_as_many_as_the_memory_gives(void) {
+  ensure_booted();
+  const uint32_t kAsks = 21;  // one more than three times the eight rows the old table had
+  size_t got = 0;
+
+  void* blocks[kAsks];
+  for (uint32_t i = 0; i < kAsks; ++i) {
+    char key[kernel::session::kNameBytes];
+    snprintf(key, sizeof(key), "face%02u", static_cast<unsigned>(i));
+    blocks[i] = kernel::session::acquire("gallery", key, 256, got);
+    TEST_ASSERT_NOT_NULL_MESSAGE(blocks[i], "a session of an app is not refused by a table");
+    TEST_ASSERT_EQUAL_UINT32(256, static_cast<uint32_t>(got));
+    snprintf(static_cast<char*>(blocks[i]), 256, "the face %02u", static_cast<unsigned>(i));
+  }
+
+  // **The count of the board is what was asked for**, which is what `mem` and the header of `sessions` print.
+  TEST_ASSERT_EQUAL_UINT32(kAsks, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(kAsks * 256, static_cast<uint32_t>(kernel::session::bytes_held()));
+
+  // **I la vint-i-unena sessió té el que s'hi va escriure**: a block that is there is a block and not a row that says it is.
+  char text[32];
+  TEST_ASSERT_EQUAL_UINT32(12, static_cast<uint32_t>(kernel::session::copy("gallery", "face20", text, sizeof(text))));
+  TEST_ASSERT_EQUAL_STRING_LEN("the face 20", text, 11);
+
+  // **The listing says all of them**: the answer of `each` is the number of rows the board has, and the rows a caller asked
+  // for are the rows a caller gets —the ceiling was never the system's—.
+  TEST_ASSERT_EQUAL_UINT32(kAsks, kernel::session::each(nullptr, nullptr));
+
+  // **I each app gives its own back**: the count goes to zero, which is the memory and not a table that keeps its rows.
+  for (uint32_t i = 0; i < kAsks; ++i) {
+    char key[kernel::session::kNameBytes];
+    snprintf(key, sizeof(key), "face%02u", static_cast<unsigned>(i));
+    TEST_ASSERT_TRUE(kernel::session::release("gallery", key));
+  }
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(kernel::session::bytes_held()));
+  // The card keeps the twenty-one caches of that run, and a person who does not want them says so once.
+  TEST_ASSERT_TRUE(kernel::execute("sessions destroy gallery"));
 }
 
 // **`&` sends an app to the background** (0.160.0, as the owner asked): the line starts the app and **gives the prompt
@@ -1471,6 +1792,12 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_page_does_not_fit_a_home_that_has_it_in_pieces);
   RUN_TEST(test_mounts_command_lists_the_mounts);
   RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
+  RUN_TEST(test_cfg_sort_takes_the_six_words_of_a_switch);
+  RUN_TEST(test_cfg_cursor_delay_is_one_blink_for_every_cursor);
+  RUN_TEST(test_the_count_of_the_uses_comes_back_in_the_order_of_the_page);
+  RUN_TEST(test_apps_lists_the_apps_in_the_order_of_the_uses);
+  RUN_TEST(test_sessions_destroy_takes_all_an_app_or_one_session);
+  RUN_TEST(test_the_sessions_of_a_board_are_as_many_as_the_memory_gives);
   RUN_TEST(test_the_terminal_comes_back_after_more_than_one_init);
   RUN_TEST(test_the_door_of_the_apps_opens_on_a_disk_that_had_none);
   RUN_TEST(test_a_path_with_spaces_goes_in_quotes);
@@ -1486,6 +1813,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_hexdump_with_no_path_says_what_it_wants);
   RUN_TEST(test_a_path_that_is_not_there_says_where_the_rest_is);
   RUN_TEST(test_unknown_command_fails);
+  RUN_TEST(test_the_serial_port_is_ceded_and_the_system_goes_quiet);
   RUN_TEST(test_empty_line_is_not_an_error);
   RUN_TEST(test_the_session_of_the_console_closes_and_opens_again);
   RUN_TEST(test_a_session_of_the_shell_is_a_shell_with_three_pipes);

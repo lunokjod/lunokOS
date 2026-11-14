@@ -1,0 +1,13 @@
+{
+  "name": "rle",
+  "version": "0.1.0",
+  "description": "Run-length of this system: a stream of bytes packed as runs of equal bytes, and unpacked again, with no allocation of its own.",
+  "license": "MIT",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include",
+    "flags": ["-Wall", "-Wextra", "-Werror"]
+  },
+  "frameworks": "*",
+  "platforms": "*"
+}

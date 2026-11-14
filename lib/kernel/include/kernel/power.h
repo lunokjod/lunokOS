@@ -49,6 +49,16 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms);
 // because closing the interpreter from the inside is not a thing (docs/30).
 bool request_sleep(hal::SleepMode mode, int64_t at_epoch_ms);
 
+// **El son que deixa les tecles vives** (0.189.25, l'amo: *«Fes la B … l'afegeixes al panell desplegable del sistema entre el
+// botó de poweroff i el de reboot»*): the board keeps its own supply —it draws current— and sleeps until a key is pressed. The
+// app in front is closed with its goodbye hooks and written down, exactly as a deep sleep does, because **a deep sleep is a
+// reset**: `boot()` brings the app back with its page, only the hour it was waiting for is none (docs/30, docs/50, docs/90).
+// False is a board with no key the chip can watch while it sleeps; a board that can does not come back from here.
+bool deep_sleep_with_the_keys();
+
+// True when this board can do that sleep at all, asked **before** the way down spends its picture and its margin.
+bool can_deep_sleep_with_the_keys();
+
 // Does the pending request, if there is one, and then applies the **idle policy**: on a
 // board whose deep sleep is a real power off (a clock chip keeps the hour while the power
 // is gone) and with an alarm pending, the board goes to sleep by itself until that alarm
@@ -125,6 +135,29 @@ void restore_session();
 // Forgets what a sleep left behind: what a person means by "do not come back
 // here".
 void forget_session();
+
+// **Tot el que pot quedar a mig fer, acabat, i un repòs abans que el corrent es talli** (0.189.18, l'amo: *«Haurà donat
+// temps a gravar-ho tot al SD?? s'ha apagat tot molt ràpid. Fes flush a tots els dispositius que es puguin abans d'iniciar
+// el procés d'apagada. I fes flush, tant de l'sd, com la flash, com l'nvs com el serial. I preferiblement dona un parell de
+// segons de marge abans d'iniciar el procés final d'apagada o reinici»*): the console, every volume the VFS has mounted and
+// the store of the board are asked to write what they may be holding, and then the board **rests** —the margin is the
+// part no call can do for it: the controller of a card copies its own buffer into the flash some milliseconds after the
+// last sector arrived, and cutting the supply in the middle of that is how a card loses a folder— (docs/70, docs/75).
+struct Leaving {
+  bool console = false;    // the serial port drained what it had to send
+  uint8_t volumes = 0;     // the volumes it asked, once each however many doors point at them
+  uint8_t volumes_ok = 0;  // the ones that answered they are written
+  bool store = false;      // the key-value store of the board
+  uint32_t margin_ms = 0;  // the rest it gave the medium before allowing the current to go
+};
+Leaving settle_before_leaving(const char* why);
+
+// The rest, in milliseconds: **two seconds**, which is the number the owner asked for and longer than any card of this
+// board needs to finish writing. It is one settable number because a test that cuts the supply does not have to pay it and
+// because a board that one day wants another number should not need to find it in a corner of this file (docs/75).
+const uint32_t kLeavingMs = 2000;
+uint32_t leaving_ms();
+void set_leaving_ms(uint32_t ms);
 
 }  // namespace power
 }  // namespace kernel

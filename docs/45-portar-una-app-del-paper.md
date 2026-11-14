@@ -162,6 +162,46 @@ De la resta de propietats, el que s'ha de copiar tal com és:
    l'original llegeix un módul de dades amb `files.load`, aquí el que es porta és el **format**: el
    generador escriu dades i l'app les parteix (`about` i el seu `libs.txt`, 0.124.0).
 
+## 5 bis · La vista es recorda: la sessió `state` (0.189.12)
+
+**Tota app amb pàgina porta una sessió que es diu `state`, i és el que fa que la pàgina torni com la va deixar la
+persona**: el control amb el cercle, la pàgina de la llista, la pestanya, les caselles i el que hi ha escrit a les caixes.
+El contracte sencer, amb el format i el codi que es copia, és a **docs/30 § «La sessió `state`»**; aquí només hi ha la
+llista de què s'hi ha de mapejar en portar una app:
+
+| El que té l'original | Què va a `state` |
+|---|---|
+| el control enfocat | `focus=<nom>` — pel nom de l'app, mai pel número del control |
+| la pàgina d'una llista o d'una graella | `page=<n>`, i `marked=<n>` si la tria és part de la vista |
+| la pestanya triada | `tab=<n>` |
+| una casella | `check:<nom>=0|1` |
+| una caixa de text | `text:<nom>=<text>`, i `scroll=<n>` si és de diverses línies |
+| **el tema, la unitat, l'idioma, l'ordre triat per la persona** | **no hi va**: és preferència, i viu a `/cfg` o a `fs.data` |
+| **el document obert, la partida, les notes** | **no hi va**: és dada de l'app, i té el seu fitxer |
+
+I queda dit com a norma: **cada cop que es toca el codi d'una app es repassa aquesta sessió** —que desi on toca, que
+llegeixi amb el valor acotat, i que `kLayout` pugi si algun control ha canviat de nom.
+
+**Què queda pendent, dit aquí perquè no es torni a perdre** (comprovat el 0.189.13): cap app no té encara la sessió
+`state` escrita —0.189.12 la va deixar com a contracte i el llançador només fa servir `sys.session` per a la caché de les
+icones (`'apps'`) i per al recompte d'usos (`'usage'`), cap de les dues `state`—. La primera que la necessita és el
+llançador, perquè **és la pàgina que torna cada cop que una app s'acaba**, i el que hi ha de recordar és la cel·la amb el
+cercle (per l'**id de l'app**, que és el nom del control). Fer-ho demana un `on_focus` per cel·la que desi l'id, i això
+toca el disseny del focus que va fixar la 0.179.4 —«la pàgina segueix el dial i el grid escriu el cursor ell mateix», que
+és el que va treure el paginador de l'app—, o sigui que es fa amb l'emulador a la mà i no a cegues.
+
+**La primera que l'ha estrenada és la galeria de tipus de lletra** (0.189.27): `fonts` desa `page` (la pàgina del
+prestatge), `focus` (la fila amb el cercle, **pel nom del fitxer**) i `marked` (la fila **amb el seu exemplar obert**, que
+la llista pinta amb la seva pròpia marca), llegeix el bloc **abans de col·locar res** i acota el que hi troba —una pàgina
+que ja no existeix, un nom que ja no és a la porta—, desa a cada canvi de forma (girar la pàgina, obrir un exemplar,
+tornar-ne) i a `on_pause`, `on_save` i `on_close`, i **obre l'exemplar que la persona tenia al vidre** quan torna. És la
+referència per a la resta, i el que el llançador haurà de fer amb la cel·la del cercle és el mateix dibuix.
+
+**I el terminal del sistema la segueix** (0.189.29): `apps/shell` desa `tabs`, `tab` i un `text:t<n>`/`text:l<n>` per
+pestanya —el títol i **les últimes línies** del terminal—, o sigui que una pàgina que és text hi posa text i no només
+números. **La sessió no hi cap i no s'hi fingeix**: un tub d'una app que s'ha anat és un tub de ningú, així que el segon
+obre obre sessions noves i el que torna és la memòria del que s'hi va llegir (docs/30).
+
 ## 6 · Les proves, i la versió de l'app
 
 - **Cada port porta una prova que arrenca l'app de debò** (`test_apps`, docs/80): es copia l'app del
@@ -171,6 +211,13 @@ De la resta de propietats, el que s'ha de copiar tal com és:
 - **L'app puja la seva pròpia versió** (`version` del manifest) cada cop que canvia, com el sistema
   puja la seva: la calculadora va néixer en 0.1.0 i és a 0.2.0, i `about` va d'0.1.0 a 0.3.0. Una app
   que canvia i es queda amb el mateix número està mentint sobre el que porta.
+- **I cada llibreria la seva** (0.186.0, literal: *«les apps i llibreries també pugen de versió amb els
+  canvis… tot ha de pujar de versió si és modificat»*): el commit que toca
+  `lib/<nom>/` puja el `version` del `library.json`, amb la mateixa paraula X/Y/Z. **No és decoratiu**:
+  `apps/about/res/libs.txt` es genera d'aquests números (`tools/gen_about.py`, i `--check` diu si el
+  fitxer s'ha quedat enrere), o sigui que una llibreria que s'ha mogut sense dir-ho és una pàgina del
+  About que menteix. `tools/check_version.py` refusa el commit que ho fa malament, i la tasca
+  `lunokOS: check versions` ho pregunta abans de fer el commit (docs/40, docs/80).
 - **I la versió del sistema** puja també en el mateix commit (llei 10 del README).
 
 ## 6 bis · El port gran: `timeclock` (0.125.0)
@@ -245,7 +292,7 @@ Portades i viatjant avui, **sis** (`home_eink` va a part, a sota):
 | `Editor` | `editor` | 0.1.0 |
 | `EPUB` | `reader` | 0.1.0 |
 | `Timeclock` | `timeclock` | 0.1.0 |
-| `2048` | `2048` | 0.1.0 |
+| `2048` | `2048` | 0.2.0 |
 
 I a part, **dues que no són ports**:
 
@@ -275,10 +322,42 @@ Les **divuit** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`
   l'eix que ha caminat més mana, que és la mateixa regla que fa que un dit tort no mogui res (docs/30).
 - **La qualitat no es demana, es pinta.** `paperos.damage(x, y, w, h, "gld16")` és aquí un argument del
   dibuix (`ui.rect(..., "gld16")`), o sigui que el disseny del refresc de l'amo —una rajola que canvia
-  viatja sola i a setze grisos, els dígits i el botó en dues tintes, el peu només quan el seu missatge és
-  un altre— s'escriu igual i amb una crida menys.
-- **La seva partida guardada va a `/data/2048/game.txt`** (`fs.data`), amb el mateix format de setze
-  exponents i el marcador en una línia, i la prova la llegeix tancant i tornant a obrir l'app.
+  viatja sola i a setze grisos, els dígits en dues tintes, el peu només quan el seu missatge és un
+  altre— s'escriu igual i amb una crida menys. **I la qualitat es NOMENA** (0.186.0), que és el que fa
+  que cada caixa sigui el seu pintat: un `ui.present()` sense qualitat va pel camí de la pàgina, on quatre
+  caixes són una pàgina i el vidre sencer parpelleja; un present que la nomena pinta caixa per caixa.
+  **Des de la 0.189.5 un moviment refresca tres coses i cada una amb la passada que la seva tinta demana**
+  (docs/30, docs/50):
+  - **la pàgina d'arrencada és `gl16` i UNA passada**: `ui.clear` d'una pàgina que el sistema ja ha donat
+    blanca no afegeix cap caixa (0.168.0), i les setze cel·les, les tres etiquetes i el botó eren **set
+    caixes desunides i set passades** (mesurat: `12,197 516x385`, quatre de `124x123`, `12,8 516x73` i
+    `12,727 504x30`). Ara la vista sencera es marca amb un `ui.rect` del mode de la pàgina i tot el que es
+    dibuixa després hi cau a dins: **una passada de `0,0 540x912 gl16`**;
+  - **la tira (puntuació, màxima i botó) és una caixa i una passada de `gld16`** (450 ms, setze nivells,
+    **cap parpelleig**): el marc de la puntuació s'acaba on comença el botó, o sigui que les tres caixes
+    s'ajunten soles, i el botó es marca a cada moviment perquè el marc d'una premuda no s'hi quedi. `du`
+    —el que hi havia a la 0.189.4— **no serveix aquí**: deixa cinc setzens del que troba i els dígits d'abans
+    es veuen;
+  - **i el tauler és `gl16` en UNA caixa**: és la passada que **neteja**, i una cel·la que es buida ha de
+    quedar paper i no l'ombra de la fitxa que hi havia. El paper del requadre es marca primer i les setze
+    cel·les hi cauen a dins, o sigui que un moviment de dues fitxes paga una forma d'ona de 516 px i no
+    quatre de 123. **I l'aire del mig no viatja**: no hi ha cap caixa que englobi la tira i el tauler —ho era
+    a la 0.189.5 de pas, `540x716` per a dues fitxes i un número—. Mesurat: `paint 12,6 516x65 mode 5 gld16`
+    i `paint 12,206 516x516 mode 3 gl16`.
+- **La seva partida guardada va a `/data/2048/game.txt`** (`fs.data`) i té **quatre línies** des de la
+  0.189.4: els setze exponents, el marcador, **la màxima i el dia que es va fer** (`AAAA-MM-DD` de
+  `time.date`, que és el rellotge de la persona amb el seu fus). Un desat de dues línies —el d'abans—
+  s'obre igual i només perd la màxima. **I el que fa que sigui un desat és que el trobi l'execució de
+  després**: `test_a_save_is_there_for_the_run_after_it` arrenca una app dues vegades sobre el mateix disc
+  —«no save E_NOENT» i després el que hi ha escrit— i comprova que el fitxer és a `data/<id>/` i a cap altre
+  lloc (docs/30, docs/70).
+- **I una pàgina que es fa de nou es torna a preguntar sencera** (0.186.0): `ui.clear` omple la vista de
+  paper, i el sistema ara demana a cada control que hi havia que es dibuixi (és la regla d'un forat a la
+  pàgina). Abans, la vista que canviava d'alçada deixava el botó New i el marcador fora del vidre per
+  sempre, perquè no s'havien mogut: *«el botó new desapareix»* (docs/30, docs/90).
+- **I el botó New no pregunta res** (0.189.4): un toc comença la partida. El «Sure?» demanava dues
+  decisions per a un desig —i dues pintades de la paraula, que és el que el va fer desaparèixer— i el desat
+  de la jugada anterior és el que torna si el toc va ser un error; la màxima, en canvi, no es toca.
 
 La prova `test_every_app_of_the_repository_declares_its_boards` porta **la llista dels ids que hi ha d'haver a
 `apps/`** i comprova que tots s'han auditat: quan en portis una, l'id s'hi afegeix en el mateix commit. Si una app

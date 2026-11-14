@@ -144,6 +144,24 @@ uint8_t views();
 uint8_t view_push();
 uint8_t view_pop();
 void reset_views();
+
+// **La llista d'apps té un número, i puja quan la llista canvia** (0.189.23): `repo install <id>` i `apps remove <id>` són
+// els dos moments en què el conjunt d'apps canvia amb la placa encesa, i qui dibuixa aquesta llista és l'app que `cfg home`
+// nomena. El número és el que deixa que una pàgina sàpiga que la seva vista és d'un conjunt d'abans (docs/30, docs/40).
+uint32_t generation();
+
+// **Un canvi, esperant el torn que el diu**: les dues comandes corren on la coroutine de l'app pot ser a qualsevol lloc, i
+// un ganxo es crida **entre dos torns** i enlloc més —com `on_alarm`, docs/40—, així que el canvi es deixa aquí i el bucle
+// del nucli el lliura. **Només se'n guarda el número i el verb** perquè qui el rep no mira quin: torna a preguntar la llista
+// sencera a la porta, i el que vol saber és que n'hi ha una de nova. L'`id` el diu el registre en el moment del canvi
+// (`the list changed (install squares), generation 3`) i no es guarda: són quaranta bytes de DRAM que la placa no té
+// (docs/30, docs/75).
+//
+// Diu que la llista ha canviat: el número puja i el canvi espera `take_the_change`.
+void note_a_change(const char* what, const char* id);
+
+// El canvi que espera: el número de la llista i si el verb era `install`. `false` quan no n'hi ha cap.
+bool take_the_change(uint32_t& generation, bool& installed);
 }  // namespace apps
 }  // namespace kernel
 

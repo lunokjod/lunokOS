@@ -1,4 +1,5 @@
 #include "kernel/meter.h"
+#include "kernel/serial.h"
 
 #include <stdio.h>
 
@@ -255,7 +256,7 @@ size_t human_us(char* out, size_t cap, uint64_t us) {
 }
 
 void dump() {
-  pal::IConsole* console = pal::system().console();
+  pal::IConsole* console = serial::console();
   if (console == nullptr) return;
   char line[128];
   int used = 0;

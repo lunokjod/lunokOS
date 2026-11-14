@@ -4,6 +4,11 @@
 
 #include "kernel/button.h"
 
+// **La cua viu dins del nucli** (0.189.34): this file names it the short way —`button::reset()`, `button::emit`— and the
+// header puts it in `kernel`, so the name is brought in here once: without it every line of the case was `'button' has not
+// been declared` and the suite of the whole project did not build (docs/80).
+namespace button = kernel::button;
+
 // **The system is in the queue from the first moment** (`reset()`), because the dial, the promise of `button.wait` and
 // `on_button` are one subscriber in cascade: every count in this file is that one plus the ones a case adds (docs/30).
 void setUp(void) { button::reset(); }
