@@ -420,6 +420,7 @@ bool show_plane(const char* path, hal::ISurface* glass, const hal::Stat& info) {
   // system and not part of the file (docs/30).
   draw_version(*glass, (page == 0) ? 15 : 0);
   settle(glass);
+  display::hold_for_a_paint();
   const bool painted = glass->flush(hal::UpdateMode::kGc16);
   if (!painted) {
     note_failure("the panel did not take the picture", glass->last_error());
@@ -530,6 +531,7 @@ bool show(const char* path) {
   // **The wash before is over before this one is asked for** (0.118.2): the panel refuses a paint that arrives while
   // it is moving ink, and the boot's own wash of the whole page is still running when a person types quickly.
   settle(glass);
+  display::hold_for_a_paint();
   const bool painted = glass->flush(hal::UpdateMode::kGc16);
   release(sink.pixels);
   if (!painted) {
@@ -572,6 +574,7 @@ bool hide() {
   // **Paper, washed whole**: the page that comes next is composed over a glass that says nothing, and a
   // picture left under it would come out at its edges (docs/30, docs/50).
   glass->clear(15);
+  display::hold_for_a_paint();
   return glass->flush(hal::UpdateMode::kA2);
 }
 

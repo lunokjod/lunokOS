@@ -60,6 +60,15 @@ bool mode_from_name(const char* name, hal::UpdateMode& out);
 // quality**. What changed is the damage the app left there, so a present that follows one region pays
 // for one region (docs/30).
 bool present(hal::UpdateMode mode);
+
+// **El rellotge de l'experiment** (0.189.74): sending the pixels to the panel is a page of work done at the resting step of
+// the processor —the board measures three hundred and twenty milliseconds of a page— and whether that time is the code or the
+// memory of the chip is a question only one variable answers: the speed. This asks for the top step for a window that covers
+// a paint of this panel and leaves it to the system's own clock to bring it down again (docs/50, docs/95). **És un
+// experiment i no una política**: a step that stays up is a board burning its battery, and the window below is generous on
+// purpose so that no paint is left half way.
+const int32_t kPaintWindowMs = 1500;
+void hold_for_a_paint();
 bool idle();
 // Why the last paint was refused, in the panel's own words (docs/50).
 const char* last_error();

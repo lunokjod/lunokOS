@@ -938,9 +938,16 @@ desenrotllar els dos o quatre píxels d'un byte.
 cable i ~10 d'ajuntar). La pàgina ha de sortir igual: si surt girada, tombada o amb una fila desplaçada, el que falla és la
 banda i es torna a `rows` per confirmar-ho.
 
-**Si el número no es mou ni amb això**, el que queda no és el codi sinó la PSRAM, i el camí és un altre: portar la imatge a
-la RAM interna (no hi cap una pàgina) o **pujar el processador a 240 MHz mentre es pinta** amb `power::hold_cpu()`, que a
-160 MHz deixaria un terç de la feina a taula.
+**I la cinquena tanda (0.189.74) és l'experiment que discrimina** (placa el 15/11): `gathering` va seguir a **318 ms** amb el
+`always_inline` i amb el byte al registre, o sigui que ni la crida per píxel ni el desenrotllament no hi eren el coll —o ja
+no hi eren—. Queden dues explicacions i només una variable les separa: **el codi** o **la memòria** del xip. A 160 MHz (el
+pas de repòs) una pàgina de 518 400 píxels costa 318 ms, que són **noranta-vuit cicles per píxel**: massa per a un grapat
+d'instruccions i massa poc per a una fallada de memòria cau per píxel, i per això el que es fa ara és **pintar amb el
+processador a 240** (`display::hold_for_a_paint()`, una finestra de 1 500 ms que el sistema mateix tanca).
+
+- si `gathering` baixa a l'entorn de **210 ms**, el coll és el **codi** i el que cal és seguir-lo aprimant;
+- si es queda a **318**, el coll és la **PSRAM** i el camí és un altre: una banda més alta (cada línia de memòria cau porta
+  trenta-dos bytes i avui se n'aprofiten quatre) o la imatge a la RAM interna, que no hi cap sencera.
 
 **I el `2bit` pinta de debò però amb els nivells mal posats**: la pàgina no llisca i el rectangle és el correcte, però el
 vidre surt **notablement més fosc** (l'amo: *«la pantalla s'ha enfosquit notablement, no és negre, simplement més fosca»*).
