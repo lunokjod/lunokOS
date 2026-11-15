@@ -696,6 +696,20 @@ punt on va caure (`ui_touch_progress`), o **un gest** (`ui_gesture`) amb el punt
 decisió queda escrita a `kernel::touch::last_contact()`, que és el que la prova de `test_touch` mesura. El gest no és
 un toc: un contacte que ha caminat no activa mai una fila, un botó ni una targeta (docs/30).
 
+**I el contacte és de la pàgina on va començar, no de la que hi hagi quan s'acaba** (0.189.100, l'amo: *«en tornar al
+Home se m'han obert apps totes soles … és simplement que un event de la vista anterior arriba a la vista nova (actual)?»*).
+La premuda d'un control es lliura en aixecar el dit i **amb el punt on va caure**, o sigui que un dit que era al vidre
+quan l'app va canviar clicava el control de la pàgina nova que hi hagués sota aquell píxel —a un llançador, una cel·la, i
+una cel·la obre una app—; i la cua de gestos i la finestra dels tocs sobrevivien al canvi, així que el toc de la pàgina
+anterior (que es diu 350 ms després de llevar el dit) arribava a una app que no hi era quan va passar. `shell` ho diu a
+`kernel::touch::forget_the_page_before()` quan una app se'n va i quan n'arriba una altra: la cua i els tocs es buiden, el
+parell de dits s'oblida i **el contacte que hi ha al vidre es marca com a de ningú (`kNobodys`)** —`poll()` no en diu res
+a la pàgina ni a la cua fins que el vidre diu que el dit ja no hi és— (docs/30). I la pàgina nova **no hereta el que el xip
+encara té a dins**: el GT911 escombra sol i guarda el marc de l'últim escombrat que va trobar algú fins que una lectura
+se l'emporta, i el nucli no gira mentre una app es llegeix i es compila, o sigui que un toc sobre un vidre buit es lliura
+després del canvi (`g_page_wants_an_empty_glass`) i clicava la cel·la del llançador de sota el dit. La pàgina nova ha de
+veure el vidre buit abans que cap contacte sigui seu.
+
 **I el que una app no pot fer: menjar-se els torns** (0.189.65, l'amo: *«no es possible, ja que bloqueja les lectures del
 tàctil i no "pilla" els gestos per falta de mostres»*). El tàctil es pregunta **un cop per torn** —`touch::poll` és al
 `kernel::turn`—, o sigui que **el ritme del torn és el sostre de la resolució d'un gest**: una app que pinta un frame de

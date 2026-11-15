@@ -104,6 +104,13 @@ bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out);
 // nobody's —an app that reacted under a panel would be acting on a page the person cannot see— (docs/30).
 void forget_gestures();
 
+// **I el que és de la pàgina que se'n va no és de la que arriba** (0.189.100): an app that is not on the glass any more
+// leaves two things behind that would be read as if they were the new page's —the finger that is down (its click is
+// delivered at the point it landed, which on the new page is whatever control is under that pixel) and the gestures the
+// queue still owes (a tap is said three hundred and fifty milliseconds after the finger leaves)—. This is asked by the
+// shell when an app goes and when one comes, and the finger that is on the glass is nobody's until it lifts (docs/30).
+void forget_the_page_before();
+
 }  // namespace touch
 }  // namespace kernel
 

@@ -1780,6 +1780,13 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   // ones that come after, and an app that asks for another one from its own first lines —`app.run` in the start of a
   // launcher is exactly that— must not be answered "no app is in front" by a system that is running it.
   g_app_alive = true;
+  // **I el tàctil de la pàgina que hi havia no és d'aquesta** (0.189.100, l'amo: *«en tornar al Home se m'han obert apps totes
+  // soles … és simplement que un event de la vista anterior arriba a la vista nova?»*): the finger that was down when the app
+  // changed clicked the control of the new page under the pixel it landed on —a cell of the launcher, which starts an app—,
+  // and the tap that the queue still owed (a tap is said three hundred and fifty milliseconds after the finger leaves) was
+  // read by an app that did not exist when it happened. An app hears only the contacts that begin after it is here
+  // (docs/30, docs/50).
+  touch::forget_the_page_before();
   // **And it starts on its only page** (0.163.0): the views of the app before it go with the app before it, or the
   // first pinch of a page would take away a view nobody pushed (docs/30).
   apps::reset_views();
@@ -3995,6 +4002,10 @@ void close_app() {
                static_cast<unsigned>(flushed.written), static_cast<unsigned>(flushed.unchanged));
   }
   g_app_alive = false;
+  // **I el dit que hi havia al vidre, o el toc que la cua encara devia, no és de la pàgina que ve** (0.189.100): the same
+  // rule as a start, said at the other end —the page that is gone leaves nothing of its own behind for the one that comes,
+  // not a finger and not a tap (docs/30, docs/50).
+  touch::forget_the_page_before();
   // **The views go with the app that had them** (0.163.0): a count that outlived its app would make the next one
   // open with pages on top of its first one, which are pages nobody pushed (docs/30).
   apps::reset_views();
@@ -4056,6 +4067,9 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   }
   meter::note_app_start(boot.app_id);
   ui::attach();  // a fresh view for the app that is coming back (docs/30)
+  // **I la finestra no hereta el tàctil de la pàgina de sota** (0.189.100): the same rule as a start —a finger that is down
+  // and the tap the queue still owed are the page's that is being covered, not this one's (docs/30, docs/50).
+  touch::forget_the_page_before();
   bar::title(boot.app_title);
   // **And the name before the window costs anything**, the same rule as a start (0.179.27): the title of an alarm
   // window is on the strip while the text of it is being compiled, and not after its page (docs/30, docs/60).

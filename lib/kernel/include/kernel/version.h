@@ -9311,7 +9311,23 @@ namespace kernel {
 // targeta del sistema: s'obre amb un gest **des de la franja**, i sense franja no hi ha la creu que tanca l'app del davant.
 // `apps/device_lock` és l'app que el porta. **El pany marxa amb l'app** —el final, les tres premudes de la tecla, un error—
 // perquè una placa que es quedés sense barra i sense pàgina no la pot fer servir ningú (docs/30, docs/40, docs/50).
-static const char kVersion[] = "0.189.99";
+// 0.189.100 — **una app només sent els contactes que comencen quan ja hi és** (l'amo: *«en tornar al Home se m'han obert apps
+// totes soles … em dona la sensació que no gestionem bé els events tàctils … és simplement que un event de la vista anterior
+// arriba a la vista nova (actual)?»* — i ho era, per tres camins). **El primer**: el clic d'un control es lliura en aixecar el
+// dit i **al punt on va caure**, i es lliurava a la pàgina que hi hagués en aquell moment, o sigui que un dit que era al vidre
+// quan l'app va canviar clicava el control de la pàgina nova que hi hagués sota aquell píxel —a un llançador, la cel·la que hi
+// hagués allà, i una cel·la obre una app: **una app que s'obre tota sola**—. **El segon**: la cua de gestos sobrevivia al
+// canvi d'app, i com que un toc es diu **tres-cents cinquanta mil·lisegons després** de llevar el dit, el toc de la pàgina
+// anterior arribava a una app que no existia quan va passar; el segon toc d'un `double` que comptava la pàgina anterior no era
+// el primer d'un `double` d'aquesta. `touch::forget_the_page_before()` ho esborra a l'entrada i a la sortida de cada app —la
+// cua, la finestra dels tocs, el parell de dits— i **el dit que hi ha al vidre passa a ser de ningú fins que s'aixequi**: no
+// és una premuda, no és un `tap`, no posa res a la cua, i el contacte següent torna a decidir el seu amo com sempre. **I el
+// tercer camí és el que passa quan la pàgina triga a arribar**: el GT911 escombra sol i guarda el marc de l'últim escombrat
+// que va trobar algú fins que una lectura se l'emporta, i el nucli no gira mentre una app es llegeix i es compila, o sigui que
+// un toc fet sobre un vidre buit es lliura **després** que la pàgina hi sigui i clicava la cel·la del llançador de sota el dit;
+// ara la pàgina nova **ha de veure el vidre buit abans que cap contacte sigui seu** (`g_page_wants_an_empty_glass`) (docs/30,
+// docs/50).
+static const char kVersion[] = "0.189.100";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

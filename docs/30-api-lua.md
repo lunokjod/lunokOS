@@ -3653,6 +3653,26 @@ vidre i es poden provar al PC (docs/85).
   contacte que ha caminat **no és mai una premuda**: `kernel::touch::last_contact()` diu què se n'ha
   dit a la pàgina (`kNothing`, `kAPress` o `kAGesture`), amb el punt, el viatge, els fotogrames i el
   temps.
+- **I una app només sent els contactes que comencen quan ja hi és** (0.189.100, l'amo: *«en tornar al
+  Home se m'han obert apps totes soles … em dona la sensació que no gestionem bé els events tàctils …
+  és simplement que un event de la vista anterior arriba a la vista nova (actual)?»* — i ho era, per
+  tres camins). **El primer**: el clic d'un control es lliura en aixecar el dit i **al punt on va
+  caure**, i es lliurava a la pàgina que hi hagués en aquell moment —un dit que era al vidre quan
+  l'app va canviar clicava el control de la pàgina nova que hi hagués sota aquell píxel, i a un
+  llançador això és **la cel·la que hi hagués allà, i una cel·la obre una app**: una app que s'obre
+  tota sola—. **El segon**: la cua de gestos sobrevivia al canvi d'app, i com que un toc es diu
+  **tres-cents cinquanta mil·lisegons després** de llevar el dit, el toc de la pàgina anterior
+  arribava a una app que no existia quan va passar (i el segon toc d'un `double` que comptava la
+  pàgina anterior no era el primer d'un `double` d'aquesta). El nucli ho esborra quan una app se'n va
+  i quan n'arriba una altra (`kernel::touch::forget_the_page_before`): la cua, la finestra dels tocs
+  i el parell de dits, i **el dit que hi ha al vidre passa a ser de ningú fins que s'aixequi** —no és
+  una premuda, no és un `tap` i no posa res a la cua—. **I hi ha un tercer camí, que és el que passa
+  quan la pàgina triga a arribar**: el xip escombra sol i **guarda el marc de l'últim escombrat que
+  va trobar algú fins que una lectura se l'emporta**, i el nucli no gira mentre una app es llegeix i
+  es compila, o sigui que un toc fet sobre un vidre buit es lliura **després** que la pàgina hi sigui
+  i clicava la cel·la del llançador que hi hagués sota el dit. Per això la pàgina nova **ha de veure
+  el vidre buit abans que res sigui seu**: el primer contacte que es llegeixi després del canvi no és
+  d'ella, i el primer que comenci amb el vidre ja buit sí.
 - **Cada gest surt al registre, amb el lloc i amb quants dits** (0.179.28): una línia `[I][TOUCH]` per
   gest, del tipus `[I][TOUCH] tap 200,400 dx 0 dy 0 spread 0, 1 finger(s), 380 ms`, i el mateix per a
   `drag`, `long`, `two`, `pinch`, `double` i `triple` (`2 finger(s)` quan el gest és de dos). Un gest

@@ -615,6 +615,151 @@ static void test_three_taps_take_the_app_out_of_the_whole_glass() {
   }
 }
 
+// **Un dit que el vidre ha lliurat i un que ja no hi és** (docs/50): the frame of a finger is not there until the chip has
+// scanned, so a case that says «the finger is on the glass» waits for the turn that reads it instead of counting turns.
+void wait_for_the_finger() {
+  hal::TouchPoint live[kernel::touch::kMaxPoints];
+  for (int i = 0; i < 20; ++i) {
+    hand_turn(20);
+    if (kernel::touch::points(live, kernel::touch::kMaxPoints) > 0) return;
+  }
+  TEST_FAIL_MESSAGE("the glass never handed the finger over");
+}
+
+void wait_for_the_lift() {
+  hal::TouchPoint live[kernel::touch::kMaxPoints];
+  for (int i = 0; i < 20; ++i) {
+    hand_turn(20);
+    if (kernel::touch::points(live, kernel::touch::kMaxPoints) == 0) return;
+  }
+  TEST_FAIL_MESSAGE("the glass never said the finger was gone");
+}
+
+// **El dit que hi havia al vidre quan la pàgina va canviar no és de la que ve** (0.189.100, l'amo: *«en tornar al Home se
+// m'han obert apps totes soles … és simplement que un event de la vista anterior arriba a la vista nova?»* — i ho era): the
+// click of a control is delivered when the finger leaves and **at the point it landed**, so a finger that was on the glass
+// when the app changed clicked the control of the new page under that pixel —in a launcher, the cell under it, which starts
+// an app nobody asked for—.
+static void test_a_finger_of_the_page_before_does_not_click_the_next_one() {
+  boot_with_a_touch_panel();
+  emu::Options opts = emu::options();
+  opts.touch_scan_ms = 50;  // twenty hertz, the glass of the Paper
+  emu::set_options(opts);
+  chip().reset();
+
+  // The finger lands on the page, and the app changes under it: the shell says so, when one goes and when one comes.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 400, 400));
+  wait_for_the_finger();
+  kernel::touch::forget_the_page_before();
+  // The lift arrives with the new page on the glass, and it is the moment the press of the landing point used to be told.
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  wait_for_the_lift();
+  wait_ms(200);
+  hand_turn(0);
+  const kernel::touch::LastContact lift = kernel::touch::last_contact();
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(kernel::touch::Told::kNothing), static_cast<uint8_t>(lift.told));
+  // **I són els números d'aquest contacte i no els del de la pàgina de abans**: the point it landed on, which is what the
+  // report says even when it was delivered to nobody (docs/30).
+  TEST_ASSERT_EQUAL_UINT16(400, lift.x);
+  TEST_ASSERT_EQUAL_UINT16(352, lift.y);
+  // **I la cua tampoc no en diu res**: the tap that waits its window was counted by the page before and goes with it.
+  wait_ms(400);
+  hand_turn(0);
+  char heard[32];
+  the_app_hears(heard, sizeof(heard));
+  TEST_ASSERT_EQUAL_STRING("", heard);
+
+  // **I el contacte següent torna a ser d'algú**: a finger that lands on the new page is its own, so the case cannot pass by
+  // the glass having been shut for ever (docs/30).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 300, 300));
+  wait_for_the_finger();
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  wait_for_the_lift();
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(kernel::touch::Told::kAPress),
+                          static_cast<uint8_t>(kernel::touch::last_contact().told));
+  TEST_ASSERT_EQUAL_UINT16(300, kernel::touch::last_contact().x);
+
+  opts = emu::options();
+  opts.touch_scan_ms = 0;
+  emu::set_options(opts);
+}
+
+// **I el toc que va caure sobre un vidre buit, tampoc** (0.189.100): the chip keeps the frame of the last scan that found
+// somebody until a read takes it, and the kernel does not turn while an app is read and compiled, so a tap of the empty
+// glass —impatience, or the hand that was already there— is handed over **after** the new page is on it, and it used to
+// click the cell of the launcher under the finger: an app that opens by itself.
+static void test_a_tap_of_the_empty_glass_is_not_the_new_pages() {
+  boot_with_a_touch_panel();
+  emu::Options opts = emu::options();
+  opts.touch_scan_ms = 50;
+  emu::set_options(opts);
+  chip().reset();
+
+  // A tap with nobody to hear it: the chip keeps it, and the page changes before it is read.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 400, 400));
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  kernel::touch::forget_the_page_before();
+  wait_for_the_lift();
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(kernel::touch::Told::kNothing),
+                          static_cast<uint8_t>(kernel::touch::last_contact().told));
+  wait_ms(400);
+  hand_turn(0);
+  char heard[32];
+  the_app_hears(heard, sizeof(heard));
+  TEST_ASSERT_EQUAL_STRING("", heard);
+
+  // **I el primer toc que cau amb la pàgina a la pantalla sí que és seu**: an empty frame is what says the contact after it
+  // began under this page (docs/30).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 420, 420));
+  wait_for_the_finger();
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  wait_for_the_lift();
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(kernel::touch::Told::kAPress),
+                          static_cast<uint8_t>(kernel::touch::last_contact().told));
+  TEST_ASSERT_EQUAL_UINT16(420, kernel::touch::last_contact().x);
+
+  opts = emu::options();
+  opts.touch_scan_ms = 0;
+  emu::set_options(opts);
+}
+
+// **I el toc que la cua encara devia, tampoc** (0.189.100): a tap is said **three hundred and fifty milliseconds after** the
+// finger leaves —the window that tells a tap from a double—, so the tap of the page before arrived at the app that came in
+// its place: a page that had not seen a finger of its own heard one.
+static void test_the_tap_the_queue_owed_is_not_the_next_pages() {
+  boot_with_a_touch_panel();
+  emu::Options opts = emu::options();
+  opts.touch_scan_ms = 50;
+  emu::set_options(opts);
+  chip().reset();
+
+  // A tap of the page, and the app changes inside the window of a double.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 400, 400));
+  wait_for_the_finger();
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  wait_for_the_lift();
+  kernel::touch::forget_the_page_before();
+  wait_ms(400);
+  hand_turn(0);
+  char heard[32];
+  the_app_hears(heard, sizeof(heard));
+  TEST_ASSERT_EQUAL_STRING("", heard);
+
+  // **I un toc de la pàgina nova sí que hi és**: without this half the case would pass with the queue shut for ever.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 420, 420));
+  wait_for_the_finger();
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  wait_for_the_lift();
+  wait_ms(400);
+  hand_turn(0);
+  the_app_hears(heard, sizeof(heard));
+  TEST_ASSERT_EQUAL_STRING("tap", heard);
+
+  opts = emu::options();
+  opts.touch_scan_ms = 0;
+  emu::set_options(opts);
+}
+
 // **One switch for every wait of this emulator**: with the times on, a read of the panel sleeps the bus it
 // uses; with them off —`--no-delay`, and every test— the same read is the model and asks the clock for
 // nothing (docs/85).
@@ -830,6 +975,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_slow_still_press_is_a_tap_and_a_long_is_not);
   RUN_TEST(test_a_gesture_between_two_taps_is_not_a_double);
   RUN_TEST(test_three_taps_take_the_app_out_of_the_whole_glass);
+  RUN_TEST(test_a_finger_of_the_page_before_does_not_click_the_next_one);
+  RUN_TEST(test_a_tap_of_the_empty_glass_is_not_the_new_pages);
+  RUN_TEST(test_the_tap_the_queue_owed_is_not_the_next_pages);
   RUN_TEST(test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system);
   RUN_TEST(test_a_drag_that_begins_on_the_page_is_the_pages);
   RUN_TEST(test_a_tap_on_the_card_leaves_it_and_a_tap_below_takes_it_away);

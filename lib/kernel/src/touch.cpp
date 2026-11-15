@@ -46,8 +46,18 @@ bool g_down = false;
 // not asked again. The three that exist are the page (its controls), the band of the keyboard, and the system —the strip of
 // the bar and a card over the page, which deliver to nobody here because the panel and the bar read the queue—. It is what
 // makes a swipe that ends on a button nobody's: the owner was decided where the finger began (docs/30, docs/90).
-enum : uint8_t { kNoContact = 0, kThePage = 1, kTheKeyboard = 2, kTheSystem = 3 };
+// **I un quart que no és ningú** (0.189.100): the contact that was on the glass when the page went away. What it would have
+// said —a press and a release at the point it landed, or a gesture— belongs to a page that is not here any more, and the
+// page that is here now has not seen a finger at all (docs/30, docs/50).
+enum : uint8_t { kNoContact = 0, kThePage = 1, kTheKeyboard = 2, kTheSystem = 3, kNobodys = 4 };
 uint8_t g_contact = kNoContact;
+// **I la pàgina nova encara no ha vist el vidre buit** (0.189.100): the chip scans by itself and **keeps the frame of the last
+// scan that found somebody until a read takes it**, and the kernel is not turning while an app is read and compiled. A tap a
+// person made over an empty glass —impatience, or the hand that was already there— is therefore handed over **after** the new
+// page is on it, and the whole press and release of it is a click on the cell of the launcher that happens to be under the
+// finger: an app that opens by itself. Until the glass has been seen with nobody on it, no contact read is this page's
+// (docs/30, docs/50).
+bool g_page_wants_an_empty_glass = false;
 int32_t g_down_ms = 0;
 uint16_t g_start_x = 0;
 uint16_t g_start_y = 0;
@@ -394,6 +404,17 @@ void poll() {
   // point of the finger, so a drag that began on the page and crossed the band used to type the key it happened to pass
   // over —the band taking a contact that was never its own—. With one owner the band is asked **once**, with the point
   // the finger landed on (docs/90).
+  // **I si aquest contacte ve d'una pàgina que ja no hi és, no és de ningú** (0.189.100): the finger that was on the glass
+  // when the app changed is remembered as nobody's (`forget_the_page_before`) and it says nothing at all until the glass
+  // says it is gone: no tap, no drag, no pair, and nothing in the queue of the app that came in its place.
+  // **I la primera cosa que es llegeixi del vidre després canviar la pàgina no és d'aquesta** (0.189.100): an empty frame is
+  // what says that the contact that comes after it began under this page; anything already on the glass —or already gone from
+  // it— is what the page before left behind.
+  if (g_page_wants_an_empty_glass) {
+    if (g_count > 0) g_contact = kNobodys;
+    g_page_wants_an_empty_glass = false;
+  }
+  const bool nobody_s_contact = (g_contact == kNobodys);
   if (g_count == 0) {
     // **El contacte s'ha acabat**: the owner hears the lift, and the next contact decides its own.
     if (g_contact != kNoContact) {
@@ -406,7 +427,20 @@ void poll() {
                  static_cast<int>(now_ms() - g_contact_ms));
     }
     if (g_contact == kTheKeyboard) ui::keyboard_touch(0, 0, false);
-    if (g_contact == kThePage) {
+    // **El contacte d'una pàgina que ja no hi és es diu i no es lliura a ningú** (0.189.100): the numbers are the contact's,
+    // so the log and the tests can see it, and `told` stays `kNothing` because the page that is here now has not heard a
+    // finger of its own (docs/30, docs/50).
+    if (nobody_s_contact) {
+      g_last_contact = LastContact();
+      g_last_contact.x = g_start_x;
+      g_last_contact.y = g_start_y;
+      g_last_contact.frames = static_cast<uint8_t>((g_contact_frames > 255) ? 255 : g_contact_frames);
+      g_last_contact.ms = static_cast<uint16_t>((now_ms() - g_contact_ms > 65535) ? 65535 : (now_ms() - g_contact_ms));
+    }
+    // **I la pàgina que hi ha ara no rep el contacte d'una que ja no hi és** (0.189.100): the press of this point is the
+    // click on the control of the page before, and delivered here it clicked the control of the new page that happened to
+    // be under the same pixel —the launcher opening an app nobody asked for— (docs/30, docs/50).
+    if (g_contact == kThePage && !nobody_s_contact) {
       // **I el contacte es decideix aquí i només aquí** (0.189.0, l'amo: *«fes un mètode per retardar els events que s'envien
       // als UIControl. Si es decideix que és un gest no s'envien mai els events i s'envia el gest»*). The page has heard
       // **nothing** of this contact —no frame went to it— and it hears one thing now:
@@ -485,6 +519,9 @@ void poll() {
   }
   // `kTheSystem` goes to nobody here: the panel and the bar read the gestures of the queue and the page hears neither the
   // press nor the click (docs/30, docs/50).
+  // **I el contacte d'una pàgina que ja no hi és tampoc** (0.189.100): the finger is not a tap, not a drag and not a pair
+  // for the page that is here now, and the taps it was counting are not the beginning of a double of this one (docs/30).
+  if (nobody_s_contact) return;
 
   // A tap waiting for its window: when the window closes it is a tap, and if another one arrived inside
   // it, it is a double (docs/30).
@@ -652,6 +689,40 @@ bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out) {
 }
 
 void forget_gestures() { g_queue_count = 0; }
+
+// **I tot el que la pàgina de abans no havia acabat de dir, quan n'arriba una de nova** (0.189.100, l'amo: *«en tornar al Home
+// se m'han obert apps totes soles … és simplement que un event de la vista anterior arriba a la vista nova?»* — i ho és, per
+// tres camins, i aquest els tanca tots tres):
+//
+//  - **el dit que hi ha al vidre**: the owner of a contact is decided on the frame it lands and the click of a control is
+//    delivered when the finger leaves, **at the point it landed**. A finger that was on the glass when the app changed
+//    clicked whatever control of the new page was under that pixel, which in a launcher is a cell and a cell starts an app;
+//  - **el que la cua encara no havia dit**: a tap is said three hundred and fifty milliseconds after the finger leaves, so
+//    the tap of the page before arrived to an app that did not exist when it happened —and the second tap of a double that
+//    the page before was counting was not the first of a double of this one— (docs/30, docs/50);
+//  - **el que el xip encara té a dins**: it scans by itself and keeps the frame of the last scan that found somebody until a
+//    read takes it, and nothing is read while an app is loaded and compiled, so a tap over an empty glass is handed over
+//    after the new page is on it —and it clicked the cell of the launcher under the finger—.
+void forget_the_page_before() {
+  g_queue_count = 0;
+  g_taps = 0;
+  g_tap_x = 0;
+  g_tap_y = 0;
+  g_tap_held_ms = 0;
+  g_last_tap_ms = 0;
+  // A pair of fingers that was pinching the page before has nothing to say to this one either.
+  g_pair = false;
+  // **I el dit que hi és és de ningú fins que s'aixequi**: it is not a press of the new page and it is not a tap —no tap, no
+  // drag and nothing in the queue— the moment it lifts (`poll` reads `kNobodys` and returns before all of it).
+  if (g_contact != kNoContact) g_contact = kNobodys;
+  g_down = false;
+  g_moved = false;
+  g_long_said = true;
+  // **I la pàgina nova ha de veure el vidre buit abans que res sigui seu** (0.189.100): everything the chip still has from
+  // before the change —a tap that came and went over an empty glass, a finger that was already resting on it— is read after
+  // the page is here, and none of it is this page's (docs/30, docs/50).
+  g_page_wants_an_empty_glass = true;
+}
 
 bool take_pinch_in(int16_t min_px, Gesture& out) {
   if (min_px <= 0) return false;
