@@ -3621,6 +3621,32 @@ bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t wid
 // of the checkbox is the mark plus this air and the ring lands on its border (docs/30, docs/90).
 const int32_t kCheckboxAir = 2;
 
+// **Una taula de bits del clipart, sobre el canvas, una frangia d'una fila cada cop** (0.189.90): el nucli no dibuixa
+// aquestes marques, les rasteritza `tools/make_toggle_mark.py` a partir del caràcter, i el que fa aquí és posar-la. Un
+// tros de tinta d'una fila és un rectangle d'una fila, que és el que `put_rect` retalla a la fregada i compta per nivells:
+// un píxel a píxel seria mil crides per a una casella i el doble de codi (docs/30, docs/50, docs/90).
+void draw_bits(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, const uint8_t* bits, uint8_t level) {
+  if (bits == nullptr || w <= 0 || h <= 0) return;
+  for (int32_t row = 0; row < h; ++row) {
+    int32_t column = 0;
+    while (column < w) {
+      const int32_t at = row * w + column;
+      if ((bits[at / 8] & (0x80u >> (at % 8))) == 0) {
+        ++column;
+        continue;
+      }
+      int32_t run = column;
+      while (run < w) {
+        const int32_t next = row * w + run;
+        if ((bits[next / 8] & (0x80u >> (next % 8))) == 0) break;
+        ++run;
+      }
+      put_rect(canvas, x + column, y + row, run - column, 1, level);
+      column = run;
+    }
+  }
+}
+
 int16_t checkbox_width(int16_t slot) {
   if (!live(slot)) return 0;
   const int32_t width = g_canvases[slot].width;
@@ -3662,27 +3688,7 @@ bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mar
     // state, and the state is not the finger (docs/30, docs/90).
     const int32_t x = target.x + kCheckboxAir;
     const int32_t y = target.y + (static_cast<int32_t>(height) - h) / 2 + (pressed ? 1 : 0);
-    const uint8_t* bits = checked ? toggle_mark::art::kOnBits : toggle_mark::art::kOffBits;
-    // **Per franges i no per píxels**: an e-ink page pays for what it paints, and a run of ink of a row is one rectangle
-    // of one row, which is what `put_rect` clips to the damage and notes as a level (docs/30, docs/90).
-    for (int32_t row = 0; row < h; ++row) {
-      int32_t column = 0;
-      while (column < w) {
-        const int32_t at = row * w + column;
-        if ((bits[at / 8] & (0x80u >> (at % 8))) == 0) {
-          ++column;
-          continue;
-        }
-        int32_t run = column;
-        while (run < w) {
-          const int32_t next = row * w + run;
-          if ((bits[next / 8] & (0x80u >> (next % 8))) == 0) break;
-          ++run;
-        }
-        put_rect(*target.canvas, x + column, y + row, run - column, 1, border);
-        column = run;
-      }
-    }
+    draw_bits(*target.canvas, x, y, w, h, checked ? toggle_mark::art::kOnBits : toggle_mark::art::kOffBits, border);
     // **The focus is the ring of the system and not an inversion** (0.189.90): a button answers a focus with its face
     // inverted because the inversion says "this is the one that will answer" and a button has no state of its own; a
     // switch does, and one that inverted itself would be a switch nobody can read —the ink band of "on" would be the
@@ -6654,8 +6660,13 @@ bool menu_bar_draw(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint
       // **A setting keeps its box when it is off**: the empty square is what tells a switch from a command, and the
       // tick in its middle is the one level of ink that says "this one is on" (docs/90). **And on an inverted row the
       // box and the tick are paper**, or they would be ink on ink.
-      draw_frame_thick(*target.canvas, box_x, box_y, kMenuBarBox, kMenuBarBox, 2, box_ink, mode);
-      if (entry.checked) put_rect(*target.canvas, box_x + 5, box_y + 5, kMenuBarBox - 10, kMenuBarBox - 10, box_ink);
+      // **I la casella també és el clipart** (0.189.91, docs/50): `U+F0C8 SQUARE` when the setting is off and `U+F14A
+      // CHECK-SQUARE` when it is on, at the eighteen pixels of the box —the two tables come from the same tool as the
+      // switch of a page and the kernel only chooses which one it puts—. A menu row has no room for a capsule, and a
+      // tick in a square is what a menu of this world has always used for a setting (docs/90).
+      const int32_t mark_x = box_x + (kMenuBarBox - static_cast<int32_t>(toggle_mark::art::kMenuW)) / 2;
+      draw_bits(*target.canvas, mark_x, box_y, toggle_mark::art::kMenuW, toggle_mark::art::kMenuH,
+                entry.checked ? toggle_mark::art::kMenuOnBits : toggle_mark::art::kMenuOffBits, box_ink);
     }
     // **An entry that cannot be used now is the dim tone and not a third colour**: the ink is all the levels a control
     // may spend on "no", and its row is still there so the menu does not change size when it comes back (docs/90).

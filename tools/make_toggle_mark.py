@@ -57,6 +57,17 @@ const uint8_t kOffBits[{nbytes}] = {{
 const uint8_t kOnBits[{nbytes}] = {{
 {on_body}}};
 
+// **I la casella d'una entrada de menú**, que és un quadre i no un interruptor perquè una fila de menú no té el lloc
+// d'una càpsula: `U+F0C8 SQUARE` quan l'ajust està apagat i `U+F14A CHECK-SQUARE` quan està encès, a {menu_w} x {menu_h}.
+const uint8_t kMenuW = {menu_w};
+const uint8_t kMenuH = {menu_h};
+
+const uint8_t kMenuOffBits[{menu_nbytes}] = {{
+{menu_off_body}}};
+
+const uint8_t kMenuOnBits[{menu_nbytes}] = {{
+{menu_on_body}}};
+
 }}  // namespace art
 }}  // namespace toggle_mark
 }}  // namespace kernel
@@ -66,6 +77,13 @@ const uint8_t kOnBits[{nbytes}] = {{
 
 # Els dos estats del mateix caràcter: el nom de la taula que s'escriu i el codepoint del clipart.
 STATES = [("off", 0xF204), ("on", 0xF205)]
+
+# **I el mateix per a la casella d'un menú** (0.189.91): the checkable entry of a menu —the View menu of the editor— used to
+# carry a square drawn by the kernel, two strokes of two pixels and a square of ink inside them. It is the same question the
+# switch answered and the same road: `U+F0C8 SQUARE` when it is off and `U+F14A CHECK-SQUARE` when it is on, at the eighteen
+# pixels of the box of a menu row (docs/50, docs/90).
+MENU = [("off", 0xF0C8), ("on", 0xF14A)]
+MENU_HEIGHT = 18
 
 
 def ink_of(pixels):
@@ -122,6 +140,9 @@ def body_of(bits):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--font", default="/tmp/fa-solid-900.ttf")
+    # **El quadre del menú ve del pes Regular i no del Solid** (0.189.91): a Font Awesome el quadre del Solid és un quadre
+    # ple (■), i el que fa de casella és el del Regular, que és el marc amb el llindar prim (docs/50).
+    ap.add_argument("--menu-font", default="/tmp/fa-regular-400.ttf")
     ap.add_argument("--height", type=int, default=40, help="l'alçada de la tinta, en píxels")
     ap.add_argument("--font-name", default="Font Awesome 6 Free (Solid)")
     ap.add_argument("--licence",
@@ -141,21 +162,33 @@ def main() -> int:
         print("el clipart no ha arribat a l'alçada demanada", file=sys.stderr)
         return 1
 
-    inks = {name: ink_of(render(args.font, code, size)) for name, code in STATES}
-    for name, ink in inks.items():
-        if ink.shape[0] != args.height:
-            print(f"avís: {name} ha sortit de {ink.shape[0]} files i no de {args.height}", file=sys.stderr)
-    # **Una sola caixa per als dos estats**: la imatge d'encesa és un píxel més ampla que la d'apagada, i una casella
-    # que canvia de mida en girar-se mou la paraula que té al costat.
-    h = max(ink.shape[0] for ink in inks.values())
-    w = max(ink.shape[1] for ink in inks.values())
-    bits = {name: table(ink, w, h) for name, ink in inks.items()}
+    def pair(states, height, font):
+        """Els dos estats a una alçada: el cos es busca i la caixa és la dels dos, o la fila es mouria en girar-se."""
+        body = None
+        for candidate in range(8, 96):
+            if ink_of(render(font, states[0][1], candidate)).shape[0] >= height:
+                body = candidate
+                break
+        if body is None:
+            raise SystemExit("el clipart no ha arribat a l'alçada demanada")
+        inks = {name: ink_of(render(font, code, body)) for name, code in states}
+        for name, ink in inks.items():
+            if ink.shape[0] != height:
+                print(f"avís: {name} ha sortit de {ink.shape[0]} files i no de {height}", file=sys.stderr)
+        hh = max(ink.shape[0] for ink in inks.values())
+        ww = max(ink.shape[1] for ink in inks.values())
+        return {name: table(ink, ww, hh) for name, ink in inks.items()}, ww, hh
+
+    bits, w, h = pair(STATES, args.height, args.font)
+    menu, mw, mh = pair(MENU, MENU_HEIGHT, args.menu_font)
 
     with open(args.out, "w") as f:
         f.write(HEADER.format(height=args.height, w=w, h=h, nbytes=len(bits["off"]),
                               off_body=body_of(bits["off"]), on_body=body_of(bits["on"]),
+                              menu_w=mw, menu_h=mh, menu_nbytes=len(menu["off"]),
+                              menu_off_body=body_of(menu["off"]), menu_on_body=body_of(menu["on"]),
                               font_name=args.font_name, licence=args.licence))
-    print(f"{args.out}: U+F204 i U+F205 a {w} x {h} (cos {size})")
+    print(f"{args.out}: U+F204 i U+F205 a {w} x {h}, i U+F0C8 i U+F14A a {mw} x {mh}")
     return 0
 
 

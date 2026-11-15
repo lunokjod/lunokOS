@@ -3377,10 +3377,11 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 80));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(3, 80));
   // **The box of the tick of the first entry**, which is the row the dial is on: the row is ink and the box flips to
-  // paper, tick of paper, and between them the ink of the row (docs/92).
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 80));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(17, 80));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(26, 80));
+  // paper —its frame and its tick—, and between them the ink of the row (docs/92). The mark is the character `U+F14A` of
+  // the clipart at 18 by 18 (`tools/make_toggle_mark.py`), so the column of a pixel of it is the one the table has.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 80));  // the frame of the box
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(18, 80));  // the tick, which is paper on a row of ink
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(26, 80));   // and the ink of the row between the two
   // **An entry that cannot be used is the dim tone**: there is a level eight in the row of "Quit" and none in the row of
   // "Open", which is the row of a word that works.
   int dim_row = 0;
