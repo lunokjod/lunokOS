@@ -71,6 +71,18 @@ local function fit(text, width, biggest)
   return scale
 end
 
+-- **L'alçada d'una línia d'una cara que no és la del sistema** (0.189.48): `ui.line_height` is the line of the system's
+-- face —seven pixels a step with the five by seven table of the flash and eleven with the outlines of the disk— and the face
+-- of a row is neither: an outline face is **eight** pixels a step (`kOutlineBody`) and a bitmap one says its own rows in
+-- `font:size()`. A label of `ui.line_height(scale)` with a face of eight inside it is a line taller than its box, and that
+-- is a text that bleeds into the row above and a sample cut at the top —the letters of the specimen overlapped and the
+-- sample of a title was missing its highest row (found on the emulator, 15/11, docs/30, docs/92).
+local function face_line(face, scale)
+  local _, step = face:size()
+  if step == nil or step <= 0 then step = ui.line_height(1) end
+  return step * scale
+end
+
 -- **The same measure with a face that is not the system's**: a specimen is drawn with the face it shows, so the page
 -- asks that face how wide the row is and not the one of its own labels (docs/30).
 local function fit_face(face, text, width, biggest)
@@ -540,7 +552,12 @@ end
 --  forty-four pixels that lived in a block is not the title of sixty-six this page draws now —a picture has no way to say
 --  «I am small»—, so the head says a marker the block of before does not carry and every sample is drawn once more at the
 --  size of today (docs/30, docs/75).
-local kSampleMagic = 'FSP3'
+--  **I la marca puja a `FSP4`** (0.189.48): a sample of a name whose width was odd was **cut** —a canvas is a whole number
+--  of bytes wide and the block said the width that was asked for— and its height was the line of the system's face and not
+--  the one of the face inside, so the picture of a row came back shifted two pixels a row and a little too short. `FSP3`
+--  was the marker of another size of title and this one is the marker of another **pixel layout**: the blocks of before are
+--  not read, and every sample is drawn again (docs/30, docs/75).
+local kSampleMagic = 'FSP4'
 local kSampleHeaderBytes = 128          -- the head, in text, and where the pixels start
 --  **Un bloc més gran des de la 0.189.32, perquè el títol també ho és** (the owner: *«Fes mes gran tot el text, sobretot el
 --  títol»*): the picture of a name is drawn at the size of `kTitle`, so a bigger title is a bigger picture —a name of four
@@ -628,11 +645,29 @@ local function the_art_of(record, family, width, height, pad, first, last)
   local face = ui.load_font(record.path)
   if face == nil then return nil end
   local scale = fit_face(face, family, width, kTitle)
-  -- **La caixa de la mostra són enters**: a canvas is asked for whole pixels and a measure of a face can come back with a
-  -- fraction of one, which is a `canvas` the system refuses instead of a picture (docs/30).
+  --  **I la línia de la cara, no la del sistema** (0.189.48): the sample is drawn with the face of the row, so its height is
+  --  the line of that face —`face_line`— and a step that leaves it taller than the band of the row is one step less, because
+  --  a picture taller than its box is a name with its top cut off (docs/30, docs/92).
+  local h = face_line(face, scale)
+  while scale > 1 and h > height do
+    scale = scale - 1
+    h = face_line(face, scale)
+  end
+  -- **La caixa de la mostra són enters I PARES** (0.189.48): a canvas is asked for whole pixels and a measure of a face can
+  -- come back with a fraction of one, which is a `canvas` the system refuses instead of a picture (docs/30). And the width
+  -- is **rounded up to the next even number**, because a canvas of this system is a whole number of bytes wide: `ui.canvas`
+  -- rounds an odd width down, `cv:capture` copies the bytes of the canvas and `cv:blit` reads them back with the width it is
+  -- told, so a sample of three hundred and fifteen pixels was written a byte narrower than it was read and came back as a
+  -- picture that shifts two pixels a row —the diagonal stripes of the row of `bitter`, found on the emulator, 15/11.
   local w = math.floor(face:text_width(family, scale) or 1)
-  local h = math.floor(ui.line_height(scale))
   if w <= 0 then w = 1 end
+  if w % 2 == 1 then
+    if w + 1 <= width then
+      w = w + 1
+    else
+      w = w - 1
+    end
+  end
   if h <= 0 then h = 1 end
   local art = ui.canvas(w, h)
   if art == nil then
@@ -921,8 +956,12 @@ open_specimen = function(record)
   screen.gap = math.floor(margin * 0.5)
   screen:place(0, 0)
 
+  --  **I la línia d'una fila és la de la cara que la dibuixa** (0.189.48): a specimen at a step of eight pixels with a box
+  --  of seven is a row of letters that overlap the one over it, which is what the page of the details looked like.
   local function line(text, scale, color, use_face)
-    local one = make_label(inner, ui.line_height(scale), text, scale, color, 'left', use_face and face or nil)
+    local room = ui.line_height(scale)
+    if use_face then room = face_line(face, scale) end
+    local one = make_label(inner, room, text, scale, color, 'left', use_face and face or nil)
     if one ~= nil then screen:add(one) end
     return one
   end
@@ -930,13 +969,20 @@ open_specimen = function(record)
   -- **The name of the page is the app's face and not the one on show**: a face of six letters cannot write its own file
   -- name, and a specimen whose head is a white box is a page that looks broken (found on the emulator with the sample
   -- bdf, 10/11). What the face draws is the specimen under it, and nothing else (docs/30, docs/92).
+  --  **I cada línia es mesura abans de dibuixar-se** (0.189.48): the three lines under the name were written at `kSpecNote`
+  --  and nobody asked whether they fitted the page, so a sentence of forty letters ended in `...` —«outlines, 220 codes,
+  --  a...» was a line that said nothing about the face (found on the emulator, 15/11, docs/30, docs/92).
+  local function note(text)
+    local one = fit(text, inner, kSpecNote)
+    line(text, one, 8)
+  end
   line(record.name, fit(record.name, inner, kSpecHead), 0)
-  line(record.kind .. '  ' .. bytes_text(record.size), kSpecNote, 8)
-  line(shape_of(record), kSpecNote, 8)
+  note(record.kind .. '  ' .. bytes_text(record.size))
+  note(shape_of(record))
   if record.glyphs > 0 and record.glyphs < 26 then
     -- **A face of six glyphs is not a broken face**: it draws the letters it carries and nothing else, and saying so is
     -- the difference between a face and a page that lost its words (docs/30).
-    line('a small face: it draws only the codes it carries', kSpecNote, 8)
+    note('a small face: it draws only the codes it carries')
   end
 
   -- **A face of bits is read at its own size and the sizes that multiply it**: its glyph is a cell of pixels, and a cell

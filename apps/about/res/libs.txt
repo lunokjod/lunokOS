@@ -17,7 +17,7 @@ hal_tkoala	0.1.0	lib/hal_tkoala		Board support for the LilyGO TTGO T-Koala: ESP3
 img	0.1.1	lib/img		The pictures a page can carry, read the way this project reads everything: the file is the caller's bytes, the rows come out four bits a pixel, and there is no allocation of its own (docs/30).
 inflate	0.1.0	lib/inflate		Deflate read the other way (RFC 1951) and the two checksums a container needs (RFC 1950, zip), with no allocation of its own.
 json	0.1.0	lib/json		Pull-style JSON helpers: read one known key, never build a tree.
-kernel	0.1.39	lib/kernel		lunokOS kernel: boot, event loop, shell, log ring.
+kernel	0.1.40	lib/kernel		lunokOS kernel: boot, event loop, shell, log ring.
 lua	5.4.7	lib/lua	MIT	Lua 5.4.7 sources, vendored so luaconf.h can be tuned for the board.
 luabind	0.7.3	lib/luabind		The Lua state, its accounting allocator and the first bindings.
 pal	0.1.0	lib/pal		Platform abstraction layer: queues, console, log sink, clock, reboot.

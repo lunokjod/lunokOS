@@ -684,7 +684,10 @@ llocalls de cares del sistema, i un prestatge de nou no en cap—. Cada bloc és
 (16 512 B, demanats sempre de la mateixa mida perquè la mida d'una mostra només se sap després de dibuixar-la): el títol va
 pujar a sis passes la 0.189.32 i una mostra d'un nom de 480 x 66 és 31 680 píxels, o sigui 15 840 B, i amb els 8 192 B de
 la 0.189.30 una quarta part de les mostres no s'hauria desat mai. Una mostra que no hi cap **no es desa** i la fila es
-dibuixa igualment: la caché és un estalvi i no una condició de la pàgina. El sostre és **la memòria de la placa i no un
+dibuixa igualment: la caché és un estalvi i no una condició de la pàgina. **I la imatge que s'hi desa ha de ser una que el
+canvas pugui tenir**: l'amplada es desa **parell**, perquè `ui.canvas` retalla una amplada senar i `cv:blit` llegeix les
+files amb l'amplada que li diuen —un 315 demanat i un 314 de canvas són files de 157 bytes llegides com a 158, o sigui una
+mostra que torna esbiaixada dos píxels per fila— (0.189.49, docs/30). El sostre és **la memòria de la placa i no un
 número** (0.189.36): la taula de vuit blocs que deixava una galeria de més de **set** cares sense bloc ja no hi és, o sigui
 que un prestatge de disset s'emporta disset mostres si la PSRAM les té, i **disset mostres són 280 704 B de PSRAM i els
 mateixos 280 704 B de disc** quan es desen (docs/30).

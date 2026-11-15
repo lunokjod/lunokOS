@@ -9047,7 +9047,35 @@ namespace kernel {
 //   - **canviar de pàgina és `gl16`** —setze nivells i **un** parpelleig— i no `gld16`: una pàgina de paper sobre un tauler
 //     de cel·les negres deixa dos setzens, que és el blau que l'amo veia (*«ara queda brut»*), i el que se l'emporta és una
 //     forma d'ona que porta el vidre a negre i blanc i torna (docs/50, docs/92). Els tocs de la pàgina són `gld16`.
-static const char kVersion[] = "0.189.48";
+// 0.189.49 — **les mostres de l'app `fonts` es desaven esbiaixades i la meitat de la galeria no s'havia provat mai** (l'amo:
+// *«Revisa l'app Fonts, algunes fonts no es carreguen bé o es graven malament les mostres»*):
+//   - **una mostra d'amplada senar tornava com unes ratlles diagonals**: `ui.canvas` retalla una amplada senar (315 demanats
+//     són 314) perquè un canvas té un nombre sencer de bytes per fila, però el cap del bloc i el `cv:blit` deien el 315 que
+//     s'havia demanat —`cv:capture` escrivia 157 bytes per fila i es llegien 158— i la imatge es movia dos píxels per fila.
+//     L'amplada s'arrodoneix a parell (316) i el cap, el canvas i el `blit` diuen el mateix número;
+//   - **i l'alçada era la línia de la cara del sistema i no la de la cara que es dibuixa**: `ui.line_height` fa set píxels
+//     per pas amb la taula del flaix i onze amb els contorns, i la cara d'una fila en fa els seus (vuit un contorn, els que
+//     digui `font:size()`), o sigui que la mostra es tallava per dalt i les línies de l'exemplar s'encavalcaven. Neix
+//     `face_line(face, scale)`, que és `font:size()` per pas, i un pas que deixa la mostra més alta que la seva banda baixa;
+//   - **les tres línies de detall de l'exemplar es mesuraven amb `...`**: «outlines, 220 codes, a...» era una línia que no
+//     deia res. Ara es fan passar per `fit` com el nom;
+//   - **la marca del bloc puja a `FSP4`**, perquè els blocs de abans tenen els píxels fets amb l'amplada dolenta i no s'han
+//     de pintar;
+//   - **i la suite carregava l'app truncada**: `copy_a_host_file` tenia un buffer de 65 536 B i `apps/fonts/fonts.lua` fa
+//     67 852, o sigui que els nou casos de `fonts` mesuraven un error de sintaxi (`<name> expected near <eof>`) i no una
+//     pàgina —una app del repositori que creixi més enllà del buffer és una app que la suite no pot provar—. Ara copia en
+//     trossos, i `copy_a_face` diu que no quan el fitxer no hi és;
+//   - **els casos de `fonts` comencen amb el disc net**: `forget_the_gallery()` esborra les sessions de l'app i el seu
+//     terreny (`/apps/fonts`, i les cares de `/res/fonts`), perquè el disc de la suite és un i un cas que peta a mitges
+//     deixava la carpeta al següent —sis vermells que eren un de sol i cinc cascades—;
+//   - **i el cas del lliscament porta cares de debò**: des de la 0.189.32 un fitxer que no és una cara no és una fila, i el
+//     seu prestatge de vint fitxers d'un byte era un prestatge buit;
+//   - **el de la galeria pinça el camí dels píxels**: compara el vidre del primer obre amb el del segon, que és el que
+//     `cv:capture` i `cv:blit` prometen, i demana que tota mostra feta tingui l'amplada parell (trobat: `475x42`).
+//   - **què queda vermell**: `the_gallery_comes_back_on_the_specimen_it_was_left_on`, que obre l'exemplar i el perd pel camí
+//     de la sessió `state` —un fil de la pàgina i no de les mostres—, i els vint-i-tres que ja ho eren (teclat, caixes,
+//     llistes, targetes, llançador). La suite passa de trenta-dos vermells a vint-i-quatre.
+static const char kVersion[] = "0.189.49";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

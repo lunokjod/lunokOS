@@ -266,35 +266,51 @@ int count_of(const char* text, const char* word) {
 // **A face of the repository, in the disk of this emulator** (4/11): the suite keeps its own volume, so what it
 // lists has to be written here — `data/res/fonts/` is the disk's `/res/fonts` and the emulator does not read the
 // disk of the build (docs/70, docs/85). Binary and not text: a `.ttf` is outlines with zero bytes inside.
+// **Un fitxer del repositori al disc de l'emulador, en trossos** (0.189.48): the buffer here was 65 536 bytes and
+// `apps/fonts/fonts.lua` is 67 852, so the shelf of the faces was loaded from a **truncated** file and the case measured a
+// Lua syntax error instead of a page —«`<name>` expected near `<eof>`» out of a file that parses on the host—. An app of
+// the repository that grows past the buffer was an app the suite could not test at all (found here, 15/11). It streams:
+// no ceiling, and no 64 KB of static bytes held for the biggest file the suite copies.
+bool copy_a_host_file(hal::IStorage* storage, const char* host, const char* disk) {
+  static const char* const kParents[] = {"", "../", "../../", "../../../"};
+  for (size_t i = 0; i < sizeof(kParents) / sizeof(kParents[0]); ++i) {
+    char full[256];
+    snprintf(full, sizeof(full), "%s%s", kParents[i], host);
+    FILE* file = fopen(full, "rb");
+    if (file == nullptr) continue;
+    hal::FileSlot slot;
+    if (!storage->open(disk, hal::OpenMode::kWrite, slot)) {
+      fclose(file);
+      return false;
+    }
+    static char chunk[8192];
+    bool ok = true;
+    size_t got = 0;
+    while ((got = fread(chunk, 1, sizeof(chunk), file)) > 0) {
+      if (storage->write(slot, chunk, static_cast<uint32_t>(got)) != static_cast<int32_t>(got)) {
+        ok = false;
+        break;
+      }
+    }
+    storage->close(slot);
+    fclose(file);
+    return ok;
+  }
+  return false;
+}
+
 bool copy_a_face(hal::IStorage* storage, const char* name) {
-  static char bytes[65536];
   char host[128];
   snprintf(host, sizeof(host), "data/res/fonts/%s", name);
-  const size_t got = read_host_file(host, bytes, sizeof(bytes));
-  if (got == 0) return false;
   char path[160];
   snprintf(path, sizeof(path), "/res/fonts/%s", name);
   storage->mkdir("/res");
   storage->mkdir("/res/fonts");
-  hal::FileSlot slot;
-  if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
-  const bool ok = storage->write(slot, bytes, static_cast<uint32_t>(got)) == static_cast<int32_t>(got);
-  storage->close(slot);
-  return ok;
-}
-
-// **A file of the repository, in the disk of this emulator**: the suite keeps its own volume, so an app that is a page of
-// `apps/` and not something a test writes by hand comes from there —with the pictures it ships— and not from a copy
-// that goes stale (docs/85).
-bool copy_a_host_file(hal::IStorage* storage, const char* host, const char* disk) {
-  static char bytes[65536];
-  const size_t got = read_host_file(host, bytes, sizeof(bytes));
-  if (got == 0) return false;
-  hal::FileSlot slot;
-  if (!storage->open(disk, hal::OpenMode::kWrite, slot)) return false;
-  const bool ok = storage->write(slot, bytes, static_cast<uint32_t>(got)) == static_cast<int32_t>(got);
-  storage->close(slot);
-  return ok;
+  if (!copy_a_host_file(storage, host, path)) return false;
+  // **I el fitxer ha d'existir de debò**: a host file that is not there and an empty one both used to come back as a
+  // refusal, and a case that asks for a face it forgot to copy has to fail and not measure a disk with no face.
+  hal::Stat info;
+  return storage->stat(path, info) && info.type == hal::NodeType::kFile && info.size > 0;
 }
 
 bool boot_once() {
@@ -12349,6 +12365,45 @@ void test_a_page_that_paints_itself_paints_its_own_hole(void) {
   kernel::boot(hal::platform());
 }
 
+// **La galeria de tipus de lletra comença amb el disc net** (0.189.48): the sample of a face and the shape of the view are
+// sessions the app parks on the disk when it ends —`/session/fonts/<clau>`— and this suite has **one** disk for every case,
+// so a case that wanted the word `made` read the `kept` of the case before it, and a `state` block of another case opened a
+// specimen nobody had pressed. Every case of `fonts` says this before it starts the app, which is the moment the app asks
+// for its blocks (docs/30, docs/75, docs/85).
+void forget_the_gallery(void) {
+  kernel::session::forget("fonts");
+  // **I el terreny de l'app, que una prova que peta a mitges deixa a mitges**: the folder of the app is made by the case and
+  // given back at its end, so a case that fails on the way leaves it and the next one dies in `mkdir` —which is a cascade
+  // and not a failure—. A clean ground is a case that answers for itself (docs/85).
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  if (storage == nullptr) return;
+  storage->remove("/apps/fonts/res/icon.png");
+  storage->remove("/apps/fonts/res");
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+  // **I les cares que el cas d'abans hi va deixar**: `/res/fonts` is the door of the page and every case writes its own faces
+  // into it —a `bdf`, a `pcf`, a licence—, so a case that leaves one is a shelf with a row too many for the next one (the
+  // cases run alone and pass, which is how this was found, 15/11, docs/85).
+  struct Names : public hal::ListSink {
+    char rows[32][48] = {};
+    uint8_t count = 0;
+    bool on_entry(const hal::ListEntry& entry) override {
+      if (count < 32 && entry.name != nullptr && entry.type == hal::NodeType::kFile) {
+        snprintf(rows[count++], sizeof(rows[0]), "%s", entry.name);
+      }
+      return true;
+    }
+  } names;
+  if (storage->list("/res/fonts", names)) {
+    for (uint8_t i = 0; i < names.count; ++i) {
+      char path[96];
+      snprintf(path, sizeof(path), "/res/fonts/%s", names.rows[i]);
+      storage->remove(path);
+    }
+  }
+}
+
 // **La galeria guarda la mostra de cada cara en una sessió i la torna a pintar com una còpia** (0.189.26, l'amo: *«l'app
 // Fonts … guarda una mostra del tipus de lletra amb el nom de la font … a una sessió de sistema. Quan s'obre l'app Fonts es
 // busquen aquestes sessions de sistema per recuperar la previsualització de la font, que s'usarà com a títol de l'entry»*):
@@ -12363,6 +12418,7 @@ void test_the_gallery_keeps_the_preview_of_a_face_in_a_session(void) {
   kernel::boot(hal::platform());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
   TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
   TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts/res"));
@@ -12370,12 +12426,40 @@ void test_the_gallery_keeps_the_preview_of_a_face_in_a_session(void) {
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/res/icon.png", "/apps/fonts/res/icon.png"));
 
+  // **Dues cares, i la segona és la que fa una mostra d'amplada senar** (0.189.48): the width of a sample is the width of
+  // the name in its own face, and `dejavusans-latin1` lands on an odd one —four hundred and seventy-five pixels— while
+  // `dejavusans-bold` lands on an even one. A canvas of this system is a whole number of bytes wide and rounds an odd width
+  // **down**, so the block was written a byte a row narrower than `cv:blit` read it and the title came back as diagonal
+  // stripes, with this case green because it only read the word `kept` (found on the emulator, 15/11, docs/30, docs/75).
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-latin1.ttf"));
+
   // **El primer obre dibuixa la mostra i la desa.**
   kernel::log_echo(true);
   pump_captured(400, g_out, sizeof(g_out), "run fonts");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-bold.ttf made "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-latin1.ttf made "), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-bold.ttf kept "),
                            "the first open found a preview that it had not made yet");
+  // **I cap mostra és d'amplada senar**: the block of a sample says the width of its picture and `cv:blit` reads the rows
+  // with that width, so an odd one is a picture that shifts two pixels a row.
+  for (const char* at = strstr(g_out, "fonts: sample "); at != nullptr; at = strstr(at + 14, "fonts: sample ")) {
+    int w = 0;
+    int h = 0;
+    if (sscanf(at, "fonts: sample %*s made %dx%d", &w, &h) != 2) continue;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, w % 2, at);
+    TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, h, at);
+  }
+
+  // **I la pàgina del primer obre, per comparar-la amb la del segon**: a copy is the same picture or it is not a copy.
+  static uint8_t the_page[600 * 1000];
+  size_t page_bytes = 0;
+  {
+    const kernel::ui::Canvas& view = kernel::ui::canvas();
+    for (uint16_t y = 0; y < view.height; ++y) {
+      for (uint16_t x = 0; x < view.width; ++x) the_page[page_bytes++] = page_level(x, y);
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, static_cast<int>(page_bytes), g_out);
 
   // **El segon la troba i la copia**: the block is the picture of the row, so the face does not have to draw it again.
   kernel::shell::close_app();
@@ -12384,6 +12468,33 @@ void test_the_gallery_keeps_the_preview_of_a_face_in_a_session(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-bold.ttf kept "), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: sample dejavusans-bold.ttf made "),
                            "the second open drew the preview again instead of copying it");
+  // **I el vidre és el mateix**: every pixel of the view is the one the first open left, which is the whole of what
+  // `cv:capture` and `cv:blit` promise —a copy of the pixels and not a picture that comes back shifted— (docs/30).
+  {
+    const kernel::ui::Canvas& view = kernel::ui::canvas();
+    size_t at = 0;
+    int different = 0;
+    int first_x = -1;
+    int first_y = -1;
+    for (uint16_t y = 0; y < view.height; ++y) {
+      for (uint16_t x = 0; x < view.width; ++x) {
+        const uint8_t now = page_level(x, y);
+        const uint8_t before = (at < page_bytes) ? the_page[at] : now;
+        if (now != before) {
+          ++different;
+          if (first_x < 0) {
+            first_x = x;
+            first_y = y;
+          }
+        }
+        ++at;
+      }
+    }
+    char said[160];
+    snprintf(said, sizeof(said), "%d pixel(s) of the page came back different, the first at %d,%d", different, first_x,
+             first_y);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, different, said);
+  }
 
   // **I el bloc és una sessió de l'app**: the head of the block carries the file and its size, which is what makes an
   // unchanged face a copy and a replaced one a new drawing.
@@ -12398,6 +12509,9 @@ void test_the_gallery_keeps_the_preview_of_a_face_in_a_session(void) {
   storage->remove("/apps/fonts/manifest.json");
   storage->remove("/apps/fonts");
   storage->remove("/res/fonts/dejavusans-bold.ttf");
+  storage->remove("/res/fonts/dejavusans-latin1.ttf");
+  // **I el disc queda com estava**: the blocks this case made are given back, or the case after it reads `kept` where it
+  // wants `made` and a `state` with a specimen inside (0.189.48, docs/30, docs/75).
   emu::Options after = emu::options();
   after.board = nullptr;
   after.display = false;
@@ -12430,6 +12544,7 @@ void test_the_gallery_comes_back_on_the_specimen_it_was_left_on(void) {
 
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
   TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
   TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts/res"));
@@ -12484,6 +12599,7 @@ void test_the_font_viewer_opens_every_format_the_system_reads(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
   make_card();
   char card_path[96];
@@ -16414,6 +16530,7 @@ void test_the_faces_app_opens_more_specimens_than_the_board_keeps(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
 
   // **Four faces in the disk of this test**, which is what the shelf lists.
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans.ttf"));
@@ -16508,12 +16625,14 @@ void test_the_faces_app_opens_more_specimens_than_the_board_keeps(void) {
 // down the one before, and **the gesture is not a press**: the row it ends over is not picked, because the contact that walked
 // twenty pixels was a gesture from the first one (0.179.29) and the page turn spends it (docs/30, docs/90).
 //
-// The shelf of this case is twenty files written into `/fonts`: the app lists them and `sniff` reads the name and not the
-// bytes, so a file of one byte per row is a row of the list and the twenty of them are three pages (docs/85).
+// The shelf of this case is twenty **faces** written into `/fonts`, under names of this case's own: the app lists what the
+// loader opens, so a row is a real file —a file of one byte was a row until 0.189.32 stopped listing what is not a face,
+// and then this case counted a shelf of nothing— and twenty of them are three pages (found in the suite, 15/11, docs/85).
 void test_a_swipe_up_or_down_is_not_a_page_of_a_list(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
 
   // **`/fonts` és un directori virtual** (docs/70): the flash's `res/fonts`, the card's `fonts` and the app's own, so the
   // files of this case go where the board's faces are and the app lists them through the door (0.179.51, docs/70).
@@ -16524,7 +16643,7 @@ void test_a_swipe_up_or_down_is_not_a_page_of_a_list(void) {
     char path[64];
     snprintf(name, sizeof(name), "page-%02d.ttf", i);
     snprintf(path, sizeof(path), "/res/fonts/%s", name);
-    TEST_ASSERT_TRUE(write_text(storage, path, "x"));
+    TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/res/fonts/dejavusans.ttf", path));
   }
 
   emu::Options opts = emu::options();
@@ -16614,6 +16733,7 @@ void test_the_shelf_lists_the_faces_and_leaves_the_other_files_out(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavuserif.ttf"));
   TEST_ASSERT_TRUE(write_text(storage, "/res/fonts/a-licence.txt", "the licence of a face is not a face\n"));
 
@@ -16680,6 +16800,7 @@ void test_the_specimen_gives_the_passages_their_room_and_the_way_back_below(void
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusansmono.ttf"));
 
   emu::Options opts = emu::options();
@@ -16801,6 +16922,7 @@ void test_the_bar_of_the_start_is_a_line_under_the_loading_of_the_picture(void) 
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusansmono.ttf"));
 
   emu::Options opts = emu::options();
@@ -16863,6 +16985,7 @@ void test_the_swipe_to_the_left_of_the_specimen_is_the_way_back(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  forget_the_gallery();
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusansmono.ttf"));
 
   emu::Options opts = emu::options();
