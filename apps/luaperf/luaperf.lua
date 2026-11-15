@@ -21,6 +21,10 @@ local kInstrPerLap = 3    -- ADDI + MMBINI + FORLOOP, counted on the bytecode of
 -- (0.179.9): on a board with no glass there is no `ui` table at all —the build does not carry it— and a `ui.idle()` before
 -- the check was an app that died on its first measurement with `attempt to index a nil value (global 'ui')`. The console is
 -- where the numbers go on that board, and that is said at the end (docs/30, docs/50).
+-- **AQUESTA APP NO TÉ SESSIÓ `state`, I ÉS UNA DECISIÓ I NO UN OBLIT** (0.189.52, docs/30 i docs/45 §5 bis): the page is a
+-- column of labels of a measurement that has just been taken and a block of the extra memory that is given back before the
+-- app ends. There is no focusable control, no page and no thing a person could have left anywhere: the next run measures
+-- again, which is what the app is for.
 local caps = sys.caps()
 
 -- **A loop with no call in it**: one lap is three instructions and nothing else, so a second of laps is a second of

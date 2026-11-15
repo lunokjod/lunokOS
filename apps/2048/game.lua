@@ -778,6 +778,10 @@ end)
 
 -- **A board with no glass says so and leaves**: `ui.caps()` is `nil` there, and an app that indexes it is a Lua error
 -- in the console instead of a sentence a person can read (the same door `home_eink` uses, docs/40).
+-- **AQUESTA APP NO TÉ SESSIÓ `state`, I ÉS UNA DECISIÓ I NO UN OBLIT** (0.189.52, docs/30 i docs/45 §5 bis): the sixteen cells
+-- are the partida —**dada de l'app**, que la norma de docs/30 deixa fora del bloc—, and the only control of the page is the
+-- button of a new game, which is `focusable = false` on purpose (the centre of this panel is the way out of an app). Without
+-- a ring and without a page, a block would be a kilobyte saying nothing.
 local caps = sys.caps()
 if not caps.display then
   console.print('2048: this board has no glass')

@@ -3887,10 +3887,13 @@ void close_app() {
   // so the box it was typing into is forgotten the way it should be (docs/30, docs/50).
   ui::keyboard_hide();
   luabind::stop();
-  const uint32_t written = session::flush(parked_id);
-  if (written > 0) {
-    log_printf(pal::kLogInfo, "MEMORY", "%s ended and wrote %u session block(s) to /session", parked_id,
-               static_cast<unsigned>(written));
+  // **I les dues xifres del desament, separades** (0.189.53): a block whose bytes the disk already has is not written again
+  // —the flash is what a session would wear out—, so a close that changed nothing says zero written and a close that saved
+  // something says what it saved. Without the second number, «0 block(s)» would read as a failure (docs/30, docs/75).
+  const session::Parked flushed = session::flush(parked_id);
+  if (flushed.written > 0 || flushed.unchanged > 0) {
+    log_printf(pal::kLogInfo, "MEMORY", "%s ended: %u session block(s) written to /session, %u already there", parked_id,
+               static_cast<unsigned>(flushed.written), static_cast<unsigned>(flushed.unchanged));
   }
   g_app_alive = false;
   // **The views go with the app that had them** (0.163.0): a count that outlived its app would make the next one

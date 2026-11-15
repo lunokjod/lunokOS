@@ -365,6 +365,93 @@ local board_ui = nil                   -- the two buttons of the board, made whe
 -- **And they are announced here and given below**, because a hook runs later and a hook that closes over a `local function`
 -- declared further down closes over a **global** that is nil: the two buttons of the strip were pressed and nothing
 -- happened (found by the owner, 15/11).
+-- ============================================================== the shape of the view (`state`, docs/30)
+
+-- **LA PÀGINA DELS AJUSTOS I EL CERCLE TORNEN COM ELS VA DEIXAR LA PERSONA** (0.189.52, la norma de la sessió `state` de
+-- docs/30 i docs/45 §5 bis): `page` diu si el vidre era el tauler o la pàgina dels ajustos i `focus` quin dels tres controls
+-- del sistema tenia el cercle, pel nom del control. **Les dues preferències —el rentat i la velocitat— no hi són**: són
+-- decisions de la persona i viuen a `/data/life/settings.txt` des de la 0.189.49 (docs/30), i el món tampoc, que és la partida.
+--
+-- **El codi és el mateix de totes les apps i es copia sencer** (docs/30): a format que només llegeix aquest fitxer és un
+-- format que no llegeix ningú.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt**: el que hi ha darrere és el zero amb què el
+  -- nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu `nil` i un nom deixa de ser
+  -- el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
+-- **La forma**: `page` 1 és el tauler i 2 la pàgina dels ajustos, i `focus` el nom del control amb el cercle.
+local shape = { page = 1, focus = nil }
+
+local function remember_the_ring(on, name)
+  if not on then return end
+  shape.focus = name
+  save_state(shape)
+end
+
 local openSettings, closeSettings, releaseBoard, buildBoard, newWorld
 
 local function statusText()
@@ -622,6 +709,7 @@ local function buildSettings()
   words.valign = 'middle'
   box:add(words)
   box.checked = washOn
+  box.on_focus = function(self, on) remember_the_ring(on, 'wash') end
   box.on_change = function(self, on)
     washOn = on
     saveSettings()
@@ -639,6 +727,7 @@ local function buildSettings()
   time.items = { Speeds[1] .. ' ms', Speeds[2] .. ' ms' }
   time.index = speed
   time.on_open = function(self) wantedMenu = self end
+  time.on_focus = function(self, on) remember_the_ring(on, 'time') end
 
   -- **The way back is a button of the system with the `back` mark of the kernel in it**, which is the chevron the whole
   -- system uses for going back a view: it needs no face of the app and it turns over with the press (docs/30, docs/45).
@@ -652,6 +741,7 @@ local function buildSettings()
   end
   back.icon = 'back'
   back.on_click = function() closeSettings() end
+  back.on_focus = function(self, on) remember_the_ring(on, 'back') end
 
   sett = { box = box, words = words, time = time, back = back, menu = nil }
 
@@ -673,7 +763,10 @@ local function buildSettings()
   back:resize(Btn, BtnH)
   back:place(bx, by)
 
-  ui.focus(box)
+  -- **I el cercle torna al control que la persona tenia** (0.189.52, docs/30): a name that is not one of the three is not a
+  -- ring, it is the box of the wash, which is where the page starts when nobody has touched it.
+  local wanted = { wash = box, time = time, back = back }
+  ui.focus(wanted[shape.focus] or box)
   return true
 end
 
@@ -735,6 +828,8 @@ openSettings = function()
   if not buildSettings() then return end
   releaseBoard()
   setting = true
+  shape.page = 2
+  save_state(shape)
   wasPaused = paused
   paused = true
   paintSettings()
@@ -744,6 +839,8 @@ closeSettings = function()
   if not setting then return end
   releaseSettings()
   setting = false
+  shape.page = 1
+  save_state(shape)
   paused = wasPaused
   due = 0
   buildBoard()
@@ -856,13 +953,28 @@ if arg == 'keys' then
 end
 
 -- **`settings` obre l'app a la pàgina dels ajustos**, que és com es mira des de l'emulador sense un dit a sobre.
+-- **La forma que la persona va deixar, llegida abans de la primera pàgina** (0.189.52, docs/30): `arg` is the prompt asking
+-- for the settings page and it wins over the block, because a person who names a page is a person who wants it.
+local was = load_state()
+if was ~= nil then
+  local page = tonumber(was.page)
+  if page == 2 then shape.page = 2 end
+  if was.focus ~= nil and was.focus ~= '' then shape.focus = was.focus end
+end
+
 buildBoard()
-if arg == 'settings' then
+if arg == 'settings' or shape.page == 2 then
   paintPage()
   openSettings()
 else
   paintPage()
 end
+
+-- **Les tres portes del comiat** (docs/30, docs/40): the shape is saved here as well, because an app does not always see the
+-- end coming —a raise, the ESC, a `poweroff`— and a page that is only written when it changes loses the last change.
+function on_pause() save_state(shape) end
+function on_save() save_state(shape) end
+function on_close() save_state(shape) end
 
 local held = false
 

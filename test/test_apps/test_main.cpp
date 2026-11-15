@@ -5862,7 +5862,11 @@ void test_the_sessions_are_parked_before_the_board_goes_down(void) {
   hal::Stat info;
   TEST_ASSERT_FALSE_MESSAGE(kernel::vfs::stat("/session/launcher/apps", info), "the card already had that file");
 
-  TEST_ASSERT_EQUAL_UINT32(2, kernel::session::park_all("a test goes down"));
+  // **Els dos blocs no s'han desat mai, o sigui que els dos fitxers s'escriuen** (0.189.53): `unchanged` is zero because
+  // there is nothing on the disk to be the same as.
+  const kernel::session::Parked first = kernel::session::park_all("a test goes down");
+  TEST_ASSERT_EQUAL_UINT32(2, first.written);
+  TEST_ASSERT_EQUAL_UINT32(0, first.unchanged);
 
   TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/session/launcher/apps", info), "the parker wrote no file");
   TEST_ASSERT_EQUAL_UINT32(256, info.size);
@@ -5879,10 +5883,25 @@ void test_the_sessions_are_parked_before_the_board_goes_down(void) {
   TEST_ASSERT_EQUAL_STRING("/session/launcher/apps", rows[0].path);
   TEST_ASSERT_EQUAL_STRING("/session/reader/index", rows[1].path);
 
+  // **I el mateix desament dues vegades no escriu dues vegades** (0.189.53, l'amo: *«Si es el mateix bloc, no cal gravar-lo,
+  // només farem malbé abans la flash»*): the bytes of the two blocks have not moved, so the second park finds the files and
+  // writes nothing at all.
+  const kernel::session::Parked again = kernel::session::park_all("a test goes down twice");
+  TEST_ASSERT_EQUAL_UINT32(0, again.written);
+  TEST_ASSERT_EQUAL_UINT32(2, again.unchanged);
+
+  // **I una lletra que es mou torna a escriure el bloc que l'ha rebuda, i només aquell**: the other one is still the disk's.
+  static_cast<char*>(launcher)[0] = 'L';
+  const kernel::session::Parked moved = kernel::session::park_all("a test with a byte moved");
+  TEST_ASSERT_EQUAL_UINT32(1, moved.written);
+  TEST_ASSERT_EQUAL_UINT32(1, moved.unchanged);
+
   // **A park with nothing in the memory is not a fault**: the board says zero and goes.
   kernel::session::forget(nullptr);
   TEST_ASSERT_EQUAL_UINT32(0, kernel::session::count());
-  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::park_all("a test with nothing"));
+  const kernel::session::Parked none = kernel::session::park_all("a test with nothing");
+  TEST_ASSERT_EQUAL_UINT32(0, none.written);
+  TEST_ASSERT_EQUAL_UINT32(0, none.unchanged);
 
   emu::Options opts = emu::options();
   opts.board = nullptr;

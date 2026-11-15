@@ -100,18 +100,28 @@ uint32_t entries(Entry* out, uint32_t cap);
 // zero when there is no such block and no such file.
 size_t copy(const char* app, const char* key, char* out, size_t cap);
 
+// **El que un desament ha fet, i el que no ha calgut fer** (0.189.53): `written` is a file whose bytes went to the disk now
+// and `unchanged` is a block whose bytes the disk already has —the flash is what a session would wear out, and a park whose
+// content has not moved is a park that writes nothing (l'amo: *«Si es el mateix bloc, no cal gravar-lo, només farem malbé
+// abans la flash»*)—. The two numbers are apart because «no he escrit res» and «no hi havia res a escriure» are two things a
+// person reads differently in a log (docs/30, docs/75).
+struct Parked {
+  uint32_t written = 0;
+  uint32_t unchanged = 0;
+};
+
 // **Les cachés d'una app van al disc quan la seva app s'acaba**: it is what a board does when an app ends —the cache that
 // app built is written to `/session/<id>/<key>` so the next run of it starts warm even if the board was switched off in
 // between— and the block **stays in the memory**, because giving it back is the allocator's business and only when it is
-// short (docs/30, docs/75). Answers how many blocks were written.
-uint32_t flush(const char* app);
+// short (docs/30, docs/75). A block whose bytes are the ones of its file is **not written again** (0.189.53).
+Parked flush(const char* app);
 
 // **Everything the memory holds goes to the disk, and it says so one block at a time** (0.189.11): this is the door of a
 // board that is being restarted or switched off, and of a run that ends. The blocks stay where they are —the board is
 // going, and the next one comes up with the files— and the log of each one says **who, under which key, how many bytes and
 // at what path**, which is what makes a session that did not come back explainable (docs/30, docs/75). Answers how many
-// files were written.
-uint32_t park_all(const char* why);
+// files were written and how many were already on the disk (0.189.53).
+Parked park_all(const char* why);
 
 // **El que s'ha escrit, comptat al disc** (0.189.18, l'amo: *«Haurà donat temps a gravar-ho tot al SD?? s'ha apagat tot
 // molt ràpid»*): every block of the memory is looked for as a file of `/session/<app>/<key>` and its size compared with the

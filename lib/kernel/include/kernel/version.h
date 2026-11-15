@@ -9107,7 +9107,44 @@ namespace kernel {
 //     del comiat. `run timeclock week` obre l'app en el full de la setmana, que és com es mira des de l'emulador;
 //   - **i el log diu les mitjanes** (`timeclock: mean Mon 4h 30m in 2, …`) i el motiu d'un full sense setmana, que és la
 //     diferència entre «aquesta setmana no té res» i «aquest rellotge no sap quin dia és» (docs/85).
-static const char kVersion[] = "0.189.51";
+// 0.189.52 — **la sessió `state` a totes les apps que tenen una vista, i el forat que feia que cap no tornés on era** (l'amo:
+// *«Revisa que totes les apps Lua tinguin sessió status i la facin servir. L'usuari ha de tornar i trobar-se tot on ho havía
+// deixat»*):
+//   - **el bloc de la forma es llegia amb els zeros del darrere** (docs/30): `read(0, 1024)` torna els mil vint-i-quatre bytes
+//     i el que s'hi ha escrit és més curt, o sigui que l'última línia arribava amb el zero amb què el nucli va fer el bloc —i
+//     amb el d'una pàgina que abans era més llarga—. `tonumber` en treu `nil` i un nom deixa de ser el nom, i per això **cap
+//     de les tres apps que ja tenien el bloc no tornava de debò on era**: el tros que talla el text a la primera marca de zero
+//     és ara part del codi que es copia, i hi és a `fonts`, `shell`, `timeclock` i el llançador;
+//   - **el llançador té la sessió que li faltava** (docs/45 §5 bis deia que era la primera que la necessitava): `focus` és
+//     l'**id de l'app** de la cel·la amb el cercle, i és el que fa que la pàgina torni a la cel·la i el full que la persona
+//     mirava. El cercle el mou el sistema (`grid.index`, 0.179.4), així que el torn és l'únic lloc que ho sap;
+//   - **i set apps més**: `about` (la pàgina del llistat, la fila amb el cercle i la llibreria oberta), `splash` (la pàgina i el
+//     moment amb el cercle), `tz` (quin dels tres controls tenia el cercle: els valors són preferències i ja viuen a `/cfg`),
+//     `life` (la pàgina dels ajustos o el tauler, i el control amb el cercle), `editor` (la primera fila visible del document i
+//     el control amb el cercle), `reader` (el camí del llibre amb el cercle al prestatge) i `wipe` (la porta amb el cercle, i
+//     **mai la targeta d'una pregunta**, que és una pregunta que la persona ja havia deixat);
+//   - **i quatre fulls que no en tenen i ho diuen al fitxer**: `calculator`, `luaperf`, `2048` i `rainbow` no tenen cap control
+//     amb cercle ni cap pàgina que tornar —els números d'una calculadora són el que la persona fa ara, les setze cel·les del
+//     2048 són la partida i una app sense `ui` no té vista—, i un bloc buit seria un kilobyte per no dir res (docs/30).
+// 0.189.53 — **un bloc de sessió que no ha canviat no es torna a escriure** (l'amo: *«quan l'app intenta guardar l'status fent un
+// park a la sessió... aquí hem de filar molt prim. Si es el mateix bloc, no cal gravar-lo, només farem malbé abans la flash.
+// Tenim alguna forma com a kernel de saber si l'app ha modificat o no el contingut del bloc status?»*):
+//   - **cada bloc porta la petjada FNV-1a dels bytes que el disc té d'ell** (`Block::seen`, 0.189.53): la que s'ha
+//     restaurat en néixer —o la dels zeros quan no hi havia fitxer— i la de l'última escriptura. Un desament que troba la
+//     mateixa petjada **i** el fitxer amb la mida del bloc (`stat`, perquè un `sessions destroy` o una targeta que ha canviat
+//     no es confonguin amb un desament fet) no escriu res i **no és cap error**: `home_eink does not park 'apps': the 32768 B
+//     on the disk are the ones it has`;
+//   - **la pregunta la contesta el contingut i no un senyal de «algú ha escrit»**: totes les apps desen la forma amb un
+//     `clear()` i un `write()` (docs/30), o sigui que un senyal diria «escrit» cada cop que la pàgina és la del disc. El
+//     número és el que són els bytes, i dos camins que acaben en els mateixos bytes acaben en el mateix número;
+//   - **el que estalvia és el desament que més es repetia**: l'app que s'acaba (cada tancament!), la placa que se'n va, la
+//     memòria curta i una app que dóna el bloc escrivien tots quatre el fitxer tant si un byte s'havia mogut com si no —i el
+//     `apps` del llançador són trenta-dos kilobytes a cada app que s'acaba—. Mesurat a l'emulador: el segon tancament diu
+//     `0 session block(s) written to /session, 1 already there`;
+//   - **i les dues xifres es diuen separades** (`session::Parked`, `flush` i `park_all`): «no he escrit res» i «no hi havia res
+//     a escriure» es llegeixen diferent en un registre, i el `2 of 2 block(s)` d'abans hauria passat a dir `0 of 3`, que és
+//     un fracàs a ulls de qui el llegeix (docs/30, docs/75).
+static const char kVersion[] = "0.189.53";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

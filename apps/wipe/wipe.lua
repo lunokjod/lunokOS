@@ -154,6 +154,90 @@ local ask
 
 -- **The words of a door are a label inside the button and not a button that knows how to write**: the fill is the
 -- system's, the frame is the system's, and turning the button off turns the words off with it (docs/30).
+-- ============================================================== the shape of the view (`state`, docs/30)
+
+-- **LA PORTA AMB EL CERCLE TORNA COM LA VA DEIXAR LA PERSONA (0.189.52, la norma de la sessió `state` de docs/30 i docs/45 §5 bis): `focus` és el nom de la porta —`nvs`, `sd` o `lfs`— que tenia el cercle. **La targeta d'una pregunta no s'hi posa mai**: tornar a una app amb «segur que ho esborro?» a sobre és tornar amb una pregunta que la persona ja havia deixat, i el que fa aquesta pàgina en obrir-se és el que fa sense record, que és preguntar quan algú prem.**
+--
+-- **El codi és el mateix de totes les apps i es copia sencer** (docs/30): a format que només llegeix aquest fitxer és un
+-- format que no llegeix ningú.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt**: el que hi ha darrere és el zero amb què el
+  -- nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu `nil` i un nom deixa de ser
+  -- el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
+-- **La forma d'aquest full**: el nom de la porta amb el cercle.
+local shape = { focus = nil }
+
+local function remember_the_ring(on, kind)
+  if not on then return end
+  shape.focus = kind
+  save_state(shape)
+end
+
 local function make_door(kind)
   local words = kDoors[kind]
   local door = {}
@@ -166,6 +250,7 @@ local function make_door(kind)
   door.label.align = 'center'
   door.button:add(door.label)
   door.button.on_click = function() ask(kind) end
+  door.button.on_focus = function(self, on) remember_the_ring(on, kind) end
   door.note = line(words.note, scale_for(21), 8)
   return door
 end
@@ -301,6 +386,14 @@ end
 -- that had it (0.172.0), and this is the page's own wish for the case where the page was built again under the card and
 -- that control is not there any more (docs/30).
 local function after_card()
+  -- **I el cercle torna a la porta que la persona tenia** (0.189.52, docs/30): a door that this board cannot use is not a
+  -- ring —the state names it and the page asks for it, and `disabled` takes it out of the walk—, so the first one of the
+  -- page is the answer when the one of the block is not there.
+  local wanted = (shape.focus ~= nil) and door[shape.focus] or nil
+  if wanted ~= nil and not wanted.button.disabled then
+    ui.focus(wanted.button)
+    return ui.present()
+  end
   for _, kind in ipairs({ 'nvs', 'sd', 'lfs' }) do
     if not door[kind].button.disabled then
       ui.focus(door[kind].button)
@@ -437,9 +530,23 @@ end
 
 -- ------------------------------------------------------------------ the app
 
+-- **Les tres portes del comiat** (docs/30, docs/40): the door with the ring is saved here as well, because an app does not
+-- always see the end coming —a raise, the ESC, a `poweroff`—.
+function on_pause() save_state(shape) end
+function on_save() save_state(shape) end
+function on_close() save_state(shape) end
+
 layout()
 dress_doors()
 say('Nothing has been touched yet.', 8)
+-- **La forma que la persona va deixar, llegida abans del primer pintat** (0.189.52, docs/30): a name that is not one of
+-- the three doors is not a ring, it is the first door of the page.
+local was = load_state()
+if was ~= nil and was.focus ~= nil and was.focus ~= '' then shape.focus = was.focus end
+if shape.focus ~= nil and door[shape.focus] ~= nil and not door[shape.focus].button.disabled then
+  ui.focus(door[shape.focus].button)
+end
+
 ui.present()
 
 -- **The places the page can be pressed, said out loud when the app is asked to**: `run wipe boxes` prints the box of each

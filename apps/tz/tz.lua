@@ -142,6 +142,81 @@ local dst = false
 local leap = true
 local week = 1
 local status = ''
+-- ============================================================== the shape of the view (`state`, docs/30)
+
+-- **EL CERCLE TORNA AL CONTROL QUE LA PERSONA MIRAVA (0.189.52, la norma de la sessió `state` de docs/30 i docs/45 §5 bis): the three settings of this page are the system's and their values live in `/cfg` —a preference, which is not the shape of the view—, so what is remembered here is **which of the three had the ring**, pel nom del control. L'hora triada al mapa ja es desa sola al tancar (`time.tz`), o sigui que el que faltava era això.**
+--
+-- **El codi és el mateix de totes les apps i es copia sencer** (docs/30): a format que només llegeix aquest fitxer és un
+-- format que no llegeix ningú.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt**: el que hi ha darrere és el zero amb què el
+  -- nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu `nil` i un nom deixa de ser
+  -- el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
 -- **What a click asked for and the loop has to do**: see the `on_click` of the button (0.174.0).
 local want_sync = false
 local busy = false
@@ -252,6 +327,15 @@ end
 -- its boxes, and `resize` is what a page that can be turned needs —the glass says another measure and the same controls
 -- move—. A control with a buffer refuses a new size; a button, a checkbox, a selector and a label have none, which is why
 -- this page can lay itself out again (docs/30).
+-- **El cercle, que és l'única cosa d'aquesta pàgina que no és ni una dada ni un ajust** (0.189.52, docs/30).
+local shape = { focus = nil }
+
+local function remember_the_ring(on, name)
+  if not on then return end
+  shape.focus = name
+  save_state(shape)
+end
+
 place_settings = function()
   if sync == nil then
     local why
@@ -266,6 +350,7 @@ place_settings = function()
     -- and the loop of the page does it —which is the rule this project already has for a card's accept: read the action,
     -- close, and then run it— (docs/30, docs/90).
     sync.on_click = function() want_sync = true end
+    sync.on_focus = function(self, on) remember_the_ring(on, 'sync') end
 
     dstbox, why = ui.checkbox(2, 2)
     if dstbox == nil then return refused('daylight box', why) end
@@ -278,6 +363,7 @@ place_settings = function()
     -- summer is the map's hour plus sixty minutes — a shift of this page, saved with it. What it moves is the band that is
     -- filled and the label, so the page is painted again whole: a box that turned and a band that stayed where it was is
     -- two answers to one finger (docs/30, docs/60).
+    dstbox.on_focus = function(self, on) remember_the_ring(on, 'dst') end
     dstbox.on_change = function(self, on)
       dst = on
       -- **I es desa en el moment** (0.182.0): the hour of summer is a setting of the system and not a shift of this page, so the
@@ -295,6 +381,7 @@ place_settings = function()
     weekfield.label = 'Week starts'
     weekfield.items = { 'Monday', 'Sunday' }
     weekfield.on_open = function(self) open_week_menu(self) end
+    weekfield.on_focus = function(self, on) remember_the_ring(on, 'week') end
   end
 
   local line = ui.line_height(kBody)
@@ -399,6 +486,14 @@ if app.args ~= nil and app.args.path == 'zones' then
   ui.focus(sync)
 end
 
+-- **I el cercle torna al control que la persona tenia** (0.189.52, docs/30): the shape is read after the three controls
+-- exist —they are placed by `place_settings`— and a name that is not one of them is not a ring, it is the button, which is
+-- where the page starts when nobody has touched it.
+local was = load_state()
+if was ~= nil and was.focus ~= nil and was.focus ~= '' then shape.focus = was.focus end
+local wanted_ring = { sync = sync, dst = dstbox, week = weekfield }
+ui.focus(wanted_ring[shape.focus] or sync)
+
 paint_page()
 ui.present(kPageMode)
 
@@ -408,6 +503,7 @@ ui.present(kPageMode)
 -- page any more** (0.174.0): a page with focusable controls has the centre for Enter, which is the system's rule, so the
 -- pinch of the glass is what closes it (docs/30).
 function on_close()
+  save_state(shape)
   -- **El que es desa és l'hora del mapa i prou** (0.182.0): the hour of summer has its own setting and it was written when the box
   -- turned, so folding it into the offset here would save summer twice —a board that reads +02:00 in December— and the box would
   -- come up unticked on the next visit (docs/30, docs/60).
@@ -416,6 +512,11 @@ function on_close()
     console.print('tz: saved ' .. tz_text(chosen))
   end
 end
+
+-- **Les tres portes del comiat** (docs/30, docs/40): `on_close` is the one that says the hour and it saves the shape with it;
+-- these two are for the end that a page does not see coming.
+function on_pause() save_state(shape) end
+function on_save() save_state(shape) end
 
 -- **The synchronisation is a promise and the page waits for it**: `net.ntp` is a request of the kernel's queue and this
 -- page has nothing else to do while it waits, so the finger that asked sees the answer when it comes (docs/30).

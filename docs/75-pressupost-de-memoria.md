@@ -722,8 +722,41 @@ tres portes i totes tres diuen el mateix, bloc a bloc:
 | `logout` d'un terminal virtual | `shell::close_console_session` | `… (the session of the console was closed)` |
 
 I el resum darrere, que és la línia que una persona busca:
-`sessions parked (the board is going off): 2 of 2 block(s), 3072 B, at /session`. **Els blocs no es tornen**: el run encara
-els pot llegir i el que marxa és la placa, no la taula.
+`sessions parked (the board is going off): 2 written, 0 already there, 3072 B in 2 block(s), at /session`. **Els blocs no es
+tornen**: el run encara els pot llegir i el que marxa és la placa, no la taula.
+
+### Un bloc que no ha canviat no es torna a escriure (0.189.53)
+
+**Un desament es demana per quatre camins** —l'app s'ha acabat (cada tancament!), la placa se'n va, la memòria va curta i
+una app dóna el bloc— i fins a la 0.189.52 **tots quatre escrivien el fitxer tant si un byte s'havia mogut com si no**. Un
+llançador que desa la forma a cada moviment del dial i es tanca sense que ningú hagi tocat res escrivia el mateix kilobyte
+a cada app que s'acabava, i el seu `apps` de trenta-dos kilobytes, a més. L'amo ho va dir així: *«Si es el mateix bloc, no
+cal gravar-lo, només farem malbé abans la flash»*.
+
+**La pregunta la contesta el contingut i no un senyal**: cada bloc porta una **petjada FNV-1a de 32 bits** dels bytes que
+el disc té d'ell (`seen`), posta en néixer el bloc —el que s'ha restaurat, o els zeros quan no hi havia fitxer— i després
+de cada escriptura. Un desament que troba la mateixa petjada **i el fitxer amb la mida del bloc** (`stat`) no escriu res:
+
+```
+[I][MEMORY] home_eink does not park 'apps': the 32768 B on the disk are the ones it has (the app has ended)
+[I][MEMORY] home_eink ended: 0 session block(s) written to /session, 3 already there
+```
+
+- **Per què una petjada i no un senyal de «algú ha escrit»**: totes les apps d'aquest sistema desen la forma amb un
+  `clear()` i un `write()` (docs/30), o sigui que un senyal diria «escrit» cada cop que la pàgina és la mateixa que la del
+  disc. El número és el que són els bytes.
+- **Per què també el `stat`**: un fitxer esborrat amb `sessions destroy`, o una targeta que ha canviat, no es pot confondre
+  amb un desament fet. Un `stat` costa molt menys que una pàgina de programa (0,7 ms) i el que compra és que «ja hi és»
+  sigui cert.
+- **Quant costa mirar**: una kilobyte són uns microsegons i els trenta-dos kilobytes del llançador menys d'un mil·lisegon,
+  contra els **11,2 ms** d'una pàgina de programa i els **45 000** del sector que s'esborra (docs/95). Mesurat a l'emulador:
+  el segon tancament d'una app diu `0 session block(s) written, 1 already there`.
+- **El que un xoc de la petjada costaria**: un desament que no es fa sobre uns bytes que no són els del bloc —un entre
+  quatre mil milions—, o sigui una caché o una pàgina que es queda com era mitja passa enrere, i el desament següent ho
+  arregla. El que no pot passar mai és perdre un canvi per haver escrit de més, que és el que passava abans.
+
+I els dos números van separats a la línia (`Parked{written, unchanged}`) perquè **«no he escrit res» i «no hi havia res a
+escriure» es llegeixen diferent en un registre**, i un `0 of 3` es llegiria com un fracàs.
 
 **I el relleu té dos passos**, que és el que va demanar l'amo: les cachés de les apps que **no** són al vidre primer, i la
 de l'app que hi és només si la primera passada no cobreix la petició. Mesurat: amb un bloc de 1 024 B de l'app de davant i

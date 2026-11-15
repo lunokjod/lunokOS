@@ -34,6 +34,8 @@
 -- **IT IS NOT AN APP OF PROVA**: it draws its own icon, because it is an app a person runs to look at the board
 -- (docs/40).
 
+-- **AQUESTA APP NO TÉ PÀGINA NI SESSIÓ `state`** (0.189.52, docs/30): it has no `ui` at all —the lights of the board are the
+-- whole face of the boards it runs on—, so there is no view to leave anywhere and nothing a person could come back to.
 local caps = led.caps()
 if caps.count == 0 then
   console.print('rainbow: this board has no light')

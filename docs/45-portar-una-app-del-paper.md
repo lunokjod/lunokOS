@@ -182,20 +182,35 @@ llista de què s'hi ha de mapejar en portar una app:
 I queda dit com a norma: **cada cop que es toca el codi d'una app es repassa aquesta sessió** —que desi on toca, que
 llegeixi amb el valor acotat, i que `kLayout` pugi si algun control ha canviat de nom.
 
-**Què queda pendent, dit aquí perquè no es torni a perdre** (comprovat el 0.189.13): cap app no té encara la sessió
-`state` escrita —0.189.12 la va deixar com a contracte i el llançador només fa servir `sys.session` per a la caché de les
-icones (`'apps'`) i per al recompte d'usos (`'usage'`), cap de les dues `state`—. La primera que la necessita és el
-llançador, perquè **és la pàgina que torna cada cop que una app s'acaba**, i el que hi ha de recordar és la cel·la amb el
-cercle (per l'**id de l'app**, que és el nom del control). Fer-ho demana un `on_focus` per cel·la que desi l'id, i això
-toca el disseny del focus que va fixar la 0.179.4 —«la pàgina segueix el dial i el grid escriu el cursor ell mateix», que
-és el que va treure el paginador de l'app—, o sigui que es fa amb l'emulador a la mà i no a cegues.
+**Quin full hi ha de mapejar què, i quins no hi han de mapejar res** (repàs complet, 0.189.52): la sessió `state` la tenen
+avui **onze de les quinze apps** del disc, i les que no la tenen és una decisió dita al fitxer i no un oblit.
+
+| App | Què va a `state` |
+|---|---|
+| `home_eink` | `focus` = l'**id de l'app** de la cel·la amb el cercle (i amb ell la pàgina de la graella) |
+| `about` | `page` del llistat, `focus` = el **nom de la llibreria** amb el cercle i `marked` = la llibreria amb el detall obert |
+| `fonts` | `page`, `focus` (el fitxer amb el cercle) i `marked` (l'exemplar obert) |
+| `shell` | `tabs`, `tab` i `text:t<n>`/`text:l<n>` (el títol i les últimes línies de cada pestanya) |
+| `timeclock` | `page` (el dia o la setmana) i `marked` (la marca amb la nota oberta) |
+| `splash` | `page` del llistat i `focus` = el **nom del moment** amb el cercle |
+| `tz` | `focus` = quin dels tres controls del sistema tenia el cercle (els valors són preferències i viuen a `/cfg`) |
+| `life` | `page` (el tauler o els ajustos) i `focus` (el control amb el cercle); les dues preferències són a `fs.data` |
+| `editor` | `scroll` (la primera fila visible) i `focus`; **el document no hi és**, que és dada amb el seu fitxer |
+| `reader` | `focus` = el **camí del llibre** amb el cercle al prestatge; la posició dins del llibre ja és al seu fitxer |
+| `wipe` | `focus` = la porta amb el cercle; **mai la targeta d'una pregunta** |
+| `calculator`, `luaperf`, `2048`, `rainbow` | **res**: no tenen cap control amb cercle ni cap pàgina que tornar (els números d'una calculadora són el que la persona fa ara, les setze cel·les del 2048 són la partida i `rainbow` no té ni `ui`). Un bloc buit seria un kilobyte per no dir res |
+
+**I el que va fer possible que totes aquestes tornessin de debò** (0.189.52): el bloc es llegia amb els zeros del darrere
+—`read(0, 1024)` torna els mil vint-i-quatre bytes i el que s'hi ha escrit és més curt—, o sigui que l'última línia no
+valia res: `tonumber` en treu `nil` i un nom deixa de ser el nom. El tros que talla el text a la primera marca de zero és
+ara part del codi que es copia (docs/30), i per això `fonts` i `shell` també tornen on toca.
 
 **La primera que l'ha estrenada és la galeria de tipus de lletra** (0.189.27): `fonts` desa `page` (la pàgina del
 prestatge), `focus` (la fila amb el cercle, **pel nom del fitxer**) i `marked` (la fila **amb el seu exemplar obert**, que
 la llista pinta amb la seva pròpia marca), llegeix el bloc **abans de col·locar res** i acota el que hi troba —una pàgina
 que ja no existeix, un nom que ja no és a la porta—, desa a cada canvi de forma (girar la pàgina, obrir un exemplar,
 tornar-ne) i a `on_pause`, `on_save` i `on_close`, i **obre l'exemplar que la persona tenia al vidre** quan torna. És la
-referència per a la resta, i el que el llançador haurà de fer amb la cel·la del cercle és el mateix dibuix.
+referència per a la resta, i el llançador fa el mateix dibuix amb la cel·la del cercle des de la 0.189.52.
 
 **I el terminal del sistema la segueix** (0.189.29): `apps/shell` desa `tabs`, `tab` i un `text:t<n>`/`text:l<n>` per
 pestanya —el títol i **les últimes línies** del terminal—, o sigui que una pàgina que és text hi posa text i no només
@@ -207,6 +222,12 @@ amb la nota oberta—, els llegeix abans de construir res, els acota amb `tonumb
 una fila, en posar una marca i a les tres portes del comiat. **No hi ha cap preferència a dins**: les marques són dada de
 l'app i viuen a `/data/timeclock/marks.txt`, i l'hora i la bateria no hi són. És una app que es tanca des del full de la
 setmana i torna al full de la setmana, que és exactament el que la norma demana d'una pàgina de dues cares.
+
+**I el llançador, que és la pàgina que més torna** (0.189.52): `home_eink` desa `focus` = l'id de l'app de la cel·la amb el
+cercle, i amb això la graella torna també al full que la persona mirava —la pàgina d'una graella és la del seu `index`—.
+El cercle el mou el sistema (0.179.4), o sigui que el llançador no té cap `on_focus` per cel·la: **el torn del bucle és
+l'únic lloc que sap on és el dial**, i compara `grid.index` amb el que ja ha desat abans de copiar-lo al bloc. Un id que el
+disc ja no té és la primera cel·la, que és el que fa una pàgina sense record.
 
 ## 6 · Les proves, i la versió de l'app
 

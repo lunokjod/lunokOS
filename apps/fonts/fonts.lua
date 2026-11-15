@@ -455,6 +455,11 @@ local function load_state()
   local block = the_state()
   if block == nil then return nil end
   local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt** (0.189.52): el que hi ha darrere és
+  -- el zero amb què el nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu
+  -- `nil` i un nom deixa de ser el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
   local now = { check = {}, text = {} }
   local first = true
   for line in body:gmatch('[^\n]+') do

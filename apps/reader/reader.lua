@@ -321,6 +321,7 @@ end
 local function give_back()
   release_page()
   release_index()
+  shelf_grid = nil
   chapter_list = {}
   toc = {}
   pages = {}
@@ -703,6 +704,85 @@ end
 
 -- **The shelf, and the sentence of what went wrong when there is one** (0.140.0, docs/46 C12): the notice is put after the
 -- shelf is on the glass, so it is the last thing the person sees and the first thing they can touch.
+-- ============================================================== the shape of the view (`state`, docs/30)
+
+-- **EL LLIBRE QUE TÉ EL CERCLE AL PRESTATGE TORNA AMB L'APP (0.189.52, la norma de la sessió `state` de docs/30 i docs/45 §5 bis): `focus` és el camí del llibre amb el cercle —el nom de la cel·la de la graella— i `page` la pàgina del prestatge. **La pàgina on era dins del llibre no hi és**: és un capítol i un byte i ja viu al fitxer de posicions de l'app (docs/46, C6 i C7), i el llibre obert tampoc, que és el document i és dada (docs/30).**
+--
+-- **El codi és el mateix de totes les apps i es copia sencer** (docs/30): a format que només llegeix aquest fitxer és un
+-- format que no llegeix ningú.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt**: el que hi ha darrere és el zero amb què el
+  -- nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu `nil` i un nom deixa de ser
+  -- el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
+-- **La forma del prestatge**: el camí del llibre amb el cercle i la pàgina on és la graella.
+local shape = { focus = nil, page = 1 }
+local shelf_grid = nil
+
 function show_shelf(why)
   give_back()
   if book ~= nil then
@@ -747,6 +827,15 @@ function show_shelf(why)
   grid.items = items
   grid.columns = 2
   grid.scale = 3
+  -- **El cercle torna al llibre que la persona tenia** (0.189.52, docs/30): the name of the cell is the **path** of the book
+  -- and not its number, because a book that is put on the card or taken away moves every number after it. A path that the
+  -- shelf does not have any more is not a ring: the grid starts on its first cell.
+  if shape.focus ~= nil then
+    for i = 1, #books do
+      if books[i].path == shape.focus then grid.index = i end
+    end
+  end
+  shelf_grid = grid
   grid:place(20, 20)
   grid.on_pick = function(self, index)
     -- **A book is not opened from here** (docs/46, C8): the loading page goes up in this turn and the book opens in the
@@ -1200,12 +1289,28 @@ end)
 
 -- The book of the manifest, when the shell opened one with `open`: the app starts on its page and not on the shelf
 -- (docs/46, B10). It opens through the loading page like a book picked on the shelf (docs/46, C8).
+-- **I el cercle del prestatge que la persona hi va deixar** (0.189.52, docs/30): the shape is read before the shelf is
+-- built, and a path that the disk does not have any more is not a ring —the shelf clamps it to its first cell—.
+local was = load_state()
+if was ~= nil then
+  if was.focus ~= nil and was.focus ~= '' then shape.focus = was.focus end
+  local page = tonumber(was.page)
+  if page ~= nil and page >= 1 then shape.page = math.floor(page) end
+end
+
 local opened = app.args and app.args.path
 if opened ~= nil and opened ~= '' then
   ask_for({ path = opened, title = opened:match('([^/]+)%.epub$') or opened })
 else
   show_shelf()
 end
+
+-- **Les tres portes del comiat** (docs/30, docs/40): the ring of the shelf is saved here as well, because an app does not
+-- always see the end coming —a raise, the ESC, a `poweroff`—. The position inside a book is the app's own file and it is
+-- written when a page turns.
+function on_pause() save_state(shape) end
+function on_save() save_state(shape) end
+function on_close() save_state(shape) end
 
 while true do
   -- **The book asked for in the turn before opens in this one** (docs/46, C8): the loading page was presented on the
@@ -1221,6 +1326,16 @@ while true do
   if notice.gone() then
     notice.release()
     ui.present()
+  end
+
+  -- **On és el cercle del prestatge, desat quan es mou** (0.189.52, docs/30): a grid of `items` moves its own cursor and
+  -- tells nobody, so the one place that knows is this turn, and the copy to the block is a kilobyte in the PSRAM.
+  if shelf_grid ~= nil and #books > 0 then
+    local at = shelf_grid.index
+    if at ~= nil and at >= 1 and at <= #books and books[at].path ~= shape.focus then
+      shape.focus = books[at].path
+      save_state(shape)
+    end
   end
 
   on_gesture()

@@ -105,10 +105,88 @@ end
 
 -- ------------------------------------------------------------------ the two screens
 
+-- ============================================================== the shape of the view (`state`, docs/30)
+
+-- **LA PÀGINA I LA FILA AMB EL CERCLE TORNEN COM LES VA DEIXAR LA PERSONA (0.189.52, la norma de la sessió `state` de docs/30 i docs/45 §5 bis): the page of the list of moments (`page`) and the row with the ring, **pel nom del moment** i no pel número de la fila. El dibuix que és al vidre no hi és: una pàgina que es tanca mentre un splash és al vidre torna al llistat, que és el seu estat natural.**
+--
+-- **El codi és el mateix de totes les apps i es copia sencer** (docs/30): a format que només llegeix aquest fitxer és un
+-- format que no llegeix ningú.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt**: el que hi ha darrere és el zero amb què el
+  -- nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu `nil` i un nom deixa de ser
+  -- el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
 local screen = nil
 -- The page is built by a function of its own, declared here and written below, because the way back from a picture calls
 -- it and Lua only knows a local that has already been named (docs/30).
 local build
+
+-- **La forma d'aquesta pàgina**: la pàgina del llistat i la fila amb el cercle.
+local shape = { page = 1, focus = nil }
 
 local function give_back()
   if screen ~= nil then
@@ -173,6 +251,7 @@ build = function()
     page:add(the_list)
 
     local first = nil
+    local rows = {}
     for i = 1, #words do
       local entry = ui.list_entry(view.width - 2 * kMargin, kRow)
       if entry ~= nil then
@@ -182,13 +261,35 @@ build = function()
           entry:add(name)
         end
         entry.on_click = function() show(i) end
+        -- **El cercle diu quin moment mira la persona** (0.189.52, docs/30): the row takes the ring as the dial walks and
+        -- the block keeps the **word** of the moment and not the number of the row.
+        entry.on_focus = function(self, on)
+          if not on then return end
+          shape.focus = words[i]
+          save_state(shape)
+        end
         the_list:add(entry)
+        rows[i] = entry
         if i == 1 then first = entry end
       end
     end
     -- The ring is on the first row, so the middle key opens something: the list takes the dial when it is built and the
-    -- rows are its stops (docs/30).
-    if first ~= nil then ui.focus(first) end
+    -- rows are its stops (docs/30). **I si la persona tenia una altra pàgina o una altra fila, és allà on torna**: the page
+    -- is put on the list once the rows are in —a list counts its pages from its rows and its box— and a word that this
+    -- build does not carry any more is not a ring, it is the first row.
+    if shape.page > 1 then the_list.page = shape.page end
+    local wanted = nil
+    for i = 1, #words do
+      if shape.focus ~= nil and words[i] == shape.focus then wanted = rows[i] end
+    end
+    if wanted ~= nil then ui.focus(wanted) elseif first ~= nil then ui.focus(first) end
+    shape.page = the_list.page
+    save_state(shape)
+    -- **La pàgina és del control** (0.179.4): a swipe or a key turns it and the list says so.
+    the_list.on_page = function(self, page)
+      shape.page = page
+      save_state(shape)
+    end
     local box = the_list:caps()
     console.print(string.format('splash: %d rows in a list of %d px', #words, box.height))
   end
@@ -205,7 +306,22 @@ end
 
 console.print(string.format('splash: %d moments on lunokOS %s', #words, sys.version))
 
+-- **La forma que la persona va deixar, llegida abans de col·locar res** (0.189.52, docs/30): a number that is not a number
+-- and a word that this build does not carry are dropped here, and the page clamps them again.
+local was = load_state()
+if was ~= nil then
+  local page = tonumber(was.page)
+  if page ~= nil and page >= 1 then shape.page = math.floor(page) end
+  if was.focus ~= nil and was.focus ~= '' then shape.focus = was.focus end
+end
+
 build()
+
+-- **Les tres portes del comiat** (docs/30, docs/40): the shape is saved here as well, because an app does not always see the
+-- end coming —a raise, the ESC, a `poweroff`— and a page that is only written when it changes loses the last change.
+function on_pause() save_state(shape) end
+function on_save() save_state(shape) end
+function on_close() save_state(shape) end
 
 -- **The page is the tree's and the finger is the system's**: what this loop has to do is keep the kernel turning and, while
 -- a picture is on the glass, hear the tap that gives the page back. A present with nothing new draws nothing, which is why

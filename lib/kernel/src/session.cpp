@@ -27,6 +27,11 @@ struct Block {
   char key[kNameBytes];
   void* bytes = nullptr;
   size_t size = 0;
+  // **La petjada dels bytes que el disc té d'aquest bloc** (0.189.53): the number of what was read from the file —or of the
+  // zeros, when the file is not there— and of what was last written. A park whose bytes have this same number is a park
+  // that has nothing to do, and the flash is the thing a session would wear out (l'amo: *«Si es el mateix bloc, no cal
+  // gravar-lo, només farem malbé abans la flash»*, docs/30, docs/75).
+  uint32_t seen = 0;
 };
 
 // **The node of a block lives in the board's own RAM and the bytes it names live where the app's memory lives**: 48 bytes
@@ -35,6 +40,25 @@ struct Block {
 Block* g_blocks = nullptr;
 uint32_t g_held = 0;
 uint32_t g_generation = 1;
+
+// **Una petjada dels bytes del bloc, i prou** (0.189.53): FNV-1a of 32 bits over what the block holds, which is a
+// multiplication and an exclusive-or a byte —a kilobyte is a few microseconds and a thirty-two-kilobyte cache of the
+// launcher is less than a millisecond— against the eleven of a page program and the forty-five thousand of the sector an
+// erase costs (docs/75, docs/95). **I per què una petjada i no un senyal de «algú ha escrit»**: every app of this system
+// saves its shape with a `clear()` and a `write()` (docs/30), so a flag would say "written" every time even when the page
+// is the one the disk has. The number is what the bytes are, and two writes that end in the same bytes end in the same
+// number. What a collision would cost is one park that is not made over bytes that are not the block's —one in four
+// thousand million—, and the thing it would keep is a cache or a page that is already stale by a hair, which the next park
+// fixes.
+uint32_t hash_of(const void* bytes, size_t size) {
+  const uint8_t* it = static_cast<const uint8_t*>(bytes);
+  uint32_t hash = 2166136261u;  // the offset basis of FNV-1a
+  for (size_t i = 0; i < size; ++i) {
+    hash ^= it[i];
+    hash *= 16777619u;  // the prime of FNV-1a
+  }
+  return hash;
+}
 
 // **A name is copied and cut**: the app is the id of a folder and the key is a word of the app's, and neither is a
 // pointer into an interpreter that dies (docs/30).
@@ -134,6 +158,40 @@ bool write_block(const char* app, const char* key, const void* bytes, size_t siz
   log_printf(ok ? pal::kLogInfo : pal::kLogWarn, "MEMORY", "%s parks '%s': %u B to %s in %d ms (%s)", app, key,
              static_cast<unsigned>(size), path, static_cast<int>(pal::system().millis() - started), why);
   return ok;
+}
+
+// The size of the file of a session, which is written below with the reader: a park asks it before it decides that it has
+// nothing to do (0.189.53).
+size_t disk_size(const char* app, const char* key);
+
+// **UN BLOC QUE NO HA CANVIAT NO ES TORNA A ESCRIURE** (0.189.53, l'amo: *«quan l'app intenta guardar l'status fent un park a
+// la sessió… Si es el mateix bloc, no cal gravar-lo, només farem malbé abans la flash»*): a park is asked for four ways of
+// the system —the app has ended (every close!), the board is going down, the memory is short, the app gives the block
+// back— and until now all four wrote the file whether or not a byte of it had moved. An app that saves its shape on every
+// focus change and closes without touching anything (every launcher, every time an app ends) was writing the same kilobyte
+// to the disk over and over.
+//
+// **The question is answered by the bytes and not by a flag**: a flag raised from `l_session_write` would say «algú ha
+// escrit» even when the app wrote back the very same text, which is exactly what a `clear()` and a `write()` of the shape
+// do (docs/30) — the number is what the bytes are.
+//
+// **I el disc ha de tenir el fitxer, no només els mateixos bytes al cap** (0.189.53): a `stat` is asked before the skip,
+// perquè un fitxer esborrat amb `sessions destroy` o una targeta que ha canviat no es pot confondre amb un desament fet.
+// Un `stat` costa molt menys que una pàgina i el que compra és que «ja hi és» sigui cert.
+//
+// `wrote` is what the caller counts: `false` is «el disc ja els tenia» and it is not a failure (docs/30, docs/75).
+bool park_block(Block& block, const char* why, bool& wrote) {
+  wrote = false;
+  const uint32_t now = hash_of(block.bytes, block.size);
+  if (now == block.seen && disk_size(block.app, block.key) == block.size) {
+    log_printf(pal::kLogInfo, "MEMORY", "%s does not park '%s': the %u B on the disk are the ones it has (%s)", block.app,
+               block.key, static_cast<unsigned>(block.size), why);
+    return true;
+  }
+  if (!write_block(block.app, block.key, block.bytes, block.size, why)) return false;
+  block.seen = now;
+  wrote = true;
+  return true;
 }
 
 // **And back**: what the card holds of a session, into a block the caller has already made. A file bigger than the block
@@ -382,6 +440,9 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
   copy_name(block.key, wanted_key);
   block.bytes = made;
   block.size = want;
+  // **El que el disc té d'aquest bloc, comptat ara** (0.189.53): the bytes just restored, or the zeros when there was no
+  // file, are the state the disk is in —and the first park compares against them—.
+  block.seen = hash_of(made, want);
   if (restored > 0) {
     log_printf(pal::kLogInfo, "MEMORY", "%s asks for '%s': %u B, restored %u B from the disk", wanted_app,
                wanted_key, static_cast<unsigned>(want), static_cast<unsigned>(restored));
@@ -402,7 +463,8 @@ bool release(const char* app, const char* key) {
   // session memory explainable —this one is the app's choice, the one below is the allocator's— (docs/75).
   // **I ABANS DE DONAR-LO, EL QUE HI HA VA AL DISC** (0.189.7): a block that an app lets go is a cache the app asked for
   // and did not throw away, and the point of the card is that the next run of the app finds it (docs/30, docs/75).
-  write_block(block.app, block.key, block.bytes, block.size, "the app gave it back");
+  bool wrote = false;
+  park_block(block, "the app gave it back", wrote);
   log_printf(pal::kLogInfo, "MEMORY", "%s gives back '%s': %u B", block.app, block.key,
              static_cast<unsigned>(block.size));
   pal::extra_memory().release(block.bytes);
@@ -442,7 +504,8 @@ void relieve(const char* current, void* keep, size_t asked) {
       link = &block->next;
       continue;
     }
-    write_block(block->app, block->key, block->bytes, block->size, "the memory is short, another app's cache");
+    bool wrote = false;
+    park_block(*block, "the memory is short, another app's cache", wrote);
     log_printf(pal::kLogInfo, "MEMORY", "%s gives back '%s': %u B, the memory is short", block->app, block->key,
                static_cast<unsigned>(block->size));
     freed_others += block->size;
@@ -473,8 +536,8 @@ void relieve(const char* current, void* keep, size_t asked) {
         link = &block->next;
         continue;
       }
-      write_block(block->app, block->key, block->bytes, block->size,
-                  "the memory is short, the app in front's own cache");
+      bool mine_wrote = false;
+      park_block(*block, "the memory is short, the app in front's own cache", mine_wrote);
       log_printf(pal::kLogWarn, "MEMORY", "%s gives back '%s': %u B, its own cache, the memory is short", block->app,
                  block->key, static_cast<unsigned>(block->size));
       freed_mine += block->size;
@@ -608,42 +671,58 @@ size_t copy(const char* app, const char* key, char* out, size_t cap) {
 // the cache that app built is the one a person expects to find when they open it again —after a restart too—. The block
 // **stays in the memory**: giving it back is the allocator's business and it does it when it is short, writing it first
 // (docs/30, docs/75).
-uint32_t flush(const char* app) {
-  if (app == nullptr || app[0] == '\0') return 0;
+Parked flush(const char* app) {
+  Parked done;
+  if (app == nullptr || app[0] == '\0') return done;
   char wanted[kNameBytes];
   copy_name(wanted, app);
-  uint32_t written = 0;
-  for (const Block* block = g_blocks; block != nullptr; block = block->next) {
+  for (Block* block = g_blocks; block != nullptr; block = block->next) {
     if (strcmp(block->app, wanted) != 0) continue;
-    if (write_block(block->app, block->key, block->bytes, block->size, "the app has ended")) {
-      ++written;
+    bool wrote = false;
+    if (!park_block(*block, "the app has ended", wrote)) continue;
+    if (wrote) {
+      ++done.written;
+    } else {
+      ++done.unchanged;
     }
   }
-  return written;
+  return done;
 }
 
 // **Abans d'apagar o de reiniciar, tot el que hi ha a la memòria va al disc** (0.189.11): a board that is switched off
 // loses the PSRAM and keeps the card, so this is the last thing the system does with a session. A block stays where it is
 // —the run is over— and the log says one line per block with **who, under which key, how many bytes and the path of the
 // VFS**, which is what a person needs to know that the cache of their launcher will be there tomorrow (docs/30, docs/75).
-uint32_t park_all(const char* why) {
+Parked park_all(const char* why) {
   const char* reason = (why != nullptr && why[0] != '\0') ? why : "the board is going down";
-  uint32_t written = 0;
+  Parked done;
   uint32_t held = 0;
+  uint32_t failed = 0;
   size_t bytes = 0;
-  for (const Block* block = g_blocks; block != nullptr; block = block->next) {
+  for (Block* block = g_blocks; block != nullptr; block = block->next) {
     ++held;
     bytes += block->size;
-    if (write_block(block->app, block->key, block->bytes, block->size, reason)) ++written;
+    bool wrote = false;
+    if (!park_block(*block, reason, wrote)) {
+      ++failed;
+    } else if (wrote) {
+      ++done.written;
+    } else {
+      ++done.unchanged;
+    }
   }
   if (held > 0) {
-    log_printf(written == held ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
-               "sessions parked (%s): %u of %u block(s), %u B, at %s", reason, static_cast<unsigned>(written),
-               static_cast<unsigned>(held), static_cast<unsigned>(bytes), kDoor);
+    // **I la línia diu les dues coses** (0.189.53): «2 of 3» was a lie that read as a failure —the blocks whose bytes the disk
+    // already had are not written and are not lost, and a person who reads the log of a poweroff has to be able to tell one
+    // from the other (docs/30, docs/75).
+    log_printf((failed == 0) ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
+               "sessions parked (%s): %u written, %u already there, %u B in %u block(s), at %s", reason,
+               static_cast<unsigned>(done.written), static_cast<unsigned>(done.unchanged),
+               static_cast<unsigned>(bytes), static_cast<unsigned>(held), kDoor);
   } else {
     log_printf(pal::kLogInfo, "MEMORY", "sessions parked (%s): the memory held none", reason);
   }
-  return written;
+  return done;
 }
 
 // **El que s'ha escrit, comptat** (0.189.18): `park_all` says how many writes it made and this asks the disk whether they

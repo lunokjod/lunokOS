@@ -1,7 +1,7 @@
 {
   "title": "Rainbow",
   "author": "@lunokjod",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "entry": "rainbow.lua",
   "boards": ["m5stack-atom", "m5stack-atom-matrix"],
   "icon": "res/icon.png",

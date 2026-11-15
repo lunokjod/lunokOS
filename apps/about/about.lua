@@ -171,6 +171,96 @@ local show -- the detail, which the cover's rows call
 local back -- the cover again, which the detail's button calls
 local build_cover
 
+-- ============================================================== the shape of the view (`state`, docs/30)
+
+-- **EL FULL DEL LLISTAT I LA LLIBRERIA OBERTA TORNEN COM ELS VA DEIXAR LA PERSONA** (0.189.52, la norma de la sessió `state`
+-- de docs/30 i docs/45 §5 bis): the page of the list (`page`), the row with the ring (`focus`, **pel nom de la llibreria** i
+-- no pel número de la fila, que es mou quan una llibreria entra o surt) and the library whose detail is on the glass
+-- (`marked`). The catalogue of `res/libs.txt` is not here: it is the file's, and a page that remembered it would be a second
+-- truth (docs/30).
+--
+-- **El codi és el mateix de totes les apps i es copia sencer** (docs/30): a format that only this file reads is a format
+-- nobody reads.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt**: el que hi ha darrere és el zero amb què el
+  -- nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu `nil` i un nom deixa de ser
+  -- el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
+-- **La forma d'aquestes dues pantalles**: the page of the list, the row with the ring and the detail that is open.
+local shape = { page = 1, focus = nil, marked = nil }
+
+-- The index of a library by its **name**, which is what the block keeps: `0` when the file no longer has it.
+local function index_of(name)
+  for i = 1, #libs do
+    if libs[i].name == name then return i end
+  end
+  return 0
+end
+
 -- **The screen that is on the page is given back, fills and all** (docs/30, docs/90): `release()` marks the
 -- control and its fills, and the system takes the buffers when the page has been painted over.
 local function give_back()
@@ -215,6 +305,13 @@ local function add_entry(the_list, library, index)
   end
 
   entry.on_click = function() show(index) end
+  -- **El cercle diu quina fila mira la persona** (docs/30): the row takes the ring as the dial walks and the block keeps its
+  -- **name** and not its number, because a library that is installed or removed moves every row under it.
+  entry.on_focus = function(self, on)
+    if not on then return end
+    shape.focus = library.name
+    save_state(shape)
+  end
   the_list:add(entry)
   console.print(string.format('about: row %s %s', library.name, library.version))
   return entry
@@ -255,14 +352,33 @@ build_cover = function()
     the_list.row_height = kRow
     page_control:add(the_list)
     local first = nil
+    local rows = {}
     for i = 1, #libs do
       local entry = add_entry(the_list, libs[i], i)
+      rows[i] = entry
       if i == 1 then first = entry end
     end
     -- **The ring is on the first row** (0.169.2): the list takes the dial when it is built, and the rows are the stops, so
     -- the page has to say which one the middle key would open —the same call the launcher makes for its first cell—.
+    -- **I si la persona tenia una altra fila o una altra pàgina, és allà on torna** (0.189.52, docs/30): the page is put on
+    -- the list once the rows are in —a list counts its pages from its rows and its box— and both numbers are **clamped**: a
+    -- page that is not there any more and a name that is not in the file are not a ring, they are the first row.
+    if shape.page > 1 then the_list.page = shape.page end
+    local wanted = nil
+    for i = 1, #libs do
+      if shape.focus ~= nil and libs[i].name == shape.focus then wanted = rows[i] end
+    end
+    if wanted ~= nil then ui.focus(wanted) elseif first ~= nil then ui.focus(first) end
+    -- **I el que ha quedat és el que es desa**: el sistema pot haver acotat la pàgina a les que hi ha avui.
+    shape.page = the_list.page
+    save_state(shape)
+    -- **La pàgina és del control** (0.179.4): a swipe or a key turns it and the list says so, so this file does not read a
+    -- gesture to know where it is — and turning it is a change of the view, which is a kilobyte copied to the PSRAM.
+    the_list.on_page = function(self, page)
+      shape.page = page
+      save_state(shape)
+    end
     -- Without it the centre pressed the list and the page could only be opened with a finger (found by test_apps, 9/11).
-    if first ~= nil then ui.focus(first) end
     -- **The room is the panel's**, so what the page says is the box the list has now and not a number it asked for: a case
     -- reads this line to know the page was made whole (docs/85).
     local box = the_list:caps()
@@ -307,6 +423,11 @@ show = function(index)
 
   give_back()
 
+  -- **La llibreria oberta és part de la forma** (0.189.52, docs/30): the detail is a view of its own on top of the cover, and
+  -- a person who closes the app on it comes back to it. The name and not the number, as everywhere else (docs/45 §5 bis).
+  shape.marked = library.name
+  save_state(shape)
+
   -- The page is washed before the detail is built, the same as the cover (docs/30, docs/50): the clear says what is white
   -- and the present at the end says the quality, which is the system's (0.179.5).
   ui.clear(15)
@@ -350,6 +471,11 @@ back = function()
   give_back()
   app.view_pop()
   console.print('about: back')
+  -- **Tornar del detall deixa el cercle a la fila que s'ha tancat i cap detall obert** (docs/30): a person who comes back to
+  -- the cover has the row they were reading under the dial, and coming back to the first row is looking for it again.
+  shape.focus = shape.marked
+  shape.marked = nil
+  save_state(shape)
   build_cover()
 end
 
@@ -358,12 +484,27 @@ end
 function on_back(depth)
   give_back()
   console.print(string.format('about: back by the gesture, %d views left', depth))
+  -- **El pessic deixa la pàgina com la deixa el botó** (docs/30): the ring on the row that was closed and no detail open.
+  shape.focus = shape.marked or shape.focus
+  shape.marked = nil
+  save_state(shape)
   build_cover()
 end
 
 -- --------------------------------------------------------------------- the app
 
 read_libraries()
+
+-- **La forma que la persona va deixar, llegida abans de col·locar res** (0.189.52, docs/30): the page, the row with the ring
+-- and the library whose detail was on the glass. A number that is not a number and a name that is not in the file are
+-- dropped here —the page clamps them again— so a state of another version is nothing at all.
+local was = load_state()
+if was ~= nil then
+  local page = tonumber(was.page)
+  if page ~= nil and page >= 1 then shape.page = math.floor(page) end
+  if was.focus ~= nil and was.focus ~= '' then shape.focus = was.focus end
+  if was.marked ~= nil and was.marked ~= '' then shape.marked = was.marked end
+end
 
 -- **The two lines of the head and the list are the panel's**, and the panel splits what is left with `weight` (0.174.3):
 -- the count of the lines the title takes and the room it leaves were the arithmetic of 0.166.0, when the app had to size the
@@ -378,6 +519,21 @@ else
 end
 
 build_cover()
+
+-- **I si la persona tenia un detall obert, és el que torna** (0.189.52, docs/30, docs/45 §5 bis): the same road a finger
+-- takes, and a name that the file does not have any more opens nothing at all —the cover stays, which is its state with no
+-- detail—.
+local wanted_at = (shape.marked ~= nil) and index_of(shape.marked) or 0
+if wanted_at > 0 then
+  console.print('about: came back to ' .. shape.marked)
+  show(wanted_at)
+end
+
+-- **Les tres portes del comiat** (docs/30, docs/40): the shape is saved here as well, because an app does not always see the
+-- end coming —a raise, the ESC, a `poweroff`— and a page that is only written when it changes loses the last change.
+function on_pause() save_state(shape) end
+function on_save() save_state(shape) end
+function on_close() save_state(shape) end
 
 -- The page is a tree of controls and the finger, the dial and the keys are the system's: what this loop has to
 -- do is keep the kernel turning and offer the page again when something of it has changed. A present with

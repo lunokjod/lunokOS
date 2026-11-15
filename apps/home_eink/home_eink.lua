@@ -364,6 +364,87 @@ local function bump_usage(id)
   save_usage()
 end
 
+-- ------------------------------------------------------------------ the shape of the page (`state`, docs/30)
+
+-- **ON ÉS EL CERCLE, I ÉS L'ÚNICA COSA QUE AQUESTA PÀGINA HA DE RECORDAR** (0.189.52, docs/30 i docs/45 §5 bis): the cell with
+-- the ring is the page the grid is on and the cell the middle key would open, so a launcher that comes back to its first cell
+-- is a person looking for the app they had under the dial. The name of the control is the **id of the app** and not the
+-- number of the cell, because the number moves when an app is installed or removed and the id does not (docs/30).
+--
+-- **The code is the same as in every app and it is copied whole** (docs/30): a format that only this file reads is a format
+-- nobody reads.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt** (0.189.52): el que hi ha darrere és
+  -- el zero amb què el nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu
+  -- `nil` i un nom deixa de ser el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
+-- **La cel·la amb el cercle**, que el dibuix llegeix i el torn desa (docs/30).
+local focus_id = nil
+
 -- ------------------------------------------------------------------ the page
 
 local function give_back()
@@ -614,8 +695,22 @@ local function build()
   -- first press of the middle key, which is the one a person makes. **The cells are the stops and the grid is not**
   -- (0.156.1): a grid that holds the app's cells is a box, and the walk of the dial goes from the last cell to the first
   -- one round the controls that are on the glass.
-  if ids[1] ~= nil and cells[ids[1]] ~= nil then
-    ui.focus(cells[ids[1]].cell)
+  --
+  -- **I si la persona tenia el cercle en una cel·la, és allà on torna** (0.189.52, la sessió `state` de docs/30): la pàgina de
+  -- la graella és la del seu `index`, o sigui que tornar el cercle a l'app que es mirava és tornar també el full que es veia.
+  -- Un id que ja no és al disc no és cap cercle: la primera cel·la, que és el que faria una app sense record.
+  local start = 1
+  if focus_id ~= nil then
+    for i = 1, #ids do
+      if ids[i] == focus_id then
+        start = i
+        break
+      end
+    end
+  end
+  grid.index = start
+  if ids[start] ~= nil and cells[ids[start]] ~= nil then
+    ui.focus(cells[ids[start]].cell)
   end
 
   -- **What this page can say of itself**: the cells it holds. The page and how many there are is the grid's to say, at
@@ -890,6 +985,11 @@ end
 local page_w = 0
 local page_h = 0
 
+-- **El cercle que la persona tenia, llegit abans de col·locar res** (0.189.52, docs/30): `focus_id` no s'acota aquí perquè
+-- qui sap quines apps hi ha avui és el `build`, que és qui col·loca les cel·les.
+local shape = load_state()
+if shape ~= nil and shape.focus ~= nil and shape.focus ~= '' then focus_id = shape.focus end
+
 build()
 page_w = view.width
 page_h = view.height
@@ -940,6 +1040,16 @@ function on_event(ev)
                               tonumber(ev.generation) or 0))
   apps_changed = true
 end
+
+-- **Les tres portes del comiat** (docs/30, docs/40): the cell with the ring is saved here as well, because an app does not
+-- always see the end coming —a raise, the ESC, a `poweroff`— and this launcher is closed by every app that ends.
+local function keep_the_ring()
+  return save_state({ focus = focus_id })
+end
+
+function on_pause() keep_the_ring() end
+function on_save() keep_the_ring() end
+function on_close() keep_the_ring() end
 
 while true do
   local painted = false
@@ -1011,6 +1121,17 @@ while true do
     -- whole grid —ten flashes for ten cells— and a cell is what changed, so the system paints the box the cell left and
     -- cleans it without the flash (docs/50).
     ui.present()
+  end
+  -- **On és el cercle, desat quan es mou** (0.189.52, docs/30): the grid writes `index` itself —this file has no `on_focus`—
+  -- so the one place that knows where the dial went is this line, and the copy to the block is a kilobyte in the PSRAM and
+  -- not a write to the disk. A page that came back with a ring on another cell than the one the person left would be a page
+  -- that lied about what the middle key does.
+  if grid ~= nil and #ids > 0 then
+    local at = grid.index
+    if at ~= nil and at >= 1 and at <= #ids and ids[at] ~= focus_id then
+      focus_id = ids[at]
+      save_state({ focus = focus_id })
+    end
   end
   sys.delay(50):await()
 end

@@ -28,6 +28,11 @@
 -- one — the same idea as the original's `-keys`, said the way this system starts an app with a word
 -- (docs/30, docs/85).
 
+-- **AQUEST FULL NO TÉ SESSIÓ `state`, I ÉS UNA DECISIÓ I NO UN OBLIT** (0.189.52, docs/30 i docs/45 §5 bis): the page is a
+-- screen of numbers and thirty keys painted by hand, with **no focusable control** —there is no ring to remember and no page
+-- of a list to come back to—, and the number on the screen is what the person is doing now and not the shape of the view.
+-- It is the same reason the tooltip of docs/30 gives for a block that is not asked for: an app that has nothing to remember
+-- and asks anyway keeps a kilobyte to say nothing.
 local caps = sys.caps()
 if not caps.display or not caps.touch then
   console.print('this board needs a glass and a touch panel for this')

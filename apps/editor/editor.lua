@@ -350,7 +350,97 @@ function accept_card()
   resume()
 end
 
+-- ============================================================== the shape of the view (`state`, docs/30)
+
+-- **EL LLOC ON ERA LA PERSONA AL DOCUMENT TORNA AMB L'APP** (0.189.52, la norma de la sessió `state` de docs/30 i
+-- docs/45 §5 bis): `scroll` és la primera fila visible de la caixa de línies i `focus` quin dels dos controls tenia el cercle,
+-- pel nom del control. **El document no hi és**: és dada de l'app i té el seu fitxer —`/data/editor/notes.txt` o el camí que
+-- el prompt va dir—, i una caixa de mil vint-i-quatre bytes no és cap llibre (docs/30).
+--
+-- **El codi és el mateix de totes les apps i es copia sencer** (docs/30): a format que només llegeix aquest fitxer és un
+-- format que no llegeix ningú.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  -- **El bloc és de mil vint-i-quatre bytes i el que s'hi escriu és més curt**: el que hi ha darrere és el zero amb què el
+  -- nucli va fer el bloc, i una línia amb zeros al darrere no és cap valor —`tonumber` en treu `nil` i un nom deixa de ser
+  -- el nom—, o sigui que el text s'acaba a la primera marca de zero (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
 -- ---- the page ----
+
+-- **La forma d'aquest full**: la primera fila visible i el control amb el cercle (docs/30).
+local shape = { focus = nil, scroll = 0 }
+
+local function keep_the_place()
+  if box ~= nil then
+    local top = tonumber(box.top)
+    -- **`-1` és «segueix el cursor»** (0.88.0): no és una fila i no és el que la persona va deixar, o sigui que no es desa.
+    if top ~= nil and top >= 0 then shape.scroll = math.floor(top) end
+  end
+  save_state(shape)
+end
 
 box = ui.textbox_multiline(view.width, view.height - kBarRow - kStatusH - kNoteH)
 box.wrap = doc.wrap
@@ -367,6 +457,11 @@ box:place(0, kBarRow)
 -- left here is saying where the person is inside the file, which is what the line under the page can do
 -- (0.88.0, docs/30, docs/90). Without this function a box has no gesture: the finger puts the caret there and nothing
 -- more, and a swipe moves nothing.
+box.on_focus = function(self, on)
+  if not on then return end
+  shape.focus = 'box'
+  save_state(shape)
+end
 box.on_swipe = function(self, rows)
   if rows == nil or rows == 0 then return end
   -- **The row the window is on, with the two numbers the bar shows**: the system has already written `top`, so the
@@ -377,6 +472,8 @@ box.on_swipe = function(self, rows)
     console.print('editor: ' .. doc.note)
   end
   say()
+  -- **La fila on és la persona és forma i es desa** (0.189.52, docs/30): a swipe is a kilobyte copied to the PSRAM.
+  keep_the_place()
 end
 -- **The keys of the board move the caret once the box has been entered** (0.116.0): the centre enters the field and then
 -- the two keys walk it, a row at a time; the app hears where the caret is so the line under the page says the row. It
@@ -544,6 +641,23 @@ end
 
 layout()
 resume()
+
+-- **El lloc que la persona tenia al document, llegit abans del primer pintat** (0.189.52, docs/30): a row that is not a
+-- row of this document is not a place —the box clamps what it is given— and a focus that names no control is no focus.
+local was = load_state()
+if was ~= nil then
+  local row = tonumber(was.scroll)
+  if row ~= nil and row >= 1 then shape.scroll = math.floor(row) end
+  if was.focus ~= nil and was.focus ~= '' then shape.focus = was.focus end
+end
+if box ~= nil and shape.scroll > 0 then box.top = shape.scroll end
+
+-- **Les tres portes del comiat** (docs/30, docs/40): the row the window is on is read from the box at the end, because the
+-- box is the one that knows it —a swipe writes `top` and the app is told nothing else—.
+function on_pause() keep_the_place() end
+function on_save() keep_the_place() end
+function on_close() keep_the_place() end
+
 console.print('editor: File opens, saves and closes; View is read only and wrapping')
 
 -- The loop of the page: **a menu that changed is a page painted again**. The bar has no canvas of its own —it paints
