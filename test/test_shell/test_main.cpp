@@ -1971,16 +1971,25 @@ static void test_the_load_trend_moves_the_clock_one_step(void) {
   TEST_ASSERT_EQUAL_INT32(0, power::trend_of(nullptr, 30));
 
   // **Un pas, i en la direcció de la tendència**: from the bottom to the middle, from the middle to the top, and no further.
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kIdleMhz, 400));
-  TEST_ASSERT_EQUAL_UINT32(power::kBusyMhz, power::trend_step(power::kRestingMhz, 400));
-  TEST_ASSERT_EQUAL_UINT32(power::kBusyMhz, power::trend_step(power::kBusyMhz, 400));
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kBusyMhz, -400));
-  TEST_ASSERT_EQUAL_UINT32(power::kIdleMhz, power::trend_step(power::kRestingMhz, -400));
-  TEST_ASSERT_EQUAL_UINT32(power::kIdleMhz, power::trend_step(power::kIdleMhz, -400));
-  // **I una tendència plana no mou res**, que és la meitat de la regla: five points either way is the noise of a page.
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, 0));
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, 50));
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, -50));
+  // The level of the half minute is 35 (neither idle nor busy), so it is the trend and only the trend that decides.
+  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kIdleMhz, 400, 35));
+  TEST_ASSERT_EQUAL_UINT32(power::kBusyMhz, power::trend_step(power::kRestingMhz, 400, 35));
+  TEST_ASSERT_EQUAL_UINT32(power::kBusyMhz, power::trend_step(power::kBusyMhz, 400, 35));
+  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kBusyMhz, -400, 35));
+  TEST_ASSERT_EQUAL_UINT32(power::kIdleMhz, power::trend_step(power::kRestingMhz, -400, 35));
+  TEST_ASSERT_EQUAL_UINT32(power::kIdleMhz, power::trend_step(power::kIdleMhz, -400, 35));
+  // **I una tendència plana deixa el nivell manar**: five points either way is the noise of a page, and what is left is what
+  // the half minute has been —three per cent is an idle board and it goes to the bottom in one move, seventy is a board that
+  // works and it goes to the top—, and thirty five is neither and nothing moves (docs/60, docs/95).
+  TEST_ASSERT_EQUAL_UINT32(power::kIdleMhz, power::trend_step(power::kBusyMhz, 0, 3));
+  TEST_ASSERT_EQUAL_UINT32(power::kBusyMhz, power::trend_step(power::kIdleMhz, 0, 70));
+  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, 0, 35));
+  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, 50, 35));
+  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, -50, 35));
+  // **I la tendència mana sobre el nivell**: a minute that is climbing goes up even if it is still low on average, and the
+  // other way round.
+  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kIdleMhz, 400, 3));
+  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kBusyMhz, -400, 70));
 }
 
 int main(int argc, char** argv) {

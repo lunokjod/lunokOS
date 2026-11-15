@@ -80,6 +80,11 @@ const uint32_t kTrendEveryMs = 2000;
 // **Deu punts és una tendència**: a mean that moved ten points between the two halves of the minute is the board doing
 // something else; less than that is the noise of a page that scrolls (docs/95).
 const uint32_t kTrendBandPct10 = 100;
+// **Els dos nivells d'una tendència plana** (0.189.95): under ten per cent of a half minute the board is idle and the bottom
+// step is enough; over fifty it is working and it may as well have the top one.
+const uint8_t kIdleMeanPct = 10;
+const uint8_t kBusyMeanPct = 50;
+
 // **Les mostres de la tendència** (0.189.95): thirty per cent of load, one every two seconds, which is a minute. They are
 // here and not beside the governor because the switch that turns the policy on is the one that throws them away.
 uint8_t g_trend[kTrendSamples];
@@ -289,6 +294,10 @@ void empty_the_line() {
 void move_to(uint32_t mhz, const char* why) {
   if (g_power == nullptr) return;
   const uint32_t before = g_power->cpu_mhz();
+  // **Un pas que ja és el que hi ha no es mou i no es diu** (0.189.95): `hold_cpu` is asked for the top step by every paint and
+  // every app that starts, and half of those asks find the board already there —a line of the log that says `cpu 240 MHz from
+  // 240` is a line that says nothing and a call to the board for nothing (docs/50).
+  if (before == mhz) return;
   empty_the_line();
   if (!g_power->set_cpu_mhz(mhz)) {
     log_printf(pal::kLogWarn, "POWER", "the board did not take %u MHz (%s), it runs at %u", static_cast<unsigned>(mhz),
@@ -563,14 +572,11 @@ void poll(int64_t next_alarm_epoch_ms) {
   // burst— so it is a turn of this system like the sleep is (docs/50, docs/60).
   if (g_cpu_busy_until_ms > 0 && pal::system().millis() >= g_cpu_busy_until_ms) {
     g_cpu_busy_until_ms = 0;
-    // **I el pas de tornada el diu la càrrega** (0.189.94): with the automatic policy on, the end of a window is not a step
-    // back to the resting speed but the first turn in which the board can be asked what it is doing, and it answers low,
-    // normal or high (docs/50, docs/60).
-    if (g_cpu_auto) {
-      govern_cpu();
-    } else {
-      move_to(g_cpu_rest_mhz, "the load is over");
-    }
+    // **I el final d'una finestra no mou res** (0.189.95): with the automatic policy on, a window is a loan of the top step
+    // for as long as the work lasts and the governor is what decides after it, at its own samples —a step back to the
+    // resting one in the same turn the window closes is two moves for a paint and the third line of a log that a person
+    // reads as a board that cannot make up its mind— (the owner, with the log: *«és massa ràpid»*, docs/50, docs/60).
+    if (!g_cpu_auto) move_to(g_cpu_rest_mhz, "the load is over");
   }
   // **I a cada torn, la càrrega** (0.189.94): `load()` samples one window of 250 ms and answers the last one inside it, so
   // this costs two reads of the meters on the turns that do not end a window, and the move happens only when the word
@@ -763,7 +769,9 @@ int32_t trend_of(const uint8_t* samples, uint8_t count) {
   return static_cast<int32_t>(goes - was) * 10 / static_cast<int32_t>(half);
 }
 
-uint32_t trend_step(uint32_t mhz, int32_t trend10) {
+uint32_t trend_step(uint32_t mhz, int32_t trend10, uint8_t recent_pct) {
+  // **La tendència mana**: a minute that went up is a board that is doing more, and it goes one step up —the minute after is
+  // the one that says whether it was worth going to the top—.
   if (trend10 >= static_cast<int32_t>(kTrendBandPct10)) {
     if (mhz < kRestingMhz) return kRestingMhz;
     if (mhz < kBusyMhz) return kBusyMhz;
@@ -772,7 +780,13 @@ uint32_t trend_step(uint32_t mhz, int32_t trend10) {
   if (trend10 + static_cast<int32_t>(kTrendBandPct10) <= 0) {
     if (mhz > kRestingMhz) return kRestingMhz;
     if (mhz > kIdleMhz) return kIdleMhz;
+    return mhz;
   }
+  // **I si la tendència és plana, el nivell**: a board that has done nothing for half a minute is idle and it goes to the
+  // bottom, and one that has been busy all along goes to the top, in one move and not two —the trend is the shape of the
+  // minute and this is what the minute is— (docs/60, docs/95).
+  if (recent_pct <= kIdleMeanPct && mhz > kIdleMhz) return kIdleMhz;
+  if (recent_pct >= kBusyMeanPct && mhz < kBusyMhz) return kBusyMhz;
   return mhz;
 }
 
@@ -783,20 +797,26 @@ uint32_t trend_step(uint32_t mhz, int32_t trend10) {
 // not its business (docs/50, docs/60).
 static void govern_cpu() {
   if (g_power == nullptr || !g_cpu_auto) return;
+  const uint8_t before = g_trend_count;
   take_a_sample();
+  // **Una decisió per mostra i no per torn**: the samples are two seconds apart, so the clock can move at most once every two
+  // seconds however many turns the board takes in between, and a page that paints does not change its mind in the middle
+  // (docs/50, docs/60).
+  if (g_trend_count == before || g_trend_count == 0) return;
   if (g_cpu_busy_until_ms != 0) return;
   const uint32_t mhz = g_power->cpu_mhz();
-  // **El primer minut no decideix res**: a board that has not measured a minute has no trend, and a step taken on two seconds
-  // of samples is the clock moving every turn again. It waits at the resting step, which is what the boot leaves it at
-  // (docs/60).
-  if (g_trend_count < kTrendSamples) {
-    if (mhz != kRestingMhz) move_to(kRestingMhz, "the load is being measured");
-    return;
-  }
-  const int32_t trend = trend_of(g_trend, kTrendSamples);
-  const uint32_t want = trend_step(mhz, trend);
+  const uint8_t half = static_cast<uint8_t>(g_trend_count / 2);
+  uint32_t recent = 0;
+  const uint8_t count = (half > 0) ? half : g_trend_count;
+  for (uint8_t i = static_cast<uint8_t>(g_trend_count - count); i < g_trend_count; ++i) recent += g_trend[i];
+  const uint32_t mean = (count > 0) ? (recent / count) : 0;
+  const int32_t trend = trend_of(g_trend, g_trend_count);
+  const uint32_t want = trend_step(mhz, trend, static_cast<uint8_t>(mean));
   if (want == mhz) return;
-  move_to(want, (want > mhz) ? "the load is climbing" : "the load is falling");
+  const char* why = (trend >= static_cast<int32_t>(kTrendBandPct10)) ? "the load is climbing"
+                    : (trend + static_cast<int32_t>(kTrendBandPct10) <= 0) ? "the load is falling"
+                    : (want < mhz) ? "the load is low" : "the load is high";
+  move_to(want, why);
 }
 
 uint32_t cpu_mhz() { return (g_power != nullptr) ? g_power->cpu_mhz() : 0; }

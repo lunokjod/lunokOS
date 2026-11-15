@@ -165,9 +165,11 @@ Load load_of(uint32_t percent10, Load current);
 // (docs/50, docs/95).
 int32_t trend_of(const uint8_t* samples, uint8_t count);
 
-// **I el pas que la tendència demana**: one step in the direction of the trend and never two at once, `mhz` itself when the
-// trend is flat or the board is already at the end of the steps (docs/60).
-uint32_t trend_step(uint32_t mhz, int32_t trend10);
+// **I el pas que la tendència i el nivell demanen**: one step in the direction of the trend and never two at once; a flat
+// trend leaves the level alone unless the half minute it comes from is clearly idle —under ten per cent, the bottom step— or
+// clearly busy —over fifty, the top one—, and then it goes there in one move. `mhz` itself when nothing is to be changed
+// (docs/60).
+uint32_t trend_step(uint32_t mhz, int32_t trend10, uint8_t recent_pct);
 
 // **La política automàtica, encesa de sèrie** (0.189.94): the three words are the three steps —**low is 80, normal is 160
 // and high is 240**— and the system moves between them by itself, on every turn, from `load()`. A window that somebody asked

@@ -189,7 +189,14 @@ de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha p
   **tendència**: una mostra cada dos segons —trenta, trenta bytes— i la mitjana de les **quinze últimes contra les quinze
   d'abans**. Si la mitjana ha pujat deu punts o més, **un pas amunt** (80→160, 160→240); si ha baixat deu punts, **un pas
   avall**; si no, **res**. Mai dos passos al mateix torn: el minut següent és el que diu si el primer va valer la pena.
-  - **El primer minut no decideix res**: una placa que no ha mesurat un minut no té tendència, i espera al pas de repòs (160).
+  - **Una decisió per mostra i no per torn** (0.189.96): the clock can move at most once every two seconds however many turns
+    the board takes in between, and **el tancament d'una finestra no mou res**: a window is a loan of the top step while the
+    work lasts and the governor is what decides after it. Abans, cada paint feia `240→160` en tancar la finestra i `160→240`
+    al paint següent, i el log d'una pàgina que es repinta era una llista d'anades i vingudes (l'amo, amb el log al davant:
+    *«és massa ràpid»*). **I un pas que ja és el que hi ha no es diu**: mig log era `cpu 240 MHz from 240 (a paint)`.
+  - **Si la tendència és plana, mana el nivell de la mitja part de minut**: per sota del deu per cent la placa està parada i
+    baixa al pas de baix en un sol moviment, per sobre del cinquanta està treballant i puja al de dalt; entremig, no es toca.
+    La tendència sempre mana sobre el nivell.
   - Una finestra mana igual que abans (boot, arrencada d'una app, paint), i `power auto on` comença un minut nou.
   - `load` segueix contestant la **lectura** de la finestra de 250 ms (i el seu percentatge), que és el que es mira per
     ajustar els llindars; el governador mira la sèrie.
