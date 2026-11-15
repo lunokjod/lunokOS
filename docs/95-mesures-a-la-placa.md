@@ -1120,6 +1120,47 @@ I d'on surt cada cosa, per si algú ho ha de tocar:
 - **El `2bit`** pinta i no llisca, però **els quatre codis no són els quatre nivells** que el panell ensenya: la pàgina surt
   més fosca. Necessita la taula de colors (`BGVR`) i, mentre el cable no sigui el coll, no paga la pena.
 
+## L'energia, el que ja s'ha mesurat (15/11, 0.189.87)
+
+El primer número de tota la feina d'energia, i el que la va encaminar: **què fa el consol quan no hi ha res a fer**. Amb la
+pantalla quieta i dos `stats` separats 72 segons (0.189.85, abans d'arreglar res):
+
+| número | valor | què vol dir |
+|---|---|---|
+| torns | **69,5 per segon** | el bucle no dorm mai del tot |
+| esdeveniments | **4 en 72 s** | no passava res de res |
+| esperes esgotades | 99,9 % dels torns | cada volta és el topall de 10 ms |
+| `queue.wait` | 9,8 ms per torn | el que s'espera |
+| **feina per torn** | **4,5 ms** | el que es treballa, i no era ni el disc ni el pintat |
+| `touch.read` | una crida per torn, **0 frames** | i 4,4 ms de mitjana, amb un mínim de 5 µs |
+
+**El terç del temps despert se'n va anar a preguntar el tàctil per un dit que no hi era.** La causa: la línia d'INT —GPIO36—
+estava configurada **sense cap pull**, i el xip la deixa anar entre marcs; el pin recollia soroll i l'ISR aixecava el flamenc
+**quinze vegades per segon** sense cap frame al darrere. Cada avís fals costava els **vint intents d'un mil·lisegon** esperant
+el bit d'estat.
+
+Dos arreglos, tots dos mesurats:
+
+1. **Pull-up intern** a la línia (0.189.86): els avisos falsos baixen de ~15 a **3,5 per segon**. La línia sempre caurà una
+   mica —és un fil llarg dins d'una placa amb un panell que commuta—, i per això el segon arreglo és el que compta.
+2. **Un avís sense frame costa dues lectures i una escriptura** (0.189.87): dos intents amb 2 ms entremig (el frame arriba uns
+   3 ms darrere del flanc) i, si no hi és, s'escriu el zero d'estat **abans** de baixar el flamenc —sense aquesta escriptura la
+   línia es queda baixa i el xip no torna a avisar mai, que és el toc que funciona un cop de 0.188.7—. De trenta
+   mil·lisegons a mig.
+
+**El que queda per fer, en ordre, i el que ha de dir cada pas**:
+
+1. **Que la interrupció desperti la cua** (`push_from_isr` al PAL, l'ISR del tàctil i una de nova a les tecles, `rings()` i un
+   sostre de 250 ms a l'espera): els torns han de baixar de ~70 a **~4 per segon**.
+2. **L'escala de CPU** 240 a la feina · 160 de repòs · 80 passats dos minuts sense entrades.
+3. **La bacaina light** amb temporitzador de 40 ms que dobla fins a 1 s, desperta pel tàctil, les tecles i el rellotge, amb
+   `power nap on|off`. És el que atura dominis de rellotge i perifèrics, i necessita el pas 1 perquè un son sense despertador
+   no és un son.
+4. **El panell a dormir** (`TCON_SLEEP`, i el rail) a la quietud llarga, i el **deep sleep amb tecles** quan no hi ha cap alarma.
+
+**I el que no es pot dir sense mesurador**: els mA. Es pot mesurar el duty cycle (a sobre) i la **deriva de la bateria** en
+mV/hora amb la placa desendollada, que és l'única cosa que aquesta placa pot dir de la seva pròpia gana.
+
 ## Què **no** cal mesurar encara
 
 - **La velocitat de mostra del tàctil**: contar frames amb el dit (E-6). El marc ja està mesurat.
