@@ -1,0 +1,9 @@
+{
+  "title": "Clock",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "clock.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "The clock of the paper project: the dial, the alarms, the timer and the stopwatch, in four tabs.\nThe dial is the grey face of the owner's own app, the alarms are armed with the system's promise and the countdown wakes the board."
+}

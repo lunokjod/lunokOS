@@ -9288,7 +9288,19 @@ namespace kernel {
 // model de l'emulador ja en sap els tres preus**, perquè el que es vol veure abans de tocar la placa és això: un frame de
 // 64 × 64 costa 190 ms de present amb `rows`, 121 amb `burst` i 119 amb `1bit`, o sigui que el coll passa a ser la tinta de
 // `du` i no el cable (docs/50, docs/85, docs/95).
-static const char kVersion[] = "0.189.97";
+// 0.189.98 — **`Clock`, el rellotge del projecte del paper, sencer** (l'amo: *«Portar l'app Clock a lunokOS amb tots els
+// detalls, vull la mateixa aplicació. Icones, tipus de lletra, textos, botons... el que tingui!»*): `apps/clock` és el port de
+// `OLD/PaperOS/data/app/Clock` amb les seves quatre pestanyes —Time, Alarm, Timer i Chrono—, l'esfera grisa dibuixada a mà amb
+// els números de `dial.lua` (una anella i no una banda, els seixanta tics penjant de la vora de dins, les dotze marques, les
+// busques amb cua i tap), la llista d'alarmes en un `ui.list` de files amb el seu toc, els quatre camps de l'alarma i els dos
+// del compte enrere en una llista paginada, i el desat a `data/clock/alarms.txt`. **Les alarmes i el compte enrere són
+// promeses del sistema** (`alarm.at` amb `raise` i `on_alarm`), o sigui que desvetllen la placa i la pantalla gran és la
+// mateixa per als dos. Tres coses que es van haver d'aprendre i que queden escrites a `docs/45`: el desig d'un control es fa
+// al torn següent —un botó deixat anar es repinta ell mateix després del ganxo i estampa la seva paraula on ja no és—, la
+// passada que marxa de l'esfera ha de ser `gc16` (el gris no marxa amb dues tintes) i el número que corre va amb `gld16`
+// (el `du` el deixa llegint-se doble). I la cua d'alarmes pot dir que no: `alarm.at` amb `E_NOMEM` es diu a la consola i les
+// promeses velles de l'app es donen per acabades a l'arrencada (docs/30, docs/45, docs/60).
+static const char kVersion[] = "0.189.98";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

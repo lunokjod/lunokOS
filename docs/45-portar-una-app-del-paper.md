@@ -323,12 +323,14 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **set** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **nou** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
 | `About` | `about` | 0.1.0 |
 | `Calculator` | `calculator` | 0.1.0 |
+| `Clock` | `clock` | 0.1.0 |
+| `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.0 |
 | `Editor` | `editor` | 0.1.0 |
 | `EPUB` | `reader` | 0.1.0 |
 | `Timeclock` | `timeclock` | 0.1.0 |
@@ -351,9 +353,39 @@ I a part, **dues que no són ports**:
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 
-Les **disset** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`, `Battery`, `Clock`,
+Les **setze** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`, `Battery`,
 `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
 `Snake`, `Tamagotchi` i `Tetris`.
+
+**El que va ensenyar el `Clock`** (0.189.98, la primera app portada que **dibuixa a mà** i que **porta alarmes**):
+
+- **L'esfera és el mateix dibuix i els mateixos números** que `dial.lua`: l'anell és una **anella** i no una banda
+  —cada fila s'omple de la vora de fora cap a dins, o sigui que el gruix és una distància al cercle i surt igual a les
+  dotze que a les tres—, els seixanta tics pengen de la vora de **dins** de l'anell, les dotze marques són més gruixudes
+  que els tics i la de l'hora que assenyala la busca encara més, i les busques porten cua i un tap al mig. El to de la
+  cara és **el 10** i no un altre: és un dels quatre nivells que la passada de quatre nivells pot dibuixar.
+- **`ui.line` no té gruix** en aquest canvas, i el que fa un llapis és passar-hi un disc de la mida del gruix al llarg
+  del camí: això és `brush_line`, tres línies.
+- **La lletra de la nota i de les files és la petita** (33 píxels de línia, el pas 3 d'aquesta cara) i no la del cos: ho
+  diu la captura de l'original, i amb el cos la frase del cronòmetre es parteix en dues ratlles que a PaperOS no hi són.
+- **La qualitat de la passada és una decisió de cada moment**: en **canviar de pestanya** es paga un `gc16` —el gris de
+  l'esfera no marxa amb una passada de dos nivells i queda una taca a la pestanya següent—, i el número que corre va amb
+  `gld16`, que és net i no fa el flaix que un rellotge no es pot permetre cada segon. El `du` és el més barat i deixa cinc
+  setzens de la xifra d'abans: el número s'acaba llegint doble.
+- **El compte enrere és una promesa com l'alarma** (`alarm.at` amb `raise`), i quan venç el sistema obre l'app i crida
+  `on_alarm` igual que per a una hora: la pantalla gran és la mateixa i és la de PaperOS («Time is up», «The countdown has
+  finished.»). Una app que armés alarmes des del chunk principal en una finestra n'armaria una a cada crida, i per això hi
+  ha la porta `console.is_foreground()` abans de fer res.
+- **Una alarma que la cua no pot armar no mata l'app**: `alarm.at` pot dir que no (`E_NOMEM`) quan la cua és plena, i el
+  que ha de passar és una línia a la consola (mesurat a l'emulador, amb sis promeses velles de la mateixa app a la cua).
+  **I les promeses velles es donen per acabades a l'arrencada** (`alarm.list` i `alarm.cancel`): la cua sobreviu als
+  reinicis i una app que n'arriba amb sis de seves no en pot armar cap més.
+- **El desig d'un control es fa al torn següent** (`wanted`): un botó que s'ha deixat anar es torna a pintar ell mateix
+  **després** del ganxo, i una pàgina repintada dins del mateix gest es queda amb la paraula del botó vell estampada on ja
+  no és (el «Delete» d'una pàgina que ja no el té). És la mateixa regla que el `tz` ja seguia amb el botó del rellotge.
+- **La targeta d'una llista de seixanta no cap en un `ui.menu`** —el menú dibuixa les opcions que hi tenen caixa i prou—,
+  o sigui que el camp d'un dia, d'una hora o d'un minut obre una **llista paginada** amb una fila per valor, i el que hi
+  havia a sota es treu de la pàgina mentre la targeta és a sobre (un control que rep el seu toc després pinta a sobre).
 
 **El que va ensenyar el `2048`** (la primera app portada que és un joc i no una pàgina de dades):
 
