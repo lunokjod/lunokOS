@@ -9425,7 +9425,15 @@ namespace kernel {
 // cadena buida per a una roda que no fa res) i el panell d'ajustos el posa a la pestanya **System**, al costat de «App at start» i
 // amb la mateixa llista d'apps del disc i `none` al davant; **l'app dels ajustos no s'ofereix com a app d'inici** (una pàgina que
 // obre els ajustos no és la pàgina amb què arrenca una placa) i sí que és a la llista del botó (docs/30, docs/40, docs/45).
-static const char kVersion[] = "0.189.109";
+// 0.189.110 — **el repàs de la documentació i del que es va tocar en aquest tros** (l'amo: *«Repasa la documentació, el codi nou i
+// modificat i fes el commit»*). Tres coses que el repàs va trobar: **la porta de Lua de l'app del botó comprova el nom** com la de
+// l'inici i no es queda un nom que no és cap app d'aquesta placa (el prompt ja ho feia i la documentació deia que la porta també),
+// **`sys.settings()` porta el nom de l'app del botó** (és la taula que «diu el mateix que `cfg` al prompt», i la línia del prompt ja
+// el diu) amb la fila de la documentació que passa de deu camps a dotze, i **el cap de `apps/settings` ja no diu que la llista blanca
+// de velocitats no hi és** —hi és des de la 0.189.107— i sí que diu les portes noves (`cfg.freq`, `cfg.settings`, `power.cpu_auto`)
+// i la mesura del torn. I docs/45 treu de la llista de pendents les dues coses que ja hi són i docs/75 apunta per què la política i
+// el seu sostre són un sol byte (el `.bss` d'una Paper es compta) (docs/30, docs/45, docs/75).
+static const char kVersion[] = "0.189.110";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

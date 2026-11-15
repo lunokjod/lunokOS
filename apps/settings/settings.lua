@@ -11,14 +11,19 @@
 --   LA MIDA        **una vista nova dona a cada canvas de la pàgina el que tenia** (el pany de la pantalla en fa una), o
 --                  sigui que cada escriptura passa per `settle()`: si `ui.caps()` té la mateixa mida, col·loca i pinta; si
 --                  no, torna a construir-ho tot i deixa el cercle al control on era (docs/45).
---   QUI ESCRIU     **les portes del sistema**, que són les de la comanda `cfg` (0.189.106): `cfg.keyboard`, `cfg.boot`,
---                  `cfg.home`, `cfg.sort`, `cfg.turn`, `cfg.cursor`, més `time.tz`/`dst`/`leap`/`week`/`set`, `fs.cfg`,
---                  `power.cpu` i `admin.LockScreen`. Cada porta **respon el que queda dempeus**, i la pàgina torna a llegir
---                  el valor després d'escriure'l: el que s'ensenya és el que el sistema ha acceptat (docs/30, docs/70).
+--   QUI ESCRIU     **les portes del sistema**, que són les de la comanda `cfg`: `cfg.keyboard`, `cfg.boot`, `cfg.home`,
+--                  `cfg.sort`, `cfg.turn`, `cfg.cursor`, `cfg.freq` (les tres velocitats que el governador pot fer servir),
+--                  `cfg.settings` (l'app que obre el botó dels ajustos del panell), més `time.tz`/`dst`/`leap`/`week`/`set`,
+--                  `fs.cfg`, `power.cpu`, `power.cpu_auto` i `admin.LockScreen`. Cada porta **respon el que queda dempeus**, i
+--                  la pàgina torna a llegir el valor després d'escriure'l: el que s'ensenya és el que el sistema ha acceptat
+--                  (docs/30, docs/70).
+--   LA MESURA      la pestanya de la CPU **diu què és el número d'un torn i què val en aquesta placa**: la volta de
+--                  `k = k + 1` en dona el preu d'una instrucció i `sys.stats()` els torns de debò que ha fet el sistema i el
+--                  que hi ha de Lua a dins (0.189.108, docs/75 i docs/95).
 --
--- **El que aquesta app encara no fa, i per què** (docs/45): la llista blanca de freqüències de la CPU, la política de
--- miniatures, les sessions al disc, el NTP a l'arrencada, el paper pintat de fons, el splash propi, el PIN i els temps de
--- son demanen un subsistema que el nucli no té; les files no hi són per no ensenyar una porta que no obre res.
+-- **El que aquesta app encara no fa, i per què** (docs/45): la política de miniatures, les sessions al disc, el NTP a
+-- l'arrencada, el paper pintat de fons, el splash propi, el PIN i els temps de son demanen un subsistema que el nucli no té;
+-- les files no hi són per no ensenyar una porta que no obre res.
 --
 -- **I el que és de l'app i no del sistema**: la pestanya on era i el control amb el cercle, al bloc `state` de sempre.
 
@@ -383,8 +388,6 @@ end
 -- llegeix què és el número i què val abans de moure'l (docs/75, docs/95).
 local kTurnNote = 'Instructions of the Lua VM in one turn'
 
-local function say_the_turn() say(kTurnNote) end
-
 local function us_text(us)
   if us == nil then return '-' end
   if us >= 1000 then return string.format('%d ms', math.floor(us / 1000 + 0.5)) end
@@ -527,7 +530,7 @@ function build()
       -- **La mesura es fa quan algú mira el processador** (0.189.107): the milliseconds of a turn are what the numbers of
       -- the slice are worth on this board, so they are measured the first time the tab is opened and said in the line
       -- under the rows, which is where a person looks after moving something (docs/75, docs/95).
-      if page == 2 then say_the_turn() end
+      if page == 2 then say(kTurnNote) end
       settle()
       save_state()
     end
@@ -605,12 +608,12 @@ function build()
   choice_row(2, 'speed', 'Speed', SPEEDS, function() return index_of(SPEED_MHZ, power.cpu()) end,
              function(index)
                power.cpu(SPEED_MHZ[index])
-               say_the_turn()
+               say(kTurnNote)
              end)
   choice_row(2, 'turn', 'Lua a turn', TURNS, function() return index_of(TURN_VALUE, cfg.turn()) end,
              function(index)
                cfg.turn(TURN_VALUE[index])
-               say_the_turn()
+               say(kTurnNote)
              end)
   -- **El que costa el torn que hi ha posat, mesurat aquí** (0.189.107): the slice is a number of instructions of the Lua VM and
   -- what a person needs to judge it is the milliseconds the glass and the keys wait for it, which is the slice divided by the
@@ -697,15 +700,12 @@ function build()
 
   -- ---- Battery: **el que la placa sap de la seva pila**, que és un número i no un ajust d'aquesta pàgina (docs/30). Les
   -- files són del sistema i es tornen a llegir cada cop que la pestanya es col·loca.
-  local reading = 'the battery is not read yet'
   read_row(6, 'battery', 'Battery', function()
     local ok2, one = pcall(power.battery)
     if ok2 and type(one) == 'table' then
-      reading = string.format('%d%% of %d mV%s', one.pct or 0, one.mv or 0, one.charging and ', charging' or '')
-    else
-      reading = 'this board does not know'
+      return string.format('%d%% of %d mV%s', one.pct or 0, one.mv or 0, one.charging and ', charging' or '')
     end
-    return reading
+    return 'this board does not know'
   end)
   read_row(6, 'board', 'Board', function() return string.format('%s, %d MHz', sys.board, power.cpu()) end)
 

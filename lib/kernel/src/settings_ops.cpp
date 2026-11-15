@@ -32,6 +32,7 @@ bool read_settings(luabind::Settings& into) {
   into.sort_by_usage = cfg::sort_by_usage();
   into.turn = cfg::turn_instructions();
   into.cursor_delay = cfg::cursor_delay();
+  into.settings_app = cfg::settings_app();
   return true;
 }
 
@@ -45,6 +46,18 @@ bool read_settings(luabind::Settings& into) {
 bool write_keyboard(const char* id) {
   if (id == nullptr || !ui::keyboard_select(id)) return false;
   return cfg::set_keyboard(ui::keyboard_current());
+}
+
+// **L'app del botó dels ajustos, amb la mateixa comprovació que la de l'inici** (0.189.109): a name that is not an app of this
+// board is not a value of this setting —the gear looks it up before it asks for anything and does nothing if it is not there—
+// so the door refuses it here and the store keeps only a name that works. `none` is the word that clears it, and so is the
+// empty string, which is what the door answers for a gear that does nothing (docs/30, docs/40).
+bool write_settings_app(const char* id) {
+  if (id == nullptr) return false;
+  if (strcmp(id, "none") == 0 || id[0] == '\0') return cfg::set_settings_app(nullptr);
+  apps::Entry entry;
+  if (!apps::read(id, entry)) return false;
+  return cfg::set_settings_app(entry.id);
 }
 
 bool write_boot(const char* word) {
@@ -114,7 +127,7 @@ void install_settings_ops() {
   // **Les velocitats permeses** (0.189.107): the mask is read where it is kept and the write goes through `cfg`, which is
   // what puts it in the governor (docs/50).
   doors.settings_app = &cfg::settings_app;
-  doors.set_settings_app = &cfg::set_settings_app;
+  doors.set_settings_app = &write_settings_app;
   doors.freq_mask = &cfg::freq_mask;
   doors.set_freq_allowed = &cfg::set_freq_allowed;
   luabind::set_cfg_ops(doors);

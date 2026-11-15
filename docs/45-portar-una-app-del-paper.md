@@ -335,11 +335,12 @@ end
 ```
 
 **El que encara no hi és, i per què** (i és la resposta honesta a mitja llista de l'amo): el panell té set pestanyes i
-només les que tenen porta darrere. **Falten** la llista blanca de freqüències de la CPU i les instruccions per cicle com a
-tria de la persona, la política de miniatures, les sessions al disc, el NTP a l'arrencada, el paper pintat de fons, el
-splash propi amb el navegador de fitxers, el PIN i els temps de son (lleuger, profund i d'inactivitat): **cap d'aquests no
-és un ajust del nucli encara**, i una fila que no escriu res és pitjor que una fila que no hi és. Cadascun és una feina de
-subsistema amb la seva porta, la seva prova i el seu document.
+només les que tenen porta darrere. **Ja hi són** les tres velocitats del processador amb la seva llista blanca i la marxa del
+torn amb nom (0.189.107 i 0.189.108, amb les xifres mesurades a la placa) i **l'app del botó dels ajustos** (0.189.109, que és
+a la pestanya System amb el mateix selector que l'app de l'inici). **Falten** la política de miniatures, les sessions al disc,
+el NTP a l'arrencada, el paper pintat de fons, el splash propi amb el navegador de fitxers, el PIN i els temps de son
+(lleuger, profund i d'inactivitat): **cap d'aquests no és un ajust del nucli encara**, i una fila que no escriu res és pitjor
+que una fila que no hi és. Cadascun és una feina de subsistema amb la seva porta, la seva prova i el seu document.
 
 **I el que es prova, es prova amb el dit i amb el dial** (`test_apps`,
 `test_the_panel_of_settings_writes_through_the_doors_of_the_system`): una pestanya de la segona fila es tria amb un dit,

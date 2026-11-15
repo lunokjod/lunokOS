@@ -11948,6 +11948,10 @@ int l_sys_settings(lua_State* L) {
   lua_setfield(L, -2, "turn");
   lua_pushinteger(L, static_cast<lua_Integer>(now.cursor_delay));
   lua_setfield(L, -2, "cursor");
+  // **L'app del botó dels ajustos** (0.189.109): the empty string is a gear that does nothing, which is a choice of the person and
+  // not a missing value (docs/30, docs/40).
+  lua_pushstring(L, now.settings_app);
+  lua_setfield(L, -2, "settings_app");
   return 1;
 }
 

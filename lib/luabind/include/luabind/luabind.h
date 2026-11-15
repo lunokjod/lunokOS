@@ -194,6 +194,9 @@ struct Settings {
   uint32_t turn = 0;
   // **El parpalleig del cursor** (0.189.106): the milliseconds of a block of ink, which is a setting of the whole system.
   int32_t cursor_delay = 0;
+  // **L'app que obre el botó dels ajustos del panell** (0.189.109): the name, or the empty string when the gear does nothing. It is
+  // here because this table is «the same thing `cfg` prints at the prompt» and that line prints it too (docs/30, docs/40).
+  const char* settings_app = "";
 };
 
 struct SettingsOps {
