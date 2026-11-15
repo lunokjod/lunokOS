@@ -1428,7 +1428,10 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 - **Les imatges són fitxers i no taules de píxels a la memòria.** `ui.image` llegeix la capçalera, baixa les
   files una a una i les deixa al canvas, i el que queda al heap quan torna és el que hi havia abans. Els
   formats que es llegeixen avui són **PNG** (tipus de color 0, 2, 3, 4 i 6, profunditats 1 a 16, tots els
-  filtres), **JPEG** (base i seqüencial estès, amb qualsevol factor de mostreig i marcadors de reinici),
+  filtres, **i les files en tants `IDAT` com vulgui el programa que el va escriure**: 0.189.55 —un de cada
+  65 536 bytes de stream és el que fa un editor de dibuix, i fins llavors el lector refusava qualsevol imatge de més
+  d'un, que és el que era `the file is not a picture this system reads` sobre una foto bona; els cossos es copien al
+  bloc del cridador quan són més d'un, perquè el zlib d'aquest projecte és d'una sola crida—), **JPEG** (base i seqüencial estès, amb qualsevol factor de mostreig i marcadors de reinici),
   **BMP** (1, 4, 8, 16, 24 i 32 bits, amb paleta o sense, de dalt o de baix), **GIF** (87a i 89a, la primera
   imatge, LZW, transparència i entrellaçat), **ICO** (una imatge de BMP o un PNG a dins) i la família
   **netpbm** (`PBM`, `PGM` i `PPM`, en text i en cru). I **`ICS1`**, la mena de fitxer d'un cau d'aquest sistema

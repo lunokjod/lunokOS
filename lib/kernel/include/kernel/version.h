@@ -9157,7 +9157,22 @@ namespace kernel {
 //     `fclose` de FatFs escriu les dades i la FAT i espera els seus sectors, cada escriptura del FRAM és una transacció I2C
 //     bloquejant (i un FM24C02 no té cicle d'escriptura), la NVS comet dins del `put`, i el que cap crida pot esperar és el
 //     controlador de la targeta —els dos segons de `settle_before_leaving`— i la tinta del vidre (`splash::wait`).
-static const char kVersion[] = "0.189.54";
+// 0.189.55 — **l'os que dorm és la imatge del moment `sleep`, i el lector de PNG après a ajuntar els trossos d'un stream**
+// (l'amo: *«vull canviar l'splash del estat Sleep per una imatge adorable d'un os bru dormilega… te un fons de falsa
+// transparencia, fa la senefa de blanc i gris, com si fos un png i no… m'han enganyat. Podriem arreclar-ho?»*):
+//   - **`sleep.png` és un dibuix i no una paraula**: un os que dorm, 500 × 310, i **el "fons transparent" d'una tinta
+//     electrònica és el paper** —el panell no té alfa, i `splash::background_of` renta el vidre amb el color de la vora de la
+//     imatge i hi pinta el dibuix al mig—. L'arxiu que va arribar era un WebP sense canal alfa amb el tauler de quadres
+//     dibuixat als píxels, i `tools/make_bear_sleep.py` el treu amb un `floodfill` des d'una cantonada, es menja un píxel de
+//     l'aire de la vora, retalla el dibuix i hi deixa vint-i-quatre píxels de paper perquè la pàgina surti blanca;
+//   - **i el lector de PNG va haver d'aprendre a ajuntar els `IDAT`**: a 79 KB aquesta és la primera imatge de l'arbre que un
+//     programa de dibuix escriu en més d'un tros, i el lector la refusava perquè la comparació que deia «aquests dos van
+//     seguits» demanava que els cossos es toquessin i entre dos cossos hi ha **dotze bytes** (el CRC del davant, la mida
+//     d'aquest i el seu tipus). Ara s'ajunten, i com que el zlib és d'una sola crida els cossos es copien al bloc del
+//     cridador, després de les files i abans de les dues files de treball, o sigui que una imatge d'un sol `IDAT` no en paga
+//     res (docs/30, docs/50, docs/75);
+//   - **i la font de la imatge es queda a `tools/splash-sources/`** amb la seva fila al README d'allà.
+static const char kVersion[] = "0.189.55";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

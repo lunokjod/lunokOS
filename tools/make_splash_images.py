@@ -289,7 +289,10 @@ def main(argv: list[str]) -> int:
     # the battery and the error. **`lowbatt.png` i `charging.png` no es fan aquí** (0.183.1): són les dues pàgines del
     # projecte vell, copiades del seu codi, i les fa `tools/make_splash_from_paperos.py` (docs/50).
     save(plain("poweroff", "it is safe to close the lid"), "poweroff.png")
-    save(plain("sleep", "the board is resting"), "sleep.png")
+    # **El dibuix del son no és d'aquest script** (0.189.55): `sleep.png` és un os bru que dorm, una imatge que va portar
+    # l'amo amb el fons de quadres dibuixat a dins, i `tools/make_bear_sleep.py` és qui la treu d'allà i qui la desa. Escriure
+    # aquí la paraula tornaria a tapar el dibuix la propera vegada que aquesta comanda es tornés a passar, i un generador que
+    # es menja el que un altre va fer és pitjor que cap generador.
     save(plain("oops", "the system stopped"), "oops.png")
     return 0
 

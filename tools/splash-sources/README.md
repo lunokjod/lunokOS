@@ -6,6 +6,7 @@ queden aquí perquè la còpia es pugui comprovar sense anar a l'altre repositor
 | fitxer | d'on surt |
 |---|---|
 | `lowbatt-paperos.png` | `~/code/PaperOS/captures/Power off - the battery is low.png`, 540 × 960 i vuit bits: la pantalla que el PaperOS dibuixa amb `drawPowerOffScreen(canvas, PowerOffNotice::BatteryLow)` (`src/ui/power_screen.cpp`, i la insígnia és `drawBatteryLowMark`) |
+| `bear-sleeping-clipart-14.webp` | l'os que dorm del moment `sleep`, portat per l'amo el 15/11: 900 × 930, **RGB i sense canal alfa** —el tauler de quadres blanc i gris de la falsa transparència és als píxels— i amb la línia `by cleanpng.com` a sota de l'herba. `tools/make_bear_sleep.py` és el que en treu el dibuix i el que escriu `data/res/splash/sleep.png` (1 024 × 454 → 500 × 310) |
 
 **De la targeta de càrrega no hi ha cap captura**, i no és un oblit: el `tools/ui_preview.cpp` del
 PaperOS només dibuixa la barra amb el cable a dins (`Bar - the battery is charging`), no la targeta

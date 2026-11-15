@@ -9,6 +9,8 @@
 // hundred kilobytes into a panel of sixteen levels does not keep two copies of it (docs/30, docs/75).
 #include "img_private.h"
 
+#include <string.h>
+
 #include "inflate/inflate.h"
 
 namespace img {
@@ -27,6 +29,11 @@ struct Header {
   uint32_t row_bytes = 0;  // what a row takes unfiltered, without the filter byte
   uint32_t idat_at = 0;
   uint32_t idat_len = 0;
+  // **Quants trossos de `IDAT` porten el stream** (0.189.55): one is the stream where it lies in the file; more than one means
+  // the bodies have twelve bytes of framing between them —the CRC of the chunk before, the length of this one and its
+  // type— and the zlib of this project is one-shot, so the stream has to be gathered into the caller's block before it can
+  // be inflated. A drawing program writes the rows of a picture in pieces of 65 536 bytes (docs/30, docs/75).
+  uint32_t idat_pieces = 0;
   bool had_palette = false;
   bool had_trns = false;
   uint32_t palette_at = 0;
@@ -118,9 +125,16 @@ Status read_chunks(const uint8_t* data, uint32_t len, Header& out) {
       if (!saw_idat) {
         out.idat_at = body_at;
         out.idat_len = size;
+        out.idat_pieces = 1;
         saw_idat = true;
-      } else if (out.idat_at + out.idat_len == body_at) {
+      } else if (out.idat_at + out.idat_len + 12u * out.idat_pieces == body_at) {
+        // **Dotze bytes entre dos cossos** (0.189.55): the CRC of the chunk before (four), the length of this one (four) and
+        // its type (four) —the comparison used to be `idat_at + idat_len == body_at`, which is never true and turned every
+        // picture whose rows are written in more than one `IDAT` into `kUnsupported`. A drawing of a program is written in
+        // chunks of 65 536 bytes of stream and the splash of the sleep is the first picture of this tree that was bigger
+        // than one (docs/30, docs/50).
         out.idat_len += size;
+        ++out.idat_pieces;
       } else {
         return kUnsupported;
       }
@@ -328,6 +342,33 @@ Status png_info(const uint8_t* data, uint32_t len, Info& out) {
 // the row the decoder builds before it writes it —the widest a page can be— goes after it, aligned (docs/75).
 uint32_t png_state_at(uint32_t inflated) { return aligned_at(inflated); }
 
+// **El stream ajuntat, quan els `IDAT` són més d'un** (0.189.55): the bytes of the bodies with the twelve of framing of each
+// one taken out, copied into the block of the caller because the zlib of this project reads one stream in one call. The
+// copy goes after the rows —which are the biggest thing in the block— and before the two rows of work, so nothing of it is
+// paid by a picture of one `IDAT` (docs/75).
+uint32_t png_copy_at(uint32_t inflated) { return png_state_at(inflated); }
+uint32_t png_rows_at(uint32_t inflated, uint32_t copy) { return aligned_at(png_copy_at(inflated) + copy); }
+
+// **The bytes of the `IDAT` run, one after the other**: the length of each chunk is the four bytes before its body, which is
+// the walk the reader already did and this repeats where it can see the file (docs/30).
+uint32_t gather_idat(const uint8_t* data, uint32_t len, const Header& header, uint8_t* out, uint32_t cap) {
+  if (header.idat_pieces <= 1) return header.idat_len;
+  if (out == nullptr || cap < header.idat_len) return 0;
+  uint32_t at = header.idat_at;
+  uint32_t done = 0;
+  for (uint32_t piece = 0; piece < header.idat_pieces; ++piece) {
+    if (at < 8 || at > len) return 0;
+    const uint8_t* size_at = data + at - 8;  // the length field of the chunk, eight bytes before its body
+    const uint32_t size = (static_cast<uint32_t>(size_at[0]) << 24) | (static_cast<uint32_t>(size_at[1]) << 16) |
+                          (static_cast<uint32_t>(size_at[2]) << 8) | static_cast<uint32_t>(size_at[3]);
+    if (size > len - at || done + size > header.idat_len) return 0;
+    memcpy(out + done, data + at, size);
+    done += size;
+    at += size + 12;  // the CRC of this chunk, the length of the next one and its type
+  }
+  return done;
+}
+
 uint32_t png_scratch(const uint8_t* data, uint32_t len) {
   Header header;
   if (read_chunks(data, len, header) != kOk) return 0;
@@ -337,7 +378,11 @@ uint32_t png_scratch(const uint8_t* data, uint32_t len) {
   // **Two rows and not one** (0.169.0): the colours of a row and, when the caller asks for the picture's transparency, the
   // mask of the same row. It is asked for here whether or not the mask is wanted, because `scratch_bytes` is what the caller
   // allocates before it knows what it will ask —2 KB of its block and not of the firmware's data— (docs/75).
-  const uint64_t bytes = static_cast<uint64_t>(png_state_at(static_cast<uint32_t>(inflated))) + 2u * kRowBytes;
+  // **I el stream ajuntat quan els `IDAT` són més d'un** (0.189.55): the copy is the compressed bytes, which are never more
+  // than the file the caller already had in its hand.
+  const uint64_t copy = (header.idat_pieces > 1) ? header.idat_len : 0;
+  const uint64_t bytes =
+      static_cast<uint64_t>(png_rows_at(static_cast<uint32_t>(inflated), static_cast<uint32_t>(copy))) + 2u * kRowBytes;
   if (bytes > 0xFFFFFFFFu) return 0;
   return static_cast<uint32_t>(bytes);
 }
@@ -356,17 +401,27 @@ Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
   // of its own** (0.169.2): a caller that allocates what it was told and gets a byte less has to be told `kNoRoom`, and
   // here the two rows were only counted when a mask was asked, so a block one byte short of the answer was accepted
   // (found by this suite, 9/11).
-  if (scratch == nullptr || cap < png_state_at(need) + 2u * kRowBytes) return kNoRoom;
+  const uint32_t copy = (header.idat_pieces > 1) ? header.idat_len : 0;
+  if (scratch == nullptr || cap < png_rows_at(need, copy) + 2u * kRowBytes) return kNoRoom;
+  // **El stream, on és**: in the file when its bodies follow each other with nothing between them, and in the block of the
+  // caller when a drawing program wrote the rows in pieces (0.189.55).
+  const uint8_t* stream = data + header.idat_at;
+  uint32_t stream_len = header.idat_len;
+  if (copy > 0) {
+    const uint32_t got = gather_idat(data, len, header, scratch + png_copy_at(need), copy);
+    if (got != header.idat_len) return kBadData;
+    stream = scratch + png_copy_at(need);
+    stream_len = got;
+  }
   uint32_t written = 0;
-  const inflate::Status status =
-      inflate::zlib(data + header.idat_at, header.idat_len, scratch, need, written);
+  const inflate::Status status = inflate::zlib(stream, stream_len, scratch, need, written);
   if (status == inflate::kNoRoom) return kNoRoom;
   if (status != inflate::kOk) return kBadData;
   if (written < need) return kTruncated;
 
   const uint32_t bpp = static_cast<uint32_t>((header.channels * header.depth + 7) / 8);
   const uint32_t stride = header.row_bytes + 1;
-  uint8_t* packed = scratch + png_state_at(need);
+  uint8_t* packed = scratch + png_rows_at(need, copy);
   for (uint32_t y = 0; y < header.height; ++y) {
     uint8_t* filter = scratch + y * stride;
     uint8_t* row = filter + 1;

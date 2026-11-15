@@ -1313,8 +1313,26 @@ cap app al davant —una placa que s'aixeca encara no té ni prompt, i una que b
   és—, i un nom que no és d'una imatge que aquest sistema llegeixi no entra al sorteig. `splash` i `cfg boot`
   ensenyen **la imatge que es dibuixaria**, i no el nom pla del moment, perquè una llista que digués `boot.png` mentre
   el boot dibuixa `boot-3.bmp` seria una llista que menteix.
-- **El que hi ha al disc, el 13/11**: **sis PNG, tots a la mida del seu dibuix** (0.183.4) —`poweroff.png`
-  **306 × 118** (3 383 B), `reboot.png` **249 × 123** (2 343 B), `sleep.png` **252 × 123** (2 751 B), `oops.png`
+- **La del son és un dibuix i no una paraula** (0.189.55, l'amo: *«vull canviar l'splash del estat Sleep per una imatge
+  adorable d'un os bru dormilega… la vull de fons transparent»*): `sleep.png` és un os que dorm, i **el "fons transparent"
+  d'una tinta electrònica és el paper**: el panell no té alfa, i el que el sistema fa amb una imatge és rentar el vidre
+  amb el color de la **vora** de la imatge (`splash::background_of`) i pintar-hi el dibuix al mig. L'arxiu que va arribar
+  era un WebP **sense canal alfa i amb el tauler de quadres blanc i gris dibuixat als píxels** —la falsa transparència
+  d'una previsualització—, o sigui que `tools/make_bear_sleep.py` treu el tauler amb un **flood fill des d'una cantonada**
+  i una tolerància de seixanta (els dos grisos del tauler són 255 i 239, quaranta-vuit de distància sumant les bandes, i el
+  marró és a dos-cents), es menja **un píxel de l'aire de la vora** —el dibuix estava antialiasat contra els quadres grisos
+  i aquesta vora es llegiria com una franja grisa sobre paper blanc—, retalla el dibuix, hi deixa **vint-i-quatre píxels de
+  paper** al voltant (el que fa que la vora que `background_of` llegeix sigui paper i la pàgina surti blanca) i el deixa a
+  **500 × 310**, que és el que es veu al vidre. **La línia `by cleanpng.com` que portava el fitxer a sota de l'herba no hi
+  és**: no és el dibuix, i el dibuix és el que es pinta. La font es queda a `tools/splash-sources/` com les altres.
+- **I el lector de PNG va haver d'aprendre a ajuntar els trossos del stream** (0.189.55): a 79 KB, aquesta és la primera
+  imatge de l'arbre que un programa de dibuix escriu en **més d'un `IDAT`** (un cada 65 536 bytes de stream), i el lector
+  la refusava —`the file is not a picture this system reads`— perquè la comparació que havia de dir «aquests dos `IDAT` van
+  seguits» demanava que els dos cossos es toquessin, i entre dos cossos hi ha **dotze bytes** (el CRC del davant, la mida
+  d'aquest i el seu tipus). Ara els ajunta, i com que el zlib d'aquest projecte és d'una sola crida, els cossos es copien
+  al bloc del cridador quan són més d'un (docs/30, docs/75).
+- **El que hi ha al disc, el 15/11**: **sis PNG, tots a la mida del seu dibuix** (0.183.4) —`poweroff.png`
+  **306 × 118** (3 383 B), `reboot.png` **249 × 123** (2 343 B), `sleep.png` **500 × 310** (79 032 B, l'os que dorm), `oops.png`
   **257 × 113** (2 632 B), `charging.png` **293 × 200** (2 317 B) i `lowbatt.png` **540 × 456** (9 719 B); abans eren
   quatre de 460 × 200 i dues pàgines de 540 × 960—, i els **tres dibuixos del boot**, `boot-2.bmp`, `boot-3.bmp` i
   `boot-5.bmp`, de **540 × 960** i vuit bits (519 478 B cada un), que són tres pàgines d'un wireframe i omplen el vidre

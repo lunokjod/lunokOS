@@ -34,7 +34,10 @@ namespace {
 // wrong (docs/30). The plan lives with the tests and not with the demo, because the demo shows one picture
 // per family —each format doing what it is good at— and a test needs them to be the same one.
 const char* const kPlan[] = {
-    "plan.png", "plan.jpg", "plan.bmp", "plan8.bmp", "plan.gif", "plan.ico",
+    // **I el mateix PNG amb les seves files en dos trossos de stream** (0.189.55): a drawing program writes the compressed
+    // rows in pieces of 65 536 bytes, and a reader that does not join two `IDAT` that follow each other refuses every
+    // picture bigger than that —which is what the splash of the sleep was, docs/30.
+    "plan.png", "split.png", "plan.jpg", "plan.bmp", "plan8.bmp", "plan.gif", "plan.ico",
 };
 const uint32_t kPlanCount = sizeof(kPlan) / sizeof(kPlan[0]);
 
@@ -321,7 +324,7 @@ void test_the_info_of_every_family(void) {
     uint8_t depth;
   };
   static const Expected kExpected[] = {
-      {"plan.png", "PNG", 24},  {"plan.jpg", "JPEG", 24}, {"plan.bmp", "BMP", 24},
+      {"plan.png", "PNG", 24},  {"split.png", "PNG", 24}, {"plan.jpg", "JPEG", 24}, {"plan.bmp", "BMP", 24},
       {"plan8.bmp", "BMP", 8},  {"plan.gif", "GIF", 8},   {"plan.ico", "ICO", 32},
   };
   static uint8_t file[2 << 20];
