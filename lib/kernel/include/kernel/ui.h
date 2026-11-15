@@ -1096,6 +1096,17 @@ void give_back_the_glass();
 bool lock_the_screen(bool on);
 bool screen_locked();
 
+// ---- els tres tocs de tancar, que una app pot demanar per a ella (0.189.101) ----
+//
+// **Tres tocs al vidre tanquen l'app del davant** (0.167.0): the gesture means «leave this page» in every app and the system
+// takes it out of the queue before the app reads it, so a page that counts taps —a lock screen, a game with its own way
+// in— never sees one. An app of an administrator can ask for them: `set_three_taps_close(false)` leaves the gesture in the
+// queue, which is the app's from then on, **and the glass is then the app's responsibility** (the three presses of the key
+// are another road and are not touched by this one). The state is the glass's and not the app's: an app that ends gives it
+// back, like the lock (docs/30, docs/46 D1, docs/50).
+bool three_taps_close();
+bool set_three_taps_close(bool on);
+
 // **Turns the page**: 0, 90, 180 or 270 degrees, and the whole system goes with it —the glass, the bar and
 // the fingers, which read it from the same place— because the frame of an app is made again at the new
 // size and the app is told with `on_resize` (docs/30, docs/50).

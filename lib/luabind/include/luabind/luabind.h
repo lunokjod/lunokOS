@@ -549,6 +549,13 @@ struct AdminOps {
   // changed (docs/30, docs/46 D1, docs/50).
   bool (*lock_screen)(bool on);
   bool (*is_locked)();
+  // **Els tres tocs del vidre, que poden ser de la pàgina** (0.189.101): three taps close the app in front and the system takes
+  // the gesture out of the queue before the page reads it, so a page that counts taps —a lock screen— never sees one. With
+  // `set_three_taps_close(false)` the gesture stays in the queue and the page's `touch.gesture()` gives it a `triple`; the
+  // three presses of the key are another road and are not touched by this one. `is` says whether the system still closes
+  // with them, so a page can ask without changing anything (docs/30, docs/46 D1).
+  bool (*three_taps_close)();
+  bool (*set_three_taps_close)(bool on);
 };
 
 void set_admin_ops(const AdminOps& ops);

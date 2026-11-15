@@ -790,6 +790,7 @@ l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
 | Crida | Torna | Què fa |
 |---|---|---|
 | `admin.LockScreen([on])` | booleà o `nil, error` | **La barra del sistema fora i la clau girada**: sense argument diu si la pantalla és bloquejada; amb `true` tanca i amb `false` obre, i sempre torna el que hi ha ara |
+| `admin.triple_tap_close([on])` | booleà o `nil, error` | **Els tres tocs del vidre, cedits a la pàgina** (0.189.101): sense argument diu si els tres tocs tanquen l'app; amb `true` el sistema se'ls queda i amb `false` queden per a la pàgina, que els llegeix amb `touch.gesture()` com un `triple`. Sempre torna el que hi ha ara |
 
 - **Què és una pantalla bloquejada.** És el vidre sencer —el de `ui.full_screen(true)`: la barra no hi és, la vista és el
   panell i l'app rep `on_resize`— **amb les portes de tornada tancades**. La targeta del sistema, la que té la creu que
@@ -802,24 +803,32 @@ l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
 - **I el pany marxa amb l'app**: una app que s'acaba —per ella mateixa, per tres premudes de la tecla o per un error— torna
   el vidre i el pany amb ell. Una placa que es quedés sense barra i sense pàgina és una placa que ningú no pot fer servir, i
   el sistema no deixa que una pàgina la hi deixi (docs/50).
+- **Els tres tocs tanquen l'app del davant, i per això es poden demanar** (0.189.101, l'amo: *«Desactiva els 3 tocs perque el
+  sistema no li envii app.exit()»*): el gest és del sistema —el pren de la cua abans que la pàgina el llegeixi, perquè sigui
+  la sortida de tota app— i una pantalla de bloqueig que compta els tocs per obrir-se es trobava que el tercer toc tancava
+  l'app en lloc d'obrir-la. `admin.triple_tap_close(false)` **deixa el gest a la cua**: la pàgina el llegeix amb
+  `touch.gesture()` (un `triple`, o tres `tap` si la mà va lenta), el sistema no tanca res, i **el camí de tornada és el que
+  la pàgina dibuixi**. Les tres premudes de la tecla del mig **no** es toquen: són una altra carretera i són la vàlvula que
+  deixa una placa amb una pàgina que no s'obre bé a l'abast d'una persona.
+- **I la pàgina nova no els hereta**: com el pany, els tres tocs tornen al sistema quan l'app s'acaba (docs/50).
 - **El que no fa**: no dona cap accés al maquinari, no salta cap límit de memòria ni de permisos de fitxers, i no canvia res
   de la màquina de Lua que no sigui aquesta taula. És el mateix entorn que el d'una app d'usuari amb una taula més.
 
 ```lua
--- Una app d'administrador que vol que no es pugui sortir de la seva pàgina (és el que fa `device_lock`).
+-- Una app d'administrador que vol que no es pugui sortir de la seva pàgina, i que els tres tocs que l'obren siguin seus
+-- (és el que fa `device_lock`).
 admin.LockScreen(true)
+admin.triple_tap_close(false)     -- el sistema no tancarà aquesta app amb tres tocs
 ui.clear(15)
--- ... la pàgina ...
+-- ... la pàgina, amb el candau com a control (`focusable = true` i `on_click`) ...
 while true do
+  if unlock_wanted then           -- el compte el porta `on_click`, i la porta es creua des d'aquí
+    admin.LockScreen(false)       -- la barra torna, i el sistema la torna a deixar treure a qui la demani
+    app.exit()                    -- **des del torn de la pàgina i no des del ganxo del control**: dins d'un `on_click`
+                                  -- `app.exit()` és un error que el ganxo es menja i l'app no s'acaba (docs/30, docs/90)
+  end
   local gesture = touch.gesture()
-  while gesture do
-    if gesture.kind == 'tap' then taps = taps + 1 end
-    gesture = touch.gesture()
-  end
-  if taps >= 3 then
-    admin.LockScreen(false)   -- la barra torna, i el sistema la torna a deixar treure a qui la demani
-    app.exit()
-  end
+  while gesture do gesture = touch.gesture() end
   sys.delay(20):await()
 end
 ```

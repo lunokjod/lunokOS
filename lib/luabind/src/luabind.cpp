@@ -12221,14 +12221,30 @@ int l_admin_lock_screen(lua_State* L) {
   return 1;
 }
 
+// **Els tres tocs del vidre, cedits a la pàgina que els demana** (0.189.101): `admin.triple_tap_close(false)` leaves the gesture
+// in the queue, so the page's `touch.gesture()` hands it a `triple` and the system closes nothing. The answer is the state
+// after the call —`true` when the three taps still close the app— and it is asked even when the page only wants to know
+// (docs/30, docs/46 D1).
+int l_admin_triple_tap_close(lua_State* L) {
+  if (g_admin_ops.three_taps_close == nullptr || g_admin_ops.set_three_taps_close == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no three taps to give");
+  }
+  if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
+    g_admin_ops.set_three_taps_close(lua_toboolean(L, 1) != 0);
+  }
+  lua_pushboolean(L, g_admin_ops.three_taps_close() ? 1 : 0);
+  return 1;
+}
+
 // **The table is made only for a machine whose manifest asked for it** (0.189.99): an app without the key does not get a
 // table that refuses its calls, it gets nothing at all, so `admin ~= nil` is a question a page can ask and a `nil` is the
 // whole answer. The pack is registered here and not with `ui` because it is not a control and it is not a page's business
 // (docs/30, docs/40).
 void open_admin(lua_State* L) {
   if (!g_boot.admin) return;
-  lua_createtable(L, 0, 1);
+  lua_createtable(L, 0, 2);
   set_function(L, "LockScreen", l_admin_lock_screen);
+  set_function(L, "triple_tap_close", l_admin_triple_tap_close);
   lua_setglobal(L, "admin");
 }
 

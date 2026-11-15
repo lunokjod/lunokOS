@@ -635,6 +635,58 @@ void wait_for_the_lift() {
   TEST_FAIL_MESSAGE("the glass never said the finger was gone");
 }
 
+// **Una app a qui li han cedit els tres tocs els té també al vidre sencer** (0.189.101): the three taps of a page that covers
+// everything are the system's way back to the bar, and a lock screen that asks for the taps to count them would get its lesson
+// and its bar back on the third one. With `ui.set_three_taps_close(false)` the gesture is not taken out of the queue —the page
+// reads it— and the glass stays the app's, which is the half of `admin.triple_tap_close(false)` that lives in the ui
+// (docs/30, docs/46 D1).
+static void test_a_page_that_asked_for_the_three_taps_keeps_them_in_the_whole_glass() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  TEST_ASSERT_TRUE(ui::set_three_taps_close(false));
+
+  // **Three taps of a hand**, each one inside the window of the one before, and the turn of the panel after each of them.
+  for (int i = 0; i < 3; ++i) {
+    TEST_ASSERT_TRUE(chip().finger_down(0, 200, 300));
+    for (int t = 0; t < 4; ++t) {
+      turn(20);
+      kernel::ui::poll_full_screen();
+    }
+    TEST_ASSERT_TRUE(chip().finger_up(0));
+    for (int t = 0; t < 4; ++t) {
+      turn(20);
+      kernel::ui::poll_full_screen();
+    }
+  }
+  // **El vidre continua sent de l'app i el gest és a la cua**, which is the whole difference with the three taps of the system.
+  TEST_ASSERT_TRUE(ui::is_full_screen());
+  TEST_ASSERT_FALSE(kernel::bar::visible());
+  int heard = 0;
+  kernel::touch::Gesture gesture;
+  while (kernel::touch::take_gesture(gesture)) {
+    if (gesture.kind != nullptr && strcmp(gesture.kind, "triple") == 0) ++heard;
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, heard, "the page asked for the three taps and the queue did not keep them");
+
+  // **I quan els torna, el sistema els torna a prendre**: asking for what one has is free both ways (docs/30).
+  TEST_ASSERT_TRUE(ui::set_three_taps_close(true));
+  for (int i = 0; i < 3; ++i) {
+    TEST_ASSERT_TRUE(chip().finger_down(0, 200, 300));
+    for (int t = 0; t < 4; ++t) {
+      turn(20);
+      kernel::ui::poll_full_screen();
+    }
+    TEST_ASSERT_TRUE(chip().finger_up(0));
+    for (int t = 0; t < 4; ++t) {
+      turn(20);
+      kernel::ui::poll_full_screen();
+    }
+  }
+  TEST_ASSERT_FALSE(ui::is_full_screen());
+  TEST_ASSERT_TRUE(kernel::bar::visible());
+}
+
 // **El dit que hi havia al vidre quan la pàgina va canviar no és de la que ve** (0.189.100, l'amo: *«en tornar al Home se
 // m'han obert apps totes soles … és simplement que un event de la vista anterior arriba a la vista nova?»* — i ho era): the
 // click of a control is delivered when the finger leaves and **at the point it landed**, so a finger that was on the glass
@@ -975,6 +1027,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_slow_still_press_is_a_tap_and_a_long_is_not);
   RUN_TEST(test_a_gesture_between_two_taps_is_not_a_double);
   RUN_TEST(test_three_taps_take_the_app_out_of_the_whole_glass);
+  RUN_TEST(test_a_page_that_asked_for_the_three_taps_keeps_them_in_the_whole_glass);
   RUN_TEST(test_a_finger_of_the_page_before_does_not_click_the_next_one);
   RUN_TEST(test_a_tap_of_the_empty_glass_is_not_the_new_pages);
   RUN_TEST(test_the_tap_the_queue_owed_is_not_the_next_pages);

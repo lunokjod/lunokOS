@@ -13277,12 +13277,14 @@ void test_the_cross_of_a_notice_dismisses_the_newest(void) {
 
 // **A grid walks its cells and pages itself**: the arrows walk the cells, the page follows the cursor so the app never turns
 // a page, and the centre picks the cell it is on with `on_pick(self, index)` (docs/30, docs/90).
-// **El paquet d'un administrador, i el pany de la pantalla** (0.189.99): `"admin": true` al manifest és el que fa que la
-// màquina de Lua d'una app es faci amb la taula `admin` a dins, i una app que no el porta no la té —`nil` i no una taula que
-// refusa—. El pany és el vidre sencer de la 0.136.0 amb **les portes de tornada tancades**: `ui.full_screen(false)` és refusat
-// amb `E_PERM` i els tres tocs que tornen la barra a qualsevol altra app no hi són —i no es prenen de la cua, o sigui que
-// l'app els veu i els compta, que és el que necessita una pantalla de bloqueig—. El cas corre els dos costats: la mateixa
-// pàgina amb la clau i sense, i els tres tocs amb el pany posat (docs/30, docs/40).
+// **El paquet d'un administrador, el pany de la pantalla i els tres tocs** (0.189.99, 0.189.101): `"admin": true` al manifest
+// és el que fa que la màquina de Lua d'una app es faci amb la taula `admin` a dins, i una app que no el porta no la té —`nil`
+// i no una taula que refusa—. El pany és el vidre sencer de la 0.136.0 amb **les portes de tornada tancades**:
+// `ui.full_screen(false)` és refusat amb `E_PERM` i els tres tocs que tornen la barra a qualsevol altra app no hi són. **I els
+// tres tocs que tanquen l'app del davant tampoc no són del sistema si l'app els demana** (`admin.triple_tap_close(false)`): el
+// gest queda a la cua i la pàgina el llegeix, que és el que necessita una pantalla de bloqueig per comptar-lo — i el que fa
+// que aquest cas sigui decisiu és que **sense la crida el sistema tanca l'app amb el mateix `triple`** i la pàgina no arriba a
+// dir mai que els ha sentit (docs/30, docs/40, docs/46 D1).
 void test_only_an_administrator_gets_the_admin_table_and_a_lock(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
@@ -13304,6 +13306,9 @@ void test_only_an_administrator_gets_the_admin_table_and_a_lock(void) {
       "  console.print('whole ' .. tostring(ui.full_screen()))\n"
       "  local back, err = ui.full_screen(false)\n"
       "  console.print('back ' .. tostring(back) .. ' ' .. tostring(err and err.code))\n"
+      // **I els tres tocs queden per a la pàgina** (0.189.101): the answer is the state after the call, and `false` is «the
+      // system does not close this app with three taps any more» (docs/30).
+      "  console.print('taps close ' .. tostring(admin.triple_tap_close(false)))\n"
       "end\n"
       "ui.present('gc16')\n"
       "while taps < 3 do\n"
@@ -13318,8 +13323,11 @@ void test_only_an_administrator_gets_the_admin_table_and_a_lock(void) {
       "  end\n"
       "  sys.delay(10):await()\n"
       "end\n"
-      "console.print('taps ' .. tostring(taps >= 3) .. ' whole ' .. tostring(ui.full_screen()))\n"
-      "if admin ~= nil then console.print('opened ' .. tostring(admin.LockScreen(false))) end\n"
+      "console.print('heard ' .. tostring(taps >= 3) .. ' whole ' .. tostring(ui.full_screen()))\n"
+      "if admin ~= nil then\n"
+      "  admin.triple_tap_close(true)\n"
+      "  console.print('opened ' .. tostring(admin.LockScreen(false)))\n"
+      "end\n"
       "console.print('whole at the end ' .. tostring(ui.full_screen()))\n";
 
   TEST_ASSERT_TRUE(add_app(storage, "boss",
@@ -13330,15 +13338,21 @@ void test_only_an_administrator_gets_the_admin_table_and_a_lock(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "admin is table"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "locked true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "whole true"), g_out);
+  // **I el vidre és el panell amb la barra fora, dit pel sistema**: the page can lie about its own glass and the kernel cannot.
+  TEST_ASSERT_TRUE(kernel::ui::is_full_screen());
+  TEST_ASSERT_FALSE(kernel::bar::visible());
   // **I el vidre no torna per una crida de l'app**: the refusal names the lock and not the heap, because a page sent to look
   // at its memory by a door that is locked for another reason is a page that looks in the wrong place (docs/30, docs/50).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back nil E_PERM"), g_out);
-  // **La barra no hi és i la vista és el panell**: the system's half, asked of the system and not of the page.
+  // **I els tres tocs del vidre queden per a la pàgina**: the call answers with the state after it, which is `false` —the system
+  // closes this app with three taps no more— and the gesture is not taken out of the queue any more (docs/30).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "taps close false"), g_out);
+  TEST_ASSERT_FALSE(kernel::ui::three_taps_close());
   TEST_ASSERT_FALSE(kernel::bar::visible());
-  TEST_ASSERT_TRUE(kernel::ui::is_full_screen());
 
-  // Three taps on the glass, each one waited out of the window of the double and of the triple (docs/30, docs/92), and the
-  // console of the page taken from here: a `capture` holds what the app writes while it is open.
+  // **Els tres tocs, seguits** (0.189.99, 0.189.101): three taps inside the window of the glass —and not three taps waited out
+  // of it—, which is **one `triple`** and the gesture the system used to keep for closing the app (docs/30, docs/92). The
+  // console of the page is captured here: it holds what the app writes while the taps happen.
   capture_begin();
   emu::Gt911Panel* panel = emu::touch_panel();
   TEST_ASSERT_NOT_NULL(panel);
@@ -13346,13 +13360,16 @@ void test_only_an_administrator_gets_the_admin_table_and_a_lock(void) {
     TEST_ASSERT_TRUE(panel->finger_down(0, 270, 500));
     pump_turns(10);
     TEST_ASSERT_TRUE(panel->finger_up(0));
-    pump_turns(400);
+    pump_turns(10);
   }
+  // The `triple` is said three hundred and fifty milliseconds after the third lift, which is the window it waits for.
+  pump_turns(400);
   capture_end(g_out, sizeof(g_out));
-  // **Els tres tocs són de l'app i no del sistema**: it counted them, which is the whole difference with `ui.full_screen`, and
-  // the glass is still the app's (docs/30, docs/46 D1).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "taps true whole true"), g_out);
-  TEST_ASSERT_TRUE(kernel::ui::is_full_screen());
+  // **Els tres tocs són de l'app i no del sistema**: it heard the gesture and the glass is still the app's. **Aquesta línia és
+  // la prova**: with the gesture taken by the system the page is closed on the third tap and the loop that reads
+  // `touch.gesture()` never runs again, so nothing else is said —the page ends after this and the app goes with it, which is
+  // why there is no live app to ask about here— (docs/30, docs/46 D1).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "heard true whole true"), g_out);
 
   // **I el pany obre la barra i prou**: the app gives it back and the strip of the system is where it belongs again.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "opened false"), g_out);

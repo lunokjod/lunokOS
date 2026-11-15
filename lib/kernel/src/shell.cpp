@@ -4250,7 +4250,11 @@ bool poll_app() {
   // three taps of a finger on the keyboard are three letters and not a way out, and the gesture was leaving the app in the middle
   // of a note. The band is the system's own keyboard, so this is the system not taking its way out while it is there; a page with
   // no band keeps it, and the three taps of the middle **key** are a different road and untouched by this one (docs/30).
-  {
+  // **I una app d'administrador els pot demanar per a ella** (0.189.101, l'amo: *«admin.triple_tap_close(false) — desactiva els 3
+  // tocs perque el sistema no li envii app.exit()»*): with the gesture left in the queue the page's `touch.gesture()` gives it
+  // a `triple`, which is what a lock screen counts to open; the road out of that page is then its own, and the three presses
+  // of the key are still the system's (docs/30, docs/46 D1).
+  if (ui::three_taps_close()) {
     touch::Gesture triple{};
     // The gesture is taken out of the queue in both cases: three taps on a keyboard are not an app's gesture either, and the
     // triple that arrives after the band is a gesture of its own and not a leftover of the ones typed on the keyboard (docs/30).

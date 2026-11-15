@@ -1403,6 +1403,13 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   app amb `"admin": true` avui—: una porta que es deixa obrir amb un gest del sistema no és una porta. **El pany no és una
   manera de tancar el sistema**: la tecla de la placa i el final de l'app el tornen a obrir, perquè una placa que es
   quedés sense franja i sense pàgina no la pot fer servir ningú (docs/30, docs/40).
+- **I els tres tocs que tanquen l'app també es poden cedir** (0.189.101): el sistema pren el `triple` de la cua abans que la
+  pàgina el llegeixi —és la sortida de tota app, i una pàgina no l'ha de poder amagar— i `admin.triple_tap_close(false)` el
+  deixa a la cua per a una app que el necessita, que és el que fa una pantalla de bloqueig que compta els tocs per obrir-se.
+  La cua els torna a prendre quan l'app s'acaba, i les tres premudes de la tecla del mig no es toquen: són l'altra carretera i
+  la vàlvula d'una pàgina que no respon. **I un `ui.button` sense vores sobre una pàgina no té buffer** (0.189.101): la seva
+  cara es pinta al canvas del pare, i el `draw_clear` dels cantons esborrava tota la pàgina; ara la cara és la caixa del botó
+  (trobat amb el candau del `Device Lock`, docs/30).
 - **I quan el vidre queda net sota seu, s'ha de dir** (0.164.3): una imatge de l'arrencada de l'app
   (`splash::show`) renta **tot** el vidre —la franja amb ell— i la barra, que només es pinta quan canvia
   alguna cosa seva, després no sabia que l'hora i la càrrega havien desaparegut: el títol nou repintava la

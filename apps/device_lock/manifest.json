@@ -1,7 +1,7 @@
 {
   "title": "Device Lock",
   "author": "@lunokjod",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "entry": "device_lock.lua",
   "boards": ["esp32"],
   "admin": true,

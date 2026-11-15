@@ -369,6 +369,25 @@ Les **setze** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`,
 - **Un gest del tàctil pot ser més d'un toc**: tres tocs seguits dins la finestra del tàctil surten com **un sol** gest
   `triple`, i dos com a `double`. La pàgina que comptava només `tap` comptava dos tocs d'una persona que n'havia fet tres i no
   s'obria mai —només amb els tocs separats més de la finestra—, i ara compta els tres noms (0.189.99, docs/30).
+- **I els tres tocs que tanquen una app són una porta que s'ha de poder tancar** (0.189.101): el sistema pren el gest de la
+  cua abans que la pàgina el llegeixi —és la sortida de tota app—, i una pantalla de bloqueig que els compta per obrir-se es
+  trobava que **el tercer toc tancava l'app**. `admin.triple_tap_close(false)` deixa el gest a la cua i la pàgina el llegeix
+  (docs/30).
+- **El compte el porta el candau, i el candau és un control** (0.189.101, l'amo: *«L'app ha de registrarse el triple tap al
+  botó sense vores amb el dibux del candau»*): un canvas amb `focusable = true` i `on_click` és el botó sense vores que
+  aquesta pàgina vol —el dit hi cau, el dial el pot prendre i **tres tocs són tres clics**—, i el dibuix va en un canvas seu
+  a dins perquè un `ui.button` amb `framed = false` pinta la seva cara a cada premuda i un requadre de 184 × 255 píxels de
+  pintada deixa **el fantasma gris de la caixa** sobre el candau (mesurat a l'emulador). **I el dibuix només es fa quan ha
+  canviat**: el sistema demana el dibuix d'un control en tocar-lo, i tornar a pintar el candau sencer amb tinta a cada toc
+  és el mateix fantasma per un altre camí —el que un toc ha de moure són els tres cercles, i prou— (docs/30, docs/50).
+- **I `app.exit()` no es pot cridar des d'un `on_click`**: el ganxo del control corre dins d'una crida protegida del sistema,
+  i el que `app.exit()` fa és **llençar l'error que acaba l'app**: el ganxo se'l menja, la consola diu `on_click: app.exit` i
+  la pàgina es queda amb el pany obert i l'app viva. La porta es demana amb una bandera i es creua al torn de la pàgina, que
+  és el camí que fan els controls de totes les apps (mesurat a l'emulador, 15/11; docs/30, docs/90).
+- **I un botó sense vores d'una pàgina no té buffer** (0.189.101): `ui.button` es fa sense canvas propi i pinta la cara al
+  canvas del pare, i el `draw_clear` que el seu dibuix feia servir per als cantons **esborrava tota la pàgina** —les dues
+  frases i els cercles del `Device Lock` van quedar en blanc al primer toc del candau—; ara la cara és la caixa del botó i
+  no el canvas (mesurat a l'emulador, docs/30, docs/50).
 
 **El que va ensenyar el `Clock`** (0.189.98, la primera app portada que **dibuixa a mà** i que **porta alarmes**):
 

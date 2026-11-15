@@ -100,6 +100,11 @@ bool g_full_screen = false;
 // lives with the glass and not with the app —`give_back_the_glass` clears it, which is the hand that runs when an app ends
 // or dies— perquè una placa que es queda sense barra i sense app és una placa que ningú no pot fer servir (docs/30, docs/50).
 bool g_screen_locked = false;
+// **I si els tres tocs tanquen l'app del davant** (0.189.101): the gesture is the system's way out of any page, and an app of an
+// administrator can ask for it —the lock screen counts the taps that open it, and the system was taking the third one and
+// closing the app before the page could say anything—. It lives with the glass, like the lock, and it comes back with it
+// (docs/30, docs/46 D1, docs/50).
+bool g_three_taps_close = true;
 // **Whether the canvas still holds the band of the keyboard**: it is a picture drawn into the page, so it is there
 // until something wipes it —the app's `clear`, a rectangle or a pixel over it, a new canvas— and a letter typed does
 // not. The flag is the band's, and `clear` asks it through this door (docs/50, docs/90).
@@ -2106,6 +2111,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   // **Un arrencament és un vidre que ningú no ha bloquejat** (0.189.99): the lock is a state of the glass of an app and not a
   // setting, so a boot starts with the bar where it belongs (docs/30, docs/50).
   g_screen_locked = false;
+  // **I els tres tocs tornen a ser del sistema**: a boot is a glass nobody has asked anything of (0.189.101, docs/30).
+  g_three_taps_close = true;
   // **The face of the whole glass, before anything is drawn and whether or not there is a glass**: the typeface is the
   // system's and not the panel's, and a board whose model has no screen still asks for the same text —a run with no
   // display writes to the console and the pages of a window on the emulator are drawn with it too— (docs/30, docs/92).
@@ -2245,7 +2252,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                              splash_hide_for_lua, splash_error_for_lua});
   // **El paquet d'un administrador** (0.189.99): the two calls the `admin` table of an administrator's machine answers. The
   // table is built by the interpreter only for an app whose manifest says so, and this is the system's half of it (docs/30).
-  luabind::set_admin_ops(luabind::AdminOps{lock_the_screen, screen_locked});
+  luabind::set_admin_ops(luabind::AdminOps{lock_the_screen, screen_locked, three_taps_close, set_three_taps_close});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -3442,7 +3449,14 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
     // turns it over —the corners to ink and the mark to paper— which is the whole of what a person sees move on a key with no
     // shadow. Clearing with the face's level and not always with the paper is what makes the corners follow the press; the
     // fill over it keeps the rounded face (docs/30, docs/92).
-    draw_clear(view, face_level, mode);
+    //
+    // **I la cara és la caixa del botó i no tot el canvas** (0.189.101): the clear was said for the scratch canvas of a key of
+    // the panel, which is the size of the key and starts black. **A button without a frame that a page draws has no buffer of
+    // its own** —`ui.button` is made without one— and paints into the page, so clearing the canvas emptied the page under it:
+    // the two sentences and the three dots of `Device Lock` went white with the first tap of its padlock (found on the
+    // emulator, docs/30, docs/50).
+    draw_fill_rect(view, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(width),
+                   static_cast<uint16_t>(height), face_level, mode);
     draw_round_fill(view, x, y, static_cast<uint16_t>(width), static_cast<uint16_t>(height), radius, face_level, mode);
   } else {
     // 1. **The box, in the colour of the shadow**: ink under the face while the button is up, and paper while it is down.
@@ -8392,11 +8406,30 @@ bool lock_the_screen(bool on) {
 
 bool screen_locked() { return g_screen_locked; }
 
+// **Els tres tocs, cedits o no** (0.189.101): asking for what one has is free and says the truth, and a page that ends gives
+// them back through `give_back_the_glass` —the same hand the lock goes with— so the next app opens with the way out the
+// system gives everybody (docs/30, docs/50).
+bool three_taps_close() { return g_three_taps_close; }
+
+bool set_three_taps_close(bool on) {
+  if (g_three_taps_close == on) return true;
+  g_three_taps_close = on;
+  if (on) {
+    log_printf(pal::kLogInfo, "UI", "three taps on the glass close the app again");
+  } else {
+    log_printf(pal::kLogInfo, "UI", "the three taps of the glass are the app's: the system does not close it");
+  }
+  return true;
+}
+
 void give_back_the_glass() {
   // **El pany marxa amb l'app que el va tancar** (0.189.99): this is the hand of an app that ended —its own `app.exit`, three
   // presses of the key, an error— and it is the last thing that runs for it. A board left with no bar and no page is a board
   // nobody can use, so the lock goes first and the view of every app comes back after it (docs/30, docs/50).
   g_screen_locked = false;
+  // **I una app que se'n va deixa els seus tres tocs al sistema** (0.189.101): the way out of a page is everybody's, and a page
+  // that does not come back to ask for it again would leave the next app with no three taps and nobody knowing why (docs/30).
+  g_three_taps_close = true;
   if (!g_full_screen) return;
   // The app that asked is gone or is going: there is nobody to tell, and the view of every app and the bar of the
   // system are what the next page needs (docs/30, docs/46 D1). A view that cannot be made is said and not hidden.
@@ -8411,6 +8444,10 @@ bool poll_full_screen() {
   // the queue —it is the app's, and the app of a lock screen counts the taps to open it— and nothing is given back. A lock
   // screen whose door is three taps anywhere is a door with the key taped to it (docs/30, docs/46 D1).
   if (g_screen_locked) return false;
+  // **I el mateix quan l'app els ha demanat per a ella** (0.189.101): the gesture is not taken out of the queue —the page reads
+  // it— and the bar does not come back, which is the whole of what the call says. The road that is left is the app's own, or
+  // the three presses of the key (docs/30, docs/46 D1).
+  if (!g_three_taps_close) return false;
   // **Three taps on the glass are the system's and not the app's** (0.136.0): the gesture is taken out of the queue
   // before the app reads it, so a page of a book that covers everything cannot take away the way back to the bar.
   // What the app does hear is `on_resize`, which is how it knows its view is another size (docs/30).

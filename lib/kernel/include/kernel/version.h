@@ -9327,7 +9327,22 @@ namespace kernel {
 // un toc fet sobre un vidre buit es lliura **després** que la pàgina hi sigui i clicava la cel·la del llançador de sota el dit;
 // ara la pàgina nova **ha de veure el vidre buit abans que cap contacte sigui seu** (`g_page_wants_an_empty_glass`) (docs/30,
 // docs/50).
-static const char kVersion[] = "0.189.100";
+// 0.189.101 — **els tres tocs d'una app d'administrador, i el candau com a control** (l'amo: *«admin.triple_tap_close(false)
+// — desactiva els 3 tocs perque el sistema no li envii app.exit()»* i *«L'app ha de registrarse el triple tap al botó sense
+// vores amb el dibux del candau»*). **Els tres tocs del vidre tanquen l'app del davant i el sistema pren el gest de la cua
+// abans que la pàgina el llegeixi** —és la sortida de tota app, i una pàgina no l'ha de poder amagar—, o sigui que una pantalla
+// de bloqueig que els compta per obrir-se es trobava que **el tercer toc tancava l'app** en lloc d'obrir-la. La crida nova del
+// paquet d'administrador, `admin.triple_tap_close([on])`, deixa el gest a la cua (`ui::set_three_taps_close`): la pàgina el
+// llegeix com un `triple`, el sistema no tanca res, el vidre sencer tampoc no torna per ell (`poll_full_screen` el deixa estar)
+// i la cua els torna a prendre quan l'app s'acaba; les tres premudes de la tecla del mig no es toquen, que és la vàlvula d'una
+// pàgina que no respon. **I `apps/device_lock` és el candau com a control**: un canvas amb `focusable = true` i `on_click` i el
+// dibuix a dins, o sigui que tres tocs sobre el candau són tres clics i els tres cercles de sota compten; el dibuix només es fa
+// quan ha canviat —tornar a pintar 184 × 255 de tinta a cada toc deixa el fantasma gris de la caixa— i la porta de sortida es
+// creua al torn de la pàgina, perquè `app.exit()` dins d'un `on_click` el ganxo se'l menja i l'app no s'acaba. I de passada, dos
+// forats del sistema que aquesta app és la primera a trepitjar: **un `ui.button` sense vores d'una pàgina esborrava tota la
+// pàgina** —la cara es pinta al canvas del pare i el clear dels cantons era de tot el canvas— i ara la cara és la caixa del
+// botó (docs/30, docs/40, docs/45, docs/50).
+static const char kVersion[] = "0.189.101";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
