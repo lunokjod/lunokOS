@@ -440,6 +440,11 @@ end
 
 local kDayNames = {'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'}
 
+-- **Fins on es busquen les altres mostres d'un dia de la setmana**: four weeks of days, which is what the last eight
+-- kilobytes of the marks file hold —a shift is six marks of twenty-four bytes— and a month is enough for a Monday to have
+-- three other Mondays to be compared with (docs/45).
+local kMeanDays = 28
+
 -- **The five working days of the week of a date**, Monday to Friday and nothing else. **The average is of the days
 -- that have marks** and not of five: a Monday with no mark is a day this app knows nothing about, and counting it as a
 -- zero would make the average of somebody who started on Wednesday look like half of what it is.
@@ -505,12 +510,37 @@ local function week_of(key, today_key, now_sec)
     local up_to = (day_key == today_key) and now_sec or nil
     local work, rest = totals(list, up_to)
 
-    rows[#rows + 1] = {key = day_key, name = kDayNames[at.wday] or '?', work = work, rest = rest,
+    rows[#rows + 1] = {key = day_key, name = kDayNames[at.wday] or '?', wday = at.wday, work = work, rest = rest,
                        total = work + rest, marks = #list}
 
     if #list > 0 then
       sum = sum + work
       count = count + 1
+    end
+  end
+
+  -- **LA MITJANA DE CADA DIA DE LA SETMANA, DE LES ALTRES MOSTRES** (0.189.51, l'amo: *«al passar la setmana comença de nou, jo
+  -- vull que surti una línia de la mitjana de les altres mostres (mateix dia de la setmana)»*): a week that starts over is
+  -- five empty columns and nothing to compare them with, so each column carries a tick at what **that weekday** was worth in
+  -- the weeks before. It is the **work** and not the total, which is the number the line of the sheet already calls «avg»,
+  -- and a day of those other weeks with no mark does not count —a Monday nobody worked is not a zero, the same rule the
+  -- average of this week follows (docs/45, docs/30).
+  local sums, counts = {}, {}
+  for step = 1, kMeanDays do
+    local at = time.date(now + (monday - step) * 86400)
+    if at == nil then break end
+    local list = by_day[key_of(at)]
+    if list ~= nil and #list > 0 then
+      local worked = totals(list, nil)
+      sums[at.wday] = (sums[at.wday] or 0) + worked
+      counts[at.wday] = (counts[at.wday] or 0) + 1
+    end
+  end
+  for i = 1, #rows do
+    local wday = rows[i].wday
+    if counts[wday] ~= nil and counts[wday] > 0 then
+      rows[i].mean = math.floor(sums[wday] / counts[wday])
+      rows[i].mean_days = counts[wday]
     end
   end
 
@@ -527,8 +557,15 @@ end
 
 -- **A drawing and not five controls**: a chart does not take the focus, does not answer a key and is not touched. The
 -- work is ink (0), the rests grey (8), the grid 11 and the paper 15 (docs/45).
-local kWorkInk, kRestInk, kGridInk = 0, 8, 11
+-- **I la tinta de la mitjana és una quarta** (0.189.51): the work is ink, the rests are the light grey and the grid is
+-- lighter still, so the tick of the mean is a grey between the work and the rest —six of sixteen, two rows high and only as
+-- long as the column— and it reads as a mark and not as a third bar (docs/45, docs/50).
+local kWorkInk, kRestInk, kGridInk, kMeanInk = 0, 8, 11, 6
 local kGutter, kUnder, kLegend, kPad = 56, 66, 34, 6
+-- **L'aire entre dues coses de la llegenda** (0.189.51, l'amo: *«les llegendes de Work i Rest estan sobreposades»*): la
+-- llegenda es mesura amb `ui.text_width` i cada cosa comença on acaba l'anterior més aquests divuit píxels, perquè una
+-- col·locació a ull valia amb la taula de cinc per set del flaix i no amb els onze píxels de línia de la cara del disc.
+local kLegendGap = 18
 
 local function paint_week(cv, w, h, week)
   local rows = (week and week.rows) or {}
@@ -544,9 +581,12 @@ local function paint_week(cv, w, h, week)
 
   -- The top of the scale is the tallest day rounded up to half an hour, and never less than four hours: a bar that
   -- fills the whole page for a shift of one hour says "a long day" to anybody who looks at it.
+  -- **I la mitjana entra a l'escala** (0.189.51): a tick of a weekday that was worth more than any day of this week would be
+  -- drawn over the top of the sheet, where nothing is; the scale is the tallest of the bars **and of the ticks**.
   local top = 0
   for i = 1, #rows do
     if rows[i].total > top then top = rows[i].total end
+    if (rows[i].mean or 0) > top then top = rows[i].mean end
   end
   top = math.max(4 * 3600, math.ceil(top / 1800) * 1800)
 
@@ -592,18 +632,123 @@ local function paint_week(cv, w, h, week)
     cv:text(math.floor(px + (pw - ui.text_width(text, kSmall)) / 2), py + math.floor(ph / 2), text, kSmall)
   end
 
-  -- The legend: the two inks have to be named, or the grey is a mystery.
+  -- **The legend: the three marks have to be named**, or the grey and the tick are a mystery. It is laid out by measure and
+  -- not by numbers: each item starts where the one before ends plus `kLegendGap` (0.189.51, docs/45, docs/92).
   local ly = h - kLegend + 2
-  cv:rect(2, ly + 8, 16, 16, kWorkInk)
-  cv:text(24, ly, 'Work', kSmall)
-  cv:rect(92, ly + 8, 16, 16, kRestInk)
-  cv:text(114, ly, 'Rest', kSmall)
+  local lx = 2
+  local function legend(ink, word, is_a_line)
+    if is_a_line then
+      cv:line(lx + 2, ly + 15, lx + 15, ly + 15, ink)
+      cv:line(lx + 2, ly + 16, lx + 15, ly + 16, ink)
+    else
+      cv:rect(lx, ly + 8, 16, 16, ink)
+    end
+    cv:text(lx + 22, ly, word, kSmall)
+    lx = lx + 22 + ui.text_width(word, kSmall) + kLegendGap
+  end
+  legend(kWorkInk, 'Work', false)
+  legend(kRestInk, 'Rest', false)
+  legend(kMeanInk, 'avg', true)
+
+  -- **I la ratlla de la mitjana de cada dia** (0.189.51): a tick across the column at the height of what that weekday has
+  -- been worth the weeks before, which is the one thing a sheet that starts over can be compared with (docs/45, docs/90).
+  for i = 1, #rows do
+    local row = rows[i]
+    if row.mean ~= nil and row.mean > 0 then
+      local cx = px + slot * (i - 1) + slot / 2
+      local at = py + ph - math.floor(row.mean / top * ph)
+      local half = math.floor(bw / 2) + 4
+      cv:rect(math.floor(cx) - half, at, half * 2, 2, kMeanInk)
+    end
+  end
 end
 
 -- ============================================================================== what survives and what is on the glass
 
 local page = 1              -- 1 the day, 2 the week
 local marked = 0            -- the mark the note box is writing, counted from one (0 = none)
+
+-- ========================================================================== the shape of the view (`state`, docs/30)
+
+-- **ES QUEDA EL FULL QUE LA PERSONA MIRAVA I LA MARCA QUE TENIA OBERTA** (0.189.51, la norma de la sessió `state` de docs/30
+-- i docs/45): turning the sheet and opening a row's note are the two things this app can come back with. The marks are the
+-- app's data and live in their file; nothing of the person —not the hour, not the battery— goes in this block, and a board
+-- whose memory is short answers `nil` and the page is built as if nobody had touched it (docs/75).
+--
+-- **El codi és el mateix de totes les apps i es copia sencer** (docs/30): canviar-lo aquí seria una app amb un format que
+-- ningú més llegeix.
+local kStateBytes = 1024
+local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
+local state_block = nil    -- the block: asked once and kept for the life of the app
+
+local function the_state()
+  if state_block == nil then
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function escape(text)
+  return (tostring(text or ''):gsub('\\', '\\\\'):gsub('\n', '\\n'))
+end
+
+local function unescape(text)
+  return (text:gsub('\\(.)', function(c) return (c == 'n') and '\n' or c end))
+end
+
+-- **Què és la pàgina ara**, una línia per cosa.
+local function save_state(now)
+  local block = the_state()
+  if block == nil then return false end
+  local lines = { kLayout }
+  for _, key in ipairs({ 'focus', 'page', 'tab', 'scroll', 'marked' }) do
+    if now[key] ~= nil then lines[#lines + 1] = key .. '=' .. tostring(now[key]) end
+  end
+  for name, value in pairs(now.check or {}) do
+    lines[#lines + 1] = 'check:' .. name .. '=' .. (value and '1' or '0')
+  end
+  for name, value in pairs(now.text or {}) do
+    lines[#lines + 1] = 'text:' .. name .. '=' .. escape(value)
+  end
+  block:clear()
+  block:write(0, table.concat(lines, '\n'))
+  return true
+end
+
+-- **Què era la pàgina**: `nil` quan no hi ha res a llegir, o quan el bloc és d'una altra forma —un estat que no és d'aquesta
+-- pàgina és pitjor que cap estat, perquè posaria el full en una pàgina que ja no existeix (docs/30).
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+  local body = block:read(0, kStateBytes) or ''
+  local now = { check = {}, text = {} }
+  local first = true
+  for line in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if line ~= kLayout then return nil end
+    elseif line:sub(1, 6) == 'check:' then
+      local name, value = line:match('^check:([^=]+)=(%d)$')
+      if name ~= nil then now.check[name] = (value == '1') end
+    elseif line:sub(1, 5) == 'text:' then
+      local name, value = line:match('^text:([^=]+)=(.*)$')
+      if name ~= nil then now.text[name] = unescape(value) end
+    else
+      local key, value = line:match('^([%w_]+)=(.*)$')
+      if key ~= nil then now[key] = value end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
+-- **La forma d'aquest full, que és el full i la marca** (docs/45 §5 bis): `page` i `marked` i res més, perquè el que hi ha a
+-- la llista és dada de l'app i viu al seu fitxer.
+local function save_shape()
+  return save_state({ page = page, marked = (marked > 0) and marked or nil })
+end
 local shown_day = ''        -- the day on the glass, the last one that has marks
 local day_of_marks = ''     -- the day the marks in memory were read for
 local today_shown = ''      -- the day of the clock at the last refresh: the tick compares this and not the clock
@@ -808,7 +953,15 @@ local function is_today()
 end
 
 local function load_week()
-  local y, mo, d = parts_of(shown_day)
+  -- **Un full sense dia és el d'avui** (0.189.51): `shown_day` is the day of the marks on the glass and at the first paint
+  -- there is none yet —the app can be opened on this sheet with `run timeclock week`, and the `state` session can bring a
+  -- person back to it before anything has been read—, so the week of a sheet with no day is the week of today.
+  local key = shown_day
+  if parts_of(key) == nil then
+    local here = now_parts()
+    key = here and day_text(here) or nil
+  end
+  local y, mo, d = parts_of(key)
   week_data = nil
   if not y then return end
 
@@ -816,7 +969,7 @@ local function load_week()
   local now_sec = t and (t.hour * 3600 + t.min * 60 + t.sec) or nil
   local today_key = t and day_text(t) or nil
 
-  local data, why = week_of(shown_day, today_key, now_sec)
+  local data, why = week_of(key, today_key, now_sec)
   if not data then
     spoiled = 'Could not read the week: ' .. tostring(why)
     return
@@ -876,6 +1029,7 @@ local function rebuild_list(width, height, first_row, last_row)
       local at = i
       entry.on_click = function()
         marked = at
+        save_shape()
         refresh()
         ui.present('gld16')
       end
@@ -981,7 +1135,10 @@ refresh = function(t)
   -- keyboard came up to write in it. The mark stays and the window moves to it (docs/30, docs/45).
   if marked > 0 and marked < first_row then first_row = marked end
   if marked > 0 and marked > first_row + max_rows - 1 then first_row = marked - max_rows + 1 end
-  if marked > n then marked = 0 end
+  if marked > n then
+    marked = 0
+    save_shape()
+  end
 
   -- **La llista només rep les files que hi caben** (0.179.83): this handed the list **every** mark (`first_row, n`) and the control drew
   -- them all, so a page whose window is two rows had five outside its own frame —over the hint and over the note box— and a finger on
@@ -1074,7 +1231,10 @@ local function mark(kind)
   end
 
   local again = reload()
-  if ok then marked = #marks end
+  if ok then
+    marked = #marks
+    save_shape()
+  end
 
   refresh(again or t)
   ui.present('gld16')
@@ -1122,12 +1282,23 @@ end
 
 local function say_week()
   if week_data == nil then
-    console.print('timeclock: week: no week to show')
+    -- **I el motiu amb la paraula** (0.189.51): a sheet that says nothing and a log that says why is the difference between
+    -- «aquesta setmana no té res» i «aquest rellotge no sap quin dia és» (docs/45, docs/85).
+    console.print('timeclock: week: no week to show' .. ((spoiled ~= '') and (' (' .. spoiled .. ')') or ''))
     return
   end
 
   console.print(string.format('timeclock: week %s, avg %s in %d day(s)', week_data.label,
                               duration(week_data.average), week_data.count))
+  -- **I les mitjanes del mateix dia de la setmana, una per columna** (0.189.51): they are the ticks of the sheet, and a day
+  -- with no other sample says `--` and not a zero, because there is nothing to compare it with.
+  local parts = {}
+  for i = 1, #week_data.rows do
+    local row = week_data.rows[i]
+    parts[#parts + 1] = string.format('%s %s in %d', row.name, (row.mean ~= nil) and duration(row.mean) or '--',
+                                      row.mean_days or 0)
+  end
+  console.print('timeclock: mean ' .. table.concat(parts, ', '))
 end
 
 -- What is typed goes to the file at once: a note is a few hundred bytes, and holding it in memory until the app leaves
@@ -1304,6 +1475,7 @@ end
 turn = function(_)
   give_back()
   page = (page == 1) and 2 or 1
+  save_shape()
   if page == 2 then load_week() end
 
   ui.clear(15)
@@ -1372,6 +1544,19 @@ end
 
 local t = reload()
 
+-- **El full i la marca tornen com els va deixar la persona** (0.189.51, docs/30): `page` abans de construir res, que és quan
+-- no hi ha cap control col·locat encara, i la marca després d'haver llegit el dia, perquè un número que ja no és una fila
+-- no és cap marca (el `refresh` l'acota igualment). **I `run timeclock week` obre l'app en el full de la setmana**, que és com
+-- es mira des de l'emulador sense un dit a sobre.
+local shape = load_state()
+if shape ~= nil then
+  -- El que es llegeix és text i s'acota abans de fer-lo servir: una pàgina que el full no té és la del dia (docs/30).
+  if tonumber(shape.page) == 2 then page = 2 end
+  local mark = tonumber(shape.marked)
+  if mark ~= nil and mark > 0 then marked = math.floor(mark) end
+end
+if app.args ~= nil and app.args.path == 'week' then page = 2 end
+
 ui.clear(15, 'gld16')
 if page == 2 then load_week() end
 if page == 2 then build_week() else build_day() end
@@ -1391,6 +1576,13 @@ if app.args ~= nil and app.args.path == 'keys' then
 end
 
 ui.present()
+
+-- **Les tres portes del comiat** (docs/30, docs/40): a shape is saved here as well, because an app does not always see the end
+-- coming —a raise, the ESC, a `poweroff`— and a sheet that is only written when it turns is a sheet that loses the last turn of
+-- somebody who left in a hurry.
+function on_pause() save_shape() end
+function on_save() save_shape() end
+function on_close() save_shape() end
 
 -- **The memory it costs, said once**: the ceiling of an app is the board's and this page is the biggest of the tree,
 -- so the number is worth having in the log of an emulator (docs/75).

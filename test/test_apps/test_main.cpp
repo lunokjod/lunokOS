@@ -14821,6 +14821,36 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: day 2026-11-01, 3 marks"), g_out);
 
+  // **La setmana es queda com el full que la persona mirava** (0.189.51, la norma de la sessió `state` de docs/30): the app
+  // leaves on the week sheet and comes back on it without being told, because the sheet is the shape of the view and it
+  // lives in the session of the app and not in a mark of the file (docs/45, docs/75).
+  capture_begin();
+  TEST_ASSERT_TRUE(press("eye"));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: week 10/26-10/30"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  // **I la mitjana del mateix dia de la setmana** (0.189.51, l'amo: *«al passar la setmana comença de nou, jo vull que surti
+  // una línia de la mitjana de les altres mostres (mateix dia de la setmana)»*): two Mondays of the weeks before, each one
+  // four hours and a half of work, are the sample of the Monday of this week —a week that starts over has five empty
+  // columns and nothing to compare them with— and a weekday with no other sample says `--` and not a zero (docs/45).
+  static const char kOlder[] =
+      "2026-10-12|09:00:00|S\n2026-10-12|13:30:00|E\n"
+      "2026-10-19|09:00:00|S\n2026-10-19|13:30:00|E\n"
+      "2026-11-01|09:00:00|S\n";
+  TEST_ASSERT_TRUE_MESSAGE(write_text(storage, "/data/timeclock/marks.txt", kOlder), "the older marks are not on the disk");
+
+  pump_captured(60, g_out, sizeof(g_out), "run timeclock");
+  // The sheet is the one it left and not the day: the state of the view is read before anything is built.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "timeclock: day "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: week 10/26-10/30, avg 0h 00m in 0 day(s)"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(
+      strstr(g_out, "timeclock: mean Mon 4h 30m in 2, Tue -- in 0, Wed -- in 0, Thu -- in 0, Fri -- in 0"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
+
   kernel::shell::close_app();
   pump_captured(10, nullptr, 0);
   TEST_ASSERT_FALSE(kernel::app_running());
@@ -14834,6 +14864,10 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
   storage->remove("/data/timeclock/marks.txt");
   storage->remove("/data/timeclock/notes.txt");
   storage->remove("/data/timeclock");
+  // **I la forma del full, que és una sessió i no un fitxer de l'app** (docs/30, docs/75): a leftover block would open the
+  // next run of this app on the week of a test that is over.
+  storage->remove("/session/timeclock/state");
+  storage->remove("/session/timeclock");
 
   // The next test gets the default emulator back: the glass and the panel were this test's.
   opts = emu::options();

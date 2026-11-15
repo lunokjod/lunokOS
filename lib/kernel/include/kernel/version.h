@@ -9090,7 +9090,24 @@ namespace kernel {
 //   - **i `tools/make_disk.py` té el sostre de trenta-dos caràcters per nom**, que va aturar la compilació del Paper amb el
 //     nom sencer (`40 chars  m5-paper/res/fonts/ubuntumono-derivative-lunokos-latin1.ttf`): el nom que mana la llicència va a
 //     dins del fitxer i el del disc cap als trenta-dos (docs/70).
-static const char kVersion[] = "0.189.50";
+// 0.189.51 — **el Timeclock amb la mitjana del mateix dia de la setmana, i el full que la persona mirava es queda** (l'amo:
+// *«al passar la setmana comença de nou, jo vull que surti una línia de la mitjana de les altres mostres (mateix dia de la
+// setmana)»* i *«la llegenda de [ ] Work i [ ] Rest estàn sobreposades, deixa mes espai entre un i l'altre»*):
+//   - **cada columna del full de la setmana porta una ratlla a l'alçada del que aquell dia de la setmana ha valgut les
+//     quatre setmanes de darrere** (`kMeanDays = 28`): una setmana que comença de nou és cinc columnes buides i res amb què
+//     comparar-les, i la ratlla és la **feina** i no el total —el número que la línia del full ja diu «avg»— i compta només
+//     els dies que tenen marques, que un dilluns que ningú va treballar no és un zero (docs/45);
+//   - **l'escala inclou les mitjanes**: una ratlla més alta que el dia més alt d'aquesta setmana es dibuixaria sobre el
+//     capdamunt del full, on no hi ha res;
+//   - **la llegenda es mesura amb `ui.text_width` i són tres coses** —`Work`, `Rest` i la ratlla de la mitjana— separades
+//     per divuit píxels, perquè les posicions a ull valien amb la taula de cinc per set del flaix i no amb els onze píxels de
+//     línia de la cara del disc, i «Rest» es menjava «Work»;
+//   - **el full i la marca que tenia oberta tornen com els va deixar la persona** (la sessió `state` de docs/30, que aquesta
+//     app no tenia): `page` i `marked`, desats al canvi de full, en obrir una nota, en posar una marca i a les tres portes
+//     del comiat. `run timeclock week` obre l'app en el full de la setmana, que és com es mira des de l'emulador;
+//   - **i el log diu les mitjanes** (`timeclock: mean Mon 4h 30m in 2, …`) i el motiu d'un full sense setmana, que és la
+//     diferència entre «aquesta setmana no té res» i «aquest rellotge no sap quin dia és» (docs/85).
+static const char kVersion[] = "0.189.51";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

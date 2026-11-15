@@ -202,6 +202,12 @@ pestanya —el títol i **les últimes línies** del terminal—, o sigui que un
 números. **La sessió no hi cap i no s'hi fingeix**: un tub d'una app que s'ha anat és un tub de ningú, així que el segon
 obre obre sessions noves i el que torna és la memòria del que s'hi va llegir (docs/30).
 
+**I el rellotge també** (0.189.51): `apps/timeclock` desa `page` —el dia o el full de la setmana— i `marked` —la marca
+amb la nota oberta—, els llegeix abans de construir res, els acota amb `tonumber` i els desa al canvi de full, en triar
+una fila, en posar una marca i a les tres portes del comiat. **No hi ha cap preferència a dins**: les marques són dada de
+l'app i viuen a `/data/timeclock/marks.txt`, i l'hora i la bateria no hi són. És una app que es tanca des del full de la
+setmana i torna al full de la setmana, que és exactament el que la norma demana d'una pàgina de dues cares.
+
 ## 6 · Les proves, i la versió de l'app
 
 - **Cada port porta una prova que arrenca l'app de debò** (`test_apps`, docs/80): es copia l'app del
@@ -256,6 +262,19 @@ una reescriptura), la finestra de feina de 07:00 a 19:00 que retalla cada interv
 pinta (l'últim amb apunts i no avui) i la mitjana dels dies que tenen apunts. Les mides tornen a ser les de l'original
 en píxels de línia: `small` 33, `body` 43 i `title` 57, i la fila d'una tecla fa 84 px —i la figura d'una tecla fa 39
 px, que és el 41 de l'original, mesurat sobre els contorns del fitxer (0.173.0)—.
+
+**I dos retocs de l'amo sobre el full de la setmana** (0.189.51). El primer, que **una setmana que comença de nou no
+diu res**: la lletra deia *«al passar la setmana comença de nou, jo vull que surti una línia de la mitjana de les altres
+mostres (mateix dia de la setmana)»*, i cada columna del gràfic porta ara una **ratlla de dos píxels** a l'alçada del que
+aquell dia de la setmana ha valgut **les quatre setmanes de darrere** (`kMeanDays = 28`, o sigui el cul del fitxer que ja
+es llegeix). És la **feina** i no el total —el número que la línia del full ja diu «avg»— i només compta els dies amb
+marques: un dilluns que ningú va treballar no és un zero. **L'escala inclou les mitjanes**, perquè una ratlla més alta
+que el dia més alt d'aquesta setmana es dibuixaria fora del full, i el log diu el número de cada dia
+(`timeclock: mean Mon 4h 30m in 2, …`), amb `--` i no un zero quan no hi ha cap altra mostra. El segon, que **la llegenda
+es trepitjava**: *«la llegenda de [ ] Work i [ ] Rest estàn sobreposades»*, i era certa perquè les posicions eren a ull
+(`rect(92)` i `text(114)`) i valien amb la taula de cinc per set del flaix i no amb els onze píxels de línia de la cara
+del disc. Ara es mesura amb `ui.text_width` i cada cosa comença on acaba l'anterior més divuit píxels, i hi ha **tres**
+coses: `Work`, `Rest` i la ratlla de la mitjana, que és la que explica el gràfic.
 
 ## 7 · La llista, en ordre
 
