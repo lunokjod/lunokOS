@@ -16,12 +16,19 @@
 -- `gc16` són per a una pàgina de setze nivells, i aquí serien demanar-li al panell el doble de feina per res (0.189.60,
 -- docs/50, docs/92).
 --
--- **I el que mana no és la tinta sinó el cable**: mesurat a l'emulador, un frame de 500 x 500 són **21 ms de descodificar la
--- imatge i 660 ms de presentar-la**, i d'aquests 660 el model del panell en dona 120 a la tinta de `du` i **650 a la
--- transferència** —1 100 µs per fila més el cable de 250 bytes—, que és el que el projecte té mesurat d'aquest vidre (docs/95).
--- O sigui que **set per segon amb 500 x 500 no hi són ni a l'emulador**, i el que fa anar ràpid una animació no és el mode
--- sinó els píxels que s'envien: a 100 x 100 la mateixa transferència són 114 ms i el bucle sí que arribaria al ritme del GIF.
--- Aquesta app envia el GIF sencer perquè és el que es volia veure; una animació de debò es fa petita.
+-- **I el que mana no és la tinta sinó el cable**: el model del panell cobra **1 100 µs per fila** més el cable, i això és el
+-- que el projecte té mesurat d'aquest vidre (docs/95). Amb el GIF de 500 x 500 el present era de **660 ms** i el bucle no
+-- arribava ni a dos frames per segon; amb el de 120 x 120 és de **144 ms** —mesurat, `ui.image` a part són 21 ms—, i per això
+-- el GIF és petit i no gran: **una animació a aquest panell es paga pels píxels que s'envien**.
+--
+-- **El sostre del panell, mesurat**: amb `du` i el bucle compensat, 120 x 120 fan **3,8 frames per segon** i 64 x 64 en fan
+-- **5,1** —el present de 120 x 120 són 144 ms i el de 64 x 64 uns 80, però el panell en reté uns 120 més de la tinta i per això
+-- la corba s'aplana—. Set per segon no s'hi arriba amb cap mida: el que limita és el refresc directe d'aquest vidre i no el
+-- fitxer (docs/50, docs/95).
+--
+-- **I el rellotge del bucle compta el que el panell s'ha gastat**: `du` de 120 x 120 són 144 ms i el GIF en vol 140, o sigui
+-- que esperar-ne 140 més seria fer el doble de lent el que el panell ja fa sol. El que s'espera és **el que falta** fins al
+-- proper frame —i res quan ja s'hi és tard—, que és el que fa que el bucle segueixi el ritme del GIF i no el seu.
 --
 -- **AQUESTA APP NO TÉ SESSIÓ `state`** (0.189.52, docs/30): it is a loop that paints frames and nothing else —there is no
 -- page a person leaves in a state, no control to focus and nothing to come back to—, so there is no view to record.
@@ -62,6 +69,9 @@ ui.clear(15)
 ui.image(x, y, frame_path(index))
 ui.present('du')
 
+-- **El proper frame és a un temps i no a una espera**: `next_at` avança de 140 en 140 i el que es dorm és el que falta, que
+-- amb un present de 144 ms és res; un `sys.delay(140)` a cada volta seria sumar dues vegades el que el panell ja s'ha gastat.
+local next_at = sys.time_ms()
 while true do
   index = index % kFrames + 1
   local ok, err = ui.image(x, y, frame_path(index))
@@ -70,5 +80,12 @@ while true do
     break
   end
   ui.present('du')
-  sys.delay(kFrameMs):await()
+  next_at = next_at + kFrameMs
+  local rest = next_at - sys.time_ms()
+  if rest > 0 then
+    sys.delay(rest):await()
+  elseif rest < -kFrameMs * 4 then
+    -- Un panell que s'ha quedat molt enrere no ha de córrer per recuperar el temps: el rellotge torna a començar ara.
+    next_at = sys.time_ms()
+  end
 end

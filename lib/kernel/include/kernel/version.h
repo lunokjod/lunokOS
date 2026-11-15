@@ -9246,7 +9246,14 @@ namespace kernel {
 //     cable). O sigui que el mode no era el coll d'ampolla: **ho és el nombre de píxels enviats**, i set per segon amb 500 x 500
 //     no hi són ni a l'emulador. A 100 x 100 la mateixa transferència són 114 ms i el ritme del GIF sí que s'hi arriba; una
 //     animació de debò es fa petita (docs/50, docs/95).
-static const char kVersion[] = "0.189.60";
+// 0.189.61 — **l'animació petita i el rellotge del bucle** (l'amo: *«he reduit una mica l'imatge, prova amb
+// loading_bounce_120x120.gif»*): the demo is 120 x 120 now —24 frames of 6 KB— and the loop **counts what the panel has
+// already spent** instead of sleeping 140 ms after every frame: `du` of a 120 x 120 is 144 ms, so a sleep of 140 on top was
+// paying the panel twice. **I el sostre, mesurat amb el bucle compensat**: 500 x 500 fan 817 ms per frame, 120 x 120 en fan
+// 262 i 64 x 64 en fan 195 —o sigui **3,8 i 5,1 frames per segon**—, i la corba s'aplana perquè la tinta de `du` són 120 ms
+// que el panell reté faci la mida que faci la imatge. Set per segon, que és el que el GIF demana, no s'hi arriba amb cap
+// mida: el que limita és el refresc directe d'aquest vidre (docs/50, docs/95).
+static const char kVersion[] = "0.189.61";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
