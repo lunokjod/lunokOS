@@ -161,20 +161,14 @@ class It8951 : public ISurface {
   // by 1 688 bytes` —the internal RAM of this chip has no room for one— and the image of the glass is already there, in the
   // same memory the SPI driver copies from for every transaction it makes (docs/50, docs/75).
   uint8_t* stretch_ = nullptr;
-  // **Els dos registres del mode d'un bit** (0x1138 i 0x1250), que el projecte té escrits i que **cap mesura no ha confirmat
-  // encara**: the format of the source image and the two colours the controller reads for a pixel of one bit. The values are
-  // this project's best reading of the controller's defines and the first thing to check on the board when `1bit` is tried
-  // (docs/50, docs/95).
-  static const uint16_t kRegUp1sr = 0x1138;
-  static const uint16_t kRegBgvr = 0x1250;
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
   void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
                          uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;
   // One row of the glass, packed, taken from the image an app drew in.
   void gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
-  // **The same row in one bit a pixel** (0.189.66): eight pixels a byte and the left one in the top bit, which is what the
-  // controller reads when the style is `1bit`. A level of eight or more is paper and the rest is ink.
-  void gather_row_bits(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
+  // **The same row in two bits a pixel** (0.189.67): four pixels a byte and the left one in the top two bits, which is the
+  // narrowest format the controller has (`IT8951_2BPP`). A level is cut to the four it can carry.
+  void gather_row_pairs(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
   // **The prefix of the pixels, once** (0.189.66): the command word that says "what follows is an image". It goes out once for
   // a burst and once per row for the old style, because an edge of CS makes the controller start again.
   bool begin_pixels();

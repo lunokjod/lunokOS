@@ -1754,12 +1754,14 @@ static void test_the_colours_are_the_prompt_an_error_and_a_directory() {
 static void test_a_burst_pays_the_wire_and_a_row_pays_the_row() {
   const uint32_t rows = emu::ink_transfer_us(64, 64, hal::FlushStyle::kRows);
   const uint32_t burst = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBurst);
-  const uint32_t bits = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBits1);
+  const uint32_t bits = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBits2);
   // A 64-wide row is thirty-two bytes, which is twenty-five microseconds of wire, and the row itself is 1 100.
   TEST_ASSERT_EQUAL_UINT32(64u * 1125u, rows);
   TEST_ASSERT_TRUE_MESSAGE(burst > 0, "a burst costs something");
   TEST_ASSERT_TRUE_MESSAGE(burst < rows / 30u, "a burst is the wire and not a row per line");
-  TEST_ASSERT_TRUE_MESSAGE(bits > 0 && bits < burst / 3u, "one bit a pixel is a quarter of the bytes, plus a stretch");
+  // Two bits a pixel is four pixels a byte, o sigui 1 024 bytes on the wire for the same frame and one stretch instead of two:
+  // 819 µs of wire and 40 of the transaction, which is **half of what a burst pays** (docs/50, docs/95).
+  TEST_ASSERT_EQUAL_UINT32(859u, bits);
 }
 
 static void test_the_panel_says_where_a_partial_paint_starts() {
@@ -1809,6 +1811,51 @@ static void test_the_panel_says_where_a_partial_paint_starts() {
 
   // **And the boot goes back to the one this suite found**: no model and no glass, which is what every other case of
   // the file boots (docs/85).
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **Els tres noms que el vidre parla** (0.189.67): `rows`, `burst` i `2bit`, i cap quart. El número de l'últim no és una
+// tria d'estil sinó el format que el controlador té de debò —`IT8951_2BPP`, el valor zero del camp de píxel— i per això el
+// nom antic, el d'un bit, s'ha de refusar: acceptar-lo seria tornar a enviar mig rectangle amb l'etiqueta d'una cosa que el
+// xip no sap fer (docs/50).
+static void test_the_three_ways_are_named_and_one_bit_is_not_one_of_them() {
+  ensure_booted();
+  static char said[1024];
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("panel flush burst"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel: burst"), said);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::display::flush_style() == hal::FlushStyle::kBurst, "the glass took the burst");
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("panel flush 2bit"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel: 2bit"), said);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::display::flush_style() == hal::FlushStyle::kBits2, "two bits a pixel");
+
+  // **The name of a thing the controller does not have is refused**, and the style it had stays.
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("panel flush 1bit"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "usage: panel flush [rows|burst|2bit]"), said);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::display::flush_style() == hal::FlushStyle::kBits2, "a refused word changes nothing");
+
+  // And the ones that were there still are, which is what the three words of the usage line promise.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("panel flush rows"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel: rows"), said);
+
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -1871,6 +1918,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_duration_is_written_in_the_scale_that_reads);
   RUN_TEST(test_a_burst_pays_the_wire_and_a_row_pays_the_row);
   RUN_TEST(test_the_panel_says_where_a_partial_paint_starts);
+  RUN_TEST(test_the_three_ways_are_named_and_one_bit_is_not_one_of_them);
   UNITY_END();
   return 0;
 }

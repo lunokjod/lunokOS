@@ -849,6 +849,46 @@ les lectures tornen `ffff` i tots els `DPY_AREA` es queden en no res. L'ordre er
 | **Cap** `[W][PANEL] … the rail was cycled` durant una sessió normal: si en surt cap, alguna cosa torna a deixar el controlador sense CS o sense alimentació, i el que cal mirar és qui escriu GPIO15 o GPIO23 després de `display::boot` | docs/50 |
 | El temps d'un pintat de pàgina sencera després de la re-armada (**el rail espera 1000 ms**, el número del fabricant): si la re-armada surt sovint, el que cal arreglar és la causa i no el número | docs/50, docs/75 |
 
+### E-11 · Els tres estils d'enviament, amb el log (5 minuts)
+
+**Què es mesura**: el mateix rectangle pintat amb els tres estils, i **el número que compta és el de la línia `GLASS` del
+log** (0.189.67), que és el temps que ha costat la crida de `present` —la transferència i la comanda— i no la tinta:
+
+```
+[D][GLASS] flush du 194 ms (rows)
+```
+
+**Com es fa**:
+
+```
+panel flush rows     (i el mateix amb burst i amb 2bit)
+```
+
+i una app que pinti el mateix unes quantes vegades: la de `loading` serveix (frame de 64 × 64, `du`, unes quatre pintades
+per segon a `rows`), i una pàgina sencera es mesura amb qualsevol app que canviï de pantalla, mirant la línia del `gc16`.
+
+**El que l'emulador ja diu** —i és el model, no la placa: `kRowUs = 1100` mesurat, `kBusHz` de la fitxa, quaranta
+microsegons per tros estimats—:
+
+| estil | `du` de 64 × 64 | `gc16` de pàgina sencera |
+|---|---|---|
+| `rows` | **194 ms** | 1 516 ms |
+| `burst` | **5 ms** | 515 ms |
+| `2bit` | **4 ms** | 407 ms |
+
+O sigui que **el coll d'una animació era el cable i no la tinta**: amb `burst` el frame baixa de 194 a 5 ms i el que queda
+és la tinta de `du` (120 ms), que és el terra del panell.
+
+**Què apuntar en tornar a la placa**:
+
+| Què apuntar | On va |
+|---|---|
+| El **`du` de 64 × 64 amb `rows`** contra els 194 ms del model: si el número és molt diferent, el que està malament és `kRowUs` i no el driver | docs/50, docs/95 |
+| El **`du` de 64 × 64 amb `burst`**: si baixa a l'ordre dels cinc mil·lisegons, la pàgina no llisca i l'animació torna a ser possible; si la pàgina surt desplaçada, el que falla és el prefix únic amb el CS aguantat i cal tornar a `rows` (mesurat l'1/11) | docs/50 |
+| El **`du` de 64 × 64 amb `2bit`**: si la imatge surt amb quatre tons i no desplaçada, el format `IT8951_2BPP` de debò funciona en aquest panell; si surt brossa o només mig rectangle, es queda `burst` | docs/50 |
+| El **`gc16` de pàgina sencera amb `burst` i amb `2bit`**, que és on l'estil hauria de guanyar de debò (1 516 ms al model) | docs/50, docs/75 |
+| Si el tacte respon mentre una app anima amb `burst`: la mostra del tàctil és **una per torn**, i un torn de cinc mil·lisegons sí que pilla un gest | docs/50 |
+
 ---
 
 ## F · La LilyGO T-Koala (0.94.0)

@@ -1120,18 +1120,40 @@ arriben els píxels** una altra, i el driver ara les té totes tres amb `hal::Fl
 |---|---|---|
 | `rows` | el camí de sempre: **una transacció d'SPI per fila**, amb el seu prefix i la seva vora de CS | **1 100 µs per fila** mesurats a la placa, contra els 216 que voldria el cable |
 | `burst` | les files s'ajunten en trossos de **2 000 bytes** que van amb **un sol prefix i el CS aguantat** fins al final del tros | el cable: 800 ns per byte i quaranta microsegons per tros |
-| `1bit` | el mateix que un burst amb **un quart dels bytes**, i el controlador en treu dos colors (`BGVR`) | un quart del cable |
+| `2bit` | el mateix que un burst amb **la meitat dels bytes**: la imatge baixa a quatre tons i viatja a `IT8951_2BPP` | mig cable |
 
-**Es tria amb `panel flush rows|burst|1bit`** i no sobreviu a un reinici a propòsit: un estil que es queda i deixa cada
+**Es tria amb `panel flush rows|burst|2bit`** i no sobreviu a un reinici a propòsit: un estil que es queda i deixa cada
 pàgina malament és una placa que s'ha de tornar a flashejar per tornar enrere. **El que s'ha de vigilar**: un prefix de més
-amb el CS aguantat el controlador el llegeix com dos píxels i **la pàgina llisca** (mesurat l'1/11), i el mode `1bit` toca dos
-registres —`UP1SR` 0x1138 i `BGVR` 0x1250— que **el projecte té escrits però cap mesura no ha confirmat**: és el primer que
-s'ha de mirar quan es prova a la placa. El tros de 2 000 bytes **viu a la PSRAM i no a la DRAM**: a la DRAM no hi cap
-—el linker va dir `region dram0_0_seg overflowed by 1 688 bytes`— i el driver SPI ja copia cada transacció al seu buffer DMA.
+amb el CS aguantat el controlador el llegeix com dos píxels i **la pàgina llisca** (mesurat l'1/11). El tros de 2 000 bytes
+**viu a la PSRAM i no a la DRAM**: a la DRAM no hi cap —el linker va dir `region dram0_0_seg overflowed by 1 688 bytes`— i
+el driver SPI ja copia cada transacció al seu buffer DMA.
 
-**I el que això ja diu a l'emulador, que modela els tres preus**: un frame de 64 × 64 costa **190 ms de present amb `rows`,
-121 amb `burst` i 119 amb `1bit`** —o sigui que el coll passa a ser la tinta de `du`, que són 120 ms, i no el cable—. A la
-placa el número s'ha de mesurar amb el log, i és la feina que queda del refresc ràpid.
+**El tercer estil era un bit per píxel i no podia ser-ho** (0.189.67, corregit): el camp de format de `LD_IMG_AREA` té
+**quatre valors i cap cinquè** —`IT8951_2BPP 0`, `IT8951_3BPP 1`, `IT8951_4BPP 2`, `IT8951_8BPP 3`, a `IT8951_Defines.h`
+del fabricant—, o sigui que el `0` que s'enviava volia dir **dos bits per píxel** i el controlador llegia la meitat de la
+imatge. I a sobre s'escrivia el format a `UP1SR` (0x1138), que és el registre de **paràmetres d'actualització** i no cap
+registre de format: cap de les tres llibreries del fabricant hi posa mai un format. L'estil demana ara el que el controlador
+té (`2bit`, amb la imatge baixada a quatre tons) i **no toca cap registre**. **El mode d'un bit continua essent una
+pregunta oberta**, i la pista que en queda és la d'aquest mateix document: la FAQ del controlador l'anomena `UP1SR` **bit 2**
+amb `BGVR` (0x1250) per als dos colors, que és un mecanisme diferent del camp de format —i que caldria provar amb una
+escriptura de read-modify-write d'aquell bit, no amb el format sencer.
+
+**I el que això ja diu a l'emulador, que modela els tres preus**: un frame de 64 × 64 costa **194 ms de present amb `rows`,
+5 amb `burst` i 4 amb `2bit`** —o sigui que el coll passa a ser la tinta de `du`, que són 120 ms, i no el cable—. A la placa
+el número s'ha de mesurar amb el log, i és la feina que queda del refresc ràpid (docs/95, E-11).
+
+**I cada pintada ara diu què ha costat** (0.189.67): `display::present` mesura el rellotge abans i després de demanar la
+pintada i escriu una línia per cada una,
+
+```
+[D][GLASS] flush du 194 ms (rows)
+[D][GLASS] flush du 5 ms (burst)
+[D][GLASS] flush gc16 1669 ms (rows)
+```
+
+que és **el que ha costat la crida** —la transferència del rectangle i la comanda, que es paguen en aquell moment— i no la
+tinta, que ve després i la pregunta `idle()`. Amb això qualsevol app i qualsevol estil es pot mesurar sense tocar el codi:
+es pinta, es llegeix el log i es compara la mateixa línia amb els tres estils.
 
 **`LUTAFSR` és l'estat del motor de LUT i no la mesura de la tinta** (0.179.41): `0x1224` val `0000` quan cap
 motor de LUT del controlador està corrent, i el log l'escriu a la **primera** lectura que contesta, amb els

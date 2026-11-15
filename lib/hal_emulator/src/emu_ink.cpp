@@ -87,7 +87,7 @@ uint32_t ink_transfer_us(uint16_t w, uint16_t h, hal::FlushStyle style) {
   // per `kStretchBytes`. The fixed cost of a transaction is not measured on this board yet —it is the whole point of the
   // style— and it is modelled at **forty microseconds**, which is the order of a `spi_device_transmit` of two kilobytes on
   // this chip. What the style promises is the wire, and the wire is the datasheet's (docs/50, docs/85, docs/95).
-  const uint32_t bits = (style == hal::FlushStyle::kBits1) ? 1u : 4u;
+  const uint32_t bits = (style == hal::FlushStyle::kBits2) ? 2u : 4u;
   const uint32_t row_bytes = (bytes * bits) / 4u;
   const uint32_t total = row_bytes * static_cast<uint32_t>(h);
   const uint32_t stretches = (total + kStretchBytes - 1) / kStretchBytes;

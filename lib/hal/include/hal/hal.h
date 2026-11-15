@@ -390,9 +390,10 @@ enum class FlushStyle : uint8_t {
   // per byte— i el preu és que un prefix de més, amb el CS aguantat, el controlador el llegeix com dos píxels i la pàgina
   // llisca (mesurat l'1/11, docs/50).
   kBurst,
-  // **Un bit per píxel**: la imatge viatja amb un quart dels bytes i el controlador en treu dos colors, el fons i la tinta,
-  // del registre `BGVR`. Només val per a una imatge de dos tons, o sigui que els grisos s'han de triar en enviar (docs/50).
-  kBits1,
+  // **Dos bits per píxel**: la meitat dels bytes, i el controlador els llegeix com quatre nivells de gris. **És el format més
+  // fondo que el controlador té** —`IT8951_2BPP 0`, i no hi ha cap valor d'un bit a `IT8951_Defines.h`—, o sigui que la
+  // imatge ha de baixar a quatre tons en enviar-la (docs/50).
+  kBits2,
 };
 
 // **The name of a quality**, which is the word the glass speaks: every line of the log says `gl16` and not a

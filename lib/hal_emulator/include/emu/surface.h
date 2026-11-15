@@ -39,13 +39,13 @@ class MemorySurface : public hal::ISurface {
   }
   // **Com s'envien els píxels** (0.189.66): the glass of the emulator has no controller, so all three styles paint the same
   // page —**and cost what they cost on the board**, which is the whole reason to have them here: `rows` pays 1 100 µs per
-  // row, a burst pays the wire, and one bit a pixel pays a quarter of it. A run that asks for a burst and a run that does
+  // row, a burst pays the wire, and two bits a pixel pay half of it. A run that asks for a burst and a run that does
   // not are two different waits with the same picture, which is what a person choosing between them needs to see
   // (docs/50, docs/85).
   hal::FlushStyle flush_style() const override { return style_; }
   bool set_flush_style(hal::FlushStyle style) override {
     if (style != hal::FlushStyle::kRows && style != hal::FlushStyle::kBurst &&
-        style != hal::FlushStyle::kBits1) {
+        style != hal::FlushStyle::kBits2) {
       return false;
     }
     style_ = style;

@@ -903,7 +903,7 @@ bool command_panel(const char* rest) {
     out("panel: the pixels go out as ");
     out(display::flush_style_name(display::flush_style()));
     out("\r\n");
-    out("panel [edge|box] | panel flush [rows|burst|1bit]\r\n");
+    out("panel [edge|box] | panel flush [rows|burst|2bit]\r\n");
     return true;
   }
   // **`panel flush`** (0.189.66): three ways of sending the same picture, and the one that wins is the one measured on this
@@ -918,7 +918,7 @@ bool command_panel(const char* rest) {
     }
     hal::FlushStyle wanted = hal::FlushStyle::kRows;
     if (!display::flush_style_of(both[1], wanted)) {
-      usage_out("usage: panel flush [rows|burst|1bit]\r\n");
+      usage_out("usage: panel flush [rows|burst|2bit]\r\n");
       return false;
     }
     if (!display::set_flush_style(wanted)) {
@@ -931,7 +931,7 @@ bool command_panel(const char* rest) {
     return true;
   }
   if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
-    usage_out("usage: panel [edge|box] | panel flush [rows|burst|1bit]\r\n");
+    usage_out("usage: panel [edge|box] | panel flush [rows|burst|2bit]\r\n");
     return false;
   }
   if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {

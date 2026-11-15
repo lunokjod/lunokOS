@@ -50,7 +50,8 @@ InkMode ink_mode(hal::UpdateMode mode);
 //     with its own prefix and its own edge of CS: 1 100 µs measured on the board against the 216 the wire would take for a
 //     full row (docs/50, docs/95);
 //   - `kBurst`, the same wire with one prefix per stretch and the CS held: the bytes and a small fixed cost per stretch;
-//   - `kBits1`, the same as a burst with a quarter of the bytes, which is what one bit a pixel buys.
+//   - `kBits2`, the same as a burst with half of the bytes, which is what two bits a pixel buys —the narrowest format the
+//     controller has, and the one a page of four levels can travel in (docs/50).
 uint32_t ink_transfer_us(uint16_t w, uint16_t h, hal::FlushStyle style);
 
 // The level the glass shows after a paint of `target` over what was showing, with that much dirt in the

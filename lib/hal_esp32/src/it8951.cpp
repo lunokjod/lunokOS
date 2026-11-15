@@ -54,19 +54,15 @@ const uint16_t kRegLisHigh = 0x020A;
 const uint16_t kRegLutAfsr = 0x1224;
 const uint16_t kRegI80Cpcr = 0x0004;
 // The first argument of the area command says how the image is written: the two pixels of a byte in
-// the order the controller expects (`B_ENDIAN`), **the bits of a pixel** (the value 2 at bits 7:4 is four,
-// the 0 is one) and no rotation, because the surface is already in the panel's own frame (docs/50).
-// **I el format és de l'estil i no una constant** (0.189.66): `panel flush 1bit` envia un bit per píxel i el
-// controlador ho ha de saber aquí.
+// the order the controller expects (`B_ENDIAN`), **the bits of a pixel** and no rotation, because the surface is already in
+// the panel's own frame (docs/50).
+//
+// **The field has four values and no fifth** (`IT8951_Defines.h` of the maker's library): `IT8951_2BPP 0`, `3BPP 1`,
+// `4BPP 2` and `8BPP 3`. O sigui que **no hi ha cap valor d'un bit**, i el `0` que aquest driver enviava per a l'estil d'un
+// bit era, literalment, **dos bits per píxel**: el controlador llegia la meitat de la imatge i la resta era el que hi havia.
+// L'estil demana ara el que el controlador té de veritat, i la imatge baixa a quatre tons abans d'anar-se'n (docs/50, docs/95).
 const uint16_t kBppFormat4 = static_cast<uint16_t>((1 << 8) | (2 << 4));
-const uint16_t kBppFormat1 = static_cast<uint16_t>((1 << 8) | (0 << 4));
-// **Els dos colors del mode d'un bit** (`BGVR`): the controller reads a pixel of one bit as one of these two, and this is the
-// pair that makes it paper and ink. **Cap mesura no ho ha confirmat** —és el primer que s'ha de mirar quan es prova `1bit`
-// a la placa— i es canvia en aquesta línia (docs/50, docs/95).
-const uint16_t kBgvrPaperInk = static_cast<uint16_t>((0x03 << 8) | 0x00);
-// The value of a pixel of one bit that is paper: one, because the two colours above say so and the rest of this driver
-// writes fifteen for white (docs/50).
-const uint8_t kWhiteBit = 1;
+const uint16_t kBppFormat2 = static_cast<uint16_t>((1 << 8) | (0 << 4));
 
 // **10 MHz, the speed of the maker's own driver**, and slower than the 20 the bus allows on purpose:
 // while the handshake does not work, the bus clock is one variable too many. It goes up when a
@@ -309,27 +305,20 @@ bool It8951::write_stretch(const uint8_t* bytes, uint32_t count, bool more) {
   return true;
 }
 
-// **El mode d'un bit** (0.189.66): the controller has to be told that the image it is about to receive is one bit a pixel and
-// which two colours those bits are, and the two registers are this project's best reading of its defines —`UP1SR` 0x1138 and
-// `BGVR` 0x1250— and **the first thing to check on the board** when `1bit` is tried. Going back to four bits puts the format of
-// the image back and leaves the colours where they were, because a style of four bits does not read them.
+// **El format d'una imatge no és un registre, és l'argument de l'àrea**: the style only decides how many bits a pixel go
+// out with and how the bytes are gathered, and the area command of every paint carries the answer (0.189.67). An earlier
+// version of this wrote the format into `UP1SR` (0x1138) and a colour pair into `BGVR` (0x1250); `UP1SR` is the *update
+// parameter* register —the reference driver lists it as «update parameter1 setting» and nothing in the maker's library ever
+// puts a pixel format in it— i escriure-hi un format és demanar-li al controlador una cosa que no fa (docs/50).
 bool It8951::set_flush_style(hal::FlushStyle style) {
   if (style != hal::FlushStyle::kRows && style != hal::FlushStyle::kBurst &&
-      style != hal::FlushStyle::kBits1) {
+      style != hal::FlushStyle::kBits2) {
     return false;
   }
   if (style != hal::FlushStyle::kRows && stretch_ == nullptr) return false;  // no PSRAM, no burst
-  const bool was_one_bit = style_ == hal::FlushStyle::kBits1;
-  const bool one_bit = style == hal::FlushStyle::kBits1;
-  if (one_bit != was_one_bit) {
-    if (!write_register(kRegUp1sr, static_cast<uint16_t>(one_bit ? kBppFormat1 : kBppFormat4))) {
-      return false;
-    }
-    if (one_bit && !write_register(kRegBgvr, kBgvrPaperInk)) return false;
-  }
   style_ = style;
   hal::logf(pal::kLogInfo, "PANEL", "the pixels go out as %s",
-            (style == hal::FlushStyle::kRows) ? "rows" : (style == hal::FlushStyle::kBurst) ? "bursts" : "one bit");
+            (style == hal::FlushStyle::kRows) ? "rows" : (style == hal::FlushStyle::kBurst) ? "bursts" : "two bits");
   return true;
 }
 
@@ -797,9 +786,9 @@ bool It8951::flush(UpdateMode mode) {
   const uint16_t w = static_cast<uint16_t>(nx1 - nx0);
   const uint16_t h = static_cast<uint16_t>(ny1 - ny0);
 
-  // **El format que l'estil mana** (0.189.66): un bit per píxel quan l'estil és `1bit` i quatre quan no.
-  const bool one_bit = style_ == hal::FlushStyle::kBits1;
-  const uint16_t area[5] = {static_cast<uint16_t>(one_bit ? kBppFormat1 : kBppFormat4), nx0, ny0, w, h};
+  // **El format que l'estil mana** (0.189.67): dos bits per píxel quan l'estil és `2bit` i quatre quan no.
+  const bool two_bit = style_ == hal::FlushStyle::kBits2;
+  const uint16_t area[5] = {static_cast<uint16_t>(two_bit ? kBppFormat2 : kBppFormat4), nx0, ny0, w, h};
   // The controller is told **where** its image is before being told where to write: the two words of
   // the target address, **high and then low**, which is the order of `SetTargetMemoryAddr` in the
   // maker's driver (docs/50).
@@ -812,16 +801,16 @@ bool It8951::flush(UpdateMode mode) {
   // Row by row of the glass, gathered from the image, and **the bus is held for the whole rectangle**:
   // locking it per row would spend more time in the driver than on the wire (docs/50).
   uint8_t row[kMaxRowBytes];
-  // **Els bytes d'una fila segons el format**: two pixels a byte in four bits and eight a byte in one.
-  const uint16_t row_bytes = static_cast<uint16_t>(one_bit ? ((w + 7) / 8) : (w / 2));
+  // **Els bytes d'una fila segons el format**: two pixels a byte in four bits and four a byte in two.
+  const uint16_t row_bytes = static_cast<uint16_t>(two_bit ? ((w + 3) / 4) : (w / 2));
   if (!take_bus()) return false;
   bool sent = true;
   const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr;
   if (!bursts) {
     // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is 1 100 µs of the board for each one.
     for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
-      if (one_bit) {
-        gather_row_bits(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
+      if (two_bit) {
+        gather_row_pairs(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
       } else {
         gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
       }
@@ -835,8 +824,8 @@ bool It8951::flush(UpdateMode mode) {
     uint32_t filled = 0;
     if (sent) sent = begin_pixels();
     for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
-      if (one_bit) {
-        gather_row_bits(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
+      if (two_bit) {
+        gather_row_pairs(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
       } else {
         gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
       }
@@ -981,10 +970,10 @@ void It8951::gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) con
   }
 }
 
-// **Una fila en un bit per píxel** (0.189.66): eight pixels a byte, the left one in the top bit, and the level is read from the
-// image the app drew exactly as `gather_row` reads it —the same turn, the same border of white— and then cut at half: eight or
-// more is paper.
-void It8951::gather_row_bits(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const {
+// **Una fila en dos bits per píxel** (0.189.67): four pixels a byte, the left one in the top two bits. The level is read
+// from the image the app drew exactly as `gather_row` reads it, and then it is cut to the **four levels the controller's
+// 2BPP format has** —`level >> 2`, which keeps the order and puts white on three and ink on zero (docs/50).
+void It8951::gather_row_pairs(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const {
   uint8_t packed = 0;
   uint8_t bit = 0;
   uint16_t written = 0;
@@ -1016,14 +1005,14 @@ void It8951::gather_row_bits(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w
       const uint8_t byte = image_[static_cast<uint32_t>(y) * stride + static_cast<uint32_t>(x) / 2];
       level = ((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4) : static_cast<uint8_t>(byte & 0x0F);
     }
-    packed = static_cast<uint8_t>((packed << 1) | ((level >= 8) ? kWhiteBit : 0));
-    if (++bit == 8) {
+    packed = static_cast<uint8_t>((packed << 2) | static_cast<uint8_t>(level >> 2));
+    if (++bit == 4) {
       out[written++] = packed;
       packed = 0;
       bit = 0;
     }
   }
-  if (bit != 0) out[written++] = static_cast<uint8_t>(packed << (8 - bit));
+  if (bit != 0) out[written++] = static_cast<uint8_t>(packed << (2 * (4 - bit)));
 }
 
 bool It8951::allocate_image() {

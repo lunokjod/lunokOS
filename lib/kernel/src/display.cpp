@@ -6,7 +6,9 @@
 
 #include <string.h>
 
+#include "kernel/log.h"
 #include "kernel/meter.h"
+#include "pal/pal.h"
 
 // **Nothing of this file exists on a board without a glass** (0.179.9): this is the buffer the glass is painted
 // from —what a paint is asked for and what the panel says back— and a board with no screen can never run a line of
@@ -101,8 +103,8 @@ const char* flush_style_name(hal::FlushStyle style) {
       return "rows";
     case hal::FlushStyle::kBurst:
       return "burst";
-    case hal::FlushStyle::kBits1:
-      return "1bit";
+    case hal::FlushStyle::kBits2:
+      return "2bit";
   }
   return "rows";
 }
@@ -117,8 +119,8 @@ bool flush_style_of(const char* name, hal::FlushStyle& out) {
     out = hal::FlushStyle::kBurst;
     return true;
   }
-  if (strcmp(name, "1bit") == 0) {
-    out = hal::FlushStyle::kBits1;
+  if (strcmp(name, "2bit") == 0) {
+    out = hal::FlushStyle::kBits2;
     return true;
   }
   return false;
@@ -135,11 +137,19 @@ bool present(hal::UpdateMode mode) {
   // difference between a page that flickers and one that does not, so they are two rows (docs/50, docs/95).
   const bool cleans = (mode == hal::UpdateMode::kGc16 || mode == hal::UpdateMode::kGl16 ||
                        mode == hal::UpdateMode::kGlr16 || mode == hal::UpdateMode::kGld16);
-  if (cleans) {
+  // **Què ha costat aquesta pintada, al log** (0.189.67, l'amo: *«ho testejem i recollim dades amb el log»*): the number a
+  // person comparing two ways of sending the pixels needs is **the milliseconds the call itself took** —the transfer of the
+  // rectangle— and not the ink, which comes later and is asked for by `idle()`. It goes out on every paint: a frame of an
+  // animation is one line and the three styles are three different numbers on the same page (docs/50, docs/95).
+  const int64_t started_ms = pal::system().millis();
+  const bool ok = (cleans) ? [&] {
     meter::Scope slow(meter::kGlassGc16);
     return g_surface->flush(mode);
-  }
-  return g_surface->flush(mode);
+  }() : g_surface->flush(mode);
+  const int64_t spent = pal::system().millis() - started_ms;
+  log_printf(pal::kLogDebug, "GLASS", "flush %s %lld ms (%s)", mode_name(mode), static_cast<long long>(spent),
+            flush_style_name(flush_style()));
+  return ok;
 }
 
 bool idle() {
