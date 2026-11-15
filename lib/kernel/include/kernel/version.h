@@ -9433,7 +9433,13 @@ namespace kernel {
 // de velocitats no hi és** —hi és des de la 0.189.107— i sí que diu les portes noves (`cfg.freq`, `cfg.settings`, `power.cpu_auto`)
 // i la mesura del torn. I docs/45 treu de la llista de pendents les dues coses que ja hi són i docs/75 apunta per què la política i
 // el seu sostre són un sol byte (el `.bss` d'una Paper es compta) (docs/30, docs/45, docs/75).
-static const char kVersion[] = "0.189.110";
+// 0.189.111 — **el manifest de l'app dels ajustos diu el que fa** (l'amo: *«recorda a augmentar les versions de les peçes de
+// software»*). La descripció que el llançador ensenya encara parlava del panell de la 0.189.106: li faltaven les tres velocitats
+// que el governador pot fer servir, les marxes del torn amb els mil·lisegons que costen en aquesta placa i **la segona app que el
+// sistema arrenca per una persona** —la del botó del panell, que no és la de l'inici— (0.189.107, 0.189.108 i 0.189.109). El
+// manifest de l'app puja a 0.1.5 i el sistema a aquest número; docs/80 i la feina de la CI són el mateix recordatori fet màquina
+// (`tools/check_version.py` camina els commits d'un push i refusa el que no ha pujat el que toca).
+static const char kVersion[] = "0.189.111";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
