@@ -47,6 +47,62 @@ LUNOK_GATHER_INLINE uint8_t image_level(const uint8_t* image, uint16_t width, ui
   return ((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4) : static_cast<uint8_t>(byte & 0x0Fu);
 }
 
+// **El camí bo del gir: tot a locals i els dos casos desenrotllats** (0.189.75). `objdump` del firmware deia el que costava
+// de debò una pàgina: **trenta-cinc instruccions i tretze càrregues per píxel**, vuit de les quals eren `l32i a2, N` —les
+// variables capturades per una lambda, que a cada píxel tornen a passar per un punter—. Aquí no hi ha lambda ni paràmetre de
+// compte: `PerByte` i `Bits` són constants de compilació, la imatge es camina amb punters que s'avancen i el byte de cada fila
+// s'escriu una vegada. **Només val quan tota la banda cau dins la imatge**, que és el cas de cada pintada normal; si no, hi
+// ha el camí general, que comprova els límits píxel a píxel (docs/50, docs/95).
+template <uint8_t PerByte, uint8_t Bits>
+inline void column_walk_inside(uint8_t* out, const uint8_t* image, uint32_t stride, uint16_t w, uint16_t h,
+                               uint16_t row_bytes, int32_t x_first, int32_t dx, int32_t y_first, int32_t dy) {
+  const uint16_t whole = static_cast<uint16_t>(w / PerByte);
+  const int32_t step = dy * static_cast<int32_t>(stride);
+  // **Els quatre nivells de dos bits** surten de tallar el nibble, i el tall és una constant del format (0.189.75).
+  const uint8_t cut = (Bits == 2) ? 2 : 0;
+  const uint8_t* from[kGatherBand];
+  for (uint16_t r = 0; r < h; ++r) {
+    const int32_t x = x_first + dx * static_cast<int32_t>(r);
+    from[r] = image + static_cast<uint32_t>(y_first) * stride + static_cast<uint32_t>(x) / 2u;
+  }
+  const uint16_t rest = static_cast<uint16_t>(w - whole * PerByte);
+  for (uint16_t b = 0; b < whole; ++b) {
+    for (uint16_t r = 0; r < h; ++r) {
+      const uint8_t* q = from[r];
+      const int32_t x = x_first + dx * static_cast<int32_t>(r);
+      uint8_t byte = 0;
+      if ((x & 1) == 0) {
+        for (uint8_t k = 0; k < PerByte; ++k) {
+          byte = static_cast<uint8_t>((byte << Bits) | static_cast<uint8_t>((*q >> 4) >> cut));
+          q += step;
+        }
+      } else {
+        for (uint8_t k = 0; k < PerByte; ++k) {
+          byte = static_cast<uint8_t>((byte << Bits) | static_cast<uint8_t>((*q & 0x0Fu) >> cut));
+          q += step;
+        }
+      }
+      out[static_cast<uint32_t>(r) * row_bytes + b] = byte;
+      from[r] = q;
+    }
+  }
+  if (rest != 0) {
+    for (uint16_t r = 0; r < h; ++r) {
+      const uint8_t* q = from[r];
+      const int32_t x = x_first + dx * static_cast<int32_t>(r);
+      uint8_t byte = 0;
+      uint8_t k = 0;
+      for (; k < rest; ++k) {
+        const uint8_t level =
+            ((x & 1) == 0) ? static_cast<uint8_t>((*q >> 4) >> cut) : static_cast<uint8_t>((*q & 0x0Fu) >> cut);
+        byte = static_cast<uint8_t>((byte << Bits) | level);
+        q += step;
+      }
+      out[static_cast<uint32_t>(r) * row_bytes + whole] = static_cast<uint8_t>(byte << (Bits * (PerByte - k)));
+    }
+  }
+}
+
 // **Un tros del vidre, girat i empaquetat.** `out` carries `h` rows of `band_row_bytes(w, two_bit)` one after another, the
 // left pixel of a byte in its high bits, and the last byte of a row padded with zeros in the low ones. The pixel of the
 // glass `(nx0 + i, ny0 + r)` is read from the image according to `rotation`, which is the quarter turn the page has with
@@ -94,12 +150,26 @@ inline void gather_band(uint8_t* out, const uint8_t* image, uint16_t width, uint
                                            : static_cast<int32_t>(nx0);
   const int32_t dy = (rotation == 90) ? -1 : 1;
 
-  // **Un byte de la fila del vidre són `per_byte` píxels seguits**, and the byte is built in a register and written once: the
-  // first version kept an accumulator, a count and a place **per row of the band** —three arrays indexed by a variable, more
-  // memory traffic than the pixels they carried— and the board measured three hundred and twenty milliseconds of a page for
-  // it (docs/50, docs/95). **I els dos camins són dues funcions i no una amb un compte**: with `per_byte` in a variable the
-  // compiler cannot unroll the few pixels of a byte, and this loop is the whole of the panel's cost. A lambda called with a
-  // constant is the same code written once and compiled twice.
+  // **Un byte de la fila del vidre són `per_byte` píxels seguits**, and the byte is built in a register and written once. The
+  // two formats are two pieces of code and not one with a count in a variable, and when the whole band falls inside the image
+  // —which is every normal paint— the walk is the one with pointers and no checks (docs/50, docs/95).
+  const int32_t x_last = x_first + dx * static_cast<int32_t>(h - 1);
+  const int32_t y_last = y_first + dy * static_cast<int32_t>(w - 1);
+  const int32_t lo = (dx > 0) ? x_first : x_last;
+  const int32_t hi_x = (dx > 0) ? x_last : x_first;
+  const int32_t lo_y = (dy > 0) ? y_first : y_last;
+  const int32_t hi_y = (dy > 0) ? y_last : y_first;
+  if (lo >= 0 && lo_y >= 0 && hi_x < static_cast<int32_t>(width) && hi_y < static_cast<int32_t>(height)) {
+    const uint32_t stride = static_cast<uint32_t>(width) / 2u;
+    if (two_bit) {
+      column_walk_inside<4, 2>(out, image, stride, w, h, row_bytes, x_first, dx, y_first, dy);
+    } else {
+      column_walk_inside<2, 4>(out, image, stride, w, h, row_bytes, x_first, dx, y_first, dy);
+    }
+    return;
+  }
+
+  // **I el camí de sempre**, for a rectangle that runs past the edge of the page: every pixel asks where it is.
   auto fill = [&](uint8_t per_byte, uint8_t bits) {
     const uint16_t whole = static_cast<uint16_t>(w / per_byte);
     for (uint16_t b = 0; b < whole; ++b) {
@@ -116,7 +186,6 @@ inline void gather_band(uint8_t* out, const uint8_t* image, uint16_t width, uint
         out[static_cast<uint32_t>(r) * row_bytes + b] = byte;
       }
     }
-    // **I la cua**, when a row of the glass does not end on a whole byte: the low bits are zeros, as the slow path pads them.
     const uint16_t rest = static_cast<uint16_t>(w - whole * per_byte);
     if (rest != 0) {
       for (uint16_t r = 0; r < h; ++r) {

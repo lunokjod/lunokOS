@@ -946,8 +946,21 @@ d'instruccions i massa poc per a una fallada de memòria cau per píxel, i per a
 processador a 240** (`display::hold_for_a_paint()`, una finestra de 1 500 ms que el sistema mateix tanca).
 
 - si `gathering` baixa a l'entorn de **210 ms**, el coll és el **codi** i el que cal és seguir-lo aprimant;
-- si es queda a **318**, el coll és la **PSRAM** i el camí és un altre: una banda més alta (cada línia de memòria cau porta
-  trenta-dos bytes i avui se n'aprofiten quatre) o la imatge a la RAM interna, que no hi cap sencera.
+- si es queda a **318**, el coll és la **PSRAM**.
+
+**I la resposta va ser el codi** (placa el 15/11): 318 → **232 ms** amb la mateixa pàgina i el doble de rellotge, o sigui
+que la meitat del que queda són instruccions. El número ho diu tot: a 160 MHz, 318 ms per a 518 400 píxels són **noranta-vuit
+cicles per píxel** — impossible per a un grapat d'instruccions, i la vista al codi compilat ho va confirmar: el bucle real
+feia **trenta-cinc instruccions i tretze càrregues per píxel**, i vuit d'aquelles eren `l32i a2, N`, o sigui **cada variable
+capturada per una lambda, tornada a llegir d'un punter a cada píxel**.
+
+L'arreglo (0.189.75): res de lambda, els dos formats com dues especialitzacions de compilació (`column_walk_inside<2,4>` i
+`<4,2>`), la imatge caminada amb punters que s'avancen i el byte de cada fila escrit una vegada. El bucle nou fa **onze
+instruccions per píxel** —tres vegades menys— i només quan tota la banda cau dins la imatge, que és cada pintada normal; si
+no, hi ha el camí general que comprova els límits.
+
+**Pendent de mesurar**: `gathering` d'una pàgina amb els dos estils amb aquest bucle (s'espera **~100 ms**) i que la pàgina
+surti igual.
 
 **I el `2bit` pinta de debò però amb els nivells mal posats**: la pàgina no llisca i el rectangle és el correcte, però el
 vidre surt **notablement més fosc** (l'amo: *«la pantalla s'ha enfosquit notablement, no és negre, simplement més fosca»*).
