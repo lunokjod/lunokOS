@@ -9259,7 +9259,14 @@ namespace kernel {
 // 120 x 120 en fan 262 i 64 x 64 en fan **195**, o sigui **5,1 frames per segon**, perquè la tinta de `du` són 120 ms que el
 // panell reté faci la mida que faci la imatge. **Els 7 fps del GIF no s'assoleixen amb cap mida** i no és un bug: es el
 // refresc directe d'aquest vidre, i aquesta animació va un quart més lenta que l'original (docs/50, docs/95).
-static const char kVersion[] = "0.189.62";
+// 0.189.63 — **el ritme de l'animació és del GIF** (l'amo: *«provem-ho un últim cop per curiositat amb aquesta:
+// loading_bounce_64x64_5fps.gif»*): the tool now writes `anim.txt` next to the frames —the count and the milliseconds of a
+// frame— and the app reads it, so changing the animation is changing the GIF and running the tool, with no number in the code
+// to keep in step. **I la curiositat, mesurada**: that GIF says 140 ms per frame and not 200 —its twenty-four frames all carry
+// `duration` 140, so it is not a five-per-second animation whatever its name says— and the panel spends 195 ms on a 64 x 64
+// anyway, o sigui **5,1 frames per segon**; amb el ritme forçat a 200 el bucle fa 194 ms per frame igualment, perquè el que
+// mana és el panell i el rellotge només hi pot afegir espera, no treure'n (docs/50, docs/95).
+static const char kVersion[] = "0.189.63";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

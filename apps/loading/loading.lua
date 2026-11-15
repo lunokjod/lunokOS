@@ -43,9 +43,22 @@ if not caps.display then
   return
 end
 
--- El ritme del GIF d'origen: cada frame dura 140 ms.
+-- **El ritme i el nombre de frames són del GIF i no d'aquest fitxer**: `tools/gif_to_frames.py` deixa una línia al costat de
+-- les imatges —els frames i els mil·lisegons de cada un— i la llegeix aquí, o sigui que canviar l'animació és canviar el GIF i
+-- tornar a passar l'eina, sense tocar el codi de l'app (0.189.63).
 local kFrameMs = 140
 local kFrames = 24
+do
+  local text = fs.read('/res/anim/anim.txt')
+  if text then
+    local frames, step = string.match(text, '(%d+)%s+(%d+)')
+    if frames and step then
+      kFrames = tonumber(frames)
+      kFrameMs = tonumber(step)
+      if kFrameMs <= 0 then kFrameMs = 140 end
+    end
+  end
+end
 
 local function frame_path(index)
   return string.format('/res/anim/f%02d.png', index)
