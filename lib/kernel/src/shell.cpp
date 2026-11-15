@@ -890,28 +890,55 @@ void print_apps() {
 // where the panel was never selected again after the splash (0.118.9), so it is a question a person can put to the
 // glass and read in the log: `paint 24,60 108x242` instead of `paint 0,274 168x242` (docs/30, docs/50).
 bool command_panel(const char* rest) {
-  char words[1][kWordCap];
-  size_t count = 0;
-  if (!read_words(rest, words, 1, count)) return false;
-  if (count == 0) {
+  char both[2][kWordCap];
+  size_t many = 0;
+  if (!read_words(rest, both, 2, many)) return false;
+  if (many == 0) {
     if (!display::available()) {
       out("panel: no glass on this board\r\n");
       return true;
     }
     out(display::partial_from_the_box() ? "panel: a partial paint starts at the box of the change\r\n"
                                         : "panel: a partial paint starts at the left edge of the image\r\n");
-    out("panel [edge|box]\r\n");
+    out("panel: the pixels go out as ");
+    out(display::flush_style_name(display::flush_style()));
+    out("\r\n");
+    out("panel [edge|box] | panel flush [rows|burst|1bit]\r\n");
     return true;
   }
-  if (strcmp(words[0], "edge") != 0 && strcmp(words[0], "box") != 0) {
-    usage_out("usage: panel [edge|box]\r\n");
+  // **`panel flush`** (0.189.66): three ways of sending the same picture, and the one that wins is the one measured on this
+  // board. Nothing is remembered across a boot yet: the style lives as long as the run, because a setting that survives and
+  // makes every page wrong is a board that has to be reflashed to come back (docs/50).
+  if (strcmp(both[0], "flush") == 0) {
+    if (many < 2) {
+      out("panel: a picture goes out as ");
+      out(display::flush_style_name(display::flush_style()));
+      out("\r\n");
+      return true;
+    }
+    hal::FlushStyle wanted = hal::FlushStyle::kRows;
+    if (!display::flush_style_of(both[1], wanted)) {
+      usage_out("usage: panel flush [rows|burst|1bit]\r\n");
+      return false;
+    }
+    if (!display::set_flush_style(wanted)) {
+      out("panel: this glass does not have that way\r\n");
+      return false;
+    }
+    out("panel: ");
+    out(display::flush_style_name(display::flush_style()));
+    out("\r\n");
+    return true;
+  }
+  if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
+    usage_out("usage: panel [edge|box] | panel flush [rows|burst|1bit]\r\n");
     return false;
   }
-  if (!display::set_partial_from_the_box(strcmp(words[0], "box") == 0)) {
+  if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {
     out("panel: this glass does not have the choice\r\n");
     return false;
   }
-  out(strcmp(words[0], "box") == 0 ? "panel: box\r\n" : "panel: edge\r\n");
+  out(strcmp(both[0], "box") == 0 ? "panel: box\r\n" : "panel: edge\r\n");
   return true;
 }
 

@@ -1113,12 +1113,25 @@ del **M5PaperS3**, que **no porta controlador**: el seu ESP32 escriu la vora del
 que diuen les notes pròpies d'aquest projecte (`OLD/PaperOS/notes/trampes-maquinari.md`). Aquí no hi ha camí de
 programari per a això.
 
-**I el que sí que es pot fer, quan calgui**: el **mode 1bpp** del controlador —`UP1SR` (0x1138) bit 2 i `BGVR`
-(0x1250) amb el fons i la tinta—, que fa vuit vegades menys bytes al bus per a una pàgina de dos nivells, i és el
-que fan servir els projectes que animen sobre aquest xip. I **enviar la regió en esclats i no fila a fila**: avui
-`It8951::flush` fa una transacció d'SPI per fila —1 100 µs mesurades per fila a la placa, contra els 216 µs de
-fil que tindria el cable—, i el projecte del paper enviava una pàgina sencera en **disset trossos** amb el CS
-aguantat (`OLD/PaperOS/src/plat/m5epd_hal.cpp`). És la feina pendent del refresc ràpid, i es mesura a la placa.
+**I les tres maneres d'enviar la imatge, triables en calent** (0.189.66): el mode del controlador és una cosa i **com hi
+arriben els píxels** una altra, i el driver ara les té totes tres amb `hal::FlushStyle`:
+
+| estil | què fa | el que costa |
+|---|---|---|
+| `rows` | el camí de sempre: **una transacció d'SPI per fila**, amb el seu prefix i la seva vora de CS | **1 100 µs per fila** mesurats a la placa, contra els 216 que voldria el cable |
+| `burst` | les files s'ajunten en trossos de **2 000 bytes** que van amb **un sol prefix i el CS aguantat** fins al final del tros | el cable: 800 ns per byte i quaranta microsegons per tros |
+| `1bit` | el mateix que un burst amb **un quart dels bytes**, i el controlador en treu dos colors (`BGVR`) | un quart del cable |
+
+**Es tria amb `panel flush rows|burst|1bit`** i no sobreviu a un reinici a propòsit: un estil que es queda i deixa cada
+pàgina malament és una placa que s'ha de tornar a flashejar per tornar enrere. **El que s'ha de vigilar**: un prefix de més
+amb el CS aguantat el controlador el llegeix com dos píxels i **la pàgina llisca** (mesurat l'1/11), i el mode `1bit` toca dos
+registres —`UP1SR` 0x1138 i `BGVR` 0x1250— que **el projecte té escrits però cap mesura no ha confirmat**: és el primer que
+s'ha de mirar quan es prova a la placa. El tros de 2 000 bytes **viu a la PSRAM i no a la DRAM**: a la DRAM no hi cap
+—el linker va dir `region dram0_0_seg overflowed by 1 688 bytes`— i el driver SPI ja copia cada transacció al seu buffer DMA.
+
+**I el que això ja diu a l'emulador, que modela els tres preus**: un frame de 64 × 64 costa **190 ms de present amb `rows`,
+121 amb `burst` i 119 amb `1bit`** —o sigui que el coll passa a ser la tinta de `du`, que són 120 ms, i no el cable—. A la
+placa el número s'ha de mesurar amb el log, i és la feina que queda del refresc ràpid.
 
 **`LUTAFSR` és l'estat del motor de LUT i no la mesura de la tinta** (0.179.41): `0x1224` val `0000` quan cap
 motor de LUT del controlador està corrent, i el log l'escriu a la **primera** lectura que contesta, amb els

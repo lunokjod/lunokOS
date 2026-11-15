@@ -54,9 +54,19 @@ const uint16_t kRegLisHigh = 0x020A;
 const uint16_t kRegLutAfsr = 0x1224;
 const uint16_t kRegI80Cpcr = 0x0004;
 // The first argument of the area command says how the image is written: the two pixels of a byte in
-// the order the controller expects (`B_ENDIAN`), **four bits per pixel** (the value 2 at bits 7:4) and
-// no rotation, because the surface is already in the panel's own frame (docs/50).
-const uint16_t kPixelFormat = static_cast<uint16_t>((1 << 8) | (2 << 4));
+// the order the controller expects (`B_ENDIAN`), **the bits of a pixel** (the value 2 at bits 7:4 is four,
+// the 0 is one) and no rotation, because the surface is already in the panel's own frame (docs/50).
+// **I el format és de l'estil i no una constant** (0.189.66): `panel flush 1bit` envia un bit per píxel i el
+// controlador ho ha de saber aquí.
+const uint16_t kBppFormat4 = static_cast<uint16_t>((1 << 8) | (2 << 4));
+const uint16_t kBppFormat1 = static_cast<uint16_t>((1 << 8) | (0 << 4));
+// **Els dos colors del mode d'un bit** (`BGVR`): the controller reads a pixel of one bit as one of these two, and this is the
+// pair that makes it paper and ink. **Cap mesura no ho ha confirmat** —és el primer que s'ha de mirar quan es prova `1bit`
+// a la placa— i es canvia en aquesta línia (docs/50, docs/95).
+const uint16_t kBgvrPaperInk = static_cast<uint16_t>((0x03 << 8) | 0x00);
+// The value of a pixel of one bit that is paper: one, because the two colours above say so and the rest of this driver
+// writes fifteen for white (docs/50).
+const uint8_t kWhiteBit = 1;
 
 // **10 MHz, the speed of the maker's own driver**, and slower than the 20 the bus allows on purpose:
 // while the handshake does not work, the bus clock is one variable too many. It goes up when a
@@ -264,6 +274,62 @@ bool It8951::write_pixels(void* handle, const uint8_t* bytes, uint32_t count) {
     }
     done += chunk;
   }
+  return true;
+}
+
+// **El prefix dels píxels, una vegada** (0.189.66): the controller is told "an image follows" with a zero word, and the CS is
+// kept down inside it. A second one with the line still held is read as two pixels and slides the page (measured 1/11).
+bool It8951::begin_pixels() {
+  if (device_ == nullptr) return false;
+  const uint8_t preamble[2] = {static_cast<uint8_t>(kPrefixData >> 8),
+                               static_cast<uint8_t>(kPrefixData & 0xFF)};
+  spi_transaction_t start = {};
+  start.length = 16;
+  start.tx_buffer = preamble;
+  start.flags = SPI_TRANS_CS_KEEP_ACTIVE;
+  if (spi_device_transmit(static_cast<spi_device_handle_t>(device_), &start) != ESP_OK) {
+    why_ = "bus refused the data preamble";
+    return false;
+  }
+  return true;
+}
+
+// **Un tros de píxels** (0.189.66): the bytes as they are, in one transaction, and the CS stays down while another stretch is
+// coming. This is the whole of the style: the cost of a transaction stops being paid once per row.
+bool It8951::write_stretch(const uint8_t* bytes, uint32_t count, bool more) {
+  if (device_ == nullptr || bytes == nullptr || count == 0) return false;
+  spi_transaction_t trans = {};
+  trans.length = count * 8;
+  trans.tx_buffer = bytes;
+  trans.flags = more ? SPI_TRANS_CS_KEEP_ACTIVE : 0;
+  if (spi_device_transmit(static_cast<spi_device_handle_t>(device_), &trans) != ESP_OK) {
+    why_ = "bus refused the image";
+    return false;
+  }
+  return true;
+}
+
+// **El mode d'un bit** (0.189.66): the controller has to be told that the image it is about to receive is one bit a pixel and
+// which two colours those bits are, and the two registers are this project's best reading of its defines —`UP1SR` 0x1138 and
+// `BGVR` 0x1250— and **the first thing to check on the board** when `1bit` is tried. Going back to four bits puts the format of
+// the image back and leaves the colours where they were, because a style of four bits does not read them.
+bool It8951::set_flush_style(hal::FlushStyle style) {
+  if (style != hal::FlushStyle::kRows && style != hal::FlushStyle::kBurst &&
+      style != hal::FlushStyle::kBits1) {
+    return false;
+  }
+  if (style != hal::FlushStyle::kRows && stretch_ == nullptr) return false;  // no PSRAM, no burst
+  const bool was_one_bit = style_ == hal::FlushStyle::kBits1;
+  const bool one_bit = style == hal::FlushStyle::kBits1;
+  if (one_bit != was_one_bit) {
+    if (!write_register(kRegUp1sr, static_cast<uint16_t>(one_bit ? kBppFormat1 : kBppFormat4))) {
+      return false;
+    }
+    if (one_bit && !write_register(kRegBgvr, kBgvrPaperInk)) return false;
+  }
+  style_ = style;
+  hal::logf(pal::kLogInfo, "PANEL", "the pixels go out as %s",
+            (style == hal::FlushStyle::kRows) ? "rows" : (style == hal::FlushStyle::kBurst) ? "bursts" : "one bit");
   return true;
 }
 
@@ -731,7 +797,9 @@ bool It8951::flush(UpdateMode mode) {
   const uint16_t w = static_cast<uint16_t>(nx1 - nx0);
   const uint16_t h = static_cast<uint16_t>(ny1 - ny0);
 
-  const uint16_t area[5] = {kPixelFormat, nx0, ny0, w, h};
+  // **El format que l'estil mana** (0.189.66): un bit per píxel quan l'estil és `1bit` i quatre quan no.
+  const bool one_bit = style_ == hal::FlushStyle::kBits1;
+  const uint16_t area[5] = {static_cast<uint16_t>(one_bit ? kBppFormat1 : kBppFormat4), nx0, ny0, w, h};
   // The controller is told **where** its image is before being told where to write: the two words of
   // the target address, **high and then low**, which is the order of `SetTargetMemoryAddr` in the
   // maker's driver (docs/50).
@@ -744,12 +812,50 @@ bool It8951::flush(UpdateMode mode) {
   // Row by row of the glass, gathered from the image, and **the bus is held for the whole rectangle**:
   // locking it per row would spend more time in the driver than on the wire (docs/50).
   uint8_t row[kMaxRowBytes];
-  const uint16_t row_bytes = static_cast<uint16_t>(w / 2);
+  // **Els bytes d'una fila segons el format**: two pixels a byte in four bits and eight a byte in one.
+  const uint16_t row_bytes = static_cast<uint16_t>(one_bit ? ((w + 7) / 8) : (w / 2));
   if (!take_bus()) return false;
   bool sent = true;
-  for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
-    gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
-    sent = write_pixels(device_, row, row_bytes);
+  const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr;
+  if (!bursts) {
+    // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is 1 100 µs of the board for each one.
+    for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
+      if (one_bit) {
+        gather_row_bits(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
+      } else {
+        gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
+      }
+      sent = write_pixels(device_, row, row_bytes);
+    }
+  } else {
+    // **Els bursts** (0.189.66): the rows are gathered into stretches of `kStretch` bytes that go out with **one prefix and
+    // no edge of CS in between**, and the last stretch lifts the line. The prefix of a second stretch with the CS held is
+    // what the controller reads as two pixels and what slides a page sideways (measured 1/11, docs/50), so there is one
+    // preamble for the whole send and the stretches are only what the bus can take at a time.
+    uint32_t filled = 0;
+    if (sent) sent = begin_pixels();
+    for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
+      if (one_bit) {
+        gather_row_bits(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
+      } else {
+        gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
+      }
+      uint16_t at = 0;
+      while (at < row_bytes && sent) {
+        uint32_t room = kStretch - filled;
+        uint32_t take = static_cast<uint32_t>(row_bytes - at);
+        if (take > room) take = room;
+        memcpy(stretch_ + filled, row + at, take);
+        filled += take;
+        at = static_cast<uint16_t>(at + take);
+        // A stretch goes out when it is full, and the one that ends the image goes out even if it is not.
+        if (filled == kStretch) {
+          sent = write_stretch(stretch_, filled, true);
+          filled = 0;
+        }
+      }
+    }
+    if (sent && filled > 0) sent = write_stretch(stretch_, filled, false);
   }
   give_bus();
   if (!sent) return false;
@@ -875,7 +981,57 @@ void It8951::gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) con
   }
 }
 
+// **Una fila en un bit per píxel** (0.189.66): eight pixels a byte, the left one in the top bit, and the level is read from the
+// image the app drew exactly as `gather_row` reads it —the same turn, the same border of white— and then cut at half: eight or
+// more is paper.
+void It8951::gather_row_bits(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const {
+  uint8_t packed = 0;
+  uint8_t bit = 0;
+  uint16_t written = 0;
+  for (uint16_t i = 0; i < w; ++i) {
+    uint8_t level = kWhite;
+    const uint16_t nx = static_cast<uint16_t>(nx0 + i);
+    int32_t x = 0;
+    int32_t y = 0;
+    switch (rotation_) {
+      case 90:
+        x = ny;
+        y = static_cast<int32_t>(height_) - 1 - nx;
+        break;
+      case 270:
+        x = static_cast<int32_t>(width_) - 1 - ny;
+        y = nx;
+        break;
+      case 180:
+        x = static_cast<int32_t>(width_) - 1 - nx;
+        y = static_cast<int32_t>(height_) - 1 - ny;
+        break;
+      default:
+        x = nx;
+        y = ny;
+        break;
+    }
+    if (x >= 0 && y >= 0 && x < width_ && y < height_) {
+      const uint32_t stride = width_ / 2;
+      const uint8_t byte = image_[static_cast<uint32_t>(y) * stride + static_cast<uint32_t>(x) / 2];
+      level = ((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4) : static_cast<uint8_t>(byte & 0x0F);
+    }
+    packed = static_cast<uint8_t>((packed << 1) | ((level >= 8) ? kWhiteBit : 0));
+    if (++bit == 8) {
+      out[written++] = packed;
+      packed = 0;
+      bit = 0;
+    }
+  }
+  if (bit != 0) out[written++] = static_cast<uint8_t>(packed << (8 - bit));
+}
+
 bool It8951::allocate_image() {
+  // **El tros dels bursts, a la PSRAM** (0.189.66): asked once with the image, because it is the same kind of memory and the same
+  // moment. A board without PSRAM keeps `rows`, which needs no stretch at all.
+  if (stretch_ == nullptr) {
+    stretch_ = static_cast<uint8_t*>(heap_caps_malloc(kStretch, MALLOC_CAP_SPIRAM));
+  }
   if (image_ != nullptr) {
     heap_caps_free(image_);
     image_ = nullptr;

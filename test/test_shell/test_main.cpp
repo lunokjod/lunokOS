@@ -13,6 +13,7 @@
 
 #include <unity.h>
 
+#include "emu/ink.h"
 #include "emu/options.h"
 #include "hal/hal.h"
 #include "hal/log.h"
@@ -1747,6 +1748,20 @@ static void test_the_colours_are_the_prompt_an_error_and_a_directory() {
 // of a launcher's page for the cell at the bottom—. `panel` says what this glass does, takes the two words that change
 // it, refuses anything else, and the emulator —whose glass has no controller and takes any box— answers both (docs/30,
 // docs/50, docs/85).
+// **El que costa un tros d'esclat i el que costa una fila** (0.189.66): the model of the glass is where the three ways differ,
+// and a page that goes out as bursts is not the same wait as one that goes out row by row. The numbers are the wire's
+// —800 ns a byte at ten megahertz— and the row's 1 100 µs, which is what the board measured (docs/50, docs/95).
+static void test_a_burst_pays_the_wire_and_a_row_pays_the_row() {
+  const uint32_t rows = emu::ink_transfer_us(64, 64, hal::FlushStyle::kRows);
+  const uint32_t burst = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBurst);
+  const uint32_t bits = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBits1);
+  // A 64-wide row is thirty-two bytes, which is twenty-five microseconds of wire, and the row itself is 1 100.
+  TEST_ASSERT_EQUAL_UINT32(64u * 1125u, rows);
+  TEST_ASSERT_TRUE_MESSAGE(burst > 0, "a burst costs something");
+  TEST_ASSERT_TRUE_MESSAGE(burst < rows / 30u, "a burst is the wire and not a row per line");
+  TEST_ASSERT_TRUE_MESSAGE(bits > 0 && bits < burst / 3u, "one bit a pixel is a quarter of the bytes, plus a stretch");
+}
+
 static void test_the_panel_says_where_a_partial_paint_starts() {
   ensure_booted();
   static char said[1024];
@@ -1854,6 +1869,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_log_line_carries_its_level_and_its_tag);
   RUN_TEST(test_the_log_is_painted_by_level);
   RUN_TEST(test_a_duration_is_written_in_the_scale_that_reads);
+  RUN_TEST(test_a_burst_pays_the_wire_and_a_row_pays_the_row);
   RUN_TEST(test_the_panel_says_where_a_partial_paint_starts);
   UNITY_END();
   return 0;

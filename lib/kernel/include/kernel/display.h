@@ -38,6 +38,14 @@ bool set_rotation(uint16_t degrees);
 bool partial_from_the_box();
 bool set_partial_from_the_box(bool on);
 
+// **Com s'envien els píxels al controlador** (0.189.66): tres maneres —una transacció per fila, bursts, o un bit per píxel— que
+// el vidre tria i que el prompt canvia amb `panel flush`. La que el vidre no sàpiga fer es refusa i es diu (docs/50).
+hal::FlushStyle flush_style();
+bool set_flush_style(hal::FlushStyle style);
+// The word of a style and the style of a word, so the prompt and the log speak the same three names (docs/50).
+const char* flush_style_name(hal::FlushStyle style);
+bool flush_style_of(const char* name, hal::FlushStyle& out);
+
 // **The board's buffer, and it belongs to the system.** An app never touches it: it draws on its own
 // canvas and `ui::present` is what composes it here, which is the only way the glass changes
 // (docs/30).

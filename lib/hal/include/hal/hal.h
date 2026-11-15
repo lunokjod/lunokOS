@@ -379,6 +379,22 @@ enum class UpdateMode : uint8_t {
   kA2 = 7,
 };
 
+// **Com arriben els píxels al controlador** (0.189.66): la mateixa imatge es pot enviar de tres maneres i cada una té el seu
+// preu. No és la qualitat de la tinta —això és `UpdateMode`— sinó com es porta la imatge pel cable, i el que guanya es mesura
+// a la placa i no es discuteix (docs/50).
+enum class FlushStyle : uint8_t {
+  // **Una transacció per fila**: el camí de sempre i el que se sap que funciona. Cada fila paga el seu prefix i la seva vora
+  // de CS, i això són 1 100 µs per fila mesurats a la placa (docs/50, docs/95).
+  kRows = 0,
+  // **Bursts**: un sol prefix per tros i el CS aguantat fins que el tros s'acaba. El que costa passa a ser el cable —800 ns
+  // per byte— i el preu és que un prefix de més, amb el CS aguantat, el controlador el llegeix com dos píxels i la pàgina
+  // llisca (mesurat l'1/11, docs/50).
+  kBurst,
+  // **Un bit per píxel**: la imatge viatja amb un quart dels bytes i el controlador en treu dos colors, el fons i la tinta,
+  // del registre `BGVR`. Només val per a una imatge de dos tons, o sigui que els grisos s'han de triar en enviar (docs/50).
+  kBits1,
+};
+
 // **The name of a quality**, which is the word the glass speaks: every line of the log says `gl16` and not a
 // five, because a number a reader has to look up in a header is a number that says nothing —and the question
 // «which quality painted this rectangle?» is the one the log is read for— (docs/50, docs/85).
@@ -444,6 +460,14 @@ class ISurface : public IDisplay {
   virtual bool partial_from_the_box() const { return false; }
   virtual bool set_partial_from_the_box(bool on) {
     (void)on;
+    return false;
+  }
+  // **Com s'envien els píxels** (0.189.66): `kRows` és el que fa tota placa que no digui res, i una que en sàpiga més ho diu i
+  // ho canvia. La pregunta i el canvi són aquí i no al nucli perquè és el controlador qui ho sap, i el nucli només ho mana
+  // (docs/50).
+  virtual FlushStyle flush_style() const { return FlushStyle::kRows; }
+  virtual bool set_flush_style(FlushStyle style) {
+    (void)style;
     return false;
   }
   // **How the surface is turned.** 0, 90, 180 or 270 degrees: the width and height the surface reports are

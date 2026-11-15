@@ -87,6 +87,43 @@ bool set_partial_from_the_box(bool on) {
   return (g_surface != nullptr) && g_surface->set_partial_from_the_box(on);
 }
 
+hal::FlushStyle flush_style() {
+  return (g_surface != nullptr) ? g_surface->flush_style() : hal::FlushStyle::kRows;
+}
+
+bool set_flush_style(hal::FlushStyle style) {
+  return (g_surface != nullptr) && g_surface->set_flush_style(style);
+}
+
+const char* flush_style_name(hal::FlushStyle style) {
+  switch (style) {
+    case hal::FlushStyle::kRows:
+      return "rows";
+    case hal::FlushStyle::kBurst:
+      return "burst";
+    case hal::FlushStyle::kBits1:
+      return "1bit";
+  }
+  return "rows";
+}
+
+bool flush_style_of(const char* name, hal::FlushStyle& out) {
+  if (name == nullptr) return false;
+  if (strcmp(name, "rows") == 0) {
+    out = hal::FlushStyle::kRows;
+    return true;
+  }
+  if (strcmp(name, "burst") == 0) {
+    out = hal::FlushStyle::kBurst;
+    return true;
+  }
+  if (strcmp(name, "1bit") == 0) {
+    out = hal::FlushStyle::kBits1;
+    return true;
+  }
+  return false;
+}
+
 // **Two meters, because they answer two different questions**: how long a paint costs to ask for —which
 // is the transfer of the rectangle and the command, and is paid on the spot— and how often the system
 // asks whether the ink is over, which is a register read per turn (docs/30, docs/50).

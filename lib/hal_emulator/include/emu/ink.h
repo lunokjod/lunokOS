@@ -43,11 +43,15 @@ struct InkMode {
 
 InkMode ink_mode(hal::UpdateMode mode);
 
-// **What sending a region to the glass costs, in microseconds**: the pixels over the wire and the row
-// around them. A byte is two pixels in four bits, the driver's bus runs at ten megahertz —eight hundred
-// nanoseconds a byte— and a row costs more than its bytes, because the driver hands the bus one row at a
-// time and every row is a transaction of its own (docs/50, docs/85).
-uint32_t ink_transfer_us(uint16_t w, uint16_t h);
+// **What sending a region to the glass costs, in microseconds**, and it depends on how the pixels are sent (0.189.66):
+//
+//   - `kRows`, the way the board sends them today: a byte is two pixels in four bits, the bus runs at ten megahertz —eight
+//     hundred nanoseconds a byte— and **a row costs more than its bytes**, because every row is a transaction of its own
+//     with its own prefix and its own edge of CS: 1 100 µs measured on the board against the 216 the wire would take for a
+//     full row (docs/50, docs/95);
+//   - `kBurst`, the same wire with one prefix per stretch and the CS held: the bytes and a small fixed cost per stretch;
+//   - `kBits1`, the same as a burst with a quarter of the bytes, which is what one bit a pixel buys.
+uint32_t ink_transfer_us(uint16_t w, uint16_t h, hal::FlushStyle style);
 
 // The level the glass shows after a paint of `target` over what was showing, with that much dirt in the
 // pixel. Integer arithmetic and no table: one multiply, one add and one shift per pixel.

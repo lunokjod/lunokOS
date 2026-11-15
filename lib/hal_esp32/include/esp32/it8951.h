@@ -63,6 +63,10 @@ class It8951 : public ISurface {
   // the ink takes its time and the kernel cannot wait for it. `idle()` is how a later turn asks
   // whether the panel is done (docs/50).
   bool flush(UpdateMode mode) override;
+  // **Com s'envien els píxels** (0.189.66): les tres maneres de `hal::FlushStyle`, que es trien amb `panel flush` i es queden
+  // a la configuració. El que guanya cada una es mesura a la placa amb el log, no s'endevina (docs/50, docs/95).
+  hal::FlushStyle flush_style() const override { return style_; }
+  bool set_flush_style(hal::FlushStyle style) override;
   // **A paint is not over before it has had time to start.** The engine does not mark itself busy in the
   // same instant the paint is asked for, so a question asked a millisecond later reads "nothing in
   // flight" while the ink has not begun (measured on the board, 1/11: `ui.idle()` said 0 ms with the
@@ -149,11 +153,33 @@ class It8951 : public ISurface {
   bool bring_back();
   uint8_t revive_fails_ = 0;
   bool dead_ = false;
+  // **L'estil d'enviament i el buffer d'un tros** (0.189.66): the stretch is a member and not the stack because the task that
+  // paints has six or seven kilobytes and two thousand more would not fit (docs/75).
+  hal::FlushStyle style_ = hal::FlushStyle::kRows;
+  static const uint32_t kStretch = 2000;  // bytes of a burst, which is what the SPI driver takes for DMA
+  // **A PSRAM i no a la DRAM** (0.189.66): two kilobytes of static buffer made the linker say `region dram0_0_seg overflowed
+  // by 1 688 bytes` —the internal RAM of this chip has no room for one— and the image of the glass is already there, in the
+  // same memory the SPI driver copies from for every transaction it makes (docs/50, docs/75).
+  uint8_t* stretch_ = nullptr;
+  // **Els dos registres del mode d'un bit** (0x1138 i 0x1250), que el projecte té escrits i que **cap mesura no ha confirmat
+  // encara**: the format of the source image and the two colours the controller reads for a pixel of one bit. The values are
+  // this project's best reading of the controller's defines and the first thing to check on the board when `1bit` is tried
+  // (docs/50, docs/95).
+  static const uint16_t kRegUp1sr = 0x1138;
+  static const uint16_t kRegBgvr = 0x1250;
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
   void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
                          uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;
   // One row of the glass, packed, taken from the image an app drew in.
   void gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
+  // **The same row in one bit a pixel** (0.189.66): eight pixels a byte and the left one in the top bit, which is what the
+  // controller reads when the style is `1bit`. A level of eight or more is paper and the rest is ink.
+  void gather_row_bits(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
+  // **The prefix of the pixels, once** (0.189.66): the command word that says "what follows is an image". It goes out once for
+  // a burst and once per row for the old style, because an edge of CS makes the controller start again.
+  bool begin_pixels();
+  // **Un tros d'esclat**: `more` says another one follows, which is what keeps the CS down between them.
+  bool write_stretch(const uint8_t* bytes, uint32_t count, bool more);
   // Makes the image again for the turn it has now, and marks the whole of it to be sent.
   bool allocate_image();
   void mark(uint16_t x, uint16_t y, uint16_t w, uint16_t h);

@@ -43,6 +43,9 @@ void write_pgm(const char* path, const uint8_t* bits, uint16_t width, uint16_t h
 
 MemorySurface::MemorySurface(uint16_t width, uint16_t height)
     : width_(width), height_(height), stride_(static_cast<uint16_t>(width / 2)) {
+  // **El vidre neix amb l'estil que el run ha demanat** (0.189.66): `--flush` i prou, i el que no digui res neix amb el camí
+  // de sempre.
+  style_ = emu::options().flush;
   const size_t bytes = static_cast<size_t>(stride_) * height_;
   bits_ = static_cast<uint8_t*>(calloc(bytes, 1));
   // An emulator with no memory for its panel is an emulator without a glass, not a crash: every read answers
@@ -310,7 +313,7 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
     // same wait the board pays, at the speed the board pays it (docs/50, docs/85). With the waits off
     // (`--no-delay`, every test) the model is the same and the clock is not asked.
     const bool pay = options().delays;
-    const uint32_t bus_us = pay ? ink_transfer_us(paint.w, paint.h) : 0;
+    const uint32_t bus_us = pay ? ink_transfer_us(paint.w, paint.h, style_) : 0;
     if (bus_us > 0) wait_and_pump(bus_us);
     flash_x_ = paint.x;
     flash_y_ = paint.y;

@@ -1288,16 +1288,16 @@ static void test_with_the_waits_off_a_paint_is_instant_and_still_leaves_ink() {
 static void test_a_page_costs_what_the_board_says_a_page_costs(void) {
   const uint32_t du_ms = emu::ink_mode(hal::UpdateMode::kDu).ms;
   const uint32_t gc16_ms = emu::ink_mode(hal::UpdateMode::kGc16).ms;
-  const uint32_t bus = emu::ink_transfer_us(540, 932) + emu::ink_transfer_us(528, 120);
+  const uint32_t bus = emu::ink_transfer_us(540, 932, hal::FlushStyle::kRows) + emu::ink_transfer_us(528, 120, hal::FlushStyle::kRows);
   const uint32_t page = bus + (du_ms + gc16_ms) * 1000u;
   TEST_ASSERT_UINT32_WITHIN_MESSAGE(20000, 1970000, page, "the page of run panel is not the page the emulator painted");
   TEST_ASSERT_UINT32_WITHIN_MESSAGE(40000, 1985000, page, "the page of run panel is not the page the board painted");
   // A region of nothing costs nothing, and a full page of the glass is over half a second of wire and rows.
-  TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(0, 540));
-  TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(540, 0));
-  TEST_ASSERT_TRUE(emu::ink_transfer_us(960, 540) > 540000u);
+  TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(0, 540, hal::FlushStyle::kRows));
+  TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(540, 0, hal::FlushStyle::kRows));
+  TEST_ASSERT_TRUE(emu::ink_transfer_us(960, 540, hal::FlushStyle::kRows) > 540000u);
   // Twice the rows is twice the price.
-  TEST_ASSERT_EQUAL_UINT32(2 * emu::ink_transfer_us(960, 270), emu::ink_transfer_us(960, 540));
+  TEST_ASSERT_EQUAL_UINT32(2 * emu::ink_transfer_us(960, 270, hal::FlushStyle::kRows), emu::ink_transfer_us(960, 540, hal::FlushStyle::kRows));
 }
 
 // **An `a2` blinks**: the page goes white, then black, and only then the image, and what an app waits for

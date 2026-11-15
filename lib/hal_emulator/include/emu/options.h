@@ -4,6 +4,8 @@
 
 #include <stdint.h>
 
+#include "hal/hal.h"
+
 // **The disk this binary was built to read**, given by its environment (`platformio.ini`): every build has its
 // own, `build/disk/<env>`, which `tools/make_disk.py` assembles from `data/` and the apps of `apps/` (docs/80).
 // The emulator and the tests are two builds and do not share a disk, so one cannot write over what the other is
@@ -60,6 +62,10 @@ struct Options {
   // encendre totes de debò en un sol run —el provisioning vol el Bluetooth, l'NTP vol la xarxa i el temporitzador és una cua
   // d'alarmes—, i mirar-se la franja sencera és el que es vol fer quan s'hi toca (docs/50, docs/85).
   bool signs = false;
+  // **Com s'envien els píxels al vidre** (0.189.66, `--flush rows|burst|1bit`): the three ways of the board, modelled with
+  // their three prices, so a person can see what a burst buys before the driver of the Paper has been measured. It is the
+  // setting the glass is born with; `panel flush` changes it while the run goes on (docs/50, docs/85).
+  hal::FlushStyle flush = hal::FlushStyle::kRows;
   const char* script;    // batch file, or nullptr
   const char* run_app;   // app to start, or nullptr
   int64_t now_epoch;     // 0 = no epoch at all (source "none"), like a board that

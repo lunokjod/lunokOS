@@ -13,6 +13,10 @@ namespace {
 // the number the emulator uses so that a page here costs what a page costs there (docs/85, docs/95).
 const uint32_t kBusHz = 10000000;
 const uint32_t kRowUs = 1100;
+// **Un tros d'esclat** (0.189.66): the driver of the Paper hands the bus two thousand bytes at a time —that is what the SPI
+// driver takes for DMA— and pays one transaction for each stretch.
+const uint32_t kStretchBytes = 2000;
+const uint32_t kStretchUs = 40;
 
 // **How much a quick paint can leave, and how much dirt can add to it.** A `du` that finds a page it did
 // not expect cannot take it: it lands short by a share of what it had to move, and that share is what a
@@ -69,12 +73,26 @@ InkMode ink_mode(hal::UpdateMode mode) {
   return InkMode{120, 4, 1, 1, false, 0, {0, 0, 0, 0, 0, 0}, 0};
 }
 
-uint32_t ink_transfer_us(uint16_t w, uint16_t h) {
+uint32_t ink_transfer_us(uint16_t w, uint16_t h, hal::FlushStyle style) {
   if (w == 0 || h == 0) return 0;
   // Four bits a pixel, so a row of `w` pixels is `w` over two bytes, and eight bits a byte.
   const uint32_t bytes = static_cast<uint32_t>(w + 1) / 2;
   const uint32_t wire_us = bytes * 8000u / (kBusHz / 1000u);
-  return static_cast<uint32_t>(h) * (wire_us + kRowUs);
+  if (style == hal::FlushStyle::kRows) {
+    // **The row is the transaction**: its prefix, its edge of CS and the work of the driver around it, which is what the
+    // 1 100 µs of `kRowUs` are (measured on the board, docs/50).
+    return static_cast<uint32_t>(h) * (wire_us + kRowUs);
+  }
+  // **A stretch goes out in one piece** (0.189.66): the bytes of the region at the speed of the wire, plus one transaction
+  // per `kStretchBytes`. The fixed cost of a transaction is not measured on this board yet —it is the whole point of the
+  // style— and it is modelled at **forty microseconds**, which is the order of a `spi_device_transmit` of two kilobytes on
+  // this chip. What the style promises is the wire, and the wire is the datasheet's (docs/50, docs/85, docs/95).
+  const uint32_t bits = (style == hal::FlushStyle::kBits1) ? 1u : 4u;
+  const uint32_t row_bytes = (bytes * bits) / 4u;
+  const uint32_t total = row_bytes * static_cast<uint32_t>(h);
+  const uint32_t stretches = (total + kStretchBytes - 1) / kStretchBytes;
+  const uint32_t wire_total_us = total * 8000u / (kBusHz / 1000u);
+  return wire_total_us + stretches * kStretchUs;
 }
 
 uint8_t ink_blend(uint8_t target, uint8_t shown, uint8_t dirt, const InkMode& mode) {

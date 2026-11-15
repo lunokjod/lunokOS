@@ -118,6 +118,8 @@ void usage() {
   printf("  --battery-host    say it aloud: a board with a gauge lends this machine's battery by itself\n");
   printf("  --charging        the board is on a cable: the bolt of the battery figure and the mark of the port\n");
   printf("  --signs           every icon of the bar on at once, for looking at the whole strip\n");
+  printf("  --flush <how>     how the pixels reach the glass: rows (the board's own, 1 100 us a row), burst (the\n");
+  printf("                    wire, one transaction per stretch) or 1bit (a quarter of the bytes)\n");
   printf("  --board <name>    which board this emulator is (required): %s", board::model(0));
   for (uint32_t i = 1; i < board::models_count(); ++i) printf(", %s", board::model(i));
   printf("\n");
@@ -382,6 +384,22 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--signs") == 0) {
       opts.signs = true;
+      continue;
+    }
+    if (strcmp(arg, "--flush") == 0) {
+      if (!next_value(i, argc, argv, value)) return false;
+      // **Les tres maneres del vidre** (0.189.66): the name of each one is the one the log says and the one `panel flush`
+      // takes, so what a run is told and what the prompt is told are the same word (docs/50, docs/85).
+      if (strcmp(value, "rows") == 0) {
+        opts.flush = hal::FlushStyle::kRows;
+      } else if (strcmp(value, "burst") == 0) {
+        opts.flush = hal::FlushStyle::kBurst;
+      } else if (strcmp(value, "1bit") == 0) {
+        opts.flush = hal::FlushStyle::kBits1;
+      } else {
+        fprintf(stderr, "--flush takes rows, burst or 1bit\n");
+        return false;
+      }
       continue;
     }
     if (strcmp(arg, "--board") == 0) {

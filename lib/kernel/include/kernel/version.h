@@ -9279,7 +9279,16 @@ namespace kernel {
 // one or two samples, which is a contact that never walked. The app `loading` stays as **what it is, an instrument** —it
 // measures the panel's ceiling and what a frame costs— and says so in its first line; what a person's app must do to have both
 // things is paint **less often than the touch is read**, or leave the turns free between frames (docs/50, docs/95).
-static const char kVersion[] = "0.189.65";
+// 0.189.66 — **les tres maneres d'enviar els píxels, triables en calent** (l'amo: *«podríem implementar els 3 mètodes i anar
+// canviant segons convingui? (el que tenim ara, el controlador a 1bpp, i els esclats com li dius tu, prefereixo el nom en
+// anglés)»*): `hal::FlushStyle` és `rows`, `burst` o `1bit`, el vidre diu quin té i el canvia, i `panel flush` ho mana des del
+// prompt. No sobreviu a un reinici a propòsit: un estil que es queda i deixa cada pàgina malament és una placa que s'ha de
+// tornar a flashejar. **Al driver del Paper**: els bursts fan trossos de 2 000 bytes amb un sol prefix i el CS aguantat, i el
+// buffer viu a la PSRAM perquè a la DRAM no hi cap (`region dram0_0_seg overflowed by 1 688 bytes`, dit pel linker). **I el
+// model de l'emulador ja en sap els tres preus**, perquè el que es vol veure abans de tocar la placa és això: un frame de
+// 64 × 64 costa 190 ms de present amb `rows`, 121 amb `burst` i 119 amb `1bit`, o sigui que el coll passa a ser la tinta de
+// `du` i no el cable (docs/50, docs/85, docs/95).
+static const char kVersion[] = "0.189.66";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
