@@ -95,6 +95,11 @@ bool g_attached = false;
 // **Whether the app in front has the whole glass** (0.136.0): the view is then the panel and the bar of the system is
 // away. It is the system's state and not a wish of the app's —an app that ends leaves it false— (docs/30, docs/46 D1).
 bool g_full_screen = false;
+// **La pantalla bloquejada per una app d'administrador** (0.189.99): the strip of the system is away because the app asked
+// for it **and the ways back are closed**: the three taps of the system do nothing and `full_screen(false)` is refused. It
+// lives with the glass and not with the app —`give_back_the_glass` clears it, which is the hand that runs when an app ends
+// or dies— perquè una placa que es queda sense barra i sense app és una placa que ningú no pot fer servir (docs/30, docs/50).
+bool g_screen_locked = false;
 // **Whether the canvas still holds the band of the keyboard**: it is a picture drawn into the page, so it is there
 // until something wipes it —the app's `clear`, a rectangle or a pixel over it, a new canvas— and a letter typed does
 // not. The flag is the band's, and `clear` asks it through this door (docs/50, docs/90).
@@ -2098,6 +2103,9 @@ int32_t grid_footer(int32_t height) { return (height > 160) ? kDotDesignH : 0; }
 // (0.186.1, docs/30, docs/90).
 bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   (void)platform;
+  // **Un arrencament és un vidre que ningú no ha bloquejat** (0.189.99): the lock is a state of the glass of an app and not a
+  // setting, so a boot starts with the bar where it belongs (docs/30, docs/50).
+  g_screen_locked = false;
   // **The face of the whole glass, before anything is drawn and whether or not there is a glass**: the typeface is the
   // system's and not the panel's, and a board whose model has no screen still asks for the same text —a run with no
   // display writes to the console and the pages of a window on the emulator are drawn with it too— (docs/30, docs/92).
@@ -2235,6 +2243,9 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   // by drawing: the wash of a moment is the whole panel and the picture is a file of the disk (docs/30, docs/50).
   luabind::set_splash_ops(luabind::SplashOps{splash_count_for_lua, splash_word_for_lua, splash_show_for_lua,
                                              splash_hide_for_lua, splash_error_for_lua});
+  // **El paquet d'un administrador** (0.189.99): the two calls the `admin` table of an administrator's machine answers. The
+  // table is built by the interpreter only for an app whose manifest says so, and this is the system's half of it (docs/30).
+  luabind::set_admin_ops(luabind::AdminOps{lock_the_screen, screen_locked});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -8330,6 +8341,13 @@ uint16_t rotation() { return display::rotation(); }
 
 bool full_screen(bool on) {
   if (!g_attached || root().bits == nullptr) return false;
+  // **Una pantalla bloquejada no torna la barra a ningú que no sigui el pany** (0.189.99): an app's `ui.full_screen(false)`
+  // —or the system's own hand, if the lock is on— is refused while the lock is on, and the answer is no and not a lie: the
+  // view is not given back, so the caller that asks `is_full_screen()` after it hears the truth (docs/30, docs/46 D1).
+  if (!on && g_screen_locked) {
+    log_printf(pal::kLogWarn, "UI", "the screen is locked: the bar does not come back for ui.full_screen(false)");
+    return false;
+  }
   // **The whole glass is not the glass of the card** (0.179.22): a panel pulled over a page under the bar has no place over a
   // page that took the bar's rows, and the wash below is what erases it (docs/30, docs/46 D1).
   forget_the_page_hold();
@@ -8354,7 +8372,31 @@ bool full_screen(bool on) {
 
 bool is_full_screen() { return g_full_screen; }
 
+bool lock_the_screen(bool on) {
+  if (!on) {
+    // **Obrir-la és tornar la barra**: the same call as any app's, and it is allowed because it is the one that holds the
+    // key. Nothing is done if the lock was not on, which is what makes asking for what one has free (docs/30).
+    if (!g_screen_locked) return true;
+    g_screen_locked = false;
+    const bool back = full_screen(false);
+    log_printf(pal::kLogInfo, "UI", "the screen is unlocked: the bar %s", back ? "is back" : "could not come back");
+    return true;
+  }
+  // **Tancar-la és demanar el vidre sencer i tirar la clau**: the view is made the panel *before* the lock is set, so a
+  // board without memory for it says no and nothing has changed (docs/30, docs/46 D1).
+  if (!full_screen(true)) return false;
+  g_screen_locked = true;
+  log_printf(pal::kLogInfo, "UI", "the screen is locked: no bar, and three taps give nothing back");
+  return true;
+}
+
+bool screen_locked() { return g_screen_locked; }
+
 void give_back_the_glass() {
+  // **El pany marxa amb l'app que el va tancar** (0.189.99): this is the hand of an app that ended —its own `app.exit`, three
+  // presses of the key, an error— and it is the last thing that runs for it. A board left with no bar and no page is a board
+  // nobody can use, so the lock goes first and the view of every app comes back after it (docs/30, docs/50).
+  g_screen_locked = false;
   if (!g_full_screen) return;
   // The app that asked is gone or is going: there is nobody to tell, and the view of every app and the bar of the
   // system are what the next page needs (docs/30, docs/46 D1). A view that cannot be made is said and not hidden.
@@ -8365,6 +8407,10 @@ void give_back_the_glass() {
 
 bool poll_full_screen() {
   if (!g_full_screen) return false;
+  // **Tres tocs no són la porta de sortida d'una pantalla bloquejada** (0.189.99): the gesture is **not even taken** out of
+  // the queue —it is the app's, and the app of a lock screen counts the taps to open it— and nothing is given back. A lock
+  // screen whose door is three taps anywhere is a door with the key taped to it (docs/30, docs/46 D1).
+  if (g_screen_locked) return false;
   // **Three taps on the glass are the system's and not the app's** (0.136.0): the gesture is taken out of the queue
   // before the app reads it, so a page of a book that covers everything cannot take away the way back to the bar.
   // What the app does hear is `on_resize`, which is how it knows its view is another size (docs/30).

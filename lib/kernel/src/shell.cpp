@@ -1490,6 +1490,10 @@ struct RunTarget {
   char boards[apps::Entry::kMaxBoards][24];
   uint32_t board_count;
   bool works_here;
+  // **Si l'app és d'administrador** (0.189.99): `"admin": true` del manifest, que és el que fa que la seva màquina de Lua
+  // tingui la taula `admin` i cap altra. Es copia aquí perquè l'arrencada demana el manifest una vegada i la màquina es fa
+  // després (docs/30, docs/40).
+  bool admin;
   bool found;
 };
 
@@ -1509,6 +1513,7 @@ bool find_entry(const apps::Entry& entry, void* context) {
   memcpy(target->boards, entry.boards, sizeof(target->boards));
   target->board_count = entry.board_count;
   target->works_here = entry.works_here;
+  target->admin = entry.admin;
   target->found = true;
   return false;  // stop the walk: there is nothing else to look for
 }
@@ -1721,6 +1726,11 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   // True when the app is being brought back from a sleep: it is how an app knows
   // to read what it saved instead of starting from nothing (docs/90).
   boot.args_restore = restore;
+  // **I els poders d'administrador, que són del manifest i d'ingú més** (0.189.99): the machine is built with them or
+  // without them, and it says so once in the log —an app that changes the system should be possible to find in a log
+  // without reading its own page— (docs/30, docs/40).
+  boot.admin = target.admin;
+  if (boot.admin) log_printf(pal::kLogInfo, "APPS", "%s is an administrator", id);
   char extension[16];
   if (open_path != nullptr) {
     const bool has_ext = apps::extension_of(open_path, extension, sizeof(extension));
@@ -2568,6 +2578,15 @@ void print_manifest(const char* text, size_t len, const char* app, const char* l
   lunok::json::get_string(text, len, "opensArgs", opens_arg, sizeof(opens_arg));
   lunok::json::get_string(text, len, "icon", icon, sizeof(icon));
   lunok::json::get_string(text, len, "description", description, sizeof(description));
+  // **Els dos senyals de debò que un manifest porta i la targeta no deia** (0.189.99): `launcher` i `admin`. Són booleans i
+  // la targeta és de textos, o sigui que es diuen amb la paraula que tenen —`true` o `false`— i amb la ratlla quan el
+  // manifest no els diu, que és la mateixa regla que la resta de la targeta (docs/30, docs/40).
+  bool launcher = false;
+  const bool has_launcher = lunok::json::get_bool(text, len, "launcher", launcher);
+  bool admin = false;
+  const bool has_admin = lunok::json::get_bool(text, len, "admin", admin);
+  const char* launcher_text = launcher ? "true" : "false";
+  const char* admin_text = admin ? "true" : "false";
 
   good_out(label);
   out((has_title) ? title : app);
@@ -2591,6 +2610,8 @@ void print_manifest(const char* text, size_t len, const char* app, const char* l
       {"opens", opens, opens[0] != '\0'},
       {"opensArgs", opens_arg, opens_arg[0] != '\0'},
       {"boards", nullptr, board_count > 0 || boards_read == lunok::json::Strings::kTooMany},
+      {"launcher", launcher_text, has_launcher},
+      {"admin", admin_text, has_admin},
       {"icon", icon, icon[0] != '\0'},
       {"description", description, description[0] != '\0'},
   };
@@ -4023,6 +4044,9 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   boot.app_version = target.version;
   boot.app_opens = target.opens;
   boot.args_flags = target.opens_arg;
+  // **Una finestra d'alarma també sap si l'app és d'administrador** (0.189.99): the machine is built the same way whatever
+  // the window is for, and a manifest that says `"admin": true` says it in a window too (docs/30, docs/40, docs/60).
+  boot.admin = target.admin;
 
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;

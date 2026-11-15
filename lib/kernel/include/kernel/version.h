@@ -9300,7 +9300,18 @@ namespace kernel {
 // passada que marxa de l'esfera ha de ser `gc16` (el gris no marxa amb dues tintes) i el número que corre va amb `gld16`
 // (el `du` el deixa llegint-se doble). I la cua d'alarmes pot dir que no: `alarm.at` amb `E_NOMEM` es diu a la consola i les
 // promeses velles de l'app es donen per acabades a l'arrencada (docs/30, docs/45, docs/60).
-static const char kVersion[] = "0.189.98";
+// 0.189.99 — **les apps d'administrador, i el primer permís que en surt: el pany de la pantalla** (l'amo: *«L'app Device
+// Lock es una app d'administrador, te una flag al manifesto.json admin=true ... Es el mateix entorn que el del usuari, però amb
+// possibilitat a crides a Lua admin.blabla(...)»*): `"admin": true` al manifest fa que la màquina de Lua d'aquella app es faci
+// amb la taula `admin` a dins, i cap altra app la té —no una taula que refusa, sinó un `nil`, que és el que fa que una pàgina
+// no pugui anar provant el sistema—. El pack d'aquesta versió és **una crida**: `admin.LockScreen([on])` diu, posa i treu el
+// pany, i el pany és el vidre sencer de la 0.136.0 **amb les portes de tornada tancades** —els tres tocs que tornen la barra
+// no són (i no es prenen de la cua, o sigui que l'app els veu i una pantalla de bloqueig els compta) i `ui.full_screen(false)`
+// és refusat amb `E_PERM`, el codi que la taula d'errors tenia per a un permís que el manifest no dona—. El que tanca és la
+// targeta del sistema: s'obre amb un gest **des de la franja**, i sense franja no hi ha la creu que tanca l'app del davant.
+// `apps/device_lock` és l'app que el porta. **El pany marxa amb l'app** —el final, les tres premudes de la tecla, un error—
+// perquè una placa que es quedés sense barra i sense pàgina no la pot fer servir ningú (docs/30, docs/40, docs/50).
+static const char kVersion[] = "0.189.99";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

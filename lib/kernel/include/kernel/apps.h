@@ -61,6 +61,13 @@ struct Entry {
   // not list it. It is still an app —`apps` shows it, `run` starts it, it opens the files it handles— and the system
   // does not guess it from a title or an id: the app says it (docs/30, docs/40).
   bool launcher;
+  // **Whether the app is an administrator** (0.189.99): `"admin": true` in the manifest is the only way an app gets the
+  // `admin` table of the Lua machine —the calls that change **the system itself** and not the page: the strip and the card
+  // of the system, and whatever comes after them— and for every other app the table is not there at all, so a page that
+  // was written without the key cannot call it by accident and a hand that types `admin.` gets a nil (docs/30, docs/40).
+  // It is a manifest key and not a permission anybody grants at run time: the powers are read with the app, before the
+  // machine exists, and an app that is copied to the card carries its own answer with it (docs/45).
+  bool admin;
   // **Which half of the door answered** (0.88.20): the same id may sit on both disks and the door presents them apart, so
   // the listing says which of the two it read (docs/40).
   bool on_card;

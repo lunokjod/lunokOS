@@ -150,11 +150,17 @@ El que el codi llegeix avui, amb la mida que hi cap:
 | `opensArgs` | cadena | No | 31 B | Els commutadors que l'app vol quan li donen un fitxer; comença per `-` (0.120.0) |
 | `icon` | cadena | **Sí** (0.170.1) | 47 B | La imatge de l'app per a un llistat, relativa al directori de l'app (0.120.0). **Des de la 0.153.0 es pinta**: el llançador `home_eink` la posa a la seva graella amb `apps.list()` i `canvas:image` (docs/30). **Tota app d'aquest projecte en porta una** —vegeu la norma de sota— |
 | `splash` | cadena | No | 47 B | La imatge que el sistema pinta abans d'arrencar l'app, relativa al directori de l'app |
+| `admin` | booleà | No | — | **L'app és d'administrador** (0.189.99): `true` fa que la seva màquina de Lua tingui la taula **`admin`** —les crides que canvien el sistema i no la pàgina (docs/30)— i un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina. **No és un permís que es demani en marxa**: la taula es fa o no es fa abans que l'app corregui cap línia, o sigui que per a la resta d'apps `admin` és `nil` i no una taula que refusa. L'app que el porta avui és `device_lock`, que amb `admin.LockScreen(true)` treu la barra del sistema i el toc que obre la targeta que pot tancar-la (docs/30, docs/45) |
 | `launcher` | booleà | No | — | **L'app és un llançador** (0.153.0): `true` vol dir que la graella d'un altre llançador no la llista. Continua sent una app —`apps` la mostra, `run` l'arrenca i obre el que sap obrir—, i el sistema no ho endevina pel títol ni per l'id: ho diu l'app. Un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina. **Des de la 0.163.0 també és la pàgina que un pessic no tanca**: el gest de tancar és del sistema i ho pregunta aquí, perquè una placa que es quedés sense cap pàgina s'hauria d'anar a buscar amb un cable (docs/30) |
 
 Els camps que aquest document preveia i que **no existeixen al codi** —`permissions`, `mem_kb`—
-s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la placa i els permisos encara
-no hi són (docs/30). El dia que existeixin, es llegiran aquí i s'escriviran en aquesta taula.
+s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la placa (docs/75). **Els permisos comencen a
+existir amb la 0.189.99, i el primer no es diu `permissions`**: és `admin`, una clau d'un sol senyal i no una llista,
+perquè el que dona és un paquet de crides i no un grapat de verbs solts, i perquè una llista de permisos és una cosa que
+s'ha de decidir sencera el dia que es verifiqui el manifest amb una signatura. **El que aquesta clau no és**: no és una
+manera de preguntar al sistema si un pot —no hi ha cap crida que digui «soc administrador»—, no es pot canviar en marxa, i
+no és capaç de res que la pàgina no pogués fer si fos el sistema qui ho demanés: és la mateixa màquina de Lua amb una taula
+més (docs/30, docs/45).
 
 **Els cinc camps de la 0.120.0 venen de les apps de PaperOS** (`data/app/*/manifest.json` del projecte
 germà, vint-i-quatre apps): totes hi escriuen `author` i `description`, vint-i-tres hi escriuen `icon`,

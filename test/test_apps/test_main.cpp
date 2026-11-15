@@ -13277,6 +13277,121 @@ void test_the_cross_of_a_notice_dismisses_the_newest(void) {
 
 // **A grid walks its cells and pages itself**: the arrows walk the cells, the page follows the cursor so the app never turns
 // a page, and the centre picks the cell it is on with `on_pick(self, index)` (docs/30, docs/90).
+// **El paquet d'un administrador, i el pany de la pantalla** (0.189.99): `"admin": true` al manifest és el que fa que la
+// màquina de Lua d'una app es faci amb la taula `admin` a dins, i una app que no el porta no la té —`nil` i no una taula que
+// refusa—. El pany és el vidre sencer de la 0.136.0 amb **les portes de tornada tancades**: `ui.full_screen(false)` és refusat
+// amb `E_PERM` i els tres tocs que tornen la barra a qualsevol altra app no hi són —i no es prenen de la cua, o sigui que
+// l'app els veu i els compta, que és el que necessita una pantalla de bloqueig—. El cas corre els dos costats: la mateixa
+// pàgina amb la clau i sense, i els tres tocs amb el pany posat (docs/30, docs/40).
+void test_only_an_administrator_gets_the_admin_table_and_a_lock(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const char* page =
+      "local taps = 0\n"
+      "console.print('admin is ' .. type(admin))\n"
+      "if admin ~= nil then\n"
+      "  console.print('locked ' .. tostring(admin.LockScreen(true)))\n"
+      "  console.print('whole ' .. tostring(ui.full_screen()))\n"
+      "  local back, err = ui.full_screen(false)\n"
+      "  console.print('back ' .. tostring(back) .. ' ' .. tostring(err and err.code))\n"
+      "end\n"
+      "ui.present('gc16')\n"
+      "while taps < 3 do\n"
+      "  local gesture = touch.gesture()\n"
+      "  while gesture do\n"
+      // **Un gest pot ser més d'un toc** (0.189.99): the glass counts taps and the third inside its window comes out as one
+      // `triple`, so a page that only reads `tap` counts two of the three a person made (docs/30).
+      "    if gesture.kind == 'tap' then taps = taps + 1\n"
+      "    elseif gesture.kind == 'double' then taps = taps + 2\n"
+      "    elseif gesture.kind == 'triple' then taps = taps + 3 end\n"
+      "    gesture = touch.gesture()\n"
+      "  end\n"
+      "  sys.delay(10):await()\n"
+      "end\n"
+      "console.print('taps ' .. tostring(taps >= 3) .. ' whole ' .. tostring(ui.full_screen()))\n"
+      "if admin ~= nil then console.print('opened ' .. tostring(admin.LockScreen(false))) end\n"
+      "console.print('whole at the end ' .. tostring(ui.full_screen()))\n";
+
+  TEST_ASSERT_TRUE(add_app(storage, "boss",
+                           "{\"title\":\"Boss\",\"version\":\"0.1.0\",\"admin\":true,"
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           page));
+  pump_captured(20, g_out, sizeof(g_out), "run boss");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "admin is table"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "locked true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "whole true"), g_out);
+  // **I el vidre no torna per una crida de l'app**: the refusal names the lock and not the heap, because a page sent to look
+  // at its memory by a door that is locked for another reason is a page that looks in the wrong place (docs/30, docs/50).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back nil E_PERM"), g_out);
+  // **La barra no hi és i la vista és el panell**: the system's half, asked of the system and not of the page.
+  TEST_ASSERT_FALSE(kernel::bar::visible());
+  TEST_ASSERT_TRUE(kernel::ui::is_full_screen());
+
+  // Three taps on the glass, each one waited out of the window of the double and of the triple (docs/30, docs/92), and the
+  // console of the page taken from here: a `capture` holds what the app writes while it is open.
+  capture_begin();
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  for (int tap = 0; tap < 3; ++tap) {
+    TEST_ASSERT_TRUE(panel->finger_down(0, 270, 500));
+    pump_turns(10);
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(400);
+  }
+  capture_end(g_out, sizeof(g_out));
+  // **Els tres tocs són de l'app i no del sistema**: it counted them, which is the whole difference with `ui.full_screen`, and
+  // the glass is still the app's (docs/30, docs/46 D1).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "taps true whole true"), g_out);
+  TEST_ASSERT_TRUE(kernel::ui::is_full_screen());
+
+  // **I el pany obre la barra i prou**: the app gives it back and the strip of the system is where it belongs again.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "opened false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "whole at the end false"), g_out);
+  TEST_ASSERT_FALSE(kernel::ui::screen_locked());
+  TEST_ASSERT_TRUE(kernel::bar::visible());
+  TEST_ASSERT_FALSE(kernel::ui::is_full_screen());
+
+  storage->remove("/apps/boss/app.lua");
+  storage->remove("/apps/boss/manifest.json");
+  storage->remove("/apps/boss");
+
+  // **I una app sense la clau no té la taula**: the same page, one key less, and `admin` is a `nil` that the page reads as
+  // one —there is no table to refuse a call, because a refusal is an answer and this is not a question (docs/30, docs/40).
+  TEST_ASSERT_TRUE(add_app(storage, "plain",
+                           "{\"title\":\"Plain\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           page));
+  pump_captured(20, g_out, sizeof(g_out), "run plain");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "admin is nil"), g_out);
+  // The page of a user app waits for three taps the console cannot give it, so the system closes it: the bar of a session
+  // without a pany was never taken away.
+  kernel::shell::close_app();
+  pump_turns(20);
+  TEST_ASSERT_TRUE(kernel::bar::visible());
+
+  storage->remove("/apps/plain/app.lua");
+  storage->remove("/apps/plain/manifest.json");
+  storage->remove("/apps/plain");
+
+  // The next test gets the default emulator back: the display and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 void test_a_grid_walks_its_cells_and_pages_itself(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
@@ -17366,6 +17481,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_selector_opens_the_list_the_app_puts_up);
   RUN_TEST(test_the_cross_of_a_notice_dismisses_the_newest);
   RUN_TEST(test_a_grid_walks_its_cells_and_pages_itself);
+  RUN_TEST(test_only_an_administrator_gets_the_admin_table_and_a_lock);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);
   RUN_TEST(test_an_app_sleeps_deeply_and_comes_back_where_it_was);

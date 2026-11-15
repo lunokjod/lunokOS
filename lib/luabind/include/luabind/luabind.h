@@ -535,6 +535,24 @@ struct SplashOps {
 
 void set_splash_ops(const SplashOps& ops);
 
+// **El paquet d'un administrador** (0.189.99): the calls that change the system and not the page, and the only ones this
+// library keeps in a table of their own. They are not in `ui` on purpose —a table that is there for everybody and refuses
+// half of its calls is a promise the board does not keep— and the table `admin` exists only in the machine of an app whose
+// manifest says `"admin": true` (docs/30, docs/40).
+struct AdminOps {
+  // **La barra del sistema i la targeta que en penja, fora** (0.189.99): with the screen locked the strip of the system is
+  // not on the glass and the view of the app is the whole panel, which is what makes the card of the system —the one with
+  // the cross that closes the app— unreachable: it opens with a drag down **from the bar**, and there is no bar. **And it is
+  // a lock and not a wish**: the three taps that give the whole glass back to any other app do nothing while it is on, and
+  // `ui.full_screen(false)` is refused, so the only way back to the bar is this call with `false` —or the app ending, which
+  // is the kernel's own hand and not a page's—. False when the glass cannot be made the size of the panel, and then nothing
+  // changed (docs/30, docs/46 D1, docs/50).
+  bool (*lock_screen)(bool on);
+  bool (*is_locked)();
+};
+
+void set_admin_ops(const AdminOps& ops);
+
 // **What a call into the system costs.** Every call the app makes to the API —`fs.read`, `ui.rect`,
 // `sys.delay`, all of them— is counted and timed by the interpreter's own hook, and the total is handed
 // here so the kernel can keep it in its meters: this library does not know the kernel and must not
@@ -1105,7 +1123,8 @@ struct Boot {
         args_ext(nullptr),
         args_source(nullptr),
         args_flags(""),
-        args_restore(false) {}
+        args_restore(false),
+        admin(false) {}
 
   const char* board;       // the board name from platformio.ini, or "emulator"
   const char* version;     // lunokOS version
@@ -1127,6 +1146,12 @@ struct Boot {
   // True when the system is bringing the app back from a sleep, so the app knows
   // to read what it saved before going down (docs/30, docs/90).
   bool args_restore;
+  // **Whether this machine is an administrator's** (0.189.99): true when the manifest of the app says `"admin": true`, and
+  // it is what puts the `admin` table in the state before a single line of the app runs. **It is not a permission an app
+  // can ask for at run time**: the table is created or it is not, and a page without the key gets a nil where the others
+  // get the calls —the difference between "you may not" and "there is nothing there" is a page that cannot poke at the
+  // system to see what answers (docs/30, docs/40).
+  bool admin;
 };
 
 // Creates the state and opens the libraries an app may see.

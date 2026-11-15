@@ -1084,6 +1084,18 @@ bool poll_full_screen();
 // **The view of every app again**, said to nobody: the app that took the whole glass is gone (0.136.0).
 void give_back_the_glass();
 
+// ---- la pantalla bloquejada, que és d'un administrador (0.189.99) ----
+//
+// **Una app d'administrador pot treure la barra del sistema i deixar-la fora** (0.189.99): it is the same whole glass as
+// `full_screen(true)` —the strip goes away, the view is the panel and the app is told with `on_resize`— with one difference
+// that is the whole of it: **there is no way back but this call**. The three taps that give the glass back to any other app
+// are the system's way out of a page that covers everything, and a lock screen that a person can open with three taps
+// anywhere is not a door; `full_screen(false)` is refused while the lock is on, and the app ending —by its own will, by
+// three presses of the key or by an error— gives the glass back, because a board that is left with no bar and no app is a
+// board nobody can use (docs/30, docs/46 D1, docs/50).
+bool lock_the_screen(bool on);
+bool screen_locked();
+
 // **Turns the page**: 0, 90, 180 or 270 degrees, and the whole system goes with it —the glass, the bar and
 // the fingers, which read it from the same place— because the frame of an app is made again at the new
 // size and the app is told with `on_resize` (docs/30, docs/50).

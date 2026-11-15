@@ -330,7 +330,7 @@ Portades i viatjant avui, **nou** (`home_eink` va a part, a sota):
 | `About` | `about` | 0.1.0 |
 | `Calculator` | `calculator` | 0.1.0 |
 | `Clock` | `clock` | 0.1.0 |
-| `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.0 |
+| `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.1 |
 | `Editor` | `editor` | 0.1.0 |
 | `EPUB` | `reader` | 0.1.0 |
 | `Timeclock` | `timeclock` | 0.1.0 |
@@ -356,6 +356,19 @@ I a part, **dues que no són ports**:
 Les **setze** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`, `Battery`,
 `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
 `Snake`, `Tamagotchi` i `Tetris`.
+
+**El que va ensenyar el `Device Lock`** (0.189.97, i el permís que en va sortir a la 0.189.99):
+
+- **Una pantalla de bloqueig no ho és si el sistema la deixa obrir**: `ui.full_screen(true)` treu la barra, però el sistema la
+  torna amb **tres tocs a qualsevol lloc** —la sortida d'una pàgina que ho cobreix tot— i la barra porta el gest que obre la
+  targeta amb la creu que tanca l'app. La resposta és **una app d'administrador** (`"admin": true` al manifest) i
+  `admin.LockScreen(true)`: el mateix vidre sencer amb el pany posat, on els tres tocs no hi són (i no es prenen de la cua, o
+  sigui que la pàgina els compta) i `ui.full_screen(false)` és refusat amb `E_PERM` (docs/30, docs/40).
+- **I el pany no pot sobreviure a l'app**: el final d'una app —el seu `app.exit`, tres premudes de la tecla, un error— torna
+  el vidre i la barra, perquè una placa que es quedés sense franja i sense pàgina no la pot fer servir ningú (docs/50).
+- **Un gest del tàctil pot ser més d'un toc**: tres tocs seguits dins la finestra del tàctil surten com **un sol** gest
+  `triple`, i dos com a `double`. La pàgina que comptava només `tap` comptava dos tocs d'una persona que n'havia fet tres i no
+  s'obria mai —només amb els tocs separats més de la finestra—, i ara compta els tres noms (0.189.99, docs/30).
 
 **El que va ensenyar el `Clock`** (0.189.98, la primera app portada que **dibuixa a mà** i que **porta alarmes**):
 

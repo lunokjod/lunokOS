@@ -200,15 +200,29 @@ end
 
 local function unlock()
   -- **El camí de tornada és del sistema i no d'aquesta pàgina** (docs/30): la barra torna i l'app es tanca, i el que hi
-  -- havia darrere torna a la seva pantalla.
-  ui.full_screen(false)
+  -- havia darrere torna a la seva pantalla. **I la barra no torna fins aquí**: aquesta app és d'administrador
+  -- (`"admin": true` al manifest) i la pantalla està **bloquejada**, o sigui que el sistema no la deixa recuperar amb tres
+  -- tocs ni amb cap `ui.full_screen(false)` d'una altra pàgina; el pany és aquesta línia (0.189.99, docs/30).
+  admin.LockScreen(false)
   app.exit()
 end
 
-local function count_a_tap(now)
+-- **Un gest pot ser més d'un toc** (0.189.99): el tàctil compta els tocs seguits i el tercer dins de la seva finestra surt com
+-- un sol gest `triple` —i dos com un `double`—, o sigui que una pàgina que només miri `tap` compta dos tocs d'una persona que
+-- n'ha fet tres i no s'obre mai. És el que feia aquesta app fins avui, i només s'obria amb els tocs separats més de la
+-- finestra del tàctil (docs/30).
+local function taps_of(kind)
+  if kind == 'tap' then return 1 end
+  if kind == 'double' then return 2 end
+  if kind == 'triple' then return 3 end
+  return 0
+end
+
+local function count_a_tap(now, how_many)
   if window_gone(now) then taps = 0 end
   lastTapMs = now
-  if taps < kTapCount then taps = taps + 1 end
+  taps = taps + how_many
+  if taps > kTapCount then taps = kTapCount end
   paint_the_dots_only()
   if taps < kTapCount then return end
   taps = 0
@@ -217,9 +231,11 @@ end
 
 -- --------------------------------------------------------------------- l'app
 
--- **El vidre sencer, demanat i no pres** (docs/30): una pantalla de bloqueig amb la barra a sobre és una porta amb el
--- pany obert, i la barra té una fletxa que torna i un toc que obre el menú del sistema.
-ui.full_screen(true)
+-- **El vidre sencer, i amb el pany posat** (0.189.99): `ui.full_screen(true)` treu la barra però el sistema la torna amb
+-- tres tocs a qualsevol lloc, i una pantalla de bloqueig que s'obre amb tres tocs no és una porta. `admin.LockScreen(true)`
+-- és el mateix vidre sencer amb la clau girada: la barra no torna, i amb ella no hi ha el toc que obre la targeta del
+-- sistema —l'única cosa d'aquest vidre que pot tancar l'app de sota— (docs/30, docs/46 D1).
+admin.LockScreen(true)
 
 local view = ui.caps()
 local width, height = view.width, view.height
@@ -242,7 +258,8 @@ while true do
   -- sap res, de comptes.
   local gesture = touch.gesture()
   while gesture do
-    if gesture.kind == 'tap' then count_a_tap(sys.time_ms()) end
+    local counted = taps_of(gesture.kind)
+    if counted > 0 then count_a_tap(sys.time_ms(), counted) end
     gesture = touch.gesture()
   end
 

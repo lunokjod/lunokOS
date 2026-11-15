@@ -1382,6 +1382,13 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   camí que el pessic de gran a petit, i tampoc no es dibuixa quan l'app no té cap vista a sobre de la primera. Les maneres de tancar la targeta són totes de la persona: un toc fora seu i un
   lliscament cap amunt que hi comenci (0.179.49). El gest, el llindar, la rodona i què hi sent
   l'app són a docs/30, «El panell del sistema».
+- **I una app d'administrador pot treure la barra i deixar-la fora** (0.189.99): `admin.LockScreen(true)` és el vidre
+  sencer de la 0.136.0 amb el pany posat, i el que tanca és **aquesta targeta**: el gest que l'obre comença **a la
+  franja**, o sigui que sense franja no hi ha targeta, i sense targeta no hi ha la creu que tanca l'app del davant ni la
+  fletxa que torna a la vista de sota. És el que necessita una pantalla de bloqueig —`apps/device_lock`, que és l'única
+  app amb `"admin": true` avui—: una porta que es deixa obrir amb un gest del sistema no és una porta. **El pany no és una
+  manera de tancar el sistema**: la tecla de la placa i el final de l'app el tornen a obrir, perquè una placa que es
+  quedés sense franja i sense pàgina no la pot fer servir ningú (docs/30, docs/40).
 - **I quan el vidre queda net sota seu, s'ha de dir** (0.164.3): una imatge de l'arrencada de l'app
   (`splash::show`) renta **tot** el vidre —la franja amb ell— i la barra, que només es pinta quan canvia
   alguna cosa seva, després no sabia que l'hora i la càrrega havien desaparegut: el títol nou repintava la

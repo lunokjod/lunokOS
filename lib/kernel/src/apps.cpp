@@ -295,6 +295,16 @@ bool load(const char* id, Entry& out) {
   } else if (lunok::json::has_key(text, len, "launcher")) {
     log_printf(pal::kLogWarn, "APPS", "%s has a launcher that is not true or false", id);
   }
+  // **Whether the app is an administrator** (0.189.99): `"admin": true` is what puts the `admin` table of the Lua machine
+  // in front of the app, and an app that does not say it has no such table —not a refused call, an absent one—. A value
+  // that is neither `true` nor `false` is left out with a line, the same rule as `launcher`: `"admin": "yes"` is not a
+  // boolean and reading it as one would give an app powers its manifest did not ask for (docs/30, docs/40).
+  bool admin = false;
+  if (lunok::json::get_bool(text, len, "admin", admin)) {
+    out.admin = admin;
+  } else if (lunok::json::has_key(text, len, "admin")) {
+    log_printf(pal::kLogWarn, "APPS", "%s has an admin that is not true or false", id);
+  }
   // **Who wrote the app and what it is** (0.120.0): decoration, so nothing is refused here —a manifest without them is
   // still an app— and a text longer than its room is cut, which is what docs/40 promises. `\n` is kept, because the
   // descriptions of PaperOS are two lines and `apps info` prints them as two.

@@ -76,7 +76,7 @@ fitxer `cfg/console.json` encara no es llegeix.
 | `E_TIMEOUT` | Ha trigat més del que s'havia dit |
 | `E_IO` | Error del disc o del port |
 | `E_NOMEM` | S'ha exhaurit el pressupost de memòria de l'app |
-| `E_PERM` | El manifest no declara el permís |
+| `E_PERM` | El manifest no declara el permís. **El primer que el fa servir és la pantalla bloquejada** (0.189.99): un `ui.full_screen(false)` mentre una app d'administrador té el pany posat el torna amb aquest codi i el motiu escrit (vegeu `admin`) |
 | `E_TOOBIG` | El resultat no cap al sostre permes |
 | `E_NOSPC` | No queda lloc: el disc o la memòria per a la resposta |
 | `E_UNAVAIL` | El que es demana no hi és en aquesta placa ara (per exemple, una targeta que no s'ha muntat) |
@@ -779,6 +779,51 @@ time.week('sunday')  -- 7, i torna 7
   sistema els gira amb l'ajust, o sigui que una app escriu una llista i el vidre ensenya la setmana que la persona ha
   triat (docs/30, docs/92).
 
+## `admin`: el paquet d'una app d'administrador (0.189.99)
+
+**Una taula que existeix o no existeix.** El manifest diu `"admin": true` i la màquina de Lua d'aquella app es fa amb la
+taula `admin` a dins; qualsevol altra app no la té, i `admin` és `nil` —no una taula que refusa, no una crida que torna
+`E_PERM`—, perquè la diferència entre «no pots» i «no hi ha res aquí» és el que fa que una pàgina no pugui anar provant el
+sistema a veure què contesta (docs/40). **No és un permís que es demani en marxa**: es llegeix amb el manifest, abans que
+l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
+
+| Crida | Torna | Què fa |
+|---|---|---|
+| `admin.LockScreen([on])` | booleà o `nil, error` | **La barra del sistema fora i la clau girada**: sense argument diu si la pantalla és bloquejada; amb `true` tanca i amb `false` obre, i sempre torna el que hi ha ara |
+
+- **Què és una pantalla bloquejada.** És el vidre sencer —el de `ui.full_screen(true)`: la barra no hi és, la vista és el
+  panell i l'app rep `on_resize`— **amb les portes de tornada tancades**. La targeta del sistema, la que té la creu que
+  tanca l'app de sota, s'obre amb un gest cap avall **des de la barra**, o sigui que sense barra no hi ha targeta, i per tant
+  no hi ha manera de tancar l'app que hi ha darrere (docs/50).
+- **I és un pany i no un desig**: els tres tocs que tornen el vidre sencer a qualsevol altra app **no fan res** mentre dura
+  —i no es prenen de la cua, o sigui que l'app els veu i una pantalla de bloqueig pot comptar-los— i un
+  `ui.full_screen(false)` és refusat amb **`E_PERM`** (`the screen is locked by an administrator`), que és el codi que la
+  taula d'errors té per a un permís que el manifest no dona. L'única manera de tornar la barra és aquesta crida amb `false`.
+- **I el pany marxa amb l'app**: una app que s'acaba —per ella mateixa, per tres premudes de la tecla o per un error— torna
+  el vidre i el pany amb ell. Una placa que es quedés sense barra i sense pàgina és una placa que ningú no pot fer servir, i
+  el sistema no deixa que una pàgina la hi deixi (docs/50).
+- **El que no fa**: no dona cap accés al maquinari, no salta cap límit de memòria ni de permisos de fitxers, i no canvia res
+  de la màquina de Lua que no sigui aquesta taula. És el mateix entorn que el d'una app d'usuari amb una taula més.
+
+```lua
+-- Una app d'administrador que vol que no es pugui sortir de la seva pàgina (és el que fa `device_lock`).
+admin.LockScreen(true)
+ui.clear(15)
+-- ... la pàgina ...
+while true do
+  local gesture = touch.gesture()
+  while gesture do
+    if gesture.kind == 'tap' then taps = taps + 1 end
+    gesture = touch.gesture()
+  end
+  if taps >= 3 then
+    admin.LockScreen(false)   -- la barra torna, i el sistema la torna a deixar treure a qui la demani
+    app.exit()
+  end
+  sys.delay(20):await()
+end
+```
+
 ## `alarm`
 
 Les alarmes **no guarden funcions de Lua**. Guarden un identificador i un payload, i quan vencen el
@@ -1078,7 +1123,7 @@ memòria quan hi cap.
 | `fs.space([path])` | taula o `nil, error` | `{total, free}` del muntatge on viu el camí; `E_UNSUPPORTED` si el backend no ho sap |
 | `fs.list(path)` | taula | `{name, type, size, mtime}` de cada entrada |
 | `fs.stat(path)` | taula o `nil, error` | `{type, size, mtime}` |
-| `fs.mkdir(path)` / `fs.remove(path)` / `fs.rename(a, b)` | — | El `E_PERM` de la taula d'errors és **reservat**: el model de permisos no existeix encara, i avui escriure el decideix el terreny de l'app, no el manifest |
+| `fs.mkdir(path)` / `fs.remove(path)` / `fs.rename(a, b)` | — | El model de permisos dels fitxers no existeix encara i avui escriure el decideix el terreny de l'app, no el manifest: l'únic permís que hi ha és el senyal `"admin": true`, que és una taula de crides i no un dret sobre el disc (0.189.99, docs/40) |
 | `fs.format(path)` | `{erased}` o `nil, error` | **Buida el volum on viu el camí** (0.171.0, i la flash des de la 0.171.1): cada fitxer i cada carpeta de la seva arrel, i `erased` diu quants n'han anat. A `/nvs` esborra **totes les claus** del magatzem; a `/sd` deixa la targeta buida i **amb el seu FAT**, i a `/littlefs` buida la flash del sistema i li deixa el seu superblock, perquè el que s'esborra és el contingut i no el sistema de fitxers. El camí ha de ser un volum i no una carpeta (docs/70) |
 | `fs.open(path[, mode])` | objecte fitxer | `mode`: `"r"`, `"w"`, `"a"`, `"r+"` |
 | `fs.read(path[, max])` | cadena o `nil, error` | El fitxer sencer, o com a molt `max` bytes |
@@ -1370,7 +1415,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.present_over()` | `true` o `nil, error` | **El present d'un arrencament** (0.189.38, l'amo: *«així es queda l'splash amb la barra de progrés que creix mentre l'app carrega completament»*): l'app ha posat una imatge al manifest, el sistema ha rentat el vidre amb ella i **deu la pàgina sencera**, i aquest deute és el que la fa fora. Aquesta crida posa al vidre **les caixes del que l'app ha dibuixat** —la barra de progrés, i prou— damunt de la imatge i **deixa el deute sencer**, o sigui que la pàgina de l'app arriba tota amb el `ui.present()` del final. Amb una pàgina que no es deu fa el mateix que `ui.present()`, i amb una targeta del sistema a sobre val la regla de la targeta (no hi puja res). **Una app que no paga mai el deute no ensenya mai la seva pàgina** (docs/50) |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema**. **No fa falta per posar-hi el nom de l'app**: el sistema ja hi escriu el `title` del `manifest.json` quan obre l'app. La crida és per dir-hi **una altra cosa** i per un motiu concret — el lector hi posa el llibre obert, el rellotge de fitxatge hi posa el dia— |
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
-| `ui.full_screen([on])` | si té la pantalla sencera, amb argument; `true` o `nil, error`, sense | **La pantalla sencera** (0.136.0): la barra de les 48 files marxa i la vista és tot el vidre, `540 × 960` des de la fila 0, i l'app rep `on_resize`. Sense argument només respon si la té (la mateixa forma que `ui.rotation`). **El camí de tornada és del sistema i no de l'app**: tres tocs seguits al vidre tornen la barra, l'app no els sent mai i només rep `on_resize` amb la mida de tornada; i una app que s'acaba —per les bones o per un error— torna el vidre tota sola |
+| `ui.full_screen([on])` | si té la pantalla sencera, amb argument; `true` o `nil, error`, sense | **La pantalla sencera** (0.136.0): la barra de les 48 files marxa i la vista és tot el vidre, `540 × 960` des de la fila 0, i l'app rep `on_resize`. Sense argument només respon si la té (la mateixa forma que `ui.rotation`). **El camí de tornada és del sistema i no de l'app**: tres tocs seguits al vidre tornen la barra, l'app no els sent mai i només rep `on_resize` amb la mida de tornada; i una app que s'acaba —per les bones o per un error— torna el vidre tota sola. **Mentre una app d'administrador té la pantalla bloquejada, tornar-la és refusat amb `E_PERM`** i els tres tocs no hi són (vegeu `admin`, 0.189.99) |
 | `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present`. **I és el moment en què el sistema pinta el que el panell li va refusar** (0.118.2): esperar aquí una pàgina que no ha pujat és la manera de veure-la arribar (docs/50) |
 | `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
 | `ui.splashes()` | taula de paraules | **Els moments d'aquest build**, en l'ordre del sistema: `boot`, `poweroff`, `reboot`, `charging`, `sleep`, `lowbatt` i `oops` (0.183.0). És la mateixa llista que dona `splash` al prompt, o sigui que una pàgina no pot nomenar un moment que el sistema no té (docs/50) |

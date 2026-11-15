@@ -3801,6 +3801,7 @@ BookOps g_book_ops = {};  // and epub.*
 // to put one on the glass —how many moments, their words, the picture and its failure— come in through this table
 // (docs/20, docs/30, docs/50).
 SplashOps g_splash_ops = {};
+AdminOps g_admin_ops = {};
 
 TouchOps g_touch_ops = {};  // and touch.
 
@@ -4298,6 +4299,13 @@ int l_ui_full_screen(lua_State* L) {
   }
   const bool on = lua_toboolean(L, 1) != 0;
   if (!g_ui_ops.full_screen(on)) {
+    // **Una pantalla bloquejada no és una pàgina sense memòria** (0.189.99): a refused `full_screen(false)` while an
+    // administrator holds the lock said `E_NOMEM`, which is a lie that sends a person to look at the heap. The two
+    // refusals are said apart, and the one of the lock names the lock —with `E_PERM`, the code of a permission that this
+    // manifest does not have, which is what the table of errors has kept a line for since the first version— (docs/30).
+    if (!on && g_admin_ops.is_locked != nullptr && g_admin_ops.is_locked()) {
+      return push_nil_error(L, "E_PERM", "the screen is locked by an administrator");
+    }
     return push_nil_error(L, "E_NOMEM", "there is no memory for a view of that size");
   }
   lua_pushboolean(L, 1);
@@ -12187,6 +12195,43 @@ void finish_task() {
   g_call_split = false;
 }
 
+
+
+// ---------------------------------------------------------------------------
+// admin.LockScreen: el paquet d'un administrador (0.189.99)
+// ---------------------------------------------------------------------------
+
+// **`admin.LockScreen([on])`**: sense argument diu si la pantalla és bloquejada, amb un booleà la bloqueja o la deixa
+// anar, i sempre torna el que hi ha ara. És el paquet sencer d'aquesta versió: una app d'administrador —`"admin": true` al
+// manifest— i la porta que treu la barra del sistema i, amb ella, la targeta que en penja, que és l'única cosa d'aquest
+// vidre que pot tancar l'app de sota. **I no és el mateix que `ui.full_screen`**: aquella la desfà el sistema amb tres
+// tocs, i aquesta no, perquè una pantalla de bloqueig que es desbloqueja amb tres tocs a qualsevol lloc no és una porta
+// (docs/30, docs/46 D1).
+int l_admin_lock_screen(lua_State* L) {
+  if (g_admin_ops.lock_screen == nullptr || g_admin_ops.is_locked == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no bar to lock");
+  }
+  if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
+    const bool on = lua_toboolean(L, 1) != 0;
+    if (!g_admin_ops.lock_screen(on)) {
+      return push_nil_error(L, "E_NOMEM", "there is no memory for a view of that size");
+    }
+  }
+  lua_pushboolean(L, g_admin_ops.is_locked() ? 1 : 0);
+  return 1;
+}
+
+// **The table is made only for a machine whose manifest asked for it** (0.189.99): an app without the key does not get a
+// table that refuses its calls, it gets nothing at all, so `admin ~= nil` is a question a page can ask and a `nil` is the
+// whole answer. The pack is registered here and not with `ui` because it is not a control and it is not a page's business
+// (docs/30, docs/40).
+void open_admin(lua_State* L) {
+  if (!g_boot.admin) return;
+  lua_createtable(L, 0, 1);
+  set_function(L, "LockScreen", l_admin_lock_screen);
+  lua_setglobal(L, "admin");
+}
+
 // Everything a fresh state needs before an app can run. It is called through
 // lua_pcall: opening the libraries asks for memory too, and a board with a small
 // ceiling has to say no and go on, not panic.
@@ -12196,6 +12241,9 @@ int open_everything(lua_State* L) {
   // **The metatable of a session of the shell** (0.159.0): its pipes are made with the session and its verbs live
   // here, so the handle of `sys.shell()` is an object with `stdin`, `stdout`, `stderr` and `close` (docs/30).
   open_shell_library(L);
+  // **I el paquet d'administrador, només si el manifest el va demanar**: the table is built here, before the globals are
+  // sealed, or it is not built at all (docs/30, docs/40).
+  open_admin(L);
   seal_globals(L);
   return 0;
 }
@@ -12588,6 +12636,7 @@ void set_meter_ops(const MeterOps& ops) { g_meter_ops = ops; }
 // And the panel, which the kernel installs only when the board answers with a surface (docs/50).
 void set_ui_ops(const UIOps& ops) { g_ui_ops = ops; }
 void set_splash_ops(const SplashOps& ops) { g_splash_ops = ops; }
+void set_admin_ops(const AdminOps& ops) { g_admin_ops = ops; }
 void set_book_ops(const BookOps& ops) { g_book_ops = ops; }
 
 // **What a board with no glass still calls, answered here** (0.179.9): the key of a board reaches this door before an app
