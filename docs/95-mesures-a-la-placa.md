@@ -867,27 +867,30 @@ panel flush rows     (i el mateix amb burst i amb 2bit)
 i una app que pinti el mateix unes quantes vegades: la de `loading` serveix (frame de 64 × 64, `du`, unes quatre pintades
 per segon a `rows`), i una pàgina sencera es mesura amb qualsevol app que canviï de pantalla, mirant la línia del `gc16`.
 
-**La placa, el 15/11 (0.189.67), amb `splash hide` i `splash boot` i la franja de 48 × 540**:
+**La placa, el 15/11 (0.189.68), amb `splash hide` i `splash boot` i la franja de 48 × 540** —i el número que compta és
+`on the wire`, la transferència sola, ara que la línia el separa de la tinta d'abans—:
 
-| estil | `flush gld16` de la franja | `paint` de la mateixa franja |
-|---|---|---|
-| `rows` | 1 661 ms | 540 rows of 24 B |
-| `burst` | 1 670 ms | 540 rows of 24 B |
-| `2bit` | 1 670 ms | 540 rows of 12 B |
+| pintada | `rows` | `burst` | `2bit` |
+|---|---|---|---|
+| **pàgina** 960 × 540 (259 200 B; 129 600 amb `2bit`) | 665 ms | 662 ms | 552 ms |
+| **franja** 48 × 540 (12 960 B; 6 480 amb `2bit`) | 81 ms | 24 ms | 19 ms |
+| tinta de la pàgina anterior, que la crida paga igual | 1 180 ms | 1 180 ms | 1 181 ms |
 
-**El número de `flush` és el mateix per als tres i no és cap error de l'estil**: la crida paga primer la tinta de la pàgina
-anterior —`[I][PANEL] a page held the engine 1 215 ms`— i el que queda de transferència s'hi perd dins. El que sí que es va
-veure és:
+**I això tomba el model que el projecte tenia escrit**: `burst` **no guanya res en una pàgina** (662 contra 665 ms) i `2bit`
+n'estalvia un disset per cent i no la meitat. Si el que dominés fos el cable, `burst` hauria de fer els 259 200 B en uns
+207 ms i `2bit` la meitat d'això. No passa. En canvi, en un rectangle petit el `burst` sí que es veu sencer —**81 ms a 24**,
+tres vegades i mitja—, o sigui que el que es menja la pàgina **no és ni el nombre de transaccions ni el gruix del cable**.
 
-- **`2bit` envia la meitat dels bytes**: `540 rows of 12 B` contra `24 B` de les altres dues, o sigui que el camí del
-  format `IT8951_2BPP` és viu i el driver fa el que diu;
-- **la pàgina sencera amb `a2` i amb `gc16` va dir `540 rows of 480 B`** amb `rows` i amb `burst` (960 píxels a quatre bits
-  són 480 bytes) i **`240 B`** amb `2bit`, que és el mateix compte;
-- **el motor aguanta la pàgina 1 134–1 223 ms**, i això és el terra de qualsevol pàgina amb qualsevol estil.
+Els dos candidats que queden, i són els dos que hi ha dins d'aquella crida, un darrere l'altre: **les transaccions del bus**
+(cada `spi_device_transmit` té el seu cost fix) i **la feina d'ajuntar cada fila de la imatge** —un `switch` de rotació, una
+multiplicació i una lectura de PSRAM per cada píxel—. La línia del driver ara compta les dues per separat (`N ms on the
+wire … M ms gathering`) i és el que s'ha de tornar a llegir a la placa abans de tocar res.
 
-**El que cal per comparar de debò** és la línia del driver (0.189.68), que porta els dos números separats:
-`N ms on the wire as <estil>, M ms of ink before it`. Amb això la mateixa franja ha de dir un `on the wire` d'uns
-604 ms amb `rows` (540 × 1 119 µs) i d'uns 11 ms amb `burst` (12 960 B de cable i set trossos).
+**I el `2bit` pinta de debò però amb els nivells mal posats**: la pàgina no llisca i el rectangle és el correcte, però el
+vidre surt **notablement més fosc** (l'amo: *«la pantalla s'ha enfosquit notablement, no és negre, simplement més fosca»*).
+Els quatre codis que s'envien no són els quatre nivells que el panell ensenya: el controlador té una **taula de colors**
+(`BGVR`, 0x1250) per a aquest mode i el projecte no la sap encara. **Es queda aparcat**: mentre la pàgina no estigui lligada
+al cable, mig byte per píxel només estalvia disset per cent i no paga una taula de colors endevinada.
 
 **I el que l'emulador diu** —que és el model, no la placa: `kRowUs = 1100` mesurat, `kBusHz` de la fitxa, quaranta
 microsegons per tros estimats—:

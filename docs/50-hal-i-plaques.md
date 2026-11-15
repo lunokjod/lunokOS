@@ -1120,13 +1120,20 @@ arriben els píxels** una altra, i el driver ara les té totes tres amb `hal::Fl
 |---|---|---|
 | `rows` | el camí de sempre: **una transacció d'SPI per fila**, amb el seu prefix i la seva vora de CS | **1 100 µs per fila** mesurats a la placa, contra els 216 que voldria el cable |
 | `burst` | les files s'ajunten en trossos de **2 000 bytes** que van amb **un sol prefix i el CS aguantat** fins al final del tros | el cable: 800 ns per byte i quaranta microsegons per tros |
-| `2bit` | el mateix que un burst amb **la meitat dels bytes**: la imatge baixa a quatre tons i viatja a `IT8951_2BPP` | mig cable |
+| `2bit` | el mateix que un burst amb **la meitat dels bytes**: la imatge baixa a quatre tons i viatja a `IT8951_2BPP` | mig cable —**i a la placa només un 17 % menys**, perquè el cable no és el coll (docs/95) |
 
 **Es tria amb `panel flush rows|burst|2bit`** i no sobreviu a un reinici a propòsit: un estil que es queda i deixa cada
 pàgina malament és una placa que s'ha de tornar a flashejar per tornar enrere. **El que s'ha de vigilar**: un prefix de més
 amb el CS aguantat el controlador el llegeix com dos píxels i **la pàgina llisca** (mesurat l'1/11). El tros de 2 000 bytes
 **viu a la PSRAM i no a la DRAM**: a la DRAM no hi cap —el linker va dir `region dram0_0_seg overflowed by 1 688 bytes`— i
 el driver SPI ja copia cada transacció al seu buffer DMA.
+
+**I la placa va dir que el model era fals** (0.189.68): amb una pàgina sencera, `rows` fa **665 ms** de cable i `burst`
+**662** —el mateix—, i `2bit` **552**, un disset per cent menys i no la meitat. En una franja de 48 × 540, en canvi, `burst`
+guanya de debò: **81 ms a 24**. O sigui que **el que costa una pàgina no és el cable**: el que queda són les transaccions del
+bus i la feina d'ajuntar les files de la imatge, i la línia del driver ara compta les dues per separat (`N ms on the wire …
+M ms gathering`) perquè la propera mesura digui quina de les dues és (docs/95, E-11). **El que sí que s'ha guanyat és el
+repintat petit**, que és el que es nota: un `gld16` de 48 × 540 baixa de 81 a 24 ms i deixa de dependre de 540 vores de CS.
 
 **El tercer estil era un bit per píxel i no podia ser-ho** (0.189.67, corregit): el camp de format de `LD_IMG_AREA` té
 **quatre valors i cap cinquè** —`IT8951_2BPP 0`, `IT8951_3BPP 1`, `IT8951_4BPP 2`, `IT8951_8BPP 3`, a `IT8951_Defines.h`

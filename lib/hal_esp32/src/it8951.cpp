@@ -824,6 +824,12 @@ bool It8951::flush(UpdateMode mode) {
   const uint16_t row_bytes = static_cast<uint16_t>(two_bit ? ((w + 3) / 4) : (w / 2));
   if (!take_bus()) return false;
   bool sent = true;
+  // **I quant d'aquest enviament ha estat cable i quant llavor** (0.189.69): the board said that a page costs the same with
+  // `rows` and with `burst` —six hundred and sixty milliseconds both— and the only two things inside those milliseconds are
+  // the transactions of the bus and the work of gathering the rows out of the image, which happen one at a time. Which of the
+  // two is the page is not something to guess with a datasheet, so both are counted here and the line says both
+  // (docs/50, docs/95).
+  uint32_t wire_ms = 0;
   const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr;
   if (!bursts) {
     // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is 1 100 µs of the board for each one.
@@ -833,7 +839,9 @@ bool It8951::flush(UpdateMode mode) {
       } else {
         gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
       }
+      const uint32_t wire_from = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
       sent = write_pixels(device_, row, row_bytes);
+      wire_ms += static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) - wire_from;
     }
   } else {
     // **Els bursts** (0.189.66): the rows are gathered into stretches of `kStretch` bytes that go out with **one prefix and
@@ -841,7 +849,9 @@ bool It8951::flush(UpdateMode mode) {
     // what the controller reads as two pixels and what slides a page sideways (measured 1/11, docs/50), so there is one
     // preamble for the whole send and the stretches are only what the bus can take at a time.
     uint32_t filled = 0;
+    uint32_t wire_from = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
     if (sent) sent = begin_pixels();
+    wire_ms += static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) - wire_from;
     for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
       if (two_bit) {
         gather_row_pairs(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
@@ -858,12 +868,18 @@ bool It8951::flush(UpdateMode mode) {
         at = static_cast<uint16_t>(at + take);
         // A stretch goes out when it is full, and the one that ends the image goes out even if it is not.
         if (filled == kStretch) {
+          wire_from = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
           sent = write_stretch(stretch_, filled, true);
+          wire_ms += static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) - wire_from;
           filled = 0;
         }
       }
     }
-    if (sent && filled > 0) sent = write_stretch(stretch_, filled, false);
+    if (sent && filled > 0) {
+      wire_from = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+      sent = write_stretch(stretch_, filled, false);
+      wire_ms += static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) - wire_from;
+    }
   }
   give_bus();
   if (!sent) return false;
@@ -915,12 +931,13 @@ bool It8951::flush(UpdateMode mode) {
   // change; the second is the page before it and is the same for all of them (docs/50, docs/95).
   hal::logf((static_cast<uint32_t>(w) * h >= 10000u) ? pal::kLogInfo : pal::kLogDebug, "PANEL",
             "paint %u,%u %ux%u mode %u %s at 0x%06x (page %u,%u %ux%u, %u rows of %u B, %u ms on the wire as %s, "
-            "%u ms of ink before it)",
+            "%u ms gathering, %u ms of ink before it)",
             static_cast<unsigned>(nx0), static_cast<unsigned>(ny0), static_cast<unsigned>(w),
             static_cast<unsigned>(h), static_cast<unsigned>(mode), hal::mode_name(mode),
             static_cast<unsigned>(memory_), static_cast<unsigned>(x0), static_cast<unsigned>(y0),
             static_cast<unsigned>(x1 - x0), static_cast<unsigned>(y1 - y0), static_cast<unsigned>(h),
-            static_cast<unsigned>(row_bytes), static_cast<unsigned>(t_sent - t_ink), style_word(),
+            static_cast<unsigned>(row_bytes), static_cast<unsigned>(wire_ms), style_word(),
+            static_cast<unsigned>(t_sent - t_ink - wire_ms),
             static_cast<unsigned>((t_ink - t_enter) + (t_asked - t_sent)));
   return true;
 }
