@@ -8,6 +8,7 @@
 
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
+#include <esp_timer.h>
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -68,6 +69,12 @@ const uint16_t kBppFormat2 = static_cast<uint16_t>((1 << 8) | (0 << 4));
 // while the handshake does not work, the bus clock is one variable too many. It goes up when a
 // `GetDeviceInfo` has come back at this speed (docs/95).
 const int kSpiHz = 10000000;
+
+// **Un rellotge de microsegons** (0.189.69): the tick of FreeRTOS is a millisecond and a row of this panel is a tenth of
+// one, so a paint counted with ticks says a page spent `282 ms` on the wire and a strip spent `66` —both true to the
+// millisecond and both useless for a single transaction—. `esp_timer_get_time` is the clock the datasheet talks about, and
+// the counts below are microseconds that the line prints as milliseconds (docs/50, docs/95).
+uint32_t now_us() { return static_cast<uint32_t>(esp_timer_get_time()); }
 
 // 4 bits per pixel: two pixels in a byte, the left one in the high nibble. **Unproven on the glass**:
 // the maker's own driver keeps its canvas with white as zero and inverts it back before writing, so
@@ -728,7 +735,7 @@ bool It8951::flush(UpdateMode mode) {
   // the wire**, and it is not what the call costs, because a paint pays first for the ink of the page before it. The board
   // measured it: a strip of 48 x 540 said `1 661 ms (rows)` and `1 670 ms (burst)` —the same number for two very different
   // sends— because twelve hundred of those milliseconds were the engine of the page still moving (docs/50, docs/95).
-  const uint32_t t_enter = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const uint32_t t_enter = now_us();
   // **The engine is waited for twice, and the first one is what the maker cannot teach** (0.151.8): the maker loads the
   // image and *then* waits, which is safe on an emulator where the next page comes from a person's finger. Here the next page
   // can arrive **one millisecond** after the last one —the reader paints the whole glass twice when it starts—, and a
@@ -738,7 +745,7 @@ bool It8951::flush(UpdateMode mode) {
   if (!wait_paint(kPaintTimeoutMs)) {
     if (!silent_ || !bring_back()) return false;
   }
-  const uint32_t t_ink = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const uint32_t t_ink = now_us();
   // The rectangle that changed, **in the frame the app drew in**, in whole nibbles.
   uint16_t x0 = static_cast<uint16_t>(dirty_x0_ & ~1u);
   uint16_t x1 = static_cast<uint16_t>((dirty_x1_ + 1) & ~1u);
@@ -829,7 +836,7 @@ bool It8951::flush(UpdateMode mode) {
   // the transactions of the bus and the work of gathering the rows out of the image, which happen one at a time. Which of the
   // two is the page is not something to guess with a datasheet, so both are counted here and the line says both
   // (docs/50, docs/95).
-  uint32_t wire_ms = 0;
+  uint32_t wire_us = 0;
   const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr;
   if (!bursts) {
     // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is 1 100 µs of the board for each one.
@@ -839,9 +846,9 @@ bool It8951::flush(UpdateMode mode) {
       } else {
         gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
       }
-      const uint32_t wire_from = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+      const uint32_t wire_from = now_us();
       sent = write_pixels(device_, row, row_bytes);
-      wire_ms += static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) - wire_from;
+      wire_us += now_us() - wire_from;
     }
   } else {
     // **Els bursts** (0.189.66): the rows are gathered into stretches of `kStretch` bytes that go out with **one prefix and
@@ -849,9 +856,9 @@ bool It8951::flush(UpdateMode mode) {
     // what the controller reads as two pixels and what slides a page sideways (measured 1/11, docs/50), so there is one
     // preamble for the whole send and the stretches are only what the bus can take at a time.
     uint32_t filled = 0;
-    uint32_t wire_from = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    uint32_t wire_from = now_us();
     if (sent) sent = begin_pixels();
-    wire_ms += static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) - wire_from;
+    wire_us += now_us() - wire_from;
     for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
       if (two_bit) {
         gather_row_pairs(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
@@ -868,23 +875,23 @@ bool It8951::flush(UpdateMode mode) {
         at = static_cast<uint16_t>(at + take);
         // A stretch goes out when it is full, and the one that ends the image goes out even if it is not.
         if (filled == kStretch) {
-          wire_from = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+          wire_from = now_us();
           sent = write_stretch(stretch_, filled, true);
-          wire_ms += static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) - wire_from;
+          wire_us += now_us() - wire_from;
           filled = 0;
         }
       }
     }
     if (sent && filled > 0) {
-      wire_from = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+      wire_from = now_us();
       sent = write_stretch(stretch_, filled, false);
-      wire_ms += static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS) - wire_from;
+      wire_us += now_us() - wire_from;
     }
   }
   give_bus();
   if (!sent) return false;
   if (!command(kCmdLoadImageEnd, nullptr, 0)) return false;
-  const uint32_t t_sent = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const uint32_t t_sent = now_us();
 
   // Asking for the paint and **not waiting for it**: the ink takes 120 to 450 ms and the kernel has
   // work to do. `idle()` is the question for a later turn (docs/50).
@@ -903,7 +910,7 @@ bool It8951::flush(UpdateMode mode) {
     // is merely painting (0.151.3).
     if (!silent_ || !bring_back()) return false;
   }
-  const uint32_t t_asked = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  const uint32_t t_asked = now_us();
   if (!command(kCmdDisplayArea, display, 7)) return false;
   painted_ms_ = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   asked_ = false;
@@ -936,9 +943,9 @@ bool It8951::flush(UpdateMode mode) {
             static_cast<unsigned>(h), static_cast<unsigned>(mode), hal::mode_name(mode),
             static_cast<unsigned>(memory_), static_cast<unsigned>(x0), static_cast<unsigned>(y0),
             static_cast<unsigned>(x1 - x0), static_cast<unsigned>(y1 - y0), static_cast<unsigned>(h),
-            static_cast<unsigned>(row_bytes), static_cast<unsigned>(wire_ms), style_word(),
-            static_cast<unsigned>(t_sent - t_ink - wire_ms),
-            static_cast<unsigned>((t_ink - t_enter) + (t_asked - t_sent)));
+            static_cast<unsigned>(row_bytes), static_cast<unsigned>(wire_us / 1000u), style_word(),
+            static_cast<unsigned>((t_sent - t_ink - wire_us) / 1000u),
+            static_cast<unsigned>(((t_ink - t_enter) + (t_asked - t_sent)) / 1000u));
   return true;
 }
 

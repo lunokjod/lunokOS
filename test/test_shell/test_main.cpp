@@ -1755,8 +1755,9 @@ static void test_a_burst_pays_the_wire_and_a_row_pays_the_row() {
   const uint32_t rows = emu::ink_transfer_us(64, 64, hal::FlushStyle::kRows);
   const uint32_t burst = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBurst);
   const uint32_t bits = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBits2);
-  // A 64-wide row is thirty-two bytes, which is twenty-five microseconds of wire, and the row itself is 1 100.
-  TEST_ASSERT_EQUAL_UINT32(64u * 1125u, rows);
+  // A 64-wide row is thirty-two bytes, which is twenty-five microseconds of wire, and the transaction of the row itself is
+  // **a hundred** —mesurats a la placa el 15/11: 282 ms contra 229 per a la mateixa pàgina (docs/95, E-11)—.
+  TEST_ASSERT_EQUAL_UINT32(64u * 125u, rows);
   TEST_ASSERT_TRUE_MESSAGE(burst > 0, "a burst costs something");
   TEST_ASSERT_TRUE_MESSAGE(burst < rows / 30u, "a burst is the wire and not a row per line");
   // Two bits a pixel is four pixels a byte, o sigui 1 024 bytes on the wire for the same frame and one stretch instead of two:

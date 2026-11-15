@@ -5,14 +5,14 @@ namespace {
 
 // **The bus of the panel, and what a row costs on top of its bytes.** The clock is the driver's (ten
 // megahertz, `kSpiHz` in `esp32/it8951.h`), and the per-row cost is the one number that comes out of a
-// measurement instead of a datasheet: on 1 November the board painted the page of `run panel` in
-// **1 985 ms** (docs/95, E-7) — a `du` of the whole view and a `gc16` of the ladder — and that is 570 ms
-// of ink and 227 ms of wire over the 1 068 rows of the glass, so the rows cost the rest, about **1 112 µs
-// each**. A row is sent by a transaction of its own (`It8951::flush` hands the bus one row at a time), and
-// why that transaction costs a millisecond outside the wire is not answered here; the number is, and it is
-// the number the emulator uses so that a page here costs what a page costs there (docs/85, docs/95).
+// measurement instead of a datasheet. **I el 15 de novembre, el panell mateix va dir el número** (0.189.69, docs/95,
+// E-11): with the driver counting microseconds around every transaction, `rows` spent **282 ms** on the wire for a page of
+// five hundred and forty rows of four hundred and eighty bytes and `burst` **229** the same bytes, o sigui que **una fila
+// costa uns cent microsegons de més que els seus bytes** (282 − 229 = 53 ms per a 540 files) i la franja ho diu igual
+// (66 contra 10 ms per a les mateixes 540 files). The 1 100 of before was **an inference** —a page's total minus its ink
+// minus the wire— and it was ten times the truth: a transaction of a row is a hundred microseconds, not a millisecond.
 const uint32_t kBusHz = 10000000;
-const uint32_t kRowUs = 1100;
+const uint32_t kRowUs = 100;
 // **Un tros d'esclat** (0.189.66): the driver of the Paper hands the bus two thousand bytes at a time —that is what the SPI
 // driver takes for DMA— and pays one transaction for each stretch.
 const uint32_t kStretchBytes = 2000;

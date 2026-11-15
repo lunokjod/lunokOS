@@ -1128,12 +1128,25 @@ amb el CS aguantat el controlador el llegeix com dos píxels i **la pàgina llis
 **viu a la PSRAM i no a la DRAM**: a la DRAM no hi cap —el linker va dir `region dram0_0_seg overflowed by 1 688 bytes`— i
 el driver SPI ja copia cada transacció al seu buffer DMA.
 
-**I la placa va dir que el model era fals** (0.189.68): amb una pàgina sencera, `rows` fa **665 ms** de cable i `burst`
-**662** —el mateix—, i `2bit` **552**, un disset per cent menys i no la meitat. En una franja de 48 × 540, en canvi, `burst`
-guanya de debò: **81 ms a 24**. O sigui que **el que costa una pàgina no és el cable**: el que queda són les transaccions del
-bus i la feina d'ajuntar les files de la imatge, i la línia del driver ara compta les dues per separat (`N ms on the wire …
-M ms gathering`) perquè la propera mesura digui quina de les dues és (docs/95, E-11). **El que sí que s'ha guanyat és el
-repintat petit**, que és el que es nota: un `gld16` de 48 × 540 baixa de 81 a 24 ms i deixa de dependre de 540 vores de CS.
+**I la placa va dir que el model era fals, i després va dir per què** (0.189.68 i 0.189.69). Amb una pàgina sencera de
+960 × 540 i la línia ja partida en dos:
+
+| estil | cable | ajuntar les files | total |
+|---|---|---|---|
+| `rows` | 282 ms | 383 ms | 665 ms |
+| `burst` | 229 ms | 433 ms | 662 ms |
+| `2bit` | 111 ms | 441 ms | 552 ms |
+
+O sigui: **el cable sí que és el que deia el model** (229 ms per a 259 200 B són 1,1 MB/s, un deu megahertz ben aprofitat, i
+`2bit` en fa exactament la meitat), però **la meitat del que costa una pàgina no és el cable sinó ajuntar les files**: 433 ms
+per a 518 400 píxels són **133 cicles per píxel**, que és exactament una **fallada de memòria cau de la PSRAM per píxel**. La
+causa és la rotació: a noranta graus, una fila del vidre és una **columna** de la imatge, i el bucle la llegeix amb un salt de
+270 bytes per píxel — cada lectura, una línia de memòria cau nova (518 400 × ~100 cicles / 160 MHz = 324 ms, que és el
+número mesurat). **El que costa una pàgina no és enviar-la: és girar-la.**
+
+I el preu d'una fila del camí de sempre queda mesurat de passada, dues vegades i amb el mateix resultat: **uns cent
+microsegons de transacció per fila** (282 − 229 en una pàgina, 66 − 10 en una franja de 540 files). El `kRowUs = 1100` de
+l'emulador era una inferència i era **deu vegades el que és** (docs/95, E-11).
 
 **El tercer estil era un bit per píxel i no podia ser-ho** (0.189.67, corregit): el camp de format de `LD_IMG_AREA` té
 **quatre valors i cap cinquè** —`IT8951_2BPP 0`, `IT8951_3BPP 1`, `IT8951_4BPP 2`, `IT8951_8BPP 3`, a `IT8951_Defines.h`

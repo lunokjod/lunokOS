@@ -881,10 +881,35 @@ n'estalvia un disset per cent i no la meitat. Si el que dominés fos el cable, `
 207 ms i `2bit` la meitat d'això. No passa. En canvi, en un rectangle petit el `burst` sí que es veu sencer —**81 ms a 24**,
 tres vegades i mitja—, o sigui que el que es menja la pàgina **no és ni el nombre de transaccions ni el gruix del cable**.
 
-Els dos candidats que queden, i són els dos que hi ha dins d'aquella crida, un darrere l'altre: **les transaccions del bus**
-(cada `spi_device_transmit` té el seu cost fix) i **la feina d'ajuntar cada fila de la imatge** —un `switch` de rotació, una
-multiplicació i una lectura de PSRAM per cada píxel—. La línia del driver ara compta les dues per separat (`N ms on the
-wire … M ms gathering`) i és el que s'ha de tornar a llegir a la placa abans de tocar res.
+I la segona tanda (0.189.69), amb el cable i la feina d'ajuntar les files comptats per separat, diu quina de les dues és:
+
+| pintada | estil | cable | ajuntar | total |
+|---|---|---|---|---|
+| pàgina 960 × 540 | `rows` | 282 ms | 383 ms | 665 ms |
+| pàgina 960 × 540 | `burst` | 229 ms | 433 ms | 662 ms |
+| pàgina 960 × 540 | `2bit` | 111 ms | 441 ms | 552 ms |
+| franja 48 × 540 | `rows` | 66 ms | 15 ms | 81 ms |
+| franja 48 × 540 | `burst` | 10 ms | 14 ms | 24 ms |
+| franja 48 × 540 | `2bit` | 5 ms | 14 ms | 19 ms |
+
+**El cable és el que el model deia** —229 ms per a 259 200 B són 1,1 MB/s, un deu megahertz ben aprofitat— i `2bit` en fa
+exactament la meitat (111 ms). I **el que costa una pàgina és girar-la**: 433 ms per a 518 400 píxels són **133 cicles per
+píxel**, que és una fallada de memòria cau de la PSRAM per píxel i prou. A noranta graus una fila del vidre és una columna
+de la imatge i el bucle la camina amb un salt de 270 bytes: 518 400 fallades × ~100 cicles a 160 MHz = **324 ms**, que és el
+número mesurat.
+
+**El que cal atacar, doncs, no és el bus sinó la rotació**, i hi ha dos camins:
+
+1. **Que giri el controlador**: el camp de rotació de `LD_IMG_AREA` (el `0` que aquest driver hi posa sempre) i la imatge
+   surt en ordre de pàgina, contigua a la PSRAM, sense girar-la gens. És el que fa el fabricant (`SetArea` amb `_rotate` i
+   `UpdateArea` que tradueix el rectangle). **Risc**: el codi que toca (90 o 270) i el mapa del rectangle s'han de trobar a
+   la placa, i és el tros de codi que més ensurt ha costat en aquest projecte.
+2. **Fer el gir a bocins** (tiles): the transpose stays in software but reads the image in cache lines —32 píxels per
+   fallada en comptes d'un—, o sigui unes vuit vegades menys fallades i uns 80–100 ms en comptes de 433. **Cap canvi de
+   protocol.**
+
+**I el preu d'una fila del camí de sempre queda mesurat dues vegades i coincideix**: ~100 µs de transacció per fila
+(282 − 229 a la pàgina, 66 − 10 a la franja).
 
 **I el `2bit` pinta de debò però amb els nivells mal posats**: la pàgina no llisca i el rectangle és el correcte, però el
 vidre surt **notablement més fosc** (l'amo: *«la pantalla s'ha enfosquit notablement, no és negre, simplement més fosca»*).
