@@ -1336,6 +1336,15 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   Emoji** at its only size and steps it down to the height asked for, and `ink_of` publishes **18 × 21**, which is the table.
   **Llicència**: la font és SIL OFL 1.1 i el codi de Noto és Apache 2.0 (`https://github.com/googlefonts/noto-emoji`), i
   l'atribució viu al fitxer generat. L'hora de sorra és **19 × 21** i és un dibuix de línies del projecte del paper.
+- **I la casella del sistema és l'altre dibuix que ve del clipart** (0.189.90): l'amo la va trobar *«massa bàsica»* quan era un
+  quadrat amb una X i la volia **de càpsula** —*«Estic molt segur que al fontawesome trobaràs el que busques»*—, i les dues
+  imatges són `U+F204 TOGGLE OFF` i `U+F205 TOGGLE ON` de **Font Awesome 6 Free (Solid)**, rasteritzades a **60 × 40** per
+  `python3 tools/make_toggle_mark.py` (que escriu `lib/kernel/src/toggle_mark_art.h`, i tampoc no s'edita a mà). El cos es busca
+  i no es demana —el que mana és l'alçada de la tinta—, es dibuixa a quatre vegades la mida i es baixa amb la mitjana de cada
+  bloc, que és el que fa els caps rodons rodons, i hi ha un `--bold` que engreixa la tinta un píxel a cada costat i que a
+  aquesta mida **no** s'ha de fer servir: tanca el buit entre el botó i el marc i hi deixa forats de dos píxels (vist a
+  l'emulador). **Llicència**: les icones de Font Awesome són CC BY 4.0 i la font SIL OFL 1.1, i l'atribució viu al fitxer
+  generat i al README.
 - **I la càrrega es pregunta al `platform` i no a `power::`** (0.189.57): `bar::boot` runs before `power::boot`, which is
   after the shell because it may bring an app back from a sleep, so the first read of the gauge answered nothing and the
   strip said `--` with no figure beside it **for the whole half minute of the read rhythm**. The boot asks the gauge the

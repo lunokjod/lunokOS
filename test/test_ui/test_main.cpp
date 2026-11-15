@@ -1968,61 +1968,61 @@ static void test_the_cleaner_between_apps_follows_the_page() {
   TEST_ASSERT_TRUE(hal::UpdateMode::kDu == kernel::ui::cleaner_for(0, 0));
 }
 
-void test_a_checkbox_is_a_square_with_a_cross() {
+void test_a_checkbox_is_the_switch_of_the_clipart() {
   fresh_view();
   int16_t box = -1;
-  TEST_ASSERT_TRUE(ui::create(60, 20, 0, false, box));
+  TEST_ASSERT_TRUE(ui::create(80, 48, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 10, 10));
-  // **Twelve pixels of box in a row of twenty**: the square on the left is the control and the rest of the row is the
-  // room the child that names the setting needs.
-  TEST_ASSERT_EQUAL_INT16(12, ui::checkbox_side(box));
+  // **Seixanta-quatre píxels de casella en una fila de vuitanta**: the mark is the character `U+F204` of the clipart,
+  // drawn by `tools/make_toggle_mark.py` at 60 by 40, and the four more are two pixels of air on each side for the ring
+  // of the focus. The rest of the row is the room the child that names the setting needs, and the mark sits in the
+  // middle of it: four rows of air above and four below.
+  TEST_ASSERT_EQUAL_INT16(64, ui::checkbox_width(box));
 
-  // **Out: a square of two pixels of frame and paper inside** (0.102.1, the owner: *«un quadrat i una X dins si està
-  // activat o res si no ho està»*). The row is 12 so the row is told apart from the paper of the page, and the frame
-  // is ink. **The corners are corners**: the pixel of the angle is the frame and not paper, which is what says the
-  // box is a square and not a rounded chip.
+  // **Apagada, la càpsula és plena de blanc amb el botó de tinta a l'esquerra** (0.189.90, l'amo: *«enlloc d'un checkbox
+  // clàssic vull un en forma de càpsula, una banda buida i l'altre negre»*). The mark lives from (12, 14) to (71, 53) of
+  // the view and its middle row is 34: the column of a pixel of the character is the one the table has, and the table is
+  // the clipart's and not this file's.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(40, 20));  // the row, right of the box: the room for the words
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the frame, two pixels of it
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(11, 20));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(12, 20));  // and the body, which is the row's own tone
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 14));   // the corner of the square: a corner and not a curve
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(21, 25));   // and the other one
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(80, 34));  // the row, right of the mark: the room for the words
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, 34));   // the band of the capsule, at its left end
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(20, 34));  // the paper of the band, between the band and the knob
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(30, 34));   // the knob, which is at the left end when the switch is off
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(45, 34));  // and the rest of the band, still paper
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(68, 34));   // the band at the other end of the capsule
   TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));    // the page outside the row
-  // **And nothing inside when it is not checked**: the middle of the box is the body.
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(16, 20));
 
-  // **Checked, the two diagonals cross in the middle of the box** and the row does not move.
+  // **Encesa, la banda és tota de tinta i el botó és un forat** —the picture is `U+F205`, and the white of the knob is a
+  // zero of the table, so what shows through is the paper of the row—. El botó ha viatjat a l'altre cap, que és la
+  // meitat d'un interruptor que es llegeix sense mirar els tons.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, true, false, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(16, 20));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 18));  // on the first diagonal
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(18, 18));  // and on the second one
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(40, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, 34));   // the band, ink from end to end
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(45, 34));  // the knob, which is paper now and at the right
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(65, 34));   // and the band again, past the knob
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(80, 34));  // the row did not move
 
-  // **The cross has a colour of its own**: a black box with a white cross is a checkbox that can be read with the rest
-  // of the page black (docs/30, docs/90).
-  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 0, 15, 15, true, false, false));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(16, 20));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 20));  // the frame is the other colour and it did not move
-
-  // **A checkbox has no pressed state**: the picture of a box under a finger is the picture of a box, because what the
-  // finger does is change the state and the state is the cross.
-  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, true, false));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(16, 20));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));
-
-  // **The chosen box goes inverted** —frame of row, body of ink and the cross of row—, which is the same signal a
-  // button gives and the one thing a person can see on this glass. **The word is a child of the app** and it swaps its
-  // own two tones itself when the box it is in is inverted (0.101.0, docs/92).
+  // **El dit fa baixar la marca un píxel**: a key sinks under the finger, and a third picture of the switch for the
+  // finger would say a state that is not the finger's. The top row of the character is ink when it is up and the paper
+  // of the row when it is held.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the frame of a box that is not chosen is ink
-  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, true));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(10, 20));  // the frame is the row now
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 20));   // and the body is ink
-  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, true, false, true));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(16, 20));  // the cross, in the tone of the frame
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(32, 14));
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, true, false));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(32, 14));  // the whole character went down one row
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(32, 54));   // and its last row is here now
 
-  // A level outside the sixteen is a colour this panel does not have, and the box is asked for three of them.
+  // **El focus és l'anell de fora i no una inversió** (0.189.90): an inverted switch would say "on" while it is off —
+  // the dial of the page would be standing on a capsule that lies—, so the state keeps its picture and the ring of the
+  // system is drawn two pixels outside the mark, with a pixel of pause (docs/92).
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(10, 34));  // nothing outside a capsule that is not chosen
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, true));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 34));   // the ring, two pixels to the left of the mark
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(11, 34));  // a pixel of pause between the ring and the mark
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, 34));   // and the switch is still off: its band of ink
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(45, 34));  // and its band of paper
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(73, 34));   // the other end of the ring
+
+  // A level outside the sixteen is a colour this panel does not have, and the mark is asked for three of them.
   TEST_ASSERT_FALSE(ui::checkbox_draw(box, 16, 0, 0, false, false, false));
   TEST_ASSERT_FALSE(ui::checkbox_draw(box, 15, 16, 0, false, false, false));
   TEST_ASSERT_FALSE(ui::checkbox_draw(box, 15, 0, 16, false, false, false));
@@ -4423,7 +4423,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_label_cuts_its_text_with_three_dots);
   RUN_TEST(test_a_label_places_its_line_by_alignment);
   RUN_TEST(test_a_button_sits_on_its_shadow_and_sinks_when_it_is_pressed);
-  RUN_TEST(test_a_checkbox_is_a_square_with_a_cross);
+  RUN_TEST(test_a_checkbox_is_the_switch_of_the_clipart);
   RUN_TEST(test_a_checkbox_that_redraws_asks_its_child_to_draw_again);
   RUN_TEST(test_a_progress_bar_fills_a_prefix_of_its_track);
   RUN_TEST(test_a_slider_puts_the_knob_where_the_value_says);

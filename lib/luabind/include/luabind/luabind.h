@@ -724,7 +724,7 @@ struct UIOps {
   // **A checkbox** (docs/30, docs/90): the side of the square it draws —which is where the child that names
   // the setting goes— and the row itself: background, border, the tick's level, whether it is checked, held
   // and focused.
-  int16_t (*checkbox_side)(int16_t slot);
+  int16_t (*checkbox_width)(int16_t slot);
   bool (*checkbox_draw)(int16_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
                         bool pressed, bool focused);
   // **A progress bar, a slider and a row of a list** (docs/30, docs/90): the three controls of a page that

@@ -5971,8 +5971,8 @@ int l_checkbox_box(lua_State* L) {
     return push_nil_error(L, "E_INVAL", "only a checkbox has a box");
   }
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
-  if (g_ui_ops.checkbox_side == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
-  lua_pushinteger(L, g_ui_ops.checkbox_side(canvas->slot));
+  if (g_ui_ops.checkbox_width == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  lua_pushinteger(L, g_ui_ops.checkbox_width(canvas->slot));
   return 1;
 }
 

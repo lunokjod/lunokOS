@@ -314,7 +314,7 @@ PER UN»*. La taula de sota és aquesta feina, i cada fila és una lectura del c
 | **`ui.row`** | pendent | |
 | **`ui.list`** | pendent | |
 | **`ui.tabs`** | **portat** (0.97.0) | la tab on ets és un **punt de llibre**: 2 px a l'esquerra, a dalt i a la dreta i **no a baix**, i les altres porten la ratlla a sota; res de subratllat |
-| **`ui.checkbox`** | **portat** (0.97.0) i **simplificat** (0.102.1) | **un quadrat** de marc de **2 px** amb els cantons rectes i, quan està marcat, **una X de dues línies de 2 px**; res a dins quan no ho està. El control amb el focus s'inverteix. Abans era el del paper project (radi 5 i un tick en V) i l'amo va demanar la versió esquemàtica: *«un quadrat i una X dins si està activat o res si no ho està»* |
+| **`ui.checkbox`** | **portat** (0.97.0), **simplificat** (0.102.1) i **girat a interruptor** (0.189.90) | **la càpsula del clipart**: `U+F204 TOGGLE OFF` —plena de blanc amb el botó de tinta a l'esquerra— i `U+F205 TOGGLE ON` —tota de tinta amb el botó foradat a la dreta—, rasteritzades per `tools/make_toggle_mark.py`; el focus és **l'anell de fora**. El camí: el paper project en tenia un de radi 5 i un tick en V, l'amo el va voler esquemàtic —*«un quadrat i una X dins si està activat o res si no ho està»*— i després va dir que era **massa bàsic** i que el volia de càpsula —*«enlloc d'un checkbox clàssic vull un en forma de càpsula, una banda buida i l'altre negre»*— |
 | **`ui.slider`** | **portat** (0.97.0) | el tub és paper amb vora d'1 px, el tros fet és **tinta**, i la nansa és un **cercle de l'altçada del control** (tinta amb un punt de paper quan té el focus); sense marc al voltant |
 | **`ui.progress`** | **portat** (0.97.0) | el tros fet porta un **anell de tinta** a sobre del to clar, que és el que diu on ha arribat la barra |
 | **`ui.textbox`**, **`ui.textbox_multiline`** | pendent | |
@@ -553,6 +553,13 @@ el focus que **inverteix** el quadrat, i el deshabilitat que passa pel to `dim` 
 `(10, 14)` és marc i no corba, el mig `(16, 20)` és el cos quan no està marcat i és tinta quan ho està, i les dues
 diagonals `(14, 18)` i `(18, 18)` hi són—; **442 casos natius verds**, i al bolcat es veuen els tres estats: apagat,
 encès amb la X, i encès i deshabilitat **en gris** (el marc, la X i la paraula del fill).
+
+**I el quadrat va durar fins a la 0.189.90**: l'amo el va trobar *«massa bàsic»* —al costat d'un botó que s'enfonsa
+quatre píxels, el control més petit de la pàgina era l'únic que no responia al dit— i el volia **de càpsula**, amb el
+caràcter del clipart i no un dibuix nou: *«Estic molt segur que al fontawesome trobaràs el que busques»*. Ara són les
+dues imatges de `U+F204` i `U+F205`, el focus és l'anell de fora (una càpsula girada diria el contrari del que diu) i
+el dit la baixa un píxel. La prova es diu `test_a_checkbox_is_the_switch_of_the_clipart` i llegeix la taula de bits
+de la marca (docs/30, docs/90).
 
 ## 18. Un VBox i un HBox, i la cel·la que vol un percentatge (0.103.0)
 

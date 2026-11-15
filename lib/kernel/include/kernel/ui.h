@@ -426,22 +426,24 @@ bool an_icon_named(const char* name);
 const char* icon_at(uint8_t index);
 uint8_t icon_count();
 
-// ---- a checkbox: a square with a tick, and the state the click changes (docs/30, docs/90) ----
+// ---- a checkbox: a capsule that turns over, and the state the click changes (docs/30, docs/90) ----
 //
-// **A checkbox is a row**: a square box at its left and the words that say what is being checked, which is a
-// child control the app adds, exactly as a button's text is. The frame is the row, and the box inside it is
-// what this control draws; the pixels between the box and the right edge are the app's.
+// **A checkbox is a row**: a switch at its left and the words that say what is being switched, which is a child
+// control the app adds, exactly as a button's text is. The frame is the row, and the capsule inside it is what
+// this control draws; the pixels between the capsule and the right edge are the app's.
 
-// **The side of the box this control draws**, in pixels: a square that leaves two pixels of frame above and
-// below and is never thinner than six, or zero when the frame is too small to hold one. An app asks for it to
-// place the label that names the setting —`label:place(cb:box() + 8, 0)`— instead of guessing the geometry
-// (docs/30, docs/90).
-int16_t checkbox_side(int16_t slot);
+// **The width of the capsule this control draws**, in pixels: three halves of its height —so the band is wider
+// than it is tall, which is the shape of a switch—, never wider than the row, and zero when the row is too
+// small to hold one. The height is the row's minus the four pixels of frame above and below that the ring of
+// the focus lives in. An app asks for the width to place the label that names the setting
+// —`label:place(cb:box() + 16, 0)`— instead of guessing the geometry (docs/30, docs/90).
+int16_t checkbox_width(int16_t slot);
 
-// **Draws a checkbox into its frame**: the row in its background colour, the box with a border and a body, the
-// bevel of a thing a finger can press —swapped and darker while it is held—, the tick when it is checked, and
-// the ring of the focus. The tick is `mark`'s level and the app chooses it, because on a dark checkbox a black
-// tick is a page with nothing on it (docs/30, docs/90).
+// **Draws a checkbox into its frame**: the row in its background colour and the capsule over it —**ink when it is
+// on, the paper of the row with a border of one pixel when it is off**, with the knob at the end the state says
+// and the knob's level `mark`'s when it is off and the row's when it is on—. The focus is the ring outside the
+// capsule and not an inversion, because a switch that inverted itself would say the opposite of its state; the
+// finger is a hole in the knob, for the same reason (docs/30, docs/90).
 bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
                    bool pressed, bool focused);
 

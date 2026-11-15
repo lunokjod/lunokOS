@@ -1379,7 +1379,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això; amb `focusable = true` també entra al recorregut del dial i del tàctil, amb `on_activate` com a clic |
 | `ui.label(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una línia de text: fons, color, cara, alineació i retall amb `...` (vegeu a sota) |
 | `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **`framed`** (0.185.0) el deixa **sense vora i sense ombra**: el paper de la seva pàgina és la seva cara i la tinta és només el contingut, i **`icon`** (0.185.0) hi posa **una marca del sistema** en lloc de la paraula —`back`, `close`, `settings`, `reboot`, `poweroff` o `deepsleep` (la lluna, 0.189.25), les sis de la targeta de la barra—. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
-| `ui.checkbox(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una fila: un **quadrat amb una X a dins quan està marcat** (res quan no) i el lloc de les paraules, que són un fill. **És enfocable i clicable**, i el clic **gira l'estat** i avisa amb `on_change` (vegeu a sota) |
+| `ui.checkbox(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una fila: **la càpsula d'un interruptor** a l'esquerra —el caràcter `U+F204`/`U+F205` del clipart, que és **plena de blanc amb el botó a l'esquerra** quan està apagada i **tota negra amb el botó foradat a la dreta** quan està encesa— i el lloc de les paraules, que són un fill. **És enfocable i clicable**, i el clic **gira l'estat** i avisa amb `on_change` (vegeu a sota) |
 | `ui.progress(w, h)` | **un objecte** o `nil, error` | Una **barra**: fons, pista i el tros fet, tot del sistema. `value` és 0 a 100 i **un negatiu és «encara no ho sé»**. **No és enfocable** (3/11, 0.69.0) |
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)`. **Des de la 0.117.0 cal entrar-hi amb el botó central** (`editing`): fora, les fletxes segueixen caminant el dial; dins, són el número, i el centre les torna al sistema (3/11, 0.69.0, 0.117.0) |
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
@@ -2079,22 +2079,22 @@ dins de **vuit botons blancs** és el que fa una pàgina de botons. El vuitè es
 un `gc16` que neteja el forat, el focus es renta quan es mou, i els comptes de la consola mostren que un botó
 que canvia també torna a dibuixar el seu fill.
 
-### `UICheckbox`: un quadrat, una X i l'estat
+### `UICheckbox`: la càpsula d'un interruptor i l'estat
 
-**Un checkbox és una fila** (`ui.checkbox(w, h)`): una **caixa quadrada** a l'esquerra i, a la dreta, el lloc de
-les paraules que diuen què es marca. Les paraules són un `UILabel` fill que es posa amb `cb:add(etiqueta)`,
-exactament com el text d'un botó, i es col·loca amb **`cb:box()`** —els píxels que ocupa la caixa, que són del
-nucli i no un camp—. El marc del control és la fila i el que dibuixa és la caixa que hi ha a dins (docs/30,
-docs/90).
+**Un checkbox és una fila** (`ui.checkbox(w, h)`): **la càpsula d'un interruptor** a l'esquerra i, a la dreta, el
+lloc de les paraules que diuen què es marca. Les paraules són un `UILabel` fill que es posa amb `cb:add(etiqueta)`,
+exactament com el text d'un botó, i es col·loca amb **`cb:box()`** —els píxels que ocupa la càpsula més els dos de
+l'anell del focus a cada costat, que són del nucli i no un camp—. El marc del control és la fila i el que dibuixa és
+la càpsula que hi ha a dins (docs/30, docs/90).
 
 | Camp | Valor | Què fa |
 |---|---|---|
 | `checkbox.background` | 0–15 (15 per defecte) | El nivell de la fila, que és **opaca**: les paraules s'hi posen a sobre |
-| `checkbox.border` | 0–15 (0 per defecte) | El nivell de la vora de la caixa |
-| `checkbox.mark` | 0–15 (0 per defecte) | El nivell de la **X**, que és un color propi perquè una X negra en un quadrat negre és un checkbox que no diu res |
+| `checkbox.border` | 0–15 (0 per defecte) | El nivell de **la tinta de la càpsula**: el marc i el botó quan està apagada, i la banda sencera quan està encesa |
+| `checkbox.mark` | 0–15 (0 per defecte) | **No fa res**: el clipart és d'un sol color i el blanc del botó és el forat de la imatge, que és el paper de la fila (0.189.90) |
 | `checkbox.checked` | `true` o `false` (fals per defecte) | **L'estat**: l'app el llegeix i l'escriu, i el clic del sistema el gira |
-| `checkbox.pressed` | `true` o `false` | **No fa res**: el que fa el dit és girar l'estat, i l'estat ja és la X |
-| `checkbox.focused` | `true` o `false` | L'estat del focus, que porta el sistema: el quadrat s'**inverteix** (marc de paper, dins de tinta i la X de paper) |
+| `checkbox.pressed` | `true` o `false` | **Baixa la càpsula un píxel**, com la cara d'una tecla: un tercer dibuix de l'interruptor per al dit diria un estat, i l'estat no és el dit (0.189.90) |
+| `checkbox.focused` | `true` o `false` | L'estat del focus, que porta el sistema: **l'anell de fora** (dos píxels de banda i un de pausa). **No inversa els tons**, perquè una càpsula girada diria el contrari del que diu (0.189.90) |
 | `checkbox.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil s'hi aturen |
 
 | Callback | Què fa |
@@ -2107,23 +2107,28 @@ docs/90).
   això una app que només escolta no pot deixar el dibuix i l'estat dient coses diferents. Una app que havia de
   girar-la ella seria una app que se'n pot oblidar, i un checkbox que no marca la pàgina és un checkbox que ha
   mentit (docs/30, docs/90).
-- **El quadrat és del nucli i es mesura amb `cb:box()`.** El marge de la fila és de quatre píxels a dalt i a baix,
-  el **marc és de dos píxels** a tot arreu i els **cantons són cantons** (no són arrodonits): és el que fa que es
-  llegeixi com un quadrat i no com un xip. Una fila massa curta en gasta menys de marge, i una de menys de sis no
-  té quadrat.
-- **La X és el que diu l'estat** (0.102.1, l'amo: *«un quadrat i una X dins si està activat o res si no ho està»*):
-  dues línies de dos píxels d'un cantó de dins al de davant, amb un píxel d'aire per no tocar el marc. Si el quadrat
-  és massa petit per dibuixar-la (menys de deu píxels) el quadrat es queda sol.
-- **El focus inverteix el quadrat** —marc de paper, dins de tinta i la X de paper—, que és el mateix senyal que dona
-  un botó i l'única cosa que es veu en un vidre de dos tons i mig. La fila és de l'app, i una app que vulgui que les
-  paraules diguin el focus les pot pintar al seu `on_focus`; si el quadrat va dins d'un botó amb el cercle, el fill
-  intercanvia els seus tons sol (0.101.0, docs/30, docs/90).
+- **La càpsula és del nucli i es mesura amb `cb:box()`.** És **el caràcter del clipart** i no un dibuix del nucli:
+  les dues imatges —`U+F204 TOGGLE OFF` i `U+F205 TOGGLE ON` de Font Awesome— les rasteritza
+  `tools/make_toggle_mark.py` a una taula de bits de **60 per 40** píxels, i el nucli només tria quina de les dues
+  posa. `cb:box()` és aquests 60 més **quatre píxels d'aire**, dos a cada costat, on hi cap l'anell del focus: un
+  control no pot pintar fora del seu marc (0.189.90, docs/30, docs/50).
+- **L'estat és la imatge i no una creu** (0.189.90, l'amo: *«el checkbox és massa bàsic»* i després *«enlloc d'un
+  checkbox clàssic vull un en forma de càpsula, una banda buida i l'altre negre. Si es posa "Si" es tot negre si es
+  "No" surt farcit de blanc»*): apagada, la càpsula és **plena de blanc amb el marc d'un píxel i el botó de tinta a
+  l'esquerra**; encesa, és **tota de tinta amb el botó foradat a la dreta**, i pel forat es veu el paper de la fila.
+  Dues imatges del mateix caràcter, i cap dibuix a mà.
+- **El focus és l'anell i no una inversió**, i és l'única cosa d'aquest control que no és el clipart: un botó gira la
+  cara perquè no té estat propi, i un interruptor sí —girat, la banda negra d'encesa seria la banda blanca
+  d'apagada mentre el dial hi és a sobre—. L'anell és el que el sistema ja dibuixa fora d'un control, dues píxels de
+  banda i un de pausa. La fila és de l'app, i una app que vulgui que les paraules diguin el focus les pot pintar al
+  seu `on_focus`; si la càpsula va dins d'un botó amb el cercle, el fill intercanvia els seus tons sol (0.101.0,
+  docs/30, docs/90).
 - **La fila és opaca, com el marc d'un botó**: les paraules es componen després del checkbox i queden tapades
   pel fons nou, o sigui que un checkbox que es redibuixa **invalida els seus fills** i el present els torna a
   pintar (docs/30, docs/90).
-- **Es pinta amb `du`** i el canvi el renta el present que el sistema tria (0.179.5): una X és poca tinta, però un
-  quadrat que s'ha mogut o invertit deixa el fantasma d'abans i el que el neteja és el que el sistema sap del
-  vidre (docs/50, docs/90).
+- **Es pinta amb `du`** i el canvi el renta el present que el sistema tria (0.179.5): una càpsula encesa és molta
+  tinta i una d'apagada és un marc, però una càpsula que s'ha girat deixa el fantasma d'abans i el que el neteja és
+  el que el sistema sap del vidre (docs/50, docs/90).
 - `checkbox.on_draw` és una funció del sistema; si una app la canvia, deixa de tenir un checkbox i té un control
   normal amb el seu propi dibuix.
 

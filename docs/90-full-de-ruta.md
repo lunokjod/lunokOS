@@ -362,12 +362,12 @@ com que el marc és opac, redibuixar el botó invalida els fills perquè el fons
 pot portar vuit labels de la mateixa cara d'outlines —Lato Black— a tres tamanys dins de vuit botons blancs
 (docs/30).
 
-**I el `UICheckbox` ja hi és** (4/11, 0.67.0): `ui.checkbox(w, h)` és una **fila** amb una caixa quadrada a
-l'esquerra i el lloc de les paraules a la dreta, que són un `UILabel` fill colocat amb `cb:box()`. És el primer
-control **el clic del qual vol dir una cosa i la fa el sistema**: `checked` es gira abans que l'app se
-n'assabenti (`on_change(self, checked)`), i per això no crida `on_activate`. La caixa té el pes del botó a un
-quart de mida, el tick és dues pinzellades d'un color propi (`mark`) i l'anell del focus va **fora** de la
-caixa, que és l'únic lloc on hi cap. Una pàgina de cinc files amb una que el dial no toca i una de fosca és el
+**I el `UICheckbox` ja hi és** (4/11, 0.67.0): `ui.checkbox(w, h)` és una **fila** amb **la càpsula d'un
+interruptor** a l'esquerra i el lloc de les paraules a la dreta, que són un `UILabel` fill colocat amb `cb:box()`.
+És el primer control **el clic del qual vol dir una cosa i la fa el sistema**: `checked` es gira abans que l'app
+se n'assabenti (`on_change(self, checked)`), i per això no crida `on_activate`. La càpsula és **el caràcter del
+clipart** —`U+F204`/`U+F205`, rasteritzat per `tools/make_toggle_mark.py` (0.189.90)— i l'anell del focus va
+**fora** d'ella, que és l'únic lloc on hi cap. Una pàgina de cinc files amb una que el dial no toca i una de fosca és el
 que se'n pot fer (docs/30, docs/90).
 
 **I el marc del botó té pes, i el present d'una pàgina torna a ser el que l'app demana** (3/11, 0.56.2): la

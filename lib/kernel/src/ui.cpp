@@ -29,6 +29,7 @@
 #include "kernel/splash.h"
 #include "kernel/touch.h"
 #include "kernel/vfs.h"
+#include "toggle_mark_art.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
 
@@ -2171,7 +2172,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      font_line_height,
                                      label_draw,
                                      button_draw,
-                                     checkbox_side,
+                                     checkbox_width,
                                      checkbox_draw,
                                      progress_draw,
                                      slider_draw,
@@ -3443,14 +3444,19 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
     // one pixel, and **three on a primary button**, which is the only one that wears a frame with weight. And it is drawn
     // only when the button is not selected, because on a black face a black frame is nothing: what has to call for
     // attention is the fill (docs/92).
+    //
+    // **I el marc és un farcit i no un bisell** (0.189.90, l'amo: *«el botó es una merda de gruix i es veuen fils»*): a bevel
+    // walks the outline row by row and on a corner of radius fourteen the step between two rows is two pixels, so the four
+    // corners came out dotted —white threads in the black of every button of the system, seen on the panel—. A box of ink
+    // with the face filled inside it is the same one pixel of frame, in every pixel of the outline (docs/50, docs/92).
     if (!selected) {
-      const int32_t thickness = primary ? 3 : 1;
-      for (int32_t i = 0; i < thickness; ++i) {
-        if (width - 2 * i < 2 || face_h - 2 * i < 2) break;
-        const int32_t r = (radius > i) ? (radius - i) : 1;
-        draw_round_bevel(view, x + i, face_y + i, static_cast<uint16_t>(width - 2 * i),
-                         static_cast<uint16_t>(face_h - 2 * i), r, border, border, mode);
-      }
+      int32_t thickness = primary ? 3 : 1;
+      if (thickness * 2 >= width || thickness * 2 >= face_h) thickness = 1;
+      draw_round_fill(view, x, face_y, static_cast<uint16_t>(width), static_cast<uint16_t>(face_h), radius, border,
+                      mode);
+      draw_round_fill(view, x + thickness, face_y + thickness, static_cast<uint16_t>(width - 2 * thickness),
+                      static_cast<uint16_t>(face_h - 2 * thickness),
+                      (radius > thickness) ? (radius - thickness) : 1, face_level, mode);
     }
   }
   // **La marca del sistema en lloc de la paraula** (0.185.0): a key that carries a mark of the system draws it centred in the
@@ -3610,18 +3616,21 @@ bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t wid
   return true;
 }
 
-int16_t checkbox_side(int16_t slot) {
+// **Els dos píxels de l'anell del focus a cada costat de la marca** (0.189.90): the ring of the focus is drawn *outside*
+// the picture —two pixels of band and one of pause— and a control draws inside its own box and nowhere else, so the box
+// of the checkbox is the mark plus this air and the ring lands on its border (docs/30, docs/90).
+const int32_t kCheckboxAir = 2;
+
+int16_t checkbox_width(int16_t slot) {
   if (!live(slot)) return 0;
-  const int32_t height = g_canvases[slot].height;
-  // **Four pixels of frame above and below**, which is the room the ring of the focus needs: the ring is
-  // drawn *outside* the box —two pixels of band and one of pause— and a box that touches the edge of its row
-  // is a box whose ring is cut in half. A row too short for that gets two, and one shorter than six pixels
-  // has no box at all (docs/90).
-  int32_t inset = 4;
-  if (height - 2 * inset < 8) inset = 2;
-  const int32_t side = height - 2 * inset;
-  if (side < 6) return 0;
-  return static_cast<int16_t>(side);
+  const int32_t width = g_canvases[slot].width;
+  // **The width of the mark is the width of the clipart of the two states** (0.189.90): a picture of `U+F204` and
+  // `U+F205` and not a box the control computes, so what an app asks for to place the words that name the setting is
+  // the advance of the character. It is never wider than the row it lives in, or the words would be given a box with
+  // nothing in it (docs/30, docs/90).
+  const int32_t mark = toggle_mark::art::kToggleW + 2 * kCheckboxAir;
+  if (mark <= 2 * kCheckboxAir) return 0;
+  return static_cast<int16_t>((mark > width) ? width : mark);
 }
 
 bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
@@ -3634,52 +3643,55 @@ bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mar
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return false;
   const hal::UpdateMode mode = hal::UpdateMode::kDu;
-  // **The row is paper and the box is the control**: what a checkbox owes is the whole of its frame —a
-  // control without a buffer paints the pixels it covers—, but only the square on the left is a box. What is
-  // to the right of it is the room the child that names the setting needs (docs/30, docs/90).
+  // **The row is paper and the mark is the control**: what a checkbox owes is the whole of its frame —a control without
+  // a buffer paints the pixels it covers—, but only the capsule on the left is the control. What is to the right of it is
+  // the room the child that names the setting needs (docs/30, docs/90).
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y), width,
                  height, background, mode);
-  const int32_t side = checkbox_side(slot);
-  if (side > 0) {
-    const int32_t inset = (static_cast<int32_t>(height) - side) / 2;
-    const int32_t box_x = target.x;
-    const int32_t box_y = target.y + inset;
-    // **A square and a cross** (0.102.1): the owner asked for the box to be more schematic —*«un quadrat i una X dins
-    // si està activat o res si no ho està»*—, so there are **no round corners and no tick**: four strokes of frame,
-    // paper inside, and when the box is checked two diagonals from one inside corner to the opposite one. It is read
-    // from a metre away, it is the same at every size, and it costs the ink of the frame and of the two lines (docs/92).
-    const int32_t frame = 2;
-    // **A checkbox has no pressed state**: what the finger does is change the state and that is already the cross, so
-    // the picture of a held box is the picture of a box. The parameter stays for the shape of the call, which the
-    // bridge of Lua fills.
-    (void)pressed;
-    // **And the box with the focus goes inverted** —frame of paper, inside of ink, cross of paper—, which is the same
-    // signal a button gives: it is the one thing a person can see on a glass of two and a half tones, and a ring of one
-    // pixel round a box of eighteen could not be told from the border of the box beside it (docs/92). **The label is a
-    // child of the app and this system does not recolour it here**: when the button that holds it inverts, the label
-    // swaps its own two tones (0.101.0).
-    const bool selected = focused;
-    const uint8_t ring = selected ? background : border;
-    const uint8_t body = selected ? border : background;
-    const uint8_t cross_level = selected ? background : mark;
-    put_rect(*target.canvas, box_x, box_y, side, frame, ring);
-    put_rect(*target.canvas, box_x, box_y + side - frame, side, frame, ring);
-    put_rect(*target.canvas, box_x, box_y, frame, side, ring);
-    put_rect(*target.canvas, box_x + side - frame, box_y, frame, side, ring);
-    put_rect(*target.canvas, box_x + frame, box_y + frame, side - 2 * frame, side - 2 * frame, body);
-    // **The cross is two lines of two pixels**, from the inside corner to the opposite one and with a pixel of air so
-    // it does not touch the frame: a person reads a cross and not a blob, and only paper and ink are used, so any pass
-    // of the glass can carry it (docs/50, docs/92).
-    if (checked && side >= 10) {
-      const int32_t inset = frame + 1;
-      const int32_t left = box_x + inset;
-      const int32_t top = box_y + inset;
-      const int32_t right = box_x + side - 1 - inset;
-      const int32_t bottom = box_y + side - 1 - inset;
-      for (int32_t i = 0; i < 2; ++i) {
-        draw_line(*target.canvas, left, top + i, right, bottom + i, cross_level, mode);
-        draw_line(*target.canvas, right, top + i, left, bottom + i, cross_level, mode);
+  // **La casella és un caràcter del clipart** (0.189.90, l'amo: *«Estic molt segur que al fontawesome trobaràs el que
+  // busques»*, i tenia raó): `U+F204 TOGGLE OFF` is the band with its knob at the left and `U+F205 TOGGLE ON` is the same
+  // band filled with ink and its knob knocked out to the right, which is the whole of what he asked for —*«una banda
+  // buida i l'altre negre. Si es posa "Si" es tot negre si es "No" surt farcit de blanc»*—. The two tables come from
+  // `tools/make_toggle_mark.py` and nothing here draws a capsule or a knob: the clipart is the drawing and this control
+  // only chooses which of the two pictures the state wants (docs/30, docs/50, docs/90).
+  const int32_t w = toggle_mark::art::kToggleW;
+  const int32_t h = toggle_mark::art::kToggleH;
+  if (w > 0 && h > 0 && static_cast<int32_t>(width) >= w + 2 * kCheckboxAir) {
+    // **El dit fa baixar la marca un píxel**: a key sinks under the finger and this control is a key that turns, so the
+    // picture of a press is the same picture one pixel lower. A third drawing of the switch for the finger would say a
+    // state, and the state is not the finger (docs/30, docs/90).
+    const int32_t x = target.x + kCheckboxAir;
+    const int32_t y = target.y + (static_cast<int32_t>(height) - h) / 2 + (pressed ? 1 : 0);
+    const uint8_t* bits = checked ? toggle_mark::art::kOnBits : toggle_mark::art::kOffBits;
+    // **Per franges i no per píxels**: an e-ink page pays for what it paints, and a run of ink of a row is one rectangle
+    // of one row, which is what `put_rect` clips to the damage and notes as a level (docs/30, docs/90).
+    for (int32_t row = 0; row < h; ++row) {
+      int32_t column = 0;
+      while (column < w) {
+        const int32_t at = row * w + column;
+        if ((bits[at / 8] & (0x80u >> (at % 8))) == 0) {
+          ++column;
+          continue;
+        }
+        int32_t run = column;
+        while (run < w) {
+          const int32_t next = row * w + run;
+          if ((bits[next / 8] & (0x80u >> (next % 8))) == 0) break;
+          ++run;
+        }
+        put_rect(*target.canvas, x + column, y + row, run - column, 1, border);
+        column = run;
       }
+    }
+    // **The focus is the ring of the system and not an inversion** (0.189.90): a button answers a focus with its face
+    // inverted because the inversion says "this is the one that will answer" and a button has no state of its own; a
+    // switch does, and one that inverted itself would be a switch nobody can read —the ink band of "on" would be the
+    // paper band of "off" while the ring of the dial is on it—. Two pixels of band and one of pause, outside the mark
+    // (docs/30, docs/92).
+    if (focused) {
+      const int32_t radius = (h + 4) / 2;
+      draw_round_fill(*target.canvas, x - 2, y - 2, w + 4, h + 4, radius, border, mode);
+      draw_round_fill(*target.canvas, x - 1, y - 1, w + 2, h + 2, radius - 1, background, mode);
     }
   }
   // **The row is opaque too**: the child that names the setting was drawn after this control and the row
