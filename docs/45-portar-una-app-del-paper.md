@@ -395,9 +395,19 @@ Les **disset** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`
   dentada de la tira l'obre, la fletxa que en pren el lloc torna enrere, i el món queda **aturat a sota** mentre
   es tria. Ofereix les dues coses que són decisió i no partida: **si la pàgina es renta cada sis generacions** i
   **amb quin dels dos temps de refresc corre** (1200 o 700, i les tecles laterals només canvien entre aquests
-  dos). Cada toc pinta només la caixa que ha canviat, en la passada barata, perquè una pàgina d'ajustos és paper
-  que no es mou (docs/50). I els dos botons són marcs amb una marca del clipart —`random` i `cog`—, amb el mot de
-  reserva quan la cara no hi és.
+  dos).
+- **La pàgina d'ajustos és de controls i prou** (15/11, l'amo: *«Et recordo que has d'usar els controls del
+  sistema»*, i després *«el botó no sembla connectat»*): `ui.checkbox` amb un `ui.label` a dins, un `ui.selector`
+  que obre un `ui.menu` i un `ui.button` amb la marca `back` del nucli; el nucli els dibuixa, el cercle del focus
+  hi arriba i el dit és seu, i l'app només hi pinta el paper, el títol, dues ratlles i quatre línies d'ajuda
+  (docs/30, docs/92). **Els dos botons de la tira són `ui.button` també**: la roda dentada porta la marca
+  `settings` del nucli i el món la cara de l'app, amb el nivell quatre, que és la tinta de les marques del
+  sistema (docs/40).
+- **I el canvi de pàgina és l'únic que parpelleja**: `gl16` —setze nivells i **un** flaix— i no `gld16`, perquè
+  una pàgina de paper sobre un tauler de cel·les negres deixa dos setzens i el que se l'emporta és una forma
+  d'ona que porta el vidre a negre i blanc i torna (l'amo: *«al canviar a settings hauràs d'usar alguna cosa que
+  netegi molt bé, ara queda brut»*, docs/50). Els tocs de la pàgina són `gld16`: paper que no es mou i ningú no
+  mira el seu rellotge.
 - **I el que es recorda és una preferència, no una forma de vista** (§5 bis): el món i la pausa moren amb l'app,
   com al paper, i els dos ajustos viuen al fitxer de l'app (`/data/life/settings.txt`, `fs.data`) i tornen la
   propera arrencada — que és el que docs/30 diu de les preferències i per què **no** van a la sessió `state`.
@@ -405,13 +415,26 @@ Les **disset** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`
   de l'avorriment de `step`— i la mà no arribaria a pintar la primera cel·la. És la porta que fa que la prova
   pugui comptar cel·les: paper, una cel·la girada pel dit, la del costat intacta, el botó de món nou que omple el
   món amb el vint-i-vuit per cent i el centre que para el rellotge —un joc parat no demana cap pintat—.
-- **El botó és un marc amb una icona a dins, i no un mot** (15/11, l'amo: *«un botó amb una icona dins, i no és una
-  partida nova, és generar un món nou»*): `res/marks.ttf` és una cara d'una sola forma feta amb `tools/make_keys.py`
-  —el `random` del clipart, U+F074, les dues fletxes que es creuen— i es dibuixa amb `ui.font` sobre el mateix requadre
-  que rep el dit; quan la cara no hi és el botó diu `World` i, si no hi cap, `New`, que és el mot del paper. Nou i no
-  quaranta-un: la mida és cinc passos d'un em de nou, quaranta píxels dins d'una caixa de seixanta-tres, amb els deu i
-  onze píxels de marge mesurats a l'emulador. **I `ui.text_width` no serveix per a una icona pròpia** —mesura la cara
-  del sistema i respon zero—: l'amplada es demana a la cara, `marks:text_width` (docs/30).
+- **El botó és un botó amb una icona a dins, i no un mot** (15/11, l'amo: *«un botó amb una icona dins, i no és una
+  partida nova, és generar un món nou»*): `res/marks.ttf` és la cara de l'app feta amb `tools/make_keys.py --marks`
+  —el `random` del clipart, U+F074, les dues fletxes que es creuen— i el botó és un `ui.button` amb `title` = el codi
+  de la marca, `font(marks)` i `scale`; quan la cara no hi és el botó diu `World` i, si no hi cap, el nucli el talla
+  amb `...`, que és el que fa amb qualsevol títol. **I `ui.text_width` no mesura una icona pròpia** —respon amb la cara
+  del sistema i dóna zero—: quan la marca es pintava a mà calia `marks:text_width`, i amb el botó del nucli el problema
+  desapareix perquè el títol el col·loca ell (docs/30).
+- **Un `local function` que es declara més avall del ganxo que el crida és un global buit** (trobat per l'amo, 15/11:
+  *«el botó no sembla connectat»*): `gear.on_click = function() openSettings() end` amb `local function openSettings()`
+  quaranta línies més avall no dóna cap error de càrrega ni cap avís —el ganxo es tanca sobre el **global** `openSettings`,
+  que és `nil`— i prémer el botó és cridar `nil`, que el sistema diu i ningú no llegeix. Les funcions que un ganxo
+  cridarà **s'anuncien amunt** (`local openSettings, closeSettings, …`) i es donen baix (`openSettings = function()`), i
+  el mateix val per a `saveSettings`, que la casella cridava i deixava el fitxer sense escriure.
+- **Una targeta no s'obre dins del toc que la demana**: el clic d'un control arriba amb el dit encara a sobre i la
+  targeta que hi naix pren **el mateix clic** com una tria de la fila on era el dial —la llista es tancava sola i no
+  desava res—. El camp deixa el desig i el bucle obre la targeta quan el vidre és buit (`wantedMenu` i `not held`), que
+  és la regla que aquest projecte ja té per a un botó que demana una cosa lenta (docs/30, docs/90). **I la targeta ha de
+  tenir lloc per a les files que duu**: un `ui.menu` de cent vint-i-vuit píxels són **una** fila —setze de paper a dalt
+  i a baix i una fila mai sota cinquanta-dos— i les opcions van de costat, amb el dit caient a la ranura entre les dues
+  columnes; dues files de la cara petita demanen cent seixanta-vuit (docs/90).
 
 La prova `test_every_app_of_the_repository_declares_its_boards` porta **la llista dels ids que hi ha d'haver a
 `apps/`** i comprova que tots s'han auditat: quan en portis una, l'id s'hi afegeix en el mateix commit. Si una app

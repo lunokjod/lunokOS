@@ -9023,7 +9023,31 @@ namespace kernel {
 //     línia de sempre no hi cap —mesurat a l'emulador, on la cara del flaix és la més ampla que aquesta pàgina veu mai, i
 //     la línia té vint caràcters—, i la pista de les tecles se'n va a la pàgina dels ajustos, en tres línies de dinou;
 //   - **i `run life settings` obre l'app en aquesta pàgina**, que és com es mira des de l'emulador sense un dit a sobre.
-static const char kVersion[] = "0.189.47";
+// 0.189.48 — **els controls de la pàgina d'ajustos del `Life` són els del sistema, i els botons de la tira també** (l'amo:
+// *«Et recordo que has d'usar els controls del sistema»*, i després *«Ets conscient que no es pot accedir a Settings de
+// l'app Life? el botó no sembla connectat»*):
+//   - **el botó de la roda dentada i el del món no feien res** (trobat per l'amo, 15/11): els seus ganxos tancaven sobre
+//     `local function openSettings()` i `local function newWorld()`, que es **declaren més avall** al fitxer, i a Lua un
+//     nom que encara no és un local és un **global** que val `nil` — o sigui que prémer el botó era cridar `nil`, i el
+//     sistema no diu res quan un ganxo peta. Les dues funcions s'anuncien amunt i es donen baix, i el mateix amb
+//     `saveSettings`, que la casella de la rentada cridava i deixava el fitxer sense escriure;
+//   - **la pàgina d'ajustos és de controls i prou**: `ui.checkbox` amb un `ui.label` a dins, un `ui.selector` que obre un
+//     `ui.menu` —el desplegable d'aquest tauler— i un `ui.button` amb la marca `back` del nucli (docs/30, docs/92). El que
+//     l'app hi pinta és el paper, el títol, dues ratlles i quatre línies d'ajuda;
+//   - **i els dos botons de la tira són `ui.button`**: la roda dentada porta la marca `settings` del nucli i el món la cara
+//     de l'app (`res/marks.ttf`, el `random`) amb el nivell quatre, que és la tinta de les marques del sistema (docs/40);
+//     el marc, l'ombra, el focus i la premsa els dibuixa el nucli i el dial hi arriba (docs/30);
+//   - **la llista del temps no s'obre dins del toc que la demana** (trobat a la suite, 15/11): el clic del camp arriba amb
+//     el dit que l'ha premut encara a sobre, i la targeta que hi naixia prenia **el mateix clic** com una tria de la fila on
+//     era el dial —la llista es tancava sola i no desava res—. El camp deixa el desig i el bucle obre la targeta quan el
+//     vidre és buit, que és la regla que aquest projecte ja té per a un botó que demana una cosa lenta (docs/30, docs/90);
+//   - **i la targeta era petita de mica**: cent vint-i-vuit píxels són **una** fila de menú (setze de paper a dalt i a
+//     baix, i una fila mai sota cinquanta-dos), o sigui que les dues opcions anaven de costat i el dit queia a la ranura
+//     entre les dues columnes; amb cent seixanta-vuit i la cara petita són dues files de debò, i el dit tria la que prem;
+//   - **canviar de pàgina és `gl16`** —setze nivells i **un** parpelleig— i no `gld16`: una pàgina de paper sobre un tauler
+//     de cel·les negres deixa dos setzens, que és el blau que l'amo veia (*«ara queda brut»*), i el que se l'emporta és una
+//     forma d'ona que porta el vidre a negre i blanc i torna (docs/50, docs/92). Els tocs de la pàgina són `gld16`.
+static const char kVersion[] = "0.189.48";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

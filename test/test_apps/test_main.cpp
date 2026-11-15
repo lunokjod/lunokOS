@@ -9756,7 +9756,12 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   storage->mkdir("/apps/life");
+  storage->mkdir("/apps/life/res");
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/life/life.lua", "/apps/life/life.lua"));
+  // **The face of the marks is a file of the app and the disk of the suite has to carry it** (0.189.48): without it the two
+  // buttons say their words and the page of the settings opens with a different look, which is a case measuring the
+  // fallback and thinking it is measuring the app.
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/life/res/marks.ttf", "/apps/life/res/marks.ttf"));
   // **The preferences of a run before this one are thrown away** (0.189.47): the app writes the two of its settings in its
   // own folder, and a case that read them would be measuring the finger of the case before it (the lesson of the save of
   // the 2048, 0.179.53).
@@ -9805,16 +9810,22 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   int wash_h = 0;
   TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(wash_line, "Life wash %d %d %d %d", &wash_x, &wash_y, &wash_w, &wash_h),
                                 wash_line);
-  const char* seg_line = strstr(g_out, "Life seg ");
-  TEST_ASSERT_NOT_NULL_MESSAGE(seg_line, g_out);
-  int seg_x = 0;
-  int seg_y = 0;
-  int seg_w = 0;
-  int seg_h = 0;
-  int seg_next = 0;
-  TEST_ASSERT_EQUAL_INT_MESSAGE(5, sscanf(seg_line, "Life seg %d %d %d %d %d", &seg_x, &seg_y, &seg_w, &seg_h,
-                                          &seg_next),
-                                seg_line);
+  const char* time_line = strstr(g_out, "Life time ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(time_line, g_out);
+  int time_x = 0;
+  int time_y = 0;
+  int time_w = 0;
+  int time_h = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(time_line, "Life time %d %d %d %d", &time_x, &time_y, &time_w, &time_h),
+                                time_line);
+  const char* menu_line = strstr(g_out, "Life menu ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(menu_line, g_out);
+  int menu_x = 0;
+  int menu_y = 0;
+  int menu_w = 0;
+  int menu_h = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(menu_line, "Life menu %d %d %d %d", &menu_x, &menu_y, &menu_w, &menu_h),
+                                menu_line);
   const char* pref_line = strstr(g_out, "Life pref ");
   TEST_ASSERT_NOT_NULL_MESSAGE(pref_line, g_out);
   int pref_wash = -1;
@@ -9879,7 +9890,7 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   pump_captured(5, nullptr, 0);
   pump_captured(60, g_out, sizeof(g_out), "run life blank");
   pump_turns(1200);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 3 gl16"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 5 gld16"), g_out);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, dark_cells(), "a blank world is paper");
 
   // **A finger turns a cell over**, and the pass that carries it is the cheapest one this panel has —`du`, two levels and
@@ -9953,10 +9964,17 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(1200);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912 mode 5 gld16"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "mode 1 du"), g_out);   // and the world under it is not running
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912 mode 3 gl16"), g_out);
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, page_level(static_cast<uint16_t>(grid_x + 2), static_cast<uint16_t>(grid_y + 2)),
                                   "the board is paper under the settings");
+  // **And the world under it is not running**: a generation of the board is `du` over the whole grid, and the page of the
+  // settings is paper that must not be written under the finger. It is measured over three turns of the clock and in a
+  // capture of its own, because the generation that was already on its way when the finger landed is the app's to finish
+  // —the button of a new world leaves the board running— and the first capture would count it (found in the suite, 15/11).
+  capture_begin();
+  pump_turns(3600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "mode 1 du"), g_out);
 
   // **The row of the wash takes the finger** and the choice is written where the app keeps it: its own file, because a
   // preference is not the shape of a view (docs/30).
@@ -9967,15 +9985,17 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/life/settings.txt", settings, sizeof(settings)), settings);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(settings, "wash=0"), settings);
 
-  // **And the two refresh times are a choice of two**: the one on the left is 1200 ms and choosing it turns it over.
-  press_finger(panel, static_cast<uint16_t>(view.x + seg_x + seg_w / 2),
-               static_cast<uint16_t>(view.y + seg_y + seg_h / 2));
+  // **And the refresh time is a door that opens the list of the two**: a finger on the field puts a card of the system on
+  // the page, and the first option of the card is 1200 ms (docs/30, docs/90).
+  press_finger(panel, static_cast<uint16_t>(view.x + time_x + time_w / 2),
+               static_cast<uint16_t>(view.y + time_y + time_h / 2));
   pump_turns(400);
+  press_finger(panel, static_cast<uint16_t>(view.x + menu_x + menu_w / 2),
+               static_cast<uint16_t>(view.y + menu_y + menu_h / 4));
+  pump_turns(600);
   memset(settings, 0, sizeof(settings));
   TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/life/settings.txt", settings, sizeof(settings)), settings);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(settings, "speed=1"), settings);
-  // **The two segments are two boxes and not one**: the second starts after the first and there is paper between them.
-  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(seg_w, seg_next, seg_line);
 
   // **The arrow goes back to the board**, which is painted whole with the clock running again —and the proof that the page of
   // the settings is gone is that a finger where the box was is a cell of the world and not a choice: the file does not
@@ -10024,6 +10044,8 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   storage->remove("/data/life");
   storage->remove("/apps/life/life.lua");
   storage->remove("/apps/life/manifest.json");
+  storage->remove("/apps/life/res/marks.ttf");
+  storage->remove("/apps/life/res");
   storage->remove("/apps/life");
 }
 

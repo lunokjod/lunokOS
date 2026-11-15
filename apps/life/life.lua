@@ -77,14 +77,25 @@ local Top = 72                         -- the strip at the top: the counters and
 local Inset = 8                        -- the paper the board keeps around it, and the reason it is there is in
                                        -- the header: the strip and the band of a generation never touch, so neither
                                        -- box is ever the glass (docs/50)
-local Btn = 63                         -- a button of the strip: square, and 63 is the touch minimum
+local Btn, BtnH = 84, 63               -- a button of the strip: 63 is the touch minimum and 84 is what a mark of the
+                                       -- clipart needs, because a title is centred with sixteen pixels of air each side
 local BtnGap = 8                       -- the air between the two buttons and against the edge of the view
 
--- **The two qualities this page asks for.** `du` is the fastest paint of this panel —two levels, 120 ms, no blink— and
--- it is what a generation asks for; `gld16` is the house's clean —sixteen levels, 450 ms, no blink— and it is what a
--- new world and the wash of every `kWashEvery` generations ask for (docs/50, docs/95).
+-- **The qualities this page asks for.** `du` is the fastest paint of this panel —two levels, 120 ms, no blink— and it is
+-- what a generation asks for; `gld16` is the house's clean —sixteen levels, 450 ms, no blink— and it is what a new world
+-- and the wash of every `kWashEvery` generations ask for (docs/50, docs/95).
+--
+-- **And a CHANGE OF PAGE is the one thing that needs the clean that blinks** (0.189.48, l'amo: *«al canviar a settings
+-- hauràs d'usar alguna cosa que netegi molt bé, ara queda brut»*): a page of paper over a board of black cells leaves a
+-- `gld16` at two sixteenths —level thirteen where a cell was, which is a bruise the person sees— and the only thing that
+-- takes it is a waveform that drives the glass to black and white and back. `gl16` is the gentlest of those: sixteen
+-- levels and **one** blink, against the two of `gc16`, which is the wash the system itself uses for its own card
+-- (docs/50, docs/92). And a tap of the settings page is a small box that has to land clean too, so it takes `gld16` and
+-- not the cheap pass: it is paper that does not move and nobody is watching its clock.
 local kGenMode = 'du'
 local kPageMode = 'gld16'
+local kSettMode = 'gl16'
+local kTapMode = 'gld16'
 
 -- **How many generations a `du` is worth before the page is washed**: `du` leaves five sixteenths of what was there and
 -- adds a sixteenth of dirt to it, so a board painted this way for ever ends grey — and the third of the quick passes
@@ -111,7 +122,7 @@ local marks, marks_why = ui.load_font('/res/marks.ttf')
 if marks == nil then
   console.print('life: /res/marks.ttf: ' .. tostring(marks_why) .. ': the button says the word')
 end
-local kWorldMark, kGearMark, kBackMark = '\1', '\2', '\3'
+local kWorldMark = '\1'
 local kMarkScale = 5
 
 -- **THE TWO PREFERENCES OF THIS APP, AND WHERE THEY LIVE** (docs/30, docs/45): what the settings page offers is a
@@ -348,6 +359,14 @@ end
 -- **TWO SHORT LINES AND NOT ONE LONG ONE** (measured on the emulator, where the face of the flash is the widest this page
 -- ever gets): `gen 16   86 alive` is seventeen characters and the strip has room for twenty, so the time of the refresh
 -- goes on a line of its own —it changes when a key is pressed and not with every generation— (docs/50).
+-- **Les dues pàgines i els seus controls**, said before they are built because a button of the board opens the page of
+-- the settings and the button of that page comes back (0.189.48).
+local board_ui = nil                   -- the two buttons of the board, made when the board is what the glass shows
+-- **And they are announced here and given below**, because a hook runs later and a hook that closes over a `local function`
+-- declared further down closes over a **global** that is nil: the two buttons of the strip were pressed and nothing
+-- happened (found by the owner, 15/11).
+local openSettings, closeSettings, releaseBoard, buildBoard, newWorld
+
 local function statusText()
   return string.format('gen %d   %d alive', gen, live)
 end
@@ -374,49 +393,26 @@ local function paintSpeed()
   ui.text(12, 38, speedText(), kSmall, 0)
 end
 
--- **THE TWO BUTTONS LIVE IN THE STRIP**, at its right end: the world and the settings. Over the board they would be a box
--- of rows that never change.
-local function worldRect() return PageW - Inset - Btn, 4, Btn, Btn end
-local function gearRect() return PageW - Inset - 2 * Btn - BtnGap, 4, Btn, Btn end
+-- **THE TWO BUTTONS LIVE IN THE STRIP**, at its right end: the world and the settings. They are **controls of the
+-- system** and not frames painted by hand (0.189.48, l'amo: *«Et recordo que has d'usar els controls del sistema»*): a
+-- `ui.button` draws its frame, its shadow, the focus and the press, the ring of the dial lands on it and the finger is
+-- its own, which is the same road the page of the time zone took in 0.174.0 (docs/30, docs/92). The gear is the
+-- **`settings` mark of the kernel** and the world is the face of the app (`res/marks.ttf`, the `random` of the clipart),
+-- which is what a button of this board does when the mark it wants is not one of the six the kernel draws.
+local function worldRect() return PageW - Inset - Btn, 4, Btn, BtnH end
+local function gearRect() return PageW - Inset - 2 * Btn - BtnGap, 4, Btn, BtnH end
 
--- **A BUTTON IS A FRAME WITH A MARK OF THE CLIPART IN IT** (docs/45): the mark is centred in the box and the face goes
--- back afterwards, because the counters of the strip are letters and a page has one face at a time (docs/30).
--- **The width is asked of the face itself**: `ui.text_width` is the measure of the *system* face and answers nothing for
--- a glyph an app brought (found here, 15/11). And the line of this face is much taller than its marks —the em is 1792
--- units and the mark 40 px in a box of 63—, so the line is centred and then nudged the seven pixels that land the ink in
--- the middle of the box: gaps of ten and eleven, measured on the emulator.
-local function paintMark(x, y, width, height, mark, word)
-  ui.frame(x, y, width, height, 0)
-
-  if marks == nil then
-    -- **The word when the face is not on the disk**, at the biggest size that fits the box: `World` is what the button
-    -- means and `New` is what the paper's key said (docs/45).
-    local scale = kSmall
-    while scale > 1 and ui.text_width(word, scale) > width - 10 do scale = scale - 1 end
-    ui.text(x + math.floor((width - ui.text_width(word, scale)) / 2), y + math.floor((height - line(scale)) / 2),
-      word, scale, 0)
-    return
-  end
-
-  ui.font(marks)
-  local w = marks:text_width(mark, kMarkScale)
-  local _, step = marks:size()
-  ui.text(x + math.floor((width - w) / 2), y + math.floor((height - step * kMarkScale) / 2) + 7, mark, kMarkScale, 0)
-  ui.font(nil)
-end
-
--- The two buttons of the board, and this is the only place that says which mark is which.
+-- The two buttons of the board, made once and asked to draw after a page that went over them.
 local function paintButtons()
-  local gx, gy = gearRect()
-  paintMark(gx, gy, Btn, Btn, kGearMark, 'Set')
-  local bx, by = worldRect()
-  paintMark(bx, by, Btn, Btn, kWorldMark, 'World')
+  if board_ui == nil then return end
+  board_ui.gear:invalidate()
+  board_ui.world:invalidate()
 end
 
 -- The page: the whole view in one pass of sixteen levels that does not blink, when the app opens, when the view is
 -- another one, when the world is new, and every `kWashEvery` generations —because `du` paints and does not clean, and
 -- the wash is what takes the ghost of the ten quick passes away (docs/50, docs/95).
-local function paintPage()
+local function paintPage(mode)
   -- **The page is ONE box and not the sum of the ones in it**: papering the whole view marks it, everything drawn
   -- after falls inside that mark, and the wash is one pass of 450 ms instead of one for the board and another for the
   -- strip. `ui.clear` does not do this —a page the system already gave white is not a change— so the rect is said here
@@ -426,7 +422,7 @@ local function paintPage()
   paintCounters()
   paintSpeed()
   paintButtons()
-  ui.present(kPageMode)
+  ui.present(mode or kPageMode)
   whole = false
   statusDirty = false
   washes = 0
@@ -451,73 +447,261 @@ local function refresh()
   washes = washes + 1
 end
 
+-- **THE TWO BUTTONS OF THE BOARD ARE CONTROLS OF THE SYSTEM** (0.189.48): a `ui.button` with the `settings` mark of the
+-- kernel for the page of the settings, and one with the face of the app for a new world. They are made when the board is
+-- what the glass shows and given back when the page of the settings takes it, because a control is drawn over the page
+-- and a button of the board under a page of settings would be a button of nothing (docs/30).
+buildBoard = function()
+  if board_ui ~= nil then return true end
+
+  local why
+  local gear, world
+  gear, why = ui.button(2, 2)
+  if gear == nil then
+    console.print('life: no button of the settings (' .. tostring(why or 'the memory') .. ')')
+    return false
+  end
+  gear.icon = 'settings'
+  gear.on_click = function() openSettings() end
+
+  world, why = ui.button(2, 2)
+  if world == nil then
+    gear:release()
+    console.print('life: no button of the world (' .. tostring(why or 'the memory') .. ')')
+    return false
+  end
+  -- **The mark of the world is the app's**, because the kernel draws six marks and a shuffle is not one of them: the face
+  -- is `res/marks.ttf` and the title is the code it answers to (docs/45). Without the face the button says the word, and a
+  -- word that does not fit is cut by the button itself, which is what the frame is for.
+  if marks ~= nil then
+    world.title = kWorldMark
+    world:font(marks)
+    world.scale = kMarkScale
+    -- **The ink of a mark of this system is the level four** (docs/40): the six marks the kernel draws and the five of the
+    -- panel are drawn there, so the one of the app does the same and the strip has one ink and not two.
+    world.color = 4
+  else
+    world.title = 'New'
+    world.scale = kSmall
+  end
+  world.on_click = function() newWorld() end
+
+  board_ui = { gear = gear, world = world }
+  local gx, gy = gearRect()
+  gear:resize(Btn, BtnH)
+  gear:place(gx, gy)
+  local wx, wy = worldRect()
+  world:resize(Btn, BtnH)
+  world:place(wx, wy)
+  return true
+end
+
+releaseBoard = function()
+  if board_ui == nil then return end
+  board_ui.gear:release()
+  board_ui.world:release()
+  board_ui = nil
+end
+
+-- **A WORLD MADE AGAIN**, which is the button's job: something to look at, never a thing to keep frozen.
+newWorld = function()
+  newMap()
+  paused = false
+  due = 0
+  paintPage()
+end
+
 -- ---------------------------------------------------------------- the settings
 
 -- **WHAT THE SETTINGS OFFER, AND WHERE THEY LIVE.** Two preferences and nothing else: the wash of the page and the
 -- refresh time. They are not the shape of a view, so they are not the `state` session (docs/30, «el que no hi va»): the
 -- page opens on the board and a person who comes back finds the two choices they made, which is what a preference is.
+--
+-- **AND THE PAGE IS THE SYSTEM'S CONTROLS** (l'amo: *«Et recordo que has d'usar els controls del sistema»*), which is the
+-- same lesson the page of the time zone learned in 0.174.0: a `ui.checkbox` with its label inside, a `ui.selector` whose
+-- door opens a `ui.menu` —the drop-down of this board— and a `ui.button` for the way back. The kernel draws them, the ring
+-- of the focus reaches them and the finger is theirs; what this app paints on that page is the paper, the title and three
+-- lines of help (docs/30, docs/92).
 local Marg = 24                        -- the paper the settings keep on the left and the right
-local kWashRowY, kWashRowH = 116, 44   -- the wash: the whole row takes the finger and not the box of thirty-two
-local kSegY, kSegW, kSegH, kSegGap = 252, 180, 56, 12
+local kWashRowY, kWashH = 116, 48      -- the row of the wash, which is the control's own box
+local kTimeY, kTimeH = 240, 56         -- the field of the refresh time
+-- **La targeta de la llista és petita de mica i té dues files de 52 com a mínim** (0.189.48): the card of a `ui.menu`
+-- keeps sixteen pixels of paper above and below its rows and a row is never under fifty-two, so a card of a hundred and
+-- twenty-eight pixels holds **one** row and lays the two options side by side —the finger fell in the gap between the
+-- two columns and the click picked the row the dial was on, which is the list that seemed dead (found in the suite,
+-- 15/11)—. Two rows of the small face are a hundred and four pixels of rows and thirty-two of paper.
+local kMenuX, kMenuY, kMenuW, kMenuH = Marg, 320, 240, 168
 local kTitle = scale_for(57)
 local kBody = scale_for(43)
 
-local function washRect() return Marg, kWashRowY, PageW - 2 * Marg, kWashRowH end
-local function segRect(i) return Marg + (i - 1) * (kSegW + kSegGap), kSegY, kSegW, kSegH end
+-- The boxes the page uses, which are also the boxes `run life keys` prints so a test can press them without knowing the
+-- layout (the road of `run tz zones`, docs/85).
+local function washRect() return Marg, kWashRowY, PageW - 2 * Marg, kWashH end
+local function timeRect() return Marg, kTimeY, PageW - 2 * Marg, kTimeH end
+local function menuRect() return kMenuX, kMenuY, kMenuW, kMenuH end
 
--- The box of the wash, and its tick: the frame, the paper of the box and, when it is on, a block inside. Three boxes that
--- touch are one paint (docs/30).
-local function paintWash()
-  ui.rect(Marg, kWashRowY + 6, 32, 32, 15)
-  ui.frame(Marg, kWashRowY + 6, 32, 32, 0)
-  if washOn then ui.rect(Marg + 9, kWashRowY + 15, 14, 14, 0) end
-end
+local sett = nil                       -- the controls of the page, made when it opens and given back when it goes
 
--- **The two refresh times, and the one chosen is turned over**: a segment of the two, which is a choice of two things and
--- not a drop-down with a list nobody will read on this glass.
-local function paintSegments()
-  for i = 1, #Speeds do
-    local x, y = segRect(i)
-    local text = Speeds[i] .. ' ms'
-    local w = ui.text_width(text, kBody)
-    local top = y + math.floor((kSegH - line(kBody)) / 2)
-    if i == speed then
-      ui.rect(x, y, kSegW, kSegH, 0)
-      ui.text(x + math.floor((kSegW - w) / 2), top, text, kBody, 15)
-    else
-      ui.rect(x, y, kSegW, kSegH, 15)
-      ui.frame(x, y, kSegW, kSegH, 0)
-      ui.text(x + math.floor((kSegW - w) / 2), top, text, kBody, 0)
-    end
+-- **UNA TARGETA NO S'OBRE DINS DEL TOC QUE LA DEMA** (0.189.48): the click of the field arrives with the very finger that
+-- pressed it still on the glass, and a card that comes up under that finger takes the same click as a choice of the row
+-- the dial was on —the list closed itself and the option never moved (found in the suite, 15/11)—. The field leaves the
+-- wish here and the loop opens the card when the glass is clear, which is the rule this project already has for a button
+-- that asks for something slow (docs/30, docs/90).
+local wantedMenu = nil
+
+-- **Una caixa que ha girat es pinta a si mateixa** (0.179.5): the control marks its box when it draws and the present
+-- paints that box, which is what a page of paper that does not move costs.
+local function presentASmallBox() ui.present(kTapMode) end
+
+-- **I el mateix amb el desat**: `buildSettings` engega els ganxos del full abans que la funció que escriu el fitxer
+-- estigui dita, i un ganxo que tanca sobre un `local function` de més avall tanca sobre un global buit (provat, 15/11).
+local saveSettings
+
+local function openTimeMenu(field)
+  if sett == nil or sett.menu ~= nil then return end
+  local card, why = ui.menu(kMenuW, kMenuH)
+  if card == nil then
+    field.choosing = false
+    console.print('life: no list (' .. tostring(why) .. ')')
+    presentASmallBox()
+    return
   end
+  card.items = { Speeds[1] .. ' ms', Speeds[2] .. ' ms' }
+  card.index = speed
+  card.scale = kSmall
+  card:place(kMenuX, kMenuY)
+  card.on_pick = function(self, index)
+    -- **Read, close, then do**: the choice is written with the card already gone, so the page under it never moves with a
+    -- finger still on the glass (docs/90).
+    self:release()
+    sett.menu = nil
+    speed = index
+    field.index = index
+    field.choosing = false
+    saveSettings()
+    ui.focus(field)
+    presentASmallBox()
+  end
+  sett.menu = card
+  field.choosing = true
+  presentASmallBox()
 end
 
--- **THE PAGE OF THE SETTINGS**, in one box and one pass like every other page of this app, and the way back where the
--- button of the world is: the mark of the arrow, which is the one the system uses for going back a view (docs/30).
+local function releaseSettings()
+  wantedMenu = nil
+  if sett == nil then return end
+  if sett.menu ~= nil then sett.menu:release() end
+  -- **The label before the box that holds it**, because a child is not the box's to give back (docs/30).
+  if sett.words ~= nil then sett.words:release() end
+  if sett.box ~= nil then sett.box:release() end
+  if sett.time ~= nil then sett.time:release() end
+  if sett.back ~= nil then sett.back:release() end
+  sett = nil
+end
+
+-- **The controls are born two pixels square and told their box afterwards** (0.174.0): the layout is what gives them the
+-- page's boxes, and a page that can be turned says another measure and places them again.
+local function buildSettings()
+  if sett ~= nil then return true end
+
+  local why
+  local box, words, time, back
+
+  box, why = ui.checkbox(2, 2)
+  if box == nil then
+    console.print('life: no box of the wash (' .. tostring(why or 'the memory') .. ')')
+    return false
+  end
+  words, why = ui.label(2, 2)
+  if words == nil then
+    box:release()
+    console.print('life: no words of the wash (' .. tostring(why or 'the memory') .. ')')
+    return false
+  end
+  words.text = 'Wash every ' .. kWashEvery .. ' gens'
+  words.valign = 'middle'
+  box:add(words)
+  box.checked = washOn
+  box.on_change = function(self, on)
+    washOn = on
+    saveSettings()
+    presentASmallBox()
+  end
+
+  time, why = ui.selector(2, 2)
+  if time == nil then
+    words:release()
+    box:release()
+    console.print('life: no field of the time (' .. tostring(why or 'the memory') .. ')')
+    return false
+  end
+  time.label = 'Refresh time'
+  time.items = { Speeds[1] .. ' ms', Speeds[2] .. ' ms' }
+  time.index = speed
+  time.on_open = function(self) wantedMenu = self end
+
+  -- **The way back is a button of the system with the `back` mark of the kernel in it**, which is the chevron the whole
+  -- system uses for going back a view: it needs no face of the app and it turns over with the press (docs/30, docs/45).
+  back, why = ui.button(2, 2)
+  if back == nil then
+    time:release()
+    words:release()
+    box:release()
+    console.print('life: no back button (' .. tostring(why or 'the memory') .. ')')
+    return false
+  end
+  back.icon = 'back'
+  back.on_click = function() closeSettings() end
+
+  sett = { box = box, words = words, time = time, back = back, menu = nil }
+
+  local wx, wy, ww, wh = washRect()
+  box:resize(ww, wh)
+  box:place(wx, wy)
+  box.scale = kSmall
+  local line = ui.line_height(kSmall)
+  words:resize(ww - box:box() - 32, line)
+  words:place(box:box() + 16, (wh - line) // 2)
+  words.scale = kSmall
+
+  local sx, sy, sw, sh = timeRect()
+  time:resize(sw, sh)
+  time:place(sx, sy)
+  time.scale = kBody
+
+  local bx, by = worldRect()
+  back:resize(Btn, BtnH)
+  back:place(bx, by)
+
+  ui.focus(box)
+  return true
+end
+
+-- **THE PAGE OF THE SETTINGS**, in one box and one pass: paper, title, three lines of help, and the controls the system
+-- draws —which are asked to draw again because the paper of the page went over what they had there (0.168.4, docs/90)—.
+-- The wash is the one that blinks: a page over a board of black cells is the one change on this glass that `gld16` cannot
+-- take away (l'amo: *«al canviar a settings hauràs d'usar alguna cosa que netegi molt bé, ara queda brut»*).
 local function paintSettings()
   ui.rect(0, 0, PageW, PageH, 15)
   ui.text(Marg, 16, 'Settings', kTitle, 0)
   ui.rect(Marg, 96, PageW - 2 * Marg, 1, 0)
-  paintWash()
-  ui.text(Marg + 44, kWashRowY + 6, 'Wash every ' .. kWashEvery .. ' gens', kSmall, 0)
-  ui.rect(Marg, 176, PageW - 2 * Marg, 1, 0)
-  ui.text(Marg, 196, 'Refresh time', kBody, 0)
-  paintSegments()
-  ui.rect(Marg, 336, PageW - 2 * Marg, 1, 0)
-  -- **What the hand can do, which is what the strip used to say** and no longer has the room for: three short lines, the
-  -- longest nineteen characters, because the face of the flash is the widest this page ever gets (docs/50).
-  ui.text(Marg, 356, 'Tap a cell to paint', kSmall, 0)
-  ui.text(Marg, 396, 'Center: pause', kSmall, 0)
-  ui.text(Marg, 436, 'Sides: the time', kSmall, 0)
-  ui.text(Marg, 492, 'A board of ' .. Cols .. ' by ' .. Rows, kSmall, 0)
-  local bx, by = worldRect()
-  paintMark(bx, by, Btn, Btn, kBackMark, 'Back')
-  ui.present(kPageMode)
+  ui.rect(Marg, kTimeY + kTimeH + 16, PageW - 2 * Marg, 1, 0)
+  -- **What the hand can do, in three short lines**: the strip used to say it and no longer has the room for it, and the
+  -- longest of these is nineteen characters, because the face of the flash is the widest this page ever sees (docs/50).
+  ui.text(Marg, 396, 'Tap a cell to paint', kSmall, 0)
+  ui.text(Marg, 436, 'Center: pause', kSmall, 0)
+  ui.text(Marg, 476, 'Sides: the time', kSmall, 0)
+  ui.text(Marg, 528, 'A board of ' .. Cols .. ' by ' .. Rows, kSmall, 0)
+
+  if sett ~= nil then
+    for _, one in ipairs({ sett.box, sett.time, sett.back }) do one:invalidate() end
+  end
+  ui.present(kSettMode)
 end
 
 -- **The two preferences, in the app's own folder** (`fs.data`, docs/70): a version and a line per choice, so a file of
 -- another shape is thrown away instead of read as this one (the rule of the `state` session, docs/30).
-local function saveSettings()
+saveSettings = function()
   local ground = fs.data()
   if ground ~= nil then pcall(fs.mkdir, ground) end
   local written, reason = fs.write(fs.data(kSettingsFile),
@@ -546,50 +730,24 @@ end
 
 -- **A STOPPED BOARD UNDER THE SETTINGS**: the world does not run while a person is choosing what to do with it, and it
 -- comes back as it was —running or stopped— when the settings go away.
-local function openSettings()
+openSettings = function()
+  if setting then return end
+  if not buildSettings() then return end
+  releaseBoard()
   setting = true
   wasPaused = paused
   paused = true
   paintSettings()
 end
 
-local function closeSettings()
+closeSettings = function()
+  if not setting then return end
+  releaseSettings()
   setting = false
   paused = wasPaused
   due = 0
-  paintPage()
-end
-
--- **A finger on the settings**: the way back, the row of the wash and the two refresh times. Each one paints only its own
--- box, in the cheapest pass of the panel, because a page of settings is paper that does not move (docs/50).
-local function tapSettings(x, y)
-  local bx, by = worldRect()
-  if x >= bx and x < bx + Btn and y >= by and y < by + Btn then
-    closeSettings()
-    return
-  end
-
-  local rx, ry, rw, rh = washRect()
-  if x >= rx and x < rx + rw and y >= ry and y < ry + rh then
-    washOn = not washOn
-    saveSettings()
-    paintWash()
-    ui.present(kGenMode)
-    return
-  end
-
-  for i = 1, #Speeds do
-    local sx, sy = segRect(i)
-    if x >= sx and x < sx + kSegW and y >= sy and y < sy + kSegH then
-      if speed ~= i then
-        speed = i
-        saveSettings()
-        paintSegments()
-        ui.present(kGenMode)
-      end
-      return
-    end
-  end
+  buildBoard()
+  paintPage(kSettMode)
 end
 
 -- ------------------------------------------------------------------- the hand
@@ -597,28 +755,10 @@ end
 -- A finger on a cell turns it over, and the next generation comes out of that: it is the most direct way to try
 -- everything, and whoever wants a glider can paint one.
 local function tap(x, y)
-  -- **The page of the settings is another page**, and its own finger: a tap there is not a cell of the world.
-  if setting then
-    tapSettings(x, y)
-    return
-  end
-
-  local gx, gy = gearRect()
-  if x >= gx and x < gx + Btn and y >= gy and y < gy + Btn then
-    openSettings()
-    return
-  end
-
-  local bx, by = worldRect()
-  if x >= bx and x < bx + Btn and y >= by and y < by + Btn then
-    -- THE BUTTON OF A NEW WORLD, and playing again if it was paused. A world made again is something to look at, never a
-    -- thing to keep frozen.
-    newMap()
-    paused = false
-    due = 0
-    paintPage()
-    return
-  end
+  -- **The page of the settings is another page and its finger is the system's**, and so is the finger of the two buttons
+  -- of the strip: a checkbox, a door and three buttons of the kernel take the contact by themselves, so what this app
+  -- hit-tests is the board and nothing else (0.189.48, docs/30).
+  if setting then return end
 
   if y < GridY or y >= GridY + GridH then return end
   if x < GridX or x >= GridX + GridW then return end
@@ -653,10 +793,11 @@ for _, key in ipairs(button.list()) do spots[key.key] = key.spot end
 function on_button(kind, held_ms, key)
   if kind ~= 'press' then return end
 
-  -- **The centre goes back from the settings** and stops being the pause while they are open: a page under a page has one
-  -- way out and it is the same key that entered (docs/30).
+  -- **A page with controls has the keys of the system**, so this hook does not hear them while the settings are open —the
+  -- ring walks the checkbox, the field and the button, and the centre presses the one it is on—. What is kept is one way
+  -- out for a page whose controls could not be made at all: the centre goes back (docs/30).
   if setting then
-    if spots[key] == 'centre' then statusDirty = false; setting = false; paused = wasPaused; due = 0; paintPage() end
+    if spots[key] == 'centre' and sett == nil then closeSettings() end
     return
   end
 
@@ -700,24 +841,25 @@ end
 if arg == 'keys' then
   console.print(string.format('Life grid %d %d %d %d %d %d', Cols, Rows, GridX, GridY, GridW, GridH))
   local bx, by = worldRect()
-  console.print(string.format('Life button %d %d %d %d', bx, by, Btn, Btn))
+  console.print(string.format('Life button %d %d %d %d', bx, by, Btn, BtnH))
   local gx, gy = gearRect()
-  console.print(string.format('Life gear %d %d %d %d', gx, gy, Btn, Btn))
+  console.print(string.format('Life gear %d %d %d %d', gx, gy, Btn, BtnH))
   local wx, wy, ww, wh = washRect()
   console.print(string.format('Life wash %d %d %d %d', wx, wy, ww, wh))
-  local sx, sy = segRect(1)
-  console.print(string.format('Life seg %d %d %d %d %d', sx, sy, kSegW, kSegH, kSegW + kSegGap))
+  local sx, sy, sw, sh = timeRect()
+  console.print(string.format('Life time %d %d %d %d', sx, sy, sw, sh))
+  local mx, my, mw, mh = menuRect()
+  console.print(string.format('Life menu %d %d %d %d', mx, my, mw, mh))
   console.print(string.format('Life pref %d %d', washOn and 1 or 0, speed))
   console.print(string.format('Life cell %d', Cell))
   console.print(string.format('Life speeds %d %d', Speeds[1], Speeds[2]))
 end
 
 -- **`settings` obre l'app a la pàgina dels ajustos**, que és com es mira des de l'emulador sense un dit a sobre.
+buildBoard()
 if arg == 'settings' then
-  setting = true
-  wasPaused = paused
-  paused = true
-  paintSettings()
+  paintPage()
+  openSettings()
 else
   paintPage()
 end
@@ -745,6 +887,14 @@ while true do
     end
   elseif held then
     held = false
+  end
+
+  -- **I la targeta s'obre amb el vidre buit** (0.189.48): the wish the field left is done here, where no finger can take the
+  -- click of the row it lands on.
+  if wantedMenu ~= nil and not held then
+    local field = wantedMenu
+    wantedMenu = nil
+    openTimeMenu(field)
   end
 
   -- **The gestures of the system are taken and dropped**: the tap and the double of this frame are the finger above,
