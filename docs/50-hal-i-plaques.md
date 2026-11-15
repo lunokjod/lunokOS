@@ -1173,6 +1173,11 @@ el bucle feia **35 instruccions i 13 càrregues per píxel**, vuit de les quals 
 per referència, rellegides d'un punter a cada píxel. Sense lambda, amb els dos formats com a especialitzacions de compilació i
 la imatge caminada amb punters: **11 instruccions per píxel i 99 ms**.
 
+**El rellotge del bus es canvia en calent** (0.189.77): `panel bus` diu a quants megahertz van els píxels i `panel bus 20` ho
+canvia, perquè el número que queda per mesurar no costi un flaix i una sessió per valor. El panell accepta de cinc a
+vint-i-quatre; **no se'n recorda cap reinici**, com l'estil, i si el controlador deixés de contestar a un rellotge massa alt,
+un reinici el torna a deu.
+
 **I el que queda ja no és el gir sinó el bus**: la pàgina sencera prepara en **313 ms** (214 de cable i 99 de gir) i el cable
 és a 1,21 MB/s, o sigui un deu megahertz aprofitat al noranta-set per cent. Per baixar d'aquí cal **pujar el rellotge de
 l'SPI**, que és l'única palanca que queda i la que el driver de referència ja aprofita (24 MHz a les dades, deu a les

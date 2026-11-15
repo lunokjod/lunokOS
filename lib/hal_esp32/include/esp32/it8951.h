@@ -125,6 +125,7 @@ class It8951 : public ISurface {
   // happens once in the life of the driver, and the second one is what a panel that has stopped
   // answering needs again, over the same device and without being added to the bus twice (docs/50).
   bool join_bus();
+  bool leave_bus();
   bool arm();
   // **The one way back for a controller that answers `ffff`**: the rail down and up, the handshake
   // again, and the whole image sent to a memory that came up empty. It keeps the page an app drew,
@@ -165,9 +166,14 @@ class It8951 : public ISurface {
   // by 1 688 bytes` —the internal RAM of this chip has no room for one— and the image of the glass is already there, in the
   // same memory the SPI driver copies from for every transaction it makes (docs/50, docs/75).
   uint8_t* stretch_ = nullptr;
+  uint32_t spi_hz_ = 10000000;
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
   void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
                          uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;
+  // **El rellotge del bus, en hertz** (0.189.77): the device of the bus is made with it, and making it again is how it
+  // changes —one call of `panel bus`, not one per transaction— (docs/50).
+  uint32_t bus_mhz() const override { return spi_hz_ / 1000000u; }
+  bool set_bus_mhz(uint32_t mhz) override;
   // **Com s'envien els píxels, en la paraula del prompt** (`rows`, `burst`, `2bit`), which is what the paint line says when
   // it reports how long the image took to reach the controller (0.189.68).
   const char* style_word() const;

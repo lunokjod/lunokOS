@@ -67,6 +67,11 @@ bool present(hal::UpdateMode mode);
 // a paint of this panel and leaves it to the system's own clock to bring it down again (docs/50, docs/95). **És un
 // experiment i no una política**: a step that stays up is a board burning its battery, and the window below is generous on
 // purpose so that no paint is left half way.
+// **I el rellotge del bus** (0.189.77): `panel bus <mhz>`, so the three numbers of the wire are measured in one session of the
+// board and not in three flashes. It is not remembered across a boot either (docs/50).
+uint32_t bus_mhz();
+bool set_bus_mhz(uint32_t mhz);
+
 const int32_t kPaintWindowMs = 1500;
 void hold_for_a_paint();
 bool idle();

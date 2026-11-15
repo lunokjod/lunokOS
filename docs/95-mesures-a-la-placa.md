@@ -974,6 +974,24 @@ i no els 433 de què es partia— i el vidre surt bé amb els dos estils.
 vuit files · 232 amb el rellotge a 240 · **99 amb el bucle sense la lambda**. El que va ensenyar cada pas està als fulls de
 dalt i cap d'ells es va poder endevinar: el primer es va veure mirant el rellotge, el segon comptant instruccions al binari.
 
+**I la propera tanda és d'una sola flaixada** (0.189.77): `panel bus` mou el rellotge de l'SPI en calent, així que els tres
+números del cable es poden mesurar seguits, sense tornar a flaixar:
+
+```
+panel bus            →  diu a quants MHz va (deu de fàbrica)
+panel flush burst
+panel bus 20
+splash hide
+splash boot          →  el mateix `on the wire`, amb el rellotge nou
+panel bus 24
+splash hide
+splash boot
+panel bus 10         →  i enrere
+```
+
+El que s'espera: `on the wire` de la pàgina de **214 ms a ~110** (20 MHz) o **~90** (24). **Si el panell deixa de contestar o
+la pàgina surt amb ratlles, el rellotge és massa alt per a aquest cablejat**: `panel bus 10`, o un reinici, i queda com era.
+
 **I el que queda ja no és el gir sinó el cable**: 214 ms per a 259 200 B són **1,21 MB/s**, que és un deu megahertz
 aprofitat al noranta-set per cent. La imatge ja no es pot girar més de pressa; l'única manera d'enviar-la més de pressa és
 **pujar el rellotge del bus** (20 o 24 MHz, que és el que el driver de referència fa servir per a les dades), i això tallaria

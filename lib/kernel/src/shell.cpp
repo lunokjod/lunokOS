@@ -903,7 +903,7 @@ bool command_panel(const char* rest) {
     out("panel: the pixels go out as ");
     out(display::flush_style_name(display::flush_style()));
     out("\r\n");
-    out("panel [edge|box] | panel flush [rows|burst|2bit]\r\n");
+    out("panel [edge|box|bus [mhz]] | panel flush [rows|burst|2bit]\r\n");
     return true;
   }
   // **`panel flush`** (0.189.66): three ways of sending the same picture, and the one that wins is the one measured on this
@@ -930,8 +930,32 @@ bool command_panel(const char* rest) {
     out("\r\n");
     return true;
   }
+  // **`panel bus <mhz>`** (0.189.77): the clock of the bus the pixels travel on, which is the last piece of a paint that is
+  // still worth moving. It takes the place of a flash and a session per speed.
+  if (strcmp(both[0], "bus") == 0) {
+    if (many < 2) {
+      if (display::bus_mhz() == 0) {
+        out("panel: this glass has no bus of its own\r\n");
+        return true;
+      }
+      char said[48];
+      snprintf(said, sizeof(said), "panel: the pixels travel at %u MHz\r\n",
+               static_cast<unsigned>(display::bus_mhz()));
+      out(said);
+      return true;
+    }
+    const uint32_t mhz = static_cast<uint32_t>(atoi(both[1]));
+    if (!display::set_bus_mhz(mhz)) {
+      out("panel: the bus did not take that clock\r\n");
+      return false;
+    }
+    char said[48];
+    snprintf(said, sizeof(said), "panel: %u MHz\r\n", static_cast<unsigned>(display::bus_mhz()));
+    out(said);
+    return true;
+  }
   if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
-    usage_out("usage: panel [edge|box] | panel flush [rows|burst|2bit]\r\n");
+    usage_out("usage: panel [edge|box|bus [mhz]] | panel flush [rows|burst|2bit]\r\n");
     return false;
   }
   if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {

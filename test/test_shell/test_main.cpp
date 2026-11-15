@@ -1852,6 +1852,17 @@ static void test_the_three_ways_are_named_and_one_bit_is_not_one_of_them() {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "usage: panel flush [rows|burst|2bit]"), said);
   TEST_ASSERT_TRUE_MESSAGE(kernel::display::flush_style() == hal::FlushStyle::kBits2, "a refused word changes nothing");
 
+  // **El rellotge del bus** (0.189.77): el vidre de l'emulador no en té —el preu del cable allà és un model i el rellotge que
+  // el canviaria és el de la màquina—, i ho diu en comptes d'inventar-se un número o de dir que sí.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("panel bus"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "this glass has no bus of its own"), said);
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("panel bus 20"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the bus did not take that clock"), said);
+
   // And the ones that were there still are, which is what the three words of the usage line promise.
   capture_begin();
   TEST_ASSERT_TRUE(kernel::execute("panel flush rows"));

@@ -471,6 +471,16 @@ class ISurface : public IDisplay {
     (void)style;
     return false;
   }
+  // **El rellotge del bus, en megahertz** (0.189.77): la preparació d'una pàgina són 214 ms de cable i 99 de gir (docs/95),
+  // o sigui que el cable és el que queda i l'única palanca que hi ha damunt és la velocitat de l'SPI. El panell accepta fins
+  // a vint-i-quatre i el driver de referència les fa servir per a les dades; aquest projecte hi va a deu perquè mentre el
+  // handshake no era clar el rellotge era una variable massa. **Ara ho és a propòsit**, i es canvia en calent per mesurar els
+  // tres números en una sola sessió de placa (docs/50). Zero vol dir un vidre que no té bus, com el de l'emulador.
+  virtual uint32_t bus_mhz() const { return 0; }
+  virtual bool set_bus_mhz(uint32_t mhz) {
+    (void)mhz;
+    return false;
+  }
   // **How the surface is turned.** 0, 90, 180 or 270 degrees: the width and height the surface reports are
   // the ones an app draws in, and a surface that turns does the work itself when it sends what changed.
   // A surface that cannot turn says no, and the panel of this board turns in software (docs/50).

@@ -447,7 +447,7 @@ bool It8951::join_bus() {
   // it— and asking for it again only fills the log with an error that is not one (measured on the
   // board, 1/11).
   spi_device_interface_config_t device = {};
-  device.clock_speed_hz = kSpiHz;
+  device.clock_speed_hz = spi_hz_;
   device.mode = 0;
   device.spics_io_num = pins_.cs;
   device.queue_size = 4;
@@ -466,9 +466,44 @@ bool It8951::join_bus() {
                                 reinterpret_cast<spi_device_handle_t*>(&device_));
   }
   if (joined != ESP_OK) {
-    snprintf(profile_, sizeof(profile_), "the panel did not join the bus at %d MHz", kSpiHz / 1000000);
+    snprintf(profile_, sizeof(profile_), "the panel did not join the bus at %d MHz", spi_hz_ / 1000000);
     return false;
   }
+  return true;
+}
+
+// **El bus es fa i es desfà** (0.189.77): the clock of a device is fixed when it is added to the bus, and the way to change it is
+// to take it out and put it back in —which is one call of `panel bus` and not one per transaction—. The images of a page take
+// two hundred and fourteen milliseconds at ten megahertz and the wire is the last thing left to win, so the number has to be
+// something a person can move while the board is on and not a constant that needs a flash (docs/50).
+bool It8951::leave_bus() {
+  if (device_ == nullptr) return true;
+  const esp_err_t gone = spi_bus_remove_device(static_cast<spi_device_handle_t>(device_));
+  device_ = nullptr;
+  return gone == ESP_OK;
+}
+
+bool It8951::set_bus_mhz(uint32_t mhz) {
+  if (mhz < 5 || mhz > 24) {
+    snprintf(profile_, sizeof(profile_), "the bus of this panel takes five to twenty-four megahertz, not %u",
+             static_cast<unsigned>(mhz));
+    return false;
+  }
+  const uint32_t wanted = mhz * 1000000u;
+  if (wanted == spi_hz_) return true;
+  if (!leave_bus()) {
+    snprintf(profile_, sizeof(profile_), "the panel did not let go of the bus");
+    return false;
+  }
+  const uint32_t was = spi_hz_;
+  spi_hz_ = wanted;
+  if (!join_bus()) {
+    spi_hz_ = was;
+    join_bus();
+    return false;
+  }
+  hal::logf(pal::kLogInfo, "PANEL", "the pixels travel at %u MHz from %u", static_cast<unsigned>(mhz),
+            static_cast<unsigned>(was / 1000000u));
   return true;
 }
 
