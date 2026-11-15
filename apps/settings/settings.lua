@@ -58,7 +58,11 @@ for i = 1, 2 * (14 + 12) + 1 do
 end
 
 local SPEEDS, SPEED_MHZ = { '80 MHz', '160 MHz', '240 MHz' }, { 80, 160, 240 }
-local TURNS, TURN_VALUE = { '5 000', '10 000', '20 000', '40 000', '80 000' }, { 5000, 10000, 20000, 40000, 80000 }
+-- **Les tres marxes del torn, amb nom i no amb un número** (0.189.107, l'amo: *«Número d'instruccions per cicle …
+-- Cal fer mesures amb Lua per torn, donar velocitat lenta, normal, ràpida»*): a turn of the interpreter is the latency of the
+-- glass and the keys, so a person chooses how long a finger may wait and not how many instructions the hook counts. The
+-- milliseconds of each one are measured on this board when the tab is opened, and the numbers are the hook's own.
+local TURNS, TURN_VALUE = { 'Slow 5 000', 'Normal 20 000', 'Fast 50 000' }, { 5000, 20000, 50000 }
 local CURSORS, CURSOR_MS = { '600 ms', '850 ms', '1 100 ms' }, { 600, 850, 1100 }
 local UNITS = { 'auto', 'sd', 'littlefs' }
 local WEEKS = { 'Monday', 'Sunday' }
@@ -304,6 +308,50 @@ local function read_row(tab, name, label, get_text)
   return one
 end
 
+-- **Quant costa un torn, mesurat i no copiat** (0.189.107, l'amo: *«Cal fer mesures amb Lua per torn»*): a lap of
+-- `k = k + 1` is three instructions —ADDI, MMBINI and FORLOOP— and a known number of laps timed with `sys.time_ms()` says what
+-- an instruction costs with the kernel's turn already inside it; `sys.turn()` says how many instructions a turn is worth, so
+-- the milliseconds of one turn are that arithmetic and nothing else. The cheapest of three tries, because a page of ink that
+-- is still going up only ever adds time (docs/75, docs/95, and `apps/luaperf` is the whole recipe).
+local us_per_lap = nil
+
+local function measure_a_lap()
+  if us_per_lap ~= nil then return us_per_lap end
+  local function spin(n)
+    local k = 0
+    for i = 1, n do k = k + 1 end
+    return k
+  end
+  local best = nil
+  for _ = 1, 3 do
+    local laps = 8000
+    local started = sys.time_ms()
+    spin(laps)
+    local ms = sys.time_ms() - started
+    if ms > 0 then
+      local us = ms * 1000 / laps
+      if best == nil or us < best then best = us end
+    end
+  end
+  us_per_lap = best
+  return best
+end
+
+local function turn_ms()
+  local us = measure_a_lap()
+  if us == nil then return nil end
+  return (sys.turn() / 3) * us / 1000
+end
+
+-- **Les velocitats que el governador pot fer servir**: the list the door answers, which is the same mask the policy reads.
+local function allowed(mhz)
+  local list = cfg.freq() or {}
+  for _, one in ipairs(list) do
+    if one == mhz then return true end
+  end
+  return false
+end
+
 local function index_of(list, value)
   for i, one in ipairs(list) do
     if one == value then return i end
@@ -428,6 +476,18 @@ function build()
       close_card()
       page = index
       say('')
+      -- **La mesura es fa quan algú mira el processador** (0.189.107): the milliseconds of a turn are what the numbers of
+      -- the slice are worth on this board, so they are measured the first time the tab is opened and said in the line
+      -- under the rows, which is where a person looks after moving something (docs/75, docs/95).
+      if page == 2 then
+        local ms = turn_ms()
+        if ms == nil then
+          say('A turn of ' .. sys.turn() .. ' instructions: this board does not say what it costs')
+        else
+          say(string.format('A turn of %d instructions costs about %d ms at %d MHz', sys.turn(),
+                            math.floor(ms + 0.5), power.cpu()))
+        end
+      end
       settle()
       save_state()
     end
@@ -492,7 +552,16 @@ function build()
     say(ok and 'The hour comes from the network' or ('No network: ' .. tostring(err and err.code or err)))
   end)
 
-  -- ---- CPU
+  -- ---- CPU: **la política, les tres velocitats i la marxa del torn** (0.189.107, l'amo: *«(desplegable) Velocitat …
+  -- [X] Frequency scaling allowed: [X] 80Mhz [X] 160Mhz [X] 240Mhz»*). The switch is the policy —on, the load decides the
+  -- step; off, the one below it— and the three boxes are the steps it may move between: a step that is not allowed is not
+  -- taken even for a paint, which is what makes the choice worth having (docs/50, docs/60).
+  check_row(2, 'autospeed', 'Automatic scaling', function() return power.cpu_auto() end,
+            function(on) power.cpu_auto(on) end)
+  for _, mhz in ipairs(SPEED_MHZ) do
+    check_row(2, 'freq' .. mhz, 'Allow ' .. mhz .. ' MHz', function() return allowed(mhz) end,
+              function(on) cfg.freq(mhz, on) end)
+  end
   choice_row(2, 'speed', 'Speed', SPEEDS, function() return index_of(SPEED_MHZ, power.cpu()) end,
              function(index) power.cpu(SPEED_MHZ[index]) end)
   choice_row(2, 'turn', 'Turn', TURNS, function() return index_of(TURN_VALUE, cfg.turn()) end,

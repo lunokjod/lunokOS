@@ -180,6 +180,16 @@ uint32_t trend_step(uint32_t mhz, int32_t trend10, uint8_t recent_pct);
 bool cpu_auto();
 void set_cpu_auto(bool on);
 
+// **Les velocitats que la política pot fer servir** (0.189.107): a mask of the three steps —bit 0 is 80, bit 1 is 160 and
+// bit 2 is 240— and **every step this module takes is clamped to it**, the ones the system asks for with a window and the
+// one a person types too: a board whose owner said `cfg freq 240 off` must not go to 240 even for a paint, or the setting
+// would be a suggestion (docs/50, docs/60). A mask of zero is read as the three, because a governor with no step is not a
+// government; `allowed_step` is the one arithmetic that decides, and it goes to **the smallest allowed step that is not
+// under what was asked**, or the biggest allowed one when nothing is above it.
+void set_allowed_steps(uint8_t mask);
+uint8_t allowed_steps();
+uint32_t allowed_step(uint32_t want);
+
 // The app that was in front when the board went to sleep comes back, with
 // `app.args.restore` in its args (docs/30). Runs at boot; exposed so a test can do
 // a reboot without one.

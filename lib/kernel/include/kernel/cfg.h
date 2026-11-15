@@ -115,6 +115,27 @@ bool parse_turn(const char* text, uint32_t& instructions);
 // there is nowhere to keep it.
 bool set_turn_instructions(uint32_t instructions);
 
+// **Les velocitats que la CPU pot fer servir** (0.189.107, l'amo: *«[X] Frequency scaling allowed: [X] 80Mhz [X] 160Mhz
+// [X] 240Mhz»*): the board has three steps and the person chooses which of them the policy may move between. It is a
+// setting of the system and not of an app, because the governor is the system's and a step it is not allowed to take is a
+// step it must not take even for a paint: `cfg freq 240 off` keeps the ceiling at 160 and the board runs slower and lasts
+// longer (docs/50, docs/60).
+//
+// **The mask is the setting and the words are what a person reads**: `80`, `160` and `240` are the three bits, and the
+// store keeps the list as text —`80,160,240`— so `nvs` shows the truth without a table (docs/70).
+const uint8_t kFreqAll = 0x07;  // the three steps: 80 is bit 0, 160 bit 1 and 240 bit 2
+uint32_t freq_step_of(uint8_t bit);   // the step a bit of the mask names
+uint8_t freq_mask();                  // what the governor may use, never zero
+bool freq_allowed(uint32_t mhz);
+// Turns a step on or off. **The last one cannot go**: a board with no allowed step is a board with no speed, so the
+// refusal is a number and not a promise, and the caller gets the mask it still has.
+bool set_freq_allowed(uint32_t mhz, bool on);
+// The list as a person reads it: "80,160,240". False when the mask has no bit at all.
+bool freq_text(char* out, size_t cap, uint8_t mask);
+// `all`, `80,160` or `80 160 240` — the three steps a person may write, in any order and with a comma or a space between
+// them. False when a step is not one of the three or when the list is empty.
+bool parse_freq(const char* text, uint8_t& mask);
+
 // The real path of one app's settings, for a person to read: "/sd/cfg/<id>".
 bool dir_for_app(char* out, size_t cap, const char* app);
 

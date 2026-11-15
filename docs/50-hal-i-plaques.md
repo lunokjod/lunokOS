@@ -429,6 +429,14 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
   buiden la consola (`IConsole::flush()`) abans de cridar la placa, pel mateix motiu que el son.
 - **No hi ha DFS.** `CONFIG_PM_ENABLE` no està activat al framework precompilat, o sigui que pujar i
   baixar sol queda fora i la velocitat és sempre una decisió de qui la demana.
+- **I les tres velocitats es poden limitar** (0.189.107, l'amo: *«[X] Frequency scaling allowed: [X] 80Mhz
+  [X] 160Mhz [X] 240Mhz»*): el governador tria entre les que la persona li deixa —`cfg freq 240 off` deixa el
+  sostre a 160 i `cfg freq 80,160` les deixa totes dues— i **el sostre val per a tothom**, també per a un
+  finestra que demana el pas de dalt per pintar, perquè un ajust que només és una suggerència no és un ajust.
+  L'aritmètica és una sola (`power::allowed_step`): **el pas permès més petit que no quedi per sota del que es
+  demana**, o el més gran dels permesos quan no n'hi ha cap per sobre. Un pas que no és cap dels tres es refusa
+  i l'última permetuda no se'n pot anar —una placa sense cap velocitat no torna de la resposta— (docs/30,
+  docs/60).
 
 ## Apagar tot el que es pot apagar
 

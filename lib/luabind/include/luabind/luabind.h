@@ -228,6 +228,11 @@ struct CfgOps {
   // of the boot pictures the disk has, copied into the caller's arrays. The count is answered when `out` is null.
   uint8_t (*keyboards)(const char** out, uint8_t capacity);
   uint8_t (*boots)(const char** out, uint8_t capacity);
+  // **Les velocitats del processador que la política pot fer servir** (0.189.107): the mask of the three steps —80, 160 and
+  // 240— and the door that turns one on or off. The mask is the setting and the page shows it as three switches, which is
+  // the same bit the governor reads (docs/50, docs/60).
+  uint8_t (*freq_mask)();
+  bool (*set_freq_allowed)(uint32_t mhz, bool on);
 };
 
 void set_cfg_ops(const CfgOps& ops);
@@ -413,6 +418,11 @@ struct PowerOps {
   // step it does not have is refused, never rounded (docs/30).
   uint32_t (*cpu_mhz)();
   bool (*set_cpu_mhz)(uint32_t mhz);
+  // **La política automàtica de la velocitat** (0.189.107): whether the load decides the step. `power.cpu(<mhz>)` fixes one and
+  // stops it; these two are how a page reads the switch and turns it back on, which is the same pair the prompt has
+  // (`power auto on|off`, docs/30, docs/50).
+  bool (*cpu_auto)();
+  void (*set_cpu_auto)(bool on);
 };
 
 void set_power_ops(const PowerOps& ops);

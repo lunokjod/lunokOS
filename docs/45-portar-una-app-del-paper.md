@@ -285,6 +285,17 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
   la mida que la pàgina té: si és la mateixa, col·loca i pinta; si no, torna a construir-ho tot i torna a posar el cercle
   al control on era. Una pàgina que només fa `layout()` després d'un canvi de mida peta amb `attempt to perform arithmetic
   on a nil value` al primer `cb:box()` —ho va trobar la prova del panell, no la persona— (docs/30, docs/90).
+- **La pestanya del processador és una mesura i no una opinió** (0.189.107, l'amo: *«Número d'instruccions per cicle …
+  Cal fer mesures amb Lua per torn, donar velocitat lenta, normal, ràpida»*): el commutador és `power.cpu_auto()`, les tres
+  caselles són `cfg.freq(<mhz>, on)` —els passos entre els quals el governador pot moure's—, el desplegable de la velocitat
+  fixa un pas (`power.cpu`) i el del torn dona **tres marxes amb nom** (5 000, 20 000 i 50 000 instruccions) i no un número.
+  **Els mil·lisegons de cada marxa es mesuren a la placa quan la pestanya s'obre**: una volta de `k = k + 1` és tres
+  instruccions i el temps de vint mil voltes diu què costa una instrucció amb el torn del nucli a dins, o sigui que
+  `sys.turn() / 3 × µs_per_volta` és la latència que espera un dit. La línia de sota ho diu: «a turn of 20 000 instructions
+  costs about 9 ms at 160 MHz» (docs/75, docs/95; `apps/luaperf` és la recepta sencera).
+- **El paginador d'un desplegable es gira amb el dit**: la targeta d'una tria és una llista de valors per pàgines i el gest
+  de costat és el mateix —el sistema el gasta i l'aixecar el dit no tria res—, o sigui que una app no ha de fer res perquè
+  funcioni (docs/30).
 - **El que la pàgina escriu és de `cfg` i el que la persona va deixar a mitges és de `state`**: les hores i la data es
   desen amb `time.set`, la zona amb `time.tz`, el calendari amb `time.leap`/`time.week`/`time.dst`, el disc amb `fs.cfg`,
   el processador amb `power.cpu`, i el teclat, l'arrencada, l'inici, l'ordre, el torn i el cursor amb `cfg.*` (docs/30

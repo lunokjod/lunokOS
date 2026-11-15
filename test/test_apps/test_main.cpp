@@ -16708,6 +16708,38 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: the clock is set to 14:00"), g_out);
   TEST_ASSERT_INT_WITHIN_MESSAGE(4, 1794837600, static_cast<int>(hal::platform().clock()->epoch_ms() / 1000), g_out);
 
+  // ---- the processor: **la política i les tres velocitats que pot fer servir** (0.189.107), que és el que el sostre d'aquest
+  // ajust vol dir: apagar-ne una no és una suggerència i la governadora hi acota el que demana el sistema.
+  capture_begin();
+  press_finger(panel, 270, static_cast<uint16_t>(bar + 38));  // the CPU tab
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 28));  // the automatic scaling, off
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::power::cpu_auto(), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::freq_allowed(240), g_out);
+
+  capture_begin();
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 3 * kRowStep + 28));  // Allow 240 MHz, off
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::freq_allowed(240), g_out);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(160, kernel::power::allowed_step(240), g_out);
+
+  // **I l'última no se'n pot anar**: 80 goes and then 160 cannot, because a board with no allowed step is a board with no
+  // speed —the page says it in its line and the list stays as it was— (docs/50).
+  capture_begin();
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + kRowStep + 28));  // Allow 80 MHz, off
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 2 * kRowStep + 28));  // Allow 160 MHz, off: refused
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::freq_allowed(80), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::freq_allowed(160), g_out);
+
+  // the board is the board of the next case again: the policy on and the three steps allowed
+  kernel::power::set_cpu_auto(true);
+  kernel::cfg::set_freq_allowed(80, true);
+  kernel::cfg::set_freq_allowed(240, true);
+
   // ---- the privacy tab: the lock of the screen is the door of an administrator, and the same switch gives the bar back
   capture_begin();
   press_finger(panel, 98, static_cast<uint16_t>(bar + 142));
@@ -17237,6 +17269,116 @@ void test_a_swipe_up_or_down_is_not_a_page_of_a_list(void) {
   storage->remove("/apps/fonts/fonts.lua");
   storage->remove("/apps/fonts/manifest.json");
   storage->remove("/apps/fonts");
+}
+// **El paginador d'una targeta de tria es gira amb el dit** (0.189.107, l'amo: *«El paginador del desplegable que hi ha a
+// System > app at start no respon al drag, si al focus amb els botons gpio»*). A `ui.picker` with more values than a page holds
+// is a list of values by pages, so the hand that turns a list turns the card: **the sideways travel of the finger turns it one
+// page**, the same road a list takes, and the contact is spent so the release picks nothing. The two keys of its foot and the
+// arrows of the dial were the other two ways in, and both are for a hand that is not on the glass (docs/30, docs/90).
+//
+// The page of this case is the app's own and small on purpose: a field that opens a card of forty values and a line of the log
+// with what the card answered and the page it was on, which is the only thing a finger cannot see (docs/85).
+void test_a_swipe_turns_the_page_of_a_card_of_values(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  const char* const kCard =
+      "local words = {}\n"
+      "for i = 1, 40 do words[i] = string.format('%02d', i) end\n"
+      "local card = nil\n"
+      "local field = ui.selector(516, 56)\n"
+      "field.label = 'Word'\n"
+      "field.items = words\n"
+      "field.empty = '-'\n"
+      "field:place(12, 120)\n"
+      "field.on_open = function(self)\n"
+      "  card = ui.picker(516, 500)\n"
+      "  card.title = 'Word'\n"
+      "  card.items = words\n"
+      "  card.index = 1\n"
+      "  card.on_pick = function(that, index)\n"
+      "    local page = that.page\n"
+      "    card:release()\n"
+      "    card = nil\n"
+      "    self.choosing = false\n"
+      "    console.print('cards: picked ' .. tostring(index) .. ' page ' .. tostring(page))\n"
+      "    ui.present('du')\n"
+      "  end\n"
+      "  card:place(12, 60)\n"
+      "  ui.present('du')\n"
+      "end\n"
+      "ui.present('du')\n"
+      "while true do sys.delay(50):await() end\n";
+  add_app(storage, "cards", "{\"title\":\"Cards\",\"version\":\"0.0.1\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}", kCard);
+
+  pump_turns(20);
+  pump_captured(200, g_out, sizeof(g_out), "run cards");
+  pump_turns(60);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const uint16_t field_x = static_cast<uint16_t>(view.x + 270);
+  const uint16_t field_y = static_cast<uint16_t>(view.y + 148);
+
+  // **A card that is not turned picks the first value**, and the page it says is the one it had: nothing chosen but the
+  // first, which is `page 0` —the page of the value the app gave it— (docs/30).
+  capture_begin();
+  press_finger(panel, field_x, field_y);
+  // the first cell of the card: the title is above the rows and the card starts at 12,60
+  press_finger(panel, 84, static_cast<uint16_t>(view.y + 172));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cards: picked 1 page 0"), g_out);
+
+  // **I el mateix dit que camina de costat gira la targeta**: the card is opened again and the finger walks a hundred pixels
+  // to the left over its rows, which is more than the slop of a page and still on the glass.
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 400);
+  const uint16_t start_y = static_cast<uint16_t>(view.y + 300);
+  capture_begin();
+  press_finger(panel, field_x, field_y);
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 120), start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  // **El gest no tria res**: the release after a swipe is not the click of the value the finger stopped over.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cards: picked"), g_out);
+
+  // **I la targeta és a la segona pàgina**: one tap on the same first cell now answers a value of the second one, which is
+  // the whole of what the swipe has to do.
+  capture_begin();
+  press_finger(panel, 84, static_cast<uint16_t>(view.y + 172));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cards: picked 1 page 2"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/cards/app.lua");
+  storage->remove("/apps/cards/manifest.json");
+  storage->remove("/apps/cards");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
 }
 
 // **La lleixa és de cares i de res més** (0.189.32, l'amo: *«Treu els arxius que no son fonts reconegudes de la llista»*):
@@ -17864,6 +18006,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);
   RUN_TEST(test_a_swipe_up_or_down_is_not_a_page_of_a_list);
+  RUN_TEST(test_a_swipe_turns_the_page_of_a_card_of_values);
   RUN_TEST(test_the_shelf_lists_the_faces_and_leaves_the_other_files_out);
   RUN_TEST(test_the_specimen_gives_the_passages_their_room_and_the_way_back_below);
   RUN_TEST(test_the_swipe_to_the_left_of_the_specimen_is_the_way_back);

@@ -11243,6 +11243,26 @@ int l_power_cpu(lua_State* L) {
   return 1;
 }
 
+// **`power.cpu_auto([on])`: la política automàtica de la velocitat** (0.189.107): whether the load decides the step of the
+// processor. `power.cpu(<mhz>)` fixes one and stops the policy —a person who fixed a step did it to measure something—, and
+// this is the door that says where the switch is and turns it back on, which is the pair the prompt has with `power auto`
+// (docs/30, docs/50).
+int l_power_cpu_auto(lua_State* L) {
+  if (g_power_ops.cpu_auto == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board does not decide its own speed");
+  }
+  if (lua_isnoneornil(L, 1)) {
+    lua_pushboolean(L, g_power_ops.cpu_auto() ? 1 : 0);
+    return 1;
+  }
+  if (g_power_ops.set_cpu_auto == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board does not decide its own speed");
+  }
+  g_power_ops.set_cpu_auto(lua_toboolean(L, 1) != 0);
+  lua_pushboolean(L, g_power_ops.cpu_auto() ? 1 : 0);
+  return 1;
+}
+
 // power.keep_awake(b): the app says it is doing something that must not be
 // interrupted by a sleep the system decides on its own (docs/30).
 int l_power_keep_awake(lua_State* L) {
@@ -12005,6 +12025,34 @@ int l_cfg_cursor(lua_State* L) {
   return 1;
 }
 
+// **`cfg.freq([<mhz>, <on>])`: les velocitats del processador** (0.189.107, l'amo: *«[X] Frequency scaling allowed:
+// [X] 80Mhz [X] 160Mhz [X] 240Mhz»*). With no argument it answers **the list of the steps the policy may use**, in
+// ascending order; with a step and a boolean it turns that one on or off and answers the list it has now —which is the
+// door's rule of every other setting: what it answers is what stands, and a step that would leave the board with none is
+// refused with `E_INVAL` and the list untouched (docs/30, docs/50).
+int l_cfg_freq(lua_State* L) {
+  if (g_cfg_ops.freq_mask == nullptr || g_cfg_ops.set_freq_allowed == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no speed to allow");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const lua_Integer asked = luaL_checkinteger(L, 1);
+    const bool on = lua_toboolean(L, 2) != 0;
+    if (!g_cfg_ops.set_freq_allowed(static_cast<uint32_t>(asked), on)) {
+      return push_nil_error(L, "E_INVAL", "that is not a step of this processor, or it would leave none");
+    }
+  }
+  const uint8_t mask = g_cfg_ops.freq_mask();
+  lua_createtable(L, 3, 0);
+  int at = 0;
+  static const uint32_t kSteps[3] = {80, 160, 240};
+  for (uint8_t i = 0; i < 3; ++i) {
+    if ((mask & (1u << i)) == 0) continue;
+    lua_pushinteger(L, static_cast<lua_Integer>(kSteps[i]));
+    lua_rawseti(L, -2, ++at);
+  }
+  return 1;
+}
+
 // **Les llistes d'un desplegable**: the keyboards this build carries and the pictures of the boot the disk has, as arrays of
 // words, so a page that offers a choice offers the ones that exist (docs/30).
 int push_cfg_words(lua_State* L, uint8_t (*list)(const char**, uint8_t)) {
@@ -12115,6 +12163,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "sort", l_cfg_sort);
   set_function(L, "turn", l_cfg_turn);
   set_function(L, "cursor", l_cfg_cursor);
+  set_function(L, "freq", l_cfg_freq);
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);
   lua_setglobal(L, "cfg");
@@ -12342,6 +12391,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "sleep", l_power_sleep);
   set_function(L, "keep_awake", l_power_keep_awake);
   set_function(L, "cpu", l_power_cpu);
+  set_function(L, "cpu_auto", l_power_cpu_auto);
   lua_setglobal(L, "power");
 
   // fs: reading, writing and asking. A call that is not here is not there
@@ -14301,6 +14351,47 @@ bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, 
 // **a contact that has walked is already a gesture and not a tap** (0.186.1), so a swipe over a row picks nothing and there is
 // no zone to guess. Every box of one page is a box of the same quality, so the page is drawn and one present puts it on the
 // glass.
+// **La pàgina d'una targeta de tria, girada per un costat** (0.189.107, l'amo: *«El paginador del desplegable que hi ha a
+// System > app at start no respon al drag, si al focus amb els botons gpio»*). A picker with more values than a page holds is a
+// list of values by pages, and the hand that turns a list is the same hand: **the sideways travel turns the card one page**,
+// clamped at its two ends and written in the card's own field, which is the same write the two keys of the foot and the two
+// arrows of the dial do. At the first or the last page there is no page to turn and the gesture is not this card's
+// (docs/30, docs/90).
+bool ui_step_the_picker(lua_State* L, int object, int16_t slot, int8_t delta) {
+  if (!ui_field_bool(L, object, "__picker", false) || g_ui_ops.picker_pages == nullptr) return false;
+  object = lua_absindex(L, object);
+  const int base = lua_gettop(L);
+  lua_getiuservalue(L, object, 1);
+  const char* title = "";
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "title");
+    if (lua_isstring(L, -1)) title = lua_tostring(L, -1);
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  const char* words[kMaxPickerWords];
+  const uint16_t total = ui_picker_items(L, object, words, kMaxPickerWords);
+  const lua_Integer scale = ui_field_number(L, object, "scale", 4);
+  const uint8_t scale8 = static_cast<uint8_t>((scale < 1) ? 1 : ((scale > 16) ? 16 : scale));
+  const lua_Integer page = ui_field_number(L, object, "page", 0);
+  const lua_Integer on = ui_field_number(L, object, "index", 0);
+  const luabind::UIOps::UIPickerPages pages =
+      g_ui_ops.picker_pages(slot, title, words, total, static_cast<uint16_t>((on < 0) ? 0 : on),
+                            static_cast<uint16_t>((page < 0) ? 0 : page), scale8);
+  lua_settop(L, base);
+  if (pages.pages < 2) return false;
+  lua_Integer next = static_cast<lua_Integer>(pages.page) + delta;
+  if (next < 1 || next > static_cast<lua_Integer>(pages.pages)) return false;
+  lua_getiuservalue(L, object, 1);
+  if (lua_istable(L, -1)) {
+    lua_pushinteger(L, next);
+    lua_setfield(L, -2, "page");
+  }
+  lua_pop(L, 1);
+  ui_invalidate(L, object);
+  return true;
+}
+
 bool ui_turn_the_page_of_a_travel(int objects, FocusTarget* targets, int capacity, int count, int index, int dx,
                                   int dy, int top) {
   // **Només els costats passen pàgina** (0.188.5, l'amo: *«per passar pàgina vull dreta/esquerra no amunt/avall… recorda
@@ -14327,6 +14418,23 @@ bool ui_turn_the_page_of_a_travel(int objects, FocusTarget* targets, int capacit
   // which is the way this read until the 0.188.6 —where the two were swapped, *«pel meu gust gira al revés, esquerra-dreta
   // intercanviats»*— and the way the owner has now asked it back (docs/30, docs/90).
   const int8_t delta = static_cast<int8_t>((dx > 0) ? -1 : 1);
+  // **I la targeta d'una tria gira les seves pàgines amb el mateix gest** (0.189.107): the card is the only control under the
+  // finger while it is up, so the travel reaches it like it reaches a list, and the contact is spent —the release must not
+  // pick the value the finger happens to be over— (docs/30, docs/90).
+  if (index >= 0 && index < count) {
+    lua_rawgeti(g_state, objects, index + 1);
+    const bool turned_the_card = ui_step_the_picker(g_state, lua_gettop(g_state), targets[index].slot, delta);
+    lua_pop(g_state, 1);
+    if (turned_the_card) {
+      g_ui_swipe_page = true;
+      g_ui_swipe_moved = true;
+      g_ui_swipe_tap_armed = false;
+      g_ui_touch_inside = false;
+      g_ui_touch_moved = true;
+      ui_draw_and_present(nullptr);
+      return true;
+    }
+  }
   int16_t list_slot = -1;
   bool turned = ui_grid_turn_the_page(g_state, targets, count, objects, index, delta);
   if (!turned) {

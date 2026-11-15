@@ -71,8 +71,28 @@ int64_t g_last_activity_ms = 0;
 // The step a person asks for becomes the resting one, so `power cpu 80` is not undone by the next app that starts.
 uint32_t g_cpu_rest_mhz = kRestingMhz;
 int64_t g_cpu_busy_until_ms = 0;
-// **La política automàtica** (0.189.94): on unless a person asked for a step with `power cpu`.
-bool g_cpu_auto = true;
+// **La política i el sostre de les velocitats, en un sol byte** (0.189.94, 0.189.107): the automatic policy is the fourth
+// bit and the three steps the person allows are the low three. **The two used to be a bool and a byte**, which is eight bytes
+// of `.bss` with their padding in a build whose `dram0.bss` overflowed by eight the day the second one arrived (docs/75), and
+// a bit is a bit: the policy is on and the three steps are allowed until somebody says otherwise, which is the state this
+// byte starts in.
+const uint8_t kAllowedMask = 0x07;
+const uint8_t kAutoBit = 0x08;
+uint8_t g_cpu_policy = static_cast<uint8_t>(kAllowedMask | kAutoBit);
+
+bool policy_is_auto() { return (g_cpu_policy & kAutoBit) != 0; }
+
+void set_policy(bool on) {
+  g_cpu_policy = on ? static_cast<uint8_t>(g_cpu_policy | kAutoBit)
+                    : static_cast<uint8_t>(g_cpu_policy & ~kAutoBit);
+}
+
+// **The steps the policy may use**, and a byte with none of them is read as the three: a governor with no step is not a
+// government (docs/50).
+uint8_t allowed_bits() {
+  const uint8_t mask = static_cast<uint8_t>(g_cpu_policy & kAllowedMask);
+  return (mask != 0) ? mask : kAllowedMask;
+}
 // **Un minut de mostres i la meitat contra l'altra** (0.189.95): a sample every two seconds —thirty of them, thirty bytes—
 // and the comparison is the mean of the last fifteen against the mean of the fifteen before.
 const uint8_t kTrendSamples = 30;
@@ -291,7 +311,12 @@ void empty_the_line() {
 // board answered and why, so a step the chip does not have reads as itself and not as a silence. **Every call is a
 // line**, even the one that asks for the step it is already on: the boot at two hundred and forty is a fact of the
 // policy and not of the chip's default, and a log that hides it says the system booted at the resting step.
+//
+// **I el pas que es demana s'acota a les velocitats permeses** (0.189.107): `hold_cpu` and `rest_cpu` ask for the three
+// constants of this file and the person may have forbidden one of them, so the clamp is here and not in the callers
+// (docs/50, docs/60).
 void move_to(uint32_t mhz, const char* why) {
+  mhz = allowed_step(mhz);
   if (g_power == nullptr) return;
   const uint32_t before = g_power->cpu_mhz();
   // **Un pas que ja és el que hi ha no es mou i no es diu** (0.189.95): `hold_cpu` is asked for the top step by every paint and
@@ -308,11 +333,43 @@ void move_to(uint32_t mhz, const char* why) {
              static_cast<unsigned>(before), (why != nullptr) ? why : "?");
 }
 
+// **Les tres velocitats que la política pot fer servir** (0.189.107): the mask is the person's ceiling and `allowed_step` is
+// the one arithmetic that decides which step a request lands on. It is here, just before `move_to`, because that is the
+// function that calls it for every move of this module (docs/50, docs/60).
 bool can_sleep_op(uint8_t mode) { return can_sleep(mode_of(mode)); }
 
 bool sleep_op(uint8_t mode, int64_t at_epoch_ms) { return request_sleep(mode_of(mode), at_epoch_ms); }
 
 }  // namespace
+
+// **Les tres velocitats i el pas on cau una demanda** (0.189.107): the mask is the person's ceiling and `allowed_step` is the
+// one arithmetic that decides which step a request lands on —the smallest allowed step that is not under what was asked,
+// or the biggest allowed one when nothing is above it— (docs/50, docs/60).
+void set_allowed_steps(uint8_t mask) {
+  g_cpu_policy = static_cast<uint8_t>((g_cpu_policy & ~kAllowedMask) | ((mask == 0) ? kAllowedMask : (mask & kAllowedMask)));
+  // **I el que ja estava demanat s'hi acota ara mateix**: a ceiling that only applies to the next move would leave the board
+  // at a step the person has just forbidden, which is the one thing this setting is for (docs/50).
+  if (g_power == nullptr) return;
+  const uint32_t now = g_power->cpu_mhz();
+  const uint32_t step = allowed_step(now);
+  if (step != now) move_to(step, "the steps the person allows");
+}
+
+uint8_t allowed_steps() { return allowed_bits(); }
+
+uint32_t allowed_step(uint32_t want) {
+  const uint8_t mask = allowed_bits();
+  uint32_t above = 0;
+  uint32_t biggest = 0;
+  for (uint8_t bit = 0x01; bit <= 0x04; bit = static_cast<uint8_t>(bit << 1)) {
+    if ((mask & bit) == 0) continue;
+    const uint32_t step = (bit == 0x01) ? kIdleMhz : ((bit == 0x02) ? kRestingMhz : kBusyMhz);
+    if (step > biggest) biggest = step;
+    if (step >= want && above == 0) above = step;
+  }
+  if (above != 0) return above;
+  return (biggest != 0) ? biggest : want;
+}
 
 void boot(hal::IPlatform& platform) {
   g_power = platform.power();
@@ -340,6 +397,8 @@ void boot(hal::IPlatform& platform) {
     ops.battery = &battery;
     ops.cpu_mhz = &cpu_mhz;
     ops.set_cpu_mhz = &set_cpu_mhz;
+    ops.cpu_auto = &cpu_auto;
+    ops.set_cpu_auto = &set_cpu_auto;
     ops.keep_awake = &keep_awake;
     ops.keeping_awake = &keeping_awake;
     ops.wakes = &wakes;
@@ -576,7 +635,7 @@ void poll(int64_t next_alarm_epoch_ms) {
     // for as long as the work lasts and the governor is what decides after it, at its own samples —a step back to the
     // resting one in the same turn the window closes is two moves for a paint and the third line of a log that a person
     // reads as a board that cannot make up its mind— (the owner, with the log: *«és massa ràpid»*, docs/50, docs/60).
-    if (!g_cpu_auto) move_to(g_cpu_rest_mhz, "the load is over");
+    if (!policy_is_auto()) move_to(g_cpu_rest_mhz, "the load is over");
   }
   // **I a cada torn, la càrrega** (0.189.94): `load()` samples one window of 250 ms and answers the last one inside it, so
   // this costs two reads of the meters on the turns that do not end a window, and the move happens only when the word
@@ -720,10 +779,10 @@ Load load() {
 
 uint32_t load_percent10() { return g_load_pct10; }
 
-bool cpu_auto() { return g_cpu_auto; }
+bool cpu_auto() { return policy_is_auto(); }
 
 void set_cpu_auto(bool on) {
-  g_cpu_auto = on;
+  set_policy(on);
   if (on) {
     // **Tornar-la a encendre comença un minut nou**: the samples of before are the samples of a board that was being told what
     // to do by a person, and a trend measured across that boundary is a trend of nothing (docs/60).
@@ -796,7 +855,7 @@ uint32_t trend_step(uint32_t mhz, int32_t trend10, uint8_t recent_pct) {
 // whether it was a page turning or a book being searched. A window somebody asked for —the boot, an app starting, a paint— is
 // not its business (docs/50, docs/60).
 static void govern_cpu() {
-  if (g_power == nullptr || !g_cpu_auto) return;
+  if (g_power == nullptr || !policy_is_auto()) return;
   const uint8_t before = g_trend_count;
   take_a_sample();
   // **Una decisió per mostra i no per torn**: the samples are two seconds apart, so the clock can move at most once every two
@@ -829,6 +888,9 @@ bool set_cpu_mhz(uint32_t mhz) {
   // floor because below it the APB goes down with the CPU and the serial port
   // stops making sense, and 240 is the ceiling of this chip (docs/50).
   if (mhz < 80 || mhz > 240) return false;
+  // **El pas que demana una persona també s'acota** (0.189.107): asking for 240 on a board whose owner forbade it is an ask
+  // that lands on the biggest step allowed, and the line of the move says which one (docs/50).
+  mhz = allowed_step(mhz);
   const uint32_t before = g_power->cpu_mhz();
   // The processor changes market: it is a call to the board and not a variable (docs/30). **And the port is emptied
   // before it**, or the line in flight comes out garbled (0.179.43, `empty_the_line`).
@@ -842,7 +904,7 @@ bool set_cpu_mhz(uint32_t mhz) {
   g_cpu_busy_until_ms = 0;
   // **Un pas demanat a mà para la política automàtica** (0.189.94): a person who fixed a step did it to measure something,
   // and a governor that undoes it two hundred and fifty milliseconds later is a governor nobody can measure against.
-  g_cpu_auto = false;
+  set_policy(false);
   log_printf(pal::kLogInfo, "POWER", "cpu %u MHz from %u (asked, the automatic scaling is off)", static_cast<unsigned>(g_power->cpu_mhz()),
              static_cast<unsigned>(before));
   return true;
@@ -859,7 +921,7 @@ void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why) {
 void rest_cpu(const char* why) {
   if (g_power == nullptr) return;
   g_cpu_busy_until_ms = 0;
-  if (g_cpu_auto) {
+  if (policy_is_auto()) {
     govern_cpu();
     return;
   }

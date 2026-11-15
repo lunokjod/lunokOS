@@ -111,6 +111,10 @@ void install_settings_ops() {
   doors.set_cursor_delay = &write_cursor;
   doors.keyboards = &list_keyboards;
   doors.boots = &list_boots;
+  // **Les velocitats permeses** (0.189.107): the mask is read where it is kept and the write goes through `cfg`, which is
+  // what puts it in the governor (docs/50).
+  doors.freq_mask = &cfg::freq_mask;
+  doors.set_freq_allowed = &cfg::set_freq_allowed;
   luabind::set_cfg_ops(doors);
 }
 

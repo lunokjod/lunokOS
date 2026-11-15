@@ -5946,8 +5946,11 @@ bool menu_draw(int16_t slot, const char* title, const MenuOption* items, uint8_t
                      static_cast<uint16_t>(height - 2 * i), r, color, color, mode);
   }
   // **The title of a card is one size over its options**, which is what `fontTitle` and `fontBody` were in the original,
-  // and it is centred: the card is the page of a menu and the title is its name (docs/92).
-  static char shown[192];
+  // and it is centred: the card is the page of a menu and the title is its name (docs/92). **El bloc és més petit que el
+  // nom que hi cap**: the title is a line of a card and `label_text` already cuts it at the card's width —a hundred and
+  // twenty-eight bytes hold a hundred and twenty characters at the smallest size— and the `.bss` of a Paper is counted
+  // (0.189.107, docs/75).
+  static char shown[128];
   if (has_title) {
     const uint16_t taken = label_text(card.face, title, static_cast<uint16_t>(width - 2 * grid.pad),
                                       static_cast<uint8_t>(scale + 1), shown, sizeof(shown));

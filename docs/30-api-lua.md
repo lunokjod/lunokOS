@@ -3500,6 +3500,11 @@ inventar el control.
 - **El dit i el dial són del sistema**: una fila tria (`on_pick(self, index)` amb el valor sencer de la llista), una clau del
   peu **gira la pàgina i no tria res**, el centre tria el valor on és la banda de tinta, i les dues fletxes del dial caminen
   els valors **travessant pàgines** (la targeta es torna a posar a la pàgina del valor triat).
+- **El dit que camina de costat gira la targeta** (0.189.107, l'amo: *«El paginador del desplegable … no respon al drag, si al
+  focus amb els botons gpio»*): una targeta és una llista de valors per pàgines i el gest és el de la llista —**dreta enrere i
+  esquerra endavant**, un pèl de deriva perdonat—, el contacte es gasta (l'aixecar el dit no tria el valor on és) i als dos
+  caps no hi ha pàgina i el gest se'l queda un altre. Les dues claus del peu i les fletxes del dial són les altres dues
+  maneres, per a una mà que no és al vidre.
 - **És una targeta**: mentre és a sobre, el dit i el dial són seus i la pàgina de sota no respon. Tancar-la és de l'app, com la
   d'un `ui.menu`; **i la sortida sense triar és un toc fora de la targeta** —que l'app llegeix de `touch.gesture()` i no de
   `touch.read()`, perquè una targeta del sistema és l'amo dels dits que hi cauen i la pàgina no en llegeix cap—.
@@ -4178,7 +4183,8 @@ altra, la teva app una, i la resta és marge per a un diàleg sobre una pàgina 
 | `power.sleep(opts)` | **promesa** | `{mode="light" o "deep", in_ms=<ms> o until=<època en segons>}`; es resol `true` quan la placa torna |
 | `power.keep_awake(b)` | booleà | L'app diu que està fent una cosa que no s'ha d'interrompre |
 | `power.cpu()` | número | La velocitat del processador, en MHz |
-| `power.cpu(mhz)` | número o `nil, error` | La canvia. **Els passos són 80, 160 i 240**: un altre número es refusa amb `E_INVAL` i **no s'arrodoneix** |
+| `power.cpu(mhz)` | número o `nil, error` | La canvia. **Els passos són 80, 160 i 240**: un altre número es refusa amb `E_INVAL` i **no s'arrodoneix**. Un pas que la persona ha prohibit amb `cfg freq` **s'acota al permès** i el número que torna és on ha anat a parar |
+| `power.cpu_auto([on])` | booleà | **La política automàtica de la velocitat** (0.189.107): es llegeix sola i s'escriu amb `true`/`false`. `power.cpu(<mhz>)` la para (una persona que fixa un pas ho fa per mesurar) i aquesta és la porta que la torna a encendre |
 | `power.off()` ⏳ | booleà | Apaga la placa de debò: talla el corrent, no arma res i només el botó la torna a encendre. **Al prompt ja hi és** (`poweroff`, que diu si la placa no en té el control, docs/50); des de Lua encara no —`sys.reboot()` sí que hi és des de la 0.171.0, i aquesta és la que li falta—. **`sys.deepsleep()` no és això** (0.189.25): deixa el corrent posat i el xip dorm amb una tecla per tornar, que és una altra baixada |
 
 - **Un son necessita una hora per tornar.** Sense `in_ms` ni `until` no hi ha res per amollar i es
@@ -4211,6 +4217,9 @@ altra, la teva app una, i la resta és marge per a un diàleg sobre una pàgina 
   Paper pel temporitzador del RTC i, quan està apagat, per **l'alarma del rellotge** (`"timer,
   clock"`); el PC no dorm: mou el rellotge (docs/85). L'emulador **no es reinicia** després d'un son
   profund, i per això les proves criden `kernel::power::restore_session()` a mà.
+- **Les tres velocitats es poden limitar** (0.189.107): `cfg.freq()` diu quines pot fer servir el governador i
+  `power.cpu_auto()` si les tria sol; el que la llista limita també val per a una finestra que demana el pas de dalt per
+  pintar (docs/50, docs/60).
 - **`power.cpu` va de 80 a 240 i prou.** Per sota de 80 l'APB baixa amb la CPU i **cap perifèric del
   core es torna a configurar** (no hi ha ni un `onApbChangeCallback` registrat a `cores/esp32`): el
   port sèrie sortiria amb el baud malament, i és l'única interfície d'aquesta placa. El valor que

@@ -9393,7 +9393,19 @@ namespace kernel {
 // canvas de la pàgina el que tenia**—, o sigui que la pàgina es torna a construir quan `ui.caps()` canvia de mida (el
 // timeclock ja ho feia així) i el cercle torna al control on era; i **el pany de la pantalla des de dins de la pàgina que
 // el tanca**, amb la mateixa casella per tornar-lo a obrir (docs/30, docs/45, docs/90).
-static const char kVersion[] = "0.189.106";
+// 0.189.107 — **la CPU que es pot limitar i la targeta d'una tria que es gira amb el dit** (l'amo: *«(desplegable) Velocitat …
+// [X] Frequency scaling allowed: [X] 80Mhz [X] 160Mhz [X] 240Mhz … Cal fer mesures amb Lua per torn, donar velocitat lenta,
+// normal, ràpida»* i *«El paginador del desplegable que hi ha a System > app at start no respon al drag, si al focus amb els
+// botons gpio»*). **Les tres velocitats del xip són una llista blanca** (`cfg freq [<mhz> on|off|all]`, `cfg.freq()` a Lua) i
+// el governador no en surt mai: `power::allowed_step` acota **cada** moviment —les finestres que demanen el pas de dalt per
+// pintar també— al pas permès més petit que no quedi per sota del que es demana, o al més gran dels permesos, i l'última
+// permetuda no se'n pot anar perquè una placa sense cap velocitat no torna de la resposta. `power.cpu_auto([on])` és l'altra
+// meitat: el commutador de la política, que `power.cpu(<mhz>)` para i aquesta porta torna a encendre. **I un `ui.picker` es gira
+// amb el dit**: una targeta és una llista de valors per pàgines, o sigui que el costat la passa igual que una llista —dreta
+// enrere i esquerra endavant, el contacte gastat i als dos caps res— en comptes de només les dues claus del peu i el dial. El
+// panell d'ajustos hi posa les dues coses: les tres caselles dels passos, el commutador i **les marxes del torn amb nom** (lenta,
+// normal i ràpida) amb els mil·lisegons d'un torn **mesurats a la placa** quan la pestanya s'obre (docs/30, docs/50, docs/75).
+static const char kVersion[] = "0.189.107";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

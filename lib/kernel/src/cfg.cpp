@@ -8,6 +8,7 @@
 
 #include "kernel/calendar.h"
 #include "kernel/log.h"
+#include "kernel/power.h"
 #include "kernel/splash.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
@@ -71,6 +72,10 @@ const size_t kCursorCap = 8;  // "5000" and the null
 // **Si el llançador ordena les apps pels usos** (0.189.13): kept as the words a person reads in the store —`on` and
 // `off`— like the calendar and the hour of summer, and off until somebody asks for it (docs/30, docs/40).
 const char kSortKey[] = "sort";
+// **Les velocitats permeses** (0.189.107): the three bits of the steps the governor may use, kept as the list a person reads
+// —`80,160,240`— and never as a number, for the same reason the hour is `+01:00` (docs/50, docs/70).
+const char kFreqKey[] = "freq";
+const size_t kFreqCap = 12;  // "80,160,240" and the null
 const char kOn[] = "on";
 const char kOff[] = "off";
 const char kMonday[] = "monday";
@@ -100,6 +105,9 @@ uint8_t g_week_start = 1;
 // **A launcher shows the door's order until a person asks for another** (0.189.13): the count of uses is the launcher's
 // and this is only the switch that says whether it sorts by it (docs/30, docs/40).
 bool g_sort_by_usage = false;
+// **Les tres velocitats viuen a `power` i no aquí** (0.189.107): the mask is the policy's own number —it is the governor that
+// has to obey it— and this door reads and writes it there. A byte here and a byte there were eight of `.bss` in a build whose
+// `dram0.bss` is exactly full (docs/75).
 
 bool same(const char* a, const char* b) { return a != nullptr && b != nullptr && strcmp(a, b) == 0; }
 
@@ -177,6 +185,14 @@ bool remember_sort() {
   const char* word = g_sort_by_usage ? kOn : kOff;
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kSortKey, word, strlen(word));
+}
+
+bool remember_freq() {
+  if (g_nvs == nullptr) return false;
+  char text[kFreqCap] = {0};
+  if (!freq_text(text, sizeof(text), freq_mask())) return false;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kFreqKey, text, strlen(text));
 }
 
 bool remember_tz() {
@@ -398,6 +414,27 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
+  // **Les velocitats permeses, llegides abans d'aplicar res**: the mask is what the governor may use, so it has to be in
+  // `power` before the first paint of the boot asks for the top step (0.189.107, docs/50, docs/60).
+  power::set_allowed_steps(kFreqAll);
+  {
+    char raw_freq[kFreqCap] = {0};
+    size_t freq_len = 0;
+    if (g_nvs != nullptr) {
+      meter::Scope scope(meter::kKvGet);
+      if (g_nvs->get(kNamespace, kFreqKey, raw_freq, sizeof(raw_freq) - 1, freq_len) && freq_len > 0 &&
+          freq_len < sizeof(raw_freq)) {
+        raw_freq[freq_len] = '\0';
+        uint8_t mask = 0;
+        if (parse_freq(raw_freq, mask)) {
+          power::set_allowed_steps(mask);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "freq '%s' is not a list of 80, 160 and 240; the board may use all three",
+                     raw_freq);
+        }
+      }
+    }
+  }
   apply();
   // **I si el llançador ordena les apps pels usos** (0.189.13): a word that is neither `on` nor `off` leaves the switch
   // where it was —off— and says so, like the calendar does with a week that is not a week (docs/30, docs/40).
@@ -415,14 +452,16 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
+  char freq_words[kFreqCap] = {0};
+  freq_text(freq_words, sizeof(freq_words), freq_mask());
   log_printf(pal::kLogInfo, "CFG",
              "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, dst %s, week %s, turn %u, "
-             "sort apps by usage %s, cursor delay %d ms",
+             "sort apps by usage %s, cursor delay %d ms, cpu allows %s",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot,
              (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60,
              g_leap_years ? kOn : kOff, g_dst ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday,
              static_cast<unsigned>(luabind::turn_budget()), g_sort_by_usage ? kOn : kOff,
-             static_cast<int>(luabind::caret_blink_ms()));
+             static_cast<int>(luabind::caret_blink_ms()), freq_words);
 }
 
 const char* unit() { return g_unit; }
@@ -475,6 +514,89 @@ bool parse_turn(const char* text, uint32_t& instructions) {
 bool set_turn_instructions(uint32_t instructions) {
   if (!luabind::set_turn_budget(instructions)) return false;
   return remember_turn();
+}
+
+uint32_t freq_step_of(uint8_t bit) {
+  switch (bit) {
+    case 0x01: return power::kIdleMhz;
+    case 0x02: return power::kRestingMhz;
+    case 0x04: return power::kBusyMhz;
+    default: return 0;
+  }
+}
+
+uint8_t freq_mask() { return power::allowed_steps(); }
+
+bool freq_allowed(uint32_t mhz) {
+  const uint8_t mask = freq_mask();
+  for (uint8_t bit = 0x01; bit <= 0x04; bit = static_cast<uint8_t>(bit << 1)) {
+    if ((mask & bit) != 0 && freq_step_of(bit) == mhz) return true;
+  }
+  return false;
+}
+
+bool set_freq_allowed(uint32_t mhz, bool on) {
+  uint8_t bit = 0;
+  for (uint8_t candidate = 0x01; candidate <= 0x04; candidate = static_cast<uint8_t>(candidate << 1)) {
+    if (freq_step_of(candidate) == mhz) bit = candidate;
+  }
+  if (bit == 0) return false;
+  const uint8_t wanted = on ? static_cast<uint8_t>(freq_mask() | bit) : static_cast<uint8_t>(freq_mask() & ~bit);
+  // **L'última no se'n pot anar**: a mask with no bit is a processor with no speed, and a governor that cannot choose is a
+  // board that does not come back from the answer (docs/50).
+  if (wanted == 0) return false;
+  power::set_allowed_steps(wanted);
+  return remember_freq();
+}
+
+bool freq_text(char* out, size_t cap, uint8_t mask) {
+  if (out == nullptr || cap < 4) return false;
+  out[0] = '\0';
+  size_t used = 0;
+  for (uint8_t bit = 0x01; bit <= 0x04; bit = static_cast<uint8_t>(bit << 1)) {
+    if ((mask & bit) == 0) continue;
+    char one[8] = {0};
+    snprintf(one, sizeof(one), "%s%u", (used == 0) ? "" : ",", static_cast<unsigned>(freq_step_of(bit)));
+    const size_t more = strlen(one);
+    if (used + more + 1 > cap) return false;
+    memcpy(out + used, one, more + 1);
+    used += more;
+  }
+  return used > 0;
+}
+
+bool parse_freq(const char* text, uint8_t& mask) {
+  if (text == nullptr || text[0] == '\0') return false;
+  if (same(text, "all") || same(text, "auto")) {
+    mask = kFreqAll;
+    return true;
+  }
+  uint8_t found = 0;
+  const char* at = text;
+  while (*at != '\0') {
+    while (*at == ',' || *at == ' ' || *at == ';') ++at;
+    if (*at == '\0') break;
+    // **A step is 80, 160 or 240 and nothing else**: the three numbers of the chip, so a typo is refused here and not
+    // discovered by a governor that has no step to go to (docs/50).
+    uint32_t value = 0;
+    int digits = 0;
+    while (*at >= '0' && *at <= '9') {
+      value = value * 10u + static_cast<uint32_t>(*at - '0');
+      ++at;
+      ++digits;
+    }
+    if (digits == 0) return false;
+    bool known = false;
+    for (uint8_t bit = 0x01; bit <= 0x04; bit = static_cast<uint8_t>(bit << 1)) {
+      if (freq_step_of(bit) != value) continue;
+      found = static_cast<uint8_t>(found | bit);
+      known = true;
+    }
+    if (!known) return false;
+  }
+  if (found == 0) return false;
+  mask = found;
+  return true;
 }
 
 // **El parpalleig del cursor, que és una preferència i no una constant** (0.189.34): the number lives in `luabind`, which

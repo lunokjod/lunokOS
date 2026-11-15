@@ -589,6 +589,8 @@ void print_help(const char* only) {
   help_continuation("                    have been opened, and `cfg turn [<instructions>]`, the slice of Lua a turn is worth",
                     only);
   help_continuation("                    and `cfg cursor delay [<ms>]`, how long the block of ink lasts before it turns", only);
+  help_continuation(
+      "                    and `cfg freq [<mhz> on|off|all]`, the steps of the processor the policy may use", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -4444,7 +4446,7 @@ bool command_cfg(const char* argument) {
   if (!read_words(argument, words, 3, count)) return false;
   if (count > 3) {
     usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-              "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|"
+              "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
               "cursor delay [<ms>]]\r\n");
     return false;
   }
@@ -4597,6 +4599,81 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
+    // **Les velocitats que la política pot fer servir** (0.189.107, l'amo: *«[X] Frequency scaling allowed: [X] 80Mhz
+    // [X] 160Mhz [X] 240Mhz»*): the three steps of this chip and the person's choice of which ones the governor may move
+    // between. `cfg freq` says them, `cfg freq 240 off` takes the ceiling down to 160 and `cfg freq all` gives it back; the
+    // step that is not allowed is refused here, so a `power cpu 240` that lands on 160 is not a mystery (docs/50, docs/60).
+    if (strcmp(words[0], "freq") == 0) {
+      char text[12] = {0};
+      cfg::freq_text(text, sizeof(text), cfg::freq_mask());
+      if (count == 1) {
+        out("settings: cpu allows ");
+        out(text);
+        out(" MHz (the running step is ");
+        out_num(power::cpu_mhz());
+        out(")\r\n");
+        return true;
+      }
+      if (count == 2 && (strcmp(words[1], "all") == 0 || strcmp(words[1], "auto") == 0)) {
+        uint8_t mask = 0;
+        cfg::parse_freq(words[1], mask);
+        const bool kept = cfg::set_freq_allowed(80, true) && cfg::set_freq_allowed(160, true) &&
+                          cfg::set_freq_allowed(240, true);
+        cfg::freq_text(text, sizeof(text), cfg::freq_mask());
+        out("settings: cpu allows ");
+        out(text);
+        out(" MHz\r\n");
+        if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+        return true;
+      }
+      if (count == 2) {
+        uint8_t mask = 0;
+        if (!cfg::parse_freq(words[1], mask)) {
+          out("cfg: the steps of this board are 80, 160 and 240 MHz, or `all`\r\n");
+          return false;
+        }
+        // **Una llista el lleva tots i deixa aquests**, que és el que una persona vol dir amb `cfg freq 160` (docs/50).
+        for (uint8_t step = 0; step < 3; ++step) {
+          const uint32_t mhz = (step == 0) ? power::kIdleMhz : ((step == 1) ? power::kRestingMhz : power::kBusyMhz);
+          cfg::set_freq_allowed(mhz, (mask & (1u << step)) != 0);
+        }
+        cfg::freq_text(text, sizeof(text), cfg::freq_mask());
+        out("settings: cpu allows ");
+        out(text);
+        out(" MHz\r\n");
+        return true;
+      }
+      // `cfg freq <mhz> on|off`
+      bool on = false;
+      if (!cfg::parse_switch(words[2], on)) {
+        out("cfg: freq takes on or off for a step\r\n");
+        return false;
+      }
+      uint8_t mask = 0;
+      if (!cfg::parse_freq(words[1], mask)) {
+        out("cfg: the steps of this board are 80, 160 and 240 MHz\r\n");
+        return false;
+      }
+      // **Una llista de dues paraules és un sol pas**: `cfg freq 80 240 on` no vol dir res, i es refusa en lloc d'endevinar-ho.
+      uint32_t mhz = 0;
+      for (uint8_t step = 0; step < 3; ++step) {
+        if ((mask & (1u << step)) == 0) continue;
+        if (mhz != 0) {
+          out("cfg: one step at a time, like `cfg freq 240 off`\r\n");
+          return false;
+        }
+        mhz = (step == 0) ? power::kIdleMhz : ((step == 1) ? power::kRestingMhz : power::kBusyMhz);
+      }
+      if (mhz == 0 || !cfg::set_freq_allowed(mhz, on)) {
+        out("cfg: that would leave the processor with no step at all\r\n");
+        return false;
+      }
+      cfg::freq_text(text, sizeof(text), cfg::freq_mask());
+      out("settings: cpu allows ");
+      out(text);
+      out(" MHz\r\n");
+      return true;
+    }
     // **The slice of Lua a turn is worth** (0.174.7): the one number that decides how long a finger on the glass and a
     // key of the board wait for the app to give the turn back. It is applied at once —the next turn of the app already
     // uses it— and kept in the store for the next boot, like every other setting of this door (docs/20, docs/75).
@@ -4621,7 +4698,7 @@ bool command_cfg(const char* argument) {
     }
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-                "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|"
+                "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
                 "cursor delay [<ms>]]\r\n");
       return false;
     }
