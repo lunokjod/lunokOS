@@ -587,7 +587,7 @@ local function note_text()
   end
   if page == 3 then
     if timerWhy ~= '' then return timerWhy end
-    return counting and 'counting down' or 'Pick the minutes and the seconds, then Start'
+    return counting and 'counting down' or 'Pick the minutes and the seconds, then Start — an empty one is zero'
   end
   if chronoWhy ~= '' then return chronoWhy end
   if chronoRun then return 'counting up: Pause holds it, Reset goes back to zero' end
@@ -989,11 +989,14 @@ local function start_or_pause()
       leftAt = 0
       arm_next()
     else
-      local minutes = minSel.index - 1
-      local seconds = secSel.index - 1
+      -- **Un camp buit és un zero** (l'amo: *«cal posar el segons!!! ridicul! si no els poso, s'ha d'assumir 00»*): a countdown
+      -- of five minutes is five minutes and no seconds, and a page that demands both fields for it is a page that asks a
+      -- question whose answer is already known. **El que sí que no es pot** és un compte enrere de res (docs/30, docs/45).
+      local minutes = (minSel.index > 0) and (minSel.index - 1) or 0
+      local seconds = (secSel.index > 0) and (secSel.index - 1) or 0
       local ms = (minutes * 60 + seconds) * 1000
-      if minutes < 0 or seconds < 0 or ms < 1000 then
-        hint = 'Pick the minutes and the seconds: a countdown of nothing is not one'
+      if ms < 1000 then
+        hint = 'A countdown of nothing is not one: pick the minutes or the seconds'
         layout()
         paint_page()
         return

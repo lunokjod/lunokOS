@@ -250,7 +250,8 @@ pick	<minuts>	<segons>
   escriure el que ha llegit, amb l'ancora nova: el valor i l'ancora es mouen junts o el proper arrencada el compta dues
   vegades.
 - **El que la persona havia triat** (els minuts i els segons d'un compte enrere) també és al mateix fitxer: no és una
-  preferència, però tampoc no és la forma d'un control que es pugui tornar sola.
+  preferència, però tampoc no és la forma d'un control que es pugui tornar sola. **I un camp sense triar és un zero** (0.189.104):
+  una durada no demana els dos camps, només no admet que sigui de res.
 
 **On és, a les apps del disc**: `apps/clock` (el cronòmetre i el compte enrere) i `apps/timeclock` (les marques, que ja hi
 eren des del port i es llegeixen amb `time.now()`, i per això una estona que travessa un reinici encara és la que va ser).
