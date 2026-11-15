@@ -974,6 +974,11 @@ i no els 433 de què es partia— i el vidre surt bé amb els dos estils.
 vuit files · 232 amb el rellotge a 240 · **99 amb el bucle sense la lambda**. El que va ensenyar cada pas està als fulls de
 dalt i cap d'ells es va poder endevinar: el primer es va veure mirant el rellotge, el segon comptant instruccions al binari.
 
+**I l'estil per defecte era el dolent** (0.189.83): the boot painted with `rows` —259 ms of wire for a page and **59 for a strip
+of 48 × 540**, against the 214 and **10** the bursts pay for the same bytes— and nothing in the system needed the old path, so
+the bursts are the default now, with the rows kept for a board without the PSRAM of the stretch and `panel flush rows` to go
+back in a breath. La preparació d'una pàgina queda en **312 ms** i la d'una franja en **13**.
+
 **I el rellotge va caldre partir-lo en dos** (placa el 15/11, el que va deixar la pantalla clavada): amb tot el bus a
 vint-i-quatre l'arrencada va dir
 

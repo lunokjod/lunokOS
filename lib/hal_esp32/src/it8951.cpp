@@ -572,6 +572,15 @@ bool It8951::arm() {
   // that is armed again keeps the page an app drew, because an arming that threw it away would leave
   // the glass blank every time the controller came back (0.118.9).
   if (image_ == nullptr && !allocate_image()) return false;
+  // **I els píxels surten en esclats, que és el que mana la mesura** (0.189.83): the strips of the system —the bar, a cell, a
+  // line of a page— pay a hundred microseconds of transaction for every row on the old path and the wire on this one, i la
+  // placa ho va dir dues vegades: **59 ms contra 10** en una franja de 48 × 540 i **259 contra 214** en una pàgina (docs/95).
+  // The bursts need the stretch in the PSRAM and a board without it keeps the rows; `panel flush rows` undoes it in a breath
+  // (docs/50).
+  if (stretch_ != nullptr && style_ == hal::FlushStyle::kRows) {
+    style_ = hal::FlushStyle::kBurst;
+    hal::logf(pal::kLogInfo, "PANEL", "the pixels go out as bursts");
+  }
   ready_ = true;
   // The twenty words are in the line: with them the controller's map stops being a deduction (docs/50,
   // docs/95). The first four are the size and the image address; the rest identify the firmware.
