@@ -959,8 +959,25 @@ L'arreglo (0.189.75): res de lambda, els dos formats com dues especialitzacions 
 instruccions per píxel** —tres vegades menys— i només quan tota la banda cau dins la imatge, que és cada pintada normal; si
 no, hi ha el camí general que comprova els límits.
 
-**Pendent de mesurar**: `gathering` d'una pàgina amb els dos estils amb aquest bucle (s'espera **~100 ms**) i que la pàgina
-surti igual.
+**I la sisena tanda (0.189.75, placa el 15/11) tanca el cercle**: el mateix bucle fa **99 ms** —no els 100 que s'esperaven,
+i no els 433 de què es partia— i el vidre surt bé amb els dos estils.
+
+| pintada (CPU a 240) | cable | ajuntar | preparació |
+|---|---|---|---|
+| **pàgina** 960 × 540, `burst` | 214 ms | **99 ms** | **313 ms** |
+| **pàgina** 960 × 540, `rows` | 259 ms | 100 ms | 359 ms |
+| franja 48 × 540, `burst` | 10 ms | 3 ms | 13 ms |
+| franja 48 × 540, `rows` | 60 ms | 3 ms | 63 ms |
+| 36 × 88, `burst` | 1 ms | 1 ms | 2 ms |
+
+**El camí d'aquest número, i és el resum de tota la feina**: 433 ms amb una fila per banda i el processador a 160 · 321 amb
+vuit files · 232 amb el rellotge a 240 · **99 amb el bucle sense la lambda**. El que va ensenyar cada pas està als fulls de
+dalt i cap d'ells es va poder endevinar: el primer es va veure mirant el rellotge, el segon comptant instruccions al binari.
+
+**I el que queda ja no és el gir sinó el cable**: 214 ms per a 259 200 B són **1,21 MB/s**, que és un deu megahertz
+aprofitat al noranta-set per cent. La imatge ja no es pot girar més de pressa; l'única manera d'enviar-la més de pressa és
+**pujar el rellotge del bus** (20 o 24 MHz, que és el que el driver de referència fa servir per a les dades), i això tallaria
+els 214 en uns 110.
 
 **I el `2bit` pinta de debò però amb els nivells mal posats**: la pàgina no llisca i el rectangle és el correcte, però el
 vidre surt **notablement més fosc** (l'amo: *«la pantalla s'ha enfosquit notablement, no és negre, simplement més fosca»*).

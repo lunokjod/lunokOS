@@ -1166,7 +1166,17 @@ Dos arreglos, cap d'ells un canvi d'idea:
 2. **El camí de sempre també ajunta per bandes**: the sending is still one row per transaction —that is the style— but the
    rows come out of a band gathered in one pass, so the slow path is not slow because of the turn.
 
-**Pendent de mesurar**: el que s'espera és `gathering` de la pàgina a l'ordre dels cent amb els dos estils.
+**I a la placa va acabar baixant a 99 ms** (0.189.75, docs/95): tres passos, i cap d'ells era el que semblava. El primer,
+les files en bandes (433 → 321). El segon, veure que el número no responia al codi i
+preguntar-ho **al rellotge** —318 ms a 160 MHz i 232 a 240, o sigui que era codi i no memòria—. El tercer, llegir el binari:
+el bucle feia **35 instruccions i 13 càrregues per píxel**, vuit de les quals eren les variables que una lambda `[&]` captura
+per referència, rellegides d'un punter a cada píxel. Sense lambda, amb els dos formats com a especialitzacions de compilació i
+la imatge caminada amb punters: **11 instruccions per píxel i 99 ms**.
+
+**I el que queda ja no és el gir sinó el bus**: la pàgina sencera prepara en **313 ms** (214 de cable i 99 de gir) i el cable
+és a 1,21 MB/s, o sigui un deu megahertz aprofitat al noranta-set per cent. Per baixar d'aquí cal **pujar el rellotge de
+l'SPI**, que és l'única palanca que queda i la que el driver de referència ja aprofita (24 MHz a les dades, deu a les
+comandes).
 
 **El tercer estil era un bit per píxel i no podia ser-ho** (0.189.67, corregit): el camp de format de `LD_IMG_AREA` té
 **quatre valors i cap cinquè** —`IT8951_2BPP 0`, `IT8951_3BPP 1`, `IT8951_4BPP 2`, `IT8951_8BPP 3`, a `IT8951_Defines.h`
