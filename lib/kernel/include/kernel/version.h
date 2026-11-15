@@ -9266,7 +9266,13 @@ namespace kernel {
 // `duration` 140, so it is not a five-per-second animation whatever its name says— and the panel spends 195 ms on a 64 x 64
 // anyway, o sigui **5,1 frames per segon**; amb el ritme forçat a 200 el bucle fa 194 ms per frame igualment, perquè el que
 // mana és el panell i el rellotge només hi pot afegir espera, no treure'n (docs/50, docs/95).
-static const char kVersion[] = "0.189.63";
+// 0.189.64 — **una animació de cinc per segon hi cap** (l'amo: *«prova loading_bounce_64x64_5pfs_5ft.gif»*): those are five
+// frames of 200 ms —a second of loop— and the panel spends **194 ms** on a 64 x 64, so the loop waits the six that are left
+// and the animation runs at its own pace: **5,15 frames per second**. It is the answer to the question the last three
+// versions were measuring: seven a second is not something this glass gives, **five is**, and the picture has to be bought by
+// the pixel —64 x 64 costs 894 B of frames in total— and not by the mode, because `du` is already the fastest one there is and
+// `du4` measures the same (docs/50, docs/95).
+static const char kVersion[] = "0.189.64";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

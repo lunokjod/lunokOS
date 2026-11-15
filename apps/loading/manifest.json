@@ -1,7 +1,7 @@
 {
   "title": "Loading",
   "author": "@lunokjod",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "entry": "loading.lua",
   "boards": ["esp32"],
   "icon": "res/icon.png",

@@ -22,10 +22,10 @@
 -- això el GIF és petit i no gran: **una animació a aquest panell es paga pels píxels que s'envien**.
 --
 -- **El sostre del panell, mesurat**: amb `du` i el bucle compensat, 500 x 500 fan 817 ms per frame, 120 x 120 en fan 262 i
--- 64 x 64 en fan **195** —o sigui **5,1 frames per segon**—, i la corba s'aplana perquè la tinta de `du` són 120 ms que el
--- panell reté faci la mida que faci la imatge. **Set per segon no s'hi arriba amb cap mida** i el que limita és el refresc
--- directe d'aquest vidre i no el fitxer: el GIF demana 140 ms per frame i el panell en necessita 195, o sigui que aquesta
--- animació va un quart més lenta que l'original i no hi ha cap bug al mig (docs/50, docs/95).
+-- 64 x 64 en fan **194** —o sigui **5,15 frames per segon**—, i la corba s'aplana perquè la tinta de `du` són 120 ms que el
+-- panell reté faci la mida que faci la imatge. **Set per segon no s'hi arriba amb cap mida**; **cinc sí**, i per això aquesta
+-- animació va al seu ritme: el GIF demana 200 ms i el panell en gasta 194, o sigui que el bucle espera els sis que falten
+-- (docs/50, docs/95).
 --
 -- **I el rellotge del bucle compta el que el panell s'ha gastat**: `du` de 120 x 120 són 144 ms i el GIF en vol 140, o sigui
 -- que esperar-ne 140 més seria fer el doble de lent el que el panell ja fa sol. El que s'espera és **el que falta** fins al
