@@ -27,9 +27,19 @@ inline uint16_t band_row_bytes(uint16_t w, bool two_bit) {
   return two_bit ? static_cast<uint16_t>((w + 3u) / 4u) : static_cast<uint16_t>(w / 2u);
 }
 
+// **`always_inline` i no `inline`** (0.189.73): this project is built with `-Os`, which is the Arduino default, and there an
+// `inline` function of this size is **a call** —the board measured eighty-six cycles for every pixel of a page, and a call
+// with its prologue, its comparisons and its return is most of them—. It is the hot loop of the whole panel path and it is
+// asked to be a few instructions and nothing else (docs/50, docs/95).
+#if defined(__GNUC__)
+#define LUNOK_GATHER_INLINE inline __attribute__((always_inline))
+#else
+#define LUNOK_GATHER_INLINE inline
+#endif
+
 // **The four bits of a pixel of the image**, or the white of the panel when the pixel falls outside it —a rectangle that
 // runs past the edge of the page is paper and not a read of nobody's memory (docs/50).
-inline uint8_t image_level(const uint8_t* image, uint16_t width, uint16_t height, int32_t x, int32_t y,
+LUNOK_GATHER_INLINE uint8_t image_level(const uint8_t* image, uint16_t width, uint16_t height, int32_t x, int32_t y,
                            uint8_t white) {
   if (x < 0 || y < 0 || x >= static_cast<int32_t>(width) || y >= static_cast<int32_t>(height)) return white;
   const uint32_t stride = static_cast<uint32_t>(width) / 2u;
@@ -84,40 +94,49 @@ inline void gather_band(uint8_t* out, const uint8_t* image, uint16_t width, uint
                                            : static_cast<int32_t>(nx0);
   const int32_t dy = (rotation == 90) ? -1 : 1;
 
-  // **Un byte de la fila del vidre són `per_byte` píxels seguits**, so the byte is built in a register and written once: the
-  // first version of this kept an accumulator, a count and a place per row of the band, and those three arrays indexed by a
-  // variable were more memory traffic than the pixels they carried —three hundred and twenty milliseconds of a page, which
-  // the board measured before this was written (docs/50, docs/95).
-  const uint16_t whole = static_cast<uint16_t>(w / per_byte);
-  for (uint16_t b = 0; b < whole; ++b) {
-    const uint16_t i = static_cast<uint16_t>(b * per_byte);
-    for (uint16_t r = 0; r < h; ++r) {
-      const int32_t x = x_first + dx * static_cast<int32_t>(r);
-      uint8_t byte = 0;
-      int32_t y = y_first + dy * static_cast<int32_t>(i);
-      for (uint8_t k = 0; k < per_byte; ++k) {
-        const uint8_t level = image_level(image, width, height, x, y, white);
-        byte = static_cast<uint8_t>((byte << bits) | (two_bit ? (level >> 2) : level));
-        y += dy;
+  // **Un byte de la fila del vidre són `per_byte` píxels seguits**, and the byte is built in a register and written once: the
+  // first version kept an accumulator, a count and a place **per row of the band** —three arrays indexed by a variable, more
+  // memory traffic than the pixels they carried— and the board measured three hundred and twenty milliseconds of a page for
+  // it (docs/50, docs/95). **I els dos camins són dues funcions i no una amb un compte**: with `per_byte` in a variable the
+  // compiler cannot unroll the few pixels of a byte, and this loop is the whole of the panel's cost. A lambda called with a
+  // constant is the same code written once and compiled twice.
+  auto fill = [&](uint8_t per_byte, uint8_t bits) {
+    const uint16_t whole = static_cast<uint16_t>(w / per_byte);
+    for (uint16_t b = 0; b < whole; ++b) {
+      const uint16_t i = static_cast<uint16_t>(b * per_byte);
+      for (uint16_t r = 0; r < h; ++r) {
+        const int32_t x = x_first + dx * static_cast<int32_t>(r);
+        uint8_t byte = 0;
+        int32_t y = y_first + dy * static_cast<int32_t>(i);
+        for (uint8_t k = 0; k < per_byte; ++k) {
+          const uint8_t level = image_level(image, width, height, x, y, white);
+          byte = static_cast<uint8_t>((byte << bits) | (two_bit ? (level >> 2) : level));
+          y += dy;
+        }
+        out[static_cast<uint32_t>(r) * row_bytes + b] = byte;
       }
-      out[static_cast<uint32_t>(r) * row_bytes + b] = byte;
     }
-  }
-  // **I la cua**, when a row of the glass does not end on a whole byte: the low bits are zeros, as the slow path pads them.
-  const uint16_t rest = static_cast<uint16_t>(w - whole * per_byte);
-  if (rest != 0) {
-    for (uint16_t r = 0; r < h; ++r) {
-      const int32_t x = x_first + dx * static_cast<int32_t>(r);
-      uint8_t byte = 0;
-      int32_t y = y_first + dy * static_cast<int32_t>(whole * per_byte);
-      uint8_t k = 0;
-      for (; k < rest; ++k) {
-        const uint8_t level = image_level(image, width, height, x, y, white);
-        byte = static_cast<uint8_t>((byte << bits) | (two_bit ? (level >> 2) : level));
-        y += dy;
+    // **I la cua**, when a row of the glass does not end on a whole byte: the low bits are zeros, as the slow path pads them.
+    const uint16_t rest = static_cast<uint16_t>(w - whole * per_byte);
+    if (rest != 0) {
+      for (uint16_t r = 0; r < h; ++r) {
+        const int32_t x = x_first + dx * static_cast<int32_t>(r);
+        uint8_t byte = 0;
+        int32_t y = y_first + dy * static_cast<int32_t>(whole * per_byte);
+        uint8_t k = 0;
+        for (; k < rest; ++k) {
+          const uint8_t level = image_level(image, width, height, x, y, white);
+          byte = static_cast<uint8_t>((byte << bits) | (two_bit ? (level >> 2) : level));
+          y += dy;
+        }
+        out[static_cast<uint32_t>(r) * row_bytes + whole] = static_cast<uint8_t>(byte << (bits * (per_byte - k)));
       }
-      out[static_cast<uint32_t>(r) * row_bytes + whole] = static_cast<uint8_t>(byte << (bits * (per_byte - k)));
     }
+  };
+  if (two_bit) {
+    fill(4, 2);
+  } else {
+    fill(2, 4);
   }
 }
 

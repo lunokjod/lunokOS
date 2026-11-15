@@ -924,9 +924,23 @@ del driver i no de la idea: el bucle nou, amb una sola fila de banda, és més l
 (0.189.71): el byte de la fila es fa al registre en comptes de portar tres taules per fila de la banda, i el camí de sempre
 també ajunta per bandes (l'enviament segueix essent una fila per transacció, que és el que aquest estil és).
 
-**Pendent de mesurar**: `gathering` de la pàgina amb `burst` i amb `rows` —l'esperat és l'ordre dels cent en els dos— i la
-franja de 48 × 540, que ha de dir ~10 ms de cable i ~10 d'ajuntar. I la pàgina ha de sortir igual: si surt girada, tombada o
-amb una fila desplaçada, el que falla és la banda i es torna a `rows` per confirmar-ho.
+**La quarta tanda (0.189.72, placa el 15/11)**: els dos arreglos d'abans van deixar el número **clavat on era**: 321 ms
+d'ajuntar amb `burst` i 319 amb `rows` —el regrés del camí de sempre sí que es va curar, de 527 a 319—. O sigui que ni les
+tres taules per fila ni la memòria cau eren el coll: **el que costava era una crida de funció per píxel**.
+
+La prova és al codi que genera el compilador, no en una sospita: amb `-Os` —que és el que l'Arduino posa per defecte i per
+tant el que aquest projecte compila— una funció `inline` d'aquest tamany **no s'inlina**, i `objdump` deia `callx8` dins del
+bucle. Amb `__attribute__((always_inline))` la crida desapareix. I el compte de píxels d'un byte, que era una variable, ara
+són **dues funcions compilades d'una sola escriptura** (una lambda cridada amb una constant), perquè el compilador pugui
+desenrotllar els dos o quatre píxels d'un byte.
+
+**Pendent de mesurar**: `gathering` de la pàgina amb `burst` i amb `rows`, i la franja de 48 × 540 (que ha de dir ~10 ms de
+cable i ~10 d'ajuntar). La pàgina ha de sortir igual: si surt girada, tombada o amb una fila desplaçada, el que falla és la
+banda i es torna a `rows` per confirmar-ho.
+
+**Si el número no es mou ni amb això**, el que queda no és el codi sinó la PSRAM, i el camí és un altre: portar la imatge a
+la RAM interna (no hi cap una pàgina) o **pujar el processador a 240 MHz mentre es pinta** amb `power::hold_cpu()`, que a
+160 MHz deixaria un terç de la feina a taula.
 
 **I el `2bit` pinta de debò però amb els nivells mal posats**: la pàgina no llisca i el rectangle és el correcte, però el
 vidre surt **notablement més fosc** (l'amo: *«la pantalla s'ha enfosquit notablement, no és negre, simplement més fosca»*).
