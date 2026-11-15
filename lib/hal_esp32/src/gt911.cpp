@@ -167,26 +167,29 @@ uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {
   // no second edge ever came and the rest of the contact was invisible. That is a tap that works once and a swipe that never
   // exists — *«al dispositiu real NI UN [drag]»* —. The wait is bounded and only happens on the turn the line warned, which
   // is the one turn a frame is on its way (docs/50, docs/95).
+  // **Es mira dues vegades i no es gira vint** (0.189.87): the line falls when the chip *starts* to have something and the
+  // frame bit is set a few milliseconds later, so waiting was right — but the wait was twenty tries of a millisecond **and then
+  // the flag was dropped**, which made an edge with nothing behind it cost thirty milliseconds. The board measured it: three
+  // and a half edges a second with no finger, and a tenth of the uptime gone. Now the wait is two milliseconds and the flag
+  // **stays up** when the frame is not there yet: the next turn is ten milliseconds away and the frame, which is three
+  // milliseconds behind its edge, is caught then. A real finger is never lost, and a wire that fires for nothing costs one
+  // read of three bytes (docs/50, docs/95).
   bool has_a_frame = false;
-  for (int tries = 0; tries < 20 && !has_a_frame; ++tries) {
+  for (int tries = 0; tries < 2 && !has_a_frame; ++tries) {
     if (!bus_->read16(address_, kRegStatus, &status, 1)) {
       // The chip did not answer: the warning was for a frame this turn cannot take, and the next scan warns again.
       g_frame_ready = false;
       return 0;
     }
     has_a_frame = (status & 0x80) != 0;
-    // **One millisecond and not a busy wait**: the bus is shared with the clock, the FRAM and the air sensor, and the chip
-    // needs a scan to put the frame in its register (docs/50).
-    if (!has_a_frame && tries < 19) pal::delay_us(1000);
+    if (!has_a_frame && tries == 0) pal::delay_us(2000);
   }
-  // **A chip with no frame has nothing to be told** (0.174.4): bit 7 clear is "there is nothing to hand over", so there
-  // is no frame to take away either, and this board was paying a three-byte write on a hundred-kilohertz bus once per
-  // turn to say so. Both vendor drivers clear the status only inside the bit. A frame that **is** there is released
-  // whatever it holds, zero fingers and too many of them included, or the chip would answer with it for ever (docs/50).
+  // **I si encara no hi és, es deixa la línia neta** (0.189.87): the line stays low until the status is written back, so a flag
+  // that is dropped without that write is a chip that never warns again —the tap that works once of 0.188.7—. Writing the zero
+  // lifts the line, and a finger that is still down has a new scan in fifty milliseconds and warns again with a new edge. Així
+  // un avís que no portava res costa dues lectures i una escriptura, i no vint intents de mil·lisegon (docs/50, docs/95).
   if (!has_a_frame) {
-    // **Vint mil·lisegons sense res és un avís que no era de ningú** (0.188.7): the flag is dropped so that a line that
-    // stayed low for a reason nobody is going to read does not keep the driver waiting for a frame that never comes
-    // (docs/50, docs/95).
+    release();
     g_frame_ready = false;
     ++g_warnings_without_frame;
     return 0;
