@@ -16528,6 +16528,86 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   storage->remove("/apps/tz/manifest.json");
 }
 
+// **El cronòmetre i el compte enrere del Clock són al disc i l'ancora és l'hora de la placa** (0.189.103, l'amo: *«Clock ->
+// Chronomether, no manté l'hora ni continua comptant rera tancar l'app o el reinici … se suposa que aquestes apps usaven el
+// disc i els rellotges que puguin haver»*). The run file says when the run started and what it already counted, so a
+// chronograph that was counting when the board went down comes back running **with the time it ran while the app was not
+// there**, a countdown whose deadline went by comes back finished and says so in the log, and the minutes and seconds the
+// person had picked are the ones the fields show (docs/30, docs/45).
+void test_the_clock_keeps_its_run_across_a_restart(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+
+  // **The hour of the board is a fact of the test and not of this machine** (docs/85): it comes before the boot, or the app
+  // would read an epoch that is not the one the file was written with.
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  opts.now_epoch = 1794819600;  // Monday 16 November 2026, 09:00 CET
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  // **The app that ships is the app the test runs** (docs/85).
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/clock"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/clock/clock.lua", "/apps/clock/clock.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/clock/manifest.json", "/apps/clock/manifest.json"));
+
+  // **I el que la placa va deixar a mig fer**: a chronograph that has been counting for two minutes and five seconds, a
+  // countdown of a minute that ran out ninety seconds ago, and the two fields as the person picked them.
+  const int64_t now_ms = static_cast<int64_t>(opts.now_epoch) * 1000;
+  char run[192];
+  snprintf(run, sizeof(run), "chrono\trun\t0\t%lld\ntimer\trun\t60000\t%lld\npick\t9\t8\n",
+           static_cast<long long>(now_ms - 125000), static_cast<long long>(now_ms - 90000));
+  TEST_ASSERT_TRUE(storage->mkdir("/data"));
+  TEST_ASSERT_TRUE(storage->mkdir("/data/clock"));
+  hal::FileSlot slot;
+  TEST_ASSERT_TRUE(storage->open("/data/clock/run.txt", hal::OpenMode::kWrite, slot));
+  TEST_ASSERT_EQUAL_INT(static_cast<int32_t>(strlen(run)),
+                        storage->write(slot, run, static_cast<uint32_t>(strlen(run))));
+  storage->close(slot);
+
+  // **The console is read from the run itself**: the line of the countdown is said at boot, and `pump_captured` is the
+  // capture of that command (a `capture_begin` in front of it is closed by it, found here).
+  pump_turns(20);
+  pump_captured(120, g_out, sizeof(g_out), "run clock");
+  pump_turns(60);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "clock: the countdown ran out while the app was away"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  // **What the app wrote back is the truth of the two instruments**: the chronograph is running and carries the two minutes
+  // and five seconds it ran while the app was not there, the countdown is held at nothing because its deadline went by, and
+  // the pick of the person is still there.
+  char after[256];
+  TEST_ASSERT_TRUE(read_text(storage, "/data/clock/run.txt", after, sizeof(after)));
+  long long acc = 0;
+  long long at = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(after, "chrono\trun\t%lld\t%lld", &acc, &at), after);
+  TEST_ASSERT_GREATER_THAN(120000, acc);
+  TEST_ASSERT_LESS_THAN(130000, acc);
+  TEST_ASSERT_GREATER_THAN(static_cast<long long>(now_ms - 1000), at);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(after, "timer\thold\t0\t0"), after);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(after, "pick\t9\t8"), after);
+
+  close_any_app();
+  storage->remove("/data/clock/run.txt");
+  storage->remove("/apps/clock/clock.lua");
+  storage->remove("/apps/clock/manifest.json");
+
+  // The next test gets the default emulator back: the display, the panel and the hour were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  opts.now_epoch = 0;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **The eraser of the repository, on the disk of this run**: a case that failed before its clean-up leaves the folder
 // behind, so the folder is taken away first and a second case cannot fail on the leftovers of the first (docs/85).
 bool install_the_eraser(hal::IStorage* storage) {
@@ -17638,6 +17718,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_strip_that_closes_its_tabs_draws_its_crosses);
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
+  RUN_TEST(test_the_clock_keeps_its_run_across_a_restart);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);
   RUN_TEST(test_a_swipe_up_or_down_is_not_a_page_of_a_list);
   RUN_TEST(test_the_shelf_lists_the_faces_and_leaves_the_other_files_out);

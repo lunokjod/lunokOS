@@ -9327,6 +9327,18 @@ namespace kernel {
 // un toc fet sobre un vidre buit es lliura **després** que la pàgina hi sigui i clicava la cel·la del llançador de sota el dit;
 // ara la pàgina nova **ha de veure el vidre buit abans que cap contacte sigui seu** (`g_page_wants_an_empty_glass`) (docs/30,
 // docs/50).
+// 0.189.103 — **el cronòmetre i el compte enrere del Clock són al disc, ancorats a l'hora de la placa** (l'amo: *«Clock ->
+// Chronomether, no manté l'hora ni continua comptant rera tancar l'app o el reinici … se suposa que aquestes apps usaven el
+// disc i els rellotges que puguin haver»*). **El que corre es mesurava amb `sys.time_ms()` i vivia a la memòria de la pàgina**,
+// o sigui que tancar l'app el tornava a zero i un reinici l'esborrava. Ara cada instrument desa al seu fitxer
+// (`/data/clock/run.txt`) **el que ja comptava i el moment del món en què va arrencar** (`time.now_ms()`), i en tornar es
+// torna a calcular: un cronòmetre que comptava quan la placa es va quedar sense bateria torna **comptant i amb la estona que
+// va córrer mentre l'app no hi era**, i un compte enrere que ha vençut mentre no hi érem torna aturat i **ho diu a la línia de
+// sota i al log** en lloc d'ensenyar el que li tocaria. La tirada es continua mesurant amb `sys.time_ms()` —NTP pot moure el
+// segon i el cronòmetre no ha de saltar— i l'ancora només serveix per creuar el forat; quan la placa no té hora es diu en
+// lloc d'inventar-se'l. **El compte enrere arma la seva promesa amb `persist`**, com l'alarma diària, o sigui que sona encara
+// que la placa s'hagi desendollat, i es torna a armar després d'esborrar les promeses velles de l'app. I el rellotge de la
+// persona torna també: **els minuts i els segons triats** són al mateix fitxer (docs/30, docs/45).
 // 0.189.102 — **`ui.picker`, el desplegable d'un camp amb la targeta del sistema** (l'amo: *«App Clock: desplegables incorrectes
 // amb vista personalitzada, els vull com l'original, un desplegable que et mostr un modal amb els minuts/hores/dies i dos botons
 // per anar endavant i endarrere … Tot sota UIControl. No vull controls pintats i artesanals»*). És el `OptionPicker` del
@@ -9354,7 +9366,7 @@ namespace kernel {
 // forats del sistema que aquesta app és la primera a trepitjar: **un `ui.button` sense vores d'una pàgina esborrava tota la
 // pàgina** —la cara es pinta al canvas del pare i el clear dels cantons era de tot el canvas— i ara la cara és la caixa del
 // botó (docs/30, docs/40, docs/45, docs/50).
-static const char kVersion[] = "0.189.102";
+static const char kVersion[] = "0.189.103";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

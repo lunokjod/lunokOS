@@ -230,6 +230,31 @@ El cercle el mou el sistema (0.179.4), o sigui que el llançador no té cap `on_
 l'únic lloc que sap on és el dial**, i compara `grid.index` amb el que ja ha desat abans de copiar-lo al bloc. Un id que el
 disc ja no té és la primera cel·la, que és el que fa una pàgina sense record.
 
+## 5 ter · El que corre: el cronòmetre i el compte enrere (0.189.103)
+
+**Un número que corre no és la forma de la vista i no va a `state`**: va a la dada de l'app, amb el seu fitxer. I el que
+hi va no és el número, sinó **el moment del món en què va arrencar** —`time.now_ms()`, l'època de la pólvora de la
+placa— més el que ja comptava, perquè és l'única parella que es pot tornar a llegir després d'un reinici.
+
+```
+chrono	run|hold	<el que ja comptava>	<època en què va arrencar>
+timer	run|hold	<el que quedava>	<època en què va arrencar>
+pick	<minuts>	<segons>
+```
+
+- **La tirada es mesura amb `sys.time_ms()`**, que és monòton i no salta quan arriba una sincronització NTP; `time.now_ms()`
+  només serveix per creuar el forat d'un reinici, i quan la placa no té hora **es diu** en lloc d'inventar-se una estona.
+- **`alarm.at` del compte enrere porta `persist`**, com l'alarma diària (`repeat`): una promesa que no sobreviu a un
+  desendollament és una promesa que no sona, i la promesa es torna a deixar **després** d'esborrar les velles.
+- **Cada canvi de la marxa va al disc abans de pintar** (arrencar, aturar, posar a zero), i en tornar l'app hi torna a
+  escriure el que ha llegit, amb l'ancora nova: el valor i l'ancora es mouen junts o el proper arrencada el compta dues
+  vegades.
+- **El que la persona havia triat** (els minuts i els segons d'un compte enrere) també és al mateix fitxer: no és una
+  preferència, però tampoc no és la forma d'un control que es pugui tornar sola.
+
+**On és, a les apps del disc**: `apps/clock` (el cronòmetre i el compte enrere) i `apps/timeclock` (les marques, que ja hi
+eren des del port i es llegeixen amb `time.now()`, i per això una estona que travessa un reinici encara és la que va ser).
+
 ## 6 · Les proves, i la versió de l'app
 
 - **Cada port porta una prova que arrenca l'app de debò** (`test_apps`, docs/80): es copia l'app del

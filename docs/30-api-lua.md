@@ -708,6 +708,12 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 `time.now()` pot **saltar endavant** quan arriba una sincronització. Per mesurar durades, sempre
 `sys.time_ms()`.
 
+**Però una durada que ha de sobreviure a un reinici necessita les dues coses**: `sys.time_ms()` és la tirada d'aquesta
+arrencada i no vola un reinici, i `time.now_ms()` és el moment del món i sí que el creua. El que fa una app és mesurar amb
+el primer i **desar-se l'època en què va arrencar** per poder tornar a calcular quan torna: així un cronòmetre que comptava
+quan la placa es va desendollar torna comptant amb la seva estona. El cas sencer, amb el fitxer i el codi, és a
+**docs/45 § «5 ter · El que corre»** i a `apps/clock`.
+
 **Avui hi ha** `time.now()`, `time.now_ms()`, `time.utc`, `time.date`, `time.tz`, `time.leap`, `time.week` i `time.caps()`.
 `format`, `parse`, `set`, `tz` amb noms de zona i `sync` encara no existeixen; l'hora la dona el rellotge i cada u la trenca
 com vol (docs/60).

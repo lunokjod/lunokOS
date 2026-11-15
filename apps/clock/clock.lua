@@ -70,9 +70,17 @@ local hint = ''
 local alarms = {}
 local marked = 0
 
--- El compte enrere i el cronòmetre.
-local counting, leftMs, leftFrom = false, 0, 0
-local chronoRun, chronoAcc, chronoFrom, chronoWhy = false, 0, 0, ''
+-- **El compte enrere i el cronòmetre són dos rellotges i no dos números de la pàgina** (l'amo: *«Clock -> Chronomether, no
+-- manté l'hora ni continua comptant rera tancar l'app o el reinici … se suposa que aquestes apps usaven el disc i els
+-- rellotges que puguin haver»*). La tirada es mesura amb `sys.time_ms()` —que no salta mai, i NTP pot moure el segon— i
+-- s'ancora a l'hora de debò amb `time.now_ms()`, que és la de la pólvora de la placa i sobreviu a un reinici: els dos junts
+-- donen un cronòmetre que compta mentre l'app no hi és (docs/30, docs/60).
+-- **Els dos camps del compte enrere es declaren aquí i no amb els altres controls** perquè el fitxer del que corre els
+-- llegeix i els escriu, i un `local` que encara no existeix és un global buit dins d'una funció que ja s'ha escrit.
+local minSel, secSel
+local counting, leftMs, leftFrom, leftAt = false, 0, 0, 0
+local chronoRun, chronoAcc, chronoFrom, chronoAt, chronoWhy = false, 0, 0, 0, ''
+local timerWhy = ''
 
 -- L'alarma que ha sonat, si n'hi ha una: mentre hi és, la pantalla és aquesta i prou.
 local fired = nil
@@ -113,6 +121,114 @@ local function write_alarms()
   end
   if #lines == 0 then lines[1] = '' end
   fs.write(path, table.concat(lines, '\n') .. '\n')
+end
+
+-- ============================================================ el que corre
+--
+-- **El que corre es desa amb l'hora de la placa i no amb la de l'arrencada**: `sys.time_ms()` mesura la tirada d'aquest
+-- arrencada i `time.now_ms()` diu en quin moment del món va començar, o sigui que el que s'escriu al disc és
+-- **el que ja comptava més el moment en què va arrencar**, i d'aquí es torna a calcular quan l'app torna. Un cronòmetre que
+-- s'atura en tancar l'app no és un cronòmetre, i un compte enrere que s'atura tampoc (docs/30, docs/45).
+--
+--   chrono	run|hold	12345	1763234567890
+--   timer	run|hold	600000	1763234567890
+--   pick	05	30
+--
+-- **Aquest fitxer és dada de l'app i no una sessió `state`**: una sessió és la forma de la vista, i un número que corre no
+-- és una forma (docs/30, la norma de la sessió).
+local runPick = nil    -- the countdown the person had picked, until the two fields exist
+
+local function epoch_ms()
+  local ok, now = pcall(time.now_ms)
+  if not ok or type(now) ~= 'number' or now <= 0 then return 0 end
+  return math.floor(now)
+end
+
+local function run_path() return fs.data('run.txt') end
+
+local function write_run()
+  local path = run_path()
+  if path == nil then return end
+  local min = (minSel ~= nil) and math.max(0, minSel.index - 1) or 0
+  local sec = (secSel ~= nil) and math.max(0, secSel.index - 1) or 0
+  local text = string.format('chrono\t%s\t%d\t%d\ntimer\t%s\t%d\t%d\npick\t%d\t%d\n',
+    chronoRun and 'run' or 'hold', chronoAcc, chronoRun and chronoAt or 0,
+    counting and 'run' or 'hold', math.floor(leftMs), counting and leftAt or 0, min, sec)
+  local written, why = fs.write(path, text)
+  if written == nil then
+    console.print('clock: the run is not on the disk (' .. tostring(why and why.code or 'the disk') .. ')')
+  end
+end
+
+-- **La tornada**: el que el disc diu es converteix en el que l'app ensenya. La diferència de rellotge es comprova abans de
+-- fer-la servir —una placa sense hora, o un rellotge que ha anat enrere, no poden inventar-se una tirada— i quan no es pot
+-- saber, l'app ho diu a la línia de sota en lloc de mentir.
+local function read_run()
+  local path = run_path()
+  if path == nil then return end
+  local text = fs.read(path)
+  if text == nil then return end
+  local now = epoch_ms()
+  for row in text:gmatch('[^\n]+') do
+    local pick_min, pick_sec = row:match('^pick\t(%d+)\t(%d+)$')
+    if pick_min ~= nil then
+      -- **Els camps encara no existeixen quan això es llegeix**: the run file is read before the page is built, so the pick
+      -- waits for the two fields and is put there once they are (docs/30).
+      runPick = { min = tonumber(pick_min), sec = tonumber(pick_sec) }
+    end
+    local kind, mode, value, at = row:match('^([%a]+)\t(%a+)\t(%d+)\t(%d+)$')
+    if kind == 'chrono' then
+      local acc = tonumber(value) or 0
+      if mode == 'run' then
+        local started = (now > 0 and tonumber(at) ~= nil and tonumber(at) > 0) and tonumber(at) or 0
+        local delta = (started > 0) and (now - started) or 0
+        if delta > 0 then
+          chronoAcc = acc + delta
+          -- **L'ancora passa a ser aquest moment**: the value on the disk is the one the run started with, and what is on the
+          -- page now is that value plus the time it ran, so the pair has to move together or the next boot counts it twice
+          -- (docs/30).
+          chronoAt = now
+        else
+          chronoAcc = acc
+          chronoAt = 0
+          chronoWhy = 'the clock is not set: the chronograph lost the time it ran while the app was away'
+          console.print('clock: the chronograph is back without the time it ran (' .. chronoWhy .. ')')
+        end
+        chronoRun = true
+        chronoFrom = sys.time_ms()
+      else
+        chronoAcc = acc
+        chronoRun = false
+      end
+    elseif kind == 'timer' then
+      local left = tonumber(value) or 0
+      if mode == 'run' then
+        local started = (now > 0 and tonumber(at) ~= nil and tonumber(at) > 0) and tonumber(at) or 0
+        local delta = (started > 0) and (now - started) or 0
+        left = left - delta
+        if delta <= 0 then
+          timerWhy = 'the clock is not set: the countdown lost the time it ran while the app was away'
+        end
+        if left <= 0 then
+          counting = false
+          leftMs = 0
+          leftAt = 0
+          if delta > 0 then
+            timerWhy = 'the countdown ran out while the app was away'
+            console.print('clock: the countdown ran out while the app was away')
+          end
+        else
+          counting = true
+          leftMs = left
+          leftFrom = sys.time_ms()
+          leftAt = now
+        end
+      else
+        counting = false
+        leftMs = (left > 0) and left or 0
+      end
+    end
+  end
 end
 
 -- La fila d'una alarma, com la de la llista de PaperOS: la data si en té, l'hora i la nota.
@@ -385,7 +501,7 @@ local function refused(what, why)
 end
 
 local tabs, primary, secondary, dismiss, alarmList
-local daySel, moSel, hourSel, quarSel, minSel, secSel, noteBox
+local daySel, moSel, hourSel, quarSel, noteBox
 
 -- El que té el cercle va pel nom i no pel número (docs/30), o sigui que l'app ha de saber quin és.
 local shape = { focus = nil }
@@ -470,6 +586,7 @@ local function note_text()
     return head .. ', next ' .. row_text(alarms[1])
   end
   if page == 3 then
+    if timerWhy ~= '' then return timerWhy end
     return counting and 'counting down' or 'Pick the minutes and the seconds, then Start'
   end
   if chronoWhy ~= '' then return chronoWhy end
@@ -869,6 +986,7 @@ local function start_or_pause()
       leftMs = left_now()
       counting = false
       armedTimer = 0
+      leftAt = 0
       arm_next()
     else
       local minutes = minSel.index - 1
@@ -882,21 +1000,28 @@ local function start_or_pause()
       end
       leftMs = ms
       leftFrom = sys.time_ms()
+      leftAt = epoch_ms()
       counting = true
       hint = ''
+      timerWhy = ''
       arm_countdown()
     end
   elseif page == 4 then
     if chronoRun then
       chronoAcc = chrono_now()
       chronoRun = false
+      chronoAt = 0
     else
       chronoFrom = sys.time_ms()
+      chronoAt = epoch_ms()
       chronoRun = true
     end
     chronoWhy = ''
     hint = ''
   end
+  -- **Cada canvi del que corre va al disc abans de pintar-lo**: una placa que es queda sense bateria a mig minut d'haver
+  -- arrencat el cronòmetre és un cronòmetre que ha de tornar (docs/30).
+  write_run()
   layout()
   paint_page()
 end
@@ -910,14 +1035,18 @@ local function reset_or_hold()
     chronoRun = false
     chronoAcc = 0
     chronoFrom = 0
+    chronoAt = 0
     chronoWhy = ''
   else
     counting = false
     leftMs = 0
+    leftAt = 0
+    timerWhy = ''
     armedTimer = 0
     arm_next()
   end
   hint = ''
+  write_run()
   layout()
   paint_page()
 end
@@ -1094,7 +1223,9 @@ arm_countdown = function()
   end
   local left = left_now()
   if left <= 0 then return end
-  local ok, id = pcall(alarm.at, { in_ms = left, raise = true, payload = 'timer' })
+  -- **`persist` perquè el compte enrere no és d'aquesta arrencada**: the countdown has to ring even if the board was
+  -- unplugged and plugged back in, which is the same promise the daily alarm asks for with its `repeat` (docs/30).
+  local ok, id = pcall(alarm.at, { in_ms = left, raise = true, payload = 'timer', persist = true })
   armedTimer = (ok and type(id) == 'number') and id or 0
   if armedTimer == 0 then
     console.print('clock: the countdown is running without a promise (' .. tostring(ok and id or id.code or id) .. ')')
@@ -1108,8 +1239,11 @@ function on_alarm(id, payload, meta)
     armedTimer = 0
     counting = false
     leftMs = 0
+    leftAt = 0
+    timerWhy = ''
     fired = { when = 'Time is up', note = 'The countdown has finished.' }
     out_of_place = true
+    write_run()
     return
   end
   if armed ~= 0 and id == armed then
@@ -1136,9 +1270,18 @@ if not console.is_foreground() then return end
 -- ============================================================ l'app
 read_alarms()
 sort_alarms()
+-- **El cronòmetre i el compte enrere tornen abans que la pàgina** (0.189.103): el que el disc diu és el que la persona va
+-- deixar corrent, i el compte enrere torna a deixar la seva promesa al sistema perquè soni encara que l'app no hi sigui.
+read_run()
 
 make_controls()
 
+-- **I el compte enrere que la persona havia triat, ara que els dos camps existeixen**: a countdown that comes back with the
+-- right minutes and seconds is a countdown that was never lost (docs/30, docs/45).
+if runPick ~= nil and runPick.min ~= nil and runPick.sec ~= nil then
+  minSel.index = math.min(math.max(1, runPick.min + 1), #MINUTES)
+  secSel.index = math.min(math.max(1, runPick.sec + 1), #SECONDS)
+end
 
 -- **La vista que la persona va deixar**: la pestanya, la fila marcada i la nota, i el cercle al control que el tenia. El
 -- que no sigui d'aquesta forma es llença i la pàgina arrenca com una app nova (docs/30).
@@ -1168,6 +1311,12 @@ local function forget_old_promises()
 end
 
 forget_old_promises()
+-- **I la promesa del compte enrere es torna a deixar DESPRÉS d'esborrar les velles** (0.189.103): `forget_old_promises` buida
+-- la cua d'aquesta app —una alarma de la còpia anterior de la placa no pot comptar com una d'aquesta— i armar-la abans és
+-- armar-la perquè la tiri la línia següent (docs/30, docs/60).
+if counting then arm_countdown() end
+-- I el que corre tal com és ara al disc: el moment de la tornada és l'ancora nova (docs/30).
+write_run()
 apply_page()
 layout()
 paint_page()
