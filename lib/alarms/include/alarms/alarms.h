@@ -52,6 +52,12 @@ void reset();
 
 uint32_t max();
 uint32_t count();
+
+// **Les dues preguntes de la barra** (0.189.57): hi ha una alarma que es repeteix —el despertador de cada dia— o una que
+// sona un sol cop —el temporitzador que algú ha deixat? The queue is eight at most and the answer is one boolean, so the
+// strip can ask it on every turn without walking the list (docs/50, docs/60).
+bool has_repeating();
+bool has_once();
 // The i-th alarm of the ordered list, or nullptr. The pointer is only valid
 // until the next call that changes the list.
 const Entry* at(uint32_t index);

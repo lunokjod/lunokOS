@@ -516,6 +516,11 @@ void boot(hal::IPlatform& platform) {
   // The canvas an app draws on, at the size of the glass **under the bar**, made once and re-made only
   // when the system asks for another size. The board's buffer stays the system's (docs/30).
   ui::boot(platform, bar::height());
+  // **La franja es torna a pintar quan la lletra del disc ja hi és** (0.189.57): `bar::boot` painted before `ui::boot` read the
+  // face of the disk, so the first strip was drawn with the table of the flash and every paint after it with the face of the
+  // system —and the hour, which is the one box of the strip that waits for its own minute, stayed five rows above the title
+  // beside it (found by the owner on the glass, 15/11). A strip owed whole is a strip painted whole at the first turn.
+  bar::refresh();
   // **The book of the disk is given to the interpreter** (0.132.0): the door of Lua asks the kernel what a mount, a
   // zip and a page are, and it asks through a table of calls, the same way the canvases are (docs/20, docs/46).
   book::bind();

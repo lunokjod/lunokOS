@@ -254,7 +254,53 @@ void bolt(hal::ISurface& surface, const Box& box, uint8_t ink) {
   }
 }
 
+// **EL DESPERTADOR D'UNA ALARMA POSADA** (0.189.57): the drawing is this project's and not the paper project's, made of the
+// same lines as the others —a ring for the face, two bells on top, a hammer between them, two hands and the two feet— so it
+// reads beside the hourglass without a second language. The ink is 26 x 26 of the box of 40 x 28, which is what the bar
+// places it by (docs/50, docs/92).
+void alarm(hal::ISurface& surface, const Box& r, uint8_t ink) {
+  if (r.w < 16 || r.h < 16) return;
+  const int stroke = (2 * r.h) / kIconH;
+  const int cx = r.x + r.w / 2;
+  const int radius = (8 * r.h) / kIconH;
+  const int rim = r.y + (17 * r.h) / kIconH;  // the line the bell hangs from
+  if (radius < 5) return;
+  // **La campana i no un despertador**: at 26 pixels a face with two bells on top is a face —the owner of this project saw the
+  // first one as a smiley— and a bell with its clapper is the one drawing of an alarm that cannot be read as anything else. The
+  // dome is the top half of a ring, the two walls come down from it and the base is one bar (docs/50, docs/92).
+  for (int dx = -radius; dx <= radius; ++dx) {
+    const int dy = isqrt(radius * radius - dx * dx);
+    fill(surface, cx + dx, rim - dy, 1, stroke, ink);
+  }
+  fill(surface, cx - radius, rim, stroke, (4 * r.h) / kIconH, ink);
+  fill(surface, cx + radius - stroke + 1, rim, stroke, (4 * r.h) / kIconH, ink);
+  fill(surface, cx - radius - 1, rim + (4 * r.h) / kIconH - stroke, 2 * radius + 3, stroke, ink);
+  // The handle on top and the clapper under the base: the two things that make a bell a bell.
+  const int handle = (2 * r.h) / kIconH;
+  for (int dx = -handle; dx <= handle; ++dx) {
+    const int dy = isqrt(handle * handle - dx * dx);
+    fill(surface, cx + dx, rim - radius - dy + stroke, 1, dy, ink);
+  }
+  disc(surface, cx, rim + (5 * r.h) / kIconH, (r.h >= 24) ? 1 : 1, ink);
+}
+
 }  // namespace
+
+Ink ink_of(Kind kind) {
+  switch (kind) {
+    case kWifi:
+      return Ink{31, 27};  // the fan of the paper project, measured on its glass (18/10)
+    case kSerial:
+      return Ink{38, 21};  // the mark of the port, lying down
+    case kBluetooth:
+      return Ink{18, 26};  // the rune
+    case kHourglass:
+      return Ink{19, 21};  // the hourglass
+    case kAlarm:
+      return Ink{19, 21};  // the bell of this project, measured on the glass the same way
+  }
+  return Ink{static_cast<uint8_t>(kIconW), static_cast<uint8_t>(kIconH)};
+}
 
 void glyph(hal::ISurface& surface, Kind kind, uint16_t x, uint16_t y, uint8_t ink) {
   const Box box{static_cast<int>(x), static_cast<int>(y), kIconW, kIconH};
@@ -268,8 +314,11 @@ void glyph(hal::ISurface& surface, Kind kind, uint16_t x, uint16_t y, uint8_t in
     case kSerial:
       serial(surface, box, ink);
       break;
-    case kNtp:
+    case kHourglass:
       ntp(surface, box, ink);
+      break;
+    case kAlarm:
+      alarm(surface, box, ink);
       break;
   }
 }

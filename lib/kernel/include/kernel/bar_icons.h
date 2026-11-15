@@ -30,15 +30,33 @@ const uint16_t kIconH = 28;
 const uint16_t kBatteryW = 46;
 const uint16_t kBatteryH = 26;
 
-// **Els quatre estats de la barra**: la xarxa, el Bluetooth, el cable del port sèrie i el rellotge que s'està posant.
+// **Els estats de la barra**: la xarxa, el Bluetooth, el cable del port sèrie, el rellotge de sorra —una cosa que compta
+// enrere: el rellotge que s'està posant o el temporitzador que algú ha deixat— i el despertador d'una alarma posada
+// (0.189.57, l'amo: *«Afegeix també al costat del rellotge l'alarma en plan despertador alarma i el rellotge de sorra per
+// el temportizador»*).
 enum Kind : uint8_t {
   kWifi = 0,
   kBluetooth,
   kSerial,
-  kNtp,
+  kHourglass,
+  // **El despertador** (0.189.57): the drawing is this project's and not the paper project's —that bar had no alarms—, made
+  // of the same lines as the others so it sits beside them without a second language (docs/50, docs/92).
+  kAlarm,
 };
 
-// **Un glif, a la caixa que se li dóna**: `ink` és el nivell de la tinta (0 en una barra de paper, perquè la barra d'aquest
+// **Quina tinta ocupa cada dibuix dins de la seva caixa**: the box of the paper project is 40 x 28 and the drawings are
+// narrower than that —the fan 31, the mark of the port 38, the rune 18 and the hourglass 19—, so the bar can place two of
+// them **by the ink they have** and not by a box with air in it (0.189.57). The drawings do not change size: what changes
+// is how much of the strip each one asks for.
+struct Ink {
+  uint8_t w;
+  uint8_t h;
+};
+
+Ink ink_of(Kind kind);
+
+// **Un glif, a la caixa que se li dóna**: `x`/`y` són la cantonada de la **caixa de 40 x 28 del projecte del paper**, que és
+// la que mesura el dibuix, i la tinta hi cau centrada —`ink_of` diu on—. `ink` és el nivell de la tinta (0 en una barra de paper, perquè la barra d'aquest
 // sistema és de dos tons) i el dibuix no surt de la caixa més del que el projecte del paper el deixava sortir —el ventall
 // del WiFi té els radis d'una caixa de 40 i creix amb l'amplada, que és el que fa que no s'hagi d'escalar per la barra.
 void glyph(hal::ISurface& surface, Kind kind, uint16_t x, uint16_t y, uint8_t ink = 0);

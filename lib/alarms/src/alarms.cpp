@@ -63,6 +63,20 @@ uint32_t max() { return kMaxAlarms; }
 
 uint32_t count() { return g_count; }
 
+bool has_repeating() {
+  for (uint32_t i = 0; i < g_count; ++i) {
+    if (g_entries[i].repeat_ms != 0) return true;
+  }
+  return false;
+}
+
+bool has_once() {
+  for (uint32_t i = 0; i < g_count; ++i) {
+    if (g_entries[i].repeat_ms == 0) return true;
+  }
+  return false;
+}
+
 const Entry* at(uint32_t index) {
   if (index >= g_count) return nullptr;
   return &g_entries[index];

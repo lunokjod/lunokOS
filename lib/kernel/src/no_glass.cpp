@@ -32,6 +32,8 @@ const char kNoGlass[] = "no glass on this board";
 
 namespace bar {
 
+void demo(bool) {}
+
 void title(const char*) {}
 
 void refresh() {}

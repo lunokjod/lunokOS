@@ -21,6 +21,11 @@ namespace bar {
 // The rows the system keeps at the top of the glass. Everything an app can draw starts below them.
 uint16_t height();
 
+// **La franja d'una demostració** (0.189.57): les cinc icones enceses alhora —el ventall, la runa, la marca del port, el
+// rellotge de sorra i el despertador— perquè es pugui mirar la barra sencera d'un cop. Només l'emulador la posa, amb `--signs`;
+// a la placa no hi ha res que la posi a cert i les icones diuen el que passa de debò (docs/50, docs/85).
+void demo(bool on);
+
 // Makes the bar and paints it once, white. Needs the panel: `display::boot` goes first (docs/50).
 bool boot(hal::IPlatform& platform);
 

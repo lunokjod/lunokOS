@@ -1183,10 +1183,27 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   **46 × 26**. **I què diu cada icona és un fet del nucli i no una decoració**: el ventall és la ràdio encesa (`net::state()`
   o una feina en curs), la runa és una provisió que va per Bluetooth i no per l'apunt d'accés (`net::over_bluetooth`), la
   marca del port és **el cable** —la placa s'està alimentant o una app té el port— i el llamp de la figura és la bateria que
-  s'alimenta. **Tres caixes i no quatre**: el rellotge de sorra es dibuixa però no té caixa a la franja, perquè quatre
-  caixes de 40 sobre 540 es mengen 200 píxels i deixen un títol de 73 —«Ho», «Tim»— i la caixa de l'hora de sorra sola en
-  són 50; l'hora d'aquest sistema ja és escrita a l'esquerra de la barra (docs/92). El títol, doncs, es centra **al tros que
-  li queda** entre l'hora i les icones, que és exactament la regla del projecte del paper (`titleRect`).
+  s'alimenta. El títol es centra **al tros que li queda** entre l'hora i les icones, que és exactament la regla del projecte
+  del paper (`titleRect`).
+- **I les caixes de les icones són de l'amplada de la seva tinta, no de 40** (0.189.57): the box of the paper project is
+  40 × 28 and the drawings are narrower —the fan 31, the port 38, the rune 18, the hourglass 19—, so a box of 40 for a
+  drawing of 18 is 22 pixels of air the title cannot use, and with five icons on a strip of 540 that air **is** the title.
+  `bar_icons::ink_of()` is what the bar asks, and **an icon that is not lit has no box at all**: the title takes the room
+  back. The price is that the title grows when an icon goes out, and that is a whole strip at `gld16` on the turn the signs
+  change —a handful of times an hour, when the radio comes on or the cable goes in— and not a jump on every turn, because
+  the boxes are still the same while the signs are the same.
+- **Dues icones més, i són a l'esquerra** (0.189.57, l'amo: *«Afegeix també al costat del rellotge l'alarma en plan
+  despertador alarma i el rellotge de sorra per el temportizador»*): the **bell** says an alarm is set —a repeating one, the
+  one a person sets for a time of day— and the **hourglass** says something is counting down, which is the clock being set
+  from the network **or** a timer somebody left (`alarms::has_once()`). They sit between the hour and the title, so the
+  strip reads outwards from the clock. The bell is this project's drawing and not the paper project's —that bar had no
+  alarms—, made of the same lines: at 26 pixels a face with two bells on top reads as a smiley (the first try did), and a
+  bell with its clapper is the one drawing of an alarm that cannot be read as anything else. The two `ink_of` widths are
+  **19 × 21** for the bell and the hourglass's own **19 × 21**.
+- **I la càrrega es pregunta al `platform` i no a `power::`** (0.189.57): `bar::boot` runs before `power::boot`, which is
+  after the shell because it may bring an app back from a sleep, so the first read of the gauge answered nothing and the
+  strip said `--` with no figure beside it **for the whole half minute of the read rhythm**. The boot asks the gauge the
+  same way for the picture it shows, and the bar does it here (docs/60, docs/85).
 - **La qualitat la tria ella, i la regió també** (0.85.2): la franja és **tres caixes de text** —l'hora, el títol
   i la càrrega, cadascuna mesurada amb el text més ample que pot portar— més les tres de les icones i la de la figura, i
   el que canvia és la seva caixa

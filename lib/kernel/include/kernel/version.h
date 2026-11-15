@@ -9194,7 +9194,27 @@ namespace kernel {
 //     entre l'hora i les icones, que és la regla del projecte del paper (`titleRect`);
 //   - **i `--charging` a l'emulador**: el model deia `charging = false` sempre, o sigui que el llamp i la marca del port no
 //     tenien cap cas que es pogués mirar (docs/50, docs/85).
-static const char kVersion[] = "0.189.56";
+// 0.189.57 — **la barra sencera, i la lletra que arribava tard** (l'amo: *«jo no veig ni tant sols el % de batería a la barra i
+// la icona de bateria»*, i tot seguit *«l'hora surt desalineada»*, *«Afegeix també al costat del rellotge l'alarma en plan
+// despertador alarma i el rellotge de sorra per el temportizador»*):
+//   - **la càrrega es pregunta al `platform` i no a `power::`**: `bar::boot` va abans de `power::boot` —que és després de la
+//     shell perquè pot tornar a obrir una app del son—, o sigui que la primera lectura del gauge no responia res i la franja
+//     deia `--` i no dibuixava la figura **durant el mig minut del ritme de lectura**. El boot ja pregunta el gauge així per
+//     triar el quadre de l'arrencada, i la barra fa el mateix (docs/50);
+//   - **l'hora desalineada era la lletra**: `bar::boot` pintava la franja abans que `ui::boot` llegís la lletra del disc, o
+//     sigui que la primera franja sortia amb la taula de la flash i cada repintat amb l'UbuntuMono, que té un ascendent que
+//     baixa la tinta cinc files. El títol i la xifra es repinten de seguida —canvien—, i l'hora no: espera el minut sencer.
+//     `bar::refresh()` just després de `ui::boot` fa que el primer torn torni a pintar la franja sencera amb la lletra bona;
+//   - **les caixes de les icones són de l'amplada de la seva tinta** (`bar_icons::ink_of`): 40 × 28 és la caixa on es mesura
+//     el dibuix del paper projecte, no el que ha d'ocupar a la franja, i una icona apagada **no té caixa** i el títol se'n
+//     queda l'aire;
+//   - **i dues icones noves a l'esquerra**: la campana d'una alarma posada (`alarms::has_repeating`) i el rellotge de sorra
+//     d'una cosa que compta enrere (`net::syncing_clock` o `alarms::has_once`), amb `has_repeating`/`has_once` a la cua
+//     d'alarmes. La campana és un dibuix d'aquest projecte perquè el projecte del paper no tenia alarmes: a 26 píxels un
+//     despertador amb dues campanes i una esfera es llegeix com una cara, i una campana amb el batall no es pot llegir com a
+//     res més;
+//   - **i `--signs` a l'emulador**: les cinc icones enceses alhora, per mirar-se la franja sencera d'un cop (docs/50, docs/85).
+static const char kVersion[] = "0.189.57";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

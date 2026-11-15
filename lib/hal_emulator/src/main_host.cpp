@@ -17,6 +17,7 @@
 #include "emu/memories.h"
 #include "emu/model.h"
 #include "hal/hal.h"
+#include "kernel/bar.h"
 #include "kernel/kernel.h"
 #include "kernel/shell.h"
 #include "luabind/luabind.h"
@@ -116,6 +117,7 @@ void usage() {
   printf("  --battery-mv <mv> the cell the board reads, in millivolts; it wins over this machine's\n");
   printf("  --battery-host    say it aloud: a board with a gauge lends this machine's battery by itself\n");
   printf("  --charging        the board is on a cable: the bolt of the battery figure and the mark of the port\n");
+  printf("  --signs           every icon of the bar on at once, for looking at the whole strip\n");
   printf("  --board <name>    which board this emulator is (required): %s", board::model(0));
   for (uint32_t i = 1; i < board::models_count(); ++i) printf(", %s", board::model(i));
   printf("\n");
@@ -376,6 +378,10 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--charging") == 0) {
       opts.charging = true;
+      continue;
+    }
+    if (strcmp(arg, "--signs") == 0) {
+      opts.signs = true;
       continue;
     }
     if (strcmp(arg, "--board") == 0) {
@@ -967,6 +973,9 @@ int main(int argc, char** argv) {
   // after the window, so that the splash of the boot lands in it (0.174.6).
   if (opts.delays) pal::delay_us(boot_us(hw));
 
+  // **La demo de la franja, abans del boot**: the strip is painted by `kernel::boot`, so the five icons have to be lit before it
+  // runs or the first frame of the demo would be a bar without them (docs/50, docs/85).
+  if (opts.signs) kernel::bar::demo(true);
   kernel::boot(hal::platform());
 
   int rc = 0;

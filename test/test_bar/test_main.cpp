@@ -10,6 +10,7 @@
 
 #include <unity.h>
 
+#include "alarms/alarms.h"
 #include "emu/options.h"
 #include "emu/surface.h"
 #include "hal/hal.h"
@@ -140,8 +141,11 @@ static void test_a_new_title_repaints_the_bar() {
   // glass now: twenty-one pixels, which is seven times three with the table of the bits (docs/85).
   TEST_ASSERT_EQUAL_UINT16(107, paint->x);
   TEST_ASSERT_EQUAL_UINT16(6, paint->y);
-  TEST_ASSERT_EQUAL_UINT16(764, paint->w);
   TEST_ASSERT_EQUAL_UINT16(21, paint->h);
+  // **L'amplada no és un número fix** (0.189.57): és el que queda entre l'hora i les icones que aquell torn tingui enceses, i
+  // una icona apagada no en té cap. El que sí que ha de ser cert és que la caixa cap dins del vidre i que no és tota la franja.
+  TEST_ASSERT_GREATER_THAN_UINT16(0, paint->w);
+  TEST_ASSERT_TRUE(paint->x + paint->w <= 960);
   // And the same title again is not a change.
   const uint32_t after = glass().paint_count();
   bar::title("SQUARES");
@@ -166,8 +170,9 @@ static void test_the_title_can_be_painted_before_the_turn(void) {
   TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);
   TEST_ASSERT_EQUAL_UINT16(107, paint->x);
   TEST_ASSERT_EQUAL_UINT16(6, paint->y);
-  TEST_ASSERT_EQUAL_UINT16(764, paint->w);
   TEST_ASSERT_EQUAL_UINT16(21, paint->h);
+  TEST_ASSERT_GREATER_THAN_UINT16(0, paint->w);
+  TEST_ASSERT_TRUE(paint->x + paint->w <= 960);
   // **And the turn after it pays nothing**: the flag went with the paint, so a start does not buy two strips.
   const uint32_t after = glass().paint_count();
   bar::poll();
@@ -431,19 +436,88 @@ static void test_the_whole_glass_turns_with_the_page() {
 // on its own glass on 18/10—, and this strip is 48 rows and does not shrink them: the drawings are the paper project's,
 // number by number, and the bar only decides where the box of 40 × 28 goes. A port that scaled them to the bar would come
 // out here with five other numbers (docs/50, docs/92).
-static void test_the_icons_are_the_ones_of_the_paper_project_at_their_size() {
+// **Una barra que va arrencar abans que el power del board sabés res de la cel·la no s'hi queda** (0.189.57): la franja es
+// pinta al boot, i el `power` del board encara no hi és, o sigui que la caixa del càrrec diu `--` i la figura no es
+// dibuixa. El torn de després torna a preguntar i la franja s'omple —i això és **un sol** torn de res, no una barra que
+// pregunta cada torn— (docs/50, docs/85).
+static void test_a_bar_booted_before_the_charge_was_known_fills_it_in() {
   boot_with_a_panel();
-  struct Expected {
-    const char* what;
-    kernel::bar_icons::Kind kind;
-    int w;
-    int h;
+  // The figure of the battery is the box against the right margin (`kPaddingX` 12 and `kBatteryW` 46 of 540).
+  const uint16_t figure_x = 540 - 12 - kernel::bar_icons::kBatteryW;
+  const uint16_t figure_y = (48 - 2 - kernel::bar_icons::kBatteryH) / 2;
+  int ink = 0;
+  for (uint16_t y = figure_y; y < figure_y + kernel::bar_icons::kBatteryH; ++y) {
+    for (uint16_t x = figure_x; x < figure_x + kernel::bar_icons::kBatteryW; ++x) {
+      if (glass().level_at(x, y) == 0) ++ink;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink, "the boot drew a figure with no charge to draw");
+
+  // The cell is there now, which is what the board says once its power has booted, and one turn is all the bar needs.
+  emu::Options opts = emu::options();
+  opts.battery_mv = 4100;
+  emu::set_options(opts);
+  bar::poll();
+  ink = 0;
+  for (uint16_t y = figure_y; y < figure_y + kernel::bar_icons::kBatteryH; ++y) {
+    for (uint16_t x = figure_x; x < figure_x + kernel::bar_icons::kBatteryW; ++x) {
+      if (glass().level_at(x, y) == 0) ++ink;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, ink, "the figure of the battery did not come up when the cell was known");
+}
+
+// **Una alarma posada encén el despertador al costat del rellotge** (0.189.57): the strip says what the system is doing, and
+// an alarm set for a time of day is the one thing a person has to be able to see without opening anything. The bell is drawn
+// where the hour ends, and a bar with no alarms has nothing there at all —the room of the icon is the title's.
+static void test_an_alarm_puts_the_bell_on_the_strip() {
+  boot_with_a_panel();
+  const uint16_t left_x = 107;  // where the hour ends: 12 of margin and "00:00"
+  const uint16_t right_x = 190;  // the room of the first icon of the left, and a little more
+  int before = 0;
+  for (uint16_t y = 9; y < 37; ++y) {
+    for (uint16_t x = left_x; x < right_x; ++x) {
+      if (glass().level_at(x, y) == 0) ++before;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, before, "a bar with no alarms drew something after the hour");
+
+  alarms::Spec spec;
+  spec.app = "test_bar";
+  spec.on_mono_ms = 60000;
+  spec.repeat_ms = alarms::kDailyMs;  // the one a person sets for a time of day: the alarm clock and not the timer
+  TEST_ASSERT_TRUE_MESSAGE(alarms::add(spec) != 0, "the queue took no alarm");
+  bar::poll();
+  int after = 0;
+  for (uint16_t y = 9; y < 37; ++y) {
+    for (uint16_t x = left_x; x < right_x; ++x) {
+      if (glass().level_at(x, y) == 0) ++after;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, after, "the bell of the alarm did not come up on the strip");
+  TEST_ASSERT_EQUAL_INT(alarms::count(), 1);
+  alarms::reset();
+}
+
+static void test_the_icons_have_the_ink_the_bar_places_them_by() {
+  boot_with_a_panel();
+  // **Les mides de la tinta són el contracte entre el dibuix i la barra** (0.189.57): the bar gives every icon a box as wide as
+  // `ink_of` says, so a drawing that comes out wider than that is a drawing the layout cuts, and one that comes out narrower
+  // leaves the title without room it could have had. The four of the paper project keep the numbers its own glass measured
+  // (18/10) and the bell is this project's, measured the same way.
+  static const kernel::bar_icons::Kind kGlyphs[] = {
+      kernel::bar_icons::kWifi,
+      kernel::bar_icons::kSerial,
+      kernel::bar_icons::kBluetooth,
+      kernel::bar_icons::kHourglass,
+      kernel::bar_icons::kAlarm,
   };
-  static const Expected kGlyphs[] = {
-      {"the fan of the wifi", kernel::bar_icons::kWifi, 31, 27},
-      {"the mark of the port", kernel::bar_icons::kSerial, 38, 21},
-      {"the rune of the bluetooth", kernel::bar_icons::kBluetooth, 18, 26},
-      {"the hourglass of the ntp", kernel::bar_icons::kNtp, 19, 21},
+  static const char* kWhat[] = {
+      "the fan of the wifi",
+      "the mark of the port",
+      "the rune of the bluetooth",
+      "the hourglass",
+      "the bell of the alarm",
   };
   // A box of its own, in the middle of the glass, so nothing of the strip is in the count.
   const uint16_t at_x = 200;
@@ -452,7 +526,7 @@ static void test_the_icons_are_the_ones_of_the_paper_project_at_their_size() {
     for (uint16_t y = at_y - 2; y < at_y + kernel::bar_icons::kIconH + 2; ++y) {
       for (uint16_t x = at_x - 2; x < at_x + kernel::bar_icons::kIconW + 2; ++x) glass().pixel(x, y, 15);
     }
-    kernel::bar_icons::glyph(glass(), kGlyphs[i].kind, at_x, at_y);
+    kernel::bar_icons::glyph(glass(), kGlyphs[i], at_x, at_y);
     int left = 0x7FFF, right = -1, top = 0x7FFF, bottom = -1;
     for (int y = at_y - 2; y < at_y + static_cast<int>(kernel::bar_icons::kIconH) + 2; ++y) {
       for (int x = at_x - 2; x < at_x + static_cast<int>(kernel::bar_icons::kIconW) + 2; ++x) {
@@ -463,9 +537,10 @@ static void test_the_icons_are_the_ones_of_the_paper_project_at_their_size() {
         if (y > bottom) bottom = y;
       }
     }
-    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(0, right, kGlyphs[i].what);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(kGlyphs[i].w, right - left + 1, kGlyphs[i].what);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(kGlyphs[i].h, bottom - top + 1, kGlyphs[i].what);
+    const kernel::bar_icons::Ink ink = kernel::bar_icons::ink_of(kGlyphs[i]);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(0, right, kWhat[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<int>(ink.w), right - left + 1, kWhat[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<int>(ink.h), bottom - top + 1, kWhat[i]);
   }
 
   // **I la figura de la bateria, que té la seva caixa** (`BatteryGlyphW/H`): 46 × 26 with the four walls and the nub, and the
@@ -507,6 +582,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_bar_comes_back_when_the_app_gives_the_glass_back);
   RUN_TEST(test_the_view_of_every_app_comes_back_when_the_app_ends);
   RUN_TEST(test_the_whole_glass_turns_with_the_page);
-  RUN_TEST(test_the_icons_are_the_ones_of_the_paper_project_at_their_size);
+  RUN_TEST(test_a_bar_booted_before_the_charge_was_known_fills_it_in);
+  RUN_TEST(test_the_icons_have_the_ink_the_bar_places_them_by);
+  RUN_TEST(test_an_alarm_puts_the_bell_on_the_strip);
   return UNITY_END();
 }

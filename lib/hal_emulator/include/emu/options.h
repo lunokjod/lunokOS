@@ -56,6 +56,10 @@ struct Options {
   // the field was a `false` written in the model—, so the two drawings had no case that could be looked at. It says nothing
   // about the charge: `battery_mv` is still the cell of the board (docs/50, docs/85).
   bool charging = false;
+  // **La franja d'una demostració** (0.189.57, `--signs`): les cinc icones de la barra enceses alhora. Les del senyal no es poden
+  // encendre totes de debò en un sol run —el provisioning vol el Bluetooth, l'NTP vol la xarxa i el temporitzador és una cua
+  // d'alarmes—, i mirar-se la franja sencera és el que es vol fer quan s'hi toca (docs/50, docs/85).
+  bool signs = false;
   const char* script;    // batch file, or nullptr
   const char* run_app;   // app to start, or nullptr
   int64_t now_epoch;     // 0 = no epoch at all (source "none"), like a board that

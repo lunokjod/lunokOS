@@ -1,5 +1,6 @@
 // The strip of the system at the top of the glass: the hour, the title and the charge (docs/30).
 #include "kernel/meter.h"
+#include "alarms/alarms.h"
 #include "kernel/bar.h"
 
 #include <stdio.h>
@@ -80,18 +81,21 @@ struct Status {
   bool charging = false;
 };
 
-// **Els quatre estats de les icones** (0.189.56): the radio is on (the fan), a provisioning is running over Bluetooth (the
-// rune), the cable is charging or an app has the port (the USB mark) and the clock is being set from the network (the
-// hourglass). They are read every turn —they are four words of the kernel's own memory and not a device— and they are
-// compared, because a bar that paints an icon that did not change is spent ink (docs/30, docs/50).
+// **Els estats de les icones** (0.189.56): the radio is on (the fan), a provisioning is running over Bluetooth (the rune),
+// the cable is charging or an app has the port (the USB mark), something is counting down (the hourglass: the clock being
+// set from the network, or the timer somebody left) and an alarm is set (the alarm clock, 0.189.57). They are read every
+// turn —they are words of the kernel's own memory and not a device— and they are compared, because a bar that paints an
+// icon that did not change is spent ink (docs/30, docs/50).
 struct Signs {
   bool wifi = false;
   bool bluetooth = false;
   bool serial = false;
-  bool ntp = false;
+  bool hourglass = false;
+  bool alarm = false;
 
   bool operator==(const Signs& other) const {
-    return wifi == other.wifi && bluetooth == other.bluetooth && serial == other.serial && ntp == other.ntp;
+    return wifi == other.wifi && bluetooth == other.bluetooth && serial == other.serial &&
+           hourglass == other.hourglass && alarm == other.alarm;
   }
   bool operator!=(const Signs& other) const { return !(*this == other); }
 };
@@ -114,6 +118,9 @@ Status g_read;
 Signs g_shown_signs;
 int64_t g_clock_read_ms = 0;
 int64_t g_battery_read_ms = 0;
+// **La franja d'una demostració** (0.189.57): `--signs` de l'emulador posa aquesta bandera i les cinc icones s'encenen, que és
+// l'única manera de mirar-se la barra sencera d'un cop. A la placa no hi ha res que la posi a cert.
+bool g_demo_signs = false;
 
 // The only place the bar asks the board anything, and **it asks only what is due**: reading the gauge
 // because the clock is due would be an ADC conversion every two seconds for a number that moves twice
@@ -134,17 +141,30 @@ Status read_status(bool clock_due, bool battery_due) {
     int mv = 0;
     int percent = 0;
     bool charging = false;
-    status.has_battery = power::battery(mv, percent, charging);
+    // **El gauge, del platform i no de `power::`** (0.189.57): `bar::boot` runs before `power::boot` —the strip is painted
+    // before the power of the board exists, which is after the shell—, and `power::battery` answers nothing until then. The
+    // boot asks the gauge the same way for the picture of the hold, and the object is the one `power` is given later
+    // (docs/50). Without this the charge box said `--` and no figure was drawn for the whole half minute of
+    // `kBatteryEveryMs` (found by the owner, 15/11).
+    hal::IPower* gauge = (g_platform != nullptr) ? g_platform->power() : nullptr;
+    meter::Scope scope(meter::kPowerBattery);
+    const bool known = (gauge != nullptr) && gauge->battery(mv, percent, charging);
+    status.has_battery = known;
+    if (!known) {
+      mv = 0;
+      percent = 0;
+      charging = false;
+    }
     status.percent = percent;
     status.charging = charging;
   }
   return status;
 }
 
-// **Els quatre estats, llegits del nucli** (0.189.56): the fan says the radio is on —whatever it is doing—, the rune says a
+// **Els estats, llegits del nucli** (0.189.56): the fan says the radio is on —whatever it is doing—, the rune says a
 // provisioning is running over Bluetooth, the mark of the port says there is a cable (the board is being fed or an app has
-// the wire) and the hourglass says the clock is being set from the network. They are four words of the kernel's own memory
-// and not a device, so asking them every turn costs nothing (docs/30, docs/50).
+// the wire), the hourglass says something is counting down and the alarm clock that an alarm is set (0.189.57). They are
+// words of the kernel's own memory and not a device, so asking them every turn costs nothing (docs/30, docs/50, docs/60).
 Signs read_signs(const Status& status) {
   Signs signs;
   // **El ventall diu que la ràdio és encesa, sigui què estigui fent** (the paper project's rule): a scan, an association and
@@ -153,7 +173,21 @@ Signs read_signs(const Status& status) {
   signs.wifi = net::available() && (net::state() != 0 || net::busy());
   signs.bluetooth = net::over_bluetooth();
   signs.serial = serial::claimed() || status.charging;
-  signs.ntp = net::syncing_clock();
+  // **El rellotge de sorra és una cosa que compta enrere** (0.189.57, l'amo: *«el rellotge de sorra per el temportizador»*):
+  // the clock being set from the network and a timer somebody left are the same thing to a person looking at the bar, and
+  // the drawing of the paper project says exactly that.
+  signs.hourglass = net::syncing_clock() || alarms::has_once();
+  // **I el despertador, una alarma posada**: a repeating alarm is the one a person set for a time of day, and it is the
+  // alarm clock of the bar (docs/60).
+  signs.alarm = alarms::has_repeating();
+  // **La demo**: `--signs` de l'emulador encén les cinc, que és l'única manera de mirar-se la franja sencera d'un cop.
+  if (g_demo_signs) {
+    signs.wifi = true;
+    signs.bluetooth = true;
+    signs.serial = true;
+    signs.hourglass = true;
+    signs.alarm = true;
+  }
   return signs;
 }
 
@@ -201,15 +235,36 @@ struct Layout {
   Box time;
   Box title;
   Box charge;
-  // **I les cinc caixes de la dreta** (0.189.56): the battery figure against the margin and, to its left —in the paper
-  // project's order, from the margin inwards: the figure, the number, the fan, the port, the rune and the hourglass— the
-  // four icons. **Totes hi són sempre encara que no es pintin**: a box that appears and disappears moves the title and the
-  // number at every change, and a bar whose middle jumps is worse than a bar with an empty box (docs/50).
   Box figure;
-  Box icons[4];
+  // **Les caixes de les icones, indexades pel dibuix i de l'amplada de la seva tinta** (0.189.57): a box of 40 for a drawing
+  // of 18 is 22 pixels of air that the title cannot use, and with five icons on the strip that air is the title. **Una icona
+  // apagada no té caixa**: the box is born and dies with the sign, and the title takes the room back. The price is that the
+  // title moves when an icon comes or goes —a whole strip repaint, which is what `poll()` does when the signs change—, and
+  // the alternative was a title of 20 pixels with five boxes standing empty (docs/50).
+  Box icons[5];
 };
 
-Layout layout_of(uint16_t panel_w) {
+// **Una icona a la dreta del que ja hi ha**: the box is as wide as the ink of the drawing and one line tall, and it is where the
+// drawing goes —the drawing itself is still measured on the paper project's 40 x 28—. A sign that is not lit gets no box.
+int32_t place_icon(const Signs& signs, bar_icons::Kind kind, int32_t edge, int32_t floor_x, Box* out) {
+  out->x = 0;
+  out->y = 0;
+  out->w = 0;
+  out->h = 0;
+  const bool lit = (kind == bar_icons::kWifi)      ? signs.wifi
+                   : (kind == bar_icons::kSerial)  ? signs.serial
+                   : (kind == bar_icons::kBluetooth) ? signs.bluetooth
+                   : (kind == bar_icons::kHourglass) ? signs.hourglass
+                                                     : signs.alarm;
+  if (!lit) return edge;
+  const bar_icons::Ink ink = bar_icons::ink_of(kind);
+  const int32_t x = edge - kIconGap - static_cast<int32_t>(ink.w);
+  if (x <= floor_x) return edge;
+  *out = Box{static_cast<uint16_t>(x), kIconTop, ink.w, bar_icons::kIconH};
+  return x;
+}
+
+Layout layout_of(uint16_t panel_w, const Signs& signs) {
   // **The height of a line is the height of the face** (0.96.0): a face of outlines says eight pixels of body for every
   // step of `scale` and the table of the flash says seven, so a bar that counted seven would draw its text four pixels
   // past the box it just cleaned (docs/30, docs/50).
@@ -219,7 +274,6 @@ Layout layout_of(uint16_t panel_w) {
   Layout out = {};
   out.panel_w = panel_w;
   out.time = Box{kPaddingX, kTextTop, time_w, glyph_h};
-  const int32_t title_left = static_cast<int32_t>(kPaddingX + time_w + kTitleGap);
   // **La dreta del full, de marge cap endins** (0.189.56): the figure of the battery against the margin —it is a readout with
   // a number beside it— and then the number, the fan, the port, the rune and the hourglass. **A box that does not fit a
   // narrow glass is left out from the left**: the hourglass is the first to go, and the figure and the number, which are
@@ -232,25 +286,33 @@ Layout layout_of(uint16_t panel_w) {
   const int32_t charge_x = right - kIconGap - charge_w;
   out.charge = Box{static_cast<uint16_t>((charge_x > 0) ? charge_x : 0), kTextTop, charge_w, glyph_h};
   if (charge_x > 0) right = charge_x;
-  // **Tres caixes i no quatre** (0.189.56): the paper project's column has an hourglass too —the clock being set from the
-  // network— and it is drawn in `bar_icons`, but **a bar of 540 px cannot hold four boxes of 40 and a title**: the four cost
-  // 200 px of the 540 and this strip also writes the hour on the left and the charge on the right, which leaves a title of
-  // 73 px —«Ho», «Tim»— where the box of the hourglass alone is 50 of those. The hour is already written at the left of this
-  // bar, so the hourglass is the one that waits for a bar with more room (docs/50).
-  static const bar_icons::Kind kFromRight[3] = {bar_icons::kWifi, bar_icons::kSerial, bar_icons::kBluetooth};
+  // **Les de la dreta, del marge cap endins** (0.189.56): the fan, the port and the rune, in the paper project's order, and
+  // each one only while it has something to say.
+  static const bar_icons::Kind kRight[3] = {bar_icons::kWifi, bar_icons::kSerial, bar_icons::kBluetooth};
+  const int32_t floor_x = static_cast<int32_t>(kPaddingX + time_w);
   for (uint8_t i = 0; i < 3; ++i) {
-    const int32_t icon_x = right - kIconGap - static_cast<int32_t>(bar_icons::kIconW);
-    const int32_t floor_x = static_cast<int32_t>(kPaddingX + time_w);
-    if (icon_x > floor_x) {
-      out.icons[kFromRight[i]] = Box{static_cast<uint16_t>(icon_x), kIconTop, bar_icons::kIconW, bar_icons::kIconH};
-      right = icon_x;
-    } else {
-      out.icons[kFromRight[i]] = Box{0, 0, 0, 0};
-    }
+    right = place_icon(signs, kRight[i], right, floor_x, &out.icons[kRight[i]]);
   }
+  // **I les de l'esquerra, al costat del rellotge** (0.189.57, l'amo: *«Afegeix també al costat del rellotge l'alarma en plan
+  // despertador alarma i el rellotge de sorra per el temportizador»*): the alarm clock first and the hourglass after it, so
+  // the strip reads from the hour outwards. **Si no hi caben es queden fora de la franja abans que el títol**: a box that
+  // would leave the title with nothing is not drawn, and a person who wants to see one takes something else off the glass.
+  const int32_t title_room = static_cast<int32_t>(font::width("MMMM", kScale));
+  int32_t left = static_cast<int32_t>(kPaddingX + time_w);
+  static const bar_icons::Kind kLeft[2] = {bar_icons::kAlarm, bar_icons::kHourglass};
+  for (uint8_t i = 0; i < 2; ++i) {
+    const bar_icons::Ink ink = bar_icons::ink_of(kLeft[i]);
+    const bool lit = (kLeft[i] == bar_icons::kAlarm) ? signs.alarm : signs.hourglass;
+    if (!lit) continue;
+    const int32_t x = left + kIconGap;
+    if (right - kTitleGap - x < title_room) break;
+    out.icons[kLeft[i]] = Box{static_cast<uint16_t>(x), kIconTop, ink.w, bar_icons::kIconH};
+    left = x + ink.w;
+  }
+  const int32_t title_left_now = left + kTitleGap;
   const int32_t title_right = right - kTitleGap;
-  out.title = Box{static_cast<uint16_t>(title_left), kTextTop,
-                  static_cast<uint16_t>((title_right > title_left) ? (title_right - title_left) : 0), glyph_h};
+  out.title = Box{static_cast<uint16_t>(title_left_now), kTextTop,
+                  static_cast<uint16_t>((title_right > title_left_now) ? (title_right - title_left_now) : 0), glyph_h};
   return out;
 }
 
@@ -301,19 +363,23 @@ void draw_charge(hal::ISurface& surface, const Layout& at, const Status& status)
   }
 }
 
-// **Les icones, cada una a la seva caixa i només si diu alguna cosa** (0.189.56): a box that is cleaned and left empty is the
-// icon that is not lit, which is how a bar of two tones says "this one is off" —an e-ink glass has no grey to dim it with—,
-// and the box is in the layout whether the icon is or not, so the title and the number do not move when one comes or goes.
+// **Les icones, cada una a la seva caixa i només si diu alguna cosa** (0.189.56): una icona que no s'encén no té caixa i no es
+// neteja res, perquè el paper d'aquell tros és el que el títol aprofita (0.189.57). **I el dibuix no s'escala**: the glyph is
+// measured inside the paper project's 40 x 28 box and the bar hands it over moved by the air of its own ink, so the ink of a
+// drawing of 18 lands exactly on a box of 18 (docs/50, docs/92).
 void draw_icons(hal::ISurface& surface, const Layout& at, const Signs& signs) {
-  static const bar_icons::Kind kKinds[4] = {bar_icons::kWifi, bar_icons::kSerial, bar_icons::kBluetooth,
-                                            bar_icons::kNtp};
-  const bool lit[4] = {signs.wifi, signs.serial, signs.bluetooth, signs.ntp};
-  for (uint8_t i = 0; i < 4; ++i) {
+  (void)signs;  // the signs are already in the layout: a box that is here is an icon that is lit
+  static const bar_icons::Kind kKinds[5] = {bar_icons::kWifi, bar_icons::kSerial, bar_icons::kBluetooth,
+                                            bar_icons::kHourglass, bar_icons::kAlarm};
+  for (uint8_t i = 0; i < 5; ++i) {
     const Box& box = at.icons[kKinds[i]];
     if (box.w == 0) continue;
     surface.fill_rect(box.x, box.y, box.w, box.h, 15);
-    if (!lit[i]) continue;
-    bar_icons::glyph(surface, kKinds[i], box.x, box.y, 0);
+    const bar_icons::Ink ink = bar_icons::ink_of(kKinds[i]);
+    const int32_t draw_x = static_cast<int32_t>(box.x) - (static_cast<int32_t>(bar_icons::kIconW) -
+                                                          static_cast<int32_t>(ink.w)) / 2;
+    if (draw_x < 0) continue;
+    bar_icons::glyph(surface, kKinds[i], static_cast<uint16_t>(draw_x), box.y, 0);
   }
 }
 
@@ -340,8 +406,8 @@ void paint(hal::UpdateMode mode, const Status& status) {
   hal::ISurface* surface = display::surface();
   if (surface == nullptr) return;
   paint_ground(*surface);
-  const Layout at = layout_of(surface->width());
   const Signs signs = read_signs(status);
+  const Layout at = layout_of(surface->width(), signs);
   draw_time(*surface, at, status);
   draw_title(*surface, at);
   draw_charge(*surface, at, status);
@@ -363,8 +429,8 @@ void paint(hal::UpdateMode mode, const Status& status) {
 void paint_boxes(hal::UpdateMode mode, const Status& status, bool time, bool title, bool charge, bool signs_dirty) {
   hal::ISurface* surface = display::surface();
   if (surface == nullptr) return;
-  const Layout at = layout_of(surface->width());
   const Signs signs = read_signs(status);
+  const Layout at = layout_of(surface->width(), signs);
   if (time) draw_time(*surface, at, status);
   if (title) draw_title(*surface, at);
   if (charge) {
@@ -382,6 +448,8 @@ void paint_boxes(hal::UpdateMode mode, const Status& status, bool time, bool tit
 }  // namespace
 
 uint16_t height() { return kBarHeight; }
+
+void demo(bool on) { g_demo_signs = on; }
 
 bool boot(hal::IPlatform& platform) {
   if (!display::available()) return false;
@@ -481,6 +549,15 @@ void poll() {
   const bool signs_changed = (signs != g_shown_signs);
   // **A bar with nothing new paints nothing.** Not on a turn, not every five seconds, not at all.
   if (!g_whole_changed && !g_title_changed && !minute_changed && !charge_changed && !signs_changed) return;
+
+  // **Una icona que apareix o s'apaga mou el títol, i per això la franja es pinta sencera** (0.189.57): the boxes of the icons
+  // are as wide as their ink and they are born and die with the sign, so the title has more room or less at that very turn
+  // and its old box has to be cleaned too. It happens when the radio comes on, when the cable goes in or when an alarm is
+  // set —a handful of times an hour— and a `gld16` of the strip is one wash of two levels and no blink (docs/50, docs/92).
+  if (signs_changed) {
+    paint(hal::UpdateMode::kGld16, g_read);
+    return;
+  }
 
   // **The strip is whole when the glass under it moved**, and only then: a page that turned took the bar with it and
   // there is no box to clean, there is a strip to draw. **I es pinta sense parpelleig** (0.179.40): `gld16` over the two
