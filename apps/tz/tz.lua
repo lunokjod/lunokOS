@@ -297,38 +297,6 @@ local function paint_hours()
   end
 end
 
--- **El que mou l'hora d'estiu és la marca de les franges i la frase, i res més** (0.189.91): la casella pintava la pàgina
--- sencera —`ui.clear` i el mapamundi inclòs— i això és 540 per 912 píxels amb els grisos del mapa, o sigui **581 ms i un
--- flaix de `gc16` per girar un interruptor** (l'amo, amb el log al davant: *«al fer el toggle, refresca tota la pantalla a
--- gc16???»*). El principi d'aquest sistema és pintar **el mínim que ha canviat i amb la qualitat més baixa que el netegi**,
--- i el que canvia és la marca d'una hora a les dues franges i la frase de l'offset: dues caixes de paper i tinta, que és
--- `a2` i vint mil·lisegons. El mapa, les hores i els controls no es toquen (docs/50, docs/90).
-local function paint_the_hour(before_hour, now_hour)
-  local function span(hour)
-    return math.floor(x_of_hour(hour - 1) + 0.5), math.floor(x_of_hour(hour + 1) + 0.5)
-  end
-  local was_left, was_right = span(before_hour)
-  local is_left, is_right = span(now_hour)
-  local x = math.min(was_left, is_left)
-  local w = math.max(was_right, is_right) - x
-  for _, y in ipairs({ box.top_y, box.bottom_y }) do
-    -- La franja de paper, amb les seves línies, i la marca de l'hora que hi ha ara: el mateix dibuix de `paint_bands`,
-    -- però només a la finestra que ha canviat.
-    ui.rect(x, y, w, box.band_h, 15)
-    for i = 0, kHours do
-      local tick = math.floor(x_of_hour(kFirstHour + i - 1) + 0.5)
-      if tick >= x and tick <= x + w then ui.line(tick, y, tick, y + box.band_h) end
-    end
-    ui.rect(is_left + 1, y, is_right - is_left - 1, box.band_h, 0)
-  end
-  -- **I la frase de l'offset**, esborrada amb la seva pròpia línia i no amb tota la pàgina: el text que hi havia es va
-  -- amb el paper de la seva alçada i el nou s'hi posa a sobre (docs/30, docs/90).
-  local sentence = 'Selected timezone: ' .. tz_text(shown_offset())
-  local scale = fit_scale(sentence, box.map_w, kTitle)
-  ui.rect(box.map_x, box.label_y, box.map_w, ui.line_height(kTitle), 15)
-  ui.text(box.map_x, box.label_y, sentence, scale, 0)
-end
-
 -- **The three settings are the system's controls and not boxes painted by hand** (0.174.0). The owner, with the page on
 -- the emulator: *«el desplegable ... no te cap estètica que mostri que es una llista desplegable? per altra banda, el botó
 -- de sync NTP tampoc sembla un botó de sistema... son controls UI o uses alguna altra cosa? el focus sembla no funcionar
@@ -350,6 +318,7 @@ local place_settings
 -- **I la pàgina sencera**, because the box of the hour of summer paints it from its hook and a hook that runs before the
 -- page exists would be a nil (0.179.50, docs/30).
 local paint_page
+local paint_choice
 
 local function refused(what, err)
   console.print('tz: no ' .. what .. ' (' .. tostring(err and err.code or 'the memory') .. ')')
@@ -397,7 +366,6 @@ place_settings = function()
     -- two answers to one finger (docs/30, docs/60).
     dstbox.on_focus = function(self, on) remember_the_ring(on, 'dst') end
     dstbox.on_change = function(self, on)
-      local before = shown_hour()
       dst = on
       -- **I es desa en el moment** (0.182.0): the hour of summer is a setting of the system and not a shift of this page, so the
       -- box writes it when it turns and the hour of the board moves with it —`time.date()` reads the offset of the map plus this
@@ -405,11 +373,12 @@ place_settings = function()
       -- (docs/30, docs/60).
       time.dst(on)
       console.print('tz: dst ' .. (on and 'on' or 'off') .. ' ' .. tz_text(shown_offset()))
-      -- **La pàgina no es torna a pintar sencera** (0.189.91): the hour moved one hour, so what moved is the mark of the
-      -- bands and the sentence. The bands are paper and ink and the sentence is text, which is the two-level wash: `a2`,
-      -- and the map with its grays is not touched at all (docs/50, docs/90).
-      paint_the_hour(before, shown_hour())
-      ui.present('a2')
+      -- **La casella pinta el que mou, i no la pàgina sencera** (0.189.91): l'hora d'estiu mou la marca de les franges
+      -- i la frase de l'offset, que és exactament el que Mou quan el dit tria una hora al mapa —`paint_choice`, la que ja
+      -- hi era— i no el que costava 540 per 912 amb els grisos del mapa, 581 ms i un flaix de `gc16`. L'app tenia la
+      -- funció bona des de la 0.174.0 i la casella era l'única que encara cridava `paint_page` (l'amo, amb el log al
+      -- davant: *«al fer el toggle, refresca tota la pantalla a gc16???»*, docs/30, docs/50).
+      paint_choice()
     end
 
     weekfield, why = ui.selector(2, 2)
@@ -467,7 +436,7 @@ paint_page = function()
   end
 end
 
-local function paint_choice()
+paint_choice = function()
   -- **A finger on the map moves two bands and one line**: the bands and the row of the label paint themselves over
   -- their own paper, and the map under them is not touched, because a page that flashes at every hour is a page nobody
   -- drags across (docs/50).
