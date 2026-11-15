@@ -7492,6 +7492,140 @@ int l_ui_menu(lua_State* L) {
   return 1;
 }
 
+// ---- a picker: the card of one choice (0.189.102, docs/30, docs/90) ----
+
+// **The words of a picker**: a Lua array of strings, copied one by one into the block the kernel is given. The table stays
+// on the stack while the card is drawn —the words are pointers into strings the table holds—, the same rule a menu's
+// options follow (docs/75, docs/90).
+// **How many words a picker's card can hold**: the kernel's `kMaxPickerItems` says the same number on the other side of the
+// bridge, and the two are the same because a card with more values than the kernel can paint is a card that lies (docs/90).
+const uint16_t kMaxPickerWords = 64;
+
+uint16_t ui_picker_items(lua_State* L, int object, const char** out, uint16_t capacity) {
+  if (out == nullptr || capacity == 0) return 0;
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "items");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 2);
+    return 0;
+  }
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  uint16_t count = 0;
+  for (lua_Integer i = 1; i <= total && count < capacity; ++i) {
+    lua_rawgeti(L, -1, i);
+    const char* word = "";
+    if (lua_isstring(L, -1)) {
+      word = lua_tostring(L, -1);
+    } else if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "label");
+      if (lua_isstring(L, -1)) word = lua_tostring(L, -1);
+      lua_pop(L, 1);
+    }
+    out[count++] = word;
+    lua_pop(L, 1);
+  }
+  return count;
+}
+
+// **The `on_draw` of a picker**: the card, its title, the rows of the page it is showing and the two keys of the foot. The
+// kernel owns every number of the geometry —the rows that fit, which page, where a key is— so the app says the words and
+// the chosen one and nothing else (docs/30, docs/90).
+int l_picker_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  const DisabledInk off = ui_disabled_ink(L, 1);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.picker_draw == nullptr) return 0;
+  const int base = lua_gettop(L);
+  const char* labels[kMaxPickerWords];
+  const uint16_t count = ui_picker_items(L, 1, labels, kMaxPickerWords);
+  // **A card with no words is a card that is still drawn** (0.189.102): a control that returns here without painting leaves the
+  // page under it as it was and a card the app put up becomes a hole nobody can see —and the fault looked like «els
+  // desplegables no tenen contingut» instead of a table of values that the app never gave— (docs/30, docs/90).
+  const bool has_words = (lua_gettop(L) >= base + 2);
+  if (has_words) {
+    lua_getfield(L, -2, "title");
+  } else {
+    lua_pushstring(L, "");
+  }
+  const char* title = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  const lua_Integer index = ui_field_number(L, 1, "index", 0);
+  const lua_Integer page = ui_field_number(L, 1, "page", 0);
+  const lua_Integer color = ui_field_number(L, 1, "color", 0);
+  const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
+  const lua_Integer background = ui_field_number(L, 1, "background", 15);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 4);
+  const bool focused = ui_field_bool(L, 1, "focused", false) && g_ui_ring_shown;
+  g_ui_ops.picker_draw(canvas->slot, title, labels, count, static_cast<uint16_t>((index < 0) ? 0 : index),
+                       static_cast<uint16_t>((page < 0) ? 0 : page), ink_or_dim(off, color),
+                       static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
+                       static_cast<uint8_t>((scale < 1) ? 1 : ((scale > 16) ? 16 : scale)), focused && !off.on);
+  lua_settop(L, base);
+  return 0;
+}
+
+// ui.picker(width, height): **la targeta d'una tria** (0.189.102), the `OptionPicker` of the paper project, which is the card
+// the alarm form of the Clock opens when a person touches a field. The fields are `title` —the name of the field—, `items`
+// —the words, or tables with `label`—, `index` —the chosen one, 1..n, and 0 is "nothing chosen"—, `page` —which page is on
+// the glass, 1..n, and 0 for the page of the chosen one—, `color`, `dim`, `background` and `scale`.
+//
+// **The card is a card**: it is `__dialog`, so while it is up the walk of the dial and the finger is its own and the page
+// under it answers nothing —the same rule `ui.dialog` follows—, and `__picker` says which card it is (docs/30, docs/90).
+// **A finger on a row picks it and a finger on one of the two keys turns the page**, and a pick arrives at
+// `on_pick(self, index)`; closing the card is the app's, the old rule of read the action, close, and then run it. The dial's
+// two keys walk the values —crossing pages as it goes— and the centre picks the one it is on (docs/30, docs/90).
+int l_ui_picker(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__dialog");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__picker");
+  lua_newtable(L);
+  lua_setfield(L, -2, "items");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "title");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "index");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "page");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (docs/92).
+  lua_pushinteger(L, 4);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_picker_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // **The card is the one that has the ring while it is up**: it is the only stop of the walk and the value the two keys of
+  // the dial walk is the band of ink inside it (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  g_ui_focus_slot = created->slot;
+  g_ui_focus_generation = created->generation;
+  g_ui_focus_item = 0;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focused");
+  lua_pop(L, 1);
+  if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  return 1;
+}
+
 // ---- a bar of menus and a box of several lines (docs/30, docs/90) ----
 
 // **The `on_draw` of a bar**: the row of words, the line under it and the menu of the word that is unfolded. The entries
@@ -10739,7 +10873,11 @@ bool ui_activate(lua_State* L, int count, int objects, int index, bool by_finger
   // `on_change(self, checked)`, and `on_click` and `on_activate` are not called for this control: the click
   // already means something (docs/30, docs/90).
   const bool checkbox = ui_field_bool(L, object, "__checkbox", false);
-  const bool dialog = ui_field_bool(L, object, "__dialog", false);
+  // **A picker is a card too, and its centre is not the centre of a dialog**: it is `__dialog` so that the walk and the finger
+  // are its own while it is up, but what the centre does there is pick the value the band of ink is on —and a picker read as a
+  // two-button card asked the app for `on_accept`, which it does not have, and a tap on a value chose nothing at all (found on
+  // the emulator, 0.189.102)— (docs/30, docs/90).
+  const bool dialog = !ui_field_bool(L, object, "__picker", false) && ui_field_bool(L, object, "__dialog", false);
   if (checkbox) {
     const bool was = ui_field_bool(L, object, "checked", false);
     if (ui_set_field_bool(L, object, "checked", !was)) ui_invalidate(L, object);
@@ -10749,6 +10887,15 @@ bool ui_activate(lua_State* L, int count, int objects, int index, bool by_finger
     // and closing the card is its own (docs/30, docs/90).
     const lua_Integer choice = ui_field_number(L, object, "choice", 2);
     ui_call_hook(L, object, (choice == 1) ? "on_cancel" : "on_accept", false, false);
+  } else if (ui_field_bool(L, object, "__picker", false)) {
+    // **El centre tria el valor on és el cercle, i una premuda a una clau del peu no tria res** (0.189.102): a page turn is not
+    // a choice, and the release of the finger that pressed a key arrives here as an activation —`__stepped` is what the press
+    // of the card wrote and what this spends (docs/30, docs/90).
+    if (ui_field_bool(L, object, "__stepped", false)) {
+      ui_set_field_bool(L, object, "__stepped", false);
+    } else {
+      ui_call_hook_number(L, object, "on_pick", ui_field_number(L, object, "index", 0));
+    }
   } else if (ui_field_bool(L, object, "__month", false)) {
     // **The centre picks the day the dial is on**, and the app hears which one (docs/90).
     ui_call_hook_number(L, object, "on_pick", ui_field_number(L, object, "selected", 1));
@@ -11977,6 +12124,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "textbox", l_ui_textbox);
   set_function(L, "dialog", l_ui_dialog);
   set_function(L, "menu", l_ui_menu);
+  set_function(L, "picker", l_ui_picker);
   set_function(L, "menu_bar", l_ui_menu_bar);
   set_function(L, "textbox_multiline", l_ui_textbox_multiline);
   set_function(L, "selector", l_ui_selector);
@@ -12930,7 +13078,8 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
   // **A strip of tabs is not in this list any more** (0.99.0): its arrows are the walk of the dial, which lands on
   // one tab at a time and goes out of the strip at either end, and the centre chooses the one it is on. A strip that
   // ate the arrows was a page nobody could leave (docs/90, docs/92).
-  if (!slider && !list && !dialog && !month && !menu && !menu_bar && !grid) {
+  const bool picker = ui_field_bool(L, object, "__picker", false);
+  if (!slider && !list && !dialog && !month && !menu && !menu_bar && !grid && !picker) {
     lua_pop(L, 1);
     return false;
   }
@@ -12946,6 +13095,39 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
   }
   // **The menu is the one control whose step is not an arithmetic on a number**: it walks a list of options and skips
   // the ones that are not on the card, so it answers on its own (docs/90).
+  if (picker) {
+    // **Les dues tecles del dial caminen els valors i la pàgina segueix el triat** (0.189.102): a card of sixty values is one
+    // stop of the dial and the band of ink walks the list, which is the same rule a calendar's days follow. At the first and
+    // the last value the key goes back to the walk, so the page is never a dead end (docs/30, docs/90).
+    lua_Integer total = 0;
+    lua_getiuservalue(L, object, 1);
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "items");
+      if (lua_istable(L, -1)) total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+      lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    if (total > static_cast<lua_Integer>(kMaxPickerWords)) total = static_cast<lua_Integer>(kMaxPickerWords);
+    lua_Integer value = ui_field_number(L, object, "index", 0);
+    lua_Integer next = value + ((direction > 0) ? 1 : -1);
+    if (value < 1) next = (direction > 0) ? 1 : total;
+    const bool moved = (next >= 1 && next <= total && next != value);
+    if (moved) {
+      lua_getiuservalue(L, object, 1);
+      if (lua_istable(L, -1)) {
+        lua_pushinteger(L, next);
+        lua_setfield(L, -2, "index");
+        // **La pàgina es torna a decidir**: the page the card was on was a page a finger turned, and the value that walked out
+        // of it brings the card with it (docs/90).
+        lua_pushinteger(L, 0);
+        lua_setfield(L, -2, "page");
+      }
+      lua_pop(L, 1);
+      ui_invalidate(L, object);
+    }
+    lua_pop(L, 1);
+    return moved;
+  }
   if (menu) {
     const bool moved = ui_step_menu(L, object, direction);
     lua_pop(L, 1);
@@ -14476,7 +14658,11 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     // **A finger on a dialog picks the button it is on and not the one the dial was on**: the two boxes of a card
     // are its own, and a person who presses Cancel must get Cancel even if the ring was on the other one. **And a
     // finger on a calendar picks the day it is on** (docs/30, docs/90).
-    if (ui_field_bool(g_state, -1, "__dialog", false) && g_ui_ops.dialog_hit != nullptr) {
+    // **Una targeta de tria no és el diàleg de dos botons** (0.189.102): it is `__dialog` so that the page under it answers
+    // nothing, but its finger is `picker_hit`'s and reading it here drew a «choice» a card of one value does not have and
+    // threw away the pick (found on the emulator) (docs/30, docs/90).
+    if (!ui_field_bool(g_state, -1, "__picker", false) && ui_field_bool(g_state, -1, "__dialog", false) &&
+        g_ui_ops.dialog_hit != nullptr) {
       const int which = g_ui_ops.dialog_hit(targets[hit].slot,
                                             static_cast<uint16_t>(x - targets[hit].x),
                                             static_cast<uint16_t>(y - targets[hit].y));
@@ -14533,6 +14719,83 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         lua_pop(g_state, 1);
         ui_invalidate(g_state, base);
       }
+    } else if (ui_field_bool(g_state, -1, "__picker", false) && g_ui_ops.picker_hit != nullptr &&
+               g_ui_ops.picker_pages != nullptr) {
+      // **Un dit a la targeta d'una tria** (0.189.102): a row is chosen where it is pressed —the band of ink goes there and
+      // the release picks it— and **a finger on one of the two keys of the foot turns the page and chooses nothing** (the
+      // release of that same finger finds `__stepped` written and spends it, see `ui_activate`). A press on the title or on
+      // the air between the rows is nobody's and does not become a pick either (docs/30, docs/90).
+      const int base = lua_gettop(g_state);
+      lua_getiuservalue(g_state, base, 1);
+      const char* title = "";
+      if (lua_istable(g_state, -1)) {
+        lua_getfield(g_state, -1, "title");
+        if (lua_isstring(g_state, -1)) title = lua_tostring(g_state, -1);
+        lua_pop(g_state, 1);
+      }
+      lua_pop(g_state, 1);
+      // **Les paraules sí que es llegeixen aquí, i és la diferència amb un menú**: the card lays its values in as many columns
+      // as the widest of them allows, so which value a finger touched is a fact of the words —and a card answered as if it had
+      // one column picks the wrong one— (docs/30, docs/90).
+      const char* words[kMaxPickerWords];
+      const uint16_t total = ui_picker_items(g_state, base, words, kMaxPickerWords);
+      const lua_Integer scale = ui_field_number(g_state, base, "scale", 4);
+      const lua_Integer page = ui_field_number(g_state, base, "page", 0);
+      const uint8_t scale8 = static_cast<uint8_t>((scale < 1) ? 1 : ((scale > 16) ? 16 : scale));
+      const uint16_t asked = static_cast<uint16_t>((page < 0) ? 0 : page);
+      const lua_Integer on = ui_field_number(g_state, base, "index", 0);
+      const uint16_t on_the_card = static_cast<uint16_t>((on < 0) ? 0 : on);
+      const uint8_t which = g_ui_ops.picker_hit(targets[hit].slot, title, words, total, asked, scale8,
+                                                static_cast<uint16_t>(x - targets[hit].x),
+                                                static_cast<uint16_t>(y - targets[hit].y));
+      // **The page is read while the words are still alive**: they are pointers into the table the stack is holding, and the
+      // two numbers are needed by both answers below (docs/75).
+      const luabind::UIOps::UIPickerPages pages =
+          g_ui_ops.picker_pages(targets[hit].slot, title, words, total, on_the_card, asked, scale8);
+      lua_settop(g_state, base);
+      bool wrote = false;
+      bool stepped = false;
+      lua_Integer chosen = 0;
+      if (which == luabind::UIOps::kPickerBack || which == luabind::UIOps::kPickerForward) {
+        lua_Integer next = static_cast<lua_Integer>(pages.page) + ((which == luabind::UIOps::kPickerForward) ? 1 : -1);
+        if (next < 1) next = 1;
+        if (next > static_cast<lua_Integer>(pages.pages)) next = static_cast<lua_Integer>(pages.pages);
+        if (next != static_cast<lua_Integer>(pages.page)) {
+          lua_getiuservalue(g_state, base, 1);
+          if (lua_istable(g_state, -1)) {
+            lua_pushinteger(g_state, next);
+            lua_setfield(g_state, -2, "page");
+          }
+          lua_pop(g_state, 1);
+          wrote = true;
+        }
+        stepped = true;
+      } else if (which > 0) {
+        // **The value of the page is the value of the list**: the card counts its values page by page —all the columns of a
+        // row first— and the number it writes is the one in the whole list, which is what `on_pick` hands over (docs/90).
+        lua_Integer rows = static_cast<luabind::UIOps::UIPickerPages>(pages).rows;
+        if (rows < 1) rows = 1;
+        chosen = (static_cast<lua_Integer>(pages.page) - 1) * rows + which;
+        if (chosen > static_cast<lua_Integer>(total)) chosen = static_cast<lua_Integer>(total);
+        lua_getiuservalue(g_state, base, 1);
+        if (lua_istable(g_state, -1)) {
+          lua_pushinteger(g_state, chosen);
+          lua_setfield(g_state, -2, "index");
+        }
+        lua_pop(g_state, 1);
+        wrote = true;
+      } else {
+        // A press that is not on a row and not on a key is not a pick: the release would arrive with the old value and
+        // choose a row nobody pressed (docs/30).
+        stepped = true;
+      }
+      lua_getiuservalue(g_state, base, 1);
+      if (lua_istable(g_state, -1)) {
+        lua_pushboolean(g_state, stepped ? 1 : 0);
+        lua_setfield(g_state, -2, "__stepped");
+      }
+      lua_pop(g_state, 1);
+      if (wrote) ui_invalidate(g_state, base);
     } else if (ui_field_bool(g_state, -1, "__menu_bar", false) && g_ui_ops.menu_bar_title_at != nullptr &&
                g_ui_ops.menu_bar_entry_at != nullptr) {
       // **A finger on a title folds or unfolds its menu, and a finger on an entry puts the dial there and the release

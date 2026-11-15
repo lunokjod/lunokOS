@@ -13008,6 +13008,114 @@ void test_a_menu_skips_the_option_the_app_hid(void) {
   kernel::boot(hal::platform());
 }
 
+// **La targeta d'una tria és del sistema, i el dit i el dial que la responen també** (0.189.102): a picker is a card of the
+// system —`__dialog`, so the page under it answers nothing— and **the pick still has to reach the app**: the finger that
+// presses a value picks it, and the centre of the dial picks the value the band of ink is on. A finger on one of the two keys
+// of the foot turns the page and picks nothing at all, and the dial carries on from the value the finger left it on
+// (docs/30, docs/90).
+void test_a_picker_picks_the_value_the_finger_pressed() {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "choices",
+                           "{\"title\":\"Choices\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local picks = 0\n"
+                           "local card = ui.picker(300, 400)\n"
+                           "card:place(80, 150)\n"
+                           "card.title = 'Seconds'\n"
+                           "card.items = { '00', '01', '02', '03', '04', '05', '06', '07', '08', '09',\n"
+                           "  '10', '11', '12', '13', '14', '15', '16', '17', '18', '19',\n"
+                           "  '20', '21', '22', '23', '24', '25', '26', '27', '28', '29',\n"
+                           "  '30', '31', '32', '33', '34', '35', '36', '37', '38', '39' }\n"
+                           "card.on_pick = function(self, index)\n"
+                           "  picks = picks + 1\n"
+                           "  console.print('pick ' .. index .. ' at ' .. picks)\n"
+                           "end\n"
+                           "local shown = card.page\n"
+                           "ui.present('gc16')\n"
+                           "while picks < 3 do\n"
+                           "  if card.page ~= shown then\n"
+                           "    shown = card.page\n"
+                           "    console.print('page ' .. shown)\n"
+                           "  end\n"
+                           "  sys.delay(10):await()\n"
+                           "end\n"
+                           "console.print('picks ' .. picks)"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run choices");
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const uint16_t card_x = static_cast<uint16_t>(view.x + 80);
+  const uint16_t card_y = static_cast<uint16_t>(view.y + 150);
+
+  // **Un dit a la tecla de la dreta del peu gira la pàgina i no tria res**: the key is square, the size of a finger, and it sits
+  // in the bottom corner of the card.
+  capture_begin();
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(card_x + 259), static_cast<uint16_t>(card_y + 368)));
+  pump_turns(60);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick"), g_out);
+
+  // **I un dit a la primera casella de la pàgina tria el primer valor d'aquella pàgina**, que és el primer de la segona: the
+  // card is the page while it is up and the pick reaches the app.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(card_x + 30), static_cast<uint16_t>(card_y + 137)));
+  pump_turns(60);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "at 1"), g_out);
+  int first = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, sscanf(strstr(g_out, "pick "), "pick %d", &first), g_out);
+  // **The value is one of the page the card was showing** —the capture above said which— and the first cell of a page is never
+  // the first value of the list unless the card has one page, which this one has not (docs/90).
+  TEST_ASSERT_GREATER_THAN(1, first);
+
+  // **El dial continua on el dit el va deixar i el centre tria**: one step up is the value after the one the finger picked, and
+  // the centre of the dial is what picks it.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  int second = 0;
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "at 2"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, sscanf(strstr(g_out, "pick "), "pick %d", &second), g_out);
+  TEST_ASSERT_EQUAL_INT(first + 1, second);
+
+  storage->remove("/apps/choices/app.lua");
+  storage->remove("/apps/choices/manifest.json");
+  storage->remove("/apps/choices");
+
+  // The next test gets the default emulator back: the display and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A bar of menus answers with the title and the entry**: the dial walks the entries of the open menu —past the dash and
 // past the entry that the app turned off—, the centre fires `on_pick(self, title, entry)` with the menu already folded, a
 // finger on a title opens it and a finger on an entry chooses it (docs/30, docs/90).
@@ -17493,6 +17601,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_folder_is_made_with_the_fathers_it_needs);
   RUN_TEST(test_a_card_over_the_page_takes_the_walk_and_gives_it_back);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);
+  RUN_TEST(test_a_picker_picks_the_value_the_finger_pressed);
   RUN_TEST(test_a_menu_bar_answers_with_the_title_and_the_entry);
   RUN_TEST(test_a_box_of_lines_types_and_the_enter_writes_a_break);
   RUN_TEST(test_a_selector_opens_the_list_the_app_puts_up);

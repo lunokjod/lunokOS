@@ -485,20 +485,26 @@ local function big_text()
   return ''
 end
 
--- ============================================================ la targeta d'una llista
+-- ============================================================ la targeta d'un camp
 --
--- **Una llista de 60 tampoc no hi cap en un menú** (`ui.menu` dibuixa les opcions que hi tenen caixa i prou, docs/30), o
--- sigui que el camp d'una hora, d'un minut o d'un dia obre una llista paginada del sistema, i cada fila és un
--- `ui.list_entry` amb el seu toc. És la mateixa feina que feia el selector de PaperOS: la porta és el camp i la tria és
--- una llista.
+-- **La targeta és del sistema** (0.189.102, l'amo: *«els vull com l'original, un desplegable que et mostr un modal amb els
+-- minuts/hores/dies i dos botons per anar endavant i endarrere … Tot sota UIControl. No vull controls pintats i
+-- artesanals»*): the field is a door and what opens is **`ui.picker`**, the card of the paper project's `OptionPicker` —
+-- the name of the field, the values of one page as the rows of the system, the chosen one as a band of ink, and **the two
+-- keys of the foot** that turn the page. The app says the words and which one is chosen and hears the pick: **it does not
+-- lay the card out, paint it or walk it** (docs/30, docs/90).
+--
 -- **El que un control demana es fa al torn següent i no dins del seu ganxo**: un botó que s'ha deixat anar es torna a
 -- pintar ell mateix *després* que el ganxo ha repintat la pàgina, i la seva paraula queda estampada al lloc on ja no és
 -- (vist a l'emulador: el «Delete» d'una pàgina que ja no el té). És la mateixa regla que el `tz` ja segueix amb el botó
 -- del rellotge: el ganxo deixa el desig i el bucle el fa (docs/30, docs/90).
 local wanted = nil
 
-local paint_page   -- la pàgina sencera, que es declara més avall i la targeta necessita rentar-la
-local card, card_field, card_box = nil, nil, nil
+-- **Les dues feines que es declaren més avall i que la targeta necessita deixades per escrit**: the pick of a value lays the
+-- form out again and repaints the page, and a `wanted` that named a local of a hundred lines below would name a global that
+-- does not exist —and the app dies with `attempt to call a nil value` on the very tap that chose a day— (0.189.102).
+local paint_page, layout
+local card, card_field = nil, nil
 
 local function close_card()
   if card ~= nil then
@@ -509,75 +515,49 @@ local function close_card()
     card_field.choosing = false
     card_field = nil
   end
-  card_box = nil
 end
 
--- **Els controls de la pàgina marxen mentre la targeta és a sobre, i no és un detall**: la pàgina pinta un control
--- quan se'l marca, i un camp que rebi el seu toc *després* de la llista hi pinta a sobre —la targeta quedava amb el camp
--- de l'hora travessat—. La targeta és la pàgina sencera mentre dura, com una sub-vista d'aquesta app (docs/30, docs/90).
-local function below_the_card()
-  for _, control in ipairs({ dismiss, alarmList, daySel, moSel, hourSel, quarSel, minSel, secSel, noteBox,
-                             primary, secondary }) do
-    if control ~= nil then control:place(0, hei + 400) end
-  end
-end
-
-local function open_card(field, items, pick)
+-- **El que la targeta ha de saber del camp és el nom, les paraules i la triada, i res més**: the card is as big as the room
+-- under the strip of tabs and the kernel works out how many rows fit in it, which page the chosen value is on and how many
+-- the two keys of the foot can turn (docs/30, docs/90).
+local function open_picker(field, choose)
   close_card()
-  local row_h = math.max(52, line(kBody) + 16)
-  local w = wid - 2 * MARGIN
-  -- **La targeta cap a la pàgina**: el lloc que hi ha de sota la tira de pestanyes, amb la banda de les pàgines
-  -- descomptada quan n'hi ha més d'una, o el peu es queda fora del vidre.
-  local room = hei - (MARGIN + TABS_H + GAP) - MARGIN
-  local plain = math.max(1, room // row_h)
-  local paged = math.max(1, (room - 41) // row_h)
-  local paging = (#items > plain)
-  local h = math.min(#items, paging and paged or plain) * row_h
-  if paging then h = h + 41 end
-  -- **La pàgina es renta ABANS de fer la targeta**: el que hi havia pintat a sota (els camps, el botó) no marxa sol —
-  -- el dibuix d'un control queda al llenç del pare, i el que el treu és el `ui.clear` d'una pàgina sencera (docs/30).
-  below_the_card()
-  paint_page(true)
-  local list, why = ui.list(w, h)
-  if list == nil then
-    paint_page()
-    return refused('list', why)
+  -- **Una targeta sense valors no s'obre** (0.189.102): a card with no words is a card a person cannot answer, and the fault
+  -- has to be read in the log and not looked for on the glass —a blank card is the same picture as a card nobody filled—
+  -- (docs/30, docs/90).
+  if type(field.items) ~= 'table' or #field.items == 0 then
+    console.print('clock: the field ' .. tostring(field.label) .. ' has no values to show')
+    return refused('targeta', 'the field has no values')
   end
-  list.row_height = row_h
-  for i, one in ipairs(items) do
-    local entry, why_bit = ui.list_entry(w, row_h)
-    if entry ~= nil then
-      local words, why_word = ui.label(w - 24, row_h - 2)
-      if words ~= nil then
-        words.text = one
-        words.valign = 'middle'
-        words.scale = kBody
-        words:place(12, 0)
-        entry:add(words)
-      else
-        refused('label', why_word)
+  local top = MARGIN + TABS_H + GAP
+  local picker, why = ui.picker(wid - 2 * MARGIN, hei - top - MARGIN)
+  if picker == nil then
+    return refused('picker', why)
+  end
+  picker.title = field.label
+  picker.items = field.items
+  picker.index = field.index
+  picker.on_pick = function(self, index)
+    -- **Llegir, tancar i llavors fer**: the card is gone when the field is written, so the page below it does not move with
+    -- the finger still on the glass (docs/90).
+    wanted = function()
+      close_card()
+      if index ~= nil and index > 0 then
+        choose(index)
+        field.index = index
+        hint = ''
+        save_form()
       end
-      entry.marked = (field.index == i)
-      -- **Llegir, tancar i llavors fer**: la targeta ja no hi és quan el camp s'escriu, o sigui que la pàgina de sota no
-      -- es mou amb el dit encara a sobre (docs/90).
-      entry.on_click = function()
-        wanted = function()
-          close_card()
-          pick(i)
-        end
-      end
-      list:add(entry)
-    else
-      refused('row', why_bit)
+      layout()
+      paint_page()
     end
   end
-  list:place(MARGIN, MARGIN + TABS_H + GAP)
-  card, card_field = list, field
-  card_box = placed(MARGIN, MARGIN + TABS_H + GAP, w, h)
+  picker:place(MARGIN, top)
+  card, card_field = picker, field
   field.choosing = true
-  ui.focus(list)
-  -- **La targeta tapa la pàgina, i el que s'ha esborrat de sota és tinta sobre paper**: la passada barata n'hi ha prou i
-  -- no fa cap flaix en un toc que ha de respondre de seguida.
+  -- **El cercle va a la targeta**: it is the only stop of the walk while it is up —`ui.picker` is a card of the system and
+  -- the page under it answers nothing— and its two keys are the ones that walk the values (docs/30, docs/90).
+  ui.focus(picker)
   ui.present(kCheapMode)
 end
 
@@ -630,7 +610,7 @@ local function place_one(control, y, h)
   control:place(MARGIN, y)
 end
 
-local function layout()
+layout = function()
   measure()
   box = {}
   for _, control in ipairs({ tabs, dismiss, alarmList, daySel, moSel, hourSel, quarSel, minSel, secSel,
@@ -1016,14 +996,7 @@ local function field(name, label, items, choose)
   one.index = 0
   one.scale = kBody
   one.on_open = function(self)
-    wanted = function() open_card(self, items, function(i)
-      choose(i)
-      self.index = i
-      hint = ''
-      save_form()
-      layout()
-      paint_page()
-    end) end
+    wanted = function() open_picker(self, choose) end
   end
   one.on_focus = function(self, on) remember(on, name) end
   named[name] = one
@@ -1269,19 +1242,24 @@ while true do
   -- diu que ja en té prou (docs/30, docs/50).
   if dirty or face_dirty then ui.present(kSoftMode) end
 
-  -- **El dit només és de l'app fora de la targeta**: el camp, la llista i els botons són del sistema, i un toc fora de la
-  -- targeta oberta la tanca, que és el que vol dir una targeta sobre una pàgina (docs/30).
-  local fingers = touch.read()
-  if #fingers > 0 and card_box ~= nil then
-    local x, y = fingers[1].x, fingers[1].y
-    if x < card_box.x or x >= card_box.x + card_box.w or y < card_box.y or y >= card_box.y + card_box.h then
-      close_card()
-      paint_page()
-    end
-  end
-
+  -- **I un toc fora de la targeta la tanca**, que és el que vol dir una targeta sobre una pàgina: the values and the two keys
+  -- are the system's and the page under it answers nothing, so the way out is a finger that lands beside the card. It is asked
+  -- of the **gestures** and not of `touch.read()`: a card of the system owns the fingers that fall on it, and a page that read
+  -- the raw points while one is up read none of them —nor the ones beside it— (docs/30, docs/90).
   local gesture = touch.gesture()
-  while gesture do gesture = touch.gesture() end
+  while gesture do
+    if card ~= nil and (gesture.kind == 'tap' or gesture.kind == 'long') then
+      local where = card:caps()
+      if gesture.x < where.x or gesture.x >= where.x + where.width or gesture.y < where.y or
+         gesture.y >= where.y + where.height then
+        wanted = function()
+          close_card()
+          paint_page()
+        end
+      end
+    end
+    gesture = touch.gesture()
+  end
 
   sys.delay(150):await()
 end

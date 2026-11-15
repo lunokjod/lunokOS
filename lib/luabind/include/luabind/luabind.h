@@ -982,6 +982,32 @@ struct UIOps {
   // one line has no rows to work out —only a column— and this is what puts the caret where a person tapped, the same way the box
   // of several lines does it at the lift (docs/30, docs/90).
   uint16_t (*textbox_column_at)(int16_t slot, const char* text, uint8_t scale, uint16_t x);
+  // **A picker: the card of one choice** (0.189.102, docs/30, docs/90), the `OptionPicker` of the paper project.
+  // **El desplegable d'un camp**: a card over the page with the name of the field, the values of one page as the rows of the
+  // system —the chosen one a band of ink— and, when there is more than one page, **two keys at the foot** that turn it and
+  // the paginator of the system between them. The app gives the words and the chosen one and nothing else: the geometry, the
+  // paint, the finger and the pages are the kernel's, and they are one function asked by the three of them (docs/90).
+  bool (*picker_draw)(int16_t slot, const char* title, const char* const* labels, uint16_t count, uint16_t index,
+                      uint16_t page, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused);
+  // What a point of the card is: **a value of the page from 1** —a value and not a row, because the card lays its values in
+  // as many columns as its widest word allows—, one of the two keys, or 0 for the card itself and the air.
+  // **The two keys are the two numbers the kernel's `kernel::ui::kPickerBack` and `kPickerForward` are**: the layers do not
+  // share a header —this library does not know the kernel— so the numbers are said in both places and a test holds them
+  // together (docs/90).
+  static const uint8_t kPickerBack = 0xfe;
+  static const uint8_t kPickerForward = 0xff;
+  // **The words come along because the widest of them is a fact of the geometry**: how many values sit side by side is what
+  // the finger has to know to answer which one it touched (docs/90).
+  uint8_t (*picker_hit)(int16_t slot, const char* title, const char* const* labels, uint16_t count, uint16_t page,
+                        uint8_t scale, uint16_t x, uint16_t y);
+  // The page the card is showing and how many it makes, which is what the bridge needs to turn it with a key of its own.
+  struct UIPickerPages {
+    uint16_t page;
+    uint16_t pages;
+    uint16_t rows;  // how many values a page holds: the cells of all its columns
+  };
+  UIPickerPages (*picker_pages)(int16_t slot, const char* title, const char* const* labels, uint16_t count,
+                                uint16_t index, uint16_t page, uint8_t scale);
 };
 
 void set_ui_ops(const UIOps& ops);

@@ -1934,6 +1934,18 @@ uint8_t menu_hit_for_lua(int16_t slot, const char* title, const luabind::UIOps::
   return menu_hit(slot, title, mine, count, scale, x, y);
 }
 
+// **The two numbers of the pages, in the bridge's struct and not the kernel's**: the two sides of a control do not share a
+// struct, the same rule the options of a menu follow (docs/90).
+luabind::UIOps::UIPickerPages picker_pages_for_lua(int16_t slot, const char* title, const char* const* labels,
+                                                   uint16_t count, uint16_t index, uint16_t page, uint8_t scale) {
+  const PickerPages mine = picker_pages(slot, title, labels, count, index, page, scale);
+  luabind::UIOps::UIPickerPages answer;
+  answer.page = mine.page;
+  answer.pages = mine.pages;
+  answer.rows = mine.rows;
+  return answer;
+}
+
 // **The bar of menus, said in the kernel's words**: the titles point into one block of entries, so a bar of five titles
 // and sixteen entries is two arrays and no allocation (docs/90).
 bool menu_bar_build(const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count, MenuBarTitle* mine,
@@ -2244,7 +2256,10 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      icon_grid_ring_for_lua,
                                      invert_for_lua,
                                      canvas_invert_for_lua,
-                                     textbox_column_at});
+                                     textbox_column_at,
+                                     picker_draw,
+                                     picker_hit,
+                                     picker_pages_for_lua});
   // **I les imatges dels moments del sistema** (0.183.0): one call of a page can put the picture of the boot, of the way
   // down, of the battery or of the error on the glass, which is what a page that offers them needs and what it cannot do
   // by drawing: the wash of a moment is the whole panel and the picture is a file of the disk (docs/30, docs/50).
@@ -5915,6 +5930,280 @@ bool menu_draw(int16_t slot, const char* title, const MenuOption* items, uint8_t
   }
   close_draw(target);
   return true;
+}
+
+// ---- a picker: the card of one choice (0.189.102, docs/30, docs/90) ----
+
+namespace {
+
+// **The line of a letter of a card**, which is the arithmetic `paint_row` does: the face's height by the size, and the
+// height of a cell of the table when the face does not say one (docs/92).
+int32_t picker_line(int8_t face_handle, uint8_t scale) {
+  const font::Face& face = face_of(face_handle);
+  return static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+}
+
+// **La geometria de la targeta, una vegada** (docs/90): the frame of three rings, the title band, the rows of a page, and the
+// foot with the two keys and the paginator. `pages` is asked because a card of one page has no keys and no foot, and that is
+// the difference between a list of four values and a list of sixty (docs/30).
+struct PickerGrid {
+  int32_t pad = 0;
+  int32_t frame = 0;
+  int32_t radius = 0;
+  int32_t title_h = 0;
+  int32_t row_h = 0;
+  int32_t rows = 0;
+  int32_t columns = 1;
+  int32_t cell_w = 0;  // the width of one value of a row, gaps aside
+  int32_t gap = 0;
+  int32_t per = 0;  // the values one page holds: the cells of all its columns
+  int32_t foot_h = 0;
+  int32_t key = 0;
+  int32_t room = 0;  // the width the cells and the title have, inside the frame
+};
+
+// **The widest word of the card**, which is what decides how many values sit side by side: a card of "1".."59" fits four
+// columns and a card of "January".."December" fits one (docs/30, docs/90).
+int32_t picker_widest(int8_t face_handle, const char* const* labels, uint16_t count, uint8_t scale) {
+  int32_t widest = 0;
+  for (uint16_t i = 0; i < count; ++i) {
+    const char* label = (labels != nullptr && labels[i] != nullptr) ? labels[i] : "";
+    const int32_t width = static_cast<int32_t>(font::width(face_of(face_handle), label, scale));
+    if (width > widest) widest = width;
+  }
+  return widest;
+}
+
+PickerGrid picker_grid(const Canvas& card, bool has_title, uint8_t scale, uint16_t count,
+                       const char* const* labels) {
+  PickerGrid grid;
+  const int32_t width = card.width;
+  const int32_t height = card.height;
+  const int32_t line = picker_line(card.face, scale);
+  const int32_t title_line = picker_line(card.face, static_cast<uint8_t>(scale + 1));
+  grid.frame = 3;
+  grid.radius = 12;
+  const int32_t most = ((width < height) ? width : height) / 3;
+  if (grid.radius > most) grid.radius = most;
+  grid.pad = (width > 60) ? 12 : 6;
+  grid.room = width - 2 * grid.pad - 2 * grid.frame;
+  if (grid.room < 8) grid.room = 8;
+  grid.title_h = has_title ? (2 * grid.pad + title_line) : grid.pad;
+  // **Les columnes les diu l'amplada del text més llarg**: "59" hi cap quatre vegades on "January" només hi cap una, i una
+  // llista de seixanta valors en una columna serien sis pàgines de «següent» (docs/30, docs/90).
+  grid.gap = 8;
+  int32_t widest = picker_widest(card.face, labels, count, scale);
+  if (widest > grid.room) widest = grid.room;
+  int32_t columns = 1;
+  if (widest > 0 && grid.room > widest) {
+    columns = (grid.room + grid.gap) / (widest + grid.gap);
+    if (columns < 1) columns = 1;
+    if (columns > kPickerMaxColumns) columns = kPickerMaxColumns;
+  }
+  grid.columns = columns;
+  grid.cell_w = (grid.room - (columns - 1) * grid.gap) / columns;
+  if (grid.cell_w < 8) grid.cell_w = 8;
+  // **Una fila no és mai més baixa que el terra d'un dit** (52 px): the rows of a card are the doors a person presses, and the
+  // same number the menu uses. A card with room to spare grows them, so four values in a tall card are four tall doors (docs/30).
+  grid.row_h = line + 16;
+  if (grid.row_h < 52) grid.row_h = 52;
+  // **The keys of the foot are square and the size of the floor of a finger**, and the foot is only there when there is more
+  // than one page: a card of one page is rows and nothing else (docs/30).
+  grid.key = 52;
+  const int32_t foot_band = grid.key + 2 * kFootRule + 4;
+  // **Two passes and not one**: whether there is a foot is decided by whether the rows do not fit, and a foot takes rows, so
+  // the number of rows of a card with a foot is asked after knowing the card needs one (docs/90).
+  int32_t rows = (height - grid.title_h) / grid.row_h;
+  if (rows < 1) rows = 1;
+  const bool paging = (count > static_cast<uint16_t>(rows * grid.columns));
+  grid.foot_h = paging ? foot_band : 0;
+  rows = (height - grid.title_h - grid.foot_h) / grid.row_h;
+  if (rows < 1) rows = 1;
+  grid.rows = rows;
+  grid.per = rows * grid.columns;
+  return grid;
+}
+
+// **How many pages the values make**, which is what the foot says and what the app needs to know (docs/90).
+uint16_t picker_pages_of(uint16_t count, int32_t rows) {
+  if (rows < 1) rows = 1;
+  const uint16_t pages = static_cast<uint16_t>((count + static_cast<uint16_t>(rows) - 1) / static_cast<uint16_t>(rows));
+  return (pages < 1) ? 1 : pages;
+}
+
+// **La pàgina que la targeta ensenya**: `page` 0 means "the page the chosen value is on", which is what a card that opens on
+// the value it is showing needs, and a page that is out of the card is brought back inside it (docs/90).
+uint16_t picker_page_of(uint16_t index, uint16_t page, int32_t rows, uint16_t pages) {
+  if (rows < 1) rows = 1;
+  uint16_t shown = page;
+  if (shown == 0) {
+    shown = (index > 0) ? static_cast<uint16_t>((index - 1) / static_cast<uint16_t>(rows) + 1) : 1;
+  }
+  if (shown > pages) shown = pages;
+  if (shown < 1) shown = 1;
+  return shown;
+}
+
+// **A chevron of two arms**, the drawing `draw_icon`'s «back» mark makes: the two keys of the foot are that mark one to each
+// side, and they are drawn by the kernel and not by the app (docs/30, docs/92).
+void picker_chevron(Canvas& canvas, int32_t cx, int32_t cy, int32_t reach, bool forward, uint8_t level,
+                    hal::UpdateMode mode) {
+  const int32_t stroke = (reach >= 16) ? 3 : 2;
+  const int32_t tip = forward ? (cx + reach / 2) : (cx - reach / 2);
+  const int32_t back = forward ? (cx - reach / 2) : (cx + reach / 2);
+  icon_line(canvas, back, cy - reach, tip, cy, stroke, level, mode);
+  icon_line(canvas, tip, cy, back, cy + reach, stroke, level, mode);
+}
+
+}  // namespace
+
+bool picker_draw(int16_t slot, const char* title, const char* const* labels, uint16_t count, uint16_t index,
+                 uint16_t page, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused) {
+  if (!live(slot) || color > 15 || dim > 15 || background > 15) return false;
+  if (labels == nullptr && count > 0) return false;
+  const Canvas& card = g_canvases[slot];
+  const int32_t width = card.width;
+  const int32_t height = card.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (count > kMaxPickerItems) count = kMaxPickerItems;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(card.face);
+  const bool has_title = (title != nullptr && title[0] != '\0');
+  const PickerGrid grid = picker_grid(card, has_title, scale, count, labels);
+  const uint16_t per = static_cast<uint16_t>(grid.per);
+  const uint16_t pages = picker_pages_of(count, per);
+  const uint16_t shown_page = picker_page_of(index, page, per, pages);
+  // **La targeta és una targeta i es dibuixa com la del menú** (docs/92): paper a dins i **tres anells d'un píxel**, que és el
+  // que fa que un cantó rodó es llegeixi com un cantó de tinta i no com una taca.
+  draw_round_fill(*target.canvas, target.x, target.y, width, height, grid.radius, background, mode);
+  // **El cercle del dial és la vora més gruixuda**, que és com aquest sistema diu «la volta és aquí» en una cosa que no és un
+  // rectangle: a square frame around a card with round corners is a frame whose corner comes off the card (docs/30, docs/90).
+  const int32_t rings = focused ? (2 * grid.frame) : grid.frame;
+  for (int32_t i = 0; i < rings; ++i) {
+    if (width - 2 * i < 2 || height - 2 * i < 2) break;
+    const int32_t r = (grid.radius > i) ? (grid.radius - i) : 1;
+    draw_round_bevel(*target.canvas, target.x + i, target.y + i, static_cast<uint16_t>(width - 2 * i),
+                     static_cast<uint16_t>(height - 2 * i), r, color, color, mode);
+  }
+  // **El títol és el nom del camp i va un pas per sobre dels valors**, com el d'un menú i com el del paper: the card is the
+  // question and the values are the answers, and it is read from the same left edge as them (docs/92). **The block is small
+  // because the board has no room for a bigger one**: it holds a field's name and the «2 / 3» of the foot, and the DRAM of a
+  // paper is full to thirty-two bytes (docs/75).
+  static char shown[96];
+  const int32_t inside = grid.pad + grid.frame;
+  if (has_title) {
+    const int32_t title_line = picker_line(card.face, static_cast<uint8_t>(scale + 1));
+    label_text(card.face, title, static_cast<uint16_t>(grid.room), static_cast<uint8_t>(scale + 1), shown,
+               sizeof(shown));
+    draw_text(*target.canvas, face, target.x + inside, target.y + grid.title_h - title_line - grid.pad + 2, shown,
+              static_cast<uint8_t>(scale + 1), color, mode);
+  }
+  // **Els valors de la pàgina**, que són les caselles de totes les seves columnes: cada valor és una fila del sistema
+  // (`paint_row`), i el triat és la banda de tinta que aquest sistema fa servir per dir «aquest és el que hi ha» (docs/92).
+  const uint16_t first = static_cast<uint16_t>((shown_page - 1) * per + 1);
+  for (int32_t i = 0; i < grid.rows; ++i) {
+    const int32_t row_y = target.y + grid.title_h + i * grid.row_h;
+    if (row_y + grid.row_h > target.y + height - grid.foot_h) break;
+    for (int32_t c = 0; c < grid.columns; ++c) {
+      const uint16_t n = static_cast<uint16_t>(first + static_cast<uint16_t>(i * grid.columns + c));
+      if (n > count) break;
+      const char* label = (labels[n - 1] != nullptr) ? labels[n - 1] : "";
+      paint_row(*target.canvas, target.x + inside + c * (grid.cell_w + grid.gap), row_y, grid.cell_w, grid.row_h,
+                card.face, label, nullptr, nullptr, color, dim, background, scale, n == index, false, mode);
+    }
+  }
+  // **El peu: dues claus i el paginador del sistema entre elles** (0.189.102): the two keys are the answer to the owner's
+  // *«dos botons per anar endavant i endarrere»*, and they are only drawn when there is a page to turn (docs/30).
+  if (grid.foot_h > 0) {
+    const int32_t key_y = target.y + height - grid.foot_h + kFootRule + 2;
+    const int32_t back_x = target.x + inside;
+    const int32_t forward_x = target.x + width - inside - grid.key;
+    draw_round_fill(*target.canvas, back_x, key_y, grid.key, grid.key, 10, background, mode);
+    draw_round_bevel(*target.canvas, back_x, key_y, static_cast<uint16_t>(grid.key), static_cast<uint16_t>(grid.key), 10,
+                     color, color, mode);
+    draw_round_fill(*target.canvas, forward_x, key_y, grid.key, grid.key, 10, background, mode);
+    draw_round_bevel(*target.canvas, forward_x, key_y, static_cast<uint16_t>(grid.key), static_cast<uint16_t>(grid.key), 10,
+                     color, color, mode);
+    const int32_t reach = grid.key / 5;
+    picker_chevron(*target.canvas, back_x + grid.key / 2, key_y + grid.key / 2, reach, false, color, mode);
+    picker_chevron(*target.canvas, forward_x + grid.key / 2, key_y + grid.key / 2, reach, true, color, mode);
+    // **I el paginador del sistema al mig**, que és el número de la pàgina que es llegeix: the same strip of balls a list has,
+    // because it is the same drawing and not a second one (docs/30, docs/92).
+    const int32_t strip_x = back_x + grid.key + 6;
+    const int32_t strip_w = forward_x - strip_x - 6;
+    const int32_t strip_y = key_y + (grid.key - kDotBig) / 2;
+    if (strip_w > kDotSmall &&
+        !paint_dots(*target.canvas, strip_x, strip_y, strip_w, kDotBig, pages, shown_page, color, background, mode)) {
+      const int32_t line_h = picker_line(card.face, scale);
+      snprintf(shown, sizeof(shown), "%u / %u", static_cast<unsigned>(shown_page), static_cast<unsigned>(pages));
+      const uint16_t taken = font::width(face, shown, scale);
+      draw_text(*target.canvas, face, strip_x + (strip_w - static_cast<int32_t>(taken)) / 2,
+                strip_y + (kDotBig - line_h) / 2, shown, scale, color, mode);
+    }
+  }
+  mark_box(*target.canvas, target.x, target.y, width, height, mode);
+  close_draw(target);
+  return true;
+}
+
+PickerPages picker_pages(int16_t slot, const char* title, const char* const* labels, uint16_t count, uint16_t index,
+                         uint16_t page, uint8_t scale) {
+  PickerPages answer = {1, 1, 1};
+  if (!live(slot)) return answer;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (count > kMaxPickerItems) count = kMaxPickerItems;
+  const Canvas& card = g_canvases[slot];
+  const bool has_title = (title != nullptr && title[0] != '\0');
+  const PickerGrid grid = picker_grid(card, has_title, scale, count, labels);
+  answer.pages = picker_pages_of(count, static_cast<uint16_t>(grid.per));
+  answer.page = picker_page_of(index, page, static_cast<uint16_t>(grid.per), answer.pages);
+  answer.rows = static_cast<uint16_t>(grid.per);
+  return answer;
+}
+
+uint8_t picker_hit(int16_t slot, const char* title, const char* const* labels, uint16_t count, uint16_t page,
+                   uint8_t scale, uint16_t x, uint16_t y) {
+  if (!live(slot)) return kPickerNothing;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (count > kMaxPickerItems) count = kMaxPickerItems;
+  const Canvas& card = g_canvases[slot];
+  const bool has_title = (title != nullptr && title[0] != '\0');
+  const PickerGrid grid = picker_grid(card, has_title, scale, count, labels);
+  const uint16_t per = static_cast<uint16_t>(grid.per);
+  const uint16_t pages = picker_pages_of(count, per);
+  const uint16_t shown_page = picker_page_of(0, page, per, pages);
+  const int32_t at_x = static_cast<int32_t>(x);
+  const int32_t at_y = static_cast<int32_t>(y);
+  if (at_x < 0 || at_y < 0 || at_x >= card.width || at_y >= card.height) return kPickerNothing;
+  const int32_t inside = grid.pad + grid.frame;
+  if (grid.foot_h > 0) {
+    const int32_t key_y = card.height - grid.foot_h + kFootRule + 2;
+    if (at_y >= key_y && at_y < key_y + grid.key) {
+      if (at_x >= inside && at_x < inside + grid.key) return kPickerBack;
+      const int32_t forward_x = card.width - inside - grid.key;
+      if (at_x >= forward_x && at_x < forward_x + grid.key) return kPickerForward;
+      return kPickerNothing;
+    }
+  }
+  if (at_y < grid.title_h) return kPickerNothing;
+  const int32_t row = (at_y - grid.title_h) / grid.row_h;
+  if (row < 0 || row >= grid.rows) return kPickerNothing;
+  const int32_t across = at_x - inside;
+  if (across < 0) return kPickerNothing;
+  const int32_t cell = across / (grid.cell_w + grid.gap);
+  if (cell < 0 || cell >= grid.columns) return kPickerNothing;
+  // **El buit entre dues caselles no és de ningú**: a finger that lands between two values picks none of them (docs/90).
+  if (across - cell * (grid.cell_w + grid.gap) >= grid.cell_w) return kPickerNothing;
+  const uint16_t on_page = static_cast<uint16_t>(row * grid.columns + cell + 1);
+  const uint16_t n = static_cast<uint16_t>((shown_page - 1) * per + on_page);
+  if (n > count) return kPickerNothing;
+  return static_cast<uint8_t>(on_page);
 }
 
 uint8_t menu_hit(int16_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t scale,

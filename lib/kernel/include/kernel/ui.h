@@ -530,6 +530,54 @@ bool menu_draw(int16_t slot, const char* title, const MenuOption* items, uint8_t
 uint8_t menu_hit(int16_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t scale,
                  uint16_t x, uint16_t y);
 
+// ---- a picker: the card of one choice (0.189.102, docs/30, docs/90) ----
+//
+// **El desplegable d'un camp, com el `OptionPicker` del projecte del paper** (l'amo: *«els vull com l'original, un desplegable
+// que et mostr un modal amb els minuts/hores/dies i dos botons per anar endavant i endarrere»*): a card over the page with
+// **the name of the field** at the top, **the values of one page** as the rows of the system, and **two keys at the foot**
+// that turn the page. It is one control and not a tree of them —the app says which words there are and which one is chosen
+// and nothing else— and its geometry is **one function** (`picker_grid`) that the paint and the finger both ask, so the key
+// that is drawn is the key that answers (docs/30, docs/90).
+//
+// **`index` is 1..count and 0 is "nothing chosen"** —the same contract the `ui.selector` field has— and **`page` is 1-based with
+// 0 meaning "the page the chosen value is on"**, which is what a card that opens on the value it is showing needs. The rows
+// of a page and the number of pages are the kernel's arithmetic and the app asks for them with `picker_rows` when it wants
+// to lay a card out itself (docs/90).
+const uint16_t kMaxPickerItems = 64;
+
+// **Quantes opcions seuen una al costat de l'altra, i ho diu el text** (the paper project's own rule, 0.189.102): the widest
+// word of the card decides how many columns fit, so a list of sixty minutes is two pages of small words and a list of twelve
+// month names is one page of one column —and not fifteen pages of «next»- (docs/30, docs/90).
+const int32_t kPickerMaxColumns = 4;
+
+// **What a point of the card is**: 0 for the card itself, the title and the air between rows; `1..per` for **one value of the
+// page it is showing, counted on the page and not in the list** (the caller adds `page`); and the two keys of the foot.
+enum : uint8_t { kPickerNothing = 0, kPickerBack = 0xfe, kPickerForward = 0xff };
+
+// **La targeta**: paper, the frame of three rings, the title centred one size over the rows, the rows of the page —the
+// chosen one as a band of ink, which is how this system marks a row— and, when there is more than one page, the two keys
+// and the paginator of the system between them. `focused` draws the frame the dial's ring wears (docs/30, docs/92).
+bool picker_draw(int16_t slot, const char* title, const char* const* labels, uint16_t count, uint16_t index,
+                 uint16_t page, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused);
+
+// **Què hi ha sota un punt de la targeta**: a value of the page (from 1), one of the two keys, or nothing. `title`, `count`
+// and `labels` are what decide whether the card has a title band, a foot and how many columns, and `page` is what it is
+// showing. **The words are asked for because the widest of them is a fact of the geometry**: a card laid out with four
+// columns and answered as if it had one is a card whose finger picks the wrong value (docs/90).
+uint8_t picker_hit(int16_t slot, const char* title, const char* const* labels, uint16_t count, uint16_t page,
+                   uint8_t scale, uint16_t x, uint16_t y);
+
+// **The page a card is showing and how many it has**: the two numbers the bridge needs to turn the page with a key of its
+// own, and the same arithmetic the paint and the finger use —a card that said "2 / 3" and showed the rows of the fourth page
+// is a card that lies— (docs/90).
+struct PickerPages {
+  uint16_t page;   // which one is on the glass, from 1
+  uint16_t pages;  // how many the values make, at least 1
+  uint16_t rows;   // how many values a page holds —the cells of all its columns—, which turns a value of the page into one of the list
+};
+PickerPages picker_pages(int16_t slot, const char* title, const char* const* labels, uint16_t count, uint16_t index,
+                         uint16_t page, uint8_t scale);
+
 // ---- a bar of menus: the titles and the one that is unfolded (docs/30, docs/90) ----
 //
 // **A bar is a row of words with a line under it and one menu that hangs from the word that was touched.** The bar is

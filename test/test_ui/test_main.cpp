@@ -3350,6 +3350,104 @@ void test_a_menu_hides_the_options_the_app_cannot_do() {
   ui::release(card);
 }
 
+// **A picker is the card of one choice, and the columns are the card's arithmetic** (0.189.102): sixty values of two digits
+// sit four to a row, so a page holds a good many more than the ten of one column —sixty seconds are two pages and not six—
+// and a long word gets the whole card to itself. **The value the finger asks for is the value the paint put under it**, a
+// card of one page has no keys at all, and a page of 0 is the page the chosen value is on, which is what a card that opens
+// on its own value needs (docs/30, docs/90).
+void test_a_picker_lays_its_values_in_columns() {
+  fresh_view();
+  int16_t card = -1;
+  TEST_ASSERT_TRUE(ui::create(516, 400, 0, false, card));
+  TEST_ASSERT_TRUE(ui::place(card, 0, 0));
+
+  static char seconds[60][3];
+  const char* values[60];
+  for (int i = 0; i < 60; ++i) {
+    snprintf(seconds[i], sizeof(seconds[i]), "%02d", i);
+    values[i] = seconds[i];
+  }
+  TEST_ASSERT_TRUE(ui::picker_draw(card, "Seconds", values, 60, 54, 0, 0, 8, 15, 2, true));
+
+  // **Two digits, four columns**: the values of a page are a multiple of four and more than the four of a single column, so
+  // sixty of them are two pages and not six.
+  const ui::PickerPages pages = ui::picker_pages(card, "Seconds", values, 60, 54, 0, 2);
+  TEST_ASSERT_GREATER_THAN(4, pages.rows);
+  TEST_ASSERT_EQUAL_UINT16(0, pages.rows % 4);
+  TEST_ASSERT_GREATER_THAN(1, pages.pages);
+  // **I la pàgina que s'obre és la del valor triat**: 0 is "the page of the value that is on the card".
+  const uint16_t wanted = static_cast<uint16_t>((54 - 1) / pages.rows + 1);
+  TEST_ASSERT_EQUAL_UINT16(wanted, pages.page);
+  TEST_ASSERT_GREATER_THAN(1, wanted);
+
+  // **The title band is nobody's and the first row of values is the first value**: the card is asked from the top and the
+  // first point that answers is the first value of the page it is showing.
+  uint16_t first_y = 0;
+  uint8_t first_hit = 0;
+  for (uint16_t y = 0; y < 400 && first_hit == 0; ++y) {
+    first_y = y;
+    first_hit = ui::picker_hit(card, "Seconds", values, 60, 1, 2, 20, y);
+  }
+  TEST_ASSERT_GREATER_THAN(0, first_hit);
+  TEST_ASSERT_EQUAL_UINT8(1, first_hit);
+  // **The second column of the same row is the second value**: the cells are laid out across and then down.
+  TEST_ASSERT_EQUAL_UINT8(2, ui::picker_hit(card, "Seconds", values, 60, 1, 2, 140, first_y));
+  // **And the second page is another value of the list under the same cell**: what the finger answers is the value *of the
+  // page* and the page is the other half of the number —`(page - 1) * rows + which` is the value of the list, and it is the
+  // caller's sum and not the card's— (docs/90).
+  const ui::PickerPages second = ui::picker_pages(card, "Seconds", values, 60, 0, 2, 2);
+  TEST_ASSERT_EQUAL_UINT16(2, second.page);
+  TEST_ASSERT_EQUAL_UINT8(1, ui::picker_hit(card, "Seconds", values, 60, 2, 2, 20, first_y));
+  TEST_ASSERT_EQUAL_UINT16(static_cast<uint16_t>(pages.rows + 1),
+                           static_cast<uint16_t>((second.page - 1) * second.rows + 1));
+
+  // **Les dues tecles del peu, als dos cantons**: the left key returns `kPickerBack` and the right one `kPickerForward`.
+  bool back = false;
+  bool forward = false;
+  for (uint16_t y = 399; y > 150 && !(back && forward); --y) {
+    if (ui::picker_hit(card, "Seconds", values, 60, 1, 2, 41, y) == ui::kPickerBack) back = true;
+    if (ui::picker_hit(card, "Seconds", values, 60, 1, 2, 475, y) == ui::kPickerForward) forward = true;
+  }
+  TEST_ASSERT_TRUE(back);
+  TEST_ASSERT_TRUE(forward);
+  // A colour that is not a level of this panel is refused, the same rule a menu follows.
+  TEST_ASSERT_FALSE(ui::picker_draw(card, "Seconds", values, 60, 1, 0, 16, 8, 15, 2, true));
+  ui::release(card);
+
+  // **A card of twelve words that are wider than the card is one column and one page**, and it has no keys: the widest word
+  // decides the columns, so what does not fit beside anything gets the whole width to itself.
+  TEST_ASSERT_TRUE(ui::create(516, 817, 0, false, card));
+  TEST_ASSERT_TRUE(ui::place(card, 0, 0));
+  const char* long_words[12] = {
+      "The first one of a list of long words", "The second one of a list of long words",
+      "The third one of a list of long words", "The fourth one of a list of long words",
+      "The fifth one of a list of long words", "The sixth one of a list of long words",
+      "The seventh one of a list of long words", "The eighth one of a list of long words",
+      "The ninth one of a list of long words", "The tenth one of a list of long words",
+      "The eleventh one of a list of long", "The twelfth one of a list of long"};
+  TEST_ASSERT_TRUE(ui::picker_draw(card, "Long", long_words, 12, 3, 0, 0, 8, 15, 2, false));
+  const ui::PickerPages one = ui::picker_pages(card, "Long", long_words, 12, 3, 0, 2);
+  TEST_ASSERT_EQUAL_UINT16(1, one.pages);
+  TEST_ASSERT_EQUAL_UINT16(1, one.page);
+  bool keys = false;
+  for (uint16_t y = 0; y < 817 && !keys; ++y) {
+    for (uint16_t x = 0; x < 516 && !keys; x += 8) {
+      const uint8_t hit = ui::picker_hit(card, "Long", long_words, 12, 1, 2, x, y);
+      if (hit == ui::kPickerBack || hit == ui::kPickerForward) keys = true;
+    }
+  }
+  TEST_ASSERT_FALSE(keys);
+  // **One column is the whole card's width**: two points a column apart are the same value when there is one column, and the
+  // far one is still a value of the card.
+  uint16_t row_y = 0;
+  while (row_y < 817 && ui::picker_hit(card, "Long", long_words, 12, 1, 2, 20, row_y) == 0) ++row_y;
+  TEST_ASSERT_LESS_THAN(817, row_y);
+  TEST_ASSERT_GREATER_THAN(0, ui::picker_hit(card, "Long", long_words, 12, 1, 2, 475, row_y));
+  TEST_ASSERT_EQUAL_UINT8(ui::picker_hit(card, "Long", long_words, 12, 1, 2, 20, row_y),
+                          ui::picker_hit(card, "Long", long_words, 12, 1, 2, 475, row_y));
+  ui::release(card);
+}
+
 // **A bar of menus is a row of words with a line under it and one menu that hangs from the word that is down**: the word
 // is inverted, the line under the row is ink, an entry that cannot be used is the dim tone, a dash is not a row a finger
 // presses, and the finger asks the same boxes the paint put down (docs/30, docs/90).
@@ -4456,6 +4554,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_line_height_of_a_face_is_what_centres_a_text);
   RUN_TEST(test_a_calendar_puts_the_first_day_where_the_weekday_says);
   RUN_TEST(test_a_menu_hides_the_options_the_app_cannot_do);
+  RUN_TEST(test_a_picker_lays_its_values_in_columns);
   RUN_TEST(test_a_bar_of_menus_hangs_the_menu_under_its_word);
   RUN_TEST(test_a_box_paints_its_text_and_not_the_one_before_it);
   RUN_TEST(test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row);

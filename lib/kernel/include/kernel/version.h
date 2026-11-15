@@ -9327,6 +9327,18 @@ namespace kernel {
 // un toc fet sobre un vidre buit es lliura **després** que la pàgina hi sigui i clicava la cel·la del llançador de sota el dit;
 // ara la pàgina nova **ha de veure el vidre buit abans que cap contacte sigui seu** (`g_page_wants_an_empty_glass`) (docs/30,
 // docs/50).
+// 0.189.102 — **`ui.picker`, el desplegable d'un camp amb la targeta del sistema** (l'amo: *«App Clock: desplegables incorrectes
+// amb vista personalitzada, els vull com l'original, un desplegable que et mostr un modal amb els minuts/hores/dies i dos botons
+// per anar endavant i endarrere … Tot sota UIControl. No vull controls pintats i artesanals»*). És el `OptionPicker` del
+// projecte del paper: **una targeta** amb el nom del camp, **els valors d'una pàgina** com a files del sistema —el triat, la
+// banda de tinta— i **dues claus al peu** que la giren, amb el paginador del sistema al mig. **Les columnes les diu l'amplada
+// del text més llarg**, com al paper: seixanta segons són dues pàgines de quatre columnes i no sis pàgines d'una, i «September»
+// es queda la targeta sencera. **La geometria és una sola funció** (`picker_grid`) i la pregunten el pinzell, el dit i les
+// pàgines, o sigui que la clau que es dibuixa és la clau que respon; `index` és 1..n amb 0 «cap triat» i `page` és 1..n amb 0
+// «la pàgina del triat», que és el que necessita una targeta que s'obre on hi ha el valor. **El dit, el dial i el centre són
+// del sistema**: una fila tria, una clau gira la pàgina i **no tria res** (`__stepped`), el centre tria el valor on és la banda
+// i les dues fletxes del dial caminen els valors travessant pàgines. **I el Clock deixa de pintar-se la targeta**: els sis camps
+// obren `ui.picker` i l'app només diu el nom, les paraules i la triada (docs/30, docs/45, docs/90).
 // 0.189.101 — **els tres tocs d'una app d'administrador, i el candau com a control** (l'amo: *«admin.triple_tap_close(false)
 // — desactiva els 3 tocs perque el sistema no li envii app.exit()»* i *«L'app ha de registrarse el triple tap al botó sense
 // vores amb el dibux del candau»*). **Els tres tocs del vidre tanquen l'app del davant i el sistema pren el gest de la cua
@@ -9342,7 +9354,7 @@ namespace kernel {
 // forats del sistema que aquesta app és la primera a trepitjar: **un `ui.button` sense vores d'una pàgina esborrava tota la
 // pàgina** —la cara es pinta al canvas del pare i el clear dels cantons era de tot el canvas— i ara la cara és la caixa del
 // botó (docs/30, docs/40, docs/45, docs/50).
-static const char kVersion[] = "0.189.101";
+static const char kVersion[] = "0.189.102";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

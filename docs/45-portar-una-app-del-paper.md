@@ -125,6 +125,7 @@ De la resta de propietats, el que s'ha de copiar tal com és:
 | `paperos.alarm.*` | `alarm.*` | `at`, `after`, `cancel`, `list`, `caps` |
 | `paperos.time.*` | `time.*` | `now`, `now_ms`, `utc`, `local`, `format`, `caps` |
 | `paperos.notify` | `ui.notification_bar` | |
+| `Selector` + **`OptionPicker`** | `ui.selector` + **`ui.picker`** (0.189.102) | El camp és la porta i la targeta és del sistema: el títol, les files d'una pàgina, les columnes que demana el text més llarg i **les dues fletxes del peu** |
 | `paperos.info` | `ui.dialog` | |
 | `paperos.image.load` | `ui.image` / `ui.image_info` | |
 | `paperos.font.load` | `ui.load_font` | `.lfont`, `.bdf`, `.pcf` o `.ttf` |

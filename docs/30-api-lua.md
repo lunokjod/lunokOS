@@ -1453,6 +1453,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` porta **un filet d'un píxel** i la del dial és una **banda de tinta d'extrem a extrem** (0.177.0: era una tecla amb relleu i la primària s'invertia). Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
 | `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc que el sistema fa parpellejar), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |
+| `ui.picker(w, h)` | **un objecte** o `nil, error` | **El desplegable d'una tria** (0.189.102): la targeta del sistema amb `title`, `items`, `index` (1..n, 0 = cap) i `page` (1..n, 0 = la del triat), les files d'una pàgina amb les columnes que demana el text més llarg, i **dues claus al peu** que giren la pàgina. El dit, el dial i el centre són seus: una fila tria (`on_pick`), una clau gira i **no tria**, i el centre tria on és la banda |
 | `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
 | `ui.notification_bar(w, h)` | **un objecte** o `nil, error` | **La banda dels avisos**: `items` (cada avís és una paraula o `{title=, text=}`, **el més nou al final**), `color`, `dim`, `background`, `border` i `scale`. Les targetes s'apilen cap amunt amb **la més nova a baix**, tres com a molt; el que no hi cap **no es perd**: es compta amb un `+N`. La creu dispara `on_close(self, item)` i la targeta `on_pick(self, item)` (3/11, 0.80.0) |
 | `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0). El peu és el **paginador del sistema** i **un dit que camina de costat passa la pàgina** (0.175.0; el costat i prou, 0.188.5, docs/30; **la dreta és la pàgina anterior i l'esquerra la següent**, 0.189.1). **El cursor l'escriu el sistema** quan una cel·la pren el cercle (0.179.4) |
@@ -3392,8 +3393,8 @@ senceres en aquest vidre baixa la vista a 581 px, els dígits són petits i un d
 correcte.
 
 - **La llista no és al control**: el camp és una porta, i el dit o el centre disparen **`on_open(self)`**, on l'app posa un
-  `ui.menu` (o un `ui.list` si les opcions són moltes) que dibuixa el sistema com qualsevol altre control. El sistema no pot
-  guardar una taula que no és seva, i l'app ja la té.
+  **`ui.picker`** (0.189.102, el desplegable d'una tria, més avall), un `ui.menu` o un `ui.list`. El sistema no pot guardar una
+  taula que no és seva, i l'app ja la té.
 - **El valor buit és un estat de debò**: `index = 0` i el camp dibuixa `empty` —el que l'app digui en la seva llengua— allà on
   aniria el valor. Un camp que sempre té valor menteix sobre què s'ha decidit.
 - **Obert, el camp continua sent paper**: només la columna de la fletxa s'inverteix. Un camp que es torna negre de cap a
@@ -3409,16 +3410,58 @@ hour.label = 'Hour'
 hour.items = { '08', '09', '10' }
 hour.empty = '-'
 hour.on_open = function(self)
-  local card = ui.menu(240, 200)
-  card.items = hour.items
+  local card = ui.picker(480, 400)          -- la targeta del sistema, que és el desplegable
+  card.title = self.label
+  card.items = self.items
+  card.index = self.index                   -- 1..n, i 0 = cap triat
   card.on_pick = function(that, index)
-    hour.index = index
-    hour.choosing = false
+    self.index = index
+    self.choosing = false
     card:release()
     ui.present()
   end
+  card:place(24, 82)
   ui.present()
 end
+```
+
+### `ui.picker`: el desplegable d'un camp (0.189.102)
+
+**Una targeta sobre la pàgina amb el nom del camp, els valors d'una pàgina i dues claus al peu que la giren**: és el
+`OptionPicker` del projecte del paper —«un desplegable que et mostr un modal amb els minuts/hores/dies i dos botons per anar
+endavant i endarrere»— i existeix perquè una llista de seixanta minuts no es pot pintar a mà des d'una app sense tornar a
+inventar el control.
+
+- **Les files i les columnes són del sistema**: **les columnes les diu l'amplada del text més llarg** (seixanta segons són
+  quatre columnes; «September» es queda la targeta sencera) i **una fila no és mai més baixa que el terra d'un dit** (52 px).
+  L'app no mesura res.
+- **Els camps**: `title` (el nom del camp), `items` (les paraules, o taules amb `label`), `index` (**la triada, 1..n, i 0 =
+  cap**, el mateix contracte que el camp de dalt), `page` (**1..n, i 0 = la pàgina del valor triat**), `color`, `dim`,
+  `background` i `scale`.
+- **El peu només hi és si hi ha més d'una pàgina**: la clau de l'esquerra i la de la dreta tenen 52 px de costat i entre elles
+  hi ha el paginador del sistema, que és el mateix dibuix que el d'una llista.
+- **El dit i el dial són del sistema**: una fila tria (`on_pick(self, index)` amb el valor sencer de la llista), una clau del
+  peu **gira la pàgina i no tria res**, el centre tria el valor on és la banda de tinta, i les dues fletxes del dial caminen
+  els valors **travessant pàgines** (la targeta es torna a posar a la pàgina del valor triat).
+- **És una targeta**: mentre és a sobre, el dit i el dial són seus i la pàgina de sota no respon. Tancar-la és de l'app, com la
+  d'un `ui.menu`; **i la sortida sense triar és un toc fora de la targeta** —que l'app llegeix de `touch.gesture()` i no de
+  `touch.read()`, perquè una targeta del sistema és l'amo dels dits que hi cauen i la pàgina no en llegeix cap—.
+
+```lua
+card = ui.picker(516, 817)
+card.title = 'Day'
+card.items = days
+card.index = daySel.index
+card.on_pick = function(self, index)
+  wanted = function()                     -- llegeix, tanca i llavors fa
+    card:release()
+    card = nil
+    daySel.index = index
+    ui.present()
+  end
+end
+card:place(12, 83)
+ui.present()
 ```
 
 ### `ui.notification_bar`: la banda dels avisos (0.80.0)
