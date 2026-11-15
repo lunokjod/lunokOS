@@ -51,6 +51,11 @@ struct Options {
   // of the board's cell, which is 1150 mAh and full at 4,2 V (docs/85). Off by default, because a test
   // that changed its answer with the hardware of whoever runs it is not a test.
   bool battery_from_host = false;
+  // **La placa endollada** (0.189.56, `--charging`): a board that is being fed says so with the bolt of the battery figure and
+  // with the mark of the port, and there was no way to put the emulator on a cable —the real Paper cannot tell either, and
+  // the field was a `false` written in the model—, so the two drawings had no case that could be looked at. It says nothing
+  // about the charge: `battery_mv` is still the cell of the board (docs/50, docs/85).
+  bool charging = false;
   const char* script;    // batch file, or nullptr
   const char* run_app;   // app to start, or nullptr
   int64_t now_epoch;     // 0 = no epoch at all (source "none"), like a board that

@@ -14,6 +14,7 @@
 #include "emu/surface.h"
 #include "hal/hal.h"
 #include "kernel/bar.h"
+#include "kernel/bar_icons.h"
 #include "kernel/display.h"
 #include "kernel/ui.h"
 #include "pal/pal.h"
@@ -424,6 +425,69 @@ static void test_the_whole_glass_turns_with_the_page() {
   TEST_ASSERT_TRUE(ui::full_screen(false));
 }
 
+// **Les icones són les del projecte del paper i a la seva mida** (0.189.56, l'amo: *«vull usar les mateixes icones, sense
+// escalar per la diferencia d'alçada de la barra»*): the fan's ink is **31 × 27**, the USB mark's **38 × 21**, the rune's
+// **18 × 26**, the hourglass's **19 × 21** and the battery figure's **46 × 26** —the five numbers the paper project measured
+// on its own glass on 18/10—, and this strip is 48 rows and does not shrink them: the drawings are the paper project's,
+// number by number, and the bar only decides where the box of 40 × 28 goes. A port that scaled them to the bar would come
+// out here with five other numbers (docs/50, docs/92).
+static void test_the_icons_are_the_ones_of_the_paper_project_at_their_size() {
+  boot_with_a_panel();
+  struct Expected {
+    const char* what;
+    kernel::bar_icons::Kind kind;
+    int w;
+    int h;
+  };
+  static const Expected kGlyphs[] = {
+      {"the fan of the wifi", kernel::bar_icons::kWifi, 31, 27},
+      {"the mark of the port", kernel::bar_icons::kSerial, 38, 21},
+      {"the rune of the bluetooth", kernel::bar_icons::kBluetooth, 18, 26},
+      {"the hourglass of the ntp", kernel::bar_icons::kNtp, 19, 21},
+  };
+  // A box of its own, in the middle of the glass, so nothing of the strip is in the count.
+  const uint16_t at_x = 200;
+  const uint16_t at_y = 200;
+  for (uint32_t i = 0; i < sizeof(kGlyphs) / sizeof(kGlyphs[0]); ++i) {
+    for (uint16_t y = at_y - 2; y < at_y + kernel::bar_icons::kIconH + 2; ++y) {
+      for (uint16_t x = at_x - 2; x < at_x + kernel::bar_icons::kIconW + 2; ++x) glass().pixel(x, y, 15);
+    }
+    kernel::bar_icons::glyph(glass(), kGlyphs[i].kind, at_x, at_y);
+    int left = 0x7FFF, right = -1, top = 0x7FFF, bottom = -1;
+    for (int y = at_y - 2; y < at_y + static_cast<int>(kernel::bar_icons::kIconH) + 2; ++y) {
+      for (int x = at_x - 2; x < at_x + static_cast<int>(kernel::bar_icons::kIconW) + 2; ++x) {
+        if (glass().level_at(static_cast<uint16_t>(x), static_cast<uint16_t>(y)) != 0) continue;
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+      }
+    }
+    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(0, right, kGlyphs[i].what);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(kGlyphs[i].w, right - left + 1, kGlyphs[i].what);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(kGlyphs[i].h, bottom - top + 1, kGlyphs[i].what);
+  }
+
+  // **I la figura de la bateria, que té la seva caixa** (`BatteryGlyphW/H`): 46 × 26 with the four walls and the nub, and the
+  // same figure drawn in the box of the bar.
+  for (uint16_t y = at_y - 2; y < at_y + kernel::bar_icons::kBatteryH + 2; ++y) {
+    for (uint16_t x = at_x - 2; x < at_x + kernel::bar_icons::kBatteryW + 2; ++x) glass().pixel(x, y, 15);
+  }
+  kernel::bar_icons::battery(glass(), at_x, at_y, 4, false);
+  int left = 0x7FFF, right = -1, top = 0x7FFF, bottom = -1;
+  for (int y = at_y - 2; y < at_y + static_cast<int>(kernel::bar_icons::kBatteryH) + 2; ++y) {
+    for (int x = at_x - 2; x < at_x + static_cast<int>(kernel::bar_icons::kBatteryW) + 2; ++x) {
+      if (glass().level_at(static_cast<uint16_t>(x), static_cast<uint16_t>(y)) != 0) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(46, right - left + 1, "the figure of the battery");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(26, bottom - top + 1, "the figure of the battery");
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -443,5 +507,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_bar_comes_back_when_the_app_gives_the_glass_back);
   RUN_TEST(test_the_view_of_every_app_comes_back_when_the_app_ends);
   RUN_TEST(test_the_whole_glass_turns_with_the_page);
+  RUN_TEST(test_the_icons_are_the_ones_of_the_paper_project_at_their_size);
   return UNITY_END();
 }

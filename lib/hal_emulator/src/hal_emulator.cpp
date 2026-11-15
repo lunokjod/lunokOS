@@ -549,9 +549,10 @@ class FakePower : public IPower {
     }
     mv = static_cast<int>(set);
     pct = static_cast<int>(battery_percent(mv));
-    // The emulator is not on a cable any more than the Paper can tell: the same false and the
-    // same warning in docs/30.
-    charging = false;
+    // **The cable, when the run says so** (0.189.56): `--charging` puts the board on a cable, which is the one thing of the
+    // battery that the model could not say before and the mark of the port and the bolt of the figure are painted from
+    // (docs/50, docs/85).
+    charging = emu::options().charging;
     return true;
   }
 

@@ -115,6 +115,7 @@ void usage() {
   printf("                    card is a directory that exists: without it the slot is empty)\n");
   printf("  --battery-mv <mv> the cell the board reads, in millivolts; it wins over this machine's\n");
   printf("  --battery-host    say it aloud: a board with a gauge lends this machine's battery by itself\n");
+  printf("  --charging        the board is on a cable: the bolt of the battery figure and the mark of the port\n");
   printf("  --board <name>    which board this emulator is (required): %s", board::model(0));
   for (uint32_t i = 1; i < board::models_count(); ++i) printf(", %s", board::model(i));
   printf("\n");
@@ -371,6 +372,10 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
         return false;
       }
       opts.battery_mv = static_cast<int32_t>(number);
+      continue;
+    }
+    if (strcmp(arg, "--charging") == 0) {
+      opts.charging = true;
       continue;
     }
     if (strcmp(arg, "--board") == 0) {

@@ -40,6 +40,9 @@ enum Phase : uint8_t {
 };
 
 Phase g_phase = kIdle;
+// **Per on va la provisió que s'està fent** (0.189.56): the bar's Bluetooth rune is lit while a provisioning is running over
+// the Bluetooth radio and not over the access point, and that is a fact of the request and not of the state of the radio.
+hal::ProvTransport g_prov_transport = hal::ProvTransport::kBle;
 int64_t g_deadline_ms = 0;
 
 int64_t now_ms() {
@@ -303,6 +306,7 @@ void print_qr(const char* payload) {
 bool begin_provision(const Request& request) {
   const char* pop = (request.pop[0] != '\0') ? request.pop : nullptr;
   const hal::ProvTransport transport = request.transport;
+  g_prov_transport = transport;
   char service[32];
   service[0] = '\0';
   g_deadline_ms = now_ms() + static_cast<int64_t>(request.timeout_ms);
@@ -750,6 +754,13 @@ void stop() { stop_all(); }
 void set_done(Done done) { g_pending_done = done; }
 
 bool busy() { return g_phase != kIdle || g_count > 0; }
+
+// **Les dues preguntes de la barra** (0.189.56): the hourglass is lit while the clock is being set from the network and the
+// Bluetooth rune while a provisioning is running over that radio. They are asked of the phase that is already there and not
+// of a second copy of it (docs/30, docs/50).
+bool syncing_clock() { return g_phase == kNtp; }
+
+bool over_bluetooth() { return g_phase == kProvisioning && g_prov_transport == hal::ProvTransport::kBle; }
 
 const char* busy_with() {
   switch (g_phase) {

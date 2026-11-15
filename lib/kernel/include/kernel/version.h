@@ -9172,7 +9172,29 @@ namespace kernel {
 //     cridador, després de les files i abans de les dues files de treball, o sigui que una imatge d'un sol `IDAT` no en paga
 //     res (docs/30, docs/50, docs/75);
 //   - **i la font de la imatge es queda a `tools/splash-sources/`** amb la seva fila al README d'allà.
-static const char kVersion[] = "0.189.55";
+// 0.189.56 — **les icones de la barra del sistema, portades del PaperOS a la seva mida** (l'amo: *«el projecte PaperOS te unes
+// icones exquisides a la seva barra del sistema, usb, wifi, bluetooth i l'icona de batería, diría que també el de càrrega…
+// Portem aquestes icones a la barra de sistema del lunokOS. La barra de sistema de lunokOS es mes baixeta que la de PaperOS,
+// vull usar les mateixes icones, sense escalar per la diferencia d'alçada de la barra»*):
+//   - **`lib/kernel/src/bar_icons.cpp` és el port número per número** de les sis funcions que dibuixen la barra del paper
+//     projecte (`drawWifiGlyph`, `drawSerialGlyph`, `drawBluetoothGlyph`, `drawNtpGlyph`, `drawBatteryGlyph` i `fillBolt` de
+//     `PaperOS/src/ui/title_bar.cpp`): el ventall del WiFi, la marca de l'USB tombat, la runa del Bluetooth, el rellotge de
+//     sorra de l'NTP i la figura de la bateria amb el seu llamp. **Són dibuixos de línies i no taules de bits**, que és el
+//     que els deixa portar sense escalar: cada un es mesura contra la caixa que rep i la barra els dóna **la caixa del
+//     projecte del paper** —40 × 28 els glifs i 46 × 26 la figura—, i una franja de 48 files només decideix on van;
+//   - **les tintes del paper projecte, comprovades aquí** (18/10, i un cas de `test_bar` que compta píxels del vidre de
+//     l'emulador): el ventall **31 × 27**, la marca del port **38 × 21**, la runa **18 × 26**, el rellotge de sorra **19 × 21**
+//     i la figura **46 × 26**;
+//   - **cada icona és un fet del nucli**: `net::syncing_clock()` i `net::over_bluetooth()` són nous (la fase de la feina que
+//     ja hi havia i no una segona còpia), el ventall és la ràdio encesa (`state()` o una feina en curs), la marca del port és
+//     **el cable** —la placa s'alimenta o una app té el port— i el llamp és la bateria que s'alimenta; el `Status` de la barra
+//     porta el `charging` que el model llegia i no es pintava;
+//   - **tres caixes i no quatre**: el rellotge de sorra es dibuixa però no té caixa a la franja —quatre caixes de 40 sobre 540
+//     deixen un títol de 73 px, «Ho», i la de l'hora de sorra sola en són 50—, i el títol es centra **al tros que li queda**
+//     entre l'hora i les icones, que és la regla del projecte del paper (`titleRect`);
+//   - **i `--charging` a l'emulador**: el model deia `charging = false` sempre, o sigui que el llamp i la marca del port no
+//     tenien cap cas que es pogués mirar (docs/50, docs/85).
+static const char kVersion[] = "0.189.56";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

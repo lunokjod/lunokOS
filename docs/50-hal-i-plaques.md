@@ -1168,8 +1168,28 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   lectura de 83 torna com a 84 a la següent. La barra ensenya el número però no repinta per un píxel
   d'electricitat, perquè un repintat és tinta i la tinta no és gratis. El rellotge es llegeix com a molt
   cada 2 s i la càrrega cada 30 s.
-- **La qualitat la tria ella, i la regió també** (0.85.2): la franja és **tres caixes** —l'hora, el títol
-  i la càrrega, cadascuna mesurada amb el text més ample que pot portar— i el que canvia és la seva caixa
+- **I les icones de la barra són les del projecte del paper, a la seva mida** (0.189.56, l'amo: *«el projecte
+  PaperOS te unes icones exquisides a la seva barra del sistema, usb, wifi, bluetooth i l'icona de batería, diría que
+  també el de càrrega… Portem aquestes icones a la barra de sistema del lunokOS. La barra de sistema de lunokOS es
+  mes baixeta que la de PaperOS, vull usar les mateixes icones, sense escalar per la diferencia d'alçada de la barra»*):
+  `lib/kernel/src/bar_icons.cpp` és el port **número per número** de `drawWifiGlyph`, `drawSerialGlyph`,
+  `drawBluetoothGlyph`, `drawNtpGlyph`, `drawBatteryGlyph` i `fillBolt` del `PaperOS/src/ui/title_bar.cpp` —el ventall
+  del WiFi, la marca de l'USB tombat, la runa del Bluetooth, el rellotge de sorra de l'NTP i la figura de la bateria amb
+  el seu llamp—, i **no són un fitxer de píxels sinó un dibuix de línies**: per això es poden portar sense escalar, perquè
+  cada un es mesura contra la caixa que rep i la barra els dóna **la caixa del projecte del paper**, 40 × 28 per als
+  glifs i 46 × 26 per a la figura. Una barra de 48 files no els toca: el que la barra decideix és **on** van. Les tintes
+  mesurades al vidre del projecte del paper (18/10) i comprovades aquí amb un cas de `test_bar` que compta els píxels:
+  el ventall **31 × 27**, la marca del port **38 × 21**, la runa **18 × 26**, el rellotge de sorra **19 × 21** i la figura
+  **46 × 26**. **I què diu cada icona és un fet del nucli i no una decoració**: el ventall és la ràdio encesa (`net::state()`
+  o una feina en curs), la runa és una provisió que va per Bluetooth i no per l'apunt d'accés (`net::over_bluetooth`), la
+  marca del port és **el cable** —la placa s'està alimentant o una app té el port— i el llamp de la figura és la bateria que
+  s'alimenta. **Tres caixes i no quatre**: el rellotge de sorra es dibuixa però no té caixa a la franja, perquè quatre
+  caixes de 40 sobre 540 es mengen 200 píxels i deixen un títol de 73 —«Ho», «Tim»— i la caixa de l'hora de sorra sola en
+  són 50; l'hora d'aquest sistema ja és escrita a l'esquerra de la barra (docs/92). El títol, doncs, es centra **al tros que
+  li queda** entre l'hora i les icones, que és exactament la regla del projecte del paper (`titleRect`).
+- **La qualitat la tria ella, i la regió també** (0.85.2): la franja és **tres caixes de text** —l'hora, el títol
+  i la càrrega, cadascuna mesurada amb el text més ample que pot portar— més les tres de les icones i la de la figura, i
+  el que canvia és la seva caixa
   i no la franja. Un títol nou és el mig de la barra i no la barra; un minut és el dígit i no el mig. La
   qualitat és **`gld16`, que neteja i no fa cap flaix**: `du` pinta però no neteja —i el dígit d'abans es
   queda al vidre—, `gc16` neteja a canvi de dos ensurts i `a2` deixa dos setzens del que hi havia. És la

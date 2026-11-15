@@ -52,6 +52,14 @@ void set_done(Done done);
 // True while a job is running, so the shell knows a prompt is not due yet.
 bool busy();
 
+// **Les dues preguntes que la barra del sistema fa** (0.189.56, i són fets i no un resum): whether the clock is being
+// synchronised right now —`net.ntp` in the air, which is the hourglass of the bar— and whether a provisioning is running
+// **over the Bluetooth radio** and not over the access point, which is the rune. The rest of the bar's icons read the state
+// that is already here: the fan is `state() != 0` (the radio is on, whatever it is doing) and the mark of the port is the
+// cable, which is the kernel's `serial` and the charge of the battery (docs/30, docs/50).
+bool syncing_clock();
+bool over_bluetooth();
+
 // What the radio is doing, in one word ("scanning", "connecting", "provisioning"
 // or "idle"): a command that finds it busy can say what it is waiting for instead
 // of a "busy" with no subject (docs/30).
