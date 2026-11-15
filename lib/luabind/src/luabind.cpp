@@ -1017,6 +1017,23 @@ int l_time_now_ms(lua_State* L) {
 // time.caps(): where the epoch comes from, and whether it can be trusted to
 // survive the power going away (docs/60). `synced` is false and stays false: nothing in the kernel
 // remembers a sync, and NTP, which is there since 0.5.0, does not set it (docs/90).
+// **`time.set(epoch)`: posar l'hora de la placa** (0.189.106). The RTC of the board is the one that makes `time.now()` an
+// hour instead of a counter, and the page that owns it is the panel of Settings —a person who has no network and a board that
+// came back from the shop with 1970 has to be able to say what day it is—. The argument is **seconds since the epoch**, the
+// same number `time.now()` answers, and the answer is the epoch the clock kept after trying: a board with no battery behind
+// its clock answers the number it was given until it is unplugged, which is the truth and not an error (docs/60).
+int l_time_set(lua_State* L) {
+  hal::IClock* clock = wall_clock();
+  if (clock == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board has no clock to set");
+  const lua_Integer seconds = luaL_checkinteger(L, 1);
+  if (seconds < 0) return push_nil_error(L, "E_INVAL", "an hour is a number of seconds since the epoch");
+  if (!clock->set_epoch_ms(static_cast<int64_t>(seconds) * 1000)) {
+    return push_nil_error(L, "E_UNAVAIL", "this clock does not take an hour");
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(clock->epoch_ms() / 1000));
+  return 1;
+}
+
 int l_time_caps(lua_State* L) {
   hal::IClock* clock = wall_clock();
   lua_createtable(L, 0, 3);
@@ -1426,6 +1443,9 @@ SessionOps g_session_ops = {};  // the memory of a session, per app and per key,
 // **The settings of the system**, which an app reads and never writes (0.189.13): a page that has to obey a switch —the
 // launcher and `sort apps by usage`— asks here, and the prompt's `cfg` is the only door that changes one (docs/30).
 SettingsOps g_settings_ops = {};
+
+// **Els ajustos que es poden escriure** (0.189.106): les portes de `cfg`, que és de què està fet el panell de Settings.
+CfgOps g_cfg_ops = {};
 // **A session of the shell for an app** (0.159.0), filled by the kernel: the shell is the system's, and this library
 // never includes the kernel (docs/20, docs/30).
 ShellOps g_shell_ops = {};
@@ -10239,19 +10259,35 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       // the paper project never did —there the tabs are buttons and the navigator walks them (docs/90, docs/92).
       const int items = ui_tabs_items(L, -1);
       if (items > 0) {
+        // **Les pestanyes poden caure en més d'una fila** (0.189.106): the cells are the strip's own grid —the one the paint
+        // uses— so a finger on the second row chooses a tab of the second row and the arrows walk the tabs in the order the
+        // glass shows them (docs/30, docs/90).
+        uint8_t grid_rows = 1;
+        uint8_t grid_columns = static_cast<uint8_t>((items > 255) ? 255 : items);
+        if (g_ui_ops.tabs_grid != nullptr) {
+          g_ui_ops.tabs_grid(child->slot, static_cast<uint8_t>((items > 255) ? 255 : items), &grid_rows, &grid_columns);
+        }
+        if (grid_rows == 0) grid_rows = 1;
+        if (grid_columns == 0) grid_columns = 1;
         const int32_t span = cx1 - cx0;
+        const int32_t tall = cy1 - cy0;
         for (int tab = 0; tab < items && count < capacity; ++tab) {
-          const int32_t left = cx0 + (span * tab) / items;
-          const int32_t right = cx0 + (span * (tab + 1)) / items;
-          if (right <= left) continue;
+          const int32_t row = tab / grid_columns;
+          const int32_t col = tab % grid_columns;
+          if (row >= grid_rows) break;
+          const int32_t left = cx0 + (span * col) / grid_columns;
+          const int32_t right = cx0 + (span * (col + 1)) / grid_columns;
+          const int32_t top = cy0 + (tall * row) / grid_rows;
+          const int32_t bottom = cy0 + (tall * (row + 1)) / grid_rows;
+          if (right <= left || bottom <= top) continue;
           FocusTarget& target = targets[count];
           target.slot = child->slot;
           target.generation = child->generation;
           target.item = static_cast<uint8_t>(tab + 1);
           target.x = left;
-          target.y = cy0;
+          target.y = top;
           target.w = right - left;
-          target.h = cy1 - cy0;
+          target.h = bottom - top;
           target.depth = depth;
           target.order = order++;
           lua_pushvalue(L, -1);
@@ -11850,8 +11886,142 @@ int l_sys_settings(lua_State* L) {
   lua_setfield(L, -2, "sort_by_usage");
   lua_pushinteger(L, static_cast<lua_Integer>(now.turn));
   lua_setfield(L, -2, "turn");
+  lua_pushinteger(L, static_cast<lua_Integer>(now.cursor_delay));
+  lua_setfield(L, -2, "cursor");
   return 1;
 }
+
+// ---- cfg: els ajustos del sistema, llegits i escrits (0.189.106) ----
+//
+// **La mateixa porta que la comanda `cfg`** (l'amo: *«Lua app de Settings de sistema … Analitza totes les opcions de la
+// comanda cfg»*): each call takes an optional value —with none it reads, with one it writes— and **answers the value that is
+// in force after asking**, so a page that a keyboard does not exist for learns it from the answer and not from a guess. The
+// values are the words the prompt prints: a keyboard is its id, the boot is its word, the home app is its id (`"none"` for
+// no home app), and the three numbers are a slice of instructions, a blink in milliseconds and the hour of the map.
+//
+// **El que no és d'aquesta taula és el rellotge i el disc**, que ja tenen les seves portes de sempre: `time.tz`, `time.leap`,
+// `time.dst`, `time.week` i `fs.cfg` (docs/30, docs/70).
+
+// **Els sis mots d'un commutador** (0.189.13): the same six `cfg` takes —`on`, `true`, `yes` and `off`, `false`, `no`— and a
+// Lua boolean, because a page writes `true` and not the word.
+bool cfg_switch(lua_State* L, int at, bool& on) {
+  if (lua_isboolean(L, at)) {
+    on = lua_toboolean(L, at) != 0;
+    return true;
+  }
+  const char* word = luaL_checkstring(L, at);
+  if (strcmp(word, "on") == 0 || strcmp(word, "true") == 0 || strcmp(word, "yes") == 0) {
+    on = true;
+    return true;
+  }
+  if (strcmp(word, "off") == 0 || strcmp(word, "false") == 0 || strcmp(word, "no") == 0) {
+    on = false;
+    return true;
+  }
+  return false;
+}
+
+int l_cfg_keyboard(lua_State* L) {
+  if (g_cfg_ops.keyboard == nullptr || g_cfg_ops.set_keyboard == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* id = luaL_checkstring(L, 1);
+    if (!g_cfg_ops.set_keyboard(id)) {
+      return push_nil_error(L, "E_INVAL", "this build carries no keyboard with that id");
+    }
+  }
+  lua_pushstring(L, g_cfg_ops.keyboard());
+  return 1;
+}
+
+int l_cfg_boot(lua_State* L) {
+  if (g_cfg_ops.boot == nullptr || g_cfg_ops.set_boot == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no picture of the boot");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* word = luaL_checkstring(L, 1);
+    if (!g_cfg_ops.set_boot(word)) {
+      return push_nil_error(L, "E_INVAL", "the disk has no picture with that word");
+    }
+  }
+  lua_pushstring(L, g_cfg_ops.boot());
+  return 1;
+}
+
+int l_cfg_home(lua_State* L) {
+  if (g_cfg_ops.home == nullptr || g_cfg_ops.set_home == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no home app");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* id = luaL_checkstring(L, 1);
+    if (!g_cfg_ops.set_home(id)) {
+      return push_nil_error(L, "E_INVAL", "no app with that id runs on this board");
+    }
+  }
+  lua_pushstring(L, g_cfg_ops.home());
+  return 1;
+}
+
+int l_cfg_sort(lua_State* L) {
+  if (g_cfg_ops.sort_by_usage == nullptr || g_cfg_ops.set_sort_by_usage == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no order of the apps");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (!cfg_switch(L, 1, on) || !g_cfg_ops.set_sort_by_usage(on)) {
+      return push_nil_error(L, "E_INVAL", "sorting by usage is on or off");
+    }
+  }
+  lua_pushboolean(L, g_cfg_ops.sort_by_usage() ? 1 : 0);
+  return 1;
+}
+
+int l_cfg_turn(lua_State* L) {
+  if (g_cfg_ops.turn == nullptr || g_cfg_ops.set_turn == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no slice of a turn");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const lua_Integer asked = luaL_checkinteger(L, 1);
+    if (asked < 0 || asked > 1000000 || !g_cfg_ops.set_turn(static_cast<uint32_t>(asked))) {
+      return push_nil_error(L, "E_INVAL", "a turn is between two thousand instructions and the ceiling of a slice");
+    }
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_cfg_ops.turn()));
+  return 1;
+}
+
+int l_cfg_cursor(lua_State* L) {
+  if (g_cfg_ops.cursor_delay == nullptr || g_cfg_ops.set_cursor_delay == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no caret");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const lua_Integer asked = luaL_checkinteger(L, 1);
+    if (asked < 0 || asked > 100000 || !g_cfg_ops.set_cursor_delay(static_cast<int32_t>(asked))) {
+      return push_nil_error(L, "E_INVAL", "a blink is a number of milliseconds");
+    }
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_cfg_ops.cursor_delay()));
+  return 1;
+}
+
+// **Les llistes d'un desplegable**: the keyboards this build carries and the pictures of the boot the disk has, as arrays of
+// words, so a page that offers a choice offers the ones that exist (docs/30).
+int push_cfg_words(lua_State* L, uint8_t (*list)(const char**, uint8_t)) {
+  if (list == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no list like that");
+  const uint8_t total = list(nullptr, 0);
+  const char* words[32];
+  const uint8_t copied = list(words, static_cast<uint8_t>((total > 32) ? 32 : total));
+  lua_createtable(L, copied, 0);
+  for (uint8_t i = 0; i < copied; ++i) {
+    lua_pushstring(L, words[i]);
+    lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+  }
+  return 1;
+}
+
+int l_cfg_keyboards(lua_State* L) { return push_cfg_words(L, g_cfg_ops.keyboards); }
+int l_cfg_boots(lua_State* L) { return push_cfg_words(L, g_cfg_ops.boots); }
 
 int l_sys_shell(lua_State* L) {
   if (g_shell_ops.open == nullptr) {
@@ -11936,12 +12106,26 @@ void seal_globals(lua_State* L) {
   set_function(L, "deepsleep", l_sys_deepsleep);
   lua_setglobal(L, "sys");
 
+  // cfg: **els ajustos del sistema**, la mateixa porta que la comanda del prompt (0.189.106). Llegir és cridar-la sense
+  // argument i escriure és cridar-la amb el valor, i la resposta és sempre el que queda dempeus (docs/30, docs/70).
+  lua_createtable(L, 0, 8);
+  set_function(L, "keyboard", l_cfg_keyboard);
+  set_function(L, "boot", l_cfg_boot);
+  set_function(L, "home", l_cfg_home);
+  set_function(L, "sort", l_cfg_sort);
+  set_function(L, "turn", l_cfg_turn);
+  set_function(L, "cursor", l_cfg_cursor);
+  set_function(L, "keyboards", l_cfg_keyboards);
+  set_function(L, "boots", l_cfg_boots);
+  lua_setglobal(L, "cfg");
+
   // time: the wall clock. It can jump when somebody sets it; sys.time_ms() is
   // the one that never goes back (docs/60).
   lua_createtable(L, 0, 6);
   set_function(L, "now", l_time_now);
   set_function(L, "now_ms", l_time_now_ms);
   set_function(L, "caps", l_time_caps);
+  set_function(L, "set", l_time_set);
   set_function(L, "utc", l_time_utc);
   set_function(L, "date", l_time_date);
   set_function(L, "tz", l_time_tz);
@@ -12775,6 +12959,9 @@ void set_session_ops(const SessionOps& ops) { g_session_ops = ops; }
 void set_serial_ops(const SerialOps& ops) { g_serial_ops = ops; }
 
 void set_settings_ops(const SettingsOps& ops) { g_settings_ops = ops; }
+
+void set_cfg_ops(const CfgOps& ops) { g_cfg_ops = ops; }
+
 void set_app_ops(const AppOps& ops) { g_app_ops = ops; }
 void set_net_ops(const NetOps& ops) { g_net_ops = ops; }
 

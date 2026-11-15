@@ -192,6 +192,8 @@ struct Settings {
   bool dst = false;
   bool sort_by_usage = false;
   uint32_t turn = 0;
+  // **El parpalleig del cursor** (0.189.106): the milliseconds of a block of ink, which is a setting of the whole system.
+  int32_t cursor_delay = 0;
 };
 
 struct SettingsOps {
@@ -200,6 +202,35 @@ struct SettingsOps {
 };
 
 void set_settings_ops(const SettingsOps& ops);
+
+// **La porta d'escriptura dels ajustos** (0.189.106, l'amo: *«Lua app de Settings de sistema … Analitza totes les opcions de la
+// comanda cfg»*): the panel of Settings is the person's own hand, and what `cfg` writes at the prompt a page has to be able
+// to write too —`time.tz` and `fs.cfg` have been doing exactly that since they were born—. **Each pair is one setting**: the
+// value in force is answered by the getter (`cfg.turn()`) and the setter answers false when the value is not one the system
+// takes, so a page never has to guess what happened (docs/30, docs/70).
+//
+// The doors are the ones of `cfg` and not a second copy of its rules: the keyboard is asked to the UI (which is the one that
+// knows which ids exist) and the home app to the door of the apps (which is the one that knows which ids run on this board).
+struct CfgOps {
+  const char* (*keyboard)();
+  bool (*set_keyboard)(const char* id);
+  const char* (*boot)();
+  bool (*set_boot)(const char* word);
+  const char* (*home)();
+  bool (*set_home)(const char* id);
+  bool (*sort_by_usage)();
+  bool (*set_sort_by_usage)(bool on);
+  uint32_t (*turn)();
+  bool (*set_turn)(uint32_t instructions);
+  int32_t (*cursor_delay)();
+  bool (*set_cursor_delay)(int32_t ms);
+  // **Les llistes que una pàgina necessita per a un desplegable**: the ids of the keyboards this build carries and the words
+  // of the boot pictures the disk has, copied into the caller's arrays. The count is answered when `out` is null.
+  uint8_t (*keyboards)(const char** out, uint8_t capacity);
+  uint8_t (*boots)(const char** out, uint8_t capacity);
+};
+
+void set_cfg_ops(const CfgOps& ops);
 
 // **A session of the shell for an app** (0.159.0): the shell is the system's and not the wire's, so an app can ask
 // for one and talk to it through three pipes —the lines in, the answers out and the complaints out— with no console
@@ -798,6 +829,10 @@ struct UIOps {
                               uint8_t text, uint8_t background, uint8_t scale);
   uint8_t (*tabs_close_at)(int16_t slot, uint8_t count, uint16_t x, uint16_t y);
   uint8_t (*tabs_tab_at)(int16_t slot, uint8_t count, uint16_t x, uint16_t y);
+  // **En quantes files i columnes cauen les pestanyes** (0.189.106): a strip taller than one row spreads its tabs over
+  // rows, and the stops of the dial and the box of a finger are the cells of that grid —the same one the paint uses, or
+  // a finger would choose a tab the glass did not draw it on— (docs/30, docs/90).
+  bool (*tabs_grid)(int16_t slot, uint8_t count, uint8_t* rows, uint8_t* columns);
   bool (*dots_draw)(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, uint8_t background);
   // **A list** (docs/30, docs/90): how many rows fit in a frame of that height and how many pages the items make
   // —one arithmetic, asked by the app and by the drawing— and the rows of one page with the footer of the

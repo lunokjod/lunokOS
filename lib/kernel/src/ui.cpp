@@ -2211,6 +2211,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      tabs_draw_closeable,
                                      tabs_close_at,
                                      tabs_tab_at,
+                                     tabs_grid,
                                      dots_draw,
                                      list_page_of_for_lua,
                                      list_draw,
@@ -4158,6 +4159,34 @@ int32_t tab_cross_side(int32_t height, int32_t column) {
   return side;
 }
 
+// **Les files d'una tira de pestanyes** (0.189.106, l'amo: *«El control de pestanyes haurà de poder treballar amb varies files
+// de pestanyes»*): a strip is as many rows as its height holds —**never under fifty-two pixels a row**, the floor of a finger
+// of this system— and the tabs are spread over them in columns. A strip that fits in one row is the strip it always was; nine
+// tabs of 540 px are three rows of three, and the last row is left as wide as the others so a cell is always in the same place
+// (docs/30, docs/90, docs/92).
+struct TabGrid {
+  int32_t rows = 1;
+  int32_t columns = 1;
+  int32_t cell_w = 0;
+  int32_t cell_h = 0;
+};
+
+TabGrid tab_grid(const Canvas& strip, uint8_t count) {
+  TabGrid grid;
+  if (strip.width == 0 || strip.height == 0 || count == 0) return grid;
+  int32_t rows = strip.height / kTabRowFloor;
+  if (rows < 1) rows = 1;
+  if (rows > count) rows = count;
+  if (rows > 4) rows = 4;
+  int32_t columns = (count + rows - 1) / rows;
+  if (columns < 1) columns = 1;
+  grid.rows = rows;
+  grid.columns = columns;
+  grid.cell_w = strip.width / columns;
+  grid.cell_h = strip.height / rows;
+  return grid;
+}
+
 bool tabs_paint(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
                 uint8_t text, uint8_t background, uint8_t scale, bool closeable) {
   if (!live(slot) || text > 15 || background > 15) return false;
@@ -4186,16 +4215,22 @@ bool tabs_paint(int16_t slot, const char* const* labels, uint8_t count, uint8_t 
     close_draw(target);
     return true;
   }
-  const int32_t column = width / count;
+  const TabGrid grid = tab_grid(strip, count);
   // **Two pixels of line**, which is the thickness the paper project gives a tab and the bar of a menu (docs/92).
   int32_t line = 2;
-  if (line > height / 4) line = (height / 4 > 0) ? height / 4 : 1;
+  if (line > grid.cell_h / 4) line = (grid.cell_h / 4 > 0) ? grid.cell_h / 4 : 1;
   const int32_t line_h =
       static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
   static char shown[128];
   for (uint8_t i = 0; i < count; ++i) {
-    const int32_t x0 = target.x + static_cast<int32_t>(i) * column;
-    const int32_t x1 = (i + 1 == count) ? (target.x + width) : (x0 + column);
+    // **On cau cada pestanya**: its row of the grid and its column, which is the same sum the finger makes (`tab_under`), so
+    // the tab that is drawn is the tab that answers (docs/30, docs/90).
+    const int32_t row = static_cast<int32_t>(i) / grid.columns;
+    const int32_t col = static_cast<int32_t>(i) % grid.columns;
+    const int32_t x0 = target.x + col * grid.cell_w;
+    const int32_t x1 = (col + 1 == grid.columns) ? (target.x + width) : (x0 + grid.cell_w);
+    const int32_t y0 = target.y + row * grid.cell_h;
+    const int32_t height = grid.cell_h;
     const bool chosen = (static_cast<uint8_t>(i + 1) == index);
     // **The tab that will answer is drawn inverted**, which is the one signal this system uses for "here is the
     // dial" and the paper project's rule for its strip (`lit = enabled() && (focused() || isPressed())`): the face
@@ -4208,7 +4243,7 @@ bool tabs_paint(int16_t slot, const char* const* labels, uint8_t count, uint8_t 
     // paper with an ink one (the paper project: `lit ? panelBg : text`).
     const uint8_t face_level = the_one ? background : text;
     if (the_one) {
-      put_rect(*target.canvas, x0, target.y, x1 - x0, height, text);
+      put_rect(*target.canvas, x0, y0, x1 - x0, height, text);
     }
     // **The tab you are on is a bookmark**: two pixels of line on its left, on its top and on its right, **and not on
     // the bottom**, so the line it sits on is not painted under it and the eye reads that tab as being in front of the
@@ -4216,11 +4251,11 @@ bool tabs_paint(int16_t slot, const char* const* labels, uint8_t count, uint8_t 
     // lines are the whole signal —it is the paper project's `TabStrip::draw()`, and it is not the underline this
     // control had before (0.97.0, docs/92).
     if (chosen) {
-      put_rect(*target.canvas, x0, target.y, line, height, line_level);
-      put_rect(*target.canvas, x1 - line, target.y, line, height, line_level);
-      put_rect(*target.canvas, x0, target.y, x1 - x0, line, line_level);
+      put_rect(*target.canvas, x0, y0, line, height, line_level);
+      put_rect(*target.canvas, x1 - line, y0, line, height, line_level);
+      put_rect(*target.canvas, x0, y0, x1 - x0, line, line_level);
     } else {
-      put_rect(*target.canvas, x0, target.y + height - line, x1 - x0, line, line_level);
+      put_rect(*target.canvas, x0, y0 + height - line, x1 - x0, line, line_level);
     }
     // The word, in the middle of its column and between the bookmark and the line.
     if (labels[i] != nullptr && labels[i][0] != '\0' && (x1 - x0 - 2 * line) > 8) {
@@ -4231,7 +4266,7 @@ bool tabs_paint(int16_t slot, const char* const* labels, uint8_t count, uint8_t 
       if (room > 8) {
         const uint16_t taken = label_text(strip.face, labels[i], static_cast<uint16_t>(room), scale, shown, sizeof(shown));
         const int32_t at_x = x0 + (room - static_cast<int32_t>(taken)) / 2;
-        const int32_t at_y = target.y + (height - line_h) / 2;
+        const int32_t at_y = y0 + (height - line_h) / 2;
         draw_text(*target.canvas, face, at_x, at_y, shown, scale, face_level, mode);
       }
     }
@@ -4241,7 +4276,7 @@ bool tabs_paint(int16_t slot, const char* const* labels, uint8_t count, uint8_t 
     if (closeable) {
       const int32_t side = tab_cross_side(height, x1 - x0);
       const int32_t cx = x1 - 6 - side;
-      const int32_t cy = target.y + (height - side) / 2;
+      const int32_t cy = y0 + (height - side) / 2;
       for (int32_t step = 0; step < side; ++step) {
         put_rect(*target.canvas, cx + step, cy + step, 2, 2, face_level);
         put_rect(*target.canvas, cx + side - step - 2, cy + step, 2, 2, face_level);
@@ -4268,22 +4303,26 @@ uint8_t tab_under(int16_t slot, uint8_t count, uint16_t x, uint16_t y, bool on_t
   if (!live(slot) || count == 0) return 0;
   const Canvas& strip = g_canvases[slot];
   if (strip.width == 0 || strip.height == 0) return 0;
-  const int32_t column = strip.width / count;
-  if (column <= 0) return 0;
+  const TabGrid grid = tab_grid(strip, count);
+  if (grid.cell_w <= 0 || grid.cell_h <= 0) return 0;
   const int32_t px = static_cast<int32_t>(x) - static_cast<int32_t>(strip.x);
   const int32_t py = static_cast<int32_t>(y) - static_cast<int32_t>(strip.y);
   if (py < 0 || py >= strip.height) return 0;
   if (px < 0 || px >= strip.width) return 0;
-  const uint8_t which = static_cast<uint8_t>(px / column + 1);
+  // **La cel·la de la graella**, row first and then the column: a strip of one row is the sum it always was (docs/30, docs/90).
+  const int32_t row = py / grid.cell_h;
+  const int32_t col = px / grid.cell_w;
+  const uint8_t which = static_cast<uint8_t>(row * grid.columns + col + 1);
   if (which == 0 || which > count) return 0;
-  const int32_t x1 = (which == count) ? strip.width : static_cast<int32_t>(which) * column;
-  const int32_t side = tab_cross_side(strip.height, x1 - static_cast<int32_t>(which - 1) * column);
+  const int32_t x0 = col * grid.cell_w;
+  const int32_t x1 = (col + 1 == grid.columns) ? strip.width : (x0 + grid.cell_w);
+  const int32_t side = tab_cross_side(grid.cell_h, x1 - x0);
   // **The cross a finger presses is at least `kTabCrossHit` on a side** (0.161.0): what is painted is the cross, what
   // is pressed is a box around it, because a finger is not a mouse —and that box is the strip's own and not a number
   // an app guesses— (docs/90).
   const int32_t hit = (side > kTabCrossHit) ? side : kTabCrossHit;
   const int32_t cx = x1 - 6 - side + side / 2;
-  const int32_t cy = strip.height / 2;
+  const int32_t cy = row * grid.cell_h + grid.cell_h / 2;
   const bool inside = (px >= cx - hit / 2) && (px < cx + hit / 2) && (py >= cy - hit / 2) && (py < cy + hit / 2);
   if (on_the_cross && !inside) return 0;
   return which;
@@ -4295,6 +4334,15 @@ uint8_t tabs_close_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y) {
 
 uint8_t tabs_tab_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y) {
   return tab_under(slot, count, x, y, false);
+}
+
+bool tabs_grid(int16_t slot, uint8_t count, uint8_t* rows, uint8_t* columns) {
+  if (!live(slot) || count == 0) return false;
+  const TabGrid grid = tab_grid(g_canvases[slot], count);
+  if (grid.cell_w <= 0 || grid.cell_h <= 0) return false;
+  if (rows != nullptr) *rows = static_cast<uint8_t>(grid.rows);
+  if (columns != nullptr) *columns = static_cast<uint8_t>(grid.columns);
+  return true;
 }
 
 // ---- a list (docs/90) ----

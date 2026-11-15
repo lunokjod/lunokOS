@@ -199,6 +199,7 @@ avui **onze de les quinze apps** del disc, i les que no la tenen és una decisi�
 | `editor` | `scroll` (la primera fila visible) i `focus`; **el document no hi és**, que és dada amb el seu fitxer |
 | `reader` | `focus` = el **camí del llibre** amb el cercle al prestatge; la posició dins del llibre ja és al seu fitxer |
 | `wipe` | `focus` = la porta amb el cercle; **mai la targeta d'una pregunta** |
+| `settings` | `tab` (la pestanya on era) i `focus` (el nom del control amb el cercle); **cap ajust no hi va**, que són de `/cfg` |
 | `calculator`, `luaperf`, `2048`, `rainbow` | **res**: no tenen cap control amb cercle ni cap pàgina que tornar (els números d'una calculadora són el que la persona fa ara, les setze cel·les del 2048 són la partida i `rainbow` no té ni `ui`). Un bloc buit seria un kilobyte per no dir res |
 
 **I el que va fer possible que totes aquestes tornessin de debò** (0.189.52): el bloc es llegia amb els zeros del darrere
@@ -255,6 +256,74 @@ pick	<minuts>	<segons>
 
 **On és, a les apps del disc**: `apps/clock` (el cronòmetre i el compte enrere) i `apps/timeclock` (les marques, que ja hi
 eren des del port i es llegeixen amb `time.now()`, i per això una estona que travessa un reinici encara és la que va ser).
+
+## 5 quater · El panell d'ajustos: una pàgina per temes (0.189.106)
+
+**El panell d'ajustos del sistema no ve de cap app del paper: és la pàgina que l'amo va demanar per als ajustos d'aquest
+sistema** —*«Lua app de Settings de sistema … Farem un panell de configurció clàssic, amb pestanyes agrupant controls per
+temática, butons, textbox, togglebox, desplegables…»*— i és `apps/settings`, que és d'administrador (`"admin": true`)
+perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema: **cap control pintat a mà**.
+
+- **Les pestanyes són una tira del sistema de més d'una fila** (0.189.106): set pestanyes en 156 píxels són tres files de
+  tres cel·les de 172, i el dit que cau a la segona fila tria una pestanya de la segona fila. **La pestanya on era la
+  persona va al `state`** (`tab=`), i amb ella el control amb el cercle (`focus=`), mai el número d'un control.
+- **Cada fila és un control del sistema**: un `ui.checkbox` amb la paraula a dins (les paraules **es col·loquen a
+  `cb:box() + 10`** i la seva amplada és la que queda, que és el que fa que el text no es mengi la càpsula), un
+  `ui.selector` que obre un `ui.picker`, un `ui.button` per a les accions i un `ui.row` per al que només es llegeix
+  (`title` i `detail`).
+- **Les preguntes són una targeta**: `ui.dialog` amb el títol, el text que s'ajusta sol i les dues portes. **La targeta no
+  arriba mai al fons de la pàgina**: mentre és a sobre el dit i el dial són seus, i l'única sortida sense triar és un tros
+  de paper al costat —una targeta que acaba a la vora de baix no deixa cap paper on tocar—, o sigui que el panell li
+  deixa quaranta píxels de paper a sota (més l'alçada de la línia d'ajuda).
+- **El que una fila ensenya es torna a llegir del sistema**: el camp d'una tria guarda l'`index` que l'app li va donar, i
+  una escriptura feta dins d'una targeta el deixaria dient el valor vell. Cada vegada que una fila es col·loca, l'app
+  demana el valor a la porta (`cfg.*`, `time.*`, `power.cpu()`) i li posa: **el que es veu és el que el sistema ha
+  acceptat**, també quan ha refusat el que l'app li demanava.
+- **Un canvi de mida torna a fer la pàgina sencera** (i això és el sostre d'aquesta mena de pàgina): un `ui.full_screen`
+  o el pany de la pantalla fan **una vista nova**, i una vista nova dona a cada canvas de la pàgina el que tenia —els
+  controls moren—. O sigui que cada escriptura que pot moure el vidre passa per un `settle()` que compara `ui.caps()` amb
+  la mida que la pàgina té: si és la mateixa, col·loca i pinta; si no, torna a construir-ho tot i torna a posar el cercle
+  al control on era. Una pàgina que només fa `layout()` després d'un canvi de mida peta amb `attempt to perform arithmetic
+  on a nil value` al primer `cb:box()` —ho va trobar la prova del panell, no la persona— (docs/30, docs/90).
+- **El que la pàgina escriu és de `cfg` i el que la persona va deixar a mitges és de `state`**: les hores i la data es
+  desen amb `time.set`, la zona amb `time.tz`, el calendari amb `time.leap`/`time.week`/`time.dst`, el disc amb `fs.cfg`,
+  el processador amb `power.cpu`, i el teclat, l'arrencada, l'inici, l'ordre, el torn i el cursor amb `cfg.*` (docs/30
+  § «`cfg`»). **La pestanya i el cercle són de la pàgina.**
+
+**L'hora local d'una persona és una època, i l'aritmètica és aquesta** (`days_from_civil`, la de Hinnant): `time.set`
+compta en UTC i la pàgina ha de restar-hi `time.tz()` abans de desar.
+
+```lua
+local function days_from_civil(y, m, d)
+  if m <= 2 then y = y - 1 end
+  local era = (y >= 0) and y or (y - 399)
+  era = era // 400
+  local yoe = y - era * 400
+  local mp = (m + 9) % 12
+  local doy = (153 * mp + 2) // 5 + d - 1
+  local doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+  return era * 146097 + doe - 719468
+end
+
+local function epoch_of(day, month, hour, minute)
+  local today = time.date()
+  if today == nil then return nil end
+  return days_from_civil(today.year, month, day) * 86400 + hour * 3600 + minute * 60 - (time.tz() or 0) * 60
+end
+```
+
+**El que encara no hi és, i per què** (i és la resposta honesta a mitja llista de l'amo): el panell té set pestanyes i
+només les que tenen porta darrere. **Falten** la llista blanca de freqüències de la CPU i les instruccions per cicle com a
+tria de la persona, la política de miniatures, les sessions al disc, el NTP a l'arrencada, el paper pintat de fons, el
+splash propi amb el navegador de fitxers, el PIN i els temps de son (lleuger, profund i d'inactivitat): **cap d'aquests no
+és un ajust del nucli encara**, i una fila que no escriu res és pitjor que una fila que no hi és. Cadascun és una feina de
+subsistema amb la seva porta, la seva prova i el seu document.
+
+**I el que es prova, es prova amb el dit i amb el dial** (`test_apps`,
+`test_the_panel_of_settings_writes_through_the_doors_of_the_system`): una pestanya de la segona fila es tria amb un dit,
+la fletxa d'un `ui.selector` obre el `ui.picker` i **el dial tria el valor** (les tres tecles de la Paper són centre, amunt i
+avall: clau 0, 1 i 2), un dit tria l'hora al quadrant de la targeta, el botó escriu l'hora a la placa, la casella de la
+privacitat treu la barra i la torna, i una esborrada pregunta abans.
 
 ## 6 · Les proves, i la versió de l'app
 

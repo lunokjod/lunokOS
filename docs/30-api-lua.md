@@ -52,9 +52,13 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
   pàgina amb TLS), **`fs`**, **`qr`**, **`json`**, **`time`**, **`alarm`**, **`term`**, **`app`**,
   **`power`** (les dues menes de son, la velocitat del processador i la bateria), **`led`** (el llum),
   **`imu`** (el sensor del Matrix) i **`button`** (el botó, i el hook `on_button`).
+- **`cfg`** (0.189.106): els ajustos del sistema que una app pot **escriure**, amb la mateixa porta que la
+  comanda `cfg` del prompt —teclat, imatge de l'arrencada, app de l'inici, l'ordre per usos, les instruccions d'un torn i
+  el parpelleig del cursor, més les dues llistes que un desplegable necessita.
+- **`admin`** (0.189.99): el paquet d'una app que el manifest marca `"admin": true`.
 
 **Encara no hi és**, i una app que ho cridi peta amb «attempt to call a nil value»:
-`console.flush()`, `console.read()`, `console.on_data()`, `time.format`/`parse`/`set`/`sync`,
+`console.flush()`, `console.read()`, `console.on_data()`, `time.format`/`parse`/`sync`,
 `Promise.all`/`race`, `app.spawn`/`raise`/`save`/`restore`, `net.softap`, `power.off`, i els mòduls
 `store` i `log`. (`console.read_byte`, `time.utc` i `time.tz` hi són des de la 0.125.0 i ja no són en
 aquesta llista; `time.local` no hi serà mai, perquè `local` és una paraula de Lua i la crida es diu
@@ -701,7 +705,7 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 | `time.week([dia])` | enter | **Quin dia comença la setmana** (0.170.0): `1` dilluns —el valor del sistema— o `7` diumenge, en el mateix compte que `wday`, i les paraules `monday`/`sunday`. `ui.month` gira les seves set columnes amb això |
 | `time.format(t, fmt)` | cadena | `%Y-%m-%d %H:%M:%S` — **encara no hi és** |
 | `time.parse(s, fmt)` | enter o `nil, error` | **Encara no hi és** |
-| `time.set(epoch)` | — | Permís `rtc_set` — **encara no hi és** |
+| `time.set(epoch)` | enter o `nil, error` | **Escriu l'hora de la placa** (0.189.106): `epoch` són segons des de l'època en **UTC**, i torna el que el rellotge ha acceptat —el mateix número, o el que la placa ha pogut desar—. És la porta del `date <epoch>` del prompt i la que fa servir el panell d'ajustos per posar l'hora i la data (docs/60). El que hi hagi corrent no es toca: una app que necessiti mesurar durades segueix tenint `sys.time_ms()` |
 | `time.sync()` ⏳ | promesa | NTP; requereix xarxa (avui hi ha `net.ntp`, que és el que fa la feina) |
 | `time.caps()` | `{source, synced, wake}` | `source` és `"soc"`, `"rtc"` o `"none"`; `wake` és `"yes"` o `"no"` (si aquesta placa pot armar un despert per a una alarma) |
 
@@ -714,9 +718,14 @@ el primer i **desar-se l'època en què va arrencar** per poder tornar a calcula
 quan la placa es va desendollar torna comptant amb la seva estona. El cas sencer, amb el fitxer i el codi, és a
 **docs/45 § «5 ter · El que corre»** i a `apps/clock`.
 
-**Avui hi ha** `time.now()`, `time.now_ms()`, `time.utc`, `time.date`, `time.tz`, `time.leap`, `time.week` i `time.caps()`.
-`format`, `parse`, `set`, `tz` amb noms de zona i `sync` encara no existeixen; l'hora la dona el rellotge i cada u la trenca
-com vol (docs/60).
+**Avui hi ha** `time.now()`, `time.now_ms()`, `time.utc`, `time.date`, `time.tz`, `time.leap`, `time.week`, `time.dst`,
+`time.set` i `time.caps()`. `format`, `parse`, `tz` amb noms de zona i `sync` encara no existeixen; l'hora la dona el
+rellotge i cada u la trenca com vol (docs/60).
+
+**Escriure l'hora és una època i prou, i l'offset el posa qui escriu**: `time.set` compta en UTC, o sigui que una pàgina
+que ensenya l'hora d'una persona —«les nou i mitja del matí del 16 de novembre»— ha de restar-hi `time.tz()` abans de
+desar-ho. L'aritmètica del dia civil que cal per fer-ho és la de Hinnant —`days_from_civil`, a `apps/settings`— perquè
+aquest sistema no té cap `os.time` amb taula: docs/45 § «El panell d'ajustos» té el codi.
 
 ### `time.utc` i `time.date`: el moment en paraules (0.125.0)
 
@@ -784,6 +793,43 @@ time.week('sunday')  -- 7, i torna 7
 - **`ui.month` gira amb el primer dia**: els set noms de `weekdays` que l'app dona són **de dilluns a diumenge** i el
   sistema els gira amb l'ajust, o sigui que una app escriu una llista i el vidre ensenya la setmana que la persona ha
   triat (docs/30, docs/92).
+
+## `cfg`: els ajustos del sistema, llegits i escrits (0.189.106)
+
+**`cfg` és la taula d'ajustos del sistema per a una app, i és la germana d'escriure de `sys.settings()`**: el que
+`sys.settings()` llegeix, `cfg` ho llegeix **i ho escriu**, i cada porta respon **el que queda dempeus** —el valor que el
+sistema ha acceptat, no el que l'app ha demanat—. És el mateix camí que la comanda `cfg` del prompt, amb el mateix
+analitzador i les mateixes comprovacions, i per això una pàgina d'ajustos no pot deixar el sistema en un estat que la
+consola no acceptaria (docs/30, docs/70).
+
+| Crida | Torna | Què és |
+|---|---|---|
+| `cfg.keyboard([id])` | cadena o `nil, error` | **El teclat de programari** (`qwerty`, `azerty`, `serial`, el que porti el build): es llegeix sol i s'escriu amb una paraula. Un id que aquest build no té és `E_INVAL` |
+| `cfg.keyboards()` | taula de paraules | **Els que aquest build porta**, perquè un desplegable ofereixi els que existeixen i no una llista escrita a l'app |
+| `cfg.boot([paraula])` | cadena o `nil, error` | **La imatge de l'arrencada** (`boot`, `sleep`, `poweroff`, `lowbatt`), de les que el disc té |
+| `cfg.boots()` | taula de paraules | Les paraules de boot que el disc té de debò |
+| `cfg.home([id])` | cadena o `nil, error` | **L'app que surt amb la placa**, amb `none` per no tenir-ne cap; un id que el disc no té és `E_INVAL` |
+| `cfg.sort([on])` | booleà | **Ordenar les apps per nombre d'usos** (`cfg sort`), que és el que `home_eink` llegeix per al seu grid |
+| `cfg.turn([n])` | enter | **Les instruccions de Lua que val un torn** (`cfg turn`): el número que compara el comptador de l'intèrpret, o sigui l'ajust de velocitat que mesura `luaperf` |
+| `cfg.cursor([ms])` | enter | **El parpelleig del cursor** en mil·lisegons (`cfg cursor delay <ms>`) |
+
+- **Les de lectura i escriptura són la mateixa crida i el valor és la resposta**: `cfg.cursor()` diu el que hi ha i
+  `cfg.cursor(600)` escriu i torna el que ha quedat, o sigui que una pàgina que ensenya el que ha demanat **no pot mentir**
+  ni tan sols quan el sistema refusa. És la regla de `time.tz`, `time.leap` i `time.dst`, i la que fa que una fila d'un
+  panell d'ajustos es pugui tornar a llegir després d'escriure-la (docs/45).
+- **Escriure-hi desa a l'acte** al magatzem de preferències (`/cfg`), com `time.tz`: no hi ha cap «desa-ho ara».
+- **El que és de l'app no hi és**: `cfg` no té ni el tema d'una pàgina ni la pestanya on era una persona. Això és la sessió
+  `state` (docs/30 § «La sessió `state`»), i la línia entre les dues és la de sempre: **una preferència del sistema és de
+  `cfg` i el que la persona va deixar a mitges al vidre és de `state`**.
+- **El que encara no hi és**: la llista blanca de freqüències de la CPU, la política de miniatures, les sessions al disc, el
+  NTP a l'arrencada, el paper pintat de fons, el PIN i els temps de son no són a `cfg` perquè **el nucli encara no els té
+  com a ajust**: una porta que no fa res és pitjor que una porta que no hi és (docs/45 § «El panell d'ajustos»).
+
+```
+lunok> cfg
+[I][CFG] /cfg on sd (asked for auto), keyboard qwerty, boot boot, home home_eink, tz +00:00, leap on, dst off,
+         week monday, turn 20000, sort apps by usage off
+```
 
 ## `admin`: el paquet d'una app d'administrador (0.189.99)
 
@@ -2319,7 +2365,12 @@ ui.present()
 ### `ui.tabs` i `ui.dots`: on ets a la pàgina (0.70.0)
 
 - **`ui.tabs`**: `items` és un array de paraules (vuit com a molt) i `index` és quina està triada, 1 a n; **0 vol dir
-  cap**. Les columnes són iguals, i **la triada és la que no té la línia a sota**: a dos tons no hi ha negreta ni
+  cap**. **Una tira alta té més d'una fila** (0.189.106, l'amo: *«El control de pestanyes haurà de poder treballar amb
+  varies files de pestanyes»*): les files són les que hi caben amb **un terra de 52 píxels per fila** —el terra d'un dit,
+  el mateix que el d'una fila de menú— i les pestanyes es reparteixen en columnes, o sigui que 156 píxels donen tres files
+  de tres cel·les de 172 i una pàgina d'ajustos pot tenir set o vuit pestanyes en una tira. **La cel·la és la que decideix
+  el dit i el dial**: el dibuix, la parada del dial i la caixa que pren un toc surten de la mateixa graella, i una
+  pestanya de la segona fila respon on el vidre l'ha pintada (el que faltava, trobat amb el panell d'ajustos a la mà). Les columnes són iguals, i **la triada és la que no té la línia a sota**: a dos tons no hi ha negreta ni
   color, i treure la línia és el que diu «ets aquí» (el que el vell va aprendre a `tab_strip.h:44`). **Cada pestanya
   és una parada del dial** (0.99.0, com al projecte del paper, on les pestanyes són botons): les fletxes entren a la
   tira i van d'una pestanya a la següent, i surten de la tira per qualsevol dels dos caps; **el centre tria la

@@ -725,10 +725,19 @@ bool tabs_draw_closeable(int16_t slot, const char* const* labels, uint8_t count,
 // **Which tab has its cross at this point of the page**, 1 to `count`, or 0 when the point is not on one. The cross a
 // finger presses is a box of at least `kTabCrossHit` on a side around the painted one (docs/90).
 const uint8_t kTabCrossHit = 28;
+
+// **El terra d'una fila de pestanyes** (0.189.106): the least height a row of tabs has, which is the same floor a finger
+// gets everywhere else in this system —the rows of a menu, the cells of a grid—. A strip taller than one row is spread over
+// as many rows as fit, three rows of 540 px holding nine tabs (docs/30, docs/90).
+const int32_t kTabRowFloor = 52;
 uint8_t tabs_close_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y);
 // **Which tab is at this point**, 1 to `count` or 0: the word half of the same arithmetic, so a finger that is not on
 // a cross still chooses the tab it landed on (0.161.0, docs/30).
 uint8_t tabs_tab_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y);
+// **En quantes files i columnes les pestanyes d'una tira cauen** (0.189.106): the grid the paint uses, told to whoever has to
+// put a stop or a finger's box on a cell —the walk of the dial and the touch of this system ask it instead of working out
+// their own columns— (docs/30, docs/90).
+bool tabs_grid(int16_t slot, uint8_t count, uint8_t* rows, uint8_t* columns);
 
 // ---- a list: rows on pages and never a scroll (docs/30, docs/90) ----
 //

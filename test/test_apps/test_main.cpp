@@ -16621,6 +16621,135 @@ void test_the_clock_keeps_its_run_across_a_restart(void) {
   kernel::boot(hal::platform());
 }
 
+// **El panell d'ajustos del sistema, amb el dit i amb el dial** (0.189.106, l'amo: *«Lua app de Settings de sistema …
+// Farem un panell de configurció clàssic, amb pestanyes agrupant controls per temática, butons, textbox, togglebox,
+// desplegables…»*). The case drives the app of the repository and not a stand-in: a finger on the second row of the strip
+// chooses a tab of that row, the arrow of a `ui.selector` puts a `ui.picker` up, the dial picks a value of it, the button
+// writes the hour, a checkbox takes the bar away and gives it back, and the door of a format asks first (docs/30,
+// docs/45, docs/90).
+void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  opts.now_epoch = 1794819600;  // Monday 16 November 2026, 09:00, and the map of this test is +00:00
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **The app that ships is the app the test runs**: the folder of another case is taken away first, the same rule the
+  // clock's case follows (docs/85).
+  storage->remove("/apps/settings/settings.lua");
+  storage->remove("/apps/settings/manifest.json");
+  storage->remove("/apps/settings");
+  storage->mkdir("/apps");
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/settings"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/settings/settings.lua", "/apps/settings/settings.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/settings/manifest.json", "/apps/settings/manifest.json"));
+
+  // **The rows of the page, as the case says them**: the strip is three rows of fifty-two at 12, and every row of a tab
+  // starts at 176 and is sixty-four tall (docs/30, docs/45).
+  const uint16_t bar = static_cast<uint16_t>(kernel::ui::canvas().y);
+  const uint16_t kRowOne = 176;
+  const uint16_t kRowStep = 64;
+  const uint16_t kArrow = 500;
+
+  pump_turns(20);
+  pump_captured(200, g_out, sizeof(g_out), "run settings");
+  pump_turns(40);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: 7 tabs"), g_out);
+
+  // ---- the strip: a finger on the cell of the second row chooses the Input tab, and the page under it is the keyboard's
+  capture_begin();
+  press_finger(panel, 98, static_cast<uint16_t>(bar + 90));
+  // the caret is the second row, and its column of the arrow is the door: the card comes up with the three times
+  press_finger(panel, kArrow, static_cast<uint16_t>(bar + kRowOne + kRowStep + 28));
+  // **el que la targeta demana es fa al torn següent** (docs/45): the page asks for the card and the loop opens it after its
+  // three hundred milliseconds, so the case waits them out before it reaches for the dial
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_INT32_MESSAGE(850, kernel::cfg::cursor_delay(), g_out);  // the card has written nothing yet
+
+  // **the ring of a card is on the value the field had and the arrows walk it**: one press of the up key takes 850 to
+  // 600, and the centre picks the one the band of ink is on. **Les tres tecles del dial de la Paper són centre, amunt i
+  // avall** (key 0, 1 and 2), which is the shape `button.info` describes to the kernel (docs/85, docs/90).
+  capture_begin();
+  emu::press_key(1, true);
+  pump_turns(60);
+  emu::press_key(1, false);
+  pump_turns(60);
+  emu::press_key(0, true);
+  pump_turns(60);
+  emu::press_key(0, false);
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_INT32_MESSAGE(600, kernel::cfg::cursor_delay(), g_out);
+
+  // ---- the clock: the hour of the picker, and the button that writes it into the board
+  capture_begin();
+  press_finger(panel, 98, static_cast<uint16_t>(bar + 38));
+  press_finger(panel, kArrow, static_cast<uint16_t>(bar + kRowOne + 28));
+  // the hours are four columns of six rows: 14 is the third column of the fourth row of the card
+  press_finger(panel, 295, static_cast<uint16_t>(bar + 465));
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 4 * kRowStep + 28));
+  // **the button asks for its work at the next turn** (docs/45): the page hands the write to the loop with its three
+  // hundred milliseconds in front of it, so the case waits them out before it reads the hour
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: the clock is set to 14:00"), g_out);
+  TEST_ASSERT_INT_WITHIN_MESSAGE(4, 1794837600, static_cast<int>(hal::platform().clock()->epoch_ms() / 1000), g_out);
+
+  // ---- the privacy tab: the lock of the screen is the door of an administrator, and the same switch gives the bar back
+  capture_begin();
+  press_finger(panel, 98, static_cast<uint16_t>(bar + 142));
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 28));
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::ui::screen_locked(), g_out);
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(0, kernel::ui::canvas().y, g_out);
+  TEST_ASSERT_TRUE(kernel::app_running());
+  // the bar is away, so the page starts at the top of the glass: the same switch is at the row without the forty-eight
+  capture_begin();
+  press_finger(panel, 270, static_cast<uint16_t>(kRowOne + 28));
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::ui::screen_locked(), g_out);
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(bar, kernel::ui::canvas().y, g_out);
+
+  // ---- the disk: a format asks first, and the yes is the door of the card
+  capture_begin();
+  press_finger(panel, 442, static_cast<uint16_t>(bar + 38));
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + kRowStep + 28));
+  pump_turns(600);
+  press_finger(panel, 400, static_cast<uint16_t>(bar + 739));
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: the store is empty"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/settings/settings.lua");
+  storage->remove("/apps/settings/manifest.json");
+  storage->remove("/apps/settings");
+
+  // The next case gets the default emulator back: the display, the panel and the hour were this one's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  opts.now_epoch = 0;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **The eraser of the repository, on the disk of this run**: a case that failed before its clean-up leaves the folder
 // behind, so the folder is taken away first and a second case cannot fail on the leftovers of the first (docs/85).
 bool install_the_eraser(hal::IStorage* storage) {
@@ -17732,6 +17861,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
   RUN_TEST(test_the_clock_keeps_its_run_across_a_restart);
+  RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);
   RUN_TEST(test_a_swipe_up_or_down_is_not_a_page_of_a_list);
   RUN_TEST(test_the_shelf_lists_the_faces_and_leaves_the_other_files_out);

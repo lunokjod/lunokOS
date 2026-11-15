@@ -9377,7 +9377,23 @@ namespace kernel {
 // forats del sistema que aquesta app és la primera a trepitjar: **un `ui.button` sense vores d'una pàgina esborrava tota la
 // pàgina** —la cara es pinta al canvas del pare i el clear dels cantons era de tot el canvas— i ara la cara és la caixa del
 // botó (docs/30, docs/40, docs/45, docs/50).
-static const char kVersion[] = "0.189.105";
+// 0.189.106 — **el panell d'ajustos del sistema, i les portes que necessitava** (l'amo: *«Lua app de Settings de sistema …
+// Farem un panell de configurció clàssic, amb pestanyes agrupant controls per temática, butons, textbox, togglebox,
+// desplegables…»* i *«El control de pestanyes haurà de poder treballar amb varies files de pestanyes»*). **`apps/settings` és
+// una pàgina d'administrador amb set pestanyes** —clock, CPU, disc, entrada, sistema, bateria i privacitat— feta només de
+// controls del sistema: un `ui.checkbox` amb la paraula a dins, un `ui.selector` que obre el `ui.picker` de la 0.189.102, un
+// `ui.button` per a les accions i un `ui.row` per al que es llegeix, i les preguntes amb `ui.dialog`. **I el nucli li va
+// haver de donar tres coses**: `cfg` a Lua (0.189.106, les mateixes portes que la comanda del prompt —`cfg.keyboard`,
+// `cfg.boot`, `cfg.home`, `cfg.sort`, `cfg.turn`, `cfg.cursor` i les dues llistes `cfg.keyboards`/`cfg.boots`—, cadascuna
+// tornant **el que queda dempeus**), **`time.set`** (l'època en UTC que el rellotge accepta, la porta del `date <epoch>`), i
+// **una tira de pestanyes de més d'una fila**: `tab_grid` reparteix les pestanyes en files amb un terra de 52 píxels i el
+// dibuix, la parada del dial i la caixa del dit surten de la mateixa graella (`tabs_grid` és la que la màquina de Lua
+// pregunta, o un dit triava la pestanya d'una altra fila). **I dues coses que aquesta pàgina és la primera a fer servir de
+// debò**: una escriptura que torna a fer el vidre —el pany de la pantalla fa una vista nova i **una vista nova dona a cada
+// canvas de la pàgina el que tenia**—, o sigui que la pàgina es torna a construir quan `ui.caps()` canvia de mida (el
+// timeclock ja ho feia així) i el cercle torna al control on era; i **el pany de la pantalla des de dins de la pàgina que
+// el tanca**, amb la mateixa casella per tornar-lo a obrir (docs/30, docs/45, docs/90).
+static const char kVersion[] = "0.189.106";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -1,0 +1,10 @@
+{
+  "title": "Settings",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "settings.lua",
+  "boards": ["esp32"],
+  "admin": true,
+  "icon": "res/icon.png",
+  "description": "The panel of the system's settings, a tab per subject: the hour and the calendar, the speed of the processor, the disk, the keyboard and the caret, the app at the start, the battery and the lock of the screen.\nEvery row is a control of the system and every write goes through the doors of cfg, and what a row shows is what the system accepted."
+}
