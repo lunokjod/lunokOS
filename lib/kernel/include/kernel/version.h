@@ -9405,7 +9405,17 @@ namespace kernel {
 // enrere i esquerra endavant, el contacte gastat i als dos caps res— en comptes de només les dues claus del peu i el dial. El
 // panell d'ajustos hi posa les dues coses: les tres caselles dels passos, el commutador i **les marxes del torn amb nom** (lenta,
 // normal i ràpida) amb els mil·lisegons d'un torn **mesurats a la placa** quan la pestanya s'obre (docs/30, docs/50, docs/75).
-static const char kVersion[] = "0.189.107";
+// 0.189.108 — **quin número és el d'un torn, i quant costa de debò** (l'amo: *«Especifica una mica a Settings -> CPU: el número
+// son instruccions de la máquina virtual LUA pot executar per torn, i si pot ser agafa de les estadístiques els tempos de les apps
+// lua, així es pot valorar quin es el numero mágic i quins valors son segurs per ambdos sistemes»*). **`sys.stats([<paraula>])`
+// és la taula de comptadors a l'abast d'una pàgina**: sense argument, les paraules dels comptadors d'aquest build; amb una, les
+// crides i els microsegons d'aquell, i `nil` per a una paraula que no n'és cap. Res de text per a analitzar: dos enters i la
+// pàgina divideix. **I la pestanya de la CPU del panell ho diu tot amb xifres mesurades aquí**: la fila del torn es diu «Lua a
+// turn» (instruccions de la màquina de Lua que val un torn), les marxes perden el número del nom i el recuperen a la fila que en
+// diu el preu («A turn of 20 000 = 2 ms», de la volta de `k = k + 1` que és la mesura de `apps/luaperf`), i les dues files de la
+// taula diuen **quantes voltes ha fet el sistema, què costa cadascuna i quina part és de Lua**, que és el que fa valorar el
+// número màgic i quins valors són segurs per a les dues bandes (docs/30, docs/45, docs/75, docs/95).
+static const char kVersion[] = "0.189.108";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

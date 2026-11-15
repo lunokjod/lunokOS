@@ -16768,6 +16768,27 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: the store is empty"), g_out);
 
   close_any_app();
+
+  // **`sys.stats` és la porta de la taula, i el panell la divideix per dir què costa un torn** (0.189.108): the calls and the
+  // microseconds of a meter, and `nil` for a word this build does not count —which is the whole contract a page needs to say
+  // the mean of a turn of the system and the part of it that is Lua— (docs/30, docs/75). A page of this case's own says the
+  // two numbers, because a door is proved by what an app reads and not by what it was asked.
+  const char* const kTally =
+      "local calls, us = sys.stats('kernel.loop')\n"
+      "console.print('tally: ' .. tostring(calls) .. ' turns, ' .. tostring(us) .. ' us in them')\n"
+      "console.print('tally: bogus ' .. tostring(sys.stats('no.such.meter')))\n";
+  add_app(storage, "tally", "{\"title\":\"Tally\",\"version\":\"0.0.1\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+          kTally);
+  pump_captured(400, g_out, sizeof(g_out), "run tally");
+  // **Els dos números hi són**: the calls and the microseconds of a meter this build counts, in the words the page printed.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tally: "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " turns, "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " us in them"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tally: bogus nil"), g_out);
+  storage->remove("/apps/tally/app.lua");
+  storage->remove("/apps/tally/manifest.json");
+  storage->remove("/apps/tally");
+
   storage->remove("/apps/settings/settings.lua");
   storage->remove("/apps/settings/manifest.json");
   storage->remove("/apps/settings");

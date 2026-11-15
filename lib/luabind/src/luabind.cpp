@@ -172,6 +172,9 @@ enum PromiseState { kPending = 0, kOk = 1, kErr = 2 };
 // (value, jobs, watch). Nothing is allocated outside Lua: see docs/75.
 // Where the kernel puts what a call costs; empty until it does, and the hook then does nothing.
 MeterOps g_meter_ops = {};
+// **I la taula de comptadors que una pàgina llegeix** (0.189.108): the numbers of `stats`, empty until the kernel hands them
+// over, and `sys.stats()` answers `E_UNSUPPORTED` until then (docs/30).
+StatsOps g_stats_ops = {};
 
 struct Promise {
   int state;
@@ -11871,6 +11874,43 @@ int l_sys_commands(lua_State* L) {
   return 1;
 }
 
+// **`sys.stats([<word>])`: els comptadors del sistema** (0.189.108, l'amo: *«si pot ser agafa de les estadístiques els tempos
+// de les apps lua, així es pot valorar quin es el numero mágic i quins valors son segurs per ambdos sistemes»*). With no
+// argument it answers **the meters this build has**, as words, so a page lists what exists and does not copy a list that will
+// disagree with the table. With one it answers **two numbers** —the calls and the microseconds— or `nil` for a word that is
+// not a meter here, and the page divides them: what a turn of the interpreter costs is `us / calls` of `kernel.loop`, what
+// part of it is Lua is `lua.run`, and what part is the app's own code is `lua.own` (docs/30, docs/75, docs/95).
+int l_sys_stats(lua_State* L) {
+  if (g_stats_ops.count == nullptr || g_stats_ops.name == nullptr || g_stats_ops.read == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build counts nothing");
+  }
+  const uint8_t total = g_stats_ops.count();
+  if (lua_isnoneornil(L, 1)) {
+    lua_createtable(L, total, 0);
+    for (uint8_t i = 0; i < total; ++i) {
+      const char* word = g_stats_ops.name(i);
+      if (word == nullptr) continue;
+      lua_pushstring(L, word);
+      lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+    return 1;
+  }
+  const char* asked = luaL_checkstring(L, 1);
+  for (uint8_t i = 0; i < total; ++i) {
+    const char* word = g_stats_ops.name(i);
+    if (word == nullptr || strcmp(word, asked) != 0) continue;
+    uint32_t calls = 0;
+    uint64_t us = 0;
+    if (!g_stats_ops.read(i, &calls, &us)) break;
+    lua_pushinteger(L, static_cast<lua_Integer>(calls));
+    lua_pushinteger(L, static_cast<lua_Integer>(us));
+    return 2;
+  }
+  lua_pushnil(L);
+  lua_pushstring(L, "there is no meter with that name");
+  return 2;
+}
+
 // **`sys.shell()`**: a session of the shell, or `nil` and why there is none (docs/30).
 // **`sys.settings()`**: a snapshot of what the system is set to, in the words `cfg` prints, so a page that has to obey a
 // switch reads the same value a person reads at the prompt (0.189.13, docs/30, docs/70).
@@ -12150,6 +12190,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "session", l_sys_session);
   set_function(L, "session_destroy", l_sys_session_destroy);
   set_function(L, "settings", l_sys_settings);
+  set_function(L, "stats", l_sys_stats);
   set_function(L, "reboot", l_sys_reboot);
   set_function(L, "deepsleep", l_sys_deepsleep);
   lua_setglobal(L, "sys");
@@ -13007,6 +13048,8 @@ void set_apps_ops(const AppsOps& ops) { g_apps_ops = ops; }
 void set_session_ops(const SessionOps& ops) { g_session_ops = ops; }
 
 void set_serial_ops(const SerialOps& ops) { g_serial_ops = ops; }
+
+void set_stats_ops(const StatsOps& ops) { g_stats_ops = ops; }
 
 void set_settings_ops(const SettingsOps& ops) { g_settings_ops = ops; }
 

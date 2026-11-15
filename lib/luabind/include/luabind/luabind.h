@@ -203,6 +203,20 @@ struct SettingsOps {
 
 void set_settings_ops(const SettingsOps& ops);
 
+// **Els comptadors del sistema, per a una pàgina** (0.189.108, l'amo: *«si pot ser agafa de les estadístiques els tempos de
+// les apps lua, així es pot valorar quin es el numero mágic»*): the numbers `stats` prints, as two numbers a page can divide
+// instead of a table of text it would have to parse. `count` is how many meters this build has, `name` is the word of one of
+// them —`kernel.loop`, `lua.run`, `lua.own`, `lua.call`…— and `read` answers the calls and the microseconds of one of them,
+// false when the word is not a meter of this build. **A page says the mean and not the total**: what a turn of the
+// interpreter costs is the number that decides a slice, and it is `us / calls` (docs/30, docs/75, docs/95).
+struct StatsOps {
+  uint8_t (*count)();
+  const char* (*name)(uint8_t id);
+  bool (*read)(uint8_t id, uint32_t* calls, uint64_t* us);
+};
+
+void set_stats_ops(const StatsOps& ops);
+
 // **La porta d'escriptura dels ajustos** (0.189.106, l'amo: *«Lua app de Settings de sistema … Analitza totes les opcions de la
 // comanda cfg»*): the panel of Settings is the person's own hand, and what `cfg` writes at the prompt a page has to be able
 // to write too —`time.tz` and `fs.cfg` have been doing exactly that since they were born—. **Each pair is one setting**: the

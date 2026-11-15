@@ -285,14 +285,20 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
   la mida que la pàgina té: si és la mateixa, col·loca i pinta; si no, torna a construir-ho tot i torna a posar el cercle
   al control on era. Una pàgina que només fa `layout()` després d'un canvi de mida peta amb `attempt to perform arithmetic
   on a nil value` al primer `cb:box()` —ho va trobar la prova del panell, no la persona— (docs/30, docs/90).
-- **La pestanya del processador és una mesura i no una opinió** (0.189.107, l'amo: *«Número d'instruccions per cicle …
-  Cal fer mesures amb Lua per torn, donar velocitat lenta, normal, ràpida»*): el commutador és `power.cpu_auto()`, les tres
-  caselles són `cfg.freq(<mhz>, on)` —els passos entre els quals el governador pot moure's—, el desplegable de la velocitat
-  fixa un pas (`power.cpu`) i el del torn dona **tres marxes amb nom** (5 000, 20 000 i 50 000 instruccions) i no un número.
-  **Els mil·lisegons de cada marxa es mesuren a la placa quan la pestanya s'obre**: una volta de `k = k + 1` és tres
-  instruccions i el temps de vint mil voltes diu què costa una instrucció amb el torn del nucli a dins, o sigui que
-  `sys.turn() / 3 × µs_per_volta` és la latència que espera un dit. La línia de sota ho diu: «a turn of 20 000 instructions
-  costs about 9 ms at 160 MHz» (docs/75, docs/95; `apps/luaperf` és la recepta sencera).
+- **La pestanya del processador és una mesura i no una opinió** (0.189.107 i 0.189.108, l'amo: *«Número d'instruccions per
+  cicle … Cal fer mesures amb Lua per torn, donar velocitat lenta, normal, ràpida»* i *«el número son instruccions de la máquina
+  virtual LUA pot executar per torn … si pot ser agafa de les estadístiques els tempos de les apps lua, així es pot valorar
+  quin es el numero mágic»*). El commutador és `power.cpu_auto()`, les tres caselles són `cfg.freq(<mhz>, on)` —els passos entre
+  els quals el governador pot moure's—, el desplegable de la velocitat fixa un pas (`power.cpu`) i el del torn dona **tres
+  marxes amb nom** (Slow 5 000, Normal 20 000 i Fast 50 000) i no un número sol, perquè el número és **les instruccions de la
+  màquina de Lua que val un torn abans que el sistema el recuperi per al vidre i les tecles**.
+- **I les xifres surten de dues bandes, totes dues mesurades en aquesta placa**: una volta de `k = k + 1` és tres
+  instruccions i el temps de vuit mil voltes (la més barata de tres) diu què costa una instrucció amb el torn del nucli a
+  dins, o sigui que `sys.turn() / 3 × µs_per_volta` és la fila «a turn of 20 000 = 2 ms»; i **`sys.stats()`** dona els
+  comptadors de debò —`kernel.loop` (les voltes i els seus microsegons → la mitjana d'un torn del sistema, amb quantes n'hi
+  ha hagut), `lua.run` entre els torns → què hi ha de Lua a dins— que són les files «Turns» i «Lua». Amb les dues, una persona
+  tria el número: un torn de quaranta mil·lisegons és un dit que espera quaranta, i el que hi guanya és el que la fila de Lua
+  diu que s'hi estarà més estona (docs/30, docs/75, docs/95; `apps/luaperf` és la recepta sencera de la mesura).
 - **El paginador d'un desplegable es gira amb el dit**: la targeta d'una tria és una llista de valors per pàgines i el gest
   de costat és el mateix —el sistema el gasta i l'aixecar el dit no tria res—, o sigui que una app no ha de fer res perquè
   funcioni (docs/30).

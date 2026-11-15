@@ -62,7 +62,7 @@ local SPEEDS, SPEED_MHZ = { '80 MHz', '160 MHz', '240 MHz' }, { 80, 160, 240 }
 -- Cal fer mesures amb Lua per torn, donar velocitat lenta, normal, ràpida»*): a turn of the interpreter is the latency of the
 -- glass and the keys, so a person chooses how long a finger may wait and not how many instructions the hook counts. The
 -- milliseconds of each one are measured on this board when the tab is opened, and the numbers are the hook's own.
-local TURNS, TURN_VALUE = { 'Slow 5 000', 'Normal 20 000', 'Fast 50 000' }, { 5000, 20000, 50000 }
+local TURNS, TURN_VALUE = { 'Slow', 'Normal', 'Fast' }, { 5000, 20000, 50000 }
 local CURSORS, CURSOR_MS = { '600 ms', '850 ms', '1 100 ms' }, { 600, 850, 1100 }
 local UNITS = { 'auto', 'sd', 'littlefs' }
 local WEEKS = { 'Monday', 'Sunday' }
@@ -302,7 +302,13 @@ local function read_row(tab, name, label, get_text)
     return nil
   end
   one.title = label
-  refresh_of[one] = function() one.detail = get_text() end
+  -- **El nom també canvia**: a row that says the number it is talking about («a turn of 20 000») gets both from the same
+  -- question, and the label is the one it was given when the answer has no name of its own (docs/45).
+  refresh_of[one] = function()
+    local title, detail = get_text()
+    if title ~= nil then one.title = title end
+    one.detail = detail or ''
+  end
   named[name] = one
   rows[tab][#rows[tab] + 1] = one
   return one
@@ -341,6 +347,48 @@ local function turn_ms()
   local us = measure_a_lap()
   if us == nil then return nil end
   return (sys.turn() / 3) * us / 1000
+end
+
+-- **Els tempos, de la taula de comptadors** (0.189.108, l'amo: *«si pot ser agafa de les estadístiques els tempos de les apps
+-- lua, així es pot valorar quin es el numero mágic i quins valors son segurs per ambdos sistemes»*): `sys.stats(<paraula>)`
+-- answers the calls and the microseconds of one meter and a page divides them, perquè el que decideix un torn és la mitjana i
+-- no el total. `kernel.loop` és la volta sencera del sistema, `lua.run` el que hi ha de Lua a dins i `lua.call` una crida d'una
+-- app al sistema (docs/30, docs/75, docs/95).
+local function stats_of(word)
+  if sys.stats == nil then return nil, nil end
+  local calls, us = sys.stats(word)
+  if calls == nil or calls == 0 then return nil, nil end
+  return calls, us
+end
+
+local function mean_us(word)
+  local calls, us = stats_of(word)
+  if calls == nil then return nil end
+  return us / calls
+end
+
+-- **El que un comptador costa per torn del sistema**: `lua.run` es compta una vegada per cada entrada a Lua i el que un torna a
+-- pagar és el torn del nucli, o sigui que el que hi ha de Lua en un torn és el seu total entre els torns i no la seva pròpia
+-- mitjana (docs/30, docs/95).
+local function per_turn_us(word)
+  local turns = stats_of('kernel.loop')
+  local _, us = stats_of(word)
+  if turns == nil or us == nil then return nil end
+  return us / turns
+end
+
+-- **El que vol dir el número d'un torn, dit amb les paraules de l'amo** (0.189.107: *«el número son instruccions de la máquina
+-- virtual LUA pot executar per torn»*): the line under the rows is the definition and the rows are the numbers —the slice in
+-- force and what it costs here, the mean of a turn of the system and the part of it that is Lua—, o sigui que una persona
+-- llegeix què és el número i què val abans de moure'l (docs/75, docs/95).
+local kTurnNote = 'Instructions of the Lua VM in one turn'
+
+local function say_the_turn() say(kTurnNote) end
+
+local function us_text(us)
+  if us == nil then return '-' end
+  if us >= 1000 then return string.format('%d ms', math.floor(us / 1000 + 0.5)) end
+  return string.format('%d us', math.floor(us + 0.5))
 end
 
 -- **Les velocitats que el governador pot fer servir**: the list the door answers, which is the same mask the policy reads.
@@ -479,15 +527,7 @@ function build()
       -- **La mesura es fa quan algú mira el processador** (0.189.107): the milliseconds of a turn are what the numbers of
       -- the slice are worth on this board, so they are measured the first time the tab is opened and said in the line
       -- under the rows, which is where a person looks after moving something (docs/75, docs/95).
-      if page == 2 then
-        local ms = turn_ms()
-        if ms == nil then
-          say('A turn of ' .. sys.turn() .. ' instructions: this board does not say what it costs')
-        else
-          say(string.format('A turn of %d instructions costs about %d ms at %d MHz', sys.turn(),
-                            math.floor(ms + 0.5), power.cpu()))
-        end
-      end
+      if page == 2 then say_the_turn() end
       settle()
       save_state()
     end
@@ -563,9 +603,36 @@ function build()
               function(on) cfg.freq(mhz, on) end)
   end
   choice_row(2, 'speed', 'Speed', SPEEDS, function() return index_of(SPEED_MHZ, power.cpu()) end,
-             function(index) power.cpu(SPEED_MHZ[index]) end)
-  choice_row(2, 'turn', 'Turn', TURNS, function() return index_of(TURN_VALUE, cfg.turn()) end,
-             function(index) cfg.turn(TURN_VALUE[index]) end)
+             function(index)
+               power.cpu(SPEED_MHZ[index])
+               say_the_turn()
+             end)
+  choice_row(2, 'turn', 'Lua a turn', TURNS, function() return index_of(TURN_VALUE, cfg.turn()) end,
+             function(index)
+               cfg.turn(TURN_VALUE[index])
+               say_the_turn()
+             end)
+  -- **El que costa el torn que hi ha posat, mesurat aquí** (0.189.107): the slice is a number of instructions of the Lua VM and
+  -- what a person needs to judge it is the milliseconds the glass and the keys wait for it, which is the slice divided by the
+  -- price of an instruction on this board (docs/75, docs/95).
+  read_row(2, 'cost', 'A turn', function()
+    local ms = turn_ms()
+    return string.format('A turn of %s', sys.turn()), (ms ~= nil) and string.format('%d ms', math.floor(ms + 0.5)) or '-'
+  end)
+  -- **I el que el sistema està fent de debò**: the mean of a whole turn of the kernel, how many it has taken and what part of
+  -- one is Lua, which is the other half of the question —a slice that makes a turn of forty milliseconds is a finger that
+  -- waits forty, and the numbers of the table are the ones that say it and not an adjective (docs/30, docs/95).
+  read_row(2, 'turns', 'Turns', function()
+    local calls = stats_of('kernel.loop')
+    local us = mean_us('kernel.loop')
+    if calls == nil then return nil, 'nothing counted' end
+    return nil, string.format('%d, %s each', calls, us_text(us))
+  end)
+  read_row(2, 'lua', 'Of that, Lua', function()
+    local us = per_turn_us('lua.run')
+    if us == nil then return nil, '-' end
+    return 'Lua', us_text(us)
+  end)
 
   -- ---- Disc
   local function format_volume(root, what)

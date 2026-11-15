@@ -441,6 +441,9 @@ void boot(hal::IPlatform& platform) {
   // **I els ajustos, llegits per una app** (0.189.13): a page that has to obey a switch —the launcher and `sort apps by
   // usage`— reads what `cfg` prints, and the prompt is the only door that writes one (docs/30, docs/40).
   install_settings_ops();
+  // **I la taula de comptadors, per a una pàgina** (0.189.108): `sys.stats()` is how the panel of the settings says what a turn
+  // of the interpreter costs on this board instead of guessing it, and the numbers are the ones `stats` prints (docs/30, docs/75).
+  luabind::set_stats_ops(luabind::StatsOps{&meter::stats_count, &meter::stats_name, &meter::stats_read});
   // **The door of the apps, for a launcher** (0.153.0): `apps.list` and `app.run` are the two calls a launcher is made
   // of, and they are the door's and not a second reader of the manifests (docs/30, docs/40).
   apps::install_apps_ops();

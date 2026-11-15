@@ -130,6 +130,13 @@ void dump();
 // interpreter started and the table now, and `stats` prints that on a line of its own (docs/30).
 void note_app_start(const char* app_id);
 
+// **La taula, llegida per una app** (0.189.108): how many meters this build has, the word of one of them and its two numbers
+// —the calls and the microseconds—, which is what `sys.stats()` answers and what a page divides to say the mean of a turn
+// (docs/30, docs/75, docs/95).
+uint8_t stats_count();
+const char* stats_name(uint8_t id);
+bool stats_read(uint8_t id, uint32_t* calls, uint64_t* us);
+
 // **Times one call.** It is a scope object and not two macros so that the early returns of a hundred
 // functions cannot leave a meter open (docs/80).
 class Scope {

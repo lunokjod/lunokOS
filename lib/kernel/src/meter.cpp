@@ -356,6 +356,20 @@ void dump() {
   console->write(line, static_cast<size_t>(used));
 }
 
+// **La taula, per a una pàgina** (0.189.108, l'amo: *«si pot ser agafa de les estadístiques els tempos de les apps lua»*): the
+// three questions `sys.stats()` asks of this file and nothing else —how many meters there are, the word of one and the two
+// numbers of one— so a page says the mean of a turn instead of parsing the text of `stats` (docs/30, docs/75, docs/95).
+uint8_t stats_count() { return static_cast<uint8_t>(kCount); }
+
+const char* stats_name(uint8_t id) { return (id < kCount) ? kNames[id] : nullptr; }
+
+bool stats_read(uint8_t id, uint32_t* calls, uint64_t* us) {
+  if (id >= kCount) return false;
+  if (calls != nullptr) *calls = g_entries[id].calls;
+  if (us != nullptr) *us = g_entries[id].us;
+  return true;
+}
+
 void note_app_start(const char* app_id) {
   size_t i = 0;
   if (app_id != nullptr) {
