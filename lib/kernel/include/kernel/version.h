@@ -9214,7 +9214,16 @@ namespace kernel {
 //     despertador amb dues campanes i una esfera es llegeix com una cara, i una campana amb el batall no es pot llegir com a
 //     res més;
 //   - **i `--signs` a l'emulador**: les cinc icones enceses alhora, per mirar-se la franja sencera d'un cop (docs/50, docs/85).
-static const char kVersion[] = "0.189.57";
+// 0.189.58 — **el rellotge de dormitori de l'alarma** (l'amo: *«jo esperava allà un rellotge despertador dels antics de manilles
+// i dues campanes al damunt»*, i després *«aixó es una campana! vull un rellotge de dormitori»*): the alarm icon was drawn by
+// hand and it did not work. Three tries say why —two bells over a face is a smiley, the bells glued to the ring are an
+// eyebrow, and a bigger bell with the hammer between the two is an `M`— and at twenty pixels a clock with two bells is not a
+// thing that is worth drawing again: it is **`U+23F0 ALARM CLOCK` de Noto** —two bells, the hammer, the face, the two handles
+// and the hand— which reads at a glance and is what a person asked for. It is the only icon of the bar that is a **table of
+// bits**, because it is a composed curve, and `tools/make_bar_icon.py` writes it from the font (SIL OFL 1.1 for the font,
+// Apache 2.0 for the code of Noto; the attribution lives in the generated file and in docs/50). The tool also takes a
+// single-size bitmap font like this one: the drawing is done at its 109 pixels and stepped down to the height asked for.
+static const char kVersion[] = "0.189.58";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

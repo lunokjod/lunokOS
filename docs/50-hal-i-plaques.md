@@ -1196,10 +1196,14 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   despertador alarma i el rellotge de sorra per el temportizador»*): the **bell** says an alarm is set —a repeating one, the
   one a person sets for a time of day— and the **hourglass** says something is counting down, which is the clock being set
   from the network **or** a timer somebody left (`alarms::has_once()`). They sit between the hour and the title, so the
-  strip reads outwards from the clock. The bell is this project's drawing and not the paper project's —that bar had no
-  alarms—, made of the same lines: at 26 pixels a face with two bells on top reads as a smiley (the first try did), and a
-  bell with its clapper is the one drawing of an alarm that cannot be read as anything else. The two `ink_of` widths are
-  **19 × 21** for the bell and the hourglass's own **19 × 21**.
+  strip reads outwards from the clock. The alarm is **`U+23F0 ALARM CLOCK`** —a bedroom alarm clock: two bells, the hammer,
+  the face, the two handles and the hand— and it is the only icon of this bar that is a **table of bits** and not lines. It is
+  a drawing that was tried three times by hand and did not work at twenty pixels: two bells over a face is a smiley, the bells
+  glued to the ring are an eyebrow, and a bigger bell with the hammer between the two is an `M`. The table is generated and
+  not edited: `python3 tools/make_bar_icon.py` writes `lib/kernel/src/bar_icons_art.h`, it takes the glyph from **Noto Color
+  Emoji** at its only size and steps it down to the height asked for, and `ink_of` publishes **18 × 21**, which is the table.
+  **Llicència**: la font és SIL OFL 1.1 i el codi de Noto és Apache 2.0 (`https://github.com/googlefonts/noto-emoji`), i
+  l'atribució viu al fitxer generat. L'hora de sorra és **19 × 21** i és un dibuix de línies del projecte del paper.
 - **I la càrrega es pregunta al `platform` i no a `power::`** (0.189.57): `bar::boot` runs before `power::boot`, which is
   after the shell because it may bring an app back from a sleep, so the first read of the gauge answered nothing and the
   strip said `--` with no figure beside it **for the whole half minute of the read rhythm**. The boot asks the gauge the

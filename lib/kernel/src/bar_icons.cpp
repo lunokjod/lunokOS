@@ -12,6 +12,7 @@
 // **Cada cosa se suporta en la caixa que rep** —`kIconW`/`kIconH` and `kBatteryW`/`kBatteryH` are the boxes the drawings were
 // measured in, and every constant below is scaled by the box's width or height and never by a number of the glass—, so the
 // bar of this system paints them at the size of the paper project's and a shorter bar only decides where they sit.
+#include "bar_icons_art.h"
 #include "kernel/bar_icons.h"
 
 #include <string.h>
@@ -259,29 +260,20 @@ void bolt(hal::ISurface& surface, const Box& box, uint8_t ink) {
 // reads beside the hourglass without a second language. The ink is 26 x 26 of the box of 40 x 28, which is what the bar
 // places it by (docs/50, docs/92).
 void alarm(hal::ISurface& surface, const Box& r, uint8_t ink) {
-  if (r.w < 16 || r.h < 16) return;
-  const int stroke = (2 * r.h) / kIconH;
-  const int cx = r.x + r.w / 2;
-  const int radius = (8 * r.h) / kIconH;
-  const int rim = r.y + (17 * r.h) / kIconH;  // the line the bell hangs from
-  if (radius < 5) return;
-  // **La campana i no un despertador**: at 26 pixels a face with two bells on top is a face —the owner of this project saw the
-  // first one as a smiley— and a bell with its clapper is the one drawing of an alarm that cannot be read as anything else. The
-  // dome is the top half of a ring, the two walls come down from it and the base is one bar (docs/50, docs/92).
-  for (int dx = -radius; dx <= radius; ++dx) {
-    const int dy = isqrt(radius * radius - dx * dx);
-    fill(surface, cx + dx, rim - dy, 1, stroke, ink);
+  // **El rellotge de dormitori és una icona i no un dibuix de línies** (0.189.58): l'amo el va demanar dues vegades —*«jo
+  // esperava allà un rellotge despertador dels antics de manilles i dues campanes al damunt»* i després *«aixó es una campana!
+  // vull un rellotge de dormitori»*— i tres intents de dibuixar-lo amb línies a vint píxels van sortir una cella i un smiley.
+  // `U+23F0 ALARM CLOCK` de Noto té les dues campanes, el martell, l'esfera i les manilles, i a vint-i-un píxels es llegeix
+  // d'un cop. Ve com a taula de bits perquè és una corba composta, i l'escriu `tools/make_bar_icon.py` (SIL OFL 1.1 per a la
+  // font, Apache 2.0 per al codi de Noto; l'atribució viu al fitxer generat i a docs/50).
+  const int x0 = r.x + (r.w - static_cast<int>(art::kAlarmW)) / 2;
+  const int y0 = r.y + (r.h - static_cast<int>(art::kAlarmH)) / 2;
+  for (uint8_t y = 0; y < art::kAlarmH; ++y) {
+    for (uint8_t x = 0; x < art::kAlarmW; ++x) {
+      const uint16_t at = static_cast<uint16_t>(y) * art::kAlarmW + x;
+      if ((art::kAlarmBits[at / 8] & (0x80u >> (at % 8))) != 0) point(surface, x0 + x, y0 + y, ink);
+    }
   }
-  fill(surface, cx - radius, rim, stroke, (4 * r.h) / kIconH, ink);
-  fill(surface, cx + radius - stroke + 1, rim, stroke, (4 * r.h) / kIconH, ink);
-  fill(surface, cx - radius - 1, rim + (4 * r.h) / kIconH - stroke, 2 * radius + 3, stroke, ink);
-  // The handle on top and the clapper under the base: the two things that make a bell a bell.
-  const int handle = (2 * r.h) / kIconH;
-  for (int dx = -handle; dx <= handle; ++dx) {
-    const int dy = isqrt(handle * handle - dx * dx);
-    fill(surface, cx + dx, rim - radius - dy + stroke, 1, dy, ink);
-  }
-  disc(surface, cx, rim + (5 * r.h) / kIconH, (r.h >= 24) ? 1 : 1, ink);
 }
 
 }  // namespace
@@ -297,7 +289,7 @@ Ink ink_of(Kind kind) {
     case kHourglass:
       return Ink{19, 21};  // the hourglass
     case kAlarm:
-      return Ink{19, 21};  // the bell of this project, measured on the glass the same way
+      return Ink{art::kAlarmW, art::kAlarmH};  // the bell of FontAwesome, as wide as the table it comes in
   }
   return Ink{static_cast<uint8_t>(kIconW), static_cast<uint8_t>(kIconH)};
 }

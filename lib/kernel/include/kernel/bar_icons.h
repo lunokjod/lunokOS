@@ -31,7 +31,7 @@ const uint16_t kBatteryW = 46;
 const uint16_t kBatteryH = 26;
 
 // **Els estats de la barra**: la xarxa, el Bluetooth, el cable del port sèrie, el rellotge de sorra —una cosa que compta
-// enrere: el rellotge que s'està posant o el temporitzador que algú ha deixat— i el despertador d'una alarma posada
+// enrere: el rellotge que s'està posant o el temporitzador que algú ha deixat— i el rellotge de dormitori d'una alarma posada
 // (0.189.57, l'amo: *«Afegeix també al costat del rellotge l'alarma en plan despertador alarma i el rellotge de sorra per
 // el temportizador»*).
 enum Kind : uint8_t {
@@ -39,8 +39,9 @@ enum Kind : uint8_t {
   kBluetooth,
   kSerial,
   kHourglass,
-  // **El despertador** (0.189.57): the drawing is this project's and not the paper project's —that bar had no alarms—, made
-  // of the same lines as the others so it sits beside them without a second language (docs/50, docs/92).
+  // **El rellotge de dormitori de l'alarma** (0.189.58): `U+23F0 ALARM CLOCK` de Noto, perquè l'amo el va demanar de debò
+  // —*«vull un rellotge de dormitori»*— i tres intents de dibuixar-lo amb línies a vint píxels van sortir una cella, una
+  // cella i un smiley (docs/50, docs/92). És l'única icona d'aquí que és una taula de bits, i l'escriu `tools/make_bar_icon.py`.
   kAlarm,
 };
 
