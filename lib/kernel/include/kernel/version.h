@@ -9253,7 +9253,13 @@ namespace kernel {
 // 262 i 64 x 64 en fan 195 —o sigui **3,8 i 5,1 frames per segon**—, i la corba s'aplana perquè la tinta de `du` són 120 ms
 // que el panell reté faci la mida que faci la imatge. Set per segon, que és el que el GIF demana, no s'hi arriba amb cap
 // mida: el que limita és el refresc directe d'aquest vidre (docs/50, docs/95).
-static const char kVersion[] = "0.189.61";
+// 0.189.62 — **l'animació de 64 x 64 i el seu sostre, mesurat** (l'amo: *«prova amb aquesta: loading_bounce_64x64.gif»*): the
+// demo is the 64 x 64 GIF now —24 frames of a bit, 4 KB together— and the loop's compensated clock is what makes it as fast as
+// the panel allows instead of the GIF's own 140 ms on top. **I el número que tanca el tema**: 500 x 500 fan 817 ms per frame,
+// 120 x 120 en fan 262 i 64 x 64 en fan **195**, o sigui **5,1 frames per segon**, perquè la tinta de `du` són 120 ms que el
+// panell reté faci la mida que faci la imatge. **Els 7 fps del GIF no s'assoleixen amb cap mida** i no és un bug: es el
+// refresc directe d'aquest vidre, i aquesta animació va un quart més lenta que l'original (docs/50, docs/95).
+static const char kVersion[] = "0.189.62";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
