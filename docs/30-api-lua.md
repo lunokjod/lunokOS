@@ -813,6 +813,8 @@ consola no acceptaria (docs/30, docs/70).
 | `cfg.sort([on])` | booleà | **Ordenar les apps per nombre d'usos** (`cfg sort`), que és el que `home_eink` llegeix per al seu grid |
 | `cfg.turn([n])` | enter | **Les instruccions de Lua que val un torn** (`cfg turn`): el número que compara el comptador de l'intèrpret, o sigui l'ajust de velocitat que mesura `luaperf` |
 | `cfg.cursor([ms])` | enter | **El parpelleig del cursor** en mil·lisegons (`cfg cursor delay <ms>`) |
+| `cfg.freq([mhz, on])` | taula de números | **Les velocitats que el governador pot fer servir** (0.189.107): sense arguments, la llista dels passos permesos en ordre (`{80, 160, 240}`); amb un pas i un booleà, el gira i torna la llista que queda. Un número que no és un dels tres passos, o un gir que deixaria la placa sense cap, és `E_INVAL` i la llista no es toca (`cfg freq 240 off`) |
+| `cfg.settings([id])` | cadena | **L'app que obre el botó dels ajustos del panell** (0.189.109): es llegeix sola i s'escriu amb un id, o amb `none` (que torna com la cadena buida). El nom el comprova el nucli: una app que aquesta placa no té no es pot desar aquí, i el panell la mira abans de demanar-la (docs/30, docs/40) |
 
 - **Les de lectura i escriptura són la mateixa crida i el valor és la resposta**: `cfg.cursor()` diu el que hi ha i
   `cfg.cursor(600)` escriu i torna el que ha quedat, o sigui que una pàgina que ensenya el que ha demanat **no pot mentir**
@@ -829,7 +831,8 @@ consola no acceptaria (docs/30, docs/70).
 ```
 lunok> cfg
 [I][CFG] /cfg on sd (asked for auto), keyboard qwerty, boot boot, home home_eink, tz +00:00, leap on, dst off,
-         week monday, turn 20000, sort apps by usage off
+         week monday, turn 20000, sort apps by usage off, cursor delay 850 ms, cpu allows 80,160,240,
+         settings app settings
 ```
 
 ## `admin`: el paquet d'una app d'administrador (0.189.99)
@@ -3967,8 +3970,12 @@ i res més (0.179.42, 0.179.49).
   tinta que hi ha, i **el botó s'enfonsa girant-se** quan el dit hi és a sobre (una passada `du` de la clau i després l'acció).
   Les cinc es calculen en una sola taula (`key_is_there`, `key_x`, `key_y`, `run_the_key`) i la que no pot fer res no es pinta ni
   es pot prémer. El reinici i l'apagat passen pel **mateix camí que la consola** (`shell::reboot` i `shell::power_off`), i
-  **`settings` obre la consola del sistema**, que és on viu `cfg` —encara no hi ha cap pàgina d'ajustos al disc— i ho fa amb la
-  pàgina que l'ha demanada al darrere perquè tancar la consola torni on era (docs/30, docs/40, docs/45, docs/92).
+  **`settings` obre l'app dels ajustos, i quina és la diu `cfg`** (0.189.109, l'amo: *«Enllaça el botó de Settings del panell
+  desplegable de sistema amb l'app <id: settings> Si no està l'app no passsa res»*): la clau llegeix `cfg settings <id>` —`settings`
+  de sèrie, i `none` per a una roda que no fa res— i **la mira abans de demanar-la**, perquè el shell tanca la pàgina del davant
+  abans d'arrencar la que li demanen i un nom que no és al disc deixaria la placa al prompt amb la pàgina que la va demanar a la
+  memòria de ningú. Una roda que no troba l'app **no fa res** i ho diu al registre (`there is no app 'x' on this board`), i quan
+  la troba la demana amb la pàgina del darrere (`back`), perquè tancar els ajustos torni on era (docs/30, docs/40, docs/45).
 - **I les cinc marques són dibuixos del disc, fets com al PaperOS** (0.185.1, l'amo: *«fes les icones dels botons del panell
   desplegable de sistema de nou, usa el mateix que feies amb el PaperOS»*). `tools/iconart.py` dibuixa cada marca en una caixa de
   448 unitats —una funció per marca, la paleta de setze tons amb nom, la vora de tinta de 15 unitats que la reducció no

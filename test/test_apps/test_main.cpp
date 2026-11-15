@@ -15940,6 +15940,113 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   emu::set_options(opts);
   kernel::boot(hal::platform());
 }
+// **El botó dels ajustos del panell obre l'app que `cfg` diu** (0.189.109, l'amo: *«Enllaça el botó de Settings del panell
+// desplegable de sistema amb l'app <id: settings> Si no està l'app no passsa res»*). The gear used to open the console because there
+// was no page of settings on the disk; now it opens the app of `cfg settings <id>` —the one a person chose in the System tab, with
+// the same selector as the app of the start— and **a gear that finds no app does nothing at all**: the page in front stays where it
+// is and the card stays out, which is the difference between a key that does nothing and a key that closes the board's page to
+// leave a prompt nobody asked for (docs/30, docs/40).
+void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  kernel::panel::boot();
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **The app of the repository and a page of this case's own**: the gear of the card asks for the first one by name.
+  storage->remove("/apps/settings/settings.lua");
+  storage->remove("/apps/settings/manifest.json");
+  storage->remove("/apps/settings");
+  storage->mkdir("/apps");
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/settings"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/settings/settings.lua", "/apps/settings/settings.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/settings/manifest.json", "/apps/settings/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  TEST_ASSERT_TRUE(add_app(storage, "pager",
+                           "{\"title\":\"Pager\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('pager up')\nwhile true do sys.delay(20):await() end\n"));
+
+  // **The card comes out of the bar and the gear is the first of the four of the middle**: the row starts a hundred and eight
+  // rows under the bar, the keys are a hundred and twelve wide with forty-eight of air after the first, and the card is pulled
+  // with a swipe of the bar (docs/30, docs/85).
+  auto swipe_down = [&]() {
+    TEST_ASSERT_TRUE(panel->finger_down(0, 400, 20));
+    pump_turns(20);
+    for (int y = 60; y <= 200; y += 35) {
+      TEST_ASSERT_TRUE(panel->finger_move(0, 400, static_cast<uint16_t>(y)));
+      pump_turns(20);
+    }
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(40);
+  };
+  auto tap = [&](uint16_t x, uint16_t y) {
+    TEST_ASSERT_TRUE(panel->finger_down(0, x, y));
+    pump_turns(60);
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(500);
+  };
+  const uint16_t gear_x = 66;                                              // the middle of the first key
+  const uint16_t gear_y = static_cast<uint16_t>(kernel::ui::canvas().y + 160);  // the middle of the row of four
+
+  pump_captured(40, g_out, sizeof(g_out), "run pager");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pager up"), g_out);
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe down from the bar did not pull the card out");
+  capture_begin();
+  tap(gear_x, gear_y);
+  pump_turns(200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("settings", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the settings key: settings comes up"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "the card stayed out over the page it opened");
+
+  // **I un botó sense app no fa res**: `cfg settings none` is the person's word for a gear that does nothing, and then the card
+  // stays out and the page in front is the one it was —a key that closed the page to leave a prompt nobody asked for would be a
+  // key that does something it does not say— (docs/30, docs/40).
+  close_any_app();
+  pump_captured(40, g_out, sizeof(g_out), "cfg settings none");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "opens nothing"), g_out);
+  TEST_ASSERT_EQUAL_STRING("", kernel::cfg::settings_app());
+  pump_captured(40, g_out, sizeof(g_out), "run pager");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pager up"), g_out);
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out a second time");
+  capture_begin();
+  tap(gear_x, gear_y);
+  pump_turns(200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("pager", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card of a gear with no app was put away");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no app of settings is chosen"), g_out);
+
+  // the board is the board of the next case again
+  kernel::cfg::set_settings_app("settings");
+  close_any_app();
+  kernel::panel::boot();
+  storage->remove("/apps/pager/app.lua");
+  storage->remove("/apps/pager/manifest.json");
+  storage->remove("/apps/pager");
+  storage->remove("/apps/settings/settings.lua");
+  storage->remove("/apps/settings/manifest.json");
+  storage->remove("/apps/settings");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
 
 // **La fletxa del panell torna l'app a la vista de sota** (0.179.52). L'amo: *«Afegir botó de "back" al panell lliscant de la
 // barra de sistema. Per tirar l'app a la vista anterior. A la part esquerra del panell, a la dreta el "close" com fins ara. El
@@ -18014,6 +18121,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_shell_app_is_a_page_with_a_session_of_the_shell);
   RUN_TEST(test_the_shell_app_keeps_its_sessions_in_the_state);
   RUN_TEST(test_the_cross_of_the_panel_closes_the_app);
+  RUN_TEST(test_the_gear_of_the_panel_opens_the_app_of_the_settings);
   RUN_TEST(test_the_arrow_of_the_panel_goes_back_one_view);
   RUN_TEST(test_a_slide_over_a_button_does_not_click_it);
   RUN_TEST(test_a_touch_on_the_bar_does_not_press_the_page);

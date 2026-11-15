@@ -113,6 +113,8 @@ void install_settings_ops() {
   doors.boots = &list_boots;
   // **Les velocitats permeses** (0.189.107): the mask is read where it is kept and the write goes through `cfg`, which is
   // what puts it in the governor (docs/50).
+  doors.settings_app = &cfg::settings_app;
+  doors.set_settings_app = &cfg::set_settings_app;
   doors.freq_mask = &cfg::freq_mask;
   doors.set_freq_allowed = &cfg::set_freq_allowed;
   luabind::set_cfg_ops(doors);

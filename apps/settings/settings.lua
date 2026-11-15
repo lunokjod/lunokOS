@@ -667,14 +667,33 @@ function build()
                function(index) cfg.boot(boots[index]) end)
   end
 
-  -- ---- System
-  local list = { 'none' }
+  -- ---- System: **les dues apps que el sistema arrenca per una persona** (0.189.109): the one that comes up with the board
+  -- (`cfg.home`) and **the one the gear of the panel opens** (`cfg.settings`, l'amo: *«Afegeix un selector d'aplicació per
+  -- gestionar els settings … a la pestanya "System" on posa "App at start" doncs igual»*). The list is the apps of this disk and
+  -- `none` for both, which are the same door and the same words (docs/30, docs/40).
+  -- **La llista d'apps d'aquest disc, i les dues de sota són la mateixa porta** (0.189.109): `none` primer —una app que no hi és
+  -- és una tria i no un forat— i després tot el que el disc té. **L'app dels ajustos no s'ofereix com a app d'inici** (una pàgina
+  -- que obre els ajustos no és la pàgina amb què arrenca una placa), però sí que és a la llista del botó, que és el seu lloc.
+  local every = {}
   local ok, mine = pcall(apps.list)
   if ok and type(mine) == 'table' then
-    for _, id in ipairs(mine) do list[#list + 1] = id end
+    for _, id in ipairs(mine) do every[#every + 1] = id end
+  end
+  local list = { 'none' }
+  for _, id in ipairs(every) do
+    if id ~= 'settings' then list[#list + 1] = id end
   end
   choice_row(5, 'home', 'App at start', list, function() return index_of(list, cfg.home() or 'none') end,
              function(index) cfg.home(list[index]) end)
+  local gears = { 'none' }
+  for _, id in ipairs(every) do gears[#gears + 1] = id end
+  choice_row(5, 'gear', 'Panel gear', gears, function()
+    local id = cfg.settings() or ''
+    if id == '' then return 1 end
+    return index_of(gears, id)
+  end, function(index)
+    cfg.settings((index == 1) and 'none' or gears[index])
+  end)
 
   -- ---- Battery: **el que la placa sap de la seva pila**, que és un número i no un ajust d'aquesta pàgina (docs/30). Les
   -- files són del sistema i es tornen a llegir cada cop que la pestanya es col·loca.

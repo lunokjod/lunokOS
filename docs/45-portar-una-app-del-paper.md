@@ -302,6 +302,11 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
 - **El paginador d'un desplegable es gira amb el dit**: la targeta d'una tria és una llista de valors per pàgines i el gest
   de costat és el mateix —el sistema el gasta i l'aixecar el dit no tria res—, o sigui que una app no ha de fer res perquè
   funcioni (docs/30).
+- **Les dues apps que el sistema arrenca per una persona són a la pestanya System** (0.189.109, l'amo: *«Afegeix un selector
+  d'aplicació per gestionar els settings … a la pestanya "System" on posa "App at start" doncs igual»*): la de l'inici
+  (`cfg.home`, que és la que surt amb la placa) i **la del botó dels ajustos del panell** (`cfg.settings`), totes dues amb la
+  llista d'apps del disc i `none` al davant. **L'app dels ajustos no s'ofereix com a app d'inici** —una pàgina que obre els
+  ajustos no és la pàgina amb què arrenca una placa— i sí que és a la llista del botó, que és el seu lloc (docs/30, docs/40).
 - **El que la pàgina escriu és de `cfg` i el que la persona va deixar a mitges és de `state`**: les hores i la data es
   desen amb `time.set`, la zona amb `time.tz`, el calendari amb `time.leap`/`time.week`/`time.dst`, el disc amb `fs.cfg`,
   el processador amb `power.cpu`, i el teclat, l'arrencada, l'inici, l'ordre, el torn i el cursor amb `cfg.*` (docs/30

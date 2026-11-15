@@ -247,6 +247,11 @@ struct CfgOps {
   // the same bit the governor reads (docs/50, docs/60).
   uint8_t (*freq_mask)();
   bool (*set_freq_allowed)(uint32_t mhz, bool on);
+  // **L'app que obre el botó dels ajustos del panell** (0.189.109): a name like the app of the start, and an empty one for a gear
+  // that does nothing. The page of the settings shows it as a field of the system and a person picks another app of the disk
+  // (docs/30, docs/40).
+  const char* (*settings_app)();
+  bool (*set_settings_app)(const char* id);
 };
 
 void set_cfg_ops(const CfgOps& ops);

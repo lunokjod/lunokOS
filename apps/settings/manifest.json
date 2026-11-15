@@ -1,7 +1,7 @@
 {
   "title": "Settings",
   "author": "@lunokjod",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "entry": "settings.lua",
   "boards": ["esp32"],
   "admin": true,

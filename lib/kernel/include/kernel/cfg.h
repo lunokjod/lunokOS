@@ -115,6 +115,17 @@ bool parse_turn(const char* text, uint32_t& instructions);
 // there is nowhere to keep it.
 bool set_turn_instructions(uint32_t instructions);
 
+// **L'app dels ajustos, la que obre el botó del panell** (0.189.109, l'amo: *«Enllaça el botó de Settings del panell desplegable
+// de sistema amb l'app <id: settings> Si no està l'app no passsa res»*). The gear of the card was the console in the glass because
+// there was no page of settings on the disk; now there is, and **which app it is is a choice of the person** like the app of the
+// start: `cfg settings <id>` keeps the name, `none` says the gear does nothing, and the panel asks this door before it asks the
+// shell to run anything (docs/30, docs/40).
+const char* settings_app();
+// What this build says when nobody has chosen, so the command can tell a person what the default of their board is.
+const char* settings_default();
+// Keeps the name (`nullptr`, "" or "none" clears it) and saves it. False when it could not be written.
+bool set_settings_app(const char* id);
+
 // **Les velocitats que la CPU pot fer servir** (0.189.107, l'amo: *«[X] Frequency scaling allowed: [X] 80Mhz [X] 160Mhz
 // [X] 240Mhz»*): the board has three steps and the person chooses which of them the policy may move between. It is a
 // setting of the system and not of an app, because the governor is the system's and a step it is not allowed to take is a

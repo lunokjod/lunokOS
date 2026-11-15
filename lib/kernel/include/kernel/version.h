@@ -9415,7 +9415,17 @@ namespace kernel {
 // diu el preu («A turn of 20 000 = 2 ms», de la volta de `k = k + 1` que és la mesura de `apps/luaperf`), i les dues files de la
 // taula diuen **quantes voltes ha fet el sistema, què costa cadascuna i quina part és de Lua**, que és el que fa valorar el
 // número màgic i quins valors són segurs per a les dues bandes (docs/30, docs/45, docs/75, docs/95).
-static const char kVersion[] = "0.189.108";
+// 0.189.109 — **el botó dels ajustos del panell obre l'app dels ajustos, i quina és la tria una persona** (l'amo: *«Enllaça el botó
+// de Settings del panell desplegable de sistema amb l'app <id: settings> Si no està l'app no passsa res. Aegeix un selector
+// d'aplicació per gestionar els settings. com has fet amb altres a la pestanya "System" on posa "App at start" doncs igual, però amb
+// l'app de Settings a eleccció del usuari»*). **`cfg settings [<id>|none]`** és l'ajust nou —un nom d'app i no un camí, com la de
+// l'inici, comprovat amb la porta de les apps— i la roda de la targeta de la barra el llegeix: el shell tanca la pàgina del davant
+// abans d'arrencar la que li demanen, o sigui que **la clau mira que l'app hi sigui abans de demanar res**, i una roda que no troba
+// l'app no fa res i ho diu al registre en comptes de deixar la placa al prompt. A Lua és **`cfg.settings([<id>])`** (el nom, o la
+// cadena buida per a una roda que no fa res) i el panell d'ajustos el posa a la pestanya **System**, al costat de «App at start» i
+// amb la mateixa llista d'apps del disc i `none` al davant; **l'app dels ajustos no s'ofereix com a app d'inici** (una pàgina que
+// obre els ajustos no és la pàgina amb què arrenca una placa) i sí que és a la llista del botó (docs/30, docs/40, docs/45).
+static const char kVersion[] = "0.189.109";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

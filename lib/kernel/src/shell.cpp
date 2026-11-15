@@ -591,6 +591,7 @@ void print_help(const char* only) {
   help_continuation("                    and `cfg cursor delay [<ms>]`, how long the block of ink lasts before it turns", only);
   help_continuation(
       "                    and `cfg freq [<mhz> on|off|all]`, the steps of the processor the policy may use", only);
+  help_continuation("                    and `cfg settings [<id>|none]`, the app the gear of the panel opens", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -4447,7 +4448,7 @@ bool command_cfg(const char* argument) {
   if (count > 3) {
     usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
               "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-              "cursor delay [<ms>]]\r\n");
+              "settings [<id>|none]|cursor delay [<ms>]]\r\n");
     return false;
   }
   // **El parpalleig del cursor** (0.189.34, l'amo: *«Crea una opcio nova de cfg anomenada "cursor delay"… Aquest valor es
@@ -4509,6 +4510,31 @@ bool command_cfg(const char* argument) {
       const bool kept = cfg::set_home_app(entry.id);
       out("settings: home ");
       out(cfg::home_app());
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **L'app que obre el botó dels ajustos del panell** (0.189.109, l'amo: *«Enllaça el botó de Settings del panell desplegable de
+    // sistema amb l'app <id: settings> Si no està l'app no passsa res»*): the same door as the app of the start —the name is checked
+    // against the apps of this board, so a typo is refused here and not discovered by a gear that opens nothing— and `none` is the
+    // word that says the gear does nothing at all (docs/30, docs/40).
+    if (strcmp(words[0], "settings") == 0) {
+      if (strcmp(words[1], "none") == 0) {
+        const bool kept = cfg::set_settings_app(nullptr);
+        out("settings: the gear of the panel opens nothing\r\n");
+        if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+        return true;
+      }
+      apps::Entry entry;
+      if (!apps::read(words[1], entry)) {
+        out("cfg: no app '");
+        out(words[1]);
+        out("' that runs on this board; `apps` lists what is there\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_settings_app(entry.id);
+      out("settings: the gear of the panel opens ");
+      out(cfg::settings_app());
       newline();
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
@@ -4699,7 +4725,7 @@ bool command_cfg(const char* argument) {
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
                 "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-                "cursor delay [<ms>]]\r\n");
+                "settings [<id>|none]|cursor delay [<ms>]]\r\n");
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
@@ -4761,6 +4787,16 @@ bool command_cfg(const char* argument) {
       out((cfg::home_app()[0] != '\0') ? cfg::home_app() : "none");
       out(" (this board's default is ");
       out((cfg::home_default()[0] != '\0') ? cfg::home_default() : "none");
+      out(")\r\n");
+      return true;
+    }
+    // **L'app del botó dels ajustos, i què diu aquest build** (0.189.109): the two answers a person wants to tell apart, like the
+    // app of the start (docs/30, docs/40).
+    if (strcmp(words[0], "settings") == 0) {
+      out("settings: the gear of the panel opens ");
+      out((cfg::settings_app()[0] != '\0') ? cfg::settings_app() : "none");
+      out(" (this board's default is ");
+      out(cfg::settings_default());
       out(")\r\n");
       return true;
     }

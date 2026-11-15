@@ -72,6 +72,9 @@ const size_t kCursorCap = 8;  // "5000" and the null
 // **Si el llançador ordena les apps pels usos** (0.189.13): kept as the words a person reads in the store —`on` and
 // `off`— like the calendar and the hour of summer, and off until somebody asks for it (docs/30, docs/40).
 const char kSortKey[] = "sort";
+// **L'app dels ajustos** (0.189.109): the name the gear of the panel runs, kept as a name like the app of the start and not as a
+// path, for the same reason —a path in the settings is a way to make a board open any file at its first breath— (docs/30, docs/40).
+const char kSettingsKey[] = "settings";
 // **Les velocitats permeses** (0.189.107): the three bits of the steps the governor may use, kept as the list a person reads
 // —`80,160,240`— and never as a number, for the same reason the hour is `+01:00` (docs/50, docs/70).
 const char kFreqKey[] = "freq";
@@ -94,6 +97,9 @@ char g_keyboard[kNameCap] = "qwerty";
 char g_boot[kNameCap] = "boot";
 // The app the board starts by itself, empty for none, and it starts as the build's default (0.119.0).
 char g_home[kHomeCap] = LUNOK_HOME_APP;
+// **L'app que obre el botó dels ajustos** (0.189.109): `settings` unless the store says another name, and empty when a person said
+// `none` —a gear that does nothing is a choice and the panel says so before it asks for anything— (docs/30, docs/40).
+char g_settings[kNameCap] = "settings";
 // The minutes the local hour is ahead of UTC, which is zero until somebody says otherwise (0.125.0).
 int16_t g_tz_minutes = 0;
 // What the store said, which is also what the calendar is using: the two are written together.
@@ -185,6 +191,13 @@ bool remember_sort() {
   const char* word = g_sort_by_usage ? kOn : kOff;
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kSortKey, word, strlen(word));
+}
+
+bool remember_settings() {
+  if (g_nvs == nullptr) return false;
+  const char* value = (g_settings[0] != '\0') ? g_settings : "none";
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kSettingsKey, value, strlen(value));
 }
 
 bool remember_freq() {
@@ -414,6 +427,25 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
+  // **L'app dels ajustos, si la botiga en diu una** (0.189.109): `none` is the word that puts the gear back to nothing, exactly like
+  // the app of the start, and a name longer than an app of this system has is not a name and is said (docs/30, docs/40).
+  snprintf(g_settings, sizeof(g_settings), "%s", "settings");
+  {
+    char raw_settings[kNameCap] = {0};
+    size_t settings_len = 0;
+    if (g_nvs != nullptr) {
+      meter::Scope scope(meter::kKvGet);
+      if (g_nvs->get(kNamespace, kSettingsKey, raw_settings, sizeof(raw_settings) - 1, settings_len) && settings_len > 0 &&
+          settings_len < sizeof(raw_settings)) {
+        raw_settings[settings_len] = '\0';
+        if (same(raw_settings, "none")) {
+          g_settings[0] = '\0';
+        } else {
+          snprintf(g_settings, sizeof(g_settings), "%s", raw_settings);
+        }
+      }
+    }
+  }
   // **Les velocitats permeses, llegides abans d'aplicar res**: the mask is what the governor may use, so it has to be in
   // `power` before the first paint of the boot asks for the top step (0.189.107, docs/50, docs/60).
   power::set_allowed_steps(kFreqAll);
@@ -456,12 +488,12 @@ void boot(hal::IPlatform& platform) {
   freq_text(freq_words, sizeof(freq_words), freq_mask());
   log_printf(pal::kLogInfo, "CFG",
              "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, dst %s, week %s, turn %u, "
-             "sort apps by usage %s, cursor delay %d ms, cpu allows %s",
+             "sort apps by usage %s, cursor delay %d ms, cpu allows %s, settings app %s",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot,
              (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60,
              g_leap_years ? kOn : kOff, g_dst ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday,
              static_cast<unsigned>(luabind::turn_budget()), g_sort_by_usage ? kOn : kOff,
-             static_cast<int>(luabind::caret_blink_ms()), freq_words);
+             static_cast<int>(luabind::caret_blink_ms()), freq_words, (g_settings[0] != '\0') ? g_settings : "none");
 }
 
 const char* unit() { return g_unit; }
@@ -514,6 +546,20 @@ bool parse_turn(const char* text, uint32_t& instructions) {
 bool set_turn_instructions(uint32_t instructions) {
   if (!luabind::set_turn_budget(instructions)) return false;
   return remember_turn();
+}
+
+const char* settings_app() { return g_settings; }
+
+const char* settings_default() { return "settings"; }
+
+bool set_settings_app(const char* id) {
+  if (id == nullptr || id[0] == '\0' || same(id, "none")) {
+    g_settings[0] = '\0';
+    return remember_settings();
+  }
+  if (strlen(id) >= sizeof(g_settings)) return false;
+  snprintf(g_settings, sizeof(g_settings), "%s", id);
+  return remember_settings();
 }
 
 uint32_t freq_step_of(uint8_t bit) {

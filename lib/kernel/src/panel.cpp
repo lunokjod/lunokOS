@@ -6,6 +6,7 @@
 
 #include "kernel/apps.h"
 #include "kernel/bar.h"
+#include "kernel/cfg.h"
 #include "kernel/display.h"
 #include "kernel/log.h"
 #include "kernel/power.h"
@@ -328,17 +329,35 @@ void sleep_with_the_keys() {
   shell::deep_sleep("the card of the bar");
 }
 
-// **Els ajustos** (0.185.0): the settings of this system live in `cfg`, which is a line of the prompt and not a page yet —there is
-// no app of settings on the disk—, so the key opens the console in the glass, which is the app that speaks `cfg`, **with the page
-// that asked for it behind it** (`back`): closing the console comes back to where a person was (docs/30, docs/40).
+// **Els ajustos són una app, i quina és ho diu `cfg`** (0.185.0, 0.189.109, l'amo: *«Enllaça el botó de Settings del panell
+// desplegable de sistema amb l'app <id: settings> Si no està l'app no passsa res»*). The gear used to open the console —which is the
+// app that speaks `cfg`— because there was no page of settings on the disk; now the page is there and the name is a choice of the
+// person (`cfg settings <id>`, and `none` for a gear that does nothing), like the app of the start.
+//
+// **Es mira abans de demanar-la**: the shell closes the page in front before it starts the one it was asked for, so a name that is
+// not on the disk would leave the board at the prompt —the app that asked gone and nothing in its place—. The door of the apps is
+// the one that knows whether the name is an app of this board, and a gear that finds nothing does nothing and says it in the log
+// (docs/30, docs/40).
 void open_the_settings() {
+  const char* id = cfg::settings_app();
+  if (id == nullptr || id[0] == '\0') {
+    log_printf(pal::kLogInfo, "PANEL", "the settings key: no app of settings is chosen (`cfg settings <id>`)");
+    return;
+  }
+  apps::Entry entry;
+  if (!apps::read(id, entry)) {
+    log_printf(pal::kLogWarn, "PANEL", "the settings key: there is no app '%s' on this board", id);
+    return;
+  }
   char why[96] = {0};
-  if (!shell::ask_run("shell", /*back=*/true, why, sizeof(why))) {
-    log_printf(pal::kLogWarn, "PANEL", "the settings are not there: %s", why);
+  // **I la pàgina que la demana queda darrere** (`back`): closing the page of settings comes back to where the person was, which is
+  // what a card that opens an app from the bar owes the page under it (docs/30, docs/40).
+  if (!shell::ask_run(entry.id, /*back=*/true, why, sizeof(why))) {
+    log_printf(pal::kLogWarn, "PANEL", "the settings app is not there: %s", why);
     return;
   }
   put_it_away();
-  log_printf(pal::kLogInfo, "PANEL", "the settings key: the console of the system comes up");
+  log_printf(pal::kLogInfo, "PANEL", "the settings key: %s comes up", entry.id);
 }
 
 // **Un botó és la seva acció**: the five of the card, one switch, so the paint, the hit test and the press cannot disagree about what

@@ -12065,6 +12065,25 @@ int l_cfg_cursor(lua_State* L) {
   return 1;
 }
 
+// **`cfg.settings([<id>])`: l'app que obre el botó dels ajustos** (0.189.109, l'amo: *«Enllaça el botó de Settings del panell
+// desplegable de sistema amb l'app <id: settings> … Aegeix un selector d'aplicació per gestionar els settings»*). With no argument
+// it answers the name, or **the empty string when a person chose `none`** —a gear that does nothing is a choice and not a missing
+// value—; with a name it writes it and answers the one that stands, like `cfg.home`. Which names are apps of this board is the
+// kernel's question: the door writes what it is given and `E_INVAL` is a name it cannot keep (docs/30, docs/40).
+int l_cfg_settings_app(lua_State* L) {
+  if (g_cfg_ops.settings_app == nullptr || g_cfg_ops.set_settings_app == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no app of settings");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* asked = luaL_checkstring(L, 1);
+    if (!g_cfg_ops.set_settings_app(asked)) {
+      return push_nil_error(L, "E_INVAL", "that is not a name an app of this system can have");
+    }
+  }
+  lua_pushstring(L, g_cfg_ops.settings_app());
+  return 1;
+}
+
 // **`cfg.freq([<mhz>, <on>])`: les velocitats del processador** (0.189.107, l'amo: *«[X] Frequency scaling allowed:
 // [X] 80Mhz [X] 160Mhz [X] 240Mhz»*). With no argument it answers **the list of the steps the policy may use**, in
 // ascending order; with a step and a boolean it turns that one on or off and answers the list it has now —which is the
@@ -12205,6 +12224,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "turn", l_cfg_turn);
   set_function(L, "cursor", l_cfg_cursor);
   set_function(L, "freq", l_cfg_freq);
+  set_function(L, "settings", l_cfg_settings_app);
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);
   lua_setglobal(L, "cfg");
