@@ -175,6 +175,16 @@ de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha p
 - **Per què 160 i no 80**: per sota de 80 l'APB baixa amb la CPU i cap perifèric del core es reconfigura (docs/30), o sigui
   que el port sèrie sortiria amb el baud malament. 160 és el repòs de debò d'aquesta placa, i les dues finestres són els
   moments en què el treball és, per endavant, pesat: muntar el sistema i compilar i arrencar un intèrpret de Lua.
+- **`load`: la càrrega en tres paraules** (0.189.93, l'amo: *«fes una comanda que doni el valor low, normal o high i usarem
+  aquest valor per ajustar les 3 velocitats de la CPU 80, 160, 240»*). És **el que el nucli treballa menys el que espera** dins
+  d'una finestra de 250 ms —`kernel.loop` menys `queue.wait`—, perquè una placa que passa la vida a `queue.wait` està parada amb
+  el comptador en marxa i la seva càrrega és zero encara que faci milers de torns (el primer esborrany de la línia deia
+  noranta-un per cent en una pàgina que no feia res). Contesta `low` per sota del 20 %, `normal` entre el 20 i el 60 i `high`
+  per sobre del 60, **amb cinc punts de banda a cada llindar** perquè un rellotge que es mou a cada torn costa més que el que
+  estalvia, i el percentatge va al costat de la paraula (`low (2.7 %)`) perquè una paraula sense número no es pot afinar.
+  `power::load_of()` és la decisió sola i pura, i la suite del shell la subjecta sense placa. **Encara no mou la CPU**: el
+  següent pas és que la política triï 80/160/240 amb aquesta paraula en lloc de les dues finestres del boot i de l'arrencada
+  d'una app (docs/95).
 
 ## Precisió
 

@@ -16,6 +16,7 @@
 #include "emu/ink.h"
 #include "emu/options.h"
 #include "hal/gather.h"
+#include "kernel/power.h"
 #include "hal/hal.h"
 #include "hal/log.h"
 #include "kernel/apps.h"
@@ -36,6 +37,7 @@
 // The meters and the test file are in different namespaces: one line and the rest reads the same as in
 // the kernel (docs/30).
 namespace meter = kernel::meter;
+namespace power = kernel::power;
 
 namespace {
 
@@ -1918,6 +1920,34 @@ static void test_a_band_is_its_rows_one_after_another() {
   }
 }
 
+
+// **La càrrega d'una finestra és una paraula amb una banda** (0.189.93, docs/50, docs/60): the shell command `load` answers
+// low, normal or high, and the boundaries have five points of band on each side so a board that sits on one of them does not
+// move the clock of its processor at every turn. The three words are the three steps the policy will use —80, 160, 240— and
+// this case holds the arithmetic and nothing about the board, because the arithmetic is what a board cannot be asked twice.
+static void test_the_load_of_a_window_is_a_word_with_a_band(void) {
+  // Under twenty per cent is a board that is reading and nothing else.
+  TEST_ASSERT_TRUE(power::Load::kLow == power::load_of(0, power::Load::kNormal));
+  TEST_ASSERT_TRUE(power::Load::kLow == power::load_of(190, power::Load::kNormal));
+  // **I la banda**: nineteen and a half is still low from normal, but a board that is already low does not need fifteen of
+  // them to say normal —its band is the one above, because it is coming up from under.
+  TEST_ASSERT_TRUE(power::Load::kNormal == power::load_of(195, power::Load::kLow));
+  TEST_ASSERT_TRUE(power::Load::kLow == power::load_of(240, power::Load::kLow));
+  TEST_ASSERT_TRUE(power::Load::kNormal == power::load_of(250, power::Load::kLow));
+  // Between the two bands is normal, and over sixty is high.
+  TEST_ASSERT_TRUE(power::Load::kNormal == power::load_of(200, power::Load::kNormal));
+  TEST_ASSERT_TRUE(power::Load::kNormal == power::load_of(599, power::Load::kNormal));
+  TEST_ASSERT_TRUE(power::Load::kHigh == power::load_of(600, power::Load::kNormal));
+  // **A high board stays high until it is well under**, which is what a band is for.
+  TEST_ASSERT_TRUE(power::Load::kHigh == power::load_of(560, power::Load::kHigh));
+  TEST_ASSERT_TRUE(power::Load::kNormal == power::load_of(550, power::Load::kHigh));
+  TEST_ASSERT_TRUE(power::Load::kLow == power::load_of(0, power::Load::kLow));
+  // The three words are the three the command prints, and nothing else.
+  TEST_ASSERT_EQUAL_STRING("low", power::load_name(power::Load::kLow));
+  TEST_ASSERT_EQUAL_STRING("normal", power::load_name(power::Load::kNormal));
+  TEST_ASSERT_EQUAL_STRING("high", power::load_name(power::Load::kHigh));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1975,6 +2005,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_band_is_its_rows_one_after_another);
   RUN_TEST(test_the_panel_says_where_a_partial_paint_starts);
   RUN_TEST(test_the_three_ways_are_named_and_one_bit_is_not_one_of_them);
+  RUN_TEST(test_the_load_of_a_window_is_a_word_with_a_band);
   UNITY_END();
   return 0;
 }

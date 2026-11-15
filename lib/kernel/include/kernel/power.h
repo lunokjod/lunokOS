@@ -127,6 +127,37 @@ void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why);
 // The resting step now, and no window is owed any more.
 void rest_cpu(const char* why);
 
+// ---- la càrrega del sistema, en tres paraules (0.189.93, docs/60) ----
+//
+// **Una càrrega no és un número instantani**: it is the share of a window of time that the kernel spent *working* and not
+// waiting, and it is asked for to decide the speed of the processor —80, 160 or 240 MHz— and not to be printed for its own
+// sake. **El que compta com a feina és el torn menys l'espera**: a board whose turns are all `queue.wait` is a board that is
+// idle with its meter running, and its load is zero however many turns it took (l'amo: *«podem saber la càrrega del sistema
+// en un moment concret?»*, docs/95).
+//
+// The three words are the three steps of that decision. **The boundaries keep a band of hysteresis** —five points— so a
+// board that sits on one of them does not move its clock at every turn, which is the same reason a thermostat has one.
+enum class Load : uint8_t { kLow = 0, kNormal = 1, kHigh = 2 };
+
+// **The window of the load**, in milliseconds: the smallest span in which a turn of this system is more than noise. It is
+// asked for by `load()` and it is not a promise to the caller —a call inside the window answers the last sample— (docs/50).
+const uint32_t kLoadWindowMs = 250;
+
+// The word, for a line of the console and for whoever reads it.
+const char* load_name(Load load);
+
+// The load of the window that ends now, or the one before it when the window has not run yet: it costs two reads of the
+// meters and no clock of its own, so an app, the shell and the governor ask it as often as they like.
+Load load();
+
+// The number behind the word, in tenths of a percent: what a person wants to see beside it, and what the next step of the
+// policy will be tuned against (docs/95).
+uint32_t load_percent10();
+
+// **The thresholds alone and pure**, which is what `load()` decides with, so a suite can hold them without a board: below
+// twenty per cent is low, over sixty is high, and five points of band between the two (docs/50).
+Load load_of(uint32_t percent10, Load current);
+
 // The app that was in front when the board went to sleep comes back, with
 // `app.args.restore` in its args (docs/30). Runs at boot; exposed so a test can do
 // a reboot without one.

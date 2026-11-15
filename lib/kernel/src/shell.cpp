@@ -5155,6 +5155,21 @@ bool execute(char* line) {
   if (strncmp(line, "power", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
     return command_power(line + 5);
   }
+  // **`load`**: la càrrega del sistema en tres paraules (0.189.93, docs/60). It is the share of the last quarter of a second
+  // that the kernel spent working and not waiting, and it is the number the policy of the speed of the processor will be
+  // built on: **low, normal or high**, with a band between them so a clock does not move at every turn. The percentage goes
+  // beside the word because a word with no number under it is a word nobody can tune (l'amo: *«fes una comanda que doni el
+  // valor low, normal o high i usarem aquest valor per ajustar les 3 velocitats de la CPU 80, 160, 240»*, docs/50).
+  if (strncmp(line, "load", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    const power::Load value = power::load();
+    out(power::load_name(value));
+    out(" (");
+    out_num(power::load_percent10() / 10);
+    out(".");
+    out_num(power::load_percent10() % 10);
+    out(" %)\r\n");
+    return true;
+  }
   if (strncmp(line, "cfg", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
     return command_cfg(line + 3);
   }
@@ -5500,6 +5515,7 @@ const char* const kCommandNames[] = {
     "help",     "version",  "caps",     "mem",      "sessions", "apps",     "mounts",   "splash",
     "panel",    "cfg",      "run",      "stop",     "home",     "repo",     "lua",      "keys",
     "fonts",    "wifi",     "provision", "ntp",     "tz",       "date",     "alarm",    "sleep",
+    "load",
     "poweroff", "deepsleep", "reboot",   "battery",  "led",      "serial",   "imu",      "touch",    "buttons",  "log",
     "panic",    "stats",    "free",     "echo",     "cat",      "ls",       "cd",       "pwd",
     "mkdir",    "rm",       "mv",       "cp",       "hexdump",  "fs",       "clear",    "history",

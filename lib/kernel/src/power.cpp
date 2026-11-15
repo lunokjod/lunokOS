@@ -608,6 +608,85 @@ splash::Kind going_down_picture(bool deep) {
   return deep ? splash::kSleep : splash::kPowerOff;
 }
 
+// ---- la càrrega del sistema (0.189.93, docs/50, docs/60) ----
+//
+// **Dues lectures del comptador i cap rellotge propi**: the load of a window is the difference of the meters between two
+// asks —the turn of the kernel and the wait inside it—, so this costs nothing when nobody asks and it cannot drift from the
+// numbers `stats` prints. What is kept is the last sample and when it was taken (docs/30, docs/95).
+namespace {
+
+const uint32_t kLoadLowPct10 = 200;    // under twenty per cent the board is reading a page and nothing else
+const uint32_t kLoadHighPct10 = 600;   // over sixty it is painting, starting an app or turning a page of a book
+const uint32_t kLoadBandPct10 = 50;    // five points of band, or a clock that moves at every turn
+
+uint32_t g_load_at_ms = 0;
+uint64_t g_load_loop_us = 0;
+uint64_t g_load_wait_us = 0;
+uint32_t g_load_pct10 = 0;
+Load g_load = Load::kNormal;
+
+}  // namespace
+
+Load load_of(uint32_t percent10, Load current) {
+  switch (current) {
+    case Load::kLow:
+      return (percent10 >= kLoadLowPct10 + kLoadBandPct10) ? Load::kNormal : Load::kLow;
+    case Load::kHigh:
+      return (percent10 + kLoadBandPct10 <= kLoadHighPct10) ? Load::kNormal : Load::kHigh;
+    case Load::kNormal:
+    default:
+      if (percent10 >= kLoadHighPct10) return Load::kHigh;
+      if (percent10 + kLoadBandPct10 < kLoadLowPct10) return Load::kLow;
+      return Load::kNormal;
+  }
+}
+
+const char* load_name(Load load) {
+  switch (load) {
+    case Load::kLow:
+      return "low";
+    case Load::kHigh:
+      return "high";
+    case Load::kNormal:
+    default:
+      return "normal";
+  }
+}
+
+Load load() {
+  const uint32_t now = pal::system().millis();
+  const uint64_t loop_us = meter::us(meter::kLoop);
+  const uint64_t wait_us = meter::us(meter::kQueueWait);
+  // **La primera pregunta contesta des de l'arrencada i obre la finestra**: a board that has just booted has no window of
+  // its own yet, and a first answer of "normal, zero per cent" is a word that is not the truth —the boot is the heaviest
+  // thing this board does—. Division by nothing is what a first draft did, and it said a hundred per cent for ever (vist a
+  // l'emulador, 15/11).
+  if (g_load_at_ms == 0) {
+    if (now > 0) {
+      const uint64_t busy = (loop_us > wait_us) ? (loop_us - wait_us) : 0;
+      g_load_pct10 = static_cast<uint32_t>((busy * 1000ULL) / (static_cast<uint64_t>(now) * 1000ULL));
+      g_load = load_of(g_load_pct10, g_load);
+    }
+    g_load_at_ms = now;
+    g_load_loop_us = loop_us;
+    g_load_wait_us = wait_us;
+    return g_load;
+  }
+  const uint32_t span = now - g_load_at_ms;
+  if (span < kLoadWindowMs) return g_load;
+  const uint64_t turned = (loop_us > g_load_loop_us) ? (loop_us - g_load_loop_us) : 0;
+  const uint64_t waited = (wait_us > g_load_wait_us) ? (wait_us - g_load_wait_us) : 0;
+  const uint64_t busy = (turned > waited) ? (turned - waited) : 0;
+  g_load_pct10 = static_cast<uint32_t>((busy * 1000ULL) / (static_cast<uint64_t>(span) * 1000ULL));
+  g_load = load_of(g_load_pct10, g_load);
+  g_load_at_ms = now;
+  g_load_loop_us = loop_us;
+  g_load_wait_us = wait_us;
+  return g_load;
+}
+
+uint32_t load_percent10() { return g_load_pct10; }
+
 uint32_t cpu_mhz() { return (g_power != nullptr) ? g_power->cpu_mhz() : 0; }
 
 uint32_t resting_cpu_mhz() { return g_cpu_rest_mhz; }
