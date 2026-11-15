@@ -183,10 +183,16 @@ de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha p
   per sobre del 60, **amb cinc punts de banda a cada llindar** perquè un rellotge que es mou a cada torn costa més que el que
   estalvia, i el percentatge va al costat de la paraula (`low (2.7 %)`) perquè una paraula sense número no es pot afinar.
   `power::load_of()` és la decisió sola i pura, i la suite del shell la subjecta sense placa.
-- **I aquesta paraula és la que mou la CPU, sola** (0.189.94): **`low` és 80 MHz, `normal` 160 i `high` 240**, i el
-  governador viu a `power::poll` —un torn del sistema— o sigui que **cada torn mira la càrrega i només mou el rellotge quan
-  la paraula canvia**. `load()` contesta la mostra de la finestra, i una finestra és de 250 ms, així que el preu de mirar-ho
-  cada torn són dues lectures del comptador en els torns que no tanquen finestra.
+- **I la tendència del minut és la que mou la CPU, sola** (0.189.95, l'amo: *«no facis el canvi de freqüència tant sovint...
+  Guarda mostres, durant un minut: si la tendència és a més, puja la CPU; si és a menys, la baixes; si és semblant, et quedes
+  com estàs»*). **`low` és 80 MHz, `normal` 160 i `high` 240**, i el rellotge no es mou per una lectura sinó per una
+  **tendència**: una mostra cada dos segons —trenta, trenta bytes— i la mitjana de les **quinze últimes contra les quinze
+  d'abans**. Si la mitjana ha pujat deu punts o més, **un pas amunt** (80→160, 160→240); si ha baixat deu punts, **un pas
+  avall**; si no, **res**. Mai dos passos al mateix torn: el minut següent és el que diu si el primer va valer la pena.
+  - **El primer minut no decideix res**: una placa que no ha mesurat un minut no té tendència, i espera al pas de repòs (160).
+  - Una finestra mana igual que abans (boot, arrencada d'una app, paint), i `power auto on` comença un minut nou.
+  - `load` segueix contestant la **lectura** de la finestra de 250 ms (i el seu percentatge), que és el que es mira per
+    ajustar els llindars; el governador mira la sèrie.
   - **Una finestra mana sobre el governador**: el boot, l'arrencada d'una app i **un paint** demanen 240 per endavant
     (`hold_cpu`), i baixar la velocitat al mig d'una d'aquestes coses és fer-les més lentes per estalviar el que no es
     gastava. Quan la finestra es tanca, el governador és qui diu el pas de tornada.

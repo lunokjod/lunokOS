@@ -159,6 +159,16 @@ uint32_t load_percent10();
 // twenty per cent is low, over sixty is high, and five points of band between the two (docs/50).
 Load load_of(uint32_t percent10, Load current);
 
+// **La tendència d'una sèrie de mostres** (0.189.95): the mean of the last half of the samples less the mean of the first
+// half, in tenths of a percent. Positive is a board that is doing more than it was, negative one that is doing less and zero
+// one that is doing the same. It is the whole of what the governor looks at, and it is pure so a suite can hold it
+// (docs/50, docs/95).
+int32_t trend_of(const uint8_t* samples, uint8_t count);
+
+// **I el pas que la tendència demana**: one step in the direction of the trend and never two at once, `mhz` itself when the
+// trend is flat or the board is already at the end of the steps (docs/60).
+uint32_t trend_step(uint32_t mhz, int32_t trend10);
+
 // **La política automàtica, encesa de sèrie** (0.189.94): the three words are the three steps —**low is 80, normal is 160
 // and high is 240**— and the system moves between them by itself, on every turn, from `load()`. A window that somebody asked
 // for (the boot, the start of an app, a paint) wins over it, because those are moments whose work is known in advance and a

@@ -73,6 +73,18 @@ uint32_t g_cpu_rest_mhz = kRestingMhz;
 int64_t g_cpu_busy_until_ms = 0;
 // **La política automàtica** (0.189.94): on unless a person asked for a step with `power cpu`.
 bool g_cpu_auto = true;
+// **Un minut de mostres i la meitat contra l'altra** (0.189.95): a sample every two seconds —thirty of them, thirty bytes—
+// and the comparison is the mean of the last fifteen against the mean of the fifteen before.
+const uint8_t kTrendSamples = 30;
+const uint32_t kTrendEveryMs = 2000;
+// **Deu punts és una tendència**: a mean that moved ten points between the two halves of the minute is the board doing
+// something else; less than that is the noise of a page that scrolls (docs/95).
+const uint32_t kTrendBandPct10 = 100;
+// **Les mostres de la tendència** (0.189.95): thirty per cent of load, one every two seconds, which is a minute. They are
+// here and not beside the governor because the switch that turns the policy on is the one that throws them away.
+uint8_t g_trend[kTrendSamples];
+uint8_t g_trend_count = 0;
+uint32_t g_trend_ms = 0;
 // The hour the board was woken early for. The clock reaches a day at most, so a longer wait is
 // armed in stages, and a stage is **not** the wake: the app must not come back until its hour
 // (docs/60).
@@ -707,29 +719,84 @@ bool cpu_auto() { return g_cpu_auto; }
 void set_cpu_auto(bool on) {
   g_cpu_auto = on;
   if (on) {
+    // **Tornar-la a encendre comença un minut nou**: the samples of before are the samples of a board that was being told what
+    // to do by a person, and a trend measured across that boundary is a trend of nothing (docs/60).
+    g_trend_count = 0;
+    g_trend_ms = 0;
     // **Tornar-la a encendre és una decisió que es pren ara i no al proper torn**: the board goes to the step its load says
     // in the same line that turns the policy on, or a person would see the answer of a policy that has not run (docs/60).
     govern_cpu();
   }
 }
 
-// **El governador** (0.189.94): the word of the load turned into a step of the processor. It is called on every turn of the
-// kernel and it moves nothing unless it has to: **low is 80, normal 160, high 240**, and a window somebody asked for is not
-// its business (docs/50, docs/60).
+// ---- la tendència de la càrrega (0.189.95, l'amo) ----
+//
+// *«No facis el canvi de freqüència tant sovint... Guarda mostres, durant un minut: si la tendència és a més, puja la CPU; si
+// és a menys, la baixes; si és semblant, et quedes com estàs.»*
+//
+// **Un minut de mostres i la meitat contra l'altra**: a sample every two seconds —thirty of them, thirty bytes— and the
+// comparison is the mean of the last fifteen against the mean of the fifteen before. That is a **trend** and not a level: a
+// board that has been at ten per cent for a minute and a board that has just fallen from forty to ten read the same
+// instantaneous load and are not the same board, and the clock of the processor is a thing that costs more to move than to
+// leave where it is (docs/50, docs/60).
+void take_a_sample() {
+  const uint32_t now = pal::system().millis();
+  if (g_trend_ms == 0) g_trend_ms = now;
+  if (now - g_trend_ms < kTrendEveryMs) return;
+  g_trend_ms = now;
+  const uint32_t pct = load_percent10() / 10;
+  if (g_trend_count < kTrendSamples) {
+    g_trend[g_trend_count++] = static_cast<uint8_t>((pct > 100) ? 100 : pct);
+    return;
+  }
+  for (uint8_t i = 1; i < kTrendSamples; ++i) g_trend[i - 1] = g_trend[i];
+  g_trend[kTrendSamples - 1] = static_cast<uint8_t>((pct > 100) ? 100 : pct);
+}
+
+int32_t trend_of(const uint8_t* samples, uint8_t count) {
+  if (samples == nullptr || count < 2) return 0;
+  const uint8_t half = static_cast<uint8_t>(count / 2);
+  uint32_t was = 0;
+  uint32_t goes = 0;
+  for (uint8_t i = 0; i < half; ++i) was += samples[i];
+  for (uint8_t i = static_cast<uint8_t>(count - half); i < count; ++i) goes += samples[i];
+  return static_cast<int32_t>(goes - was) * 10 / static_cast<int32_t>(half);
+}
+
+uint32_t trend_step(uint32_t mhz, int32_t trend10) {
+  if (trend10 >= static_cast<int32_t>(kTrendBandPct10)) {
+    if (mhz < kRestingMhz) return kRestingMhz;
+    if (mhz < kBusyMhz) return kBusyMhz;
+    return mhz;
+  }
+  if (trend10 + static_cast<int32_t>(kTrendBandPct10) <= 0) {
+    if (mhz > kRestingMhz) return kRestingMhz;
+    if (mhz > kIdleMhz) return kIdleMhz;
+  }
+  return mhz;
+}
+
+// **El governador** (0.189.95): the trend of the load turned into one step of the processor, and nothing else. **low is 80,
+// normal 160, high 240**, and it moves **one step at a time in the direction of the trend**: a board that has been climbing a
+// minute goes from 80 to 160 and does not jump to 240 on the same turn it climbs, because the minute after that is what says
+// whether it was a page turning or a book being searched. A window somebody asked for —the boot, an app starting, a paint— is
+// not its business (docs/50, docs/60).
 static void govern_cpu() {
   if (g_power == nullptr || !g_cpu_auto) return;
+  take_a_sample();
   if (g_cpu_busy_until_ms != 0) return;
-  const Load value = load();
-  uint32_t want = kRestingMhz;
-  const char* why = "the load is normal";
-  if (value == Load::kLow) {
-    want = kIdleMhz;
-    why = "the load is low";
-  } else if (value == Load::kHigh) {
-    want = kBusyMhz;
-    why = "the load is high";
+  const uint32_t mhz = g_power->cpu_mhz();
+  // **El primer minut no decideix res**: a board that has not measured a minute has no trend, and a step taken on two seconds
+  // of samples is the clock moving every turn again. It waits at the resting step, which is what the boot leaves it at
+  // (docs/60).
+  if (g_trend_count < kTrendSamples) {
+    if (mhz != kRestingMhz) move_to(kRestingMhz, "the load is being measured");
+    return;
   }
-  if (want != g_power->cpu_mhz()) move_to(want, why);
+  const int32_t trend = trend_of(g_trend, kTrendSamples);
+  const uint32_t want = trend_step(mhz, trend);
+  if (want == mhz) return;
+  move_to(want, (want > mhz) ? "the load is climbing" : "the load is falling");
 }
 
 uint32_t cpu_mhz() { return (g_power != nullptr) ? g_power->cpu_mhz() : 0; }
