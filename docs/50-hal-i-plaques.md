@@ -1345,6 +1345,13 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   de rasteritzar-la tanca el buit entre el botó i el marc i hi deixa fils blancs (vist a l'emulador i descartat per l'amo:
   *«res de bold»*). **Llicència**: les icones de Font Awesome són CC BY 4.0 i la font SIL OFL 1.1, i l'atribució viu al
   fitxer generat i al README.
+- **I el candau de `Device Lock`** (0.189.97): la vista el dibuixa amb les primitives del canvas —dues barres i quatre
+  discs fan un requadre de cantons rodons, i el disc del sistema fa la resta— i la icona de l'app és **el mateix dibuix a
+  una altra mida**, que és el que fa que la cel·la del menú i la pantalla siguin el mateix candau: les proporcions són un
+  sol joc de números a `apps/device_lock/device_lock.lua` i a `python3 tools/make_lock_icon.py` (448 × 448, el mateix
+  costat que la resta d'icones del menú). Ve de `OLD/PaperOS/src/apps/lock_app.cpp`, on l'amo va haver de demanar dues
+  vegades que el candau fos **un dibuix de línia i no una llosa**: el cos és un contorn, la nansa un anell amb les cames
+  dins del cos, i la tinta és només la placa del pany, el forat, la ranura i els dos reblons (docs/45).
 - **I la casella d'una entrada de menú, que era l'última que quedava feta a mà** (0.189.91): the checkable entry of a menu
   —the View menu of the editor, `read only` and `wrap`— carried a square of two strokes of two pixels and a square of ink
   inside them, drawn by `menu_bar_draw`. A menu row has no room for a capsule, so the same tool writes a second pair,

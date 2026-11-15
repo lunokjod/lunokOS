@@ -1,0 +1,9 @@
+{
+  "title": "Device Lock",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "device_lock.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "The screen that hides what is on the glass: a padlock, two sentences and three dots that count the taps.\nThree taps in three seconds unlock it, and a count that goes cold empties itself."
+}
