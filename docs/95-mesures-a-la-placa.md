@@ -1093,6 +1093,33 @@ de 2,5 MB de `partitions.csv`: 86,7 % ocupada. El disc de 1 441 792 B porta les 
 
 ---
 
+## El panell, on va quedar (15/11, 0.189.83)
+
+**El fulls E-11 d'aquest document expliquen com es va arribar aquí; això és el que hi ha.** Una pàgina sencera de 960 × 540 i
+una franja de 48 × 540, amb la CPU a 240 mentre es pinta i el bus a deu megahertz:
+
+| | preparació | tinta | total |
+|---|---|---|---|
+| **pàgina** (`gc16`, la primera o després d'una làmina) | **312 ms** | ~1 150 ms | 1,46 s |
+| **gir de pàgina de text** (`du`, el que fa el lector) | **312 ms** | ~120 ms | 0,43 s |
+| **franja** (barra, peu, cel·la) | **13 ms** | — | 13 ms |
+
+I d'on surt cada cosa, per si algú ho ha de tocar:
+
+1. **El gir de la imatge** (433 → 98 ms): les files s'ajunten en bandes, la imatge es camina amb punters i els dos formats són
+   dues funcions. El que ho va desencallar no va ser una idea sinó **comptar instruccions al binari**.
+2. **El cable** (259 → 214 ms): els esclats en comptes de fila a fila, i són el que el driver fa per defecte.
+3. **La tinta** no s'ha tocat: és el terra del panell i el decideix la qualitat de cada pintada.
+
+**El que queda obert, i no és a la feina feta**:
+
+- **El bus a vint-i-quatre**: mesurat com a bo per als píxels (**259 → 84 ms** de cable) però **no es pot fer amb dos dispositius
+  que comparteixin CS** (`spi_bus_add_device` reserva una de les tres línies del perifèric i la connecta al GPIO, i el segon
+  li pren al primer). El camí és **CS per GPIO** amb els dos dispositius a `spics_io_num = -1`, com fa el fabricant, i amb
+  `panel bus` per tornar enrere sense flaixar. Val uns 140 ms d'una pàgina de 1 460.
+- **El `2bit`** pinta i no llisca, però **els quatre codis no són els quatre nivells** que el panell ensenya: la pàgina surt
+  més fosca. Necessita la taula de colors (`BGVR`) i, mentre el cable no sigui el coll, no paga la pena.
+
 ## Què **no** cal mesurar encara
 
 - **La velocitat de mostra del tàctil**: contar frames amb el dit (E-6). El marc ja està mesurat.
