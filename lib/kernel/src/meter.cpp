@@ -338,13 +338,15 @@ void dump() {
   kernel::turns(with_event, on_timeout);
   uint32_t asks = 0;
   uint32_t frames = 0;
-  touch::counters(asks, frames);
+  uint32_t false_warnings = 0;
+  touch::counters(asks, frames, false_warnings);
   used = snprintf(line, sizeof(line), "turns %lu (%lu events, %lu waits), kernel %s of %s up, idle %s\r\n",
                   static_cast<unsigned long>(g_entries[kLoop].calls), static_cast<unsigned long>(with_event),
                   static_cast<unsigned long>(on_timeout), kernel_time, up_time, idle_time);
   console->write(line, static_cast<size_t>(used));
-  used = snprintf(line, sizeof(line), "touch %lu asks, %lu frames\r\n", static_cast<unsigned long>(asks),
-                  static_cast<unsigned long>(frames));
+  used = snprintf(line, sizeof(line), "touch %lu asks, %lu frames, %lu false warnings\r\n",
+                  static_cast<unsigned long>(asks), static_cast<unsigned long>(frames),
+                  static_cast<unsigned long>(false_warnings));
   console->write(line, static_cast<size_t>(used));
   used = snprintf(line, sizeof(line), "lua %s: %s the app's own code (the rest is calls into it)\r\n",
                   run_time, own_time);

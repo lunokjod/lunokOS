@@ -543,6 +543,10 @@ class ITouch {
   // `scan_ms` says, because every ask is the status of the chip on a bus shared with the clock, the FRAM and the sensor
   // (docs/50, docs/95). **It is not called `interrupts()`** because Arduino has that name taken by a macro of its own.
   virtual bool warns() const { return false; }
+  // **Quants avisos de la línia no tenien cap frame darrere** (0.189.86): a wire that falls with nobody on the glass is a
+  // wait of twenty milliseconds per warning, and it is invisible in any other number. A glass with no line says nothing
+  // (docs/50, docs/95).
+  virtual uint32_t false_warnings() const { return 0; }
   // **Whether the frame that was just handed over is of a finger that is still there** (0.83.0). A controller that
   // scans the glass by itself hands over the frame of its last scan, and a finger that came down and went away
   // between two reads is a tap that is **already over** when the caller hears about it: `true` here would say the

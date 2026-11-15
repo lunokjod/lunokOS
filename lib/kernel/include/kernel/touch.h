@@ -34,7 +34,7 @@ void poll();
 // when there is a finger. The two numbers apart are the difference between «the interrupt is doing its job» and «the driver
 // asks the bus fifty times a second for nothing», and that is the first question the energy work has to answer (docs/50,
 // docs/95).
-void counters(uint32_t& asks, uint32_t& frames);
+void counters(uint32_t& asks, uint32_t& frames, uint32_t& false_warnings);
 
 // The points that were down in the last turn, up to `capacity`.
 uint8_t points(hal::TouchPoint* out, uint8_t capacity);

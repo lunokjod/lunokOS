@@ -82,6 +82,10 @@ class Gt911 : public ITouch {
   // **El vidre avisa** (0.188.0): the line is wired and listened to, so a read with nothing behind it costs nothing and the
   // kernel may ask on every turn (docs/50).
   bool warns() const override { return int_pin_ >= 0; }
+  // **Quants avisos no tenien cap frame darrere** (0.189.86): the line is a wire that picks up whatever the board is doing when
+  // the chip lets it go, and a warning that finds no frame costs the driver twenty milliseconds of waiting. Zero is a line
+  // that only falls for a finger (docs/50, docs/95).
+  uint32_t false_warnings() const override;
   uint8_t read(TouchPoint* out, uint8_t capacity) override;
   // **El que diu el darrer frame que el xip ha lliurat** (0.183.2): a frame with points is a finger on the glass and a frame
   // with none is the lift. The driver used to throw the second one away —`read` answered zero for it, the same word as “no

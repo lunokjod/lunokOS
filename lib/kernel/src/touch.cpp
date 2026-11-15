@@ -341,9 +341,10 @@ uint32_t g_asks = 0;
 uint32_t g_frames = 0;
 }  // namespace
 
-void counters(uint32_t& asks, uint32_t& frames) {
+void counters(uint32_t& asks, uint32_t& frames, uint32_t& false_warnings) {
   asks = g_asks;
   frames = g_frames;
+  false_warnings = (g_glass != nullptr) ? g_glass->false_warnings() : 0;
 }
 
 void poll() {

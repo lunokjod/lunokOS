@@ -23,6 +23,12 @@ volatile bool g_frame_ready = false;
 // (docs/50, docs/95).
 int32_t g_last_read_ms = -1000;
 
+// **Els avisos que no eren de ningú** (0.189.86): a line that fires with no frame behind it costs the twenty milliseconds of
+// the wait below, and with a floating input that happened fifteen times a second. The number is counted here and `stats`
+// prints it, so that the next time this driver wonders whether the line is noise or a finger there is a number and not a
+// suspicion (docs/50, docs/95).
+uint32_t g_warnings_without_frame = 0;
+
 // The handler of an edge, which does one thing: raise the flag. It lives in IRAM because an interrupt can arrive while the
 // flash is being read —a paint of the glass, a page of a font— and a handler out of the flash would wait for the flash.
 void IRAM_ATTR on_the_line(void* arg) {
@@ -114,7 +120,11 @@ bool Gt911::probe() {
     gpio_config_t line = {};
     line.pin_bit_mask = 1ULL << int_pin_;
     line.mode = GPIO_MODE_INPUT;
-    line.pull_up_en = GPIO_PULLUP_DISABLE;
+    // **Amb pull-up, i això no és un detall** (0.189.86): between frames the chip lets the line go and GPIO36 —an input with no
+    // pull of its own— picks up whatever the board is doing. The board measured what that costs: **fifteen warnings a second
+    // with no finger on the glass**, each one twenty milliseconds of waiting for a frame bit that never came, o sigui **el
+    // 31 % del temps despert** preguntant un xip que no tenia res a dir (docs/50, docs/95).
+    line.pull_up_en = GPIO_PULLUP_ENABLE;
     line.pull_down_en = GPIO_PULLDOWN_DISABLE;
     line.intr_type = GPIO_INTR_NEGEDGE;
     gpio_config(&line);
@@ -178,6 +188,7 @@ uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {
     // stayed low for a reason nobody is going to read does not keep the driver waiting for a frame that never comes
     // (docs/50, docs/95).
     g_frame_ready = false;
+    ++g_warnings_without_frame;
     return 0;
   }
   const uint8_t points = static_cast<uint8_t>(status & 0x0F);
@@ -210,6 +221,8 @@ uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {
   }
   return count;
 }
+
+uint32_t Gt911::false_warnings() const { return g_warnings_without_frame; }
 
 ITouch* esp32_gt911(II2c* bus, int int_pin) {
   if (bus == nullptr) return nullptr;
