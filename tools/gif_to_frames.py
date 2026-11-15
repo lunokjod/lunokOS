@@ -7,12 +7,14 @@ Aixo es el que escriu aquesta eina:
 
     python3 tools/gif_to_frames.py tools/icons/system/loading_bounce_500x500.gif --out apps/loading/res/anim
 
-Els PNG surten **de setze nivells de gris** perque el panell en te setze i el descodificador no hagi de fer la
-conversio a cada frame, i amb el fons del GIF ja posat (una transparencia composta sobre paper).
+Els PNG surten amb el fons del GIF ja posat (una transparencia composta sobre paper) i amb **els nivells que el
+dibuix te**: un GIF de blanc i negre surt d'un bit —que es el que vol una animacio, i el que fa que el PNG sigui
+una desena part— i un de grisos, de setze. `--bits` ho forca.
 """
 import argparse
 import os
 
+import numpy as np
 from PIL import Image, ImageSequence
 
 
@@ -22,6 +24,8 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--max", type=int, default=0, help="el costat més llarg, si es vol reduir (0 és la mida del GIF)")
     ap.add_argument("--prefix", default="f")
+    ap.add_argument("--bits", type=int, choices=(1, 8), default=0,
+                    help="1 o 8, forcat; per defecte el que el dibuix demana (dos nivells són un bit)")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -38,8 +42,16 @@ def main() -> int:
         if args.max > 0 and max(grey.size) > args.max:
             scale = args.max / max(grey.size)
             grey = grey.resize((max(1, int(grey.width * scale)), max(1, int(grey.height * scale))), Image.LANCZOS)
-        # Setze nivells: el panell en té setze i el que es veu al vidre és aquest número i no el del fitxer.
-        grey = grey.quantize(colors=16).convert("L")
+        # **Els nivells que el dibuix té i no els que el panell té**: a two-colour frame stored as sixteen levels is a file eight
+        # times bigger and a decoder that dithers over a picture that was already black and white (0.189.60).
+        bits = args.bits
+        if bits == 0:
+            spread = len(set(np.array(grey).flatten().tolist()))
+            bits = 1 if spread <= 2 else 8
+        if bits == 1:
+            grey = grey.point(lambda value: 255 if value >= 128 else 0).convert("1")
+        else:
+            grey = grey.quantize(colors=16).convert("L")
         path = os.path.join(args.out, f"{args.prefix}{index + 1:02d}.png")
         grey.save(path, optimize=True)
         size = os.path.getsize(path)

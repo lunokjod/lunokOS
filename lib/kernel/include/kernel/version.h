@@ -9235,7 +9235,18 @@ namespace kernel {
 //   - **i el que això diu de la placa**: a partial refresh of that panel is 120 to 300 ms, so seven a second is not something
 //     the glass can do; the app asks for the next frame as soon as the last one is presented and the panel sets the pace
 //     (docs/50, docs/95). L'emulador sí que els ensenya a set per segon.
-static const char kVersion[] = "0.189.59";
+// 0.189.60 — **l'animació, amb el mode ràpid i amb els números a la mà** (l'amo: *«dibuixes a máxima qualitat? no has vist que
+// es B/N? usa el ràpid sense parpalleig»*): the demo app was asking the panel for a `gc16` and then an `a2` —the washes of a
+// page of sixteen levels— for a drawing that is **black and white and nothing else**. Now:
+//   - **els frames són d'un bit** (`tools/gif_to_frames.py` mira quants nivells té el dibuix i no quants en té el panell): the
+//     twenty-four frames went from 37 KB to 26 KB and the decoder has no dither to do on a picture that was already two tones;
+//   - **i el present és `du`**, the direct update of two levels, which is the one that does not blink;
+//   - **i el que es va mesurar, que és el que importa**: 21 ms de descodificar i **660 ms de presentar** un frame de 500 x 500,
+//     i dels 660 el model del panell en dona 120 a la tinta de `du` i **650 a la transferència** (1 100 µs per fila més el
+//     cable). O sigui que el mode no era el coll d'ampolla: **ho és el nombre de píxels enviats**, i set per segon amb 500 x 500
+//     no hi són ni a l'emulador. A 100 x 100 la mateixa transferència són 114 ms i el ritme del GIF sí que s'hi arriba; una
+//     animació de debò es fa petita (docs/50, docs/95).
+static const char kVersion[] = "0.189.60";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
