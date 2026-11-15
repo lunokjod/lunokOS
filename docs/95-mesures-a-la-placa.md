@@ -1148,6 +1148,21 @@ Dos arreglos, tots dos mesurats:
    línia es queda baixa i el xip no torna a avisar mai, que és el toc que funciona un cop de 0.188.7—. De trenta
    mil·lisegons a mig.
 
+**I la mesura de després, amb els dos arreglos (0.189.87, finestra de 146 s)**:
+
+| número | abans | després |
+|---|---|---|
+| feina per torn | 4,5 ms | **0,59 ms** |
+| `touch.read` mitjana | 4,4 ms | **368 µs** |
+| **duty cycle** (feina × torns) | **31 %** | **5,7 %** |
+| torns | 69,5 /s | 96,6 /s |
+| avisos falsos | ~15 /s | 9,7 /s |
+
+Els torns **pugen** perquè cada volta és barata: ara el bucle el limita l'espera de 10 ms i no la feina, que és exactament el
+lloc on ha d'entrar el pas 1. I dels 5,7 % que queden, **3,7 punts són els avisos falsos**: deixar la línia neta fa que el xip
+torni a caure —10 cops per segon— i cada un encara costa els 2 ms d'espera del segon intent. La següent mica, doncs, no és el
+bucle sinó **treure aquella espera** (o un debounce a l'ISR), i després el pas 1.
+
 **El que queda per fer, en ordre, i el que ha de dir cada pas**:
 
 1. **Que la interrupció desperti la cua** (`push_from_isr` al PAL, l'ISR del tàctil i una de nova a les tecles, `rings()` i un
