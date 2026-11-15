@@ -71,6 +71,8 @@ int64_t g_last_activity_ms = 0;
 // The step a person asks for becomes the resting one, so `power cpu 80` is not undone by the next app that starts.
 uint32_t g_cpu_rest_mhz = kRestingMhz;
 int64_t g_cpu_busy_until_ms = 0;
+// **La política automàtica** (0.189.94): on unless a person asked for a step with `power cpu`.
+bool g_cpu_auto = true;
 // The hour the board was woken early for. The clock reaches a day at most, so a longer wait is
 // armed in stages, and a stage is **not** the wake: the app must not come back until its hour
 // (docs/60).
@@ -541,14 +543,27 @@ bool request_sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   return true;
 }
 
+static void govern_cpu();
+
 void poll(int64_t next_alarm_epoch_ms) {
   // **La finestra d'una feina pesada s'acaba aquí** (0.179.38): the boot and the start of an app take the top step for a
   // few seconds, and the step back is not the caller's to watch —an app cannot be trusted with the clock of its own
   // burst— so it is a turn of this system like the sleep is (docs/50, docs/60).
   if (g_cpu_busy_until_ms > 0 && pal::system().millis() >= g_cpu_busy_until_ms) {
     g_cpu_busy_until_ms = 0;
-    move_to(g_cpu_rest_mhz, "the load is over");
+    // **I el pas de tornada el diu la càrrega** (0.189.94): with the automatic policy on, the end of a window is not a step
+    // back to the resting speed but the first turn in which the board can be asked what it is doing, and it answers low,
+    // normal or high (docs/50, docs/60).
+    if (g_cpu_auto) {
+      govern_cpu();
+    } else {
+      move_to(g_cpu_rest_mhz, "the load is over");
+    }
   }
+  // **I a cada torn, la càrrega** (0.189.94): `load()` samples one window of 250 ms and answers the last one inside it, so
+  // this costs two reads of the meters on the turns that do not end a window, and the move happens only when the word
+  // changes (docs/30, docs/95).
+  govern_cpu();
   if (g_pending) {
     const bool from_app = g_pending_from_app;
     const hal::SleepMode mode = g_pending_mode;
@@ -687,6 +702,36 @@ Load load() {
 
 uint32_t load_percent10() { return g_load_pct10; }
 
+bool cpu_auto() { return g_cpu_auto; }
+
+void set_cpu_auto(bool on) {
+  g_cpu_auto = on;
+  if (on) {
+    // **Tornar-la a encendre és una decisió que es pren ara i no al proper torn**: the board goes to the step its load says
+    // in the same line that turns the policy on, or a person would see the answer of a policy that has not run (docs/60).
+    govern_cpu();
+  }
+}
+
+// **El governador** (0.189.94): the word of the load turned into a step of the processor. It is called on every turn of the
+// kernel and it moves nothing unless it has to: **low is 80, normal 160, high 240**, and a window somebody asked for is not
+// its business (docs/50, docs/60).
+static void govern_cpu() {
+  if (g_power == nullptr || !g_cpu_auto) return;
+  if (g_cpu_busy_until_ms != 0) return;
+  const Load value = load();
+  uint32_t want = kRestingMhz;
+  const char* why = "the load is normal";
+  if (value == Load::kLow) {
+    want = kIdleMhz;
+    why = "the load is low";
+  } else if (value == Load::kHigh) {
+    want = kBusyMhz;
+    why = "the load is high";
+  }
+  if (want != g_power->cpu_mhz()) move_to(want, why);
+}
+
 uint32_t cpu_mhz() { return (g_power != nullptr) ? g_power->cpu_mhz() : 0; }
 
 uint32_t resting_cpu_mhz() { return g_cpu_rest_mhz; }
@@ -708,7 +753,10 @@ bool set_cpu_mhz(uint32_t mhz) {
   // is not owed any more, because the next step to take is this one.
   g_cpu_rest_mhz = mhz;
   g_cpu_busy_until_ms = 0;
-  log_printf(pal::kLogInfo, "POWER", "cpu %u MHz from %u (asked)", static_cast<unsigned>(g_power->cpu_mhz()),
+  // **Un pas demanat a mà para la política automàtica** (0.189.94): a person who fixed a step did it to measure something,
+  // and a governor that undoes it two hundred and fifty milliseconds later is a governor nobody can measure against.
+  g_cpu_auto = false;
+  log_printf(pal::kLogInfo, "POWER", "cpu %u MHz from %u (asked, the automatic scaling is off)", static_cast<unsigned>(g_power->cpu_mhz()),
              static_cast<unsigned>(before));
   return true;
 }
@@ -724,6 +772,10 @@ void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why) {
 void rest_cpu(const char* why) {
   if (g_power == nullptr) return;
   g_cpu_busy_until_ms = 0;
+  if (g_cpu_auto) {
+    govern_cpu();
+    return;
+  }
   move_to(g_cpu_rest_mhz, why);
 }
 

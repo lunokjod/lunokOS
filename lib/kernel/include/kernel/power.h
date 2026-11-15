@@ -116,6 +116,7 @@ bool set_cpu_mhz(uint32_t mhz);
 // step that is never given back is a board burning its battery at two hundred and forty for nothing. A window is a
 // number of milliseconds and the system is the one that sees it end (`poll`); a step a person asks for with `power cpu`
 // is the one the system goes back to. **Every move is a line of the log** (docs/50, docs/60).
+const uint32_t kIdleMhz = 80;
 const uint32_t kRestingMhz = 160;
 const uint32_t kBusyMhz = 240;
 // **Els segons d'una càrrega** (0.179.38): an app reads its source, builds an interpreter and lays its first page out,
@@ -157,6 +158,15 @@ uint32_t load_percent10();
 // **The thresholds alone and pure**, which is what `load()` decides with, so a suite can hold them without a board: below
 // twenty per cent is low, over sixty is high, and five points of band between the two (docs/50).
 Load load_of(uint32_t percent10, Load current);
+
+// **La política automàtica, encesa de sèrie** (0.189.94): the three words are the three steps —**low is 80, normal is 160
+// and high is 240**— and the system moves between them by itself, on every turn, from `load()`. A window that somebody asked
+// for (the boot, the start of an app, a paint) wins over it, because those are moments whose work is known in advance and a
+// clock that moves in the middle of one is a clock that makes it slower. **`power cpu <mhz>` la para i diu com tornar-la a
+// encendre** (`power auto on`): a person who fixed a step did it to measure something, and a policy that undoes it is a
+// policy nobody can measure against (docs/50, docs/60).
+bool cpu_auto();
+void set_cpu_auto(bool on);
 
 // The app that was in front when the board went to sleep comes back, with
 // `app.args.restore` in its args (docs/30). Runs at boot; exposed so a test can do

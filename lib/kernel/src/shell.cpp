@@ -3423,6 +3423,29 @@ bool command_power(const char* argument) {
     return true;
   }
 
+  // **`power auto [on|off]`**: la política automàtica de la velocitat (0.189.94). `power cpu <mhz>` la para i la deixa
+  // parada; aquesta la torna a encendre i el board es posa al pas que diu la càrrega en la mateixa línia (docs/50, docs/60).
+  if (count > 0 && strcmp(words[0], "auto") == 0) {
+    if (count == 1) {
+      out("cpu: the automatic scaling is ");
+      out(power::cpu_auto() ? "on" : "off");
+      out("\r\n");
+      return true;
+    }
+    if (count != 2 || (strcmp(words[1], "on") != 0 && strcmp(words[1], "off") != 0)) {
+      usage_out("usage: power auto [on|off]\r\n");
+      return false;
+    }
+    const bool on = strcmp(words[1], "on") == 0;
+    power::set_cpu_auto(on);
+    out("cpu: the automatic scaling is ");
+    out(on ? "on" : "off");
+    out(", ");
+    out_num(power::cpu_mhz());
+    out(" MHz\r\n");
+    return true;
+  }
+
   if (count > 0 && strcmp(words[0], "last") == 0) {
     if (count != 1) {
       usage_out("usage: power last\r\n");

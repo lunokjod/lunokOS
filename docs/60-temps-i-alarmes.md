@@ -182,9 +182,20 @@ de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha p
   noranta-un per cent en una pàgina que no feia res). Contesta `low` per sota del 20 %, `normal` entre el 20 i el 60 i `high`
   per sobre del 60, **amb cinc punts de banda a cada llindar** perquè un rellotge que es mou a cada torn costa més que el que
   estalvia, i el percentatge va al costat de la paraula (`low (2.7 %)`) perquè una paraula sense número no es pot afinar.
-  `power::load_of()` és la decisió sola i pura, i la suite del shell la subjecta sense placa. **Encara no mou la CPU**: el
-  següent pas és que la política triï 80/160/240 amb aquesta paraula en lloc de les dues finestres del boot i de l'arrencada
-  d'una app (docs/95).
+  `power::load_of()` és la decisió sola i pura, i la suite del shell la subjecta sense placa.
+- **I aquesta paraula és la que mou la CPU, sola** (0.189.94): **`low` és 80 MHz, `normal` 160 i `high` 240**, i el
+  governador viu a `power::poll` —un torn del sistema— o sigui que **cada torn mira la càrrega i només mou el rellotge quan
+  la paraula canvia**. `load()` contesta la mostra de la finestra, i una finestra és de 250 ms, així que el preu de mirar-ho
+  cada torn són dues lectures del comptador en els torns que no tanquen finestra.
+  - **Una finestra mana sobre el governador**: el boot, l'arrencada d'una app i **un paint** demanen 240 per endavant
+    (`hold_cpu`), i baixar la velocitat al mig d'una d'aquestes coses és fer-les més lentes per estalviar el que no es
+    gastava. Quan la finestra es tanca, el governador és qui diu el pas de tornada.
+  - **`power cpu <mhz>` para la política** i ho diu a la línia del registre (*«asked, the automatic scaling is off»*): qui
+    fixa un pas ho fa per mesurar alguna cosa, i un governador que ho desfés dos-cents cinquanta mil·lisegons després no es
+    podria mesurar mai. **`power auto`** diu si és encesa i **`power auto on|off`** la torna a encendre, i la torna a
+    encendre posant el board al pas que diu la càrrega en la mateixa línia.
+  - **La baixada és el que s'estalvia**: la placa que no fa res baixa a 80 en comptes de quedar-se a 160, que és on la deixava
+    la política de les dues finestres (docs/95).
 
 ## Precisió
 
