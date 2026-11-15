@@ -1,9 +1,11 @@
-The faces of this folder are of two licences: the DejaVu ones (dejavusans*.ttf,
-dejavuserif*.ttf and the bitmap dejavusansmono-6x12.lfont) are covered by this file, and
-the eight names ending in -latin1.ttf that are not DejaVu (atkinsonhyperlegible, bitter,
+The faces of this folder are of three licences: the DejaVu ones (dejavusans*.ttf,
+dejavuserif*.ttf and the bitmap dejavusansmono-6x12.lfont) are covered by this file, the
+eight names ending in -latin1.ttf that are not DejaVu (atkinsonhyperlegible, bitter,
 ibmplexsans, inter, literata, merriweather, opendyslexic and sourceserif) are subsets of
 eight families under the SIL Open Font License 1.1, whose notices and text are in OFL.txt
-beside this file.
+beside this file, and `ubuntumono-lunokos-latin1.ttf` is a subset of Ubuntu Mono
+under the Ubuntu Font Licence 1.0, whose text and what was changed are in UFL.txt beside
+this one.
 
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: DejaVu fonts

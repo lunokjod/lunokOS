@@ -155,6 +155,8 @@ def main():
                         help="which characters the face keeps (default: latin1)")
     parser.add_argument("--check", action="store_true",
                         help="do not write: say whether the file could be made")
+    parser.add_argument("--family", default=None,
+                        help="the name the face says of itself (a licence with a reserved name needs another one)")
     parser.add_argument("--fit-line", action="store_true",
                         help="scale the ink to the line of the system and put the baseline where it says")
     args = parser.parse_args()
@@ -186,6 +188,23 @@ def main():
     subsetter.subset(font)
 
     pieces = flatten(font)
+
+    # **El nom de la cara, si la llicència en mana un altre**: the Ubuntu Font Licence keeps its names for
+    # itself and a Modified Version that is not substantially changed must carry the original name with
+    # «derivative X» appended (rule 2c of that licence), and a substantially changed one must not use the
+    # name at all (2b). The four entries a face is read by go together —family, subfamily, full name and the
+    # PostScript one—, or a board that lists faces would show two names for one.
+    if args.family:
+        family = args.family
+        postscript = "".join(ch for ch in family if ch.isalnum() or ch in "-") + "-Regular"
+        for record in list(font["name"].names):
+            if record.nameID in (1, 4, 16):
+                record.string = family
+            elif record.nameID == 6:
+                record.string = postscript
+            elif record.nameID == 3:
+                record.string = postscript + "; " + family
+        font["name"].names = [r for r in font["name"].names if r.nameID not in (17, 18, 21, 22)]
 
     # The line is fitted after the pieces are flattened: a glyph of pieces has no ink of its own to
     # measure, and the extremes here have to be the ones that end up on the glass (docs/30).

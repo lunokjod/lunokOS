@@ -9075,7 +9075,22 @@ namespace kernel {
 //   - **què queda vermell**: `the_gallery_comes_back_on_the_specimen_it_was_left_on`, que obre l'exemplar i el perd pel camí
 //     de la sessió `state` —un fil de la pàgina i no de les mostres—, i els vint-i-tres que ja ho eren (teclat, caixes,
 //     llistes, targetes, llançador). La suite passa de trenta-dos vermells a vint-i-quatre.
-static const char kVersion[] = "0.189.49";
+// 0.189.50 — **una cara d'Ubuntu Mono a `/fonts`, i el nom d'un fitxer de la flash té un sostre** (l'amo: *«ubuntumono: converteix-la
+// i deixa-la llesta per pujar al m5paper»*):
+//   - **`ubuntumono-lunokos-latin1.ttf` és una cara de debò per a aquest nucli**: 205 glífics latin1, els 54 d'accents aplanats
+//     (el lector de contorns refusa `kComposite`), la pista fora —que no es corre mai— i **21 740 B**, que és dins dels 128 KB
+//     que el nucli accepta. L'original de 205 748 B no puja al disc: el nucli el refusaria i només seria pes mort a la imatge;
+//     viu a `OLD/ubuntu-font-family-0.83/`, que és d'on va sortir;
+//   - **`tools/ttf_latin1.py --family`** posa el nom de la cara a dins del fitxer (família, subfamília, nom sencer i el de
+//     PostScript, i les traduccions que es queden òrfenes), perquè una llicència amb un **nom reservat** mana com s'ha de dir
+//     un derivat. L'Ubuntu Font Licence, regla 2c, demana que un derivat **no** canviat de debò conservi el nom original i hi
+//     afegeixi «derivative X»: la cara diu **`Ubuntu Mono derivative lunokOS`** i el nom del fitxer és curt per força.
+//     El text de la llicència i què s'hi ha canviat viatgen amb la cara (`data/res/fonts/UFL.txt`, condició 1), i
+//     `LICENCE.txt` diu que la carpeta ja és de tres llicències;
+//   - **i `tools/make_disk.py` té el sostre de trenta-dos caràcters per nom**, que va aturar la compilació del Paper amb el
+//     nom sencer (`40 chars  m5-paper/res/fonts/ubuntumono-derivative-lunokos-latin1.ttf`): el nom que mana la llicència va a
+//     dins del fitxer i el del disc cap als trenta-dos (docs/70).
+static const char kVersion[] = "0.189.50";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
