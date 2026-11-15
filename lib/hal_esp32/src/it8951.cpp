@@ -310,6 +310,19 @@ bool It8951::write_stretch(const uint8_t* bytes, uint32_t count, bool more) {
 // version of this wrote the format into `UP1SR` (0x1138) and a colour pair into `BGVR` (0x1250); `UP1SR` is the *update
 // parameter* register —the reference driver lists it as «update parameter1 setting» and nothing in the maker's library ever
 // puts a pixel format in it— i escriure-hi un format és demanar-li al controlador una cosa que no fa (docs/50).
+// The three words of the log, the same ones the prompt speaks (`rows`, `burst`, `2bit`): a line that a person greps for
+// has to be the line the shell would have answered (0.189.68, docs/50).
+const char* It8951::style_word() const {
+  switch (style_) {
+    case hal::FlushStyle::kBurst:
+      return "burst";
+    case hal::FlushStyle::kBits2:
+      return "2bit";
+    default:
+      return "rows";
+  }
+}
+
 bool It8951::set_flush_style(hal::FlushStyle style) {
   if (style != hal::FlushStyle::kRows && style != hal::FlushStyle::kBurst &&
       style != hal::FlushStyle::kBits2) {
@@ -711,6 +724,11 @@ bool It8951::flush(UpdateMode mode) {
     hal::logf(pal::kLogDebug, "PANEL", "a paint was asked with nothing marked");
     return true;
   }
+  // **El rellotge de la pintada** (0.189.68): the number that compares the three ways of sending the pixels is **the bytes on
+  // the wire**, and it is not what the call costs, because a paint pays first for the ink of the page before it. The board
+  // measured it: a strip of 48 x 540 said `1 661 ms (rows)` and `1 670 ms (burst)` —the same number for two very different
+  // sends— because twelve hundred of those milliseconds were the engine of the page still moving (docs/50, docs/95).
+  const uint32_t t_enter = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   // **The engine is waited for twice, and the first one is what the maker cannot teach** (0.151.8): the maker loads the
   // image and *then* waits, which is safe on an emulator where the next page comes from a person's finger. Here the next page
   // can arrive **one millisecond** after the last one —the reader paints the whole glass twice when it starts—, and a
@@ -720,6 +738,7 @@ bool It8951::flush(UpdateMode mode) {
   if (!wait_paint(kPaintTimeoutMs)) {
     if (!silent_ || !bring_back()) return false;
   }
+  const uint32_t t_ink = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   // The rectangle that changed, **in the frame the app drew in**, in whole nibbles.
   uint16_t x0 = static_cast<uint16_t>(dirty_x0_ & ~1u);
   uint16_t x1 = static_cast<uint16_t>((dirty_x1_ + 1) & ~1u);
@@ -849,6 +868,7 @@ bool It8951::flush(UpdateMode mode) {
   give_bus();
   if (!sent) return false;
   if (!command(kCmdLoadImageEnd, nullptr, 0)) return false;
+  const uint32_t t_sent = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
 
   // Asking for the paint and **not waiting for it**: the ink takes 120 to 450 ms and the kernel has
   // work to do. `idle()` is the question for a later turn (docs/50).
@@ -867,6 +887,7 @@ bool It8951::flush(UpdateMode mode) {
     // is merely painting (0.151.3).
     if (!silent_ || !bring_back()) return false;
   }
+  const uint32_t t_asked = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   if (!command(kCmdDisplayArea, display, 7)) return false;
   painted_ms_ = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   asked_ = false;
@@ -889,13 +910,18 @@ bool It8951::flush(UpdateMode mode) {
   // The owner asked exactly this with the board's log in his hand: *«son necesaris per fer la feina? o es un debug antic
   // que està fent consultes innecessàries a la eink fent-la més lenta?»* — and it was the second thing. What the engine
   // says of itself is still read, once, where it means something: `wait_paint` (docs/50, docs/92 §33).
+  // **And the two numbers that a person comparing styles needs** (0.189.68): the milliseconds the image took to reach the
+  // controller and the milliseconds this paint waited for somebody else's ink. The first is the only one the three ways
+  // change; the second is the page before it and is the same for all of them (docs/50, docs/95).
   hal::logf((static_cast<uint32_t>(w) * h >= 10000u) ? pal::kLogInfo : pal::kLogDebug, "PANEL",
-            "paint %u,%u %ux%u mode %u %s at 0x%06x (page %u,%u %ux%u, %u rows of %u B)",
+            "paint %u,%u %ux%u mode %u %s at 0x%06x (page %u,%u %ux%u, %u rows of %u B, %u ms on the wire as %s, "
+            "%u ms of ink before it)",
             static_cast<unsigned>(nx0), static_cast<unsigned>(ny0), static_cast<unsigned>(w),
             static_cast<unsigned>(h), static_cast<unsigned>(mode), hal::mode_name(mode),
             static_cast<unsigned>(memory_), static_cast<unsigned>(x0), static_cast<unsigned>(y0),
             static_cast<unsigned>(x1 - x0), static_cast<unsigned>(y1 - y0), static_cast<unsigned>(h),
-            static_cast<unsigned>(row_bytes));
+            static_cast<unsigned>(row_bytes), static_cast<unsigned>(t_sent - t_ink), style_word(),
+            static_cast<unsigned>((t_ink - t_enter) + (t_asked - t_sent)));
   return true;
 }
 

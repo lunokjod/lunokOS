@@ -1152,8 +1152,20 @@ pintada i escriu una línia per cada una,
 ```
 
 que és **el que ha costat la crida** —la transferència del rectangle i la comanda, que es paguen en aquell moment— i no la
-tinta, que ve després i la pregunta `idle()`. Amb això qualsevol app i qualsevol estil es pot mesurar sense tocar el codi:
-es pinta, es llegeix el log i es compara la mateixa línia amb els tres estils.
+tinta, que ve després i la pregunta `idle()`.
+
+**Però el número de la crida no compara els tres estils** (0.189.68, la placa el 15/11): una pintada **paga primer la
+tinta de la pàgina anterior**, perquè el motor ha d'estar quiet abans de carregar-li una imatge a sobre, i això són fins a
+més d'un segon. Es va veure de seguida: la mateixa franja de 48 × 540 va dir `1 661 ms (rows)` i `1 670 ms (burst)` —el
+mateix número per a dos enviaments que no s'assemblen—, i aquell `stats` ho confirma des de l'altra banda
+(`glass.flush` 10 crides, 964,8 ms de mitjana, 1,67 s la pitjor). El número que compara els estils és el que ara porta la
+línia del **driver**, que surt per a cada pintada de qualsevol porta —també les de l'splash, que no passen per `present`—:
+
+```
+[I][PANEL] paint 0,0 48x540 mode 5 gld16 at 0x1236e0 (page 0,0 540x48, 540 rows of 24 B, 11 ms on the wire as burst, 1 223 ms of ink before it)
+```
+
+**`on the wire` és el que canvia amb l'estil** i `of ink before it` és el mateix per als tres.
 
 **`LUTAFSR` és l'estat del motor de LUT i no la mesura de la tinta** (0.179.41): `0x1224` val `0000` quan cap
 motor de LUT del controlador està corrent, i el log l'escriu a la **primera** lectura que contesta, amb els

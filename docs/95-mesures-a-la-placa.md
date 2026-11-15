@@ -867,7 +867,29 @@ panel flush rows     (i el mateix amb burst i amb 2bit)
 i una app que pinti el mateix unes quantes vegades: la de `loading` serveix (frame de 64 × 64, `du`, unes quatre pintades
 per segon a `rows`), i una pàgina sencera es mesura amb qualsevol app que canviï de pantalla, mirant la línia del `gc16`.
 
-**El que l'emulador ja diu** —i és el model, no la placa: `kRowUs = 1100` mesurat, `kBusHz` de la fitxa, quaranta
+**La placa, el 15/11 (0.189.67), amb `splash hide` i `splash boot` i la franja de 48 × 540**:
+
+| estil | `flush gld16` de la franja | `paint` de la mateixa franja |
+|---|---|---|
+| `rows` | 1 661 ms | 540 rows of 24 B |
+| `burst` | 1 670 ms | 540 rows of 24 B |
+| `2bit` | 1 670 ms | 540 rows of 12 B |
+
+**El número de `flush` és el mateix per als tres i no és cap error de l'estil**: la crida paga primer la tinta de la pàgina
+anterior —`[I][PANEL] a page held the engine 1 215 ms`— i el que queda de transferència s'hi perd dins. El que sí que es va
+veure és:
+
+- **`2bit` envia la meitat dels bytes**: `540 rows of 12 B` contra `24 B` de les altres dues, o sigui que el camí del
+  format `IT8951_2BPP` és viu i el driver fa el que diu;
+- **la pàgina sencera amb `a2` i amb `gc16` va dir `540 rows of 480 B`** amb `rows` i amb `burst` (960 píxels a quatre bits
+  són 480 bytes) i **`240 B`** amb `2bit`, que és el mateix compte;
+- **el motor aguanta la pàgina 1 134–1 223 ms**, i això és el terra de qualsevol pàgina amb qualsevol estil.
+
+**El que cal per comparar de debò** és la línia del driver (0.189.68), que porta els dos números separats:
+`N ms on the wire as <estil>, M ms of ink before it`. Amb això la mateixa franja ha de dir un `on the wire` d'uns
+604 ms amb `rows` (540 × 1 119 µs) i d'uns 11 ms amb `burst` (12 960 B de cable i set trossos).
+
+**I el que l'emulador diu** —que és el model, no la placa: `kRowUs = 1100` mesurat, `kBusHz` de la fitxa, quaranta
 microsegons per tros estimats—:
 
 | estil | `du` de 64 × 64 | `gc16` de pàgina sencera |

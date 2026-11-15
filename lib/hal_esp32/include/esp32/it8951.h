@@ -166,6 +166,9 @@ class It8951 : public ISurface {
                          uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;
   // One row of the glass, packed, taken from the image an app drew in.
   void gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
+  // **Com s'envien els píxels, en la paraula del prompt** (`rows`, `burst`, `2bit`), which is what the paint line says when
+  // it reports how long the image took to reach the controller (0.189.68).
+  const char* style_word() const;
   // **The same row in two bits a pixel** (0.189.67): four pixels a byte and the left one in the top two bits, which is the
   // narrowest format the controller has (`IT8951_2BPP`). A level is cut to the four it can carry.
   void gather_row_pairs(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
