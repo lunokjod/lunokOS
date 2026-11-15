@@ -696,6 +696,15 @@ punt on va caure (`ui_touch_progress`), o **un gest** (`ui_gesture`) amb el punt
 decisió queda escrita a `kernel::touch::last_contact()`, que és el que la prova de `test_touch` mesura. El gest no és
 un toc: un contacte que ha caminat no activa mai una fila, un botó ni una targeta (docs/30).
 
+**I el que una app no pot fer: menjar-se els torns** (0.189.65, l'amo: *«no es possible, ja que bloqueja les lectures del
+tàctil i no "pilla" els gestos per falta de mostres»*). El tàctil es pregunta **un cop per torn** —`touch::poll` és al
+`kernel::turn`—, o sigui que **el ritme del torn és el sostre de la resolució d'un gest**: una app que pinta un frame de
+64 × 64 amb `du` gasta **194 ms** per volta i el tàctil es llegeix a **cinc hertzs**, i un lliscament de tres-cents
+mil·lisegons arriba amb una o dues mostres, que és un contacte que no ha caminat. La prova és l'app `loading`, que no és una
+app per a una persona i ho diu: **una animació al vidre d'aquest sistema es menja els gestos**, i no és un defecte de
+l'animació sinó del mostreig. Una app que vulgui les dues coses ha de pintar **menys sovint que el tàctil llegeix** o deixar
+els torns lliures entre frames.
+
 **El que hi ha escrit, l'1/11**: `ITouch` al HAL, el driver sencer (les dues adreces, la configuració,
 el marc dels cinc punts, el zero de tancament), **les tres crides de Lua** (`touch.caps`, `touch.read`,
 `touch.gesture`), els gestos fets pel nucli (`tap`, `double`, `triple`, `long`, `drag` amb un dit o

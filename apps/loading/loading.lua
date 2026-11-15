@@ -1,3 +1,10 @@
+-- **AQUESTA APP ÉS UNA EINA DE MESURA I NO UNA APP PER A UNA PERSONA** (0.189.65, l'amo: *«abandonem aquesta aventura del gif
+-- animat. No es possible, ja que bloqueja les lectures del tàctil i no "pilla" els gestos per falta de mostres»*): the touch is
+-- asked once per turn of the kernel, so a frame of 194 ms is a touch sampled at five hertz, and a slide of three hundred
+-- milliseconds arrives with one or two samples —a contact that never walked—. An animation on this glass eats the gestures, and
+-- what it measures is still worth knowing: **the panel's own ceiling and what a frame costs**. Una app de debò que vulgui les
+-- dues coses ha de pintar menys sovint que el tàctil es llegeix (docs/50).
+--
 -- loading: **una animació al vidre, frame a frame** (0.189.59). El sistema llegeix un GIF i en pinta el primer frame
 -- —`lib/img/src/gif.cpp`: una pàgina d'e-ink mostra una imatge i no una animació—, o sigui que una animació aquí és **una
 -- seqüència de fitxers i un bucle**, i això és el que aquesta app prova: vint-i-quatre PNG de 500 x 500 a setze nivells de

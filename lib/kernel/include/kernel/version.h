@@ -9272,7 +9272,14 @@ namespace kernel {
 // versions were measuring: seven a second is not something this glass gives, **five is**, and the picture has to be bought by
 // the pixel —64 x 64 costs 894 B of frames in total— and not by the mode, because `du` is already the fastest one there is and
 // `du4` measures the same (docs/50, docs/95).
-static const char kVersion[] = "0.189.64";
+// 0.189.65 — **una animació al vidre es menja els gestos, i queda escrit** (l'amo: *«abandonem aquesta aventura del gif animat.
+// No es possible, ja que bloqueja les lectures del tàctil i no "pilla" els gestos per falta de mostres»*): the touch is asked
+// once per turn —`touch::poll` is in `kernel::turn`— so **the turn is the ceiling of a gesture's resolution**: a frame of
+// 64 x 64 with `du` costs 194 ms, the finger is sampled at five hertz, and a slide of three hundred milliseconds arrives with
+// one or two samples, which is a contact that never walked. The app `loading` stays as **what it is, an instrument** —it
+// measures the panel's ceiling and what a frame costs— and says so in its first line; what a person's app must do to have both
+// things is paint **less often than the touch is read**, or leave the turns free between frames (docs/50, docs/95).
+static const char kVersion[] = "0.189.65";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
