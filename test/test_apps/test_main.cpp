@@ -16552,8 +16552,22 @@ void test_the_clock_keeps_its_run_across_a_restart(void) {
   TEST_ASSERT_NOT_NULL(hal::platform().touch());
   TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
 
-  // **The app that ships is the app the test runs** (docs/85).
+  // **A folder that another case made is not a failure** (docs/85): `/data` and `/apps` exist in a full run —the suite is one
+  // disk for all of its cases— and `mkdir` says no to a folder that is already there, so the ground of this app is taken away
+  // first, the same rule `install_the_eraser` follows.
+  storage->remove("/data/clock/run.txt");
+  storage->remove("/data/clock");
+  storage->remove("/apps/clock/clock.lua");
+  storage->remove("/apps/clock/manifest.json");
+  storage->remove("/apps/clock");
+  // **Els dos de dalt poden ser-hi** —la suite comparteix disc— i `mkdir` d'un que ja hi és diu que no: els que han de ser-hi
+  // segur són els de sota, que són els d'aquesta app.
+  storage->mkdir("/data");
+  storage->mkdir("/apps");
+  TEST_ASSERT_TRUE(storage->mkdir("/data/clock"));
   TEST_ASSERT_TRUE(storage->mkdir("/apps/clock"));
+
+  // **The app that ships is the app the test runs** (docs/85).
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/clock/clock.lua", "/apps/clock/clock.lua"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/clock/manifest.json", "/apps/clock/manifest.json"));
 
@@ -16563,8 +16577,6 @@ void test_the_clock_keeps_its_run_across_a_restart(void) {
   char run[192];
   snprintf(run, sizeof(run), "chrono\trun\t0\t%lld\ntimer\trun\t60000\t%lld\npick\t9\t8\n",
            static_cast<long long>(now_ms - 125000), static_cast<long long>(now_ms - 90000));
-  TEST_ASSERT_TRUE(storage->mkdir("/data"));
-  TEST_ASSERT_TRUE(storage->mkdir("/data/clock"));
   hal::FileSlot slot;
   TEST_ASSERT_TRUE(storage->open("/data/clock/run.txt", hal::OpenMode::kWrite, slot));
   TEST_ASSERT_EQUAL_INT(static_cast<int32_t>(strlen(run)),
@@ -16597,6 +16609,7 @@ void test_the_clock_keeps_its_run_across_a_restart(void) {
   storage->remove("/data/clock/run.txt");
   storage->remove("/apps/clock/clock.lua");
   storage->remove("/apps/clock/manifest.json");
+  storage->remove("/apps/clock");
 
   // The next test gets the default emulator back: the display, the panel and the hour were this test's.
   opts = emu::options();

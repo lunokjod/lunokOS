@@ -9327,6 +9327,12 @@ namespace kernel {
 // un toc fet sobre un vidre buit es lliura **després** que la pàgina hi sigui i clicava la cel·la del llançador de sota el dit;
 // ara la pàgina nova **ha de veure el vidre buit abans que cap contacte sigui seu** (`g_page_wants_an_empty_glass`) (docs/30,
 // docs/50).
+// 0.189.105 — **la prova del Clock deixa de dependre del disc que la suite comparteix, i el pressupost de memòria diu el que va
+// petar el link del Paper**. `test_the_clock_keeps_its_run_across_a_restart` passava sola i fallava a la suite sencera: els
+// `/data` i `/apps` del disc de les proves ja hi són quan hi arriba i `mkdir` d'una carpeta que ja existeix diu que no, o sigui
+// que la carpeta d'aquesta app es pren i es torna a fer —la regla que `install_the_eraser` ja seguia— i els dos de dalt es
+// demanen sense exigir-ne la resposta (docs/80, docs/85). I `docs/75` compta els blocs dels pintors (`paint_row` 3 × 256 B i el
+// títol d'una targeta, 96 B) amb el número que va fer dir al link del Paper `dram0_0_seg overflowed by 32 bytes` (0.189.102).
 // 0.189.104 — **un camp buit del compte enrere és un zero** (l'amo: *«Clock, pestanya Timer cal posar el segons!!! ridicul! si no
 // els poso, s'ha d'assumir 00»*). El compte enrere demanava els minuts **i** els segons —un `index` buit valia `-1` i l'app
 // refusava el Start—, o sigui que cinc minuts volien dir cinc minuts i a més un dit sobre els segons que ja se sabia. Ara un
@@ -9371,7 +9377,7 @@ namespace kernel {
 // forats del sistema que aquesta app és la primera a trepitjar: **un `ui.button` sense vores d'una pàgina esborrava tota la
 // pàgina** —la cara es pinta al canvas del pare i el clear dels cantons era de tot el canvas— i ara la cara és la caixa del
 // botó (docs/30, docs/40, docs/45, docs/50).
-static const char kVersion[] = "0.189.104";
+static const char kVersion[] = "0.189.105";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

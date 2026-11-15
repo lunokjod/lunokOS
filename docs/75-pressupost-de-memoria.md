@@ -51,6 +51,7 @@ per aquests, no heretats.
 | Còpia del nom de l'app (`luabind`) | 1 × 32 B | **32 B** (el `Boot` porta punters del qui crida i poden morir abans que l'app) |
 | Lector del llistat de GitHub (`repository`) | 1 × `sizeof(Listing)` | **2 280 B** (mesurat amb `sizeof` el 4/11: finestra de 2 KB + 48 B de nom + 148 B d'adreça + el mànec). **És estàtic i és un de sol** (`Listing::one()`, 0.88.4): era una local de `entry_at` i dues de `print_listing`, o sigui fins a 4 560 B de pila en un camí que ja ve del shell amb la baixada a sobre, i la pila del `loopTask` fa 16 384 B (el QR de 4 096 B la va fer petar amb `canary watchpoint`, §«Pila») |
 | Buffer del valor de `/nvs` (`kernel`) | 1 × 1 024 B | **1 024 B** (un valor sencer a la memòria: obrir un fitxer no pot reservar; docs/70) |
+| Blocs dels pintors (`ui`) | `paint_row` 3 × 256 B i el títol d'una targeta 96 B | **864 B**. **El títol va néixer de 192 B i el link del Paper va dir que no**: `dram0_0_seg overflowed by 32 bytes` (0.189.102). Un bloc que es pot comptar és el que fa que el següent es mesuri abans de pujar-lo —i el d'un pintor no pot ser de pila, que un control es dibuixa dins del torn d'un altre— |
 
 ### Què costa la ràdio (mesurat el 30/10, ATOM)
 
