@@ -3778,6 +3778,10 @@ bool reboot(const char* reason) {
   if (reason != nullptr && reason[0] != '\0') {
     log_printf(pal::kLogInfo, "APPS", "%s restarts the board: %s", luabind::app_id(), reason);
   }
+  // **I el reinici també tanca l'app abans** (0.189.54): the same hole as the way off and the same reason —a restart swaps the
+  // PSRAM for a boot and an app that was not closed never said goodbye—, and the picture of the restart is painted after it
+  // so the glass ends on the picture (docs/30, docs/40, docs/75).
+  if (g_app_alive) close_app();
   splash::show(splash::kReboot);
   out("restarting...\r\n");
   splash::wait();
@@ -4051,6 +4055,13 @@ LeaveOutcome close_the_app() {
 // a function and not a second copy: a power off that skips the wait leaves the last page of somebody's app on the glass (docs/50).
 bool power_off(const char* reason) {
   if (reason != nullptr && reason[0] != '\0') log_printf(pal::kLogInfo, "POWER", "power off: %s", reason);
+  // **L'app que és al vidre es tanca amb els seus comiats abans que el corrent es talli** (0.189.54): the way off parked the
+  // sessions and cut the supply **without closing the app**, so an `on_pause`/`on_save`/`on_close` never ran —the hour of
+  // `tz` is written there, and the shape of a page and whatever a page wants to write are too— while
+  // `power::deep_sleep_with_the_keys` did close it (0.189.25). The prompt that says `poweroff` has no app in front and this
+  // is nothing there. It goes **before the picture**, so the last ink on the glass is still the picture of the moment, and
+  // before the margin, because a hook may write (docs/30, docs/40, docs/75).
+  if (g_app_alive) close_app();
   // **Una placa que no es pot tallar ho diu abans de gastar el repòs** (0.189.18): the picture, the wait and the margin are
   // for a board that is really going to lose its supply; one that is powered by its cable says so and goes on running.
   const bool can_go = platform().power() != nullptr && platform().power()->can_power_off();

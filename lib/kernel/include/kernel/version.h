@@ -9144,7 +9144,20 @@ namespace kernel {
 //   - **i les dues xifres es diuen separades** (`session::Parked`, `flush` i `park_all`): «no he escrit res» i «no hi havia res
 //     a escriure» es llegeixen diferent en un registre, i el `2 of 2 block(s)` d'abans hauria passat a dir `0 of 3`, que és
 //     un fracàs a ulls de qui el llegeix (docs/30, docs/75).
-static const char kVersion[] = "0.189.53";
+// 0.189.54 — **l'apagada i el reinici tanquen l'app abans de tallar el corrent** (l'amo: *«El poweroff respecta els temps
+// necessaris perqué tot s'apagui o s'inicialitzi correctament abans de tallar la llum? Em preocuen coses com les flash, l'i2c
+// amb l'FRAM o una gravació lenta al SD.. tot això és síncron?»*):
+//   - **el forat**: `power_off` i `reboot` desaven les sessions i tallaven el corrent **sense tancar l'app**, o sigui que el
+//     seu `on_pause`/`on_save`/`on_close` no s'executava mai —l'hora de `tz` s'escriu allà, i la forma d'una pàgina i el que
+//     una pàgina vulgui desar també— mentre que el son amb les tecles sí que la tancava (0.189.25). Ara les tres baixades
+//     fan el mateix camí: comiats de l'app, imatge del moment, fitxers, repòs i corrent;
+//   - **l'ordre és el que fa que sigui segur**: l'app es tanca **abans de la imatge** (l'última tinta del vidre és la imatge i
+//     no el prompt) i **abans del repòs**, perquè un ganxo pot escriure;
+//   - **i el que cada capa garanteix, dit** (docs/75): littlefs escriu el bloc i la seva metadada dins `lfs_file_close`,
+//     `fclose` de FatFs escriu les dades i la FAT i espera els seus sectors, cada escriptura del FRAM és una transacció I2C
+//     bloquejant (i un FM24C02 no té cicle d'escriptura), la NVS comet dins del `put`, i el que cap crida pot esperar és el
+//     controlador de la targeta —els dos segons de `settle_before_leaving`— i la tinta del vidre (`splash::wait`).
+static const char kVersion[] = "0.189.54";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

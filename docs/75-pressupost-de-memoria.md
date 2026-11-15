@@ -790,6 +790,7 @@ passos i tots surten al registre**:
 
 | Pas | Què fa | La línia |
 |---|---|---|
+| 0 | **l'app que és al vidre es tanca amb els seus comiats** (`on_pause`, `on_save`, `on_close`) i les seves cachés van al disc | `app closed` |
 | 1 | la imatge del moment i **la consola buidada** (`console->flush()`), que és el buffer del port sèrie | `[I][SPLASH] /res/splash/poweroff.png, …` |
 | 2 | s'espera la tinta (`splash::wait`), perquè el que una persona llegeix i el vidre diguin el mateix | — |
 | 3 | **`session::park_all`**, un fitxer per bloc | `home_eink parks 'apps': 32768 B to /session/home_eink/apps in 106 ms` |
@@ -808,7 +809,22 @@ passos i tots surten al registre**:
   alimentada pel cable no ha d'esperar dos segons per sentir que no es pot apagar. La Paper diu que sí, l'emulador diu el
   que diu el model, i l'ATOM que no.
 - **El reinici passa pel mateix camí**: `reboot` també comprova els fitxers, renta els volums i reposa, perquè un reinici
-  talla els busos dels volums igual que una apagada.
+  talla els busos dels volums igual que una apagada. **I el pas 0 també hi és des de la 0.189.54**: ni la baixada ni el
+  reinici tancaven l'app, o sigui que una apagada amb una pàgina oberta se saltava el seu `on_close` —l'hora de `tz`
+  s'escriu allà, i la forma d'una pàgina també— mentre que el son amb les tecles sí que la tancava (0.189.25). Ara les tres
+  baixades fan el mateix: comiats, imatge, fitxers, repòs i corrent.
+
+**I què és síncron, capa per capa** (la pregunta de l'amo: *«el poweroff respecta els temps necessaris… tot això és
+síncron?»*). Sí, i cada cosa ho és per una raó que es pot dir:
+
+| Capa | És síncron? | Per què |
+|---|---|---|
+| **littlefs** (`/apps`, `/cfg`, `/session` del flaix) | **sí** | Each file is opened, written and closed inside the call that writes it, and littlefs writes the block and its metadata on `lfs_file_close` — the call does not answer until the flash has it (`lib/hal_esp32/src/storage.cpp`, docs/70) |
+| **La targeta** (FatFs) | **sí, i amb un asterisc** | `fclose` writes the data and the FAT entry and waits for its sectors; the asterisk is the **card's own controller**, which may still be programming its internal flash for a few milliseconds after the last sector — that is the 2 000 ms margin, which no call of the filesystem can replace (there is no `sync()` in this IDF to link against, measured on the board, docs/70) |
+| **El FRAM** (`/fram`, I2C) | **sí** | Each write is one blocking `i2c_master_write_to_device` — the STOP is on the wire when it answers — and an FM24C02 is FRAM: the byte is stored by the end of the transaction, with no write cycle to wait for (`lib/hal_esp32/src/fm24c02.cpp`, docs/50) |
+| **El magatzem de claus** (NVS) | **sí** | `Preferences::putBytes` commits the namespace inside the call, and `settle_before_leaving` asks `commit()` on the store as the belt to that (docs/70) |
+| **El vidre** (la imatge del moment) | **sí, amb `splash::wait`** | A present is a queue: the ink is waited on before anything else happens, so what a person reads and what the panel has are the same thing (docs/50) |
+| **El port sèrie** | **sí, amb `console->flush()`** | A UART keeps bytes in flight after a write returns, so the line is emptied twice: before the picture and in `settle_before_leaving` (docs/50) |
 
 ## La taula de canvas i la RAM interna (pendent, i és un risc)
 
