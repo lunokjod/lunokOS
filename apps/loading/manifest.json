@@ -1,9 +1,0 @@
-{
-  "title": "Loading",
-  "author": "@lunokjod",
-  "version": "0.1.6",
-  "entry": "loading.lua",
-  "boards": ["esp32"],
-  "icon": "res/icon.png",
-  "description": "An animation of frames painted one after the other at seven a second, to see what the glass does with a moving picture: a GIF is a sequence of files and a loop, because this system paints the first frame of an animation and not the animation.\nThe frames are sixteen levels of grey, which is what the panel has, and the page is not cleaned between them: the picture covers the same rectangle every time, so what the glass is asked for is that rectangle and nothing else."
-}

@@ -72,7 +72,11 @@ bool present(hal::UpdateMode mode);
 uint32_t bus_mhz();
 bool set_bus_mhz(uint32_t mhz);
 
-const int32_t kPaintWindowMs = 1500;
+// **Quatre-cents i no mil cinc-cents** (0.189.79): the window was sized by eye when a paint still cost six hundred and sixty
+// milliseconds of preparation; with the bands, the pointers and the bus at twenty-four the worst page the board measures is
+// **182 ms**, so four hundred is twice the work and not four times it. El que es paga de més és el processador a dalt durant
+// la tinta, que és quan no fa cap falta (docs/50, docs/95).
+const int32_t kPaintWindowMs = 400;
 void hold_for_a_paint();
 bool idle();
 // Why the last paint was refused, in the panel's own words (docs/50).
