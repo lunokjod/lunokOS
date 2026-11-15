@@ -988,6 +988,14 @@ O sigui: **la preparació d'una pàgina és ara 182 ms** (84 de cable i 98 de gi
 d'una franja **7 ms** contra 24. **I el bus va a vint-i-quatre de fàbrica des de la 0.189.78**: el deu era una precaució de quan
 el handshake no era clar, i el número que la substitueix està mesurat. `panel bus 16` hi torna si mai una pàgina surt ratllada.
 
+**I l'última mica és la mida de la banda** (0.189.80): amb el cable a vint-i-quatre el gir és la meitat gran de la preparació
+(98 contra 84), i el que el limita és que una banda de vuit files llegeix **quatre bytes** d'una línia de memòria cau de
+trenta-dos. Amb una banda de **seixanta-quatre files** la línia s'aprofita sencera, i el preu és un buffer de recollida a part
+de trenta-dos kilobytes a la PSRAM: la recollida i la tramesa deixen de ser el mateix tros de tres mil vuit-cents quaranta
+bytes, que és el que obligava a bandes de vuit.
+
+**Pendent de mesurar**: `gathering` d'una pàgina (s'espera **~50 ms**, i la preparació ~135) amb els dos estils.
+
 Aquesta era la recepta que es va fer servir, i serveix per a qualsevol altra corba:
 
 ```

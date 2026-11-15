@@ -1181,7 +1181,12 @@ un reinici el torna a deu.
 **I el que quedava era el bus, i el bus es va pujar** (0.189.78): amb `panel bus` movent el rellotge en calent, la placa va
 dir 214 ms de cable a deu megahertz, 136 a setze, 110 a vint i **84 a vint-i-quatre**, amb la pàgina ben pintada als quatre.
 **L'SPI va a vint-i-quatre de fàbrica** i la preparació d'una pàgina queda en **182 ms** (84 de cable i 98 de gir) contra els
-662 de què es va partir. **I aquí s'acaba el que el driver pot fer**: amb 182 ms de preparació i 1 150 de tinta, el que domina
+662 de què es va partir. **I l'última mica, la mida de la banda** (0.189.80): the rows of a band are neighbours in `x`, so a band of sixty-four rows is
+what a thirty-two-byte line of the PSRAM's cache carries at four bits a pixel — with eight rows, seven eighths of every line
+were thrown away. The gathering and the sending stop being the same buffer: thirty-two kilobytes to gather into, and four
+thousand and ninety-two byte chunks out to the bus.
+
+**I aquí s'acaba el que el driver pot fer**: amb 182 ms de preparació i 1 150 de tinta, el que domina
 una pàgina és la tinta, i això ja no és un número d'aquest fitxer sinó de la qualitat que cada pintada demana.
 
 **El tercer estil era un bit per píxel i no podia ser-ho** (0.189.67, corregit): el camp de format de `LD_IMG_AREA` té

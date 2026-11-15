@@ -902,41 +902,32 @@ bool It8951::flush(UpdateMode mode) {
       row_index = static_cast<uint16_t>(row_index + band);
     }
   } else {
-    // **Els bursts** (0.189.66): the rows are gathered into stretches of `kStretch` bytes that go out with **one prefix and
-    // no edge of CS in between**, and the last stretch lifts the line. The prefix of a second stretch with the CS held is
-    // what the controller reads as two pixels and what slides a page sideways (measured 1/11, docs/50), so there is one
-    // preamble for the whole send and the stretches are only what the bus can take at a time.
-    uint32_t filled = 0;
-    uint32_t wire_from = now_us();
+    // **Els bursts** (0.189.66): the rows go out with **one prefix and no edge of CS in between**, and the last chunk lifts the
+    // line. The prefix of a second stretch with the CS held is what the controller reads as two pixels and what slides a page
+    // sideways (measured 1/11, docs/50), so there is one preamble for the whole send.
+    //
+    // **I la recollida va per bandes de seixanta-quatre files** (0.189.80): the rows of a band are gathered **in one pass** in
+    // the buffer —where the image is read in lines of the cache, one for every sixty-four rows— and from there they travel in
+    // chunks of what the bus can take. Abans la recollida i la tramesa eren el mateix buffer de tres mil vuit-cents quaranta
+    // bytes, i això obligava a bandes de vuit files i a llegir la línia de memòria cau per aprofitar-ne un vuitè (docs/50).
     if (sent) sent = begin_pixels();
-    wire_us += now_us() - wire_from;
+    uint32_t left = static_cast<uint32_t>(h) * row_bytes;
     for (uint16_t row_index = 0; row_index < h && sent;) {
-      // **Una banda de files de cop** (0.189.70): the rows of a pass are gathered together so that the image is read in lines
-      // of the cache —the rows of a band are neighbours in x, and one read of thirty-two bytes carries eight of them with the
-      // wide format and sixteen with the narrow one (docs/50).
-      uint16_t band = static_cast<uint16_t>(kStretch / row_bytes);
+      uint16_t band = static_cast<uint16_t>(h - row_index);
       if (band > hal::kGatherBand) band = hal::kGatherBand;
-      const uint16_t left = static_cast<uint16_t>(h - row_index);
-      if (band > left) band = left;
-      // **I un tros sempre comença en una fila**: the band is gathered **where it is going to go out**, so not one byte of the
-      // image is copied twice —before, every byte was gathered into a row of the stack and then copied into the stretch, which
-      // on the board was fifty milliseconds of a page and one more write of the whole image for nothing—. A stretch with no
-      // room for the whole band goes out first, which is also why a row is never cut in two.
-      if (filled != 0 && filled + static_cast<uint32_t>(band) * row_bytes > kStretch) {
-        wire_from = now_us();
-        sent = write_stretch(stretch_, filled, true);
+      gather(stretch_, nx0, static_cast<uint16_t>(ny0 + row_index), w, band);
+      const uint32_t band_bytes = static_cast<uint32_t>(band) * row_bytes;
+      uint32_t at = 0;
+      while (at < band_bytes && sent) {
+        uint32_t chunk = band_bytes - at;
+        if (chunk > kChunk) chunk = kChunk;
+        left -= chunk;
+        const uint32_t wire_from = now_us();
+        sent = write_stretch(stretch_ + at, chunk, left > 0);
         wire_us += now_us() - wire_from;
-        filled = 0;
+        at += chunk;
       }
-      if (!sent) break;
-      gather(stretch_ + filled, nx0, static_cast<uint16_t>(ny0 + row_index), w, band);
-      filled += static_cast<uint32_t>(band) * row_bytes;
       row_index = static_cast<uint16_t>(row_index + band);
-    }
-    if (sent && filled > 0) {
-      wire_from = now_us();
-      sent = write_stretch(stretch_, filled, false);
-      wire_us += now_us() - wire_from;
     }
   }
   give_bus();

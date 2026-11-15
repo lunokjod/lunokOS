@@ -157,11 +157,12 @@ class It8951 : public ISurface {
   // **L'estil d'enviament i el buffer d'un tros** (0.189.66): the stretch is a member and not the stack because the task that
   // paints has six or seven kilobytes and two thousand more would not fit (docs/75).
   hal::FlushStyle style_ = hal::FlushStyle::kRows;
-  // **Un tros són vuit files del vidre** (0.189.70): it was two thousand bytes, which is four rows of a full page, and the
-  // rows of a stretch are now gathered **in one pass** so that the image is read in lines of the cache instead of one pixel
-  // at a time (docs/50). Three thousand eight hundred and forty is eight rows of nine hundred and sixty pixels at four
-  // bits, sixteen at two, and it is under the four thousand and ninety-two bytes one transaction of this bus can take.
-  static const uint32_t kStretch = 3840;
+  // **La recollida i la tramesa són dues mides diferents** (0.189.80): `kStretch` is where a band of rows is gathered —sixty-
+  // four rows of five hundred and twelve bytes, thirty-two kilobytes, which is one line of the PSRAM's cache for every pass—
+  // and `kChunk` is what one transaction of this bus can take, four thousand and ninety-two bytes at most. Abans eren el
+  // mateix número i per això la banda era de vuit files (docs/50).
+  static const uint32_t kStretch = 32768;
+  static const uint32_t kChunk = 3840;
   // **A PSRAM i no a la DRAM** (0.189.66): two kilobytes of static buffer made the linker say `region dram0_0_seg overflowed
   // by 1 688 bytes` —the internal RAM of this chip has no room for one— and the image of the glass is already there, in the
   // same memory the SPI driver copies from for every transaction it makes (docs/50, docs/75).
