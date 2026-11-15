@@ -166,7 +166,7 @@ class It8951 : public ISurface {
   // by 1 688 bytes` —the internal RAM of this chip has no room for one— and the image of the glass is already there, in the
   // same memory the SPI driver copies from for every transaction it makes (docs/50, docs/75).
   uint8_t* stretch_ = nullptr;
-  uint32_t spi_hz_ = 10000000;
+  uint32_t spi_hz_ = 24000000;
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
   void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
                          uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;

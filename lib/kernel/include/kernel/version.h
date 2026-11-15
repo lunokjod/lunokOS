@@ -9288,7 +9288,7 @@ namespace kernel {
 // model de l'emulador ja en sap els tres preus**, perquè el que es vol veure abans de tocar la placa és això: un frame de
 // 64 × 64 costa 190 ms de present amb `rows`, 121 amb `burst` i 119 amb `1bit`, o sigui que el coll passa a ser la tinta de
 // `du` i no el cable (docs/50, docs/85, docs/95).
-static const char kVersion[] = "0.189.77";
+static const char kVersion[] = "0.189.78";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

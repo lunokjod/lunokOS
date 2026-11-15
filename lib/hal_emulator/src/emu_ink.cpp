@@ -11,7 +11,7 @@ namespace {
 // costa uns cent microsegons de més que els seus bytes** (282 − 229 = 53 ms per a 540 files) i la franja ho diu igual
 // (66 contra 10 ms per a les mateixes 540 files). The 1 100 of before was **an inference** —a page's total minus its ink
 // minus the wire— and it was ten times the truth: a transaction of a row is a hundred microseconds, not a millisecond.
-const uint32_t kBusHz = 10000000;
+const uint32_t kBusHz = 24000000;  // the bus of the board since 0.189.78 (docs/95)
 const uint32_t kRowUs = 100;
 // **Un tros d'esclat** (0.189.66): the driver of the Paper hands the bus two thousand bytes at a time —that is what the SPI
 // driver takes for DMA— and pays one transaction for each stretch.

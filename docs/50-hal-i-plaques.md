@@ -1178,10 +1178,11 @@ canvia, perquè el número que queda per mesurar no costi un flaix i una sessió
 vint-i-quatre; **no se'n recorda cap reinici**, com l'estil, i si el controlador deixés de contestar a un rellotge massa alt,
 un reinici el torna a deu.
 
-**I el que queda ja no és el gir sinó el bus**: la pàgina sencera prepara en **313 ms** (214 de cable i 99 de gir) i el cable
-és a 1,21 MB/s, o sigui un deu megahertz aprofitat al noranta-set per cent. Per baixar d'aquí cal **pujar el rellotge de
-l'SPI**, que és l'única palanca que queda i la que el driver de referència ja aprofita (24 MHz a les dades, deu a les
-comandes).
+**I el que quedava era el bus, i el bus es va pujar** (0.189.78): amb `panel bus` movent el rellotge en calent, la placa va
+dir 214 ms de cable a deu megahertz, 136 a setze, 110 a vint i **84 a vint-i-quatre**, amb la pàgina ben pintada als quatre.
+**L'SPI va a vint-i-quatre de fàbrica** i la preparació d'una pàgina queda en **182 ms** (84 de cable i 98 de gir) contra els
+662 de què es va partir. **I aquí s'acaba el que el driver pot fer**: amb 182 ms de preparació i 1 150 de tinta, el que domina
+una pàgina és la tinta, i això ja no és un número d'aquest fitxer sinó de la qualitat que cada pintada demana.
 
 **El tercer estil era un bit per píxel i no podia ser-ho** (0.189.67, corregit): el camp de format de `LD_IMG_AREA` té
 **quatre valors i cap cinquè** —`IT8951_2BPP 0`, `IT8951_3BPP 1`, `IT8951_4BPP 2`, `IT8951_8BPP 3`, a `IT8951_Defines.h`

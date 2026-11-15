@@ -66,10 +66,12 @@ const uint16_t kRegI80Cpcr = 0x0004;
 const uint16_t kBppFormat4 = static_cast<uint16_t>((1 << 8) | (2 << 4));
 const uint16_t kBppFormat2 = static_cast<uint16_t>((1 << 8) | (0 << 4));
 
-// **10 MHz, the speed of the maker's own driver**, and slower than the 20 the bus allows on purpose:
-// while the handshake does not work, the bus clock is one variable too many. It goes up when a
-// `GetDeviceInfo` has come back at this speed (docs/95).
-const int kSpiHz = 10000000;
+// **24 MHz, i és una mesura i no una aposta** (0.189.78): the bus started at the ten megahertz of the maker's own driver,
+// because while the handshake did not work the clock was one variable too many. The board then said what the wire costs at
+// every step —**214 ms a page at ten, 136 at sixteen, 110 at twenty, 84 at twenty-four**— i les quatre pàgines van sortir
+// bé, o sigui que el que era una precaució es pot canviar per un número (docs/50, docs/95). Vint-i-quatre és el màxim que el
+// controlador accepta, i `panel bus 16` hi torna si alguna pàgina surt ratllada.
+const int kSpiHz = 24000000;
 
 // **Un rellotge de microsegons** (0.189.69): the tick of FreeRTOS is a millisecond and a row of this panel is a tenth of
 // one, so a paint counted with ticks says a page spent `282 ms` on the wire and a strip spent `66` —both true to the

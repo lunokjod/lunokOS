@@ -974,8 +974,21 @@ i no els 433 de què es partia— i el vidre surt bé amb els dos estils.
 vuit files · 232 amb el rellotge a 240 · **99 amb el bucle sense la lambda**. El que va ensenyar cada pas està als fulls de
 dalt i cap d'ells es va poder endevinar: el primer es va veure mirant el rellotge, el segon comptant instruccions al binari.
 
-**I la propera tanda és d'una sola flaixada** (0.189.77): `panel bus` mou el rellotge de l'SPI en calent, així que els tres
-números del cable es poden mesurar seguits, sense tornar a flaixar:
+**I la tanda del rellotge, en una sola flaixada** (0.189.77, placa el 15/11): `panel bus` mou l'SPI en calent i la corba va
+sortir neta i lineal, amb la pàgina sencera ben pintada a tots quatre passos:
+
+| bus | `on the wire` d'una pàgina | franja 48 × 540 |
+|---|---|---|
+| 10 MHz | 214 ms | 10 ms |
+| 16 MHz | 136 ms | 6 ms |
+| 20 MHz | 110 ms | 5 ms |
+| **24 MHz** | **84 ms** | **4 ms** |
+
+O sigui: **la preparació d'una pàgina és ara 182 ms** (84 de cable i 98 de gir) contra els **662** de què es va partir, i la
+d'una franja **7 ms** contra 24. **I el bus va a vint-i-quatre de fàbrica des de la 0.189.78**: el deu era una precaució de quan
+el handshake no era clar, i el número que la substitueix està mesurat. `panel bus 16` hi torna si mai una pàgina surt ratllada.
+
+Aquesta era la recepta que es va fer servir, i serveix per a qualsevol altra corba:
 
 ```
 panel bus            →  diu a quants MHz va (deu de fàbrica)
