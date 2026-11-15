@@ -9223,7 +9223,19 @@ namespace kernel {
 // bits**, because it is a composed curve, and `tools/make_bar_icon.py` writes it from the font (SIL OFL 1.1 for the font,
 // Apache 2.0 for the code of Noto; the attribution lives in the generated file and in docs/50). The tool also takes a
 // single-size bitmap font like this one: the drawing is done at its 109 pixels and stepped down to the height asked for.
-static const char kVersion[] = "0.189.58";
+// 0.189.59 — **una animació al vidre** (l'amo: *«tinc un gif animat de càrrega a 7fps, voldría provar-ho al lunoOS»*): the GIF
+// reader paints **the first frame** —an e-ink page shows a picture and not an animation— so an animation here is a sequence of
+// files and a loop, and this is the whole of it:
+//   - **`tools/gif_to_frames.py`** turns an animated GIF into one PNG per frame, at sixteen levels of grey (which is what the
+//     panel has) and with the GIF's own transparency put on paper; the 24 frames of the demo are 37 KB together;
+//   - **l'app `loading`** paints them at the GIF's own 140 ms (7,1 fps) in a loop, and it does **not** clean the page between
+//     them: the picture covers the same rectangle every time, so what the glass is asked for is that rectangle —measured on
+//     the emulator: `paint 20,206 500x500`, the picture centred in a view of 540 x 912— and the quality is `a2`, the one of an
+//     animation (docs/30, docs/50);
+//   - **i el que això diu de la placa**: a partial refresh of that panel is 120 to 300 ms, so seven a second is not something
+//     the glass can do; the app asks for the next frame as soon as the last one is presented and the panel sets the pace
+//     (docs/50, docs/95). L'emulador sí que els ensenya a set per segon.
+static const char kVersion[] = "0.189.59";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

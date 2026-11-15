@@ -1433,7 +1433,9 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   d'un, que és el que era `the file is not a picture this system reads` sobre una foto bona; els cossos es copien al
   bloc del cridador quan són més d'un, perquè el zlib d'aquest projecte és d'una sola crida—), **JPEG** (base i seqüencial estès, amb qualsevol factor de mostreig i marcadors de reinici),
   **BMP** (1, 4, 8, 16, 24 i 32 bits, amb paleta o sense, de dalt o de baix), **GIF** (87a i 89a, la primera
-  imatge, LZW, transparència i entrellaçat), **ICO** (una imatge de BMP o un PNG a dins) i la família
+  imatge, LZW, transparència i entrellaçat —**i només la primera**: una pàgina d'e-ink mostra una imatge i no
+  una animació, i el descodificador passa la resta del fitxer sense llegir-la; una animació al vidre és **una
+  seqüència de PNG i un bucle**, que és el que fa l'app `loading` amb `tools/gif_to_frames.py`, 0.189.59—), **ICO** (una imatge de BMP o un PNG a dins) i la família
   **netpbm** (`PBM`, `PGM` i `PPM`, en text i en cru). I **`ICS1`**, la mena de fitxer d'un cau d'aquest sistema
   (quatre bits per píxel, l'amplada sempre parell): el cau d'un llibre que escriu `epub.thumbnail` es llegeix
   aquí com qualsevol altra foto, que és el que fa que una app deixi una miniatura i una altra la pugui pintar
