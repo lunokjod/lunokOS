@@ -1155,8 +1155,18 @@ les fallades de memòria cau baixen de 518 400 a unes 65 000. La funció és **p
 prova que compara la banda amb les seves files una a una: la pàgina ha de sortir igual i només ha de canviar el que es tarda
 (docs/95, E-11). De passada, el tros del bus passa de 2 000 a **3 840 bytes** —vuit files d'una pàgina de 960 píxels a quatre
 bits, setze a dos, i per sota dels 4 092 que caben en una transacció d'aquest bus—: una pàgina són 68 trossos i no 130.
-**Pendent de mesurar a la placa**: el que s'espera és que `gathering` baixi de ~430 ms a l'ordre dels cent i la pàgina de
-~660 a ~330 ms.
+**I la primera mesura de la banda va dir dues coses** (placa, 15/11): la pàgina amb `burst` va baixar de 662 a **537 ms**
+(cable 216, ajuntar **321** —no els 100 que s'esperaven—) i, en canvi, el camí de sempre va **empitjorar**: 383 → **527 ms**
+d'ajuntar, perquè també se'l va fer passar per la funció nova, que amb una fila de banda és més lenta que el bucle antic.
+Dos arreglos, cap d'ells un canvi d'idea:
+
+1. **El byte es fa al registre**: the first version kept an accumulator, a count and a place **per row of the band**, three
+   arrays indexed by a variable —more memory traffic than the pixels they carried—. Now the `per_byte` pixels of a byte are
+   read in a row and the byte is written once (docs/95).
+2. **El camí de sempre també ajunta per bandes**: the sending is still one row per transaction —that is the style— but the
+   rows come out of a band gathered in one pass, so the slow path is not slow because of the turn.
+
+**Pendent de mesurar**: el que s'espera és `gathering` de la pàgina a l'ordre dels cent amb els dos estils.
 
 **El tercer estil era un bit per píxel i no podia ser-ho** (0.189.67, corregit): el camp de format de `LD_IMG_AREA` té
 **quatre valors i cap cinquè** —`IT8951_2BPP 0`, `IT8951_3BPP 1`, `IT8951_4BPP 2`, `IT8951_8BPP 3`, a `IT8951_Defines.h`

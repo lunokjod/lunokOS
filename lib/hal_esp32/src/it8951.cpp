@@ -840,12 +840,29 @@ bool It8951::flush(UpdateMode mode) {
   uint32_t wire_us = 0;
   const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr;
   if (!bursts) {
-    // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is 1 100 µs of the board for each one.
-    for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
-      gather(row, nx0, static_cast<uint16_t>(ny0 + row_index), w, 1);
-      const uint32_t wire_from = now_us();
-      sent = write_pixels(device_, row, row_bytes);
-      wire_us += now_us() - wire_from;
+    // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is the hundred microseconds of the
+    // board for each one. **I el gir es fa igual que a l'altre camí** (0.189.71): a band of rows is gathered in one pass into
+    // the stretch of the bus and the rows go out of there one at a time, which is what this style is —the board measured
+    // two hundred extra milliseconds of a page for gathering them one by one, and that was this driver's fault, not the
+    // style's—. A board without the PSRAM of the stretch gathers row by row and pays it.
+    for (uint16_t row_index = 0; row_index < h && sent;) {
+      uint16_t band = 1;
+      if (stretch_ != nullptr) {
+        band = static_cast<uint16_t>(kStretch / row_bytes);
+        if (band > hal::kGatherBand) band = hal::kGatherBand;
+        const uint16_t left = static_cast<uint16_t>(h - row_index);
+        if (band > left) band = left;
+        gather(stretch_, nx0, static_cast<uint16_t>(ny0 + row_index), w, band);
+      } else {
+        gather(row, nx0, static_cast<uint16_t>(ny0 + row_index), w, 1);
+      }
+      for (uint16_t r = 0; r < band && sent; ++r) {
+        const uint8_t* from = (stretch_ != nullptr) ? (stretch_ + static_cast<uint32_t>(r) * row_bytes) : row;
+        const uint32_t wire_from = now_us();
+        sent = write_pixels(device_, from, row_bytes);
+        wire_us += now_us() - wire_from;
+      }
+      row_index = static_cast<uint16_t>(row_index + band);
     }
   } else {
     // **Els bursts** (0.189.66): the rows are gathered into stretches of `kStretch` bytes that go out with **one prefix and

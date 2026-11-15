@@ -911,16 +911,22 @@ número mesurat.
 **I el preu d'una fila del camí de sempre queda mesurat dues vegades i coincideix**: ~100 µs de transacció per fila
 (282 − 229 a la pàgina, 66 − 10 a la franja).
 
-**La tercera tanda, pendent (0.189.70)**: el gir s'ajunta en bandes de vuit files i el tros del bus passa a 3 840 bytes. Amb
-dues pintades de cada n'hi ha prou per tancar el número:
+**La tercera tanda (0.189.70, placa el 15/11)**: el gir s'ajunta en bandes de vuit files i el tros del bus passa a 3 840
+bytes. La pàgina, amb el vidre correcte i sense cap fila desplaçada:
 
-| què mirar | què hauria de dir |
-|---|---|
-| `gathering` d'una pàgina amb `burst` | **~80–100 ms** en comptes de 433: són unes 65 000 fallades de memòria cau i no 518 400 |
-| `on the wire` d'una pàgina amb `burst` | una mica menys de 229 ms: 68 trossos en comptes de 130 |
-| la pàgina sencera | **~330 ms** de preparació contra els 662 d'abans, i la tinta de 1 200 al darrere, que no es toca |
-| la franja de 48 × 540 amb `burst` | ~10 ms de cable i ~10 d'ajuntar, que és el terra d'aquest panell |
-| **la pàgina ha de sortir igual**: si surt girada, tombada o amb una fila desplaçada, el que falla és la banda, i es torna a `rows` per confirmar-ho | — |
+| pintada | cable | ajuntar | total |
+|---|---|---|---|
+| pàgina, `burst` | 216 ms | **321 ms** | 537 ms (era 662) |
+| pàgina, `rows` | 264 ms | **527 ms** | 791 ms (era 665) |
+
+**La banda va guanyar cent quaranta mil·lisegons i en va fer perdre cent vint al camí de sempre**, i el segon és un regrés
+del driver i no de la idea: el bucle nou, amb una sola fila de banda, és més lent que el vell. D'aquí surten dos arreglos
+(0.189.71): el byte de la fila es fa al registre en comptes de portar tres taules per fila de la banda, i el camí de sempre
+també ajunta per bandes (l'enviament segueix essent una fila per transacció, que és el que aquest estil és).
+
+**Pendent de mesurar**: `gathering` de la pàgina amb `burst` i amb `rows` —l'esperat és l'ordre dels cent en els dos— i la
+franja de 48 × 540, que ha de dir ~10 ms de cable i ~10 d'ajuntar. I la pàgina ha de sortir igual: si surt girada, tombada o
+amb una fila desplaçada, el que falla és la banda i es torna a `rows` per confirmar-ho.
 
 **I el `2bit` pinta de debò però amb els nivells mal posats**: la pàgina no llisca i el rectangle és el correcte, però el
 vidre surt **notablement més fosc** (l'amo: *«la pantalla s'ha enfosquit notablement, no és negre, simplement més fosca»*).

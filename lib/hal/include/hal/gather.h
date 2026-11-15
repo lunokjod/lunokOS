@@ -84,31 +84,40 @@ inline void gather_band(uint8_t* out, const uint8_t* image, uint16_t width, uint
                                            : static_cast<int32_t>(nx0);
   const int32_t dy = (rotation == 90) ? -1 : 1;
 
-  uint8_t acc[kGatherBand];
-  uint8_t have[kGatherBand];
-  uint16_t put[kGatherBand];
-  for (uint16_t r = 0; r < h; ++r) {
-    acc[r] = 0;
-    have[r] = 0;
-    put[r] = static_cast<uint16_t>(r * row_bytes);
-  }
-  for (uint16_t i = 0; i < w; ++i) {
-    const int32_t y = y_first + dy * static_cast<int32_t>(i);
-    // The line of the image this pixel belongs to, and where its first row of the band starts.
+  // **Un byte de la fila del vidre són `per_byte` píxels seguits**, so the byte is built in a register and written once: the
+  // first version of this kept an accumulator, a count and a place per row of the band, and those three arrays indexed by a
+  // variable were more memory traffic than the pixels they carried —three hundred and twenty milliseconds of a page, which
+  // the board measured before this was written (docs/50, docs/95).
+  const uint16_t whole = static_cast<uint16_t>(w / per_byte);
+  for (uint16_t b = 0; b < whole; ++b) {
+    const uint16_t i = static_cast<uint16_t>(b * per_byte);
     for (uint16_t r = 0; r < h; ++r) {
       const int32_t x = x_first + dx * static_cast<int32_t>(r);
-      const uint8_t level = image_level(image, width, height, x, y, white);
-      acc[r] = static_cast<uint8_t>((acc[r] << bits) | (two_bit ? (level >> 2) : level));
-      if (++have[r] == per_byte) {
-        out[put[r]] = acc[r];
-        ++put[r];
-        acc[r] = 0;
-        have[r] = 0;
+      uint8_t byte = 0;
+      int32_t y = y_first + dy * static_cast<int32_t>(i);
+      for (uint8_t k = 0; k < per_byte; ++k) {
+        const uint8_t level = image_level(image, width, height, x, y, white);
+        byte = static_cast<uint8_t>((byte << bits) | (two_bit ? (level >> 2) : level));
+        y += dy;
       }
+      out[static_cast<uint32_t>(r) * row_bytes + b] = byte;
     }
   }
-  for (uint16_t r = 0; r < h; ++r) {
-    if (have[r] != 0) out[put[r]] = static_cast<uint8_t>(acc[r] << (bits * (per_byte - have[r])));
+  // **I la cua**, when a row of the glass does not end on a whole byte: the low bits are zeros, as the slow path pads them.
+  const uint16_t rest = static_cast<uint16_t>(w - whole * per_byte);
+  if (rest != 0) {
+    for (uint16_t r = 0; r < h; ++r) {
+      const int32_t x = x_first + dx * static_cast<int32_t>(r);
+      uint8_t byte = 0;
+      int32_t y = y_first + dy * static_cast<int32_t>(whole * per_byte);
+      uint8_t k = 0;
+      for (; k < rest; ++k) {
+        const uint8_t level = image_level(image, width, height, x, y, white);
+        byte = static_cast<uint8_t>((byte << bits) | (two_bit ? (level >> 2) : level));
+        y += dy;
+      }
+      out[static_cast<uint32_t>(r) * row_bytes + whole] = static_cast<uint8_t>(byte << (bits * (per_byte - k)));
+    }
   }
 }
 
