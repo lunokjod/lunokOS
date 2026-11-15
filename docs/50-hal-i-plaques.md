@@ -1341,10 +1341,15 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   imatges són `U+F204 TOGGLE OFF` i `U+F205 TOGGLE ON` de **Font Awesome 6 Free (Solid)**, rasteritzades a **60 × 40** per
   `python3 tools/make_toggle_mark.py` (que escriu `lib/kernel/src/toggle_mark_art.h`, i tampoc no s'edita a mà). El cos es busca
   i no es demana —el que mana és l'alçada de la tinta—, es dibuixa a quatre vegades la mida i es baixa amb la mitjana de cada
-  bloc, que és el que fa els caps rodons rodons, i hi ha un `--bold` que engreixa la tinta un píxel a cada costat i que a
-  aquesta mida **no** s'ha de fer servir: tanca el buit entre el botó i el marc i hi deixa forats de dos píxels (vist a
-  l'emulador). **Llicència**: les icones de Font Awesome són CC BY 4.0 i la font SIL OFL 1.1, i l'atribució viu al fitxer
-  generat i al README.
+  bloc, que és el que fa els caps rodons rodons. **El gruix el fa la mida i res més**: un pas d'engreixar la tinta després
+  de rasteritzar-la tanca el buit entre el botó i el marc i hi deixa fils blancs (vist a l'emulador i descartat per l'amo:
+  *«res de bold»*). **Llicència**: les icones de Font Awesome són CC BY 4.0 i la font SIL OFL 1.1, i l'atribució viu al
+  fitxer generat i al README.
+- **I la casella d'una entrada de menú, que era l'última que quedava feta a mà** (0.189.91): the checkable entry of a menu
+  —the View menu of the editor, `read only` and `wrap`— carried a square of two strokes of two pixels and a square of ink
+  inside them, drawn by `menu_bar_draw`. A menu row has no room for a capsule, so the same tool writes a second pair,
+  `U+F0C8 SQUARE` and `U+F14A CHECK-SQUARE` **del pes Regular** (al Solid el quadre és ple, ■, i no és una casella) a
+  **18 × 18**, i el nucli els posa amb el mateix `draw_bits` que la càpsula.
 - **I la càrrega es pregunta al `platform` i no a `power::`** (0.189.57): `bar::boot` runs before `power::boot`, which is
   after the shell because it may bring an app back from a sleep, so the first read of the gauge answered nothing and the
   strip said `--` with no figure beside it **for the whole half minute of the read rhythm**. The boot asks the gauge the
