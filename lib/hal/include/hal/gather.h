@@ -18,12 +18,9 @@
 
 namespace hal {
 
-// **Files del vidre en un sol pas** (0.189.70), which is the most rows a band may carry. **Seixanta-quatre i no vuit**
-// (0.189.80): the rows of a band are neighbours in x, o sigui que una lectura de la imatge en porta una de cada, i la línia
-// de memòria cau de la PSRAM són **trenta-dos bytes**. Amb quatre bits a píxel, trenta-dos bytes són seixanta-quatre files: per
-// sota d'això es llegeix la línia i se'n tira la resta, i amb vuit files es tirava el vuitanta-set per cent de cada lectura
-// (docs/50, docs/95).
-const uint16_t kGatherBand = 64;
+// **Files del vidre en un sol pas** (0.189.70), which is the most rows a band may carry: the driver gathers into a stretch
+// of the bus, and sixteen is what fits there with the narrowest format. The function takes any `h` up to this.
+const uint16_t kGatherBand = 16;
 
 // The bytes of one row of the glass, whose pixels are four bits each, or two when the format is the narrow one.
 inline uint16_t band_row_bytes(uint16_t w, bool two_bit) {

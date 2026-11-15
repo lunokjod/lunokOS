@@ -66,12 +66,10 @@ const uint16_t kRegI80Cpcr = 0x0004;
 const uint16_t kBppFormat4 = static_cast<uint16_t>((1 << 8) | (2 << 4));
 const uint16_t kBppFormat2 = static_cast<uint16_t>((1 << 8) | (0 << 4));
 
-// **24 MHz, i és una mesura i no una aposta** (0.189.78): the bus started at the ten megahertz of the maker's own driver,
-// because while the handshake did not work the clock was one variable too many. The board then said what the wire costs at
-// every step —**214 ms a page at ten, 136 at sixteen, 110 at twenty, 84 at twenty-four**— i les quatre pàgines van sortir
-// bé, o sigui que el que era una precaució es pot canviar per un número (docs/50, docs/95). Vint-i-quatre és el màxim que el
-// controlador accepta, i `panel bus 16` hi torna si alguna pàgina surt ratllada.
-const int kSpiHz = 24000000;
+// **10 MHz, the speed of the maker's own driver**, and slower than the 20 the bus allows on purpose:
+// while the handshake does not work, the bus clock is one variable too many. It goes up when a
+// `GetDeviceInfo` has come back at this speed (docs/95).
+const int kSpiHz = 10000000;
 
 // **Un rellotge de microsegons** (0.189.69): the tick of FreeRTOS is a millisecond and a row of this panel is a tenth of
 // one, so a paint counted with ticks says a page spent `282 ms` on the wire and a strip spent `66` —both true to the
@@ -196,22 +194,20 @@ bool It8951::wait_busy(uint32_t timeout_ms) {
   return true;
 }
 
-bool It8951::take_bus(void* handle) {
+bool It8951::take_bus() {
   // **Locked, not just busy**: ESP-IDF answers `ESP_ERR_INVALID_ARG` to a `CS_KEEP_ACTIVE`
   // transaction sent by a device that has not locked the bus first (`spi_device_queue_trans`, in
   // `spi_master.c` of v4.4.6). That was the whole of "bus refused the prefix": the panel was up —
   // busy read 1 — and the driver would not hold its CS down (measured on the board, 1/11).
-  // **I es bloqueja el del píxels** (0.189.81): the bus is locked by the device that is going to transmit, because a lock
-  // taken by one and used by another is a `CS_KEEP_ACTIVE` transaction that the driver refuses (docs/50).
-  if (spi_device_acquire_bus(static_cast<spi_device_handle_t>(handle), portMAX_DELAY) != ESP_OK) {
+  if (spi_device_acquire_bus(static_cast<spi_device_handle_t>(device_), portMAX_DELAY) != ESP_OK) {
     why_ = "bus did not lock";
     return false;
   }
   return true;
 }
 
-void It8951::give_bus(void* handle) {
-  spi_device_release_bus(static_cast<spi_device_handle_t>(handle));
+void It8951::give_bus() {
+  spi_device_release_bus(static_cast<spi_device_handle_t>(device_));
 }
 
 bool It8951::word(uint16_t prefix, uint16_t value) {
@@ -221,7 +217,7 @@ bool It8951::word(uint16_t prefix, uint16_t value) {
   // there, docs/50).
   spi_device_handle_t device = static_cast<spi_device_handle_t>(device_);
   if (!wait_busy(kBusyTimeoutMs)) return false;
-  if (!take_bus(device_)) return false;
+  if (!take_bus()) return false;
   uint8_t head[2] = {static_cast<uint8_t>(prefix >> 8), static_cast<uint8_t>(prefix & 0xFF)};
   spi_transaction_t first = {};
   first.length = 16;
@@ -229,7 +225,7 @@ bool It8951::word(uint16_t prefix, uint16_t value) {
   first.flags = SPI_TRANS_CS_KEEP_ACTIVE;
   if (spi_device_transmit(device, &first) != ESP_OK) {
     why_ = "bus refused the prefix";
-    give_bus(device_);
+    give_bus();
     return false;
   }
   const bool ready = wait_busy(kBusyTimeoutMs);
@@ -242,7 +238,7 @@ bool It8951::word(uint16_t prefix, uint16_t value) {
     sent = spi_device_transmit(device, &second) == ESP_OK;
     if (!sent) why_ = "bus refused the word";
   }
-  give_bus(device_);
+  give_bus();
   return ready && sent;
 }
 
@@ -288,14 +284,14 @@ bool It8951::write_pixels(void* handle, const uint8_t* bytes, uint32_t count) {
 // **El prefix dels píxels, una vegada** (0.189.66): the controller is told "an image follows" with a zero word, and the CS is
 // kept down inside it. A second one with the line still held is read as two pixels and slides the page (measured 1/11).
 bool It8951::begin_pixels() {
-  if (pixels_ == nullptr) return false;
+  if (device_ == nullptr) return false;
   const uint8_t preamble[2] = {static_cast<uint8_t>(kPrefixData >> 8),
                                static_cast<uint8_t>(kPrefixData & 0xFF)};
   spi_transaction_t start = {};
   start.length = 16;
   start.tx_buffer = preamble;
   start.flags = SPI_TRANS_CS_KEEP_ACTIVE;
-  if (spi_device_transmit(static_cast<spi_device_handle_t>(pixels_), &start) != ESP_OK) {
+  if (spi_device_transmit(static_cast<spi_device_handle_t>(device_), &start) != ESP_OK) {
     why_ = "bus refused the data preamble";
     return false;
   }
@@ -305,12 +301,12 @@ bool It8951::begin_pixels() {
 // **Un tros de píxels** (0.189.66): the bytes as they are, in one transaction, and the CS stays down while another stretch is
 // coming. This is the whole of the style: the cost of a transaction stops being paid once per row.
 bool It8951::write_stretch(const uint8_t* bytes, uint32_t count, bool more) {
-  if (pixels_ == nullptr || bytes == nullptr || count == 0) return false;
+  if (device_ == nullptr || bytes == nullptr || count == 0) return false;
   spi_transaction_t trans = {};
   trans.length = count * 8;
   trans.tx_buffer = bytes;
   trans.flags = more ? SPI_TRANS_CS_KEEP_ACTIVE : 0;
-  if (spi_device_transmit(static_cast<spi_device_handle_t>(pixels_), &trans) != ESP_OK) {
+  if (spi_device_transmit(static_cast<spi_device_handle_t>(device_), &trans) != ESP_OK) {
     why_ = "bus refused the image";
     return false;
   }
@@ -362,12 +358,12 @@ bool It8951::read_words(uint16_t* words, uint32_t count) {
   // The maker's `ReadWords`, word for word: the preamble, **a busy wait**, one dummy word, **another
   // busy wait**, and only then the answer. The two pauses are the protocol and not politeness (docs/50).
   if (!wait_busy(kBusyTimeoutMs)) return false;
-  if (!take_bus(device_)) return false;
+  if (!take_bus()) return false;
   if (!read_while_holding(device, words, count)) {
-    give_bus(device_);
+    give_bus();
     return false;
   }
-  give_bus(device_);
+  give_bus();
   return true;
 }
 
@@ -450,20 +446,14 @@ bool It8951::join_bus() {
   // tried **as a device first**, because a bus that is already up is the normal case —the card mounted
   // it— and asking for it again only fills the log with an error that is not one (measured on the
   // board, 1/11).
-  //
-  // **I són dos dispositius** (0.189.81): the words go at ten megahertz and the image at the clock a person asked for, because
-  // a read at twenty-four brings back rubbish —`0x010e010e` for the address of an image that lives at `0x001236e0`— and the
-  // boot's handshake is a read. The CS is the same wire for both, and they never talk at the same time: `take_bus` is held
-  // for the whole of a paint (docs/50, docs/95).
-  auto add = [this](uint32_t hz, void** handle) {
-    spi_device_interface_config_t device = {};
-    device.clock_speed_hz = static_cast<int>(hz);
-    device.mode = 0;
-    device.spics_io_num = pins_.cs;
-    device.queue_size = 4;
-    return spi_bus_add_device(SPI2_HOST, &device, reinterpret_cast<spi_device_handle_t*>(handle)) == ESP_OK;
-  };
-  if (!add(kWordHz, &device_)) {
+  spi_device_interface_config_t device = {};
+  device.clock_speed_hz = spi_hz_;
+  device.mode = 0;
+  device.spics_io_num = pins_.cs;
+  device.queue_size = 4;
+  esp_err_t joined = spi_bus_add_device(SPI2_HOST, &device,
+                                        reinterpret_cast<spi_device_handle_t*>(&device_));
+  if (joined != ESP_OK) {
     spi_bus_config_t bus = {};
     bus.mosi_io_num = pins_.mosi;
     bus.miso_io_num = pins_.miso;
@@ -472,15 +462,11 @@ bool It8951::join_bus() {
     bus.quadhd_io_num = -1;
     bus.max_transfer_sz = 8192;
     if (spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO) == ESP_OK) bus_ = true;
-    if (!add(kWordHz, &device_)) {
-      snprintf(profile_, sizeof(profile_), "the panel did not join the bus at %u MHz",
-               static_cast<unsigned>(kWordHz / 1000000u));
-      return false;
-    }
+    joined = spi_bus_add_device(SPI2_HOST, &device,
+                                reinterpret_cast<spi_device_handle_t*>(&device_));
   }
-  if (!add(spi_hz_, &pixels_)) {
-    snprintf(profile_, sizeof(profile_), "the image did not get its own device at %u MHz",
-             static_cast<unsigned>(spi_hz_ / 1000000u));
+  if (joined != ESP_OK) {
+    snprintf(profile_, sizeof(profile_), "the panel did not join the bus at %d MHz", spi_hz_ / 1000000);
     return false;
   }
   return true;
@@ -491,21 +477,12 @@ bool It8951::join_bus() {
 // two hundred and fourteen milliseconds at ten megahertz and the wire is the last thing left to win, so the number has to be
 // something a person can move while the board is on and not a constant that needs a flash (docs/50).
 bool It8951::leave_bus() {
-  bool gone = true;
-  if (pixels_ != nullptr) {
-    gone = (spi_bus_remove_device(static_cast<spi_device_handle_t>(pixels_)) == ESP_OK) && gone;
-    pixels_ = nullptr;
-  }
-  if (device_ != nullptr) {
-    gone = (spi_bus_remove_device(static_cast<spi_device_handle_t>(device_)) == ESP_OK) && gone;
-    device_ = nullptr;
-  }
-  return gone;
+  if (device_ == nullptr) return true;
+  const esp_err_t gone = spi_bus_remove_device(static_cast<spi_device_handle_t>(device_));
+  device_ = nullptr;
+  return gone == ESP_OK;
 }
 
-// **`panel bus` mou només el rellotge de la imatge** (0.189.81): the words stay at ten megahertz, which is the one clock the
-// controller's own reads are known to survive. The first version of this moved the whole bus to twenty-four and the boot's
-// handshake came back as rubbish on the board, which is what a panel believed to be 270 × 480 tells a person (docs/95).
 bool It8951::set_bus_mhz(uint32_t mhz) {
   if (mhz < 5 || mhz > 24) {
     snprintf(profile_, sizeof(profile_), "the bus of this panel takes five to twenty-four megahertz, not %u",
@@ -514,22 +491,15 @@ bool It8951::set_bus_mhz(uint32_t mhz) {
   }
   const uint32_t wanted = mhz * 1000000u;
   if (wanted == spi_hz_) return true;
+  if (!leave_bus()) {
+    snprintf(profile_, sizeof(profile_), "the panel did not let go of the bus");
+    return false;
+  }
   const uint32_t was = spi_hz_;
-  // The image is the only device that is made again, and the words' device is not touched at all.
-  if (pixels_ != nullptr) spi_bus_remove_device(static_cast<spi_device_handle_t>(pixels_));
-  pixels_ = nullptr;
   spi_hz_ = wanted;
-  spi_device_interface_config_t device = {};
-  device.clock_speed_hz = static_cast<int>(spi_hz_);
-  device.mode = 0;
-  device.spics_io_num = pins_.cs;
-  device.queue_size = 4;
-  if (spi_bus_add_device(SPI2_HOST, &device, reinterpret_cast<spi_device_handle_t*>(&pixels_)) != ESP_OK) {
+  if (!join_bus()) {
     spi_hz_ = was;
-    pixels_ = nullptr;
-    device.clock_speed_hz = static_cast<int>(spi_hz_);
-    spi_bus_add_device(SPI2_HOST, &device, reinterpret_cast<spi_device_handle_t*>(&pixels_));
-    snprintf(profile_, sizeof(profile_), "the image did not take %u MHz", static_cast<unsigned>(mhz));
+    join_bus();
     return false;
   }
   hal::logf(pal::kLogInfo, "PANEL", "the pixels travel at %u MHz from %u", static_cast<unsigned>(mhz),
@@ -586,13 +556,8 @@ bool It8951::arm() {
   const uint16_t glass_w = info[0];
   const uint16_t glass_h = info[1];
   const uint32_t image = (static_cast<uint32_t>(info[3]) << 16) | info[2];
-  // **I un handshake que torna la mateixa paraula tres cops no és un panell** (0.189.81): the board said exactly this at
-  // twenty-four megahertz —`words 01e0 010e 010e 010e`, a glass of 270 × 480 with its image at `0x010e010e`— and the driver
-  // believed it, sized a frame of the wrong shape and painted nothing for the rest of the session. A real answer carries a
-  // width, a height and an address, and those three are never the same number (docs/50, docs/95).
-  const bool one_word_three_times = (info[0] == info[1]) && (info[1] == info[2]);
   if ((glass_w == 0xFFFF && glass_h == 0xFFFF) || glass_w == 0 || glass_h == 0 || glass_w > kMaxGlassSide ||
-      glass_h > kMaxGlassSide || image == 0xFFFFFFFFu || one_word_three_times || glass_w < 64 || glass_h < 64) {
+      glass_h > kMaxGlassSide || image == 0xFFFFFFFFu) {
     // One sentence for the two readings that mean "no panel": all ones (nobody drives the line) and zeros (the
     // controller answered nothing). The rest of the words are printed because they are the only fingerprint left.
     snprintf(profile_, sizeof(profile_), "no panel: words %04x %04x %04x %04x, %ux%u at %08x", info[0], info[1],
@@ -900,7 +865,7 @@ bool It8951::flush(UpdateMode mode) {
   uint8_t row[kMaxRowBytes];
   // **Els bytes d'una fila segons el format**: two pixels a byte in four bits and four a byte in two.
   const uint16_t row_bytes = static_cast<uint16_t>(two_bit ? ((w + 3) / 4) : (w / 2));
-  if (!take_bus(pixels_)) return false;
+  if (!take_bus()) return false;
   bool sent = true;
   // **I quant d'aquest enviament ha estat cable i quant llavor** (0.189.69): the board said that a page costs the same with
   // `rows` and with `burst` —six hundred and sixty milliseconds both— and the only two things inside those milliseconds are
@@ -908,7 +873,7 @@ bool It8951::flush(UpdateMode mode) {
   // two is the page is not something to guess with a datasheet, so both are counted here and the line says both
   // (docs/50, docs/95).
   uint32_t wire_us = 0;
-  const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr && pixels_ != nullptr;
+  const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr;
   if (!bursts) {
     // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is the hundred microseconds of the
     // board for each one. **I el gir es fa igual que a l'altre camí** (0.189.71): a band of rows is gathered in one pass into
@@ -929,41 +894,50 @@ bool It8951::flush(UpdateMode mode) {
       for (uint16_t r = 0; r < band && sent; ++r) {
         const uint8_t* from = (stretch_ != nullptr) ? (stretch_ + static_cast<uint32_t>(r) * row_bytes) : row;
         const uint32_t wire_from = now_us();
-        sent = write_pixels(pixels_, from, row_bytes);
+        sent = write_pixels(device_, from, row_bytes);
         wire_us += now_us() - wire_from;
       }
       row_index = static_cast<uint16_t>(row_index + band);
     }
   } else {
-    // **Els bursts** (0.189.66): the rows go out with **one prefix and no edge of CS in between**, and the last chunk lifts the
-    // line. The prefix of a second stretch with the CS held is what the controller reads as two pixels and what slides a page
-    // sideways (measured 1/11, docs/50), so there is one preamble for the whole send.
-    //
-    // **I la recollida va per bandes de seixanta-quatre files** (0.189.80): the rows of a band are gathered **in one pass** in
-    // the buffer —where the image is read in lines of the cache, one for every sixty-four rows— and from there they travel in
-    // chunks of what the bus can take. Abans la recollida i la tramesa eren el mateix buffer de tres mil vuit-cents quaranta
-    // bytes, i això obligava a bandes de vuit files i a llegir la línia de memòria cau per aprofitar-ne un vuitè (docs/50).
+    // **Els bursts** (0.189.66): the rows are gathered into stretches of `kStretch` bytes that go out with **one prefix and
+    // no edge of CS in between**, and the last stretch lifts the line. The prefix of a second stretch with the CS held is
+    // what the controller reads as two pixels and what slides a page sideways (measured 1/11, docs/50), so there is one
+    // preamble for the whole send and the stretches are only what the bus can take at a time.
+    uint32_t filled = 0;
+    uint32_t wire_from = now_us();
     if (sent) sent = begin_pixels();
-    uint32_t left = static_cast<uint32_t>(h) * row_bytes;
+    wire_us += now_us() - wire_from;
     for (uint16_t row_index = 0; row_index < h && sent;) {
-      uint16_t band = static_cast<uint16_t>(h - row_index);
+      // **Una banda de files de cop** (0.189.70): the rows of a pass are gathered together so that the image is read in lines
+      // of the cache —the rows of a band are neighbours in x, and one read of thirty-two bytes carries eight of them with the
+      // wide format and sixteen with the narrow one (docs/50).
+      uint16_t band = static_cast<uint16_t>(kStretch / row_bytes);
       if (band > hal::kGatherBand) band = hal::kGatherBand;
-      gather(stretch_, nx0, static_cast<uint16_t>(ny0 + row_index), w, band);
-      const uint32_t band_bytes = static_cast<uint32_t>(band) * row_bytes;
-      uint32_t at = 0;
-      while (at < band_bytes && sent) {
-        uint32_t chunk = band_bytes - at;
-        if (chunk > kChunk) chunk = kChunk;
-        left -= chunk;
-        const uint32_t wire_from = now_us();
-        sent = write_stretch(stretch_ + at, chunk, left > 0);
+      const uint16_t left = static_cast<uint16_t>(h - row_index);
+      if (band > left) band = left;
+      // **I un tros sempre comença en una fila**: the band is gathered **where it is going to go out**, so not one byte of the
+      // image is copied twice —before, every byte was gathered into a row of the stack and then copied into the stretch, which
+      // on the board was fifty milliseconds of a page and one more write of the whole image for nothing—. A stretch with no
+      // room for the whole band goes out first, which is also why a row is never cut in two.
+      if (filled != 0 && filled + static_cast<uint32_t>(band) * row_bytes > kStretch) {
+        wire_from = now_us();
+        sent = write_stretch(stretch_, filled, true);
         wire_us += now_us() - wire_from;
-        at += chunk;
+        filled = 0;
       }
+      if (!sent) break;
+      gather(stretch_ + filled, nx0, static_cast<uint16_t>(ny0 + row_index), w, band);
+      filled += static_cast<uint32_t>(band) * row_bytes;
       row_index = static_cast<uint16_t>(row_index + band);
     }
+    if (sent && filled > 0) {
+      wire_from = now_us();
+      sent = write_stretch(stretch_, filled, false);
+      wire_us += now_us() - wire_from;
+    }
   }
-  give_bus(pixels_);
+  give_bus();
   if (!sent) return false;
   if (!command(kCmdLoadImageEnd, nullptr, 0)) return false;
   const uint32_t t_sent = now_us();

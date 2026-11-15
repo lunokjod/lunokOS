@@ -101,10 +101,8 @@ class It8951 : public ISurface {
   bool word(uint16_t prefix, uint16_t value);
   // **The CS stays low between two transactions only while the bus is locked**, and ESP-IDF refuses
   // a `CS_KEEP_ACTIVE` transaction otherwise (docs/50).
-  // **El pany del bus és del dispositiu que transmet** (0.189.81): ESP-IDF refuses a `CS_KEEP_ACTIVE` transaction from a
-  // device that is not the one holding the lock, so the words lock theirs and the image locks its own (docs/50).
-  bool take_bus(void* handle);
-  void give_bus(void* handle);
+  bool take_bus();
+  void give_bus();
   bool command(uint16_t cmd, const uint16_t* args, uint8_t count);
   // Image data, with the bus already locked: **one** data preamble and then the bytes of the surface
   // as they are, with the CS held for the whole stretch. The maker's driver can put a preamble before
@@ -159,17 +157,16 @@ class It8951 : public ISurface {
   // **L'estil d'enviament i el buffer d'un tros** (0.189.66): the stretch is a member and not the stack because the task that
   // paints has six or seven kilobytes and two thousand more would not fit (docs/75).
   hal::FlushStyle style_ = hal::FlushStyle::kRows;
-  // **La recollida i la tramesa són dues mides diferents** (0.189.80): `kStretch` is where a band of rows is gathered —sixty-
-  // four rows of five hundred and twelve bytes, thirty-two kilobytes, which is one line of the PSRAM's cache for every pass—
-  // and `kChunk` is what one transaction of this bus can take, four thousand and ninety-two bytes at most. Abans eren el
-  // mateix número i per això la banda era de vuit files (docs/50).
-  static const uint32_t kStretch = 32768;
-  static const uint32_t kChunk = 3840;
+  // **Un tros són vuit files del vidre** (0.189.70): it was two thousand bytes, which is four rows of a full page, and the
+  // rows of a stretch are now gathered **in one pass** so that the image is read in lines of the cache instead of one pixel
+  // at a time (docs/50). Three thousand eight hundred and forty is eight rows of nine hundred and sixty pixels at four
+  // bits, sixteen at two, and it is under the four thousand and ninety-two bytes one transaction of this bus can take.
+  static const uint32_t kStretch = 3840;
   // **A PSRAM i no a la DRAM** (0.189.66): two kilobytes of static buffer made the linker say `region dram0_0_seg overflowed
   // by 1 688 bytes` —the internal RAM of this chip has no room for one— and the image of the glass is already there, in the
   // same memory the SPI driver copies from for every transaction it makes (docs/50, docs/75).
   uint8_t* stretch_ = nullptr;
-  uint32_t spi_hz_ = 24000000;  // the clock of the image, and not of the words
+  uint32_t spi_hz_ = 10000000;
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
   void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
                          uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;
@@ -201,15 +198,7 @@ class It8951 : public ISurface {
   // sent and lost (docs/50).
   bool resting_ = false;
   bool bus_ = false;
-  // **Dos dispositius i dos rellotges** (0.189.81): el bus porta dues coses molt diferents —les paraules (comandes,
-  // registres, i sobretot el `GetDeviceInfo` de l'arrencada, que **llegeix**— i la riuada de píxels de cada pintada. A vint-i-
-  // quatre megahertz les escriptures van perfectes i **les lectures tornen brossa** (mesurat a la placa el 15/11: el panell es
-  // va creure de 270 × 480 amb la imatge a `0x010e010e`, que és el que llegeix un MISO que no arriba), i és el que fa el
-  // driver de referència: deu per a les comandes, vint-i-quatre per a les dades. `device_` porta les paraules i `pixels_` la
-  // imatge (docs/50, docs/95).
-  static const uint32_t kWordHz = 10000000;
-  void* device_ = nullptr;  // spi_device_handle_t of the words, kept out of the header
-  void* pixels_ = nullptr;  // spi_device_handle_t of the image
+  void* device_ = nullptr;  // spi_device_handle_t, kept out of the header
   uint32_t memory_ = 0;     // where the controller keeps the image, from `GetDeviceInfo`
   // The frame of the glass itself, from `GetDeviceInfo`, and the frame an app draws in, which is the same
   // one turned by `rotation_` (docs/50).

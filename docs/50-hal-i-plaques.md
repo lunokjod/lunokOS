@@ -1178,7 +1178,16 @@ canvia, perquè el número que queda per mesurar no costi un flaix i una sessió
 vint-i-quatre; **no se'n recorda cap reinici**, com l'estil, i si el controlador deixés de contestar a un rellotge massa alt,
 un reinici el torna a deu.
 
-**I el bus són dos rellotges i no un** (0.189.81): a vint-i-quatre megahertz les escriptures de píxels van bé i **les
+**I el bus no pot portar dos rellotges amb un sol CS** (0.189.82, i això és el que va deixar la placa sense despertar): the
+attempt was two devices on the same bus —ten megahertz for the words, twenty-four for the image— and **it cannot work**, perquè
+`spi_bus_add_device` **reserva una de les tres línies de CS del perifèric i la connecta al GPIO que li dones**
+(`spicommon_cs_initialize(host, spics_io_num, freecs, …)`): the second device asked for the same pin and **the second routing
+takes the pin away from the first**, so the panel's commands were never selected again and the board answered nothing at all.
+El camí correcte, quan es torni a provar, és el del fabricant: **CS per GPIO** (els dos dispositius amb `spics_io_num = -1` i
+la línia pujada i baixada a mà), que és com `M5EPD_Driver::WriteCommand` ho fa. **Mentrestant el bus va a deu megahertz i el
+que es va guanyar amb les bandes i el bucle es queda**, que és de 662 a 313 ms de preparació.
+
+**I el bus són dos rellotges i no un** (0.189.81, **retirat**): a vint-i-quatre megahertz les escriptures de píxels van bé i **les
 lectures tornen brossa** —el panell es va creure de 270 × 480 amb la imatge a `0x010e010e`, i la pantalla es va quedar com
 estava—, o sigui que el bus porta **un dispositiu per a les paraules a deu megahertz** (comandes, registres, el `GetDeviceInfo`
 de l'arrencada) i **un altre per a la imatge** al rellotge que demani `panel bus`. És el que fa el driver de referència. I el
