@@ -1178,6 +1178,12 @@ canvia, perquè el número que queda per mesurar no costi un flaix i una sessió
 vint-i-quatre; **no se'n recorda cap reinici**, com l'estil, i si el controlador deixés de contestar a un rellotge massa alt,
 un reinici el torna a deu.
 
+**I el bus són dos rellotges i no un** (0.189.81): a vint-i-quatre megahertz les escriptures de píxels van bé i **les
+lectures tornen brossa** —el panell es va creure de 270 × 480 amb la imatge a `0x010e010e`, i la pantalla es va quedar com
+estava—, o sigui que el bus porta **un dispositiu per a les paraules a deu megahertz** (comandes, registres, el `GetDeviceInfo`
+de l'arrencada) i **un altre per a la imatge** al rellotge que demani `panel bus`. És el que fa el driver de referència. I el
+handshake es refusa si les seves quatre paraules són la mateixa, que és el que escriu un MISO que no arriba (docs/95).
+
 **I el que quedava era el bus, i el bus es va pujar** (0.189.78): amb `panel bus` movent el rellotge en calent, la placa va
 dir 214 ms de cable a deu megahertz, 136 a setze, 110 a vint i **84 a vint-i-quatre**, amb la pàgina ben pintada als quatre.
 **L'SPI va a vint-i-quatre de fàbrica** i la preparació d'una pàgina queda en **182 ms** (84 de cable i 98 de gir) contra els

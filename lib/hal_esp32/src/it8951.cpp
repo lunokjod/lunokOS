@@ -196,20 +196,22 @@ bool It8951::wait_busy(uint32_t timeout_ms) {
   return true;
 }
 
-bool It8951::take_bus() {
+bool It8951::take_bus(void* handle) {
   // **Locked, not just busy**: ESP-IDF answers `ESP_ERR_INVALID_ARG` to a `CS_KEEP_ACTIVE`
   // transaction sent by a device that has not locked the bus first (`spi_device_queue_trans`, in
   // `spi_master.c` of v4.4.6). That was the whole of "bus refused the prefix": the panel was up —
   // busy read 1 — and the driver would not hold its CS down (measured on the board, 1/11).
-  if (spi_device_acquire_bus(static_cast<spi_device_handle_t>(device_), portMAX_DELAY) != ESP_OK) {
+  // **I es bloqueja el del píxels** (0.189.81): the bus is locked by the device that is going to transmit, because a lock
+  // taken by one and used by another is a `CS_KEEP_ACTIVE` transaction that the driver refuses (docs/50).
+  if (spi_device_acquire_bus(static_cast<spi_device_handle_t>(handle), portMAX_DELAY) != ESP_OK) {
     why_ = "bus did not lock";
     return false;
   }
   return true;
 }
 
-void It8951::give_bus() {
-  spi_device_release_bus(static_cast<spi_device_handle_t>(device_));
+void It8951::give_bus(void* handle) {
+  spi_device_release_bus(static_cast<spi_device_handle_t>(handle));
 }
 
 bool It8951::word(uint16_t prefix, uint16_t value) {
@@ -219,7 +221,7 @@ bool It8951::word(uint16_t prefix, uint16_t value) {
   // there, docs/50).
   spi_device_handle_t device = static_cast<spi_device_handle_t>(device_);
   if (!wait_busy(kBusyTimeoutMs)) return false;
-  if (!take_bus()) return false;
+  if (!take_bus(device_)) return false;
   uint8_t head[2] = {static_cast<uint8_t>(prefix >> 8), static_cast<uint8_t>(prefix & 0xFF)};
   spi_transaction_t first = {};
   first.length = 16;
@@ -227,7 +229,7 @@ bool It8951::word(uint16_t prefix, uint16_t value) {
   first.flags = SPI_TRANS_CS_KEEP_ACTIVE;
   if (spi_device_transmit(device, &first) != ESP_OK) {
     why_ = "bus refused the prefix";
-    give_bus();
+    give_bus(device_);
     return false;
   }
   const bool ready = wait_busy(kBusyTimeoutMs);
@@ -240,7 +242,7 @@ bool It8951::word(uint16_t prefix, uint16_t value) {
     sent = spi_device_transmit(device, &second) == ESP_OK;
     if (!sent) why_ = "bus refused the word";
   }
-  give_bus();
+  give_bus(device_);
   return ready && sent;
 }
 
@@ -286,14 +288,14 @@ bool It8951::write_pixels(void* handle, const uint8_t* bytes, uint32_t count) {
 // **El prefix dels píxels, una vegada** (0.189.66): the controller is told "an image follows" with a zero word, and the CS is
 // kept down inside it. A second one with the line still held is read as two pixels and slides the page (measured 1/11).
 bool It8951::begin_pixels() {
-  if (device_ == nullptr) return false;
+  if (pixels_ == nullptr) return false;
   const uint8_t preamble[2] = {static_cast<uint8_t>(kPrefixData >> 8),
                                static_cast<uint8_t>(kPrefixData & 0xFF)};
   spi_transaction_t start = {};
   start.length = 16;
   start.tx_buffer = preamble;
   start.flags = SPI_TRANS_CS_KEEP_ACTIVE;
-  if (spi_device_transmit(static_cast<spi_device_handle_t>(device_), &start) != ESP_OK) {
+  if (spi_device_transmit(static_cast<spi_device_handle_t>(pixels_), &start) != ESP_OK) {
     why_ = "bus refused the data preamble";
     return false;
   }
@@ -303,12 +305,12 @@ bool It8951::begin_pixels() {
 // **Un tros de píxels** (0.189.66): the bytes as they are, in one transaction, and the CS stays down while another stretch is
 // coming. This is the whole of the style: the cost of a transaction stops being paid once per row.
 bool It8951::write_stretch(const uint8_t* bytes, uint32_t count, bool more) {
-  if (device_ == nullptr || bytes == nullptr || count == 0) return false;
+  if (pixels_ == nullptr || bytes == nullptr || count == 0) return false;
   spi_transaction_t trans = {};
   trans.length = count * 8;
   trans.tx_buffer = bytes;
   trans.flags = more ? SPI_TRANS_CS_KEEP_ACTIVE : 0;
-  if (spi_device_transmit(static_cast<spi_device_handle_t>(device_), &trans) != ESP_OK) {
+  if (spi_device_transmit(static_cast<spi_device_handle_t>(pixels_), &trans) != ESP_OK) {
     why_ = "bus refused the image";
     return false;
   }
@@ -360,12 +362,12 @@ bool It8951::read_words(uint16_t* words, uint32_t count) {
   // The maker's `ReadWords`, word for word: the preamble, **a busy wait**, one dummy word, **another
   // busy wait**, and only then the answer. The two pauses are the protocol and not politeness (docs/50).
   if (!wait_busy(kBusyTimeoutMs)) return false;
-  if (!take_bus()) return false;
+  if (!take_bus(device_)) return false;
   if (!read_while_holding(device, words, count)) {
-    give_bus();
+    give_bus(device_);
     return false;
   }
-  give_bus();
+  give_bus(device_);
   return true;
 }
 
@@ -448,14 +450,20 @@ bool It8951::join_bus() {
   // tried **as a device first**, because a bus that is already up is the normal case —the card mounted
   // it— and asking for it again only fills the log with an error that is not one (measured on the
   // board, 1/11).
-  spi_device_interface_config_t device = {};
-  device.clock_speed_hz = spi_hz_;
-  device.mode = 0;
-  device.spics_io_num = pins_.cs;
-  device.queue_size = 4;
-  esp_err_t joined = spi_bus_add_device(SPI2_HOST, &device,
-                                        reinterpret_cast<spi_device_handle_t*>(&device_));
-  if (joined != ESP_OK) {
+  //
+  // **I són dos dispositius** (0.189.81): the words go at ten megahertz and the image at the clock a person asked for, because
+  // a read at twenty-four brings back rubbish —`0x010e010e` for the address of an image that lives at `0x001236e0`— and the
+  // boot's handshake is a read. The CS is the same wire for both, and they never talk at the same time: `take_bus` is held
+  // for the whole of a paint (docs/50, docs/95).
+  auto add = [this](uint32_t hz, void** handle) {
+    spi_device_interface_config_t device = {};
+    device.clock_speed_hz = static_cast<int>(hz);
+    device.mode = 0;
+    device.spics_io_num = pins_.cs;
+    device.queue_size = 4;
+    return spi_bus_add_device(SPI2_HOST, &device, reinterpret_cast<spi_device_handle_t*>(handle)) == ESP_OK;
+  };
+  if (!add(kWordHz, &device_)) {
     spi_bus_config_t bus = {};
     bus.mosi_io_num = pins_.mosi;
     bus.miso_io_num = pins_.miso;
@@ -464,11 +472,15 @@ bool It8951::join_bus() {
     bus.quadhd_io_num = -1;
     bus.max_transfer_sz = 8192;
     if (spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO) == ESP_OK) bus_ = true;
-    joined = spi_bus_add_device(SPI2_HOST, &device,
-                                reinterpret_cast<spi_device_handle_t*>(&device_));
+    if (!add(kWordHz, &device_)) {
+      snprintf(profile_, sizeof(profile_), "the panel did not join the bus at %u MHz",
+               static_cast<unsigned>(kWordHz / 1000000u));
+      return false;
+    }
   }
-  if (joined != ESP_OK) {
-    snprintf(profile_, sizeof(profile_), "the panel did not join the bus at %d MHz", spi_hz_ / 1000000);
+  if (!add(spi_hz_, &pixels_)) {
+    snprintf(profile_, sizeof(profile_), "the image did not get its own device at %u MHz",
+             static_cast<unsigned>(spi_hz_ / 1000000u));
     return false;
   }
   return true;
@@ -479,12 +491,21 @@ bool It8951::join_bus() {
 // two hundred and fourteen milliseconds at ten megahertz and the wire is the last thing left to win, so the number has to be
 // something a person can move while the board is on and not a constant that needs a flash (docs/50).
 bool It8951::leave_bus() {
-  if (device_ == nullptr) return true;
-  const esp_err_t gone = spi_bus_remove_device(static_cast<spi_device_handle_t>(device_));
-  device_ = nullptr;
-  return gone == ESP_OK;
+  bool gone = true;
+  if (pixels_ != nullptr) {
+    gone = (spi_bus_remove_device(static_cast<spi_device_handle_t>(pixels_)) == ESP_OK) && gone;
+    pixels_ = nullptr;
+  }
+  if (device_ != nullptr) {
+    gone = (spi_bus_remove_device(static_cast<spi_device_handle_t>(device_)) == ESP_OK) && gone;
+    device_ = nullptr;
+  }
+  return gone;
 }
 
+// **`panel bus` mou només el rellotge de la imatge** (0.189.81): the words stay at ten megahertz, which is the one clock the
+// controller's own reads are known to survive. The first version of this moved the whole bus to twenty-four and the boot's
+// handshake came back as rubbish on the board, which is what a panel believed to be 270 × 480 tells a person (docs/95).
 bool It8951::set_bus_mhz(uint32_t mhz) {
   if (mhz < 5 || mhz > 24) {
     snprintf(profile_, sizeof(profile_), "the bus of this panel takes five to twenty-four megahertz, not %u",
@@ -493,15 +514,22 @@ bool It8951::set_bus_mhz(uint32_t mhz) {
   }
   const uint32_t wanted = mhz * 1000000u;
   if (wanted == spi_hz_) return true;
-  if (!leave_bus()) {
-    snprintf(profile_, sizeof(profile_), "the panel did not let go of the bus");
-    return false;
-  }
   const uint32_t was = spi_hz_;
+  // The image is the only device that is made again, and the words' device is not touched at all.
+  if (pixels_ != nullptr) spi_bus_remove_device(static_cast<spi_device_handle_t>(pixels_));
+  pixels_ = nullptr;
   spi_hz_ = wanted;
-  if (!join_bus()) {
+  spi_device_interface_config_t device = {};
+  device.clock_speed_hz = static_cast<int>(spi_hz_);
+  device.mode = 0;
+  device.spics_io_num = pins_.cs;
+  device.queue_size = 4;
+  if (spi_bus_add_device(SPI2_HOST, &device, reinterpret_cast<spi_device_handle_t*>(&pixels_)) != ESP_OK) {
     spi_hz_ = was;
-    join_bus();
+    pixels_ = nullptr;
+    device.clock_speed_hz = static_cast<int>(spi_hz_);
+    spi_bus_add_device(SPI2_HOST, &device, reinterpret_cast<spi_device_handle_t*>(&pixels_));
+    snprintf(profile_, sizeof(profile_), "the image did not take %u MHz", static_cast<unsigned>(mhz));
     return false;
   }
   hal::logf(pal::kLogInfo, "PANEL", "the pixels travel at %u MHz from %u", static_cast<unsigned>(mhz),
@@ -558,8 +586,13 @@ bool It8951::arm() {
   const uint16_t glass_w = info[0];
   const uint16_t glass_h = info[1];
   const uint32_t image = (static_cast<uint32_t>(info[3]) << 16) | info[2];
+  // **I un handshake que torna la mateixa paraula tres cops no és un panell** (0.189.81): the board said exactly this at
+  // twenty-four megahertz —`words 01e0 010e 010e 010e`, a glass of 270 × 480 with its image at `0x010e010e`— and the driver
+  // believed it, sized a frame of the wrong shape and painted nothing for the rest of the session. A real answer carries a
+  // width, a height and an address, and those three are never the same number (docs/50, docs/95).
+  const bool one_word_three_times = (info[0] == info[1]) && (info[1] == info[2]);
   if ((glass_w == 0xFFFF && glass_h == 0xFFFF) || glass_w == 0 || glass_h == 0 || glass_w > kMaxGlassSide ||
-      glass_h > kMaxGlassSide || image == 0xFFFFFFFFu) {
+      glass_h > kMaxGlassSide || image == 0xFFFFFFFFu || one_word_three_times || glass_w < 64 || glass_h < 64) {
     // One sentence for the two readings that mean "no panel": all ones (nobody drives the line) and zeros (the
     // controller answered nothing). The rest of the words are printed because they are the only fingerprint left.
     snprintf(profile_, sizeof(profile_), "no panel: words %04x %04x %04x %04x, %ux%u at %08x", info[0], info[1],
@@ -867,7 +900,7 @@ bool It8951::flush(UpdateMode mode) {
   uint8_t row[kMaxRowBytes];
   // **Els bytes d'una fila segons el format**: two pixels a byte in four bits and four a byte in two.
   const uint16_t row_bytes = static_cast<uint16_t>(two_bit ? ((w + 3) / 4) : (w / 2));
-  if (!take_bus()) return false;
+  if (!take_bus(pixels_)) return false;
   bool sent = true;
   // **I quant d'aquest enviament ha estat cable i quant llavor** (0.189.69): the board said that a page costs the same with
   // `rows` and with `burst` —six hundred and sixty milliseconds both— and the only two things inside those milliseconds are
@@ -875,7 +908,7 @@ bool It8951::flush(UpdateMode mode) {
   // two is the page is not something to guess with a datasheet, so both are counted here and the line says both
   // (docs/50, docs/95).
   uint32_t wire_us = 0;
-  const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr;
+  const bool bursts = style_ != hal::FlushStyle::kRows && stretch_ != nullptr && pixels_ != nullptr;
   if (!bursts) {
     // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is the hundred microseconds of the
     // board for each one. **I el gir es fa igual que a l'altre camí** (0.189.71): a band of rows is gathered in one pass into
@@ -896,7 +929,7 @@ bool It8951::flush(UpdateMode mode) {
       for (uint16_t r = 0; r < band && sent; ++r) {
         const uint8_t* from = (stretch_ != nullptr) ? (stretch_ + static_cast<uint32_t>(r) * row_bytes) : row;
         const uint32_t wire_from = now_us();
-        sent = write_pixels(device_, from, row_bytes);
+        sent = write_pixels(pixels_, from, row_bytes);
         wire_us += now_us() - wire_from;
       }
       row_index = static_cast<uint16_t>(row_index + band);
@@ -930,7 +963,7 @@ bool It8951::flush(UpdateMode mode) {
       row_index = static_cast<uint16_t>(row_index + band);
     }
   }
-  give_bus();
+  give_bus(pixels_);
   if (!sent) return false;
   if (!command(kCmdLoadImageEnd, nullptr, 0)) return false;
   const uint32_t t_sent = now_us();

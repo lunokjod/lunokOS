@@ -974,6 +974,20 @@ i no els 433 de què es partia— i el vidre surt bé amb els dos estils.
 vuit files · 232 amb el rellotge a 240 · **99 amb el bucle sense la lambda**. El que va ensenyar cada pas està als fulls de
 dalt i cap d'ells es va poder endevinar: el primer es va veure mirant el rellotge, el segon comptant instruccions al binari.
 
+**I el rellotge va caldre partir-lo en dos** (placa el 15/11, el que va deixar la pantalla clavada): amb tot el bus a
+vint-i-quatre l'arrencada va dir
+
+```
+[I][PANEL] 270x480 turned 270 (glass 480x270), image at 0x010e010e, words 01e0 010e 010e 010e
+```
+
+que és **una lectura trencada**, no un panell: el `GetDeviceInfo` torna brossa a vint-i-quatre i el driver es creu un vidre de
+270 × 480 amb la imatge en una adreça que no existeix. Les **escriptures** de píxels sí que aguanten vint-i-quatre (per això
+la corba de sota es va poder mesurar amb el panell ja arrencat), i el que no aguanta és el **MISO**. Des de la 0.189.81 el bus
+porta **dos dispositius**: un a deu megahertz per a les paraules —comandes, registres i tot el que llegeix— i un altre al
+rellotge que demani `panel bus` per a la imatge. I el handshake té un guard nou: **quatre paraules que tornen el mateix número
+no són un panell** i es refusen amb el motiu, en comptes de creure-se-les.
+
 **I la tanda del rellotge, en una sola flaixada** (0.189.77, placa el 15/11): `panel bus` mou l'SPI en calent i la corba va
 sortir neta i lineal, amb la pàgina sencera ben pintada a tots quatre passos:
 
