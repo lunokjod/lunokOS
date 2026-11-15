@@ -11,6 +11,11 @@ void boot(hal::IPlatform& platform);
 // One turn of the main loop: wait for an event, dispatch it, drain the console.
 void poll();
 
+// **Què ha despertat la volta** (0.189.85): the two counts `stats` prints beside `kernel.loop`. A board that woke up twenty
+// times was doing something; one that woke up five thousand was asking five thousand times whether anything had happened
+// (docs/95).
+void turns(uint32_t& with_event, uint32_t& on_timeout);
+
 bool running();
 void shutdown();
 

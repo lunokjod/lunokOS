@@ -56,6 +56,11 @@ enum Id : uint8_t {
   // of the extra memory. They contain other meters —a turn contains everything— and that is why `stats`
   // prints them apart and never adds them twice (docs/30).
   kLoop,
+  // **El temps aturat a la cua** (0.189.85): the turn blocks on the event queue and that wait is inside `kernel.loop`, which is
+  // the number everything else is judged by —the duty cycle of the board is «what part of the uptime the loop is working» and
+  // today nobody can tell how much of it is waiting—. The two apart are what says whether a turn that costs eighteen
+  // milliseconds is work or silence (docs/95).
+  kQueueWait,
   kLuaRun,
   kLuaOwn,
   kExtraAlloc,

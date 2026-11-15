@@ -336,6 +336,16 @@ bool boot(hal::IPlatform& platform) {
 
 bool available() { return g_glass != nullptr; }
 
+namespace {
+uint32_t g_asks = 0;
+uint32_t g_frames = 0;
+}  // namespace
+
+void counters(uint32_t& asks, uint32_t& frames) {
+  asks = g_asks;
+  frames = g_frames;
+}
+
 void poll() {
   if (g_glass == nullptr) return;
   const int32_t now = now_ms();
@@ -350,7 +360,9 @@ void poll() {
   // status of the chip on every read, and that one is asked at the rate it can have news (docs/50, docs/95).
   if (g_glass->warns() || ask_the_chip(now)) {
     meter::Scope scope(meter::kTouchRead);
+    ++g_asks;
     taken = g_glass->read(g_frame, kMaxPoints);
+    if (taken > 0) ++g_frames;
   }
   if (taken > 0) {
     // **A frame of a finger that is already gone is a tap that is over**, and it carries its own release: the chip

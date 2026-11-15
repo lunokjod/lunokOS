@@ -620,6 +620,15 @@ void alarms_restore() {
   g_saved_revision = alarms::revision();
 }
 
+// **Els dos comptes de la volta** (0.189.85), llistats per `stats`: quants torns venen d'un esdeveniment i quants de l'espera
+// que s'ha esgotat.
+uint32_t g_turns_with_event = 0;
+uint32_t g_turns_on_timeout = 0;
+void turns(uint32_t& with_event, uint32_t& on_timeout) {
+  with_event = g_turns_with_event;
+  on_timeout = g_turns_on_timeout;
+}
+
 void poll() {
   if (!g_running) return;
   // **The turn of the kernel, counted whole**: what it costs to keep the system going, with the waiting
@@ -676,8 +685,21 @@ void poll() {
 #endif
   if (hand && wait > kInputPeriodMs) wait = kInputPeriodMs;
 
+  // **Què ha despertat la volta** (0.189.85): a turn that came back because something happened and a turn that came back
+  // because its ten milliseconds were over are two different lives for the board, and the wait is measured apart from the
+  // work so that «the loop costs eighteen milliseconds» stops being a number nobody can take apart (docs/95).
   pal::Event ev;
-  if (pal::system().queue()->pop(ev, wait)) dispatch(ev);
+  bool woke = false;
+  {
+    meter::Scope waiting(meter::kQueueWait);
+    woke = pal::system().queue()->pop(ev, wait);
+  }
+  if (woke) {
+    ++g_turns_with_event;
+    dispatch(ev);
+  } else {
+    ++g_turns_on_timeout;
+  }
 
   // An alarm that is due is not an event that waits in a queue: it is checked
   // here, between turns, so the wait above had to be cut to its deadline.

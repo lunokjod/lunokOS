@@ -1,5 +1,7 @@
 #include "kernel/meter.h"
+#include "kernel/kernel.h"
 #include "kernel/serial.h"
+#include "kernel/touch.h"
 
 #include <stdio.h>
 
@@ -120,6 +122,7 @@ const char* const kNames[kCount] = {
     "kv.get",
     "kv.set",
     "kernel.loop",
+    "queue.wait",
     "lua.run",
     "lua.own",
     "psram.alloc",
@@ -206,7 +209,7 @@ uint64_t door_us() {
   for (uint8_t i = 0; i < kCount; ++i) {
     // A container is not a door: the boot contains every call the system makes while it comes up, and a
     // turn contains everything there is (docs/30).
-    if (i == kBoot || i == kLoop || i == kLuaRun || i == kLuaOwn || i == kLuaCall) continue;
+    if (i == kBoot || i == kLoop || i == kQueueWait || i == kLuaRun || i == kLuaOwn || i == kLuaCall) continue;
     total += g_entries[i].us;
   }
   return total;
@@ -327,8 +330,21 @@ void dump() {
   human_us(own_time, sizeof(own_time), own_us);
   human_us(door_time, sizeof(door_time), doors);
   const uint64_t share = (up_us > 0) ? (doors * 1000ULL / up_us) : 0;
-  used = snprintf(line, sizeof(line), "turns %lu, kernel %s of %s up, idle %s\r\n",
-                  static_cast<unsigned long>(g_entries[kLoop].calls), kernel_time, up_time, idle_time);
+  // **Què ha despertat les voltes i què ha preguntat el vidre** (0.189.85): the two counts on the same line, because a turn
+  // that cost eighteen milliseconds is only a number until somebody can see whether it came from an event or from a wait that
+  // ran out, and whether the glass answered frames or was asked for nothing (docs/95).
+  uint32_t with_event = 0;
+  uint32_t on_timeout = 0;
+  kernel::turns(with_event, on_timeout);
+  uint32_t asks = 0;
+  uint32_t frames = 0;
+  touch::counters(asks, frames);
+  used = snprintf(line, sizeof(line), "turns %lu (%lu events, %lu waits), kernel %s of %s up, idle %s\r\n",
+                  static_cast<unsigned long>(g_entries[kLoop].calls), static_cast<unsigned long>(with_event),
+                  static_cast<unsigned long>(on_timeout), kernel_time, up_time, idle_time);
+  console->write(line, static_cast<size_t>(used));
+  used = snprintf(line, sizeof(line), "touch %lu asks, %lu frames\r\n", static_cast<unsigned long>(asks),
+                  static_cast<unsigned long>(frames));
   console->write(line, static_cast<size_t>(used));
   used = snprintf(line, sizeof(line), "lua %s: %s the app's own code (the rest is calls into it)\r\n",
                   run_time, own_time);
