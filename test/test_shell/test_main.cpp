@@ -15,6 +15,7 @@
 
 #include "emu/ink.h"
 #include "emu/options.h"
+#include "hal/gather.h"
 #include "hal/hal.h"
 #include "hal/log.h"
 #include "kernel/apps.h"
@@ -1864,6 +1865,47 @@ static void test_the_three_ways_are_named_and_one_bit_is_not_one_of_them() {
   kernel::boot(hal::platform());
 }
 
+// **Una banda de files és les seves files, una darrere l'altra** (0.189.70): gathering a band reads the image in lines of the
+// cache instead of a pixel at a time, and the only thing that may change with that is how long it takes — the page is the
+// same page, the same bytes in the same order—. The image below has a different nibble at every pixel, so a swapped pair, a
+// turned row or a band whose rows went back to front cannot pass this.
+static void test_a_band_is_its_rows_one_after_another() {
+  const uint16_t width = 16;
+  const uint16_t height = 12;
+  uint8_t image[width * height / 2];
+  for (uint32_t i = 0; i < sizeof(image); ++i) {
+    image[i] = static_cast<uint8_t>((i * 73u + 19u) & 0xFFu);
+  }
+  const int rotations[4] = {0, 90, 180, 270};
+  const uint16_t kBand = 5;  // an odd band, so the last one of a page is not a whole one
+  uint8_t one_by_one[height * 8];
+  uint8_t banded[height * 8];
+  for (int turn = 0; turn < 4; ++turn) {
+    const int rotation = rotations[turn];
+    const bool sideways = (rotation == 90 || rotation == 270);
+    const uint16_t glass_w = sideways ? height : width;
+    const uint16_t glass_h = sideways ? width : height;
+    for (int narrow = 0; narrow < 2; ++narrow) {
+      const bool two_bit = (narrow == 1);
+      const uint16_t row_bytes = hal::band_row_bytes(glass_w, two_bit);
+      memset(one_by_one, 0, sizeof(one_by_one));
+      memset(banded, 0, sizeof(banded));
+      for (uint16_t y = 0; y < glass_h; ++y) {
+        hal::gather_band(one_by_one + static_cast<uint32_t>(y) * row_bytes, image, width, height, rotation, 0, y,
+                         glass_w, 1, two_bit, 15);
+      }
+      for (uint16_t y = 0; y < glass_h;) {
+        uint16_t band = (static_cast<uint16_t>(glass_h - y) < kBand) ? static_cast<uint16_t>(glass_h - y) : kBand;
+        hal::gather_band(banded + static_cast<uint32_t>(y) * row_bytes, image, width, height, rotation, 0, y, glass_w,
+                         band, two_bit, 15);
+        y = static_cast<uint16_t>(y + band);
+      }
+      TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(one_by_one, banded, static_cast<uint32_t>(glass_h) * row_bytes,
+                                            "una banda ha de ser les seves files");
+    }
+  }
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1918,6 +1960,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_log_is_painted_by_level);
   RUN_TEST(test_a_duration_is_written_in_the_scale_that_reads);
   RUN_TEST(test_a_burst_pays_the_wire_and_a_row_pays_the_row);
+  RUN_TEST(test_a_band_is_its_rows_one_after_another);
   RUN_TEST(test_the_panel_says_where_a_partial_paint_starts);
   RUN_TEST(test_the_three_ways_are_named_and_one_bit_is_not_one_of_them);
   UNITY_END();

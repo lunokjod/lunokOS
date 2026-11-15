@@ -1148,6 +1148,16 @@ I el preu d'una fila del camí de sempre queda mesurat de passada, dues vegades 
 microsegons de transacció per fila** (282 − 229 en una pàgina, 66 − 10 en una franja de 540 files). El `kRowUs = 1100` de
 l'emulador era una inferència i era **deu vegades el que és** (docs/95, E-11).
 
+**I el gir, fet a bocins** (0.189.70): el gir continua essent de programari i pel mateix camí, però les files d'un tros
+s'ajunten **en una passada** (`hal::gather_band`, a `hal/gather.h`) en comptes d'una a una. Les files d'una banda són veïnes
+en `x`, o sigui que **una lectura de trenta-dos bytes de la imatge en porta vuit** amb el format ample i setze amb l'estret, i
+les fallades de memòria cau baixen de 518 400 a unes 65 000. La funció és **pura** —ni bus, ni panell, ni PSRAM— i té una
+prova que compara la banda amb les seves files una a una: la pàgina ha de sortir igual i només ha de canviar el que es tarda
+(docs/95, E-11). De passada, el tros del bus passa de 2 000 a **3 840 bytes** —vuit files d'una pàgina de 960 píxels a quatre
+bits, setze a dos, i per sota dels 4 092 que caben en una transacció d'aquest bus—: una pàgina són 68 trossos i no 130.
+**Pendent de mesurar a la placa**: el que s'espera és que `gathering` baixi de ~430 ms a l'ordre dels cent i la pàgina de
+~660 a ~330 ms.
+
 **El tercer estil era un bit per píxel i no podia ser-ho** (0.189.67, corregit): el camp de format de `LD_IMG_AREA` té
 **quatre valors i cap cinquè** —`IT8951_2BPP 0`, `IT8951_3BPP 1`, `IT8951_4BPP 2`, `IT8951_8BPP 3`, a `IT8951_Defines.h`
 del fabricant—, o sigui que el `0` que s'enviava volia dir **dos bits per píxel** i el controlador llegia la meitat de la

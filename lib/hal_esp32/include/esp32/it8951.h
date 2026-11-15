@@ -156,7 +156,11 @@ class It8951 : public ISurface {
   // **L'estil d'enviament i el buffer d'un tros** (0.189.66): the stretch is a member and not the stack because the task that
   // paints has six or seven kilobytes and two thousand more would not fit (docs/75).
   hal::FlushStyle style_ = hal::FlushStyle::kRows;
-  static const uint32_t kStretch = 2000;  // bytes of a burst, which is what the SPI driver takes for DMA
+  // **Un tros són vuit files del vidre** (0.189.70): it was two thousand bytes, which is four rows of a full page, and the
+  // rows of a stretch are now gathered **in one pass** so that the image is read in lines of the cache instead of one pixel
+  // at a time (docs/50). Three thousand eight hundred and forty is eight rows of nine hundred and sixty pixels at four
+  // bits, sixteen at two, and it is under the four thousand and ninety-two bytes one transaction of this bus can take.
+  static const uint32_t kStretch = 3840;
   // **A PSRAM i no a la DRAM** (0.189.66): two kilobytes of static buffer made the linker say `region dram0_0_seg overflowed
   // by 1 688 bytes` —the internal RAM of this chip has no room for one— and the image of the glass is already there, in the
   // same memory the SPI driver copies from for every transaction it makes (docs/50, docs/75).
@@ -164,14 +168,13 @@ class It8951 : public ISurface {
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
   void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
                          uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;
-  // One row of the glass, packed, taken from the image an app drew in.
-  void gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
   // **Com s'envien els píxels, en la paraula del prompt** (`rows`, `burst`, `2bit`), which is what the paint line says when
   // it reports how long the image took to reach the controller (0.189.68).
   const char* style_word() const;
-  // **The same row in two bits a pixel** (0.189.67): four pixels a byte and the left one in the top two bits, which is the
-  // narrowest format the controller has (`IT8951_2BPP`). A level is cut to the four it can carry.
-  void gather_row_pairs(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
+  // **Un tros del vidre, girat** (0.189.70): `h` rows of the glass out of the image the app drew in, turned the quarter the
+  // page has with the glass and packed in the format the style asks for. The work is `hal::gather_band`, which is pure and
+  // has a test that compares it against gathering the rows one by one (docs/50).
+  void gather(uint8_t* out, uint16_t nx0, uint16_t ny0, uint16_t w, uint16_t h) const;
   // **The prefix of the pixels, once** (0.189.66): the command word that says "what follows is an image". It goes out once for
   // a burst and once per row for the old style, because an edge of CS makes the controller start again.
   bool begin_pixels();

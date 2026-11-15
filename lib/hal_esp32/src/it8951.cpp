@@ -1,5 +1,6 @@
 // The IT8951E of the Paper: the frames, the commands, the image and the rectangle that changed
 // (docs/50).
+#include "hal/gather.h"
 #include "hal/log.h"
 #include "esp32/it8951.h"
 
@@ -841,11 +842,7 @@ bool It8951::flush(UpdateMode mode) {
   if (!bursts) {
     // **El camí de sempre** (docs/50): a prefix and an edge of CS for every row, which is 1 100 µs of the board for each one.
     for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
-      if (two_bit) {
-        gather_row_pairs(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
-      } else {
-        gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
-      }
+      gather(row, nx0, static_cast<uint16_t>(ny0 + row_index), w, 1);
       const uint32_t wire_from = now_us();
       sent = write_pixels(device_, row, row_bytes);
       wire_us += now_us() - wire_from;
@@ -859,28 +856,28 @@ bool It8951::flush(UpdateMode mode) {
     uint32_t wire_from = now_us();
     if (sent) sent = begin_pixels();
     wire_us += now_us() - wire_from;
-    for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
-      if (two_bit) {
-        gather_row_pairs(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
-      } else {
-        gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
+    for (uint16_t row_index = 0; row_index < h && sent;) {
+      // **Una banda de files de cop** (0.189.70): the rows of a pass are gathered together so that the image is read in lines
+      // of the cache —the rows of a band are neighbours in x, and one read of thirty-two bytes carries eight of them with the
+      // wide format and sixteen with the narrow one (docs/50).
+      uint16_t band = static_cast<uint16_t>(kStretch / row_bytes);
+      if (band > hal::kGatherBand) band = hal::kGatherBand;
+      const uint16_t left = static_cast<uint16_t>(h - row_index);
+      if (band > left) band = left;
+      // **I un tros sempre comença en una fila**: the band is gathered **where it is going to go out**, so not one byte of the
+      // image is copied twice —before, every byte was gathered into a row of the stack and then copied into the stretch, which
+      // on the board was fifty milliseconds of a page and one more write of the whole image for nothing—. A stretch with no
+      // room for the whole band goes out first, which is also why a row is never cut in two.
+      if (filled != 0 && filled + static_cast<uint32_t>(band) * row_bytes > kStretch) {
+        wire_from = now_us();
+        sent = write_stretch(stretch_, filled, true);
+        wire_us += now_us() - wire_from;
+        filled = 0;
       }
-      uint16_t at = 0;
-      while (at < row_bytes && sent) {
-        uint32_t room = kStretch - filled;
-        uint32_t take = static_cast<uint32_t>(row_bytes - at);
-        if (take > room) take = room;
-        memcpy(stretch_ + filled, row + at, take);
-        filled += take;
-        at = static_cast<uint16_t>(at + take);
-        // A stretch goes out when it is full, and the one that ends the image goes out even if it is not.
-        if (filled == kStretch) {
-          wire_from = now_us();
-          sent = write_stretch(stretch_, filled, true);
-          wire_us += now_us() - wire_from;
-          filled = 0;
-        }
-      }
+      if (!sent) break;
+      gather(stretch_ + filled, nx0, static_cast<uint16_t>(ny0 + row_index), w, band);
+      filled += static_cast<uint32_t>(band) * row_bytes;
+      row_index = static_cast<uint16_t>(row_index + band);
     }
     if (sent && filled > 0) {
       wire_from = now_us();
@@ -980,89 +977,12 @@ void It8951::logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y
   }
 }
 
-void It8951::gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const {
-  // **The turn, pixel by pixel**: a row of the glass is a line of the page that is read in another
-  // direction, and the four bits of two neighbours of the glass may come from two different lines of the
-  // page. It is the price of turning in software, and it is paid only for what changed (docs/50).
-  const uint32_t stride = width_ / 2;
-  for (uint16_t i = 0; i + 1 < w; i += 2) {
-    uint8_t packed = 0;
-    for (uint8_t half = 0; half < 2; ++half) {
-      const uint16_t nx = static_cast<uint16_t>(nx0 + i + half);
-      int32_t x = 0;
-      int32_t y = 0;
-      switch (rotation_) {
-        case 90:
-          x = ny;
-          y = static_cast<int32_t>(height_) - 1 - nx;
-          break;
-        case 270:
-          x = static_cast<int32_t>(width_) - 1 - ny;
-          y = nx;
-          break;
-        case 180:
-          x = static_cast<int32_t>(width_) - 1 - nx;
-          y = static_cast<int32_t>(height_) - 1 - ny;
-          break;
-        default:
-          x = nx;
-          y = ny;
-          break;
-      }
-      uint8_t level = kWhite;
-      if (x >= 0 && y >= 0 && x < width_ && y < height_) {
-        const uint8_t byte = image_[static_cast<uint32_t>(y) * stride + static_cast<uint32_t>(x) / 2];
-        level = ((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4) : static_cast<uint8_t>(byte & 0x0F);
-      }
-      packed = static_cast<uint8_t>((packed << 4) | (level & 0x0F));
-    }
-    out[i / 2] = packed;
-  }
-}
-
-// **Una fila en dos bits per píxel** (0.189.67): four pixels a byte, the left one in the top two bits. The level is read
-// from the image the app drew exactly as `gather_row` reads it, and then it is cut to the **four levels the controller's
-// 2BPP format has** —`level >> 2`, which keeps the order and puts white on three and ink on zero (docs/50).
-void It8951::gather_row_pairs(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const {
-  uint8_t packed = 0;
-  uint8_t bit = 0;
-  uint16_t written = 0;
-  for (uint16_t i = 0; i < w; ++i) {
-    uint8_t level = kWhite;
-    const uint16_t nx = static_cast<uint16_t>(nx0 + i);
-    int32_t x = 0;
-    int32_t y = 0;
-    switch (rotation_) {
-      case 90:
-        x = ny;
-        y = static_cast<int32_t>(height_) - 1 - nx;
-        break;
-      case 270:
-        x = static_cast<int32_t>(width_) - 1 - ny;
-        y = nx;
-        break;
-      case 180:
-        x = static_cast<int32_t>(width_) - 1 - nx;
-        y = static_cast<int32_t>(height_) - 1 - ny;
-        break;
-      default:
-        x = nx;
-        y = ny;
-        break;
-    }
-    if (x >= 0 && y >= 0 && x < width_ && y < height_) {
-      const uint32_t stride = width_ / 2;
-      const uint8_t byte = image_[static_cast<uint32_t>(y) * stride + static_cast<uint32_t>(x) / 2];
-      level = ((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4) : static_cast<uint8_t>(byte & 0x0F);
-    }
-    packed = static_cast<uint8_t>((packed << 2) | static_cast<uint8_t>(level >> 2));
-    if (++bit == 4) {
-      out[written++] = packed;
-      packed = 0;
-      bit = 0;
-    }
-  }
-  if (bit != 0) out[written++] = static_cast<uint8_t>(packed << (2 * (4 - bit)));
+// **El gir, en una funció pura** (0.189.70): the loop that used to live here walked a column of the image a pixel at a time
+// and paid a cache line of the PSRAM for each one; `hal::gather_band` reads the rows of the band together, which is the same
+// bytes in the same order and a great deal less waiting (docs/50, docs/95).
+void It8951::gather(uint8_t* out, uint16_t nx0, uint16_t ny0, uint16_t w, uint16_t h) const {
+  hal::gather_band(out, image_, width_, height_, rotation_, nx0, ny0, w, h,
+                   style_ == hal::FlushStyle::kBits2, kWhite);
 }
 
 bool It8951::allocate_image() {
