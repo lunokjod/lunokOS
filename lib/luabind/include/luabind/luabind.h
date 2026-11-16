@@ -887,6 +887,10 @@ struct UIOps {
   // and four slices whose tones the app can work out for its legend.
   bool (*sparkline_draw)(int16_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count,
                          uint8_t color, uint8_t background);
+  // **I el gràfic d'una sèrie en el temps** (0.189.144): la línia, el marc, les tres guies amb els seus números i les
+  // dues hores de la finestra. Els valors i els minuts els dona l'app, que és qui sap quina finestra ensenya.
+  bool (*chart_draw)(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
+                     uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high);
   bool (*pie_draw)(int16_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background);
   // **A calendar month** (docs/30, docs/90): seven columns and six weeks, the names of the days from the app —a
   // language is not the kernel's— and which day a point of the grid is on, for the finger.

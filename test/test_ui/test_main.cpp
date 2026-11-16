@@ -4259,6 +4259,64 @@ void test_a_sparkline_scales_to_the_peak_of_its_window() {
   ui::release(chart);
 }
 
+// **Un gràfic diu els números i l'hora, i no només la forma** (0.189.144): the sparkline is a strip of bars and says
+// nothing about the values; the chart draws the frame, the three guides with their numbers in the band of the left, the line
+// through the samples, the mark of the last one and the two hours of the window. The scale is the window's —not a fixed 0 to
+// 100— and the air of one point never crosses the physical range of the series, which is the app's (docs/30, docs/90).
+void test_a_chart_draws_the_scale_the_line_and_the_last_sample() {
+  fresh_view();
+  int16_t chart = -1;
+  TEST_ASSERT_TRUE(ui::create(400, 260, 0, false, chart));
+  TEST_ASSERT_TRUE(ui::place(chart, 0, 0));
+
+  // The geometry is the control's, and the case asks it the way the paint does: the band of the numbers is the widest
+  // label of the scale plus the reach of the guide, and the line of the face is what the top and the bottom keep.
+  const int32_t band = ui::font_text_width(-1, "100%", 1) + 12;
+  const int32_t line = ui::font_line_height(-1, 1);
+  const int32_t x0 = band + 4;
+  const int32_t x1 = 400 - 6;
+  const int32_t y0 = line + 2;
+  const int32_t y1 = 260 - line - 6;
+
+  const int16_t values[3] = {90, 95, 100};
+  const int32_t times[3] = {600, 630, 660};
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, values, times, 3, 0, 15, 1, "%", 0, 100));
+
+  // The frame, and the numbers of the band on its left.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(x0 - 4, y0 - 2));
+  int in_the_band = 0;
+  for (int32_t y = 0; y < 260; ++y) {
+    for (int32_t x = 0; x < x0 - 4; ++x) {
+      if (view_level(static_cast<uint16_t>(x), static_cast<uint16_t>(y)) == 0) ++in_the_band;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(20, in_the_band, "the scale has no numbers");
+
+  // **La línia passa pels tres punts**: 90 % is one of eleven rows above the bottom, 95 % is in the middle and 100 % is the
+  // top of the plot, which is also where the guide of the highest value is.
+  const int32_t row_90 = y1 - (1 * (y1 - y0)) / 11;
+  const int32_t row_95 = y1 - (6 * (y1 - y0)) / 11;
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(static_cast<uint16_t>(x0), static_cast<uint16_t>(row_90)));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(static_cast<uint16_t>((x0 + x1) / 2), static_cast<uint16_t>(row_95)));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(static_cast<uint16_t>((x0 + x1) / 2), static_cast<uint16_t>(y0 + 10)));
+
+  // **I la finestra buida no té línia però sí escala**: with no samples the same middle row is paper and the frame is still
+  // drawn, which is what a page that has just been opened shows.
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, nullptr, nullptr, 0, 0, 15, 1, "%", 0, 100));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(static_cast<uint16_t>((x0 + x1) / 2), static_cast<uint16_t>(row_95)));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(x0 - 4, y0 - 2));
+
+  // **El rang físic no el creua l'aire**: a series of 100 and 100 is drawn at the top of the plot and the number of the
+  // guide is 100, not 101.
+  const int16_t full[2] = {100, 100};
+  const int32_t when[2] = {600, 660};
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, full, when, 2, 0, 15, 1, "%", 0, 100));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(static_cast<uint16_t>(x0), static_cast<uint16_t>(y0 + 1)));
+
+  TEST_ASSERT_FALSE(ui::chart_draw(chart, values, times, 3, 16, 15, 1, "%", 0, 100));
+  ui::release(chart);
+}
+
 // **A pie is four slices at most and its tones are the control's**: two equal slices are the two halves of the disc,
 // the first tone is the one the app chose and the second walks four steps from it, so a legend can say the same
 // numbers (docs/30, docs/90).
@@ -4584,6 +4642,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_key_with_a_word_puts_the_mark_where_it_says);
   RUN_TEST(test_a_dialog_wraps_its_message_and_has_two_doors);
   RUN_TEST(test_a_sparkline_scales_to_the_peak_of_its_window);
+  RUN_TEST(test_a_chart_draws_the_scale_the_line_and_the_last_sample);
   RUN_TEST(test_a_pie_is_two_halves_when_the_slices_are_equal);
   RUN_TEST(test_the_line_height_of_a_face_is_what_centres_a_text);
   RUN_TEST(test_a_calendar_puts_the_first_day_where_the_weekday_says);

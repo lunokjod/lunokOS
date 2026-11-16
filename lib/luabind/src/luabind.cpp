@@ -4808,6 +4808,30 @@ bool spark_field_valid(lua_State* L, const char* key, int value) {
   return number >= 0 && number <= 15;
 }
 
+// **The fields of a chart**: the values, the minutes of each sample, the two ends of the scale when the app fixes
+// them, the tone and the step of the numbers (docs/30, docs/90).
+bool is_chart_field(const char* key) {
+  return strcmp(key, "values") == 0 || strcmp(key, "times") == 0 || strcmp(key, "color") == 0 ||
+         strcmp(key, "background") == 0 || strcmp(key, "scale") == 0 || strcmp(key, "suffix") == 0 ||
+         strcmp(key, "min") == 0 || strcmp(key, "max") == 0;
+}
+
+bool chart_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "values") == 0 || strcmp(key, "times") == 0) {
+    return lua_istable(L, value) || lua_isnil(L, value);
+  }
+  if (strcmp(key, "suffix") == 0) return lua_isstring(L, value) || lua_isnil(L, value);
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 8;
+  // **Els dos caps de l'escala són números qualssevol**: a chart of temperatures goes under zero and one of a battery goes to
+  // a hundred, so the range is not the range of a tone (docs/90).
+  if (strcmp(key, "min") == 0 || strcmp(key, "max") == 0) {
+    return number >= -32768 && number <= 32767;
+  }
+  return number >= 0 && number <= 15;
+}
+
 // **The fields of a pie**: the slices and the darkest tone.
 bool is_pie_field(const char* key) { return strcmp(key, "slices") == 0 || strcmp(key, "color") == 0; }
 
@@ -5058,6 +5082,9 @@ int l_canvas_newindex(lua_State* L) {
     lua_getfield(L, -1, "__spark");
     const bool spark = lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
+    lua_getfield(L, -1, "__chart");
+    const bool chart = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
     lua_getfield(L, -1, "__pie");
     const bool pie = lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
@@ -5228,6 +5255,13 @@ int l_canvas_newindex(lua_State* L) {
     } else if (spark && is_spark_field(key)) {
       if (!spark_field_valid(L, key, 3)) {
         return luaL_error(L, "a sparkline's %s is not a value it can use", key);
+      }
+      // **A chart is not a value that is compared**: two tables are never the same table when the app builds a new
+      // one, so a new series is a draw and that is what an app wants (docs/90).
+      redraw = true;
+    } else if (chart && is_chart_field(key)) {
+      if (!chart_field_valid(L, key, 3)) {
+        return luaL_error(L, "a chart's %s is not a value it can use", key);
       }
       // **A chart is not a value that is compared**: two tables are never the same table when the app builds a new
       // one, so a new series is a draw and that is what an app wants (docs/90).
@@ -6314,6 +6348,12 @@ int l_ui_slider(lua_State* L) {
   lua_setfield(L, -2, "scale");
   lua_pushstring(L, "");
   lua_setfield(L, -2, "suffix");
+  // **El rang físic de la sèrie**: zero i cent per defecte, que és el d'una bateria, i el que l'app digui per a qualsevol
+  // altra cosa —l'aire d'un punt no el pot creuar— (docs/90).
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "min");
+  lua_pushinteger(L, 100);
+  lua_setfield(L, -2, "max");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
   lua_pushboolean(L, 0);
@@ -7195,6 +7235,9 @@ int l_ui_month(lua_State* L) {
 // here once and the document is what keeps them together (docs/30, docs/90).
 const uint8_t kMaxSparkSamples = 24;
 const uint8_t kMaxPieSlices = 4;
+// **I quaranta-vuit mostres per al gràfic** (0.189.144): the same number the kernel holds, written here once because the
+// bridge cannot include the kernel to read it (docs/30, docs/75).
+const uint8_t kMaxChartSamples = 48;
 
 // **A table of Lua numbers as the samples of a chart**: forty of them is all a sparkline of a page can show, and a
 // table that is longer is cut and not an error (docs/90).
@@ -7275,6 +7318,134 @@ int l_ui_sparkline(lua_State* L) {
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "focusable");
   lua_pushcfunction(L, &l_sparkline_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+  return 1;
+}
+
+// **A table of Lua numbers as the values of a chart**, which may be negative —a temperature is— and is cut at what the
+// control holds instead of being an error (docs/90).
+uint8_t chart_values(lua_State* L, int index, int16_t* out, uint8_t most) {
+  if (!lua_istable(L, index)) return 0;
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, index));
+  uint8_t count = 0;
+  index = lua_absindex(L, index);
+  for (lua_Integer i = 1; i <= total && count < most; ++i) {
+    lua_rawgeti(L, index, i);
+    lua_Number value = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+    if (value < -32768) value = -32768;
+    if (value > 32767) value = 32767;
+    out[count++] = static_cast<int16_t>(value);
+    lua_pop(L, 1);
+  }
+  return count;
+}
+
+// **The minutes of each sample**, where a negative is "this board has no clock": the same number of samples as the
+// values, and one that is missing is filled with -1 rather than joined to the one before it (docs/90).
+uint8_t chart_times(lua_State* L, int index, int32_t* out, uint8_t most) {
+  if (!lua_istable(L, index)) return 0;
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, index));
+  uint8_t count = 0;
+  index = lua_absindex(L, index);
+  for (lua_Integer i = 1; i <= total && count < most; ++i) {
+    lua_rawgeti(L, index, i);
+    out[count++] = lua_isnumber(L, -1) ? static_cast<int32_t>(lua_tointeger(L, -1)) : -1;
+    lua_pop(L, 1);
+  }
+  return count;
+}
+
+// **The `on_draw` of a chart**: the values, the minutes, the tones and the unit of the three numbers on the left. The
+// arrays live in the frame of this call —two of forty-eight— and not in a static block, because a chart is drawn by the
+// paint of the page and two of them must not share one buffer (docs/75, docs/90).
+int l_chart_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  const DisabledInk off = ui_disabled_ink(L, 1);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.chart_draw == nullptr) return 0;
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  const int fields = lua_gettop(L);
+  int color = 0;
+  int background = 15;
+  int scale = 1;
+  int low = 0;
+  int high = 100;
+  const char* suffix = "";
+  char unit[8] = {0};
+  lua_getfield(L, fields, "min");
+  low = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "max");
+  high = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "color");
+  color = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "background");
+  background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "scale");
+  scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "suffix");
+  if (lua_isstring(L, -1)) {
+    snprintf(unit, sizeof(unit), "%s", lua_tostring(L, -1));
+    suffix = unit;
+  }
+  lua_pop(L, 1);
+  // **On an inverted face the two tones swap**, the same rule the sparkline follows (docs/92).
+  if (lua_toboolean(L, 2)) {
+    const int swap = color;
+    color = background;
+    background = swap;
+  }
+  int16_t values[kMaxChartSamples];
+  int32_t times[kMaxChartSamples];
+  uint8_t count = 0;
+  uint8_t when = 0;
+  lua_getfield(L, fields, "values");
+  count = chart_values(L, -1, values, kMaxChartSamples);
+  lua_getfield(L, fields, "times");
+  when = chart_times(L, -1, times, kMaxChartSamples);
+  // **A sample with no minute is a sample with no clock**: the array of minutes is the values' or it is not there at
+  // all, and the second case is the samples one after the other and the axis saying so (docs/90).
+  for (uint8_t i = when; i < count; ++i) times[i] = -1;
+  g_ui_ops.chart_draw(canvas->slot, values, times, count, ink_or_dim(off, static_cast<uint8_t>(color)),
+                      static_cast<uint8_t>(background), static_cast<uint8_t>(scale), suffix, low, high);
+  lua_pop(L, 3);  // the times, the values and the fields table
+  return 0;
+}
+
+// ui.chart(width, height): **the series of a page against its time**. The fields are `values` —a Lua array of numbers,
+// the oldest first—, `times` —the minute of the day of each one, negative when this board has no clock—, `suffix` —the
+// unit written after the three numbers of the scale—, `scale` —the step of those numbers— and the two tones. It takes no
+// focus: it is a drawing of numbers the app already has (docs/30, docs/90).
+int l_ui_chart(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__chart");
+  lua_newtable(L);
+  lua_setfield(L, -2, "values");
+  lua_pushnil(L);
+  lua_setfield(L, -2, "times");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "scale");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "suffix");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_chart_draw);
   lua_setfield(L, -2, "on_draw");
   lua_pop(L, 1);  // the table
   return 1;
@@ -9615,6 +9786,7 @@ int l_canvas_tostring(lua_State* L) {
   bool textbox = false;
   bool dialog = false;
   bool spark = false;
+  bool chart = false;
   bool pie = false;
   bool month = false;
   bool menu = false;
@@ -9664,6 +9836,9 @@ int l_canvas_tostring(lua_State* L) {
     lua_getfield(L, -1, "__spark");
     spark = lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
+    lua_getfield(L, -1, "__chart");
+    chart = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
     lua_getfield(L, -1, "__pie");
     pie = lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
@@ -9702,6 +9877,7 @@ int l_canvas_tostring(lua_State* L) {
                      : textbox  ? "textbox"
                      : dialog   ? "dialog"
                      : spark    ? "sparkline"
+                     : chart    ? "chart"
                      : pie      ? "pie"
                      : month    ? "month"
                      : menu     ? "menu"
@@ -12497,6 +12673,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "notification_bar", l_ui_notification_bar);
   set_function(L, "icon_grid", l_ui_icon_grid);
   set_function(L, "sparkline", l_ui_sparkline);
+  set_function(L, "chart", l_ui_chart);
   set_function(L, "pie", l_ui_pie);
   set_function(L, "month", l_ui_month);
   set_function(L, "keyboard", l_ui_keyboard);

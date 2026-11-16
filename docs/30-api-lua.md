@@ -1512,6 +1512,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 656 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (una que no sigui `readonly`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0). **Des de 0.107.0 les tecles fan 64 píxels d'alt** i la lletra ocupa l'alçada de la tecla, i el backspace té la icona del seu símbol |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
+| `ui.chart(w, h)` | **un objecte** o `nil, error` | **Una sèrie en el temps, amb escala i hores** (0.189.144): `values` (els números, el més vell primer), `times` (el minut del dia de cada un, **negatiu quan la placa no té rellotge**), `suffix` (el que s'escriu després dels tres números, `'%'`), `scale` (el pas dels números), `min`/`max` (el **rang físic** de la sèrie, zero i cent per defecte) i els dos tons. Dibuixa el marc, tres guies amb el seu número a l'esquerra, la línia pels punts, el quadrat de l'última mostra i les dues hores de la finestra; **quaranta-vuit mostres com a molt** i la línia es talla on el registre té un forat. **No és enfocable** |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
 | `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app **i van de dilluns a diumenge**), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0). **Des de la 0.170.0 la primera columna i els noms giren amb `time.week`** i el febrer té els dies que digui `time.leap` |
 | `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` porta **un filet d'un píxel** i la del dial és una **banda de tinta d'extrem a extrem** (0.177.0: era una tecla amb relleu i la primària s'invertia). Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
@@ -3136,7 +3137,7 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
     una targeta marxa —el sistema li demana el requadre i prou—. L'editor ho feia a mà (`ui.clear` i tornar a
     pintar-ho tot quan la targeta tancava); amb `on_draw` això és la mateixa funció que ja té (docs/30, docs/90).
 
-### `ui.sparkline` i `ui.pie`: la forma d'uns números (0.74.0)
+### `ui.sparkline`, `ui.chart` i `ui.pie`: la forma d'uns números (0.74.0, i el gràfic a la 0.189.144)
 
 - **`ui.sparkline`**: una barra per mostra, la més vella a l'esquerra, i **l'alçada contra el pic de la finestra** i no
   contra un màxim fix —la forma es llegeix igual amb una escala de deu que amb una de deu mil, i això és el que es
@@ -3148,12 +3149,31 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
 - **`ui.pie`**: quatre porcions com a molt, els angles de la seva suma, i **el pastís comença a les dotze i gira cap a la
   dreta**. Els tons són `color`, `color+4`, `color+8` i `color+12` (tallats a 15): l'app els pot calcular igual per a la
   llegenda, i per això el control no torna cap número de color.
-- **Les dues són de només mirar**: no són enfocables i no tenen estat. Una gràfica no es prem, i el que canvia són les
+- **`ui.chart` és el gràfic que diu els números i l'hora** (0.189.144): el sparkline és la forma d'unes mostres i no en diu
+  cap número; una pàgina que ha de respondre *«quant, i quan»* —la bateria de les últimes hores, la temperatura d'un dia— vol
+  les dues puntes de l'escala escrites a l'esquerra i l'hora de les dues puntes de la finestra escrites a baix. **L'escala és
+  la de la finestra** (un 96 % que baixa a 92 % en sis hores és una línia recta sota una escala de zero a cent) i **l'aire
+  d'un punt per sobre i per sota no creua el rang físic**, que és el que l'app diu amb `min`/`max`: una bateria plena encara
+  diu 100.
+- **I la finestra és de l'app, no del control**: el control dibuixa les mostres que li donen, amb l'hora de cada una. Una
+  finestra d'una hora, de sis o d'un dia és una decisió de la pàgina —quantes mostres passen i quines—, i el que el control
+  fa és dir-les amb una escala honesta. **Els minuts han de pujar**: un rellotge que va enrere és una sèrie sense línia del
+  temps, i el que la pàgina ha de fer és donar-li els minuts en negatiu i deixar que l'eix digui `no clock` (docs/60).
+- **I el forat es diu**: sis mostres perdudes —la placa apagada, l'alarma que no ha arribat— són un forat al registre, i la
+  línia es talla allà. Ajuntar les dues bandes amb un segment recte diria que el nivell va anar suaument d'un valor a l'altre,
+  i això no ho ha mesurat ningú.
+- **Les tres són de només mirar**: no són enfocables i no tenen estat. Una gràfica no es prem, i el que canvia són les
   dades, que les posa l'app.
 - **Un gràfic no compara la seva taula**: dues taules de Lua no són mai la mateixa, així que assignar `samples` o
   `slices` és sempre un repintat. És el que vol una app que acaba de mesurar una cosa.
 
 ```lua
+local chart = ui.chart(500, 300)
+chart.values = { 96, 95, 95, 94 }
+chart.times  = { 540, 570, 600, 630 }   -- el minut del dia; negatiu si la placa no té rellotge
+chart.suffix = '%'
+chart:place(20, 140)
+
 local spark = ui.sparkline(300, 60)
 spark.samples = { 12, 18, 9, 24, 20, 31, 28, 33 }
 spark:place(20, 100)

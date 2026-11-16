@@ -16834,6 +16834,101 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   storage->remove("/apps/tz/manifest.json");
 }
 
+// **La bateria de les últimes hores, amb la pàgina del projecte del paper i els controls d'aquí** (0.189.144): the app is
+// the repository's, it takes a sample when it opens, the chart is the `ui.chart` of the system and the three windows are
+// buttons —the chosen one with the heavy frame, because on this glass there is no colour for two things. A window is a
+// **preference** and lives in the app's own file; where the person was is the session `state` (docs/30, docs/45 §5 bis).
+void test_the_battery_app_takes_a_sample_and_changes_its_window(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  opts.battery_mv = 4100;
+  opts.now_epoch = 1794837600;  // 2026-11-16 15:00 UTC
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+
+  // **El que un run d'abans va deixar, fora**: the log and the window are the app's own files, and a case that read them
+  // would be measuring the finger of the case before it (the lesson of `life`, docs/80).
+  storage->remove("/data/battery/samples.txt");
+  storage->remove("/data/battery/settings.txt");
+  // **Una carpeta que ja hi és no és un fracàs**: the disk of the suite is one for the whole run and for the runs after it,
+  // so the second time this case opens the folders are there (the lesson of the settings case, docs/80).
+  storage->mkdir("/data/battery");
+  storage->mkdir("/apps/battery");
+  storage->mkdir("/apps/battery/res");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/battery/battery.lua", "/apps/battery/battery.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/battery/manifest.json", "/apps/battery/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/battery/res/icon.png", "/apps/battery/res/icon.png"));
+
+  pump_captured(120, g_out, sizeof(g_out), "run battery");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  // **La primera mostra la pren en obrir-se**, i el registre és el fitxer de l'app. **L'hora no es fixa**: el desfasament de
+  // la placa és el que els casos d'abans hi hagin deixat, i el que aquest cas mesura és que la mostra hi sigui i que el
+  // registre avanci de deu en deu minuts (docs/60, docs/80).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "battery: sample 90%"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "battery: 6 h window, 1 in the log"), g_out);
+  char log[128] = {0};
+  TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/battery/samples.txt", log, sizeof(log)), log);
+  int first_minute = -1;
+  int first_percent = -1;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(log, "%d,%d", &first_minute, &first_percent), log);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(90, first_percent, log);
+
+  // **Els tres botons són d'aquest sistema i es trien amb el dit**: the left one is the hour, and the choice is written in
+  // the app's file at once —a preference is not the shape of the view—.
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const uint16_t button_y = static_cast<uint16_t>(view.y + view.height - 20 - 63 + 28);
+  const uint16_t each = static_cast<uint16_t>((view.width - 40 - 28) / 3);
+  capture_begin();
+  press_finger(panel, 98, button_y);
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  char prefs[64] = {0};
+  TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/battery/settings.txt", prefs, sizeof(prefs)), prefs);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(prefs, "range=1"), prefs);
+  TEST_ASSERT_NULL_MESSAGE(strstr(prefs, "range=2"), prefs);
+  (void)each;
+
+  // **I un toc al paper pren una mostra d'ara**: ten minutes later, because two samples of the same minute are one (the app
+  // refuses the second, docs/60).
+  emu::Options later = emu::options();
+  later.now_epoch = 1794837600 + 600;
+  emu::set_options(later);
+  capture_begin();
+  press_finger(panel, 4, static_cast<uint16_t>(view.y + 300));
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  memset(log, 0, sizeof(log));
+  TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/battery/samples.txt", log, sizeof(log)), log);
+  const char* second = strchr(log, '\n');
+  TEST_ASSERT_NOT_NULL_MESSAGE(second, log);
+  int next_minute = -1;
+  int next_percent = -1;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(second + 1, "%d,%d", &next_minute, &next_percent), second + 1);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(90, next_percent, log);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(first_minute + 10, next_minute, log);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/data/battery/samples.txt");
+  storage->remove("/data/battery/settings.txt");
+  storage->remove("/data/battery");
+  storage->remove("/apps/battery/battery.lua");
+  storage->remove("/apps/battery/manifest.json");
+  storage->remove("/apps/battery/res/icon.png");
+  storage->remove("/apps/battery/res");
+  storage->remove("/apps/battery");
+}
+
 // **El cronòmetre i el compte enrere del Clock són al disc i l'ancora és l'hora de la placa** (0.189.103, l'amo: *«Clock ->
 // Chronomether, no manté l'hora ni continua comptant rera tancar l'app o el reinici … se suposa que aquestes apps usaven el
 // disc i els rellotges que puguin haver»*). The run file says when the run started and what it already counted, so a
@@ -18402,6 +18497,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_strip_that_closes_its_tabs_draws_its_crosses);
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
+  RUN_TEST(test_the_battery_app_takes_a_sample_and_changes_its_window);
   RUN_TEST(test_the_clock_keeps_its_run_across_a_restart);
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);

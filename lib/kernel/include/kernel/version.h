@@ -9640,7 +9640,17 @@ namespace kernel {
 // corre al bucle de la pàgina i **ningú demanava la pàgina després**, o sigui que la línia que diu el que la pàgina ha fet
 // s'escrivia i no es veia fins que una altra cosa repintava: el botó que obre una targeta deixa la feina al torn de després i la
 // targeta es pinta sola (docs/30, docs/45).
-static const char kVersion[] = "0.189.143";
+// 0.189.144 — **la `Battery` del projecte del paper, amb un control nou: `ui.chart`**. L'amo: *«Fes Battery, recorda que has de
+// fer el mateix aspecte, però usant els controls que tenim aquí. Si falta algun control el podem implementar, però al estil
+// lunokOS»*. El gràfic de l'original era un dibuix de l'app (`graph.lua` amb `paperos.draw`) i aquí és un control del sistema:
+// marc, tres guies amb el número a l'esquerra, la línia que passa pels punts (suavitzada pels punts mitjans, com la del paper),
+// el quadrat de l'última mostra i les dues hores de la finestra, amb **l'escala de la finestra** i un rang físic que l'app diu
+// (`min`/`max`) perquè l'aire d'un punt no el creui. La pàgina és la de l'original —el percentatge gran, els volts, el gràfic al
+// mig, la frase de la finestra, dos línies de peu i els tres botons d'1, 6 i 24 hores amb el triat de marc gruixut— i el que ha
+// après el port és a docs/45: una finestra nova demana el rentat de setze nivells perquè el `du` deixa el fantasma de la línia
+// d'abans, la finestra triada és una preferència (al fitxer de l'app) i el cercle és forma (a `state`), i `fs.write` torna els
+// bytes i no un booleà —un `pcall` sol deia que sí quan la porta responia `nil, error` (docs/30, docs/45, docs/50, docs/90).
+static const char kVersion[] = "0.189.144";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

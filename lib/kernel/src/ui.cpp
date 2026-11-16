@@ -2218,6 +2218,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      dialog_draw,
                                      dialog_hit,
                                      sparkline_draw,
+                                     chart_draw,
                                      pie_draw,
                                      month_draw,
                                      month_hit,
@@ -5513,6 +5514,251 @@ bool sparkline_draw(int16_t slot, const uint16_t* samples, const uint16_t* top, 
     }
   }
   mark_box(*target.canvas, target.x, target.y, width, height, mode);
+  close_draw(target);
+  return true;
+}
+
+// **Les tres plomes del gràfic, i cap d'elles marca**: a line is forty segments and a mark per segment is the list of
+// eight of a canvas filled with the same box —the chart marks its whole box once, at the end, which is the rule the
+// sparkline follows for its bars— (docs/30, docs/75).
+void plot_rect(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
+  if (w > 0 && h > 0) put_rect(canvas, x, y, w, h, level);
+}
+
+void plot_frame(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
+  if (w <= 0 || h <= 0) return;
+  plot_rect(canvas, x, y, w, 1, level);
+  plot_rect(canvas, x, y + h - 1, w, 1, level);
+  plot_rect(canvas, x, y, 1, h, level);
+  plot_rect(canvas, x + w - 1, y, 1, h, level);
+}
+
+// **A line of `thickness` pixels is a square of that side on every step**: the panel has one level and no antialiasing,
+// so the only way to say "this is the curve and not the guide" is to make it fatter (the paper project's four).
+void plot_line(Canvas& canvas, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint8_t level, int32_t thickness) {
+  int32_t dx = (x1 > x0) ? x1 - x0 : x0 - x1;
+  int32_t dy = (y1 > y0) ? y0 - y1 : y1 - y0;
+  const int32_t step_x = (x0 < x1) ? 1 : -1;
+  const int32_t step_y = (y0 < y1) ? 1 : -1;
+  int32_t err = dx + dy;
+  const int32_t side = (thickness > 1) ? thickness : 1;
+  const int32_t offset = side / 2;
+  for (;;) {
+    plot_rect(canvas, x0 - offset, y0 - offset, side, side, level);
+    if (x0 == x1 && y0 == y1) break;
+    const int32_t twice = 2 * err;
+    if (twice >= dy) {
+      err += dy;
+      x0 += step_x;
+    }
+    if (twice <= dx) {
+      err += dx;
+      y0 += step_y;
+    }
+  }
+}
+
+// **El gràfic d'una sèrie en el temps** (0.189.144): the sparkline is the shape of the last samples and says nothing
+// about the numbers; a page that has to answer *«how much, and when»* needs the two ends of the scale written on the
+// left and the hour of the two ends of the window written below, which is what the chart of the paper project drew
+// and what the owner asked for when he ported the Battery app (*«has de fer el mateix aspecte»*).
+//
+// **The scale is the window's** and not a fixed 0 to 100: a battery that went from 96 % to 92 % in six hours is four
+// rows of paper under a fixed scale —a straight line nobody can read— and the highest sample of the window is the top
+// of the plot and the lowest the bottom (the rule the paper project wrote on 22/10). One of air over and under keeps
+// the curve off the frame, and the physical range is the only thing the air cannot cross, so a battery at 100 % still
+// says 100.
+//
+// **A hole in the log stops the line**: six samples missed is the device off or the alarm not coming, and joining the
+// two sides with a straight line would say the level went smoothly from one value to the other, which nobody measured.
+bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
+                uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high) {
+  if (!live(slot) || ink > 15 || background > 15) return false;
+  const Canvas& chart = g_canvases[slot];
+  const int32_t width = chart.width;
+  const int32_t height = chart.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 8) scale = 8;
+  if (count > kMaxChartSamples) count = kMaxChartSamples;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  Canvas& view = *target.canvas;
+  const int32_t left_edge = target.x;
+  const int32_t top_edge = target.y;
+  draw_fill_rect(view, static_cast<uint16_t>(left_edge), static_cast<uint16_t>(top_edge),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+
+  const font::Face& face = face_of(chart.face);
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  const char* unit = (suffix != nullptr) ? suffix : "";
+
+  // **The band of the numbers is measured and not a number of the file**: what it needs is the widest label of the
+  // three ("100%") plus the reach of the guide that leaves the frame to meet it, and a chart of a page with another
+  // face would come out with its numbers on the curve (docs/90).
+  char widest[24];
+  snprintf(widest, sizeof(widest), "%d%s", static_cast<int>((high > low) ? high : 100), unit);
+  int32_t band = font::width(face, widest, scale) + 12;
+  if (band < 10) band = 10;
+  if (band > width / 3) band = width / 3;
+  const int32_t x0 = left_edge + band + 4;
+  const int32_t x1 = left_edge + width - 6;
+  const int32_t y0 = top_edge + line_h + 2;
+  const int32_t y1 = top_edge + height - line_h - 6;
+  const int32_t plot_w = x1 - x0;
+  const int32_t plot_h = y1 - y0;
+  // A box too small to hold an axis is not a chart: the card of a page that is being laid out says nothing rather
+  // than a drawing of four pixels (docs/90).
+  if (plot_w < 40 || plot_h < 24) {
+    mark_box(view, left_edge, top_edge, width, height, mode);
+    close_draw(target);
+    return true;
+  }
+
+  // The two ends of the scale, from the samples of the window; and the two of them are one apart when the window is
+  // flat, or the arithmetic below divides by zero.
+  if (high <= low) high = low + 1;
+  int32_t lo = low;
+  int32_t hi = high;
+  if (count > 0) {
+    lo = values[0];
+    hi = values[0];
+    for (uint8_t i = 1; i < count; ++i) {
+      if (values[i] < lo) lo = values[i];
+      if (values[i] > hi) hi = values[i];
+    }
+    lo -= 1;
+    hi += 1;
+    if (lo < low) lo = low;
+    if (hi > high) hi = high;
+    if (hi <= lo) hi = lo + 1;
+  }
+  const auto row_of = [&](int32_t value) {
+    if (value < lo) value = lo;
+    if (value > hi) value = hi;
+    return y1 - static_cast<int32_t>((static_cast<int64_t>(value - lo) * plot_h) / (hi - lo));
+  };
+
+  plot_frame(view, x0 - 4, y0 - 2, plot_w + 8, plot_h + 6, ink);
+
+  // **The number follows the line out of the plot**, into the band: the number and the guide that comes out of the
+  // frame are one mark, and the two extremes carry a short thick tick so the maximum and the minimum are not two more
+  // hairlines (the paper project's drawing).
+  char label[24];
+  const auto guide = [&](int32_t value, bool extreme) {
+    const int32_t row = row_of(value);
+    snprintf(label, sizeof(label), "%d%s", static_cast<int>(value), unit);
+    plot_rect(view, x0 - 8, row, plot_w + 9, 1, ink);
+    if (extreme) plot_rect(view, x0 - 8, row - 1, 8, 3, ink);
+    const int32_t text_w = font::width(face, label, scale);
+    draw_text(view, face, x0 - 10 - text_w, row - line_h / 2, label, scale, ink, mode);
+  };
+  guide(hi, true);
+  const int32_t mid = (hi + lo) / 2;
+  if (mid > lo && mid < hi) guide(mid, false);
+  guide(lo, true);
+
+  if (count == 0) {
+    const char* empty = "No samples yet.";
+    const int32_t text_w = font::width(face, empty, scale);
+    draw_text(view, face, x0 + (plot_w - text_w) / 2, y0 + (plot_h - line_h) / 2, empty, scale, ink, mode);
+    mark_box(view, left_edge, top_edge, width, height, mode);
+    close_draw(target);
+    return true;
+  }
+
+  // **When the clock is known the window is the time's**: the first sample sits on the left edge and the last on the
+  // right one, and a sample whose minute is not the one the window expects is put on the edge it belongs to and never
+  // next to the numbers.
+  const int32_t t0 = times[0];
+  const int32_t t1 = times[count - 1];
+  const bool clock = (t0 >= 0 && t1 > t0);
+  const auto column_of = [&](uint8_t i) {
+    int32_t px = x0;
+    if (clock) {
+      px = x0 + static_cast<int32_t>((static_cast<int64_t>(times[i] - t0) * plot_w) / (t1 - t0));
+    } else if (count > 1) {
+      px = x0 + static_cast<int32_t>((static_cast<int64_t>(i) * plot_w) / (count - 1));
+    }
+    if (px < x0) px = x0;
+    if (px > x1) px = x1;
+    return px;
+  };
+
+  // **The pen goes from middle to middle** and the sample it left behind is the corner: a series joined corner to
+  // corner is a saw of straight pieces, and the paper project's chart rounded it with a curve. A line to the middle
+  // and then to the next middle is the same shape with the arithmetic this kernel already has (docs/90).
+  const uint8_t stroke = 3;
+  int32_t pen_x = 0;
+  int32_t pen_y = 0;
+  int32_t last_x = 0;
+  int32_t last_y = 0;
+  bool pen = false;
+  const auto add = [&](int32_t px, int32_t py) {
+    if (!pen) {
+      pen_x = px;
+      pen_y = py;
+      pen = true;
+      last_x = px;
+      last_y = py;
+      return;
+    }
+    const int32_t mid_x = (pen_x + px) / 2;
+    const int32_t mid_y = (pen_y + py) / 2;
+    plot_line(view, pen_x, pen_y, mid_x, mid_y, ink, stroke);
+    pen_x = mid_x;
+    pen_y = mid_y;
+    last_x = px;
+    last_y = py;
+  };
+  const auto close_the_pen = [&]() {
+    if (pen) plot_line(view, pen_x, pen_y, last_x, last_y, ink, stroke);
+    pen = false;
+  };
+
+  // **Six samples missed is a hole**, and a clock that went backwards is another one: the two sides cannot be joined.
+  // Only when the clock is trusted, because with no clock at all the samples are placed by their order and there is no
+  // step to measure.
+  const int32_t kGap = 60;
+  for (uint8_t i = 0; i < count; ++i) {
+    if (clock && i > 0) {
+      const int32_t step = times[i] - times[i - 1];
+      if (step > kGap || step < 0) close_the_pen();
+    }
+    add(column_of(i), row_of(values[i]));
+  }
+  close_the_pen();
+
+  // **The last sample is marked**: the eye finds where the history arrives, and the square never leaves the plot.
+  int32_t mark_x = last_x - 4;
+  int32_t mark_y = last_y - 4;
+  if (mark_x < x0) mark_x = x0;
+  if (mark_x > x1 - 8) mark_x = x1 - 8;
+  if (mark_y < y0) mark_y = y0;
+  if (mark_y > y1 - 8) mark_y = y1 - 8;
+  plot_frame(view, mark_x, mark_y, 9, 9, ink);
+
+  // **And the two ends of the window are the two ends of the axis**: the hour when there is a clock, and the sentence
+  // that says there is none when there is not —two samples with an hour do not mean the chip did not answer—.
+  // **The axis says "no clock" only when the clock is really missing** and not when the two samples are too close or the
+  // chip went backwards: the paper project's rule, and the reason the condition here is the two minutes and not `clock`
+  // —the spacing is the plot's business and this line is the truth's (docs/60, docs/90).
+  const int32_t axis_y = y1 + 6;
+  if (t0 < 0 || t1 < 0) {
+    draw_text(view, face, x0, axis_y, "no clock", scale, ink, mode);
+  } else {
+    char first[16];
+    char last[16];
+    snprintf(first, sizeof(first), "%02d h", static_cast<int>(t0 / 60));
+    snprintf(last, sizeof(last), "%02d h", static_cast<int>(t1 / 60));
+    draw_text(view, face, x0, axis_y, first, scale, ink, mode);
+    if (t1 > t0) {
+      draw_text(view, face, x1 - font::width(face, last, scale), axis_y, last, scale, ink, mode);
+    }
+  }
+
+  mark_box(view, left_edge, top_edge, width, height, mode);
   close_draw(target);
   return true;
 }

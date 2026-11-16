@@ -474,6 +474,21 @@ const uint8_t kMaxSparkSamples = 24;
 bool sparkline_draw(int16_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count, uint8_t color,
                     uint8_t background);
 
+// **I un gràfic de línia, que és el que una sèrie en el temps demana** (0.189.144): the sparkline is a shape of bars
+// and a page that says *«the battery of the last hours»* needs the numbers of the two ends of the scale and the hour
+// of the two ends of the window, which is a chart with an axis and not a strip. **The samples come from the app** —it
+// is the app that knows how many there are, what window it is showing and what the hour of each one is—, and the
+// control draws the frame, the three guides with their numbers, the line through the samples and the mark of the last
+// one. Forty-eight samples is what a window of five hundred pixels holds without fusing two into a column.
+const uint8_t kMaxChartSamples = 48;
+// `values` and `times` are two arrays of `count`: the value of each sample and the minute of the day it was taken
+// (**negative is "this board has no clock"**, and then the samples are put one after the other and the axis says so),
+// `suffix` is written after the three numbers (`"%"`), and `ink`/`background` are the tones of the drawing.
+// `low`/`high` són el **rang físic** de la sèrie (zero i cent per a una bateria, i el que l'app digui per a qualsevol
+// altra cosa): l'aire d'un punt per sobre i per sota no el pot creuar, o sigui que una bateria plena encara diu 100.
+bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
+                uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high);
+
 // **A pie is four slices at most and its tones are the control's**: the app says the darkest one and the control
 // walks four steps of four from it, so the legend an app draws beside it can say the same numbers and not almost
 // the same (docs/30, docs/90). `slices` are the values and the angles come from their sum.

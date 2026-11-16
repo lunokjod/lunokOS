@@ -466,6 +466,7 @@ Portades i viatjant avui, **nou** (`home_eink` va a part, a sota):
 | `Timeclock` | `timeclock` | 0.1.0 |
 | `2048` | `2048` | 0.2.0 |
 | `Life` | `life` | 0.1.0 |
+| `Battery` | `battery` | 0.1.0 |
 
 I a part, **dues que no són ports**:
 
@@ -483,9 +484,24 @@ I a part, **dues que no són ports**:
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 
-Les **setze** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`, `Battery`,
+Les **quinze** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`,
 `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
 `Snake`, `Tamagotchi` i `Tetris`.
+
+**El que va ensenyar la `Battery`** (0.189.144, i el control que en va sortir): el gràfic del projecte del paper era **un
+dibuix de l'app** (`graph.lua`, amb `paperos.draw`) i aquí és **un control del sistema** (`ui.chart`), perquè el que demana
+—el marc, tres guies amb el seu número, la línia, el quadrat de l'última mostra i les dues hores de l'eix— és el mateix dibuix
+que demanarà la `Meteo`, que al projecte del paper era **el mateix fitxer copiat dues vegades** perquè una app només podia
+carregar els mòduls de la seva carpeta. Les altres tres coses que aquest port va ensenyar:
+
+- **Una finestra nova no es dibuixa a sobre de la vella**: el canvas del control es rentja amb el color del paper, però la
+  passada barata del panell (`du`) deixa el fantasma de la línia d'abans i el vidre ensenya dues corbes. La pàgina que canvia
+  de finestra demana el rentat de setze nivells (`gc16`) —una vegada, quan la persona ho tria— i la que només pren una mostra
+  es queda amb el barat (docs/50, docs/90).
+- **Una preferència no és una forma**: la finestra triada (una hora, sis, un dia) va al fitxer de l'app (`fs.data`); el cercle
+  del dial va a la sessió `state`. És la mateixa línia que la 0.189.12 va escriure per a totes les apps (docs/30, §5 bis).
+- **`fs.write` torna els bytes i no un booleà**: un `pcall(fs.write, ...)` que només mira si ha petat diu que sí quan la porta
+  ha respost `nil, error` i la pàgina ensenya un registre que no existeix. La resposta s'ha de mirar (docs/30).
 
 **El que va ensenyar el `Device Lock`** (0.189.97, i el permís que en va sortir a la 0.189.99):
 
