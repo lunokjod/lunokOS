@@ -487,7 +487,13 @@ void poll() {
     if (under != g_sunk) {
       hal::ISurface* surface = display::surface();
       if (surface != nullptr) {
-        if (g_sunk >= 0) paint_the_key(*surface, static_cast<Key>(g_sunk), /*pressed=*/false);
+        // **Una tecla que ja no hi és no es repinta** (0.189.117): `g_sunk` is the key the finger is on, and it outlives the
+        // card that had it —the arrow of a page that went back is not a key of the card of the page below, which has one page
+        // and no way back—. Painting it here put the arrow of the page before on the card of the one after, with `views` at
+        // zero and the loop of `paint()` skipping it, which is what a case of the panel found on the glass (docs/30, docs/45).
+        if (g_sunk >= 0 && key_is_there(static_cast<Key>(g_sunk))) {
+          paint_the_key(*surface, static_cast<Key>(g_sunk), /*pressed=*/false);
+        }
         if (under >= 0) paint_the_key(*surface, static_cast<Key>(under), /*pressed=*/true);
         display::present(hal::UpdateMode::kDu);
       }

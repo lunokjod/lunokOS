@@ -9477,7 +9477,12 @@ namespace kernel {
 // d'ombra que el botó tenia amb marc (`box_top + 61`) i demanaven tinta; des de la 0.185.0 `if (!framed) lift = 0` i allà hi ha
 // el paper de la cara —el que fa veure's una tecla és la paraula i la tinta que agafa en prémer-se, que és l'altra meitat del
 // mateix cas—. Les dues assercions diuen ara 15 i el perquè (docs/30, docs/92).
-static const char kVersion[] = "0.189.116";
+// 0.189.117 — **la fletxa de la pàgina de abans a la targeta de la de després**. El repintat de la tecla que el dit deixa
+// ([panel.cpp] 490) no preguntava `key_is_there` i arrossegava el `g_sunk` del toc anterior: l'arrow d'una app amb una vista va
+// quedar pintada a la targeta d'una app d'una sola pàgina, amb `views` a zero i el bucle de `paint()` saltant-se-la —el cas del
+// panell ho va trobar mirant el vidre, i el bolcat de 24 × 24 en va dir la forma de seguida—. Un `g_sunk` que ja no és una
+// tecla del card no es repinta (docs/30, docs/45).
+static const char kVersion[] = "0.189.117";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
