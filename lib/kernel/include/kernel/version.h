@@ -9508,7 +9508,13 @@ namespace kernel {
 // 0.189.123 — **sis parpelleigs i no vuit**. El bloc del cursor és de vuit-cents cinquanta mil·lisegons des de la 0.189.34 (el número
 // és un ajust, `cfg cursor delay`, i viu fora del guard de la pàgina per això), o sigui que en cinc segons i mig de rellotge hi
 // caben sis voltes: el cas demanava les vuit d'un període de sis-cents cinquanta i la setena no hi arriba (docs/30, docs/90).
-static const char kVersion[] = "0.189.123";
+// 0.189.124 — **l'anell no torna amb una pintada**. La 0.179.7 va fer que `ui_ring_shown` sigui fals fins que una tecla o un dit
+// el demanen —el selector torna dins de la pintada que la tecla ja farà, i una pàgina que només pinta no mou cap anell—, i el cas
+// de la targeta sobre la pàgina encara demanava el parell de la 0.172.1: que el `present` que tanca la targeta tornés el focus al
+// primer lloc i que el botó del darrere sentís `on_focus(false)` i `on_focus(true)` a cada fase. Les tres línies diuen zero, amb el
+// perquè, i el que el cas guarda —la targeta sent l'accept i el cancel, la pàgina del darrere no sent res— queda igual
+// (docs/30, docs/90).
+static const char kVersion[] = "0.189.124";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

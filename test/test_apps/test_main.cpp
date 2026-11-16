@@ -12978,9 +12978,12 @@ void test_a_card_over_the_page_takes_the_walk_and_gives_it_back(void) {
   // **And the button behind heard that the ring went**: the first key of the card is the walk that finds it, and the
   // control that had the focus is told, because it is no longer a stop and the walk cannot tell it any other way (0.173.1).
   TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus false"), g_out);
-  // And the present that closed the card is the one that gave the ring back: the first time the button hears that it has
-  // the focus is that paint, and not another question (0.172.1).
-  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus true"), g_out);
+  // **El `present` ja no torna el focus sol** (0.179.7): `ui_ring_shown` és fals fins que una tecla o un dit el demanen —the
+  // selector comes back inside the paint the key is already going to ask for, i una pàgina que només pinta no mou cap anell—,
+  // o sigui que el present que tanca la targeta deixa la pàgina sense anell i el botó del darrere no torna a sentir que el té.
+  // El cas demanava el contrari, que és el que deia la 0.172.1, i **no es pot demanar amb aquesta app**: la pregunta següent
+  // surt del seu bucle a la pintada mateixa, o sigui que no hi ha cap pàgina sense targeta on caminar (docs/30, docs/90).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus true"), g_out);
 
   // **And a finger outside the card is its cancel**: the app asks a second question from its loop, the card goes up, and
   // the touch lands on the box of the button —a box nobody is offering while the question is up— so the card hears the
@@ -12997,10 +13000,12 @@ void test_a_card_over_the_page_takes_the_walk_and_gives_it_back(void) {
   // this phase begins with the card already on the glass (and its `phase 2` line went out in the one before).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cancel 2"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "behind clicked"), "the finger went through the card");
-  // **The capture is this phase's**: the ring went to the button on the way down —the card was up, so the button had it
-  // and lost it before the finger left the glass— and it came back in the present the cancel painted (0.172.1, 0.173.1).
-  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus false"), g_out);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus true"), g_out);
+  // **I el botó del darrere no sent res, ni quan el dit hi cau a sobre** (0.179.7): with the card up the page behind has no
+  // ring at all —the selector is the card's and it comes back with a key, not with a paint—, so there is no `focus false` to
+  // hear on the way down and no `focus true` when the cancel paints. The two lines the case asked for are the 0.172.1 pair,
+  // which is what a present used to do (docs/30, docs/90).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus false"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus true"), g_out);
 
   for (int i = 0; i < 3 && kernel::app_running(); ++i) {
     emu::press_button(true);
