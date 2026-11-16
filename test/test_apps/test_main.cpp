@@ -15988,10 +15988,11 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   pump_captured(40, g_out, sizeof(g_out), "run leaver");
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the app");
-  // **El dibuix del botó, llegit al vidre** (0.179.31): the four rows under the face are ink —the shadow is what makes it a
-  // key and not a rectangle—, the face is paper away from the word, and the middle has the ink of the word in it. **The
-  // three together** are the system's button; a shape of the panel would pass the first and fail the other two.
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass_level(shadow_x, shadow_y), "a button of this system has no shadow under its face");
+  // **El dibuix del botó, llegit al vidre** (0.179.31, i la 0.185.0 li treu l'ombra): the face is paper away from the word and
+  // the middle has the ink of the word in it, and **there is no shadow under the face**: a key of the card is drawn without a
+  // frame, and a key whose face is the paper of its page has no paper of its own to give — what it does when it is pressed is
+  // take the ink, which is the other case of this card (`if (!framed) lift = 0` in `ui.cpp`, docs/30, docs/92).
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(shadow_x, shadow_y), "a key of the card has the shadow of a framed button on it");
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(face_x, face_y), "the face of the button is not paper");
   TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in_the_word(), "the button has no word in it");
   // **And nothing outside its box**, which is the twenty-four of margin the card gives the corner.
@@ -16241,11 +16242,12 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "stacky view 1"), g_out);
   TEST_ASSERT_EQUAL_UINT8(1, kernel::apps::views());
 
-  // **The card comes out over the page and the arrow is a key of this system**: the four rows under the face are ink, the face
-  // is paper away from the arrow, and the middle of it has the ink of the arrow in it (docs/30, docs/92).
+  // **The card comes out over the page and the arrow is a key of this system**: the face is paper away from the arrow and the
+  // middle of it has the ink of the arrow in it, and **without a shadow under it** —the keys of the card have no frame since
+  // 0.185.0 (`if (!framed) lift = 0` in `ui.cpp`) and what they do when pressed is take the ink (docs/30, docs/92).
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe down from the bar did not pull the card out");
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass_level(shadow_x, shadow_y), "the arrow of the card has no shadow under its face");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(shadow_x, shadow_y), "the arrow of the card has the shadow of a framed button on it");
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(face_x, face_y), "the face of the arrow is not paper");
   TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in_the_word(), "the arrow of the card has no arrow in it");
 

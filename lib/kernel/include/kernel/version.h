@@ -9473,7 +9473,11 @@ namespace kernel {
 // l'app el dona al primer avís, que passa sempre dins del contacte, i el cas comprova a més que el `given back` és **abans** de la
 // línia `[I][TOUCH] drag` —la de l'aixecada—, o sigui que la donada va passar amb el dit a baix i quedava camí per recórrer
 // (docs/30, docs/90, docs/92 §28).
-static const char kVersion[] = "0.189.115";
+// 0.189.116 — **la tecla de la targeta no té ombra i el cas de la creu ja ho diu**. Els dos casos del panell mesuraven la fila
+// d'ombra que el botó tenia amb marc (`box_top + 61`) i demanaven tinta; des de la 0.185.0 `if (!framed) lift = 0` i allà hi ha
+// el paper de la cara —el que fa veure's una tecla és la paraula i la tinta que agafa en prémer-se, que és l'altra meitat del
+// mateix cas—. Les dues assercions diuen ara 15 i el perquè (docs/30, docs/92).
+static const char kVersion[] = "0.189.116";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
