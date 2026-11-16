@@ -12019,9 +12019,11 @@ void test_the_caret_keeps_blinking_while_the_box_has_the_focus(void) {
                            "console.print('blinks ' .. changes)\n"));
 
   pump_captured(5400, g_out, sizeof(g_out), "run settle");
-  // **Vuit i no sis**: the block does not stop, so the eight blinks of five seconds are there and the sixth is not the last.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "blinks 8"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "blinks 9"), g_out);
+  // **Sis i no set, i el setè no és l'últim**: el parpelleig és de **vuit-cents cinquanta mil·lisegons** des de la 0.189.34 —el
+  // número és un ajust, `cfg cursor delay`, i no un cursor—, o sigui que en cinc segons i mig de rellotge hi caben sis
+  // voltes i la setena no hi arriba. El cas demanava les vuit d'un període de sis-cents cinquanta (docs/30, docs/90).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "blinks 6"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "blinks 7"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its five seconds");
 
   storage->remove("/apps/settle/app.lua");

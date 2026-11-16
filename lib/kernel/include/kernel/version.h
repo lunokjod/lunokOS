@@ -9505,7 +9505,10 @@ namespace kernel {
 // la tecla de dalt —el cas premia la de baix i amb el valor a zero no es movia—, el dial del volum fa el mateix camí, i la
 // caixa de verificació mesura seixanta-quatre i no trenta-dos des de la 0.189.90, quan la marca va passar a ser el clipart de
 // dos estats (`kToggleW` 60 i dos d'aire a cada costat) i no un quadrat que el control calculava (docs/30, docs/50, docs/90).
-static const char kVersion[] = "0.189.122";
+// 0.189.123 — **sis parpelleigs i no vuit**. El bloc del cursor és de vuit-cents cinquanta mil·lisegons des de la 0.189.34 (el número
+// és un ajust, `cfg cursor delay`, i viu fora del guard de la pàgina per això), o sigui que en cinc segons i mig de rellotge hi
+// caben sis voltes: el cas demanava les vuit d'un període de sis-cents cinquanta i la setena no hi arriba (docs/30, docs/90).
+static const char kVersion[] = "0.189.123";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
