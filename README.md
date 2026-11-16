@@ -74,12 +74,12 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 >
 > **La pàgina té controls i els dibuixa el sistema.** `ui.panel`, `ui.list`, `ui.textbox`,
 > `ui.textbox_multiline`, `ui.selector`, `ui.checkbox`, `ui.progress`, `ui.slider`, `ui.row`, `ui.tabs`,
-> `ui.dots`, `ui.dialog`, `ui.sparkline`, `ui.pie`, `ui.month`, `ui.menu`, `ui.menu_bar`,
+> `ui.dots`, `ui.dialog`, `ui.sparkline`, `ui.chart`, `ui.pie`, `ui.month`, `ui.menu`, `ui.menu_bar`,
 > `ui.notification_bar` i `ui.icon_grid`: cada un és una ranura del nucli on l'app posa camps i el sistema
 > pinta, guarda el focus i la tecla premuda, i **només passa les fletxes al control que les vol**. Les
 > cares del disc viuen una sola vegada a `/fonts` (`res/fonts/`, de només lectura) i no una còpia per app.
-> Els que els fan servir són les apps del disc —el lector, l'editor, la calculadora, el rellotge, l'esborrador i el
-> launcher—, i la revisió del projecte antic que va portar-los és a
+> Els que els fan servir són les apps del disc —el lector, l'editor, la calculadora, el rellotge, l'esborrador, la
+> bateria i el launcher—, i la revisió del projecte antic que va portar-los és a
 > [docs/92](docs/92-ui-del-projecte-antic.md).
 > **Un fitxer llarg, a l'editor, porta la seva barra de desplaçament al cantó dret de la caixa** —la pista diu quant text hi ha i
 > el polze on és la persona— i **es mou amb un swipe** sobre el text: el gest el registra l'app (`on_swipe`), el

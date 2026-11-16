@@ -9657,7 +9657,16 @@ namespace kernel {
 // (no espera res) i la finestra, que no ha llegit res, llegeix el registre del dia abans d'afegir-hi la línia —si no, el
 // desaria a sobre amb una de sola—; el bucle només repinta el que el ganxo ha escrit. El cas de la suite arma l'alarma amb
 // l'app tancada i mira que el registre tingui les dues línies (docs/30, docs/45, docs/60).
-static const char kVersion[] = "0.189.145";
+// 0.189.146 — **la documentació del que han portat aquests sis commits**. La 0.189.145 va arreglar la mostra de la
+// `Battery` i el que faltava era dir-ho on es llegeix: docs/60 explica que el que sona es fa dins del ganxo (una finestra
+// crida `on_alarm` i destrueix la VM, i una finestra no ha llegit res, o sigui que el ganxo llegeix el registre abans
+// d'escriure-hi), docs/70 que un registre de mostres no és un bucle (144 escriptures al dia contra les vint-i-quatre mil
+// l'hora d'una pàgina que espera 150 ms), docs/75 que les quaranta-vuit mostres del gràfic viuen a la pila de la crida i
+// no al `.bss` —288 B, i el `.bss` de la Paper ja és ple—, docs/80 el comptador de la suite (710) i els casos nous,
+// docs/40 la `battery` a la llista de les apps amb icona, i docs/45 que ja són **deu** les portades. I la icona de la
+// `Battery` es torna a fer del mestre de 448 px del projecte del paper amb `tools/make_icon.py`, com la de tota app, en
+// lloc de la conversió del `.icn` de 94 px: el dibuix és el mateix i la recepta és la mateixa que la de les altres (docs/40).
+static const char kVersion[] = "0.189.146";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

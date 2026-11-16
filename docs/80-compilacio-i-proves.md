@@ -213,7 +213,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   havia passat amb els directoris. El que es deixa fora és la regla del `lib_ignore` de l'emulador —les
   identitats de placa i les meitats d'ESP32, que no són cosa de l'amfitrió— i **Lua, perquè és C**: el pas fa
   `clang++` i l'intèrpret com a C++ no és el mateix programa;
-- les **591 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s): les dotze de la 0.169.0 eren quatre
+- les **710 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, i el 16/11 en 6 min 9 s): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
@@ -250,7 +250,10 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   llegit de la consola, un dit que tremola que no mou res, un lliscament que mou el tauler i fa créixer la suma, i la
   partida que torna quan l'app es tanca i s'obre —**la tecla New no la toca**, perquè el dit que aquesta suite sap fer
   no arriba al gest `tap` de l'app— (`test_apps`). **Mesurades l'11/11: 591 casos verds en 3 min 17 s** (106 de
-  `test_ui` i 211 de `test_apps`);
+  `test_ui` i 211 de `test_apps`). **Mesurades el 16/11: 710 en 6 min 9 s**, amb els casos que van sortir del repàs dels
+  vint-i-set commits —les dues proves que havien envellit, que escriuen al disc de la suite i el deixaven brut per a la
+  de després (docs/45)— i els de la `Battery`: el gràfic del sistema a `test_ui` i dues d'app a `test_apps`, una mostra
+  presa per la pàgina i una altra per una **finestra d'alarma**, amb l'app tancada (0.189.144 i 0.189.145);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
   `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques**, amb
   guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`. **Les sis les compila el CI**
@@ -270,17 +273,18 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
 
 - **La imatge d'una placa no porta apps** (0.118.3, l'amo: *«cap placa ha de contenir apps al littlefs al
   flashejar»*): el disc de cada entorn el munta `tools/make_disk.py` a **`build/disk/<entorn>`** amb el `data/`
-  del sistema i res més. L'única excepció és la Paper, que en nomena **deu** (`custom_apps =
-  editor,calculator,about,timeclock,reader,home_eink,shell,luaperf,tz,wipe,fonts`, **51 fitxers i 398 951 B** mesurats el 10/11). Un build que en vulgui portar les demana al seu `platformio.ini` —`custom_apps =
-  id1,id2` per a una llista exacta, o `custom_apps_in_disk = yes` per a les que nomenen la placa per l'id o per
-  la família `esp32`, que és la regla amb què el nucli refusa una app al `run`— i llavors cada app del disc és
-  **un enllaç** a la seva carpeta d'`apps/` (l'entorn `test` les copia, perquè les seves proves escriuen al
-  disc). El detall és a docs/70, «Com afegir apps a la imatge del disc».
+  del sistema i res més. L'única excepció és la Paper, que des de la 0.179.16 diu `custom_apps_in_disk = yes` i
+  per tant **les porta totes les que nomenen la família `esp32`** —**18 apps, 80 fitxers i 847 997 B** mesurats el 16/11,
+  amb la `battery` ja dins— en lloc de la llista escrita de deu. Un build que en vulgui portar les demana al seu
+  `platformio.ini` —`custom_apps = id1,id2` per a una llista exacta, o `custom_apps_in_disk = yes` per a les que
+  nomenen la placa per l'id o per la família `esp32`, que és la regla amb què el nucli refusa una app al `run`— i
+  llavors cada app del disc és **un enllaç** a la seva carpeta d'`apps/` (l'entorn `test` les copia, perquè les seves
+  proves escriuen al disc). El detall és a docs/70, «Com afegir apps a la imatge del disc».
 - **L'emulador sí que les porta totes** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*): l'entorn
   `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador no té placa, el filtre de `make_disk` les
-  hi deixa passar totes —**11 apps, 51 fitxers, 398 951 B** mesurats el 10/11— i les posa **enllaçades**, o
+  hi deixa passar totes —**19 apps, 84 fitxers, 880 939 B** mesurats el 16/11— i les posa **enllaçades**, o
   sigui que l'emulador llegeix el que hi ha a `apps/` i no una còpia. Fins a l'8/11 en portava una, el llançador, i
-  `apps` en un emulador acabat de fer deia `no apps`; ara diu deu noms i la graella del llançador té deu cel·les.
+  `apps` en un emulador acabat de fer deia `no apps`; ara diu dinou noms i la graella del llançador té dinou cel·les.
   Provar una app instal·lada continua sent el que fa la placa quan el disc que es llegeix és el d'una placa
   (`--flash build/disk/m5-paper`, i llavors `repo install <app>` o `--sd`, docs/70, docs/85).
 - **I la targeta no la toca** (11/11, l'amo: *«treu les apps del SD per ara»*): entre el 10/11 i l'11/11 el mateix

@@ -633,8 +633,9 @@ font de l'EPUB de PaperOS (`OLD/PaperOS/tools/icons/EPUB.png`, 448×448, escala 
 L'`icon.icn` d'aquella app **no s'ha portat**: el manifest nomeja el PNG, que és el que aquest
 sistema sap llegir.
 
-Les altres apps —`about`, `calculator`, `editor`, `fonts`, `home_eink`, `reader`, `shell`, `timeclock`, `tz`, `wipe`, `2048` i
-`rainbow`— segueixen la mateixa convenció, amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
+Les altres apps —`about`, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`, `home_eink`, `life`,
+`reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i `rainbow`— segueixen la mateixa convenció,
+amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
 **totes les apps del disc declaren `icon`**: el camp va néixer perquè el manifest el pogués dir el dia que la
 pàgina de les apps es dibuixés, i aquell dia és el llançador, que les posa a la seva graella (docs/30, docs/85).
 
@@ -656,7 +657,8 @@ que el dibuix canviï.
 per mesurar o per provar el sistema el porta perquè es vegi d'un cop d'ull quina mena d'app és; una app de debò
 —l'editor, el lector, la calculadora, la de la zona horària (`tz`), l'esborrador (`wipe`, que dibuixa una paperera amb
 les seves tres costelles) i la de les cares (`fonts`, un full amb una `Aa` sobre un regla)— dibuixa la seva,
-amb el seu `res/icon-source.png` i la recepta de dalt. El que no pot passar és que una app de prova
+amb el seu `res/icon-source.png` i la recepta de dalt —la `battery` també, i la seva icona surt de l'`icon.icn` de
+l'original, convertit amb `tools/make_icon.py` (docs/45)—. El que no pot passar és que una app de prova
 s'amagui darrere una icona que sembla d'una app normal.
 
 ### La norma: **totes les apps porten icona** (0.170.1)

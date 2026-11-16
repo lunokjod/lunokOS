@@ -100,6 +100,18 @@ Cost a mesurar: cada finestra paga l'arrencada de l'app (crear la VM i carregar 
 una app que vol ser barata en segon pla ha de fer que `on_alarm` no carregui mitja app i ha de tenir
 el seu estat al disc (`fs.data`).
 
+**I el que ha sonat es fa dins del ganxo, no al bucle de la pàgina** (0.189.145, l'amo: *«però els avisos arriben a
+l'app per fer la recolecció d'informació?»*): una finestra crida `on_alarm` i **destrueix la VM tot seguit**, o sigui
+que un ganxo que només deixa una bandera perquè el bucle de la pàgina faci la feina —el que va fer el primer port de la
+`Battery`— deixa la feina sense fer quan l'app no és al davant, que és el cas de tota la nit. El ganxo no pot esperar,
+però una mostra no espera res: llegeix la placa, l'afegeix a la llista i escriu el fitxer. La segona meitat és la que
+és fàcil d'oblidar: **una finestra no ha llegit res**. El bloc de dalt de l'entry només ha corregut fins al guarda
+`if not console.is_foreground() then return end`, i per tant el ganxo ha de llegir el registre del dia abans d'afegir-hi
+la línia, o el desaria a sobre amb una de sola (docs/30, docs/45, `apps/battery`).
+
+El que el ganxo **no** pot fer és dibuixar: la finestra no té pàgina i el que hi ha al vidre és de l'app del davant.
+El bucle només repinta el que el ganxo ha escrit, i el ganxo no hi és per pintar.
+
 ### Pujar al davant
 
 Si l'alarma porta `raise = true`, llavors, en comptes de tancar-se:
@@ -319,7 +331,7 @@ Com està avui:
 | Cua única ordenada | `lib/alarms`, 8 entrades de 112 B (896 B). Només la primera s'arma, i `arm_wake` es crida quan canvia la més propera |
 | `alarm.at`/`after`/`cancel`/`list`/`caps` | Hi són. Una app només cancel·la les seves, i el payload és cadena o número fins que hi hagi un codificador JSON |
 | Entrega | `on_alarm(id, payload, {late_ms, missed})` entre dos torns, amb la coroutine suspesa |
-| Finestra | VM pròpia, un torn, la crida i la VM fora. `console.is_foreground()` hi és `false` i **l'entry s'hi executa igualment**: una app que arma alarmes al seu chunk ha de mirar el flag, o el sistema es crida a si mateix per sempre |
+| Finestra | VM pròpia, un torn, la crida i la VM fora. `console.is_foreground()` hi és `false` i **l'entry s'hi executa igualment**: una app que arma alarmes al seu chunk ha de mirar el flag, o el sistema es crida a si mateix per sempre. El que ha de fer la feina és el ganxo, no el bucle, i el ganxo llegeix el que desarà abans d'escriure-hi (0.189.145) |
 | `raise` | L'app del davant es tanca amb els seus comiats (`on_pause`, `on_save`, `on_close`) i la de l'alarma queda al davant |
 | Repeticions | Una diària perduda tres dies arriba **una vegada**, amb `missed = 2` |
 | `persist` | La cua es desa a la NVS amb una **època per línia**, i les vençudes es disparen en arrencar amb el seu `late_ms`. Sense època no s'escriu res |

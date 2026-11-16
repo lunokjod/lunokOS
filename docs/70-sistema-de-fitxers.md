@@ -774,6 +774,11 @@ llibre obert és el que llegeix el lector cada dia —el pla i el que queda de c
   canvia alguna cosa, no a cada volta del bucle.
 - Una app que desa el seu estat dins d'un bucle està desgastant la flash: el que s'ha de desar, es
   desa quan canvia.
+- **Un registre de mostres no és un bucle** (0.189.145, la `Battery`): l'app desa el seu registre sencer (144 mostres,
+  uns 700 B) **una vegada cada deu minuts**, i una mostra que no és nova no s'hi escriu (el minut és el que ho diu, i
+  dues lectures del mateix minut són la mateixa mostra). Són unes 144 escriptures al dia d'un bloc —el que LittleFS
+  reparteix— i és el preu de tenir l'històric; el que no es fa mai és escriure a cada volta del bucle de la pàgina, que
+  amb una pàgina que espera 150 ms serien vint-i-quatre mil escriptures l'hora (docs/45).
 
 ## Com es prova
 

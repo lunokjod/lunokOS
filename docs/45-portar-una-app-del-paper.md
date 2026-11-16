@@ -453,7 +453,7 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **nou** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **deu** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
@@ -466,7 +466,7 @@ Portades i viatjant avui, **nou** (`home_eink` va a part, a sota):
 | `Timeclock` | `timeclock` | 0.1.0 |
 | `2048` | `2048` | 0.2.0 |
 | `Life` | `life` | 0.1.0 |
-| `Battery` | `battery` | 0.1.0 |
+| `Battery` | `battery` | 0.1.2 |
 
 I a part, **dues que no són ports**:
 
