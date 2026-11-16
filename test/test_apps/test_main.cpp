@@ -5450,9 +5450,12 @@ void test_the_launcher_hears_the_list_changed(void) {
                            "{\"title\":\"Alpha\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "console.print('alpha here')\n"));
 
-  // **La pàgina, amb una cel·la i el bloc desat.**
+  // **La pàgina i el bloc desat**: the grid of this run is the disk's —every app of `apps/` is on it since 8/11—, so the case
+  // reads the count before the change and asks for one more after it, and not for the one and the two of a disk that carried
+  // a single app (docs/30, docs/80).
   pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: 1 cells"), g_out);
+  const int cells_before = cells_of(g_out);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(1, cells_before, g_out);
 
   // **Una app arriba amb la pàgina al vidre i el sistema ho diu.**
   TEST_ASSERT_TRUE(add_app(storage, "charlie",
@@ -5464,7 +5467,7 @@ void test_the_launcher_hears_the_list_changed(void) {
   pump_captured(400, g_out, sizeof(g_out));
   // **El ganxo ha corregut a l'app** i la pàgina s'ha refet amb la llista de la porta.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: the list changed (install), generation"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: 2 cells"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(cells_before + 1, cells_of(g_out), g_out);
 
   // **I la nova es queda al bloc**, que és el que fa que la propera arrencada no la torni a demanar.
   kernel::shell::close_app();
@@ -5472,7 +5475,10 @@ void test_the_launcher_hears_the_list_changed(void) {
   static char block[2048];
   const size_t kept = kernel::session::copy("home_eink", "apps", block, sizeof(block) - 1);
   block[kept] = '\0';
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "charlie"), block);
+  // **El text és del vuitè cap enllà**: the block of the launcher carries its header —`HEC2`, the size of its icon and three
+  // of air, all zeroed by the kernel—, so a search of the block as a string stops at the head and never reaches the words
+  // (docs/30, docs/75).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block + 8, "charlie"), block + 8);
 
   storage->remove("/apps/charlie/app.lua");
   storage->remove("/apps/charlie/manifest.json");
@@ -5764,9 +5770,10 @@ void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
   pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " cells"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: cache kept"), g_out);
-  // **Dues i no una** (0.189.13): the launcher keeps its cells in `apps` and the count of the uses in `usage`, and the two
-  // are sessions of the same app (docs/30, docs/75).
-  TEST_ASSERT_EQUAL_UINT32(2, kernel::session::count());
+  // **Tres i no dues** (0.189.13 i la llei del `state`): the launcher keeps its cells in `apps`, the count of the uses in
+  // `usage` **and the page a person left it on in `state`**, which is the block every app of this system has, and the three
+  // are sessions of the same app. El cas demanava les dues de la 0.189.13, quan el `state` encara no hi era (docs/30, docs/75).
+  TEST_ASSERT_EQUAL_UINT32(3, kernel::session::count());
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
 
@@ -5937,8 +5944,12 @@ void test_the_sessions_are_parked_before_the_board_goes_down(void) {
   TEST_ASSERT_EQUAL_UINT8(2, kernel::session::entries(rows, kSessionRows));
   TEST_ASSERT_TRUE(rows[0].in_memory);
   TEST_ASSERT_TRUE_MESSAGE(rows[0].on_disk, "the block and the file it has just written are the same session");
-  TEST_ASSERT_EQUAL_STRING("/session/launcher/apps", rows[0].path);
-  TEST_ASSERT_EQUAL_STRING("/session/reader/index", rows[1].path);
+  // **El prestatge és del més nou al més vell** (0.189.7): the blocks are a list that grows at its head (`node->next = g_blocks`
+  // a session.cpp), so the row a person reads first is the block that was made last —the launcher's, which came after the
+  // reader's in this case—. El cas demanava l'ordre de creació, que és el que tenia la taula de vuit files que la llista va
+  // substituir (docs/30, docs/75).
+  TEST_ASSERT_EQUAL_STRING("/session/reader/index", rows[0].path);
+  TEST_ASSERT_EQUAL_STRING("/session/launcher/apps", rows[1].path);
 
   // **I el mateix desament dues vegades no escriu dues vegades** (0.189.53, l'amo: *«Si es el mateix bloc, no cal gravar-lo,
   // només farem malbé abans la flash»*): the bytes of the two blocks have not moved, so the second park finds the files and

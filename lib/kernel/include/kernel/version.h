@@ -9519,7 +9519,13 @@ namespace kernel {
 // seva pàgina es quedava amb l'anell d'un dial que no estava fent servir fins que una tecla el tornava a demanar. Ara el toc
 // de baixada el crida, i pinta la caixa que tenia el dial, que és l'única tinta que canvia —el dit sobre paper no pinta res
 // per si sol— (docs/30, docs/90).
-static const char kVersion[] = "0.189.125";
+// 0.189.126 — **les tres del llançador**. `test_the_launcher_hears_the_list_changed` llegia `home: 1 cells` i `2 cells` d'un disc
+// amb una sola app i el bloc de la memòria com una cadena, i el disc de la suite porta totes les eines des del 8/11 i el bloc té
+// vuit bytes de capçalera: ara compta abans i després («una cel·la més») i busca el text a partir del vuitè. El dels blocs
+// desats —`test_the_sessions_are_parked_before_the_board_goes_down`— demanava l'ordre de creació quan la llista creix al cap
+// (`node->next = g_blocks`), o sigui del més nou al més vell des de la 0.189.7. I el de la caché demanava dos blocs quan el
+// llançador en té tres des de la llei del `state` (docs/30, docs/75, docs/80).
+static const char kVersion[] = "0.189.126";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
