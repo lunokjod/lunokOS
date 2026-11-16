@@ -9084,7 +9084,10 @@ void test_the_dial_flips_a_checkbox(void) {
   pump_captured(20, g_out, sizeof(g_out), "run tickbox");
   // **These lines are printed before the capture opens**, so they are read from the output of the run itself
   // (`pump_captured`) and not from the window the rest of the test reads (docs/85).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "box 32"), g_out);
+  // **La mida de la marca és la del clipart** (0.189.90): `toggle_mark::art::kToggleW` té seixanta píxels i la caixa els dona
+  // dos d'aire a cada costat, o sigui seixanta-quatre, i no els trenta-dos d'una caixa quadrada que el control calculava. El cas
+  // demanava els trenta-dos de la 0.117.0 (docs/30, docs/50, docs/90).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "box 64"), g_out);
   capture_begin();
   pump_turns(20);
   // The centre activates the control that has the focus, and the first one is the one the system focused when
@@ -9098,7 +9101,7 @@ void test_the_dial_flips_a_checkbox(void) {
   emu::press_button(false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
-  // **A row of forty holds a box of thirty-two**, and that is the number an app places its words with.
+  // **A row of forty holds a mark of sixty-four**, and that is the number an app places its words with.
   // The field was already written when the app was told, which is the whole point of the system doing it.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "change true true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "change false false"), g_out);
@@ -9148,16 +9151,18 @@ void test_the_dial_moves_the_value_of_a_slider(void) {
   pump_turns(20);
   emu::press_key(2, false);
   pump_turns(20);
-  // The centre enters it, and then down twice and up once —the emulator has the Paper's dial, where key 2 is down— are
-  // +10, +20 and back to 10, which is what proves both directions and not only that a number changed.
+  // The centre enters it, and then **the top key twice and the bottom one once** are +10, +20 and back to 10, which is what
+  // proves both directions and not only that a number changed. L'emulador té el dial de la Paper —la tecla 1 a dalt, la 2 a
+  // baix— i la 0.182.1 va deixar la de dalt com la que apuja (l'amo: *«amunt dreta»*); el cas premia la de baix esperant el
+  // mateix, i amb el valor a zero el número no es movia (docs/30, docs/90, docs/85).
   emu::press_button(true);
   pump_turns(20);
   emu::press_button(false);
   pump_turns(20);
   for (int i = 0; i < 3; ++i) {
-    emu::press_key((i < 2) ? 2 : 1, true);
+    emu::press_key((i < 2) ? 1 : 2, true);
     pump_turns(20);
-    emu::press_key((i < 2) ? 2 : 1, false);
+    emu::press_key((i < 2) ? 1 : 2, false);
     pump_turns(20);
   }
   capture_end(g_out, sizeof(g_out));
@@ -12166,12 +12171,14 @@ void test_a_slider_takes_the_keys_only_after_the_centre(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click slider true"), g_out);
 
-  // **Inside, the two keys are the number**: down twice is six and then seven, and the app hears each one.
+  // **Inside, the two keys are the number**, i la de dalt és la que apuja (0.182.1, l'amo: *«amunt dreta»*): el dial de
+  // l'emulador té la tecla 1 a dalt i la 2 a baix, i el cas premia la de baix esperant sis i set, o sigui el mapa d'abans de la
+  // 0.182.1 —el valor baixava a quatre i a tres, que és el que fa la tecla de baix— (docs/30, docs/90, docs/85).
   capture_begin();
   for (int i = 0; i < 2; ++i) {
-    emu::press_key(2, true);
+    emu::press_key(1, true);
     pump_turns(10);
-    emu::press_key(2, false);
+    emu::press_key(1, false);
     pump_turns(20);
   }
   capture_end(g_out, sizeof(g_out));

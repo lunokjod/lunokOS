@@ -9501,7 +9501,11 @@ namespace kernel {
 // —la de baix, que va enrere— per avançar, i amb el cursor a zero no es movia res, i un d'ells demanava `cursor 4` i `cursor 8`,
 // que eren els inicis de fila. Ara premen la 1 per avançar i la 2 per tornar, i el de la caixa de diverses espera les lletres
 // (docs/30, docs/85, docs/90, docs/92).
-static const char kVersion[] = "0.189.121";
+// 0.189.122 — **el dial, amb les dues tecles a lloc i la marca de la mida que té**. Tres casos més: l'`slider` entrat apuja amb
+// la tecla de dalt —el cas premia la de baix i amb el valor a zero no es movia—, el dial del volum fa el mateix camí, i la
+// caixa de verificació mesura seixanta-quatre i no trenta-dos des de la 0.189.90, quan la marca va passar a ser el clipart de
+// dos estats (`kToggleW` 60 i dos d'aire a cada costat) i no un quadrat que el control calculava (docs/30, docs/50, docs/90).
+static const char kVersion[] = "0.189.122";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
