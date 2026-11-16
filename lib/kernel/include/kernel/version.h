@@ -9495,7 +9495,13 @@ namespace kernel {
 // botó —`clear_square_of` a ui.cpp— és de la seva alçada de lletra (catorze a escala dos) i comença a `width − pad − side`
 // amb `pad = thickness + 6 = 8`, o sigui a 378..392: el dit queia sobre el text, la caixa no es buidava i la banda pujava com
 // amb qualsevol toc. El mig del quadrat és 385 (docs/30, docs/90, docs/80).
-static const char kVersion[] = "0.189.120";
+// 0.189.121 — **les dues tecles de la caixa de text, amb el mapa de la 0.182.1**. Aquell canvi va posar la tecla de dalt com la
+// lletra següent i la de baix com la d'abans (l'amo: *«per mi avall és esquerra, amunt dreta»*) i va fer que dins d'una caixa les
+// tecles caminin **la lletra i no la fila**. Dos casos van quedar amb el mapa vell i amb l'aritmètica vella: premien la tecla 2
+// —la de baix, que va enrere— per avançar, i amb el cursor a zero no es movia res, i un d'ells demanava `cursor 4` i `cursor 8`,
+// que eren els inicis de fila. Ara premen la 1 per avançar i la 2 per tornar, i el de la caixa de diverses espera les lletres
+// (docs/30, docs/85, docs/90, docs/92).
+static const char kVersion[] = "0.189.121";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

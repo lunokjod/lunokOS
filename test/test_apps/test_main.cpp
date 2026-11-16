@@ -11097,10 +11097,11 @@ void test_a_read_only_box_has_a_caret_and_never_a_band(void) {
   storage->remove("/apps/reader");
 }
 
-// **The keys walk the caret of a box the centre has entered** (0.116.0): down and up are one row of the glass —wrapped
-// or not, which is why the arithmetic is the kernel's— and the app hears where the caret went so the line under the page
-// says the row. Before the centre, the same keys walk the dial and the caret does not move: that is the whole point of
-// entering (docs/30, docs/90, docs/92).
+// **The keys walk the caret of a box the centre has entered** (0.116.0, i la lletra des de la 0.182.1): the top key is the
+// letter after and the bottom one the letter before —**la lletra i no la fila**, la mateixa regla a la caixa d'una línia i a
+// la de diverses—, i l'app sent on ha anat el cursor. Abans del centre, les mateixes tecles caminen el dial i el cursor no es
+// mou: això és el que vol dir entrar-hi. **El cas demanava files** —`cursor 4` i `cursor 8`, que són els inicis de `one` i
+// `two`—, que és el que feien les tecles abans de la 0.182.1 (docs/30, docs/90, docs/92).
 void test_the_keys_walk_the_rows_of_a_box_the_centre_entered(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
@@ -11131,33 +11132,36 @@ void test_the_keys_walk_the_rows_of_a_box_the_centre_entered(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cursor "), g_out);
 
-  // The centre enters the box, and then down is the second row and down again the third: "one\n" is four bytes, so the
-  // caret of the start of the rows is 4 and 8 (docs/30).
+  // The centre enters the box, and then the **top** key is the row below and the bottom one the row above —l'amo, 0.182.1:
+  // *«amb el mapa al revés, per mi avall és esquerra, amunt dreta»*, i l'emulador té el dial de la Paper amb la tecla 1 a dalt i la
+  // 2 a baix—, so the walk forward is key 1. The case pressed the bottom key and called it forward, which is the map of
+  // before 0.182.1: the caret at zero could not move and no system would print the two rows (docs/30, docs/90, docs/85).
+  // The app prints where the caret went, and the two presses are the two letters after it.
   capture_begin();
   emu::press_button(true);
   pump_turns(10);
   emu::press_button(false);
   pump_turns(10);
-  emu::press_key(2, true);
+  emu::press_key(1, true);
   pump_turns(10);
-  emu::press_key(2, false);
+  emu::press_key(1, false);
   pump_turns(10);
-  emu::press_key(2, true);
-  pump_turns(10);
-  emu::press_key(2, false);
-  pump_turns(20);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 4"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 8"), g_out);
-
-  // And up goes back a row, which is what makes the two keys a pair and not one.
-  capture_begin();
   emu::press_key(1, true);
   pump_turns(10);
   emu::press_key(1, false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 4"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 2"), g_out);
+
+  // And the bottom key goes back a letter, which is what makes the two keys a pair and not one.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 1"), g_out);
 
   kernel::shell::close_app();
   pump_captured(5, nullptr, 0);
@@ -11188,27 +11192,32 @@ void test_the_keys_walk_the_letters_of_a_line(void) {
                            "while true do sys.delay(20):await() end\n"));
 
   pump_captured(20, g_out, sizeof(g_out), "run letters");
+  // **La tecla de dalt és la lletra següent i la de baix la d'abans** (0.182.1, l'amo: *«amb el mapa al revés, per mi avall és
+  // esquerra, amunt dreta»*): the emulator has the dial of the Paper —key 1 is the top, key 2 the bottom—, so the case walks
+  // forward with key 1 and back with key 2. It pressed them the other way round, which is the map as it was before 0.182.1:
+  // with the bottom key as "forward" the caret at zero could not move at all and the case asked for a `cursor 1` that no
+  // system would give it (docs/30, docs/90, docs/85).
   capture_begin();
   emu::press_button(true);
   pump_turns(10);
   emu::press_button(false);
   pump_turns(10);
-  emu::press_key(2, true);
+  emu::press_key(1, true);
   pump_turns(10);
-  emu::press_key(2, false);
+  emu::press_key(1, false);
   pump_turns(10);
-  emu::press_key(2, true);
+  emu::press_key(1, true);
   pump_turns(10);
-  emu::press_key(2, false);
+  emu::press_key(1, false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 1"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 2"), g_out);
 
   capture_begin();
-  emu::press_key(1, true);
+  emu::press_key(2, true);
   pump_turns(10);
-  emu::press_key(1, false);
+  emu::press_key(2, false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 1"), g_out);
