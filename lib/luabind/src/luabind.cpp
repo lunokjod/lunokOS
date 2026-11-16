@@ -1132,6 +1132,22 @@ int l_time_epoch(lua_State* L) {
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
     return push_nil_error(L, "E_INVAL", "that is not a day of the calendar");
   }
+  // **El trenta-u de febrer no és un dia i no s'ha de convertir en el dos de març** (0.189.142): `days_from_civil` is a count of
+  // days and not a calendar —it will hand back the two of March for a day that does not exist—, and the page of the settings
+  // offers the day thirty-one of every month, so a person who chose it would have set the clock to a day they never asked for
+  // and the page would have said the one they did. The month's length is the calendar's: February's, with the leap day that
+  // `cfg leap` turns on, which is the same rule `time.date` counts back (docs/30, docs/60).
+  const bool leap = (g_time_ops.leap_years == nullptr) || g_time_ops.leap_years();
+  int last = 31;
+  if (month == 4 || month == 6 || month == 9 || month == 11) {
+    last = 30;
+  } else if (month == 2) {
+    const bool february_29 = leap && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0));
+    last = february_29 ? 29 : 28;
+  }
+  if (day > last) {
+    return push_nil_error(L, "E_INVAL", "that day is not in that month");
+  }
   const int32_t shift = (g_time_ops.offset_minutes != nullptr)
                             ? g_time_ops.offset_minutes()
                             : ((g_time_ops.tz_minutes != nullptr) ? g_time_ops.tz_minutes() : 0);

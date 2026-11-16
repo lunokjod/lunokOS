@@ -213,6 +213,13 @@ int64_t mono_ms() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
 }
 
+// **L'hora del món d'aquest PC**, which is what a time server on the other side of the radio would say: `system_clock` and not
+// `steady_clock`, because the second one is the counter that never jumps (docs/85).
+int64_t wall_ms() {
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+}
+
 // The PC has one clock and it is the host's. The epoch is the one `--now` says,
 // and **only** that one: without `--now` the emulator is a board that never
 // synced, so the epoch is 0 and the source is "none", the same as the real board
@@ -741,12 +748,17 @@ class HostNet : public INet {
     return true;
   }
 
+  // **El servidor de mentida diu l'hora de debò d'aquest PC** (0.189.142): it answered the fixed epoch `1700000000` —the fourteenth
+  // of November of 2023, the anchor of the paper project— and the owner pressed Sync in the page of the time zone and read
+  // *«tz: synced 2023-11-14 22:13»* while his hour was the sixteenth of November of 2026. An emulator that answers a date nobody
+  // has is worse than one that refuses: the app is right and the page looks broken (docs/85). **`--now` still pins it**, and it
+  // pins both sides —the board and the server agree— because a run that says what day it is must not be told another one by a
+  // fake radio (the same rule as `--battery-mv` over the cell of the machine).
   bool ntp_synced(int64_t& epoch_ms) override {
     if (!ntp_running_) return false;
     if (mono_ms() - ntp_started_ms_ < emu::options().wifi_ms) return false;
     ntp_running_ = false;
-    epoch_ms = (emu::options().now_epoch > 0) ? emu::options().now_epoch * 1000
-                                              : 1700000000LL * 1000;
+    epoch_ms = (emu::options().now_epoch > 0) ? emu::options().now_epoch * 1000 : wall_ms();
     return true;
   }
 

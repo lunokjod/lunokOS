@@ -245,6 +245,13 @@ reinici); i si no hi ha cap de les dues, val **0** i `source` és `"none"`, que 
 no ha posat (docs/60). El que es conserva al Paper és també el contingut de `/rtc`, que una app pot
 llegir i escriure.
 
+**I el servidor de l'hora de l'emulador diu l'hora d'aquest PC** (0.189.142): `net.ntp` i `ntp` del prompt acaben en un
+`ntp_synced` de mentida, i fins aquí responia **una època fixa** —1 700 000 000, el catorze de novembre de 2023, l'àncora del
+projecte del Paper—, o sigui que una persona premia Sync a la pàgina de la zona horària i llegia *«tz: synced 2023-11-14
+22:13»* amb el seu rellotge al 2026. Ara respon el rellotge del sistema de la màquina (`system_clock`, no el comptador que no
+salta), i **`--now` continua manant**: un run que diu quin dia és també li diu al servidor, perquè una placa i un servidor que
+no concorden són dues hores al mateix vidre (la mateixa regla que `--battery-mv` mana sobre la cel·la de la màquina).
+
 **La targeta la posa l'emulador sol si el model té ranura**: un Paper arrenca amb `emulator/sd` creat, o
 sigui que `/sd` hi és i el muntatge i la capacitat `sd` també, com a la placa de debò. Un ATOM o una
 Matrix no tenen ranura i no reben res; i si el directori s'esborra, la ranura queda buida i `/sd`

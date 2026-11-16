@@ -17,10 +17,12 @@
 #include "kernel/bar.h"
 #include "kernel/bar_icons.h"
 #include "kernel/display.h"
+#include "kernel/meter.h"
 #include "kernel/ui.h"
 #include "pal/pal.h"
 
 namespace bar = kernel::bar;
+namespace meter = kernel::meter;
 namespace ui = kernel::ui;
 
 void setUp(void) {}
@@ -455,7 +457,22 @@ static void test_a_bar_booted_before_the_charge_was_known_fills_it_in() {
   }
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink, "the boot drew a figure with no charge to draw");
 
-  // The cell is there now, which is what the board says once its power has booted, and one turn is all the bar needs.
+  // **I el reintent del càrrec té un terra** (0.189.142): the window is ten seconds and a turn is not a millisecond —an app draws
+  // a frame per turn and the console echoes a character per turn—, so a board whose gauge never answers would pay thousands of
+  // ADC conversions during its boot. Fifty turns inside the first quarter of a second pay **no** read at all, and the counter is
+  // the one the `stats` of the prompt prints (docs/50, docs/85).
+  meter::reset();
+  for (int turn = 0; turn < 50; ++turn) bar::poll();
+  uint32_t calls = 0;
+  uint64_t us = 0;
+  TEST_ASSERT_TRUE(meter::stats_read(meter::kPowerBattery, &calls, &us));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, static_cast<int>(calls), "a turn of the bar asked the gauge");
+
+  // The cell is there now, which is what the board says once its power has booted. **The retry has a floor of a quarter of a
+  // second** (0.189.142): the window is ten seconds and a turn is not a millisecond, so asking on every turn would be thousands
+  // of conversions on a board whose gauge never answers —the same rule the hour of the strip already follows—, o sigui que el
+  // cas espera el que la barra espera abans de demanar el torn que ha de pintar la figura (docs/50, docs/85).
+  pal::delay_us(300000);
   emu::Options opts = emu::options();
   opts.battery_mv = 4100;
   emu::set_options(opts);

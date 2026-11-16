@@ -358,7 +358,7 @@ La regla és una i el nucli la té tota:
 | `cfg::offset_minutes()` (nucli) | l'offset **efectiu**: el del mapa més seixanta minuts si l'estiu és on |
 | `time.offset()` (Lua) | el mateix número, en minuts. Per **ensenyar-lo** |
 | `time.date([t])` (Lua) | l'hora de la persona: `time.utc(t)` més l'offset efectiu |
-| `time.epoch(y, m, d, h, min)` (Lua) | la inversa de `time.date()`: l'època d'una hora del rellotge de paret. Per **escriure'n una** |
+| `time.epoch(y, m, d, h, min)` (Lua) | la inversa de `time.date()`: l'època d'una hora del rellotge de paret. Per **escriure'n una**. Un dia que no existeix torna `nil, E_INVAL` (0.189.142): el trenta-u de febrer no és el dos de març |
 | `time.tz([minuts])` (Lua) | el número del mapa i prou: és **l'ajust** que edita la pàgina de la zona horària, no l'hora de ningú |
 | `time.dst([on])` (Lua) | l'interruptor de l'hora d'estiu, un ajust propi des de la 0.182.0 |
 
@@ -372,6 +372,12 @@ Res més no pot compondre l'hora: **cap pàgina, cap app i cap tros del nucli no
 una (`bar.cpp`, `read_status`), i per això va ensenyar UTC fins a la 0.189.130; les dues apps que toquen l'hora —`apps/tz` i
 `apps/settings`— fan servir `time.offset()` per ensenyar i `time.epoch()` per escriure, i la dels ajustos va deixar anar la seva
 aritmètica civil quan van arribar aquestes portes.
+
+**I la pàgina de la zona no toca el que no ha mogut** (0.189.142): el mapa tria hores senceres i la placa pot estar a una mitja
+—`cfg tz 90` és una hora i mitja i `time.tz` no discuteix—, o sigui que el comiat compara amb **el que el mapa ensenyava en
+obrir-se** i no amb `time.tz()`: una pàgina que es tanca sense moure el mapa no escriu res, i una que el mou desa el que el
+mapa diu. La llista del panell d'ajustos és d'hora en hora (l'amo: *«no he vist mai que fos +X.5, sempre hores +1, -3, +3…»*) i
+una placa posada a mà a una mitja hora ensenya la fila buida en lloc d'un número que el desplegable no podria tornar a escriure.
 
 **El que es desa i on**: la zona, l'estiu, el traspàs i el primer dia de la setmana són preferències de la placa i van a la
 memòria de claus (`kernel::cfg`, la NVS, amb la paraula que va teclejar la persona). **El RTC només rep l'època** —

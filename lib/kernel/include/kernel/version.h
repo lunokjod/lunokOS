@@ -9619,7 +9619,20 @@ namespace kernel {
 // run d'abans li havia deixat escrites al disc de la suite —el disc és un per a tota la correguda **i per a les de després**—,
 // o sigui que un cas que mor abans de tornar el que va escriure fa vermell el run següent i tots els altres. 706 de 706, i les
 // sis construccions (docs/30, docs/45, docs/50, docs/60, docs/75, docs/80).
-static const char kVersion[] = "0.189.141";
+// 0.189.142 — **les tres notes del repàs i el que l'amo hi va afegir**. (1) **El servidor de l'hora de l'emulador deia una data
+// que no és de ningú**: `ntp_synced` responia l'època fixa 1 700 000 000 —el catorze de novembre de 2023, l'àncora del projecte del
+// Paper— i l'amo va prémer Sync a la pàgina de la zona horària i va llegir *«tz: synced 2023-11-14 22:13»* amb el seu rellotge al
+// 2026. Ara respon el rellotge del sistema de la màquina, i `--now` continua manant sobre els dos costats (docs/85). (2) **Les
+// zones són hores senceres** (l'amo: *«Treu la selecció de +30 a les zones horàries, no he vist mai que fos +X.5»*): la llista del
+// panell va d'hora en hora, i una placa posada a mà a `cfg tz 90` ensenya la fila buida en lloc d'un número que el desplegable no
+// pot tornar a escriure. (3) **La pàgina de la zona horària no toca el que no ha mogut**: el mapa és d'hores senceres i la placa
+// pot estar a una mitja, o sigui que el comiat compara amb el que el mapa va ensenyar en obrir-se i no amb `time.tz()`, que
+// arrodonia la mitja hora de ningú. (4) **`time.epoch` refusa el dia que no existeix** —el trenta-u de febrer es convertia en el
+// dos de març i la pàgina deia el dia que la persona havia triat— i el panell diu quin dia no hi és en lloc de dir que la placa
+// no té calendari. (5) **El reintent del càrrec té un terra d'un quart de segon**: la finestra és de deu segons i un
+// torn no és un mil·lisegon, o sigui que una placa amb un gauge que no contesta pagava una conversió d'ADC per torn durant
+// l'arrencada (docs/30, docs/45, docs/50, docs/60, docs/85).
+static const char kVersion[] = "0.189.142";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

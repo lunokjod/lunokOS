@@ -52,11 +52,14 @@ for i = 1, 31 do DAYS[i] = string.format('%d', i) end
 local MONTHS = { 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
                  'November', 'December' }
 
--- **Els desfasaments de mitja hora** de -12:00 a +14:00, que és tot el que un rellotge pot dir: the list is what the picker
--- offers and `time.tz` takes minutes, so the two agree by construction (docs/30, docs/60).
+-- **Les zones són hores senceres** (0.189.142, l'amo: *«Treu la selecció de +30 a les zones horàries, no he vist mai que fos
+-- +X.5, sempre hores +1, -3, +3…»*): de -12:00 a +14:00, una hora per fila, i cap mitja hora a la llista. El sistema **sí** que
+-- accepta qualsevol minut —`cfg tz 90` és una hora i mitja i `time.tz` no discuteix—, i una placa posada així ensenya la fila
+-- buida (`empty = '-'`) en lloc d'un número que el desplegable no pot tornar a escriure: el que la pàgina no pot dir no ho diu
+-- a mitges (docs/30, docs/60).
 local OFFSETS = {}
-for i = 1, 2 * (14 + 12) + 1 do
-  local minutes = (i - 1) * 30 - 12 * 60
+for i = 1, (14 + 12) + 1 do
+  local minutes = (i - 1) * 60 - 12 * 60
   local sign = (minutes < 0) and '-' or '+'
   local m = math.abs(minutes)
   OFFSETS[i] = string.format('%s%02d:%02d', sign, m // 60, m % 60)
@@ -416,10 +419,16 @@ end
 -- placa —l'hora del mapa i l'hora d'estiu—, que és el mateix número que fan servir la franja de la barra i la resta de pàgines.
 -- Aquí hi havia l'aritmètica civil i l'offset del mapa a mà, i ignorava `time.dst()`: un rellotge posat des d'aquesta pàgina
 -- amb l'estiu marcat quedava una hora desviat de la que deia la pàgina de la zona horària (docs/30, docs/60).
+-- **I el dia que no existeix es diu com a tal** (0.189.142): la columna dels dies ofereix el trenta-u de tots els mesos, i el
+-- sistema refusa el trenta-u de febrer i el dels mesos de trenta. Abans el número es convertia en el dos de març i la pàgina
+-- deia el dia que la persona havia triat; ara torna `nil` i una frase, i una pàgina que digués «aquesta placa no té cap
+-- calendari» estaria dient una mentida sobre un dia (docs/30, docs/60).
 local function epoch_of(day, month, hour, minute)
   local today = time.date()
-  if today == nil then return nil end
-  return time.epoch(today.year, month, day, hour, minute)
+  if today == nil then return nil, 'This board has no calendar to write an hour into' end
+  local at = time.epoch(today.year, month, day, hour, minute)
+  if at == nil then return nil, string.format('%d %s does not exist', day, MONTHS[month]) end
+  return at
 end
 
 -- **L'hora d'estiu és una hora i la diu un sol lloc** (docs/60): the box writes `time.dst` and the offset of the board is the
@@ -567,9 +576,10 @@ function build()
   choice_row(1, 'day', 'Day', DAYS, function() return clock.day end, function(index) clock.day = index end)
   choice_row(1, 'month', 'Month', MONTHS, function() return clock.month end, function(index) clock.month = index end)
   button_row(1, 'setclock', 'Set the clock', function()
-    local epoch = epoch_of(clock.day, clock.month, clock.hour, clock.minute)
+    local epoch, why_not = epoch_of(clock.day, clock.month, clock.hour, clock.minute)
     if epoch == nil then
-      say('This board has no calendar to write an hour into')
+      say(why_not)
+      console.print('settings: the clock was not set: ' .. tostring(why_not))
       return
     end
     local ok, kept = pcall(time.set, epoch)

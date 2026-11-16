@@ -112,6 +112,37 @@ void test_time_now_ms_moves_with_the_seconds(void) {
   luabind::stop();
 }
 
+// **`time.epoch` és la inversa de `time.date`, i només accepta dies que existeixen** (0.189.142): the page of the settings
+// offers the thirty-first of every month, and a call that turned the thirty-first of February into the second of March would
+// set the clock to a day nobody asked for and say the one they did. The length of February follows `cfg leap`, which is the
+// calendar's own switch —the same one `time.date` counts back— (docs/30, docs/60).
+void test_time_epoch_is_the_inverse_of_date_and_refuses_a_day_that_does_not_exist(void) {
+  pal::init();
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));  // 2026-01-01 00:00:00 UTC
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("time.tz(0)\n"
+                       "time.leap(true)\n"
+                       "assert(time.epoch(2026, 1, 1, 0, 0) == 1767225600)\n"
+                       "local d = time.date()\n"
+                       "assert(time.epoch(d.year, d.month, d.day, d.hour, d.min) == time.now() - time.now() % 60)\n"
+                       "local bad, why = time.epoch(2026, 2, 31)\n"
+                       "assert(bad == nil and why.code == 'E_INVAL', tostring(why and why.code))\n"
+                       "local bad2, why2 = time.epoch(2026, 4, 31)\n"
+                       "assert(bad2 == nil and why2.code == 'E_INVAL', tostring(why2 and why2.code))\n"
+                       "assert(time.epoch(2026, 4, 30, 12, 0) ~= nil)\n"
+                       "assert(time.epoch(2028, 2, 29, 12, 0) ~= nil)\n"
+                       "local bad3, why3 = time.epoch(2026, 2, 29, 12, 0)\n"
+                       "assert(bad3 == nil and why3.code == 'E_INVAL', tostring(why3 and why3.code))\n"
+                       "time.leap(false)\n"
+                       "local bad4, why4 = time.epoch(2028, 2, 29, 12, 0)\n"
+                       "assert(bad4 == nil and why4.code == 'E_INVAL', tostring(why4 and why4.code))\n"
+                       "time.leap(true)\n"
+                       "assert(time.epoch(2026, 5, 1, 0, 0) == time.epoch(2026, 4, 30, 0, 0) + 86400)"));
+  luabind::stop();
+}
+
 // caps says where the epoch comes from, that nothing was synced yet, and that
 // this board cannot wake itself up. It runs after the tests that set the clock,
 // so now the source is the SoC's.
@@ -1254,6 +1285,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_time_without_an_epoch_says_none);
   RUN_TEST(test_time_now_is_the_platform_clock);
   RUN_TEST(test_time_now_ms_moves_with_the_seconds);
+  RUN_TEST(test_time_epoch_is_the_inverse_of_date_and_refuses_a_day_that_does_not_exist);
   RUN_TEST(test_time_caps_says_where_the_epoch_comes_from);
   RUN_TEST(test_qr_encodes_any_text_for_an_app);
   RUN_TEST(test_json_reads_a_field_without_building_a_tree);

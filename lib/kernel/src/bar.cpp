@@ -62,10 +62,16 @@ const int64_t kBatteryEveryMs = 30000;
 // **La finestra del reintent del càrrec** (0.189.112): the strip takes its first paint at the boot of the bar, and the bar boots
 // before the kernel does —before the power of the board, which is after the shell—, so the gauge may still be coming up and the
 // box of the charge comes out saying `--` with no figure under it. A bar that has **never** known the charge therefore asks
-// again **on every turn of its first ten seconds**, which is the boot of the board, and not for ever: after that a gauge that
-// has not answered is a gauge that is not there, and the strip goes back to the half minute of `kBatteryEveryMs` like a bar
-// that knows its cell (docs/50, docs/85).
+// again during its first ten seconds, which is the boot of the board, and not for ever: after that a gauge that has not
+// answered is a gauge that is not there, and the strip goes back to the half minute of `kBatteryEveryMs` like a bar that knows
+// its cell (docs/50, docs/85).
 const int64_t kChargeTryForMs = 10000;
+// **I el reintent té un terra** (0.189.142): the window above is ten seconds, and a turn of the loop is not a millisecond —an app
+// draws a frame per turn and the console echoes a character per turn—, so asking the gauge "on every turn of the window" is
+// asking it thousands of times if the board's gauge never answers (an ATOM, or a Paper whose ADC reads nothing). A quarter of a
+// second is forty reads in the whole window, which catches a gauge that comes up late and does not turn the boot into a
+// conversion per turn (docs/50, docs/85).
+const int64_t kChargeTryEveryMs = 250;
 int64_t g_boot_ms = 0;
 // And the hour, at most this often. **A turn of the loop is not the place to read hardware**: the
 // console echoes one character per turn and an app draws one frame per turn, and an I2C read of the
@@ -549,7 +555,8 @@ void poll() {
   // `kBatteryEveryMs`** (found by the owner, 15/11). The retry lasts the boot of the board and not the life of the bar:
   // `kChargeTryForMs` is the window, and a gauge that has not answered by then is a gauge that is not there (docs/50, docs/85).
   hal::IPower* gauge = g_platform->power();
-  const bool charge_missing = (gauge != nullptr) && !g_shown.has_battery && (mono - g_boot_ms) < kChargeTryForMs;
+  const bool charge_missing = (gauge != nullptr) && !g_shown.has_battery && (mono - g_boot_ms) < kChargeTryForMs &&
+                              (mono - g_battery_read_ms) >= kChargeTryEveryMs;
   const bool battery_due = ((mono - g_battery_read_ms) >= kBatteryEveryMs) || charge_missing;
   // **I les quatre icones es demanen a cada torn** (0.189.56): the fan goes up when the radio comes on, the rune while a
   // provisioning runs, the mark of the port when the cable is in, the hourglass while the clock is being set and the alarm

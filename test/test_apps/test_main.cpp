@@ -3039,6 +3039,13 @@ void test_ntp_sets_the_clock(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "time: "), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "time: 0 "), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
+  // **I l'hora que dona el servidor és l'aquesta màquina** (0.189.142): the fake radio answered the fixed epoch `1700000000` —the
+  // fourteenth of November of 2023, the anchor of the paper project— and the owner pressed Sync in the page of the time zone and
+  // read *«tz: synced 2023-11-14 22:13»* with his own hour in 2026. A server that answers a date nobody has is worse than one
+  // that refuses, and `--now` is the option that pins it for a run that says what day it is (docs/85).
+  const int64_t host = static_cast<int64_t>(time(nullptr));
+  const int64_t served = hal::platform().clock()->epoch_ms() / 1000;
+  TEST_ASSERT_INT64_WITHIN_MESSAGE(120, host, served, g_out);
 }
 
 // A time server without a network is refused at once and said out loud: the
@@ -16801,6 +16808,21 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: week sunday"), g_out);
   pump_captured(20, g_out, sizeof(g_out), "cfg leap");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: leap on"), g_out);
+
+  // ---- **una placa amb mitja hora no la perd per obrir i tancar aquesta pàgina** (0.189.142): the map is whole hours and the
+  // system takes any minute (`cfg tz 90` is an hour and a half), so the close compares against what the map showed when it
+  // opened and not against the hour it would write: a page nobody touched gives nothing back. It is the same bug the row of the
+  // settings had with the hour of summer —what a page shows and what it writes are two numbers and it has to know which is
+  // which— (docs/30, docs/60).
+  kernel::cfg::set_tz_minutes(90);
+  pump_captured(120, g_out, sizeof(g_out), "run tz");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  capture_begin();
+  kernel::shell::close_app();
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(90, kernel::cfg::tz_minutes(), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "tz: saved"), g_out);
 
   // The board goes back to the calendar it was born with, or the cases after this one read a Sunday.
   kernel::cfg::set_leap_years(true);

@@ -327,6 +327,10 @@ local function epoch_of(day, month, hour, minute)
 end
 ```
 
+**Les zones del desplegable són hores senceres** (0.189.142, l'amo: *«Treu la selecció de +30 a les zones horàries, no he vist mai
+que fos +X.5, sempre hores +1, -3, +3…»*): de -12:00 a +14:00, una hora per fila. El sistema accepta qualsevol minut (`cfg tz 90`
+és una hora i mitja) i una placa posada així ensenya la fila buida, que és el que la pàgina pot dir de veritat.
+
 **I una fila que ensenya l'hora del vidre i en desa una altra ho ha de dir** (0.189.141): la fila **Time zone** ensenya
 `time.offset()` —el número que la franja de la barra i la pàgina de la zona horària ensenyen— i desa `time.tz()`, que és el
 número del mapa. Amb la casella de l'estiu marcada els dos números són a una hora de distància, i la primera versió d'aquesta

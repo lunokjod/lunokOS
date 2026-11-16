@@ -135,6 +135,11 @@ end
 -- read them from the same place (0.179.50).
 local chosen = 0
 local chosen_hour = 0
+-- **L'hora que el mapa ensenyava en obrir-se** (0.189.142): the map chooses whole hours and a board may be at a half one —`cfg tz
+-- 90` is an hour and a half and the system takes it—, so a close that wrote what the map shows would move the clock of a board
+-- nobody touched. The question the close asks is "has the person moved the map?" and this is the number it asks it against
+-- (docs/30, docs/60).
+local opened = 0
 -- **L'horari d'estiu és una hora de més sobre el que diu el mapa** and it is the page's until the close, like the
 -- offset itself. `leap` stays because a clock that comes from a server turns the leap day on (the rule of 9/11), and this
 -- page is where that clock is asked for (docs/60).
@@ -461,6 +466,10 @@ chosen_hour = math.floor(chosen / kMinutesPerHour + (chosen >= 0 and 0.5 or -0.5
 if chosen_hour < kFirstHour then chosen_hour = kFirstHour end
 if chosen_hour > kLastHour then chosen_hour = kLastHour end
 chosen = chosen_hour * kMinutesPerHour
+-- **El que el mapa ensenya en obrir-se, que és el que el comiat compara**: the board may be at a half hour and the map says whole
+-- ones, o sigui que el que s'ha de mirar no és `time.tz()` sinó aquest número: una pàgina que no s'ha mogut no desa res, i una
+-- que s'ha mogut desa el que el mapa diu (0.189.142, docs/30, docs/60).
+opened = chosen
 leap = time.leap()
 -- **L'hora d'estiu és la del sistema i no la d'aquesta visita** (0.182.0): the box shows what the board has kept, so a person who
 -- comes back finds it ticked and the hour they left (docs/30, docs/60).
@@ -513,8 +522,10 @@ function on_close()
   save_state(shape)
   -- **El que es desa és l'hora del mapa i prou** (0.182.0): the hour of summer has its own setting and it was written when the box
   -- turned, so folding it into the offset here would save summer twice —a board that reads +02:00 in December— and the box would
-  -- come up unticked on the next visit (docs/30, docs/60).
-  if chosen ~= time.tz() then
+  -- come up unticked on the next visit (docs/30, docs/60). **I només si el mapa s'ha mogut** (0.189.142): the map is whole hours
+  -- and a board set to `cfg tz 90` is not, o sigui que una pàgina que desés el que ensenya en tancar arrodoniria la mitja hora
+  -- de ningú; la comparació és amb el que el mapa va llegir en obrir-se (docs/30, docs/60).
+  if chosen ~= opened then
     time.tz(chosen)
     console.print('tz: saved ' .. tz_text(chosen))
   end
