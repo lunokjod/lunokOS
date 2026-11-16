@@ -16929,6 +16929,89 @@ void test_the_battery_app_takes_a_sample_and_changes_its_window(void) {
   storage->remove("/apps/battery");
 }
 
+// **Una alarma que venç amb la Battery tancada també apunta la mostra** (0.189.145): the whole point of the alarm of the paper
+// project is that the sample is written **whether the page is in front or not**, and a window is a system that loads the
+// entry and calls `on_alarm` and closes the app right away —so a sample left for the loop of the page is a sample that is
+// never taken, which is exactly what the alarm was for. The other half of it: a window has read nothing, and it appends to
+// the log it finds and not to an empty one.
+void test_the_battery_takes_its_sample_from_a_window(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  opts.battery_mv = 3900;
+  opts.now_epoch = 1794837600;  // 2026-11-16 15:00 UTC
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  storage->remove("/data/battery/samples.txt");
+  storage->remove("/data/battery/settings.txt");
+  // **Una carpeta que ja hi és no és un fracàs**: the disk of the suite is one for the whole run (docs/80).
+  storage->mkdir("/data/battery");
+  storage->mkdir("/apps/battery");
+  storage->mkdir("/apps/battery/res");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/battery/battery.lua", "/apps/battery/battery.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/battery/manifest.json", "/apps/battery/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/battery/res/icon.png", "/apps/battery/res/icon.png"));
+
+  // **La pàgina obre el registre del dia** i la tanca: one sample on the disk, and the app goes away.
+  pump_captured(120, g_out, sizeof(g_out), "run battery");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  char before[128] = {0};
+  size_t before_len = 0;
+  {
+    hal::FileSlot slot;
+    TEST_ASSERT_TRUE(storage->open("/data/battery/samples.txt", hal::OpenMode::kRead, slot));
+    before_len = static_cast<size_t>(storage->read(slot, before, sizeof(before)));
+    storage->close(slot);
+  }
+  TEST_ASSERT_TRUE_MESSAGE(before_len == 7, before);   // "840,70\n"
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app is still in front");
+
+  // **I ara sona l'alarma amb l'app tancada**: deu minuts després, que és el que l'alarma de debò espera —i sense això la
+  // mostra de la finestra cauria al mateix minut que la de la pàgina, que és la que `record` no deixa repetir—.
+  opts.now_epoch += 610;
+  emu::set_options(opts);
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  alarms::Spec spec;
+  spec.app = "battery";
+  spec.on_mono_ms = clock->monotonic_ms() + 120;
+  spec.payload_kind = alarms::Payload::kText;
+  spec.payload = "sample";
+  TEST_ASSERT_TRUE(alarms::add(spec) != 0);
+
+  pump_captured(900, g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "battery: sample"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the window left the app in front");
+
+  // **El registre té la mostra d'abans i la de la finestra**: the line of the page is still the first one.
+  char after[128] = {0};
+  {
+    hal::FileSlot slot;
+    TEST_ASSERT_TRUE(storage->open("/data/battery/samples.txt", hal::OpenMode::kRead, slot));
+    const size_t got = static_cast<size_t>(storage->read(slot, after, sizeof(after)));
+    storage->close(slot);
+    TEST_ASSERT_TRUE_MESSAGE(got > before_len, "the window wrote nothing");
+    after[got] = '\0';
+  }
+  TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(strncmp(after, before, before_len)));
+  // **El minut no es fixa**: el desfasament de la placa és el que els casos d'abans hi hagin deixat, i el que aquest cas
+  // mesura és que la finestra apunti la mostra deu minuts després de la de la pàgina (docs/60, docs/80).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(atoi(before) + 10, atoi(after + before_len), after);
+
+  storage->remove("/data/battery/samples.txt");
+  storage->remove("/data/battery/settings.txt");
+  storage->remove("/apps/battery/battery.lua");
+  storage->remove("/apps/battery/manifest.json");
+  storage->remove("/apps/battery/res/icon.png");
+}
+
 // **El cronòmetre i el compte enrere del Clock són al disc i l'ancora és l'hora de la placa** (0.189.103, l'amo: *«Clock ->
 // Chronomether, no manté l'hora ni continua comptant rera tancar l'app o el reinici … se suposa que aquestes apps usaven el
 // disc i els rellotges que puguin haver»*). The run file says when the run started and what it already counted, so a
@@ -18498,6 +18581,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
   RUN_TEST(test_the_battery_app_takes_a_sample_and_changes_its_window);
+  RUN_TEST(test_the_battery_takes_its_sample_from_a_window);
   RUN_TEST(test_the_clock_keeps_its_run_across_a_restart);
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);

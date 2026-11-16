@@ -530,8 +530,34 @@ local function build()
   return true
 end
 
+-- **El que ha sonat es fa dins del ganxo i no al bucle** (0.189.145): una alarma que venç amb l'app tancada obre una
+-- **finestra**, i una finestra crida `on_alarm` i tot seguit tanca l'app — o sigui que una mostra deixada per al bucle de la
+-- pàgina és una mostra que no es pren mai, que és exactament el que l'alarma havia de fer. El ganxo no pot esperar, i
+-- apuntar una mostra no espera res: llegeix el que la placa diu, l'afegeix a la llista i escriu el fitxer (docs/30, docs/60).
+local due = nil
+local loaded = false
+
+function on_alarm(id, payload, meta)
+  local mine = (payload == 'sample') or (meta ~= nil and meta.missed ~= nil and meta.missed > 0)
+  if not mine then return end
+  -- **En una finestra el bloc de dalt no ha llegit res**: the entry of a window runs only down to this point, so the log has to
+  -- be read here or the sample would be saved over a day of samples with one line (docs/30, docs/60).
+  if not loaded then
+    read_log()
+    loaded = true
+  end
+  record()
+  due = true
+end
+
+-- **Una finestra només porta la crida de l'alarma** (0.189.145): the system loads the entry to open the app and calls
+-- `on_alarm` right away, and without this door every window would build a page nobody sees and arm an alarm that the system
+-- would answer with another window, for ever (docs/30, provat a la placa).
+if not console.is_foreground() then return end
+
 read_range()
 read_log()
+loaded = true
 if not build() then return end
 local was = load_state()
 if was ~= nil and was.focus ~= nil then shape.focus = was.focus end
@@ -556,28 +582,17 @@ local function forget_old_promises()
   end
 end
 
--- **Dins d'una finestra d'alarma l'app només existeix per a la seva crida**: `on_alarm` runs between two turns of the
--- suspended coroutine and arming from there would put a new alarm on every window for ever (docs/30, docs/60).
-if console.is_foreground() then
-  forget_old_promises()
-  -- **`repeat` és una paraula reservada de Lua** i una taula escrita `{repeat = 600}` no s'analitza: el camp s'escriu
-  -- amb els claudàtors i és el que la cua del sistema espera (docs/30, docs/60).
-  local ok, id = pcall(alarm.at, { in_ms = kSampleMs, payload = 'sample', ["repeat"] = math.floor(kSampleMs / 1000),
-                                   persist = true })
-  if ok then
-    armed = id
-  else
-    trouble = 'No alarm: this page only records when it is opened.'
-  end
-  save_state()
+forget_old_promises()
+-- **`repeat` és una paraula reservada de Lua** i una taula escrita `{repeat = 600}` no s'analitza: el camp s'escriu amb els
+-- claudàtors i és el que la cua del sistema espera (docs/30, docs/60).
+local armed_ok, id = pcall(alarm.at, { in_ms = kSampleMs, payload = 'sample',
+                                       ["repeat"] = math.floor(kSampleMs / 1000), persist = true })
+if armed_ok then
+  armed = id
+else
+  trouble = 'No alarm: this page only records when it is opened.'
 end
-
--- **El que ha sonat es fa aquí i no dins del ganxo**: `on_alarm` no pot esperar i el bucle de la pàgina sí (docs/30).
-local due = nil
-
-function on_alarm(id, payload, meta)
-  due = (payload == 'sample') or (meta ~= nil and meta.missed ~= nil and meta.missed > 0)
-end
+save_state()
 
 -- **El cercle i la finestra es desen quan la pàgina marxa**, que és el pacte de la sessió `state` (docs/30, docs/45).
 function on_pause() save_state() end
@@ -586,12 +601,8 @@ function on_close() save_state() end
 
 while true do
   if due ~= nil then
-    local was = due
     due = nil
-    if was then
-      record()
-      paint_page()
-    end
+    paint_page()
   end
 
   -- **Un canvi de mida torna a fer la pàgina sencera**: the system makes a new view for the whole glass or for the band of

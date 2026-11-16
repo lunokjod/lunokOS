@@ -9650,7 +9650,14 @@ namespace kernel {
 // après el port és a docs/45: una finestra nova demana el rentat de setze nivells perquè el `du` deixa el fantasma de la línia
 // d'abans, la finestra triada és una preferència (al fitxer de l'app) i el cercle és forma (a `state`), i `fs.write` torna els
 // bytes i no un booleà —un `pcall` sol deia que sí quan la porta responia `nil, error` (docs/30, docs/45, docs/50, docs/90).
-static const char kVersion[] = "0.189.144";
+// 0.189.145 — **la mostra de la `Battery` es pren dins del ganxo de l'alarma**. L'amo: *«però els avisos arriben a l'app per
+// fer la recolecció d'informació?»*. L'alarma hi era, però el ganxo només deixava una bandera perquè el bucle de la pàgina
+// apuntés la mostra, i una alarma que venç amb l'app tancada obre una **finestra** que crida `on_alarm` i tanca l'app tot
+// seguit: la mostra no es prenia mai si la pàgina no era al davant, que és el cas de tota la nit. Ara el ganxo apunta la mostra
+// (no espera res) i la finestra, que no ha llegit res, llegeix el registre del dia abans d'afegir-hi la línia —si no, el
+// desaria a sobre amb una de sola—; el bucle només repinta el que el ganxo ha escrit. El cas de la suite arma l'alarma amb
+// l'app tancada i mira que el registre tingui les dues línies (docs/30, docs/45, docs/60).
+static const char kVersion[] = "0.189.145";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

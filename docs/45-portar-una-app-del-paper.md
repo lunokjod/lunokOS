@@ -502,6 +502,13 @@ carregar els mòduls de la seva carpeta. Les altres tres coses que aquest port v
   del dial va a la sessió `state`. És la mateixa línia que la 0.189.12 va escriure per a totes les apps (docs/30, §5 bis).
 - **`fs.write` torna els bytes i no un booleà**: un `pcall(fs.write, ...)` que només mira si ha petat diu que sí quan la porta
   ha respost `nil, error` i la pàgina ensenya un registre que no existeix. La resposta s'ha de mirar (docs/30).
+- **La mostra es pren dins del ganxo de l'alarma i no al bucle de la pàgina** (0.189.145, l'amo: *«però els avisos arriben a
+  l'app per fer la recolecció d'informació?»*): una alarma que venç amb l'app tancada obre una **finestra**, i una finestra
+  crida `on_alarm` i tot seguit tanca l'app — o sigui que un ganxo que només deixa una bandera perquè el bucle faci la feina
+  deixa la mostra sense prendre, que és exactament el que l'alarma havia de fer. El ganxo no pot esperar, i apuntar una mostra
+  no espera res. La segona meitat: **la finestra no ha llegit res**, i per tant llegeix el registre del dia abans d'afegir-hi
+  la línia, o el desaria a sobre amb una de sola. L'`on_alarm` del `Clock` ja ho feia així (desa el que ha sonat i torna), i
+  aquest port ho havia de fer igual (docs/30, docs/60).
 
 **El que va ensenyar el `Device Lock`** (0.189.97, i el permís que en va sortir a la 0.189.99):
 
