@@ -9573,7 +9573,15 @@ namespace kernel {
 // el cas del clipart de `test_ui` quan va deixar de quadrar-li el píxel de la banda. Ara l'anell va **abans** de la marca.
 // I la pàgina de `run panel` torna a quadrar amb la placa: la fila del bus és de cent microsegons i no d'1 100 (0.189.69,
 // docs/95 E-11), o sigui que la pàgina sencera són **902 ms** i el model i els documents deien 1 970 (docs/85).
-static const char kVersion[] = "0.189.137";
+// **Una pàgina de text no paga mai els quatre parpelleigs** (0.189.138, docs/50, docs/90): la regla de la 0.179.15 —un
+// full d'un bit no té fantasma de grisos, o sigui que passat el pressupost de passades ràpides el que deu és **un**
+// parpelleig i no quatre— va desaparèixer a la reescriptura de la 0.179.60, que va fer que `quality_of_the_page` demanés
+// `cleaner_for`; i `cleaner_for` mira les passades **abans** que els nivells, perquè la rentada d'entre dues apps ha de
+// treure el que va deixar l'anterior. Torna a ser-hi, i només per a la pàgina que s'acaba de pintar a si mateixa.
+// **I el launcher d'un cas no és el d'un altre** (test): les sessions s'aparquen a `/session` i `kernel::boot` les torna,
+// o sigui que un cas que corre després trobava la seva memíria càlida i no llegia cap manifest. `LUNOK_FROM=<cas>` entra
+// a `test_apps`, com ja feia `test_ui`, perquè aquests vermells són d'ordre i cal poder demanar un sufix de la sèrie.
+static const char kVersion[] = "0.189.138";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

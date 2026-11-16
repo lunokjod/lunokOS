@@ -8346,6 +8346,18 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
 // damage that is the whole view still pays `gl16`. A box of a control is not the view, and it goes with its ink (docs/50).
 hal::UpdateMode quality_of_the_page(bool the_whole_view) {
   const hal::UpdateMode ink = cleaner_for(g_levels, g_updates);
+  // **A page of one bit never pays the four blinks** (0.179.15, restored at 0.189.137): `gc16` is the wash that takes the
+  // ghost of the greys away, and a page whose ink is 0 and 15 has none of it —the text of the system is rasterised one bit a
+  // pixel— so past the budget of quick passes the most it owes is **one blink** and not four. The rule was written at
+  // 0.179.15 and it went away at the 0.179.60 rewrite that made this function ask `cleaner_for`: `cleaner_for` looks at the
+  // passes **before** it looks at the levels, because the wash between two apps has to take away whatever the app before
+  // left, and this page is not that page —it is the one that has just painted itself and it knows what it painted (docs/30,
+  // docs/50, docs/90).
+  const uint16_t text_only = static_cast<uint16_t>((1u << 0) | (1u << 15));
+  const bool one_bit = g_levels != 0 && (g_levels & static_cast<uint16_t>(~text_only)) == 0;
+  if (one_bit && quality_rank(ink) > quality_rank(hal::UpdateMode::kGl16)) {
+    return hal::UpdateMode::kGl16;
+  }
   if (the_whole_view && quality_rank(ink) < quality_rank(hal::UpdateMode::kGl16)) {
     return hal::UpdateMode::kGl16;
   }

@@ -5597,9 +5597,20 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   kernel::boot(hal::platform());
   TEST_ASSERT_NOT_NULL(hal::platform().touch());
   TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  // **The launcher of a cold disk and not the one a case before left behind** (0.189.137): `sys.session('apps')` survives a
+  // `kernel::boot` —that is what a session is—, so a launcher that ran earlier in the suite finds its own block warm,
+  // never reads a manifest, and the page of this case is the page of the case before: it said "cache warm, 10 apps" and the
+  // `home: app alpha Alpha` of a cold read was never printed. The door the relief uses is the one that empties them.
+  kernel::session::release_all();
 
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
+  // **I la sessió aparcada és a la targeta** (0.189.137): the blocks are parked in `/session` when an app ends and
+  // `kernel::boot` restores them, so the memory alone is not the cold start this case is about —the disk is.
+  storage->remove("/session/home_eink/apps");
+  storage->remove("/session/home_eink/usage");
+  storage->remove("/session/home_eink/state");
+  storage->remove("/session/home_eink");
   // **The launcher of the repository and not a copy of it**: its manifest, its script and its picture, because what is
   // under test is the file that ships (docs/45).
   TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink"));
@@ -16544,9 +16555,20 @@ void test_a_strip_that_closes_its_tabs_draws_its_crosses(void) {
 // time meant a minute for every question asked of it. Unity has no filter of its own, so the one `RUN_TEST` it
 // gives is replaced here by one that asks the environment first; without the variable every case runs as before
 // and the summary counts what ran, not what was skipped.
+// **`LUNOK_FROM=<name>` starts the run at that case** (0.189.137): the reds of this suite are order dependent —a case that
+// leaves a session parked or a setting written makes the next one fail— so naming the predecessor means asking for a
+// suffix of the run and not for a single case.
+static const char* g_from = nullptr;
+static bool g_started = false;
+
 static bool runs_now(const char* name) {
   const char* only = getenv("LUNOK_TEST");
-  return only == nullptr || only[0] == '\0' || strcmp(only, name) == 0;
+  if (only != nullptr && only[0] != '\0') return strcmp(only, name) == 0;
+  if (g_from != nullptr && g_from[0] != '\0') {
+    if (!g_started && strcmp(g_from, name) == 0) g_started = true;
+    return g_started;
+  }
+  return true;
 }
 
 #undef RUN_TEST
@@ -18023,6 +18045,7 @@ void test_the_swipe_to_the_left_of_the_specimen_is_the_way_back(void) {
 
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
+  g_from = getenv("LUNOK_FROM");
   UNITY_BEGIN();
   RUN_TEST(test_the_options_of_the_emulator_start_empty);
   RUN_TEST(test_an_app_runs_and_writes);
