@@ -14607,6 +14607,12 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   if (down) {
     g_ui_touch_x = x;
     g_ui_touch_y = y;
+    // **El primer dit apaga el selector** (0.179.7, i el forat que el cas va trobar): the ring is the dial's and a hand on the
+    // glass is a person pointing with the finger, so it goes with the landing. **The rule was written and nobody called it**:
+    // `ui_ring_shown` only had its `true`, from the key, and an app that touched its page kept the ring of a dial it was not
+    // using until a key brought it back. The box that has the dial is the only ink that changed, and it is painted here
+    // because the landing of a finger on paper paints nothing by itself (docs/30, docs/90).
+    if (ui_ring_shown(false)) ui_draw_and_present(nullptr);
   }
   // **A turn with nobody on the glass and nothing held costs nothing**: the panel is read every turn,
   // and walking the whole tree only to find that there is no finger is work the app pays for no reason.

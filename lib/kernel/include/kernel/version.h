@@ -9514,7 +9514,12 @@ namespace kernel {
 // primer lloc i que el botó del darrere sentís `on_focus(false)` i `on_focus(true)` a cada fase. Les tres línies diuen zero, amb el
 // perquè, i el que el cas guarda —la targeta sent l'accept i el cancel, la pàgina del darrere no sent res— queda igual
 // (docs/30, docs/90).
-static const char kVersion[] = "0.189.124";
+// 0.189.125 — **el primer dit apaga el selector, i la regla no la cridava ningú**. La 0.179.7 va escriure que el selector surt amb
+// una tecla i s'amaga amb el primer dit (`ui_ring_shown`), però només hi havia el `true`, el de la tecla: un app que tocava la
+// seva pàgina es quedava amb l'anell d'un dial que no estava fent servir fins que una tecla el tornava a demanar. Ara el toc
+// de baixada el crida, i pinta la caixa que tenia el dial, que és l'única tinta que canvia —el dit sobre paper no pinta res
+// per si sol— (docs/30, docs/90).
+static const char kVersion[] = "0.189.125";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
