@@ -9531,7 +9531,12 @@ namespace kernel {
 // `block:clear()` sobre una memòria que ja no era seva i **matava el llançador** amb la pàgina al vidre —`lua: … the session
 // memory was given back`, in method 'clear', en el `save_state`—. El cas de la suite que dona tots els blocs amb `release_all`
 // i després pinta ho va trobar. L'app puja a 0.3.9 i el sistema a aquest número (docs/30, docs/75).
-static const char kVersion[] = "0.189.127";
+// 0.189.128 — **la zona horària desa l'hora del mapa i prou**. El cas de l'app `tz` demanava `tz: saved +04:00` i `cfg tz +04:00`
+// després de tancar amb l'hora d'estiu marcada, que és la regla de la 0.179.50; la 0.182.0 la va canviar amb el motiu escrit a
+// l'app: l'hora d'estiu té el seu propi ajust (`cfg dst`) i es va escriure quan es va marcar la casella, i tornar-la a sumar al
+// desament seria desar l'estiu dues vegades —una placa que al desembre llegeix +04:00—. El cas ara espera +03:00, comprova que
+// l'hora d'estiu és a `cfg dst` i que el prompt diu el mateix que la pàgina (docs/30, docs/60).
+static const char kVersion[] = "0.189.128";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

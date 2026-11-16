@@ -16736,12 +16736,20 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   pump_turns(40);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app survived a close of the shell");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: saved +04:00"), g_out);
-  TEST_ASSERT_EQUAL_INT(240, kernel::cfg::tz_minutes());
+  // **Es desa l'hora del mapa i prou** (0.182.0): the hour of summer has its own setting and it was written when the box was
+  // ticked —folding it into the offset here would save summer twice, a board that reads +04:00 in December—, so what the close
+  // writes is +03:00 and the hour of summer is the `cfg dst` the case reads below. El cas demanava +04:00, que és la regla de la
+  // 0.179.50 que la 0.182.0 va canviar (docs/30, docs/60).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: saved +03:00"), g_out);
+  TEST_ASSERT_EQUAL_INT(180, kernel::cfg::tz_minutes());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::dst(), "the hour of summer went with the close");
 
   // And the prompt says the same thing the page said.
   pump_captured(20, g_out, sizeof(g_out), "cfg tz");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: tz +04:00"), g_out);
+  // **I el prompt diu el mateix que la pàgina**: l'hora del mapa, +03:00, amb l'hora d'estiu a part (0.182.0, docs/30, docs/60).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: tz +03:00"), g_out);
+  pump_captured(20, g_out, sizeof(g_out), "cfg dst");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: dst on"), g_out);
   pump_captured(20, g_out, sizeof(g_out), "cfg week");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: week sunday"), g_out);
   pump_captured(20, g_out, sizeof(g_out), "cfg leap");
