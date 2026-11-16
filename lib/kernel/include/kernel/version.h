@@ -9456,7 +9456,13 @@ namespace kernel {
 // prova, la llista d'ús de `panel` i l'esclat que encara dividia per la fila de 1 100 µs, la banda de la càrrega amb els dos
 // números a la vora dolenta, el bloc de la memòria del llançador —que té vuit bytes de capçalera i no és una cadena— i el
 // nombre de cel·les d'un disc que des del 8/11 porta totes les eines (docs/30, docs/50, docs/80).
-static const char kVersion[] = "0.189.112";
+// 0.189.113 — **la cascada de la suite d'apps, tallada a l'arrel**. `close_any_app` del `tearDown` començava amb
+// `kernel::app_running()`, o sigui que un cas que moria amb l'intèrpret de Lua viu però amb la bandera de l'app avall no tancava
+// res, i el cas següent llegia "cannot start the interpreter" i culpava codi que estava bé: vint-i-cinc casos amagats darrere
+// d'un de sol. Ara es mira `luabind::running()` i s'atura el que quedi, que és l'últim que fa `close_app` (docs/80).
+// **I el cas de la pàgina que no gira busca la línia de l'app** i no `page `, que des de la 0.189.1 també és el registre del
+// nucli (`list 1: page 1 of 6 (already there)`).
+static const char kVersion[] = "0.189.113";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

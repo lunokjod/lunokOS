@@ -664,7 +664,11 @@ bool read_text(hal::IStorage* storage, const char* path, char* out, size_t cap) 
 }
 
 void close_any_app() {
-  if (!g_booted || !kernel::app_running()) return;
+  if (!g_booted) return;
+  // **Una app que el nucli no diu que hi és també es tanca** (0.189.113): the early return that was here asked
+  // `kernel::app_running()` first, so a case that died with the interpreter alive but the app's flag down left both for the
+  // next case. The taps and the goodbyes are only for an app the kernel knows about; the interpreter is checked below
+  // whatever the flag says.
   for (int tap = 0; tap < 3 && kernel::app_running(); ++tap) {
     emu::press_button(true);
     pump_turns(10);
@@ -675,6 +679,16 @@ void close_any_app() {
   // (docs/30, docs/90). The test closes it the same way the shell does.
   if (kernel::app_running()) {
     kernel::shell::close_app();
+    pump_turns(10);
+  }
+  // **I l'intèrpret, si encara hi és** (0.189.113): a case that dies with a promise in the air —or in the middle of a start—
+  // leaves the interpreter of Lua alive while the kernel does not say an app is running, and `close_app` answers at its
+  // first line for exactly that reason (`if (!g_app_alive) return;`). The case after it then reads "cannot start the
+  // interpreter" and blames code that is fine: it is the leak that hid twenty-five cases of this suite, and the first one
+  // to make it was the box of lines that types (0.189.113, docs/80). `luabind::stop()` is the last thing `close_app` does,
+  // so this is the same door without the goodbyes, which the two calls above have already asked for.
+  if (luabind::running()) {
+    luabind::stop();
     pump_turns(10);
   }
 }
@@ -7324,7 +7338,10 @@ void test_a_swipe_that_turns_no_page_picks_nothing(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(80);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "page "), g_out);
+  // **La línia de l'app i no la del registre** (0.189.114): the kernel writes `list 1: page 1 of 6 (already there)` on every
+  // swipe, so a search of "page " finds the log and not what the app printed, which is `page <n>` and nothing else.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "page 1\r\n"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "page 2\r\n"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
 
   // And the list answers a tap on the same row: the contact was spent, the page was not made deaf.
