@@ -362,6 +362,12 @@ La regla és una i el nucli la té tota:
 | `time.tz([minuts])` (Lua) | el número del mapa i prou: és **l'ajust** que edita la pàgina de la zona horària, no l'hora de ningú |
 | `time.dst([on])` (Lua) | l'interruptor de l'hora d'estiu, un ajust propi des de la 0.182.0 |
 
+**I una fila que ensenya un número i en desa un altre ha de dir els dos** (0.189.141): la fila **Time zone** del panell
+d'ajustos ensenya l'hora del vidre (`time.offset()`) i desa la del mapa (`time.tz()`), que amb l'estiu marcat són a una hora
+de distància. La primera versió desava el número que ensenyava, o sigui que acceptar el valor que ja era al vidre movia el
+rellotge de la placa una hora més; ara el que es desa és el que s'ensenya menys l'hora de la casella, i la pàgina ho diu al
+registre amb els dos números.
+
 Res més no pot compondre l'hora: **cap pàgina, cap app i cap tros del nucli no sumen l'offset a mà**. La franja de la barra en és
 una (`bar.cpp`, `read_status`), i per això va ensenyar UTC fins a la 0.189.130; les dues apps que toquen l'hora —`apps/tz` i
 `apps/settings`— fan servir `time.offset()` per ensenyar i `time.epoch()` per escriure, i la dels ajustos va deixar anar la seva

@@ -9605,7 +9605,21 @@ namespace kernel {
 // `home_eink`), so the house was hidden exactly where a person looks at the card for the first time. Now the key is there
 // whenever `cfg home` names an app, and over the page of the start it **starts it again**: the way to the beginning, and the way
 // out of a page of the start that has stopped answering (docs/30, docs/45).
-static const char kVersion[] = "0.189.140";
+// 0.189.141 — **el repàs dels vint-i-set commits de l'amo, i el que hi faltava**. (1) **Les quatre plaques sense vidre no
+// enllaçaven**: `shell::start_the_home_app` (0.189.139) demana `display::surface()` i `display.cpp` és tot dins `#if
+// LUNOK_GLASS`, o sigui que l'Atom, el Matrix, l'ESP32 i el Koala es quedaven amb un símbol sense definir i el CI —que builda
+// les sis— hauria estat vermell; `no_glass.cpp` els dona la resposta honesta, que no hi ha cap vidre on tornar. (2)
+// `apps/about/res/libs.txt` no s'havia tornat a fer i `gen_about.py --check` el refusava (kernel 0.1.122 en lloc de 0.1.129,
+// luabind 0.7.16 en lloc de 0.7.17, hal 0.2.13 en lloc de 0.2.14). (3) La fila **Time zone** del panell d'ajustos ensenyava
+// l'hora del vidre i desava la del mapa —fins aquí desava la que ensenyava—, o sigui que amb l'estiu marcat acceptar el valor
+// que ja era a la pantalla movia el rellotge una hora més (0.189.130 hi va portar `time.offset()`). (4) docs/30 deia que la
+// casa no es pinta sobre la pàgina de casa i la 0.189.140 la hi pinta a posta. I (5) el cas de la vida i el dels ajustos de
+// `test_apps` eren vermells: el primer mesurava la passada de la 0.189.5 (`gl16`) i la captura de dos mil quatre-cents torns
+// de la 0.189.135 creua la rentada de cada sis generacions; el segon demanava una velocitat permesa i una hora d'estiu que el
+// run d'abans li havia deixat escrites al disc de la suite —el disc és un per a tota la correguda **i per a les de després**—,
+// o sigui que un cas que mor abans de tornar el que va escriure fa vermell el run següent i tots els altres. 706 de 706, i les
+// sis construccions (docs/30, docs/45, docs/50, docs/60, docs/75, docs/80).
+static const char kVersion[] = "0.189.141";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

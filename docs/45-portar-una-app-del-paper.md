@@ -327,6 +327,13 @@ local function epoch_of(day, month, hour, minute)
 end
 ```
 
+**I una fila que ensenya l'hora del vidre i en desa una altra ho ha de dir** (0.189.141): la fila **Time zone** ensenya
+`time.offset()` —el número que la franja de la barra i la pàgina de la zona horària ensenyen— i desa `time.tz()`, que és el
+número del mapa. Amb la casella de l'estiu marcada els dos números són a una hora de distància, i la primera versió d'aquesta
+fila ensenyava +04:00 i desava +04:00: **obrir el desplegable i acceptar el valor que ja hi era movia el rellotge de la placa
+una hora més**. El que es desa és el que s'ensenya menys l'hora de la casella, i la pàgina ho diu en una línia del registre
+(`settings: zone +03:00, and the board shows +04:00`) perquè el cas pugui veure els dos números alhora (docs/30, docs/60).
+
 **El que encara no hi és, i per què** (i és la resposta honesta a mitja llista de l'amo): el panell té set pestanyes i
 només les que tenen porta darrere. **Ja hi són** les tres velocitats del processador amb la seva llista blanca i la marxa del
 torn amb nom (0.189.107 i 0.189.108, amb les xifres mesurades a la placa) i **l'app del botó dels ajustos** (0.189.109, que és

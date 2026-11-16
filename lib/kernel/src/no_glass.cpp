@@ -133,6 +133,13 @@ namespace display {
 
 bool available() { return false; }
 
+// **No glass, so no surface to hand anybody** (0.189.141): `shell::start_the_home_app` asks for it to know whether a board has a
+// page to come back to —a board with no screen keeps its prompt, which is where a person wants to be— and the four boards of
+// this build answered with a symbol that did not exist: the 0.189.139 added the question to `shell.cpp` and `display.cpp` is
+// all inside `#if LUNOK_GLASS`, o sigui que l'enllaç de les quatre es va quedar sense ella i el CI les hauria refusat
+// (docs/50, docs/75).
+hal::ISurface* surface() { return nullptr; }
+
 bool partial_from_the_box() { return false; }
 
 bool set_partial_from_the_box(bool) { return false; }

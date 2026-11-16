@@ -10101,7 +10101,13 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   // two boxes of 524 and 448 pixels of line —what a soup costs here is the rows of the board and not a page of sixteen
   // levels with two blinks— (measured on this emulator: 1 415 ms a generation against the 1 770 ms of the whole view,
   // and a tenth of both once the world has settled).
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912"), g_out);
+  // **I la rentada de cada sis generacions, que és de l'app i no del sistema** (0.189.135): `kWashEvery` és sis, i una
+  // captura de dos mil quatre-cents torns —la que es va allargar perquè amb sis-cents la primera generació no hi era— creua
+  // la sisena i la pàgina es renta sencera amb `gld16`, quatre-cents cinquanta mil·lisegons i cap parpelleig, que és
+  // exactament el que l'app diu que fa. El que aquest cas ha de vigilar no és «cap pàgina sencera» sinó **«una generació no
+  // és una pàgina»**: una rentada com a molt dins de la captura, i el `du` del tauler a cada generació (docs/50, docs/95).
+  TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(1, times_in(g_out, "paint 0,0 540x912"), g_out);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(1, times_in(g_out, "paint 8,80 524x824 mode 1 du"), g_out);
   TEST_ASSERT_GREATER_THAN_INT32_MESSAGE(0, painted_pixels(g_out), g_out);
 
   // **The gear opens the page of the settings** (0.189.47): a whole page, in one wash that does not blink, and the world
@@ -10117,7 +10123,13 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(1200);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912 mode 3 gl16"), g_out);
+  // **La passada de setze nivells i no la dels dos parpelleigs** (0.189.43): el cas demanava `mode 3 gl16` i el vidre rep
+  // `gld16` quan la pàgina la pinta la rentada de l'app (`kPageMode`) i `gl16` quan la pinta la seva pàgina de settings
+  // (`kSettMode`) —les dues de setze nivells, i la segona és la que l'app tria a posta perquè la pàgina del tauler no es torni
+  // a rentar—, o sigui que quin dels dos surti depèn de quants `du` porti el tauler quan el dit cau a l'engranatge. El que
+  // aquest cas ha de dir és el que no pot passar: **la pàgina sencera amb els dos parpelleigs del `gc16`** (docs/50, docs/90).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "gc16"), g_out);
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, page_level(static_cast<uint16_t>(grid_x + 2), static_cast<uint16_t>(grid_y + 2)),
                                   "the board is paper under the settings");
   // **And the world under it is not running**: a generation of the board is `du` over the whole grid, and the page of the
@@ -16986,8 +16998,59 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   const int expected_epoch = 1794837600 - static_cast<int>(kernel::cfg::offset_minutes()) * 60;
   TEST_ASSERT_INT_WITHIN_MESSAGE(4, expected_epoch, static_cast<int>(hal::platform().clock()->epoch_ms() / 1000), g_out);
 
+  // ---- **l'hora d'estiu i la fila de la zona no compten la mateixa hora dues vegades** (0.189.141): the row shows the hour of
+  // the board —`time.offset()`, the same number the strip of the bar and the page of the time zone show— and what it writes is
+  // the map's hour, because the box of summer is a setting of its own and has already written its hour. Until this the row
+  // showed +04:00 and saved +04:00, o sigui que acceptar el valor que ja era al vidre movia el rellotge de la placa una hora
+  // més, i l'estiu es podia comptar dues vegades.
+  const auto zone_text = [](int minutes, char* out, size_t cap) {
+    const int m = (minutes < 0) ? -minutes : minutes;
+    snprintf(out, cap, "%s%02d:%02d", (minutes < 0) ? "-" : "+", m / 60, m % 60);
+  };
+  // **La casella es deixa marcada i prou**: the case before this one may have left the hour of summer ticked, and the box of the
+  // page was built with whatever the board said then —a tab that is already the one in front does not lay the page out again—,
+  // o sigui que el primer dit pot apagar-la. Es prem fins que és a cert, que és el que la fila ha de comptar (docs/30, docs/45).
+  const int zone_before = kernel::cfg::tz_minutes();
+  capture_begin();
+  press_finger(panel, 98, static_cast<uint16_t>(bar + kRowOne + 5 * kRowStep + 28));   // the box of summer
+  pump_turns(600);
+  if (!kernel::cfg::dst()) {
+    press_finger(panel, 98, static_cast<uint16_t>(bar + kRowOne + 5 * kRowStep + 28));
+    pump_turns(600);
+  }
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::dst(), g_out);
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 6 * kRowStep + 28));  // the row of the zone, and its card
+  pump_turns(600);
+  // **El centre tria el valor on és el cercle** (0.189.102), which is the one the row was showing: a person who says yes to
+  // what is already on the glass must not move the clock of the board.
+  emu::press_key(0, true);
+  pump_turns(60);
+  emu::press_key(0, false);
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(zone_before, kernel::cfg::tz_minutes(), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(zone_before + 60, kernel::cfg::offset_minutes(), g_out);
+  char zone_line[128] = {0};
+  char was[16] = {0};
+  char is[16] = {0};
+  zone_text(zone_before, was, sizeof(was));
+  zone_text(zone_before + 60, is, sizeof(is));
+  snprintf(zone_line, sizeof(zone_line), "settings: zone %s, and the board shows %s", was, is);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, zone_line), g_out);
+  // The board goes back to the winter hour it came with, or the cases after this one read an hour of summer.
+  kernel::cfg::set_dst(false);
+
   // ---- the processor: **la política i les tres velocitats que pot fer servir** (0.189.107), que és el que el sostre d'aquest
   // ajust vol dir: apagar-ne una no és una suggerència i la governadora hi acota el que demana el sistema.
+  // **El disc de la suite és un per a tota la correguda i també per a les de després** (0.189.141): la màscara de les velocitats
+  // és una clau de la memòria de claus (`cfg freq`) i es desa al disc, o sigui que un cas que mor abans de tornar-la deixa la
+  // placa amb una velocitat prohibida i **el run següent falla aquí mateix, una altra vegada i per sempre**. La llei del `state`
+  // del llançador que es va escriure el 15/11 (`/data/life/settings.txt`, esborrat al principi del cas de la vida) és la mateixa:
+  // el que un cas necessita, el cas ho posa (docs/30, docs/80).
+  kernel::power::set_cpu_auto(true);
+  kernel::cfg::set_freq_allowed(80, true);
+  kernel::cfg::set_freq_allowed(160, true);
+  kernel::cfg::set_freq_allowed(240, true);
   capture_begin();
   press_finger(panel, 270, static_cast<uint16_t>(bar + 38));  // the CPU tab
   press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 28));  // the automatic scaling, off

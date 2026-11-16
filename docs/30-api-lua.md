@@ -767,6 +767,10 @@ time.tz(90)        -- noranta minuts, o sigui +01:30
   i la forma `±HH:MM` és la que porta els dos punts: `0130` no vol dir mai una hora i mitja.
 - **No hi ha taula de zones**: això és un desfasament de dos bytes i no el mapa del món, i una placa on l'hora canvia
   dues vegades l'any s'ha de dir el número nou dues vegades l'any (docs/60).
+- **Els dos números són dos, i una pàgina que n'ensenya un i en desa un altre ho ha de dir** (0.189.141): `time.tz` és el
+  número del mapa i `time.offset` el del vidre —una hora més quan l'estiu és marcat—, i la fila **Time zone** del panell
+  d'ajustos els separa: ensenya l'efectiu i desa el del mapa menys l'hora de la casella, o sigui que acceptar el valor que ja
+  és al vidre no mou el rellotge. Fins a la 0.189.140 desava el que ensenyava (docs/45, docs/60).
 - **Escriure-hi el desa a l'acte** (`cfg::set_tz_minutes` → `remember_tz`): no hi ha cap «desa-ho ara» ni cap manera de
   desfer-ho, o sigui que una app que vulgui desar la tria **en tancar** ha de tenir-la a la memòria i fer la crida a
   `on_close`, no en tocar el mapa. És el que demana l'app de la zona horària (docs/90).
@@ -4028,9 +4032,13 @@ i res més (0.179.42, 0.179.49).
   arrencar HOME APP»*): `Home` és la clau de 112 × 64 que cau exactament a l'aire que deixen les dues cantonades —la marca a
   sobre i la paraula a sota, com les quatre del mig però amb l'alçada d'una cantonada— i obre **la pàgina de casa**,
   `cfg home <id>`. Amb una pàgina a sota la demana com la roda (`ask_run` amb `back`); **sense cap pàgina la arrenca**, que és
-  el cas que la fa necessària: una placa que torna d'un son sense res al davant. I la clau **no es pinta** quan la pàgina de
-  casa és ja la del davant o quan `cfg home` no n'anomena cap, perquè un botó que no fa res és pitjor que cap botó
-  (docs/30, docs/40, docs/45).
+  el cas que la fa necessària: una placa que torna d'un son sense res al davant. **La clau hi és sempre que `cfg home` nomena
+  una app** (0.189.140, l'amo: *«la casa es veu sempre, també sobre el llancador»*): la primera versió de la 0.189.139
+  l'amagava quan la pàgina de casa ja era la del davant —la regla de la creu, «un botó que no fa res és pitjor que cap
+  botó»— i l'emulador arrenca **sobre el llancador**, o sigui que la casa s'amagava exactament allà on es mira la targeta
+  el primer cop. Sobre la pàgina de casa la clau **la torna a arrencar**: és el camí al principi i la sortida d'una pàgina de
+  casa que s'ha quedat sense respondre. El que sí que no es pinta és quan `cfg home` no nomena cap app, perquè llavors no hi
+  ha res a obrir (docs/30, docs/40, docs/45).
 - **I una placa amb pàgina de casa no es queda mai sense pàgina** (0.189.139): tancar l'app —la creu de la targeta, un pessic,
   els tres tocs— quan no hi ha cap app que la demanés deixava **el prompt** al davant, que en una placa sense cable és un
   vidre amb una pàgina que ningú ha pintat: la barra responia, la targeta s'obria i totes les claus deien que no hi havia cap

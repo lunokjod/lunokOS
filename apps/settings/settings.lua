@@ -422,11 +422,25 @@ local function epoch_of(day, month, hour, minute)
   return time.epoch(today.year, month, day, hour, minute)
 end
 
-local function tz_here()
-  local minutes = time.offset()
+-- **L'hora d'estiu és una hora i la diu un sol lloc** (docs/60): the box writes `time.dst` and the offset of the board is the
+-- map's plus this one, exactly as `cfg::offset_minutes` counts it.
+local kDaylightMinutes = 60
+
+local function tz_text(minutes)
   local sign = (minutes < 0) and '-' or '+'
   local m = math.abs(minutes)
   return string.format('%s%02d:%02d', sign, m // 60, m % 60)
+end
+
+-- **La fila de la zona ensenya l'hora efectiva** (0.189.141): `time.offset()` és el número que el vidre ensenya a tot arreu
+-- —la franja de la barra, la pàgina de la zona horària i aquesta fila—, i el que desa és `time.tz()`, el número del mapa.
+local function tz_here() return tz_text(time.offset()) end
+
+-- **I el número del mapa darrere d'un offset del vidre**: while the box of summer is ticked they are an hour apart, and the row
+-- knows how much because it asks the same door the box writes. Fins a la 0.189.140 desava el que ensenyava, o sigui que acceptar
+-- el valor que ja era a la pantalla movia el rellotge de la placa una hora més (docs/30, docs/60).
+local function map_minutes(showing)
+  return showing - (time.dst() and kDaylightMinutes or 0)
 end
 
 -- ---------------------------------------------------------------- les pestanyes i les files
@@ -569,12 +583,23 @@ function build()
       console.print('settings: the clock refuses the hour (' .. tostring(ok and kept or kept.code) .. ')')
     end
   end)
-  check_row(1, 'dst', 'Daylight saving time', function() return time.dst() end, function(on) time.dst(on) end)
+  -- **La casella de l'estiu diu els dos números** (0.189.141): the zone of the map and the hour of the board, which are an hour
+  -- apart while it is ticked, so the line under the rows and the row of the zone cannot disagree about what moved (docs/30).
+  check_row(1, 'dst', 'Daylight saving time', function() return time.dst() end, function(on)
+    time.dst(on)
+    console.print(string.format('settings: daylight time %s, the zone is %s and the board shows %s',
+                                on and 'on' or 'off', tz_text(time.tz()), tz_text(time.offset())))
+  end)
   choice_row(1, 'tz', 'Time zone', OFFSETS, function() return index_of(OFFSETS, tz_here()) end, function(index)
     local text = OFFSETS[index]
     local sign = (text:sub(1, 1) == '-') and -1 or 1
     local h, m = text:match('^[+-](%d+):(%d+)$')
-    if h ~= nil then time.tz(sign * (tonumber(h) * 60 + tonumber(m))) end
+    if h == nil then return end
+    -- **L'hora triada és la del vidre; la que es desa és la del mapa** (0.189.141): `kDaylightMinutes` comes out of what the
+    -- person chose, because the box of summer has already written its own hour (docs/30, docs/60).
+    local kept = map_minutes(sign * (tonumber(h) * 60 + tonumber(m)))
+    time.tz(kept)
+    console.print(string.format('settings: zone %s, and the board shows %s', tz_text(kept), tz_text(time.offset())))
   end)
   choice_row(1, 'week', 'First day', WEEKS, function() return (time.week() == 7) and 2 or 1 end,
              function(index) time.week((index == 2) and 7 or 1) end)

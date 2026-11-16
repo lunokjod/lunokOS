@@ -149,6 +149,12 @@ no diu quin dels dos valors és, perquè una placa nova que s'oblidi no es compi
 un `attach()` que no fa res, una barra que no diu res, un dit que no hi és. És el que fa que el shell i el nucli no hagin de
 preguntar de quina placa són a cada línia: el camí sense vidre és el mateix codi amb les respostes curtes.
 
+**I cada porta nova del shell hi ha de tenir la seva resposta, o les quatre plaques no enllacen** (0.189.141): `display.cpp`
+és tot dins `#if LUNOK_GLASS`, o sigui que una crida que `shell.cpp` fa a `display::` —`surface()`, la que diu si hi ha un vidre
+on tornar amb la casa del panell— existeix al codi i **no té definició** en aquest build: compila i no enllaça, i el que es veu
+és `undefined reference to 'kernel::display::surface()'` en un `pio run` de l'Atom. Les sis construccions són el que ho vigila
+(docs/75, docs/80).
+
 **El preu, mesurat** (11/11, `pio run` de les cinc plaques, `firmware.bin`): l'ATOM Lite i l'ESP32 de DevKit passen de
 **2 302 464 B a 2 105 456 B** (−197 008 B, un 8,6 %), el Matrix de 2 302 576 a 2 105 536 i el T-Koala de 2 378 240 a
 2 172 960 (−205 280). La ranura de 2 621 440 B passa de **319 KB lliures a 516 KB**: la meitat del que ocupava la pàgina

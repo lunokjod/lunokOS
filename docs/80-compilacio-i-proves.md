@@ -389,6 +389,13 @@ Regles:
     a un `reset`. El PAL de l'emulador instal·la `atexit` en encendre el mode cru, o sigui que el terminal es torna
     encara que el procés acabi en un `exit` d'una fallada. Comprovat amb un pty (`script -q -c 'stty -g; …;
     stty -g'`): sense el ganxo el `stty` de després és un altre, i amb el ganxo és el mateix.
+- **El disc de la suite és un, i és el de tots els runs** (0.189.141): `test_apps` comparteix un disc de l'emulador entre
+  casos **i entre execucions**, i el que una app desa a la memòria de claus (`cfg freq`, `cfg dst`, `cfg tz`) o al seu
+  `/data` hi queda. Un cas que mor abans de tornar el que va escriure —`TEST_ASSERT_TRUE(cfg::freq_allowed(240))` quan el run
+  d'abans havia deixat la 240 prohibida— **fa vermell el run següent, i el següent, i tots**: el vermell no és d'ordre sinó
+  heretat, i es veu quan el cas passa sol i falla en sèrie. Cada cas posa el que necessita al principi (esborra
+  `/data/life/settings.txt`, escriu la màscara de les velocitats i l'hora d'estiu) i el torna al final; `LUNOK_TEST=<cas>` i
+  `LUNOK_FROM=<cas>` són per trobar-lo, no per declarar-lo passa.
 - **Cap espera no és per sempre.** Un bucle de proves que espera una app acaba amb un pressupost de torns
   (`kTurnBudget`) i diu que no ha acabat; el que no pot passar és que la suite sencera s'aturi en un bucle
   que no acaba i que ningú sàpiga per què.
