@@ -9560,7 +9560,14 @@ namespace kernel {
 // 0.189.135 — **una generació del joc de la vida dura set-cents mil·lisegons**. El cas esperava una pintada `du` després de sis-cents
 // torns d'un mil·lisegon i s'aturava just abans de la primera generació (`Speeds` és `{1200, 700}` i la pàgina arrenca amb la
 // ràpida), o sigui que la captura era buida i el cas culpava el panell. Ara espera tres generacions (docs/30, docs/50).
-static const char kVersion[] = "0.189.135";
+// 0.189.136 — **una targeta que apareix es queda el dial**. La 0.172.0 ja deia que mentre una targeta és a sobre el camí és el seu
+// (`ui_collect_targets` filtra la pàgina), però el focus es quedava al control de sota: un dit sobre una porta de la pàgina li
+// dona el focus, la targeta que obre no el pren, i el primer pas del camí trobava que el control amb el focus ja no era cap parada
+// —`which < 0`, les tecles tornaven i **no passava res**—, o sigui que un avís de *Format the SD card?* no es podia contestar. Ara
+// el primer lloc de la targeta pren el dial quan el focus és fora de la llista, i el bloc que ja hi era el torna a la pàgina quan
+// la targeta marxa (0.172.1, docs/30, docs/90). Els dos casos de l'esborrador passen, i el de la targeta sobre la pàgina recupera
+// les dues línies de `on_focus` que la 0.179.7 havia deixat de complir.
+static const char kVersion[] = "0.189.136";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -1,6 +1,6 @@
 {
   "name": "luabind",
-  "version": "0.7.16",
+  "version": "0.7.17",
   "description": "The Lua state, its accounting allocator and the first bindings.",
   "dependencies": {
     "lua": "*",

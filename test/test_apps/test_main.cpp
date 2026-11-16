@@ -12975,10 +12975,11 @@ void test_a_card_over_the_page_takes_the_walk_and_gives_it_back(void) {
   pump_captured(60, g_out, sizeof(g_out), "run modaler");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "phase 1"), g_out);
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
-  // **Nothing has been said yet, and that is the contract**: the walk of the focus is asked for by a key or a finger, and
-  // a page that only paints does not move any ring. The first control of a page is born with it and its `on_focus` does
-  // not run there, so the log has no line about the button until something asks (docs/30).
-  TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus false"), g_out);
+  // **I el botó del darrere ja sap que no té el dial** (0.189.136): a card over the page takes the walk, so the control that had
+  // the ring hears `on_focus(false)` when the card comes up —the ring is the card's— and hears `true` again when the card goes.
+  // El cas deia que no s'havia dit res encara, que és el que passava quan la targeta no prenia el dial fins que una tecla la
+  // trobava (docs/30, docs/90).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus false"), g_out);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus true"), g_out);
 
   // **The arrows and the centre are the card's**: one step to the right is the accept door, whatever the page behind
@@ -12995,14 +12996,12 @@ void test_a_card_over_the_page_takes_the_walk_and_gives_it_back(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "accept 2"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "behind clicked"), "the key went through the card");
-  // **And the button behind heard that the ring went**: the first key of the card is the walk that finds it, and the
-  // control that had the focus is told, because it is no longer a stop and the walk cannot tell it any other way (0.173.1).
-  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus false"), g_out);
-  // **El `present` ja no torna el focus sol** (0.179.7): `ui_ring_shown` és fals fins que una tecla o un dit el demanen —the
-  // selector comes back inside the paint the key is already going to ask for, i una pàgina que només pinta no mou cap anell—,
-  // o sigui que el present que tanca la targeta deixa la pàgina sense anell i el botó del darrere no torna a sentir que el té.
-  // El cas demanava el contrari, que és el que deia la 0.172.1, i **no es pot demanar amb aquesta app**: la pregunta següent
-  // surt del seu bucle a la pintada mateixa, o sigui que no hi ha cap pàgina sense targeta on caminar (docs/30, docs/90).
+  // **I en aquesta fase no ha perdut res**: the card took the dial when it came up, which was the phase before this one, so the
+  // key of this capture only walks the card's doors and the page behind says nothing (0.173.1, 0.189.136).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus false"), g_out);
+  // **I tampoc no l'ha recuperat**: the card closed and the app asked its second question from the same turn, so the page never
+  // had an instant with no card on it and the button behind has not heard `on_focus(true)` yet. La tornada es veu a la fase del
+  // cancel, que és l'última pregunta (0.172.1, 0.189.136, docs/30, docs/90).
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus true"), g_out);
 
   // **And a finger outside the card is its cancel**: the app asks a second question from its loop, the card goes up, and
@@ -13020,12 +13019,20 @@ void test_a_card_over_the_page_takes_the_walk_and_gives_it_back(void) {
   // this phase begins with the card already on the glass (and its `phase 2` line went out in the one before).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cancel 2"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "behind clicked"), "the finger went through the card");
-  // **I el botó del darrere no sent res, ni quan el dit hi cau a sobre** (0.179.7): with the card up the page behind has no
-  // ring at all —the selector is the card's and it comes back with a key, not with a paint—, so there is no `focus false` to
-  // hear on the way down and no `focus true` when the cancel paints. The two lines the case asked for are the 0.172.1 pair,
-  // which is what a present used to do (docs/30, docs/90).
+  // **I el dit no li pren res al botó** (0.189.136): the card was already up with the dial, so the contact on the paper of the page
+  // behind is not a press of anything and the button has nothing to lose; what it does hear is the ring coming back when the card
+  // of the cancel goes, que és la tornada que el cas demanava des de la 0.172.1 (docs/30, docs/90).
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus false"), g_out);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus true"), g_out);
+  // **I la tornada es veu quan algú torna a preguntar pel camí** (0.172.1, 0.189.136): the ring goes back to the page on the walk
+  // that finds no card any more, so this is the key that proves the give back and not a paint (docs/30, docs/90).
+  capture_begin();
+  emu::press_key(1, true);
+  pump_turns(20);
+  emu::press_key(1, false);
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus true"), g_out);
 
   for (int i = 0; i < 3 && kernel::app_running(); ++i) {
     emu::press_button(true);

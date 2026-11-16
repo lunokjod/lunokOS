@@ -10528,6 +10528,16 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity) {
   }
   ui_walk_targets(L, root_at, 0, 0, 0, 0, info.width, info.height, 0, targets, capacity, count, order, objects);
   lua_pop(L, 1);  // the root
+  // **A card que apareix es queda el dial** (0.189.136): while a card is up the stops are its own doors and nothing else, so a
+  // control of the page that had the focus is not a stop any more — and the key pressed then found no place (`which < 0`), gave
+  // the keys back and did nothing at all: a card that cannot be answered until the page's control lets go of the ring. A finger
+  // on a door of the page leaves exactly that focus, and the warning it opens was asking *Format the SD card?* with nobody able
+  // to say yes. The first door of the card takes the dial, and the block below gives it back to the page when the card goes
+  // (docs/30, docs/90).
+  if (g_modal_slot >= 0 && count > 0 &&
+      ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item) < 0) {
+    ui_apply_focus(L, targets, count, objects, 0);
+  }
   // **And the card gone gives the ring back** (0.172.0): the control that had it takes it again if it is still there, and a
   // page that was built again in the meantime leaves the ring where the app put it (docs/30, docs/90). **One block and not
   // two** (0.173.1): the same six lines were written twice, one after the other, and the second could never run —the first
