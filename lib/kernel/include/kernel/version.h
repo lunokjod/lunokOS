@@ -9557,7 +9557,10 @@ namespace kernel {
 // l'estiu—: el que el cas mira ara és el mateix número que fa servir la franja. I el cas de la caché del llançador exigia que
 // la carpeta `/apps/<id>/res` no hi fos, quan el disc és un per a tota la correguda i la pot haver deixada un cas anterior: la
 // carpeta s'assegura i el cas mira el que volia mirar (docs/30, docs/60, docs/80).
-static const char kVersion[] = "0.189.134";
+// 0.189.135 — **una generació del joc de la vida dura set-cents mil·lisegons**. El cas esperava una pintada `du` després de sis-cents
+// torns d'un mil·lisegon i s'aturava just abans de la primera generació (`Speeds` és `{1200, 700}` i la pàgina arrenca amb la
+// ràpida), o sigui que la captura era buida i el cas culpava el panell. Ara espera tres generacions (docs/30, docs/50).
+static const char kVersion[] = "0.189.135";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

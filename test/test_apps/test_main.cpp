@@ -10078,8 +10078,11 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   // **The clock is running, and a generation is the cheapest pass of the panel over the band of rows it moved**: no wash,
   // nothing that blinks, and **no box that is the whole glass** —which is the thing this case is here to keep away, because
   // a `gc16` of the view is 450 ms of ink and two blinks for one generation of a game— (docs/50).
+  // **Una generació dura set-cents mil·lisegons** (0.189.135): `Speeds` is `{1200, 700}` in the app and the page comes up with the
+  // fast one, so six hundred turns of a millisecond stopped just short of the first generation and the capture had no paint at
+  // all. Two thousand four hundred are three of them, and the ink of each lands on the turn after it (docs/30, docs/50).
   capture_begin();
-  pump_turns(600);
+  pump_turns(2400);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 1 du"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "gc16"), g_out);
