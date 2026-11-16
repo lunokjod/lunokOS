@@ -35,6 +35,9 @@ end
 
 local kLayout = 'v1'   -- puja quan un control canvia de nom o una pestanya canvia de forma
 local kCheapMode = 'du'
+-- **Quant s'espera una hora d'un servidor** (0.189.143): the same deadline the page of the time zone asks with, because the two
+-- buttons are the same request and a person should not wait longer on one page than on the other (docs/30, docs/60).
+local kSyncTimeoutMs = 8000
 
 local TABS = { 'Clock', 'CPU', 'Disk', 'Input', 'System', 'Battery', 'Privacy' }
 local MARGIN, GAP, ROW, NOTE_H, TABS_H = 12, 8, 56, 56, 156
@@ -294,7 +297,17 @@ local function button_row(tab, name, label, on_click)
     return nil
   end
   one.title = label
-  one.on_click = function() wanted = function() on_click() end end
+  -- **I el que el botó diu es veu** (0.189.143): the action of a button runs in the loop of the page, and nothing presented after
+  -- it, so the line under the rows —the one that says what the page has just done— was written and never painted: it only came up
+  -- when something else repainted the page, and the owner found it on the glass with the clock he had just set. A button that
+  -- leaves no card of its own asks for the page; one that opens a card (the question of an erase) leaves the work for the next
+  -- turn, and the card paints itself (docs/30, docs/45).
+  one.on_click = function()
+    wanted = function()
+      on_click()
+      if wanted == nil then settle() end
+    end
+  end
   one.on_focus = function(self, on) remember(on, name) end
   named[name] = one
   rows[tab][#rows[tab] + 1] = one
@@ -614,9 +627,37 @@ function build()
   choice_row(1, 'week', 'First day', WEEKS, function() return (time.week() == 7) and 2 or 1 end,
              function(index) time.week((index == 2) and 7 or 1) end)
   check_row(1, 'leap', 'Leap year', function() return time.leap() end, function(on) time.leap(on) end)
+  -- **El botó de l'hora espera la resposta i diu la veritat** (0.189.143): `net.ntp` is a promise of the kernel's queue like every
+  -- other request of the radio, and this button was calling it **without `await`**: `pcall` answered `true` with the promise in
+  -- its hand, so the page said *«The hour comes from the network»* on a board with no network saved —the commonest board there
+  -- is— and the clock it promised had never been set. The shape is the one the page of the time zone has: the promise inside a
+  -- `pcall` with a deadline, and the sentence for a person instead of the code of the kernel (docs/30, docs/60).
   button_row(1, 'ntp', 'Sync from the network', function()
-    local ok, err = pcall(net.ntp)
-    say(ok and 'The hour comes from the network' or ('No network: ' .. tostring(err and err.code or err)))
+    local why = 'this board has no radio'
+    local ok = false
+    if caps.net_wifi then
+      local asked, answer = pcall(function() return net.ntp(nil, kSyncTimeoutMs):await() end)
+      ok = asked and answer == true
+      if not asked then
+        local code = (type(answer) == 'table') and answer.code or nil
+        if code == 'E_NONET' then
+          why = 'no network saved'
+        elseif code == 'E_TIMEOUT' then
+          why = 'the server did not answer'
+        elseif code == 'E_BUSY' then
+          why = 'the radio is busy'
+        else
+          why = 'the request did not go out'
+        end
+      end
+    end
+    if ok then
+      say('The hour comes from the network')
+      console.print('settings: the time server set the clock')
+    else
+      say('No clock: ' .. why)
+      console.print('settings: no clock: ' .. why)
+    end
   end)
 
   -- ---- CPU: **la política, les tres velocitats i la marxa del torn** (0.189.107, l'amo: *«(desplegable) Velocitat …

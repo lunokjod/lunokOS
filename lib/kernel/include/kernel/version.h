@@ -9632,7 +9632,15 @@ namespace kernel {
 // no té calendari. (5) **El reintent del càrrec té un terra d'un quart de segon**: la finestra és de deu segons i un
 // torn no és un mil·lisegon, o sigui que una placa amb un gauge que no contesta pagava una conversió d'ADC per torn durant
 // l'arrencada (docs/30, docs/45, docs/50, docs/60, docs/85).
-static const char kVersion[] = "0.189.142";
+// 0.189.143 — **el botó de l'hora del panell d'ajustos deia una mentida, i la línia de sota les files no es pintava mai**. L'amo
+// va preguntar si el NTP de l'arrencada tindria el seu commutador, i mirant-se la pàgina al vidre de l'emulador van sortir dues
+// coses: (1) `net.ntp` és una promesa i el botó la cridava **sense `await`**, o sigui que `pcall` responia `true` amb la promesa a
+// la mà i la pàgina deia *«The hour comes from the network»* en una placa sense cap xarxa desada, amb el rellotge sense tocar; ara
+// espera amb un termini de vuit segons i diu el motiu de la negativa, com la pàgina de la zona horària; i (2) l'acció d'un botó
+// corre al bucle de la pàgina i **ningú demanava la pàgina després**, o sigui que la línia que diu el que la pàgina ha fet
+// s'escrivia i no es veia fins que una altra cosa repintava: el botó que obre una targeta deixa la feina al torn de després i la
+// targeta es pinta sola (docs/30, docs/45).
+static const char kVersion[] = "0.189.143";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

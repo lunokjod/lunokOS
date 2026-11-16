@@ -327,6 +327,13 @@ local function epoch_of(day, month, hour, minute)
 end
 ```
 
+**I el botó de l'hora espera i diu la veritat** (0.189.143): `net.ntp` és una promesa del nucli com qualsevol altra petició de la
+ràdio i el botó la cridava **sense `await`** —`pcall` responia `true` amb la promesa a la mà, o sigui que la pàgina deia «The hour
+comes from the network» en una placa sense cap xarxa desada—; ara la crida va dins d'un `pcall` amb un termini de vuit segons i
+la negativa arriba amb la frase d'una persona (la mateixa que fa servir la pàgina de la zona horària). **I la línia de sota les
+files es pinta**: l'acció d'un botó corre al bucle de la pàgina i ningú no demanava la pàgina després, o sigui que el que deia el
+botó s'escrivia i no es veia fins que una altra cosa repintava la pàgina (docs/30, docs/60).
+
 **Les zones del desplegable són hores senceres** (0.189.142, l'amo: *«Treu la selecció de +30 a les zones horàries, no he vist mai
 que fos +X.5, sempre hores +1, -3, +3…»*): de -12:00 a +14:00, una hora per fila. El sistema accepta qualsevol minut (`cfg tz 90`
 és una hora i mitja) i una placa posada així ensenya la fila buida, que és el que la pàgina pot dir de veritat.

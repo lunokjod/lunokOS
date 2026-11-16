@@ -17062,6 +17062,20 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   // The board goes back to the winter hour it came with, or the cases after this one read an hour of summer.
   kernel::cfg::set_dst(false);
 
+  // ---- **el botó de l'hora espera la resposta, diu la veritat i ho ensenya** (0.189.143). Tres coses alhora, i totes tres
+  // eren trencades: `net.ntp` és una promesa i el botó la cridava sense `await` —`pcall` deia `true` amb la promesa a la mà i la
+  // pàgina deia «The hour comes from the network» en una placa sense cap xarxa desada—, i la línia de sota les files no es
+  // pintava mai perquè l'acció d'un botó no demanava la pàgina. Aquesta placa no té cap xarxa desada, o sigui que la resposta
+  // honesta és la que es llegeix (docs/30, docs/60).
+  capture_begin();
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 9 * kRowStep + 28));  // Sync from the network
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: no clock: no network saved"), g_out);
+  // **I la línia es veu**: the page is presented after the button, which is the whole view's paint (`ui.clear` of the page and
+  // its present) and not the box of the button alone.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912"), g_out);
+
   // ---- the processor: **la política i les tres velocitats que pot fer servir** (0.189.107), que és el que el sostre d'aquest
   // ajust vol dir: apagar-ne una no és una suggerència i la governadora hi acota el que demana el sistema.
   // **El disc de la suite és un per a tota la correguda i també per a les de després** (0.189.141): la màscara de les velocitats
