@@ -377,7 +377,16 @@ local kStateBytes = 1024
 local kLayout = 'v1'       -- bumped when a control is renamed or the page changes shape
 local state_block = nil    -- the block: asked once and kept for the life of the app
 
+-- **I el bloc que la memòria s'ha endut es torna a demanar** (0.189.127): the state is asked once and kept for the life of the
+-- app, and the relief of the allocator gives every block back the moment one does not fit. `alive()` is the question the cache
+-- already asks (`the_cache_is_ours`, below); without it, a save after the relief raised `the session memory was given back`
+-- inside `block:clear()` and the launcher died with the page still on the glass — found by the case of the suite that gives
+-- every session back with `release_all` and then paints (docs/30, docs/75).
 local function the_state()
+  if state_block ~= nil and not state_block:alive() then
+    console.print('home: the state of the session was given back, asked again')
+    state_block = nil
+  end
   if state_block == nil then
     local block = sys.session('state', kStateBytes)
     if block == nil then return nil end

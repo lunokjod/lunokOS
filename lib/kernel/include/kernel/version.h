@@ -9525,7 +9525,13 @@ namespace kernel {
 // desats —`test_the_sessions_are_parked_before_the_board_goes_down`— demanava l'ordre de creació quan la llista creix al cap
 // (`node->next = g_blocks`), o sigui del més nou al més vell des de la 0.189.7. I el de la caché demanava dos blocs quan el
 // llançador en té tres des de la llei del `state` (docs/30, docs/75, docs/80).
-static const char kVersion[] = "0.189.126";
+// 0.189.127 — **el `state` del llançador es torna a demanar quan la memòria se l'ha emportat**. El bloc del `state` és de l'app
+// per tota la seva vida, i l'alleujament de l'assignador torna tots els blocs de cop el moment que un no hi cap: el `apps` ja
+// preguntava `alive()` (`the_cache_is_ours`) i el `state` no, o sigui que un desament després de l'alleujament cridava
+// `block:clear()` sobre una memòria que ja no era seva i **matava el llançador** amb la pàgina al vidre —`lua: … the session
+// memory was given back`, in method 'clear', en el `save_state`—. El cas de la suite que dona tots els blocs amb `release_all`
+// i després pinta ho va trobar. L'app puja a 0.3.9 i el sistema a aquest número (docs/30, docs/75).
+static const char kVersion[] = "0.189.127";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

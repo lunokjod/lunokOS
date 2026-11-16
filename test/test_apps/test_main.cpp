@@ -5810,7 +5810,10 @@ void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
   TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/session/home_eink/apps", parked), g_out);
   TEST_ASSERT_EQUAL_UINT32(32768, parked.size);
   TEST_ASSERT_TRUE_MESSAGE(taken < kept, g_out);
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(1, kernel::session::count(), g_out);
+  // **Dos blocs i no un** (0.189.127): the cache is asked again when it finds it gone, and so is the state —the two are the
+  // launcher's and the relief took both—; el que el cas demanava era el compte de quan el `state` no es tornava a demanar i
+  // l'app moria amb el bloc a la mà (docs/30, docs/75).
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(2, kernel::session::count(), g_out);
 
   kernel::shell::close_app();
   pump_captured(10, nullptr, 0);
