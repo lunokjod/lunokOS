@@ -3912,6 +3912,21 @@ int l_touch_gesture(lua_State* L) {
   return 1;
 }
 
+// **El número del parpelleig és un ajust i no un cursor** (0.189.34, i el forat de la 0.189.112): vuit-cents cinquanta
+// mil·lisegons per parpelleig, el període del bloc de tinta que diu on escriu una persona. **Viu fora del guard de la
+// pàgina** perquè el que hi ha aquí és el número i no el dibuix: `cfg cursor delay` el llegeix, l'escriu i el desa a la
+// memòria de claus de **qualsevol** placa —la comanda és del nucli i no de la pàgina—, i una placa sense vidre no té cap
+// cursor que parpellegi (el bloc, el rellotge i `caret_start` són dins `#if LUNOK_GLASS`, unes línies més avall). Quatre
+// paraules i catorze bytes de `.bss` en una placa que no els fa servir, contra una comanda que hauria de desaparèixer o
+// dir una mentida; i el valor de sèrie i els límits són un sol lloc, que és el que fa que el prompt i la pàgina no puguin
+// dir números diferents (docs/30, docs/50, docs/75). **El va trencar** `c8cb220`, que va deixar els cinc accessors fora
+// del guard amb les seves variables a dins: les quatre plaques sense vidre no enllaçaven —`'g_caret_blink_ms' was not
+// declared in this scope`— i el CI no ho va veure perquè s'aturava abans, als tests.
+const int64_t kCaretBlinkDefaultMs = 850;
+const int64_t kCaretBlinkMinMs = 100;
+const int64_t kCaretBlinkMaxMs = 5000;
+int64_t g_caret_blink_ms = kCaretBlinkDefaultMs;
+
 // **Here begins the page, and a board with no glass has none of it** (0.179.9): `ui.*` and everything under it —the
 // canvases and the controls with their states, the strips, the lists, the grids, the cards, the finger and the dial, the
 // keyboards and the faces— is one system and one `LUNOK_GLASS` takes all of it out of the build. `sys`, `fs`, `net`,
@@ -4494,17 +4509,6 @@ bool g_caret_on = true;
 bool g_caret_dirty = false;
 int64_t g_caret_next_ms = 0;
 uint8_t g_caret_blinks = 0;
-// **Vuit-cents cinquanta mil·lisegons per parpelleig** (0.179.69 i 0.189.34): the period of the block is a decision about
-// this glass and not about a cursor of a computer screen: a pass costs a hundred and twenty milliseconds of ink, and a block
-// that turns faster than a person reads it is ink spent by nobody. Every blink is one cell and no more than one cell
-// (docs/30, docs/90). **I el número és de la persona** (`cfg cursor delay`): the constant of this file is what the board
-// ships with and the value in force is the one the boot put here, so every cursor of the system turns at the same speed
-// (docs/30, docs/90).
-const int64_t kCaretBlinkDefaultMs = 850;
-const int64_t kCaretBlinkMinMs = 100;
-const int64_t kCaretBlinkMaxMs = 5000;
-int64_t g_caret_blink_ms = kCaretBlinkDefaultMs;
-
 const char kCanvasMeta[] = "lunokOS.UICanvas";
 
 // The fields of the object, and then its methods: `box.on_draw` is the app's, `box.draw` is ours.

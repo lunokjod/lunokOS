@@ -9439,7 +9439,24 @@ namespace kernel {
 // sistema arrenca per una persona** —la del botó del panell, que no és la de l'inici— (0.189.107, 0.189.108 i 0.189.109). El
 // manifest de l'app puja a 0.1.5 i el sistema a aquest número; docs/80 i la feina de la CI són el mateix recordatori fet màquina
 // (`tools/check_version.py` camina els commits d'un push i refusa el que no ha pujat el que toca).
-static const char kVersion[] = "0.189.111";
+// 0.189.112 — **la caixa dels tests del cap de setmana, començada pels quatre costats que no són cap caprici**. Les quatre
+// plaques sense vidre no compilaven des de la 0.183.0: el parpelleig del cursor va entrar dins del `#if LUNOK_GLASS` de
+// `luabind` i les seves cinc portes es quedaven fora —una placa sense pantalla no té cursor gràfic, però el número és un
+// paràmetre que `cfg` imprimeix a totes—, el dibuix de l'«ups» de l'arrencada demanava el vidre des del nucli, i `no_glass.cpp`
+// no tenia les portes que el shell i el nucli pregunten igualment (`touch::counters`, el teclat de `ui`, els estils d'enviament
+// de `display`). Les sis construccions passen i la CI torna a veure-les.
+// **I la franja diu el que ha de dir**: les quatre icones es demanen a cada torn i no després del retorn de dalt —una campana
+// posada trigava fins a mig minut a sortir—, i el càrrec que el gauge no sabia a l'arrencada es torna a preguntar durant els
+// primers deu segons de la barra, que és el que dura l'arrencada de la placa, en lloc de quedar-se dient `--` mig minut.
+// **I el que demana una persona es torna a refusar**: el sostre de les velocitats de la 0.189.107 va posar `allowed_step` dins
+// de `power::set_cpu_mhz` i `power cpu 200` va passar de ser un no rotund a un 240 silenciós, que és el contrari del que diuen
+// el prompt i `power.cpu`; el pas que no és dels tres es refusa i el que és permès però prohibit s'acota.
+// Pel costat dels tests, vuit casos que mesuraven el món de la setmana passada: el recompte de comandes del prompt (51 amb
+// `load`), el nom de l'escàndol de la bateria a 540 en un vidre de 960, la imatge `split.png` que no es copiava al disc de la
+// prova, la llista d'ús de `panel` i l'esclat que encara dividia per la fila de 1 100 µs, la banda de la càrrega amb els dos
+// números a la vora dolenta, el bloc de la memòria del llançador —que té vuit bytes de capçalera i no és una cadena— i el
+// nombre de cel·les d'un disc que des del 8/11 porta totes les eines (docs/30, docs/50, docs/80).
+static const char kVersion[] = "0.189.112";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

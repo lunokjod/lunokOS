@@ -739,9 +739,9 @@ void test_an_app_runs_and_writes(void) {
 void test_the_commands_of_the_prompt_reach_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
   TEST_ASSERT_TRUE(run_captured("run words", g_out, sizeof(g_out)));
-  // **Cinquanta i no quaranta-vuit** (0.189.43): the list grew with `serial` and `sessions`, and the number is the one
-  // `kCommandNames` holds —the same table the prompt reads— (docs/30, docs/40).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 50"), g_out);
+  // **Cinquanta-un i no cinquanta** (0.189.93): the list grew again with `load`, the word of the governor of the CPU, and
+  // the number is the one `kCommandNames` holds —the same table the prompt reads— (docs/30, docs/40).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 51"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first help"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last history"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sessions true"), g_out);
@@ -5252,6 +5252,23 @@ void test_the_serial_keyboard_types_in_the_box_with_the_focus(void) {
 // desa `id`, títol, icona, slot, si el dibuix hi és i **la versió**; en tornar, cada app del bloc es pregunta al disc **una
 // per torn** i quan el número ha canviat la cel·la es torna a pintar amb l'icona de debò i el títol nou. I la llista de la
 // porta mana: una app que hi entra i una que en surt canvien el grid (docs/30, docs/40, docs/75).
+// **El nombre de cel·les que el launcher ha dit en últim lloc** (0.189.x): the disk of this suite carries every app of
+// `apps/`, so the grid of a case is not a number of its own and what a case can hold is how the number moves.
+static int cells_of(const char* said) {
+  int cells = -1;
+  const char* at = said;
+  while (at != nullptr && (at = strstr(at, "home: ")) != nullptr) {
+    // **`sscanf` no serveix aqui**: a format like `home: %d cells` answers 1 for `home: 9 ids: ...` too, because the number
+    // was assigned before the literal failed, and the case then read the listing of the apps as a count of cells.
+    const char* digits = at + 6;
+    char* end = nullptr;
+    const long value = strtol(digits, &end, 10);
+    if (end != digits && strncmp(end, " cells", 6) == 0) cells = static_cast<int>(value);
+    at = digits;
+  }
+  return cells;
+}
+
 void test_the_launcher_refreshes_the_version_it_has_cached(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
@@ -5287,9 +5304,14 @@ void test_the_launcher_refreshes_the_version_it_has_cached(void) {
   kernel::shell::close_app();
   pump_captured(20, nullptr, 0);
   static char block[2048];
+  // **El bloc del launcher té una capçalera de vuit bytes** (0.189.x): `HEC2`, la mida de la seva icona i tres de buit, i
+  // el text és del vuitè cap enllà —el nucli zeroa el bloc i el buit de la capçalera és el primer zero, o sigui que una
+  // cerca del bloc com a cadena s'atura a la capçalera i no arriba mai al text—.
+  const size_t kHeader = 8;
   const size_t kept_one = kernel::session::copy("home_eink", "apps", block, sizeof(block) - 1);
   block[kept_one] = '\0';
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "\t0.1.0\n"), block);
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE("HEC2", block, 4, "the block of the launcher does not carry its mark");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block + kHeader, "\t0.1.0\n"), block + kHeader);
 
   // **La segona, amb l'app en una altra versió i un altre títol**: es pregunta al disc i la cel·la es refà.
   TEST_ASSERT_TRUE(write_text(storage, "/apps/alpha/manifest.json", kAlphaTwo));
@@ -5301,23 +5323,44 @@ void test_the_launcher_refreshes_the_version_it_has_cached(void) {
   pump_captured(20, nullptr, 0);
   const size_t kept_two = kernel::session::copy("home_eink", "apps", block, sizeof(block) - 1);
   block[kept_two] = '\0';
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "\t0.2.0\n"), block);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block, "Alpha two"), block);
-  TEST_ASSERT_NULL_MESSAGE(strstr(block, "0.1.0"), block);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block + kHeader, "\t0.2.0\n"), block + kHeader);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(block + kHeader, "Alpha two"), block + kHeader);
+  // **I la cel·la d'alpha no diu el número de abans**: the block lists every app of the disk and seven of them are at 0.1.0,
+  // so what is asked here is the line of `alpha` and not the whole block — the assertion was on every app and could never
+  // hold with a disk that carries the tools of the suite (docs/30, docs/80).
+  const char* alpha_line = strstr(block + kHeader, "alpha\t");
+  TEST_ASSERT_NOT_NULL_MESSAGE(alpha_line, block + kHeader);
+  const char* alpha_end = strchr(alpha_line, '\n');
+  TEST_ASSERT_NOT_NULL_MESSAGE(alpha_end, alpha_line);
+  static char cell[128];
+  const size_t cell_len = static_cast<size_t>(alpha_end - alpha_line);
+  TEST_ASSERT_TRUE(cell_len < sizeof(cell));
+  memcpy(cell, alpha_line, cell_len);
+  cell[cell_len] = '\0';
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(cell, "0.2.0"), cell);
+  TEST_ASSERT_NULL_MESSAGE(strstr(cell, "0.1.0"), cell);
 
-  // **I la llista de la porta mana**: una app que hi entra i una que en surt canvien el grid.
+  // **I la llista de la porta mana**: una app que hi entra i una que en surt canvien el grid. **El número és el de
+  // la seva cel·la i no dos** (0.189.x): the disk of this suite carries every app of `apps/`, so the case reads the count
+  // before and asks for one more and then for it back — the two and the one of before were the grid of a disk with a single
+  // app in it, which this run no longer has (docs/30, docs/80).
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  const int cells_before = cells_of(g_out);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(1, cells_before, g_out);
+  kernel::shell::close_app();
+  pump_captured(20, nullptr, 0);
   TEST_ASSERT_TRUE(add_app(storage, "charlie",
                            "{\"title\":\"Charlie\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "console.print('charlie here')\n"));
   pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: 2 cells"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(cells_before + 1, cells_of(g_out), g_out);
   kernel::shell::close_app();
   pump_captured(20, nullptr, 0);
   storage->remove("/apps/charlie/app.lua");
   storage->remove("/apps/charlie/manifest.json");
   storage->remove("/apps/charlie");
   pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: 1 cells"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(cells_before, cells_of(g_out), g_out);
   kernel::shell::close_app();
   pump_captured(20, nullptr, 0);
 

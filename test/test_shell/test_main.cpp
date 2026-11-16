@@ -1753,7 +1753,7 @@ static void test_the_colours_are_the_prompt_an_error_and_a_directory() {
 // docs/50, docs/85).
 // **El que costa un tros d'esclat i el que costa una fila** (0.189.66): the model of the glass is where the three ways differ,
 // and a page that goes out as bursts is not the same wait as one that goes out row by row. The numbers are the wire's
-// —800 ns a byte at ten megahertz— and the row's 1 100 µs, which is what the board measured (docs/50, docs/95).
+// —800 ns a byte at ten megahertz— and the row's hundred microseconds, which is what the board measured (docs/50, docs/95).
 static void test_a_burst_pays_the_wire_and_a_row_pays_the_row() {
   const uint32_t rows = emu::ink_transfer_us(64, 64, hal::FlushStyle::kRows);
   const uint32_t burst = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBurst);
@@ -1762,8 +1762,12 @@ static void test_a_burst_pays_the_wire_and_a_row_pays_the_row() {
   // transaction of the row itself is **a hundred** —mesurats a la placa el 15/11: 282 ms contra 229 per a la mateixa pàgina
   // (docs/95, E-11)—.
   TEST_ASSERT_EQUAL_UINT32(64u * 125u, rows);
-  TEST_ASSERT_TRUE_MESSAGE(burst > 0, "a burst costs something");
-  TEST_ASSERT_TRUE_MESSAGE(burst < rows / 30u, "a burst is the wire and not a row per line");
+  // **Un esclat paga el cable de la regió sencera i una transacció per tros** (0.189.69): 2 048 bytes a deu megahertz són
+  // 1 638 µs i la regió cap en un tros dels del driver, o sigui 1 638 + 40. El que l'esclat no paga és el cent de cada
+  // fila —els 6 400 d'aquests 8 000—, i el cable és el mateix de les dues maneres; la proporció és la que el cas
+  // guarda i no un múltiple del total de les files, que es va endur la caiguda de la fila de 1 100 a 100 (docs/50, docs/95).
+  TEST_ASSERT_EQUAL_UINT32(1638u + 40u, burst);
+  TEST_ASSERT_TRUE_MESSAGE(burst * 4u < rows, "a burst is the wire of the region and not a row per line");
   // Two bits a pixel is four pixels a byte, o sigui 1 024 bytes on the wire for the same frame and one stretch instead of two:
   // 819 µs of wire and 40 of the transaction, which is **half of what a burst pays** (docs/50, docs/95).
   TEST_ASSERT_EQUAL_UINT32(859u, bits);
@@ -1798,14 +1802,16 @@ static void test_the_panel_says_where_a_partial_paint_starts() {
   TEST_ASSERT_TRUE(kernel::execute("panel"));
   capture_end(said, sizeof(said));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel: a partial paint starts at the box of the change"), said);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel [edge|box]"), said);
+  // **Les paraules del panell creixen** (0.189.66, 0.189.93): `bus` i `flush` s'hi van afegir després d'aquest cas, i el que
+  // es guarda aqui és que la resposta digui les dues que canvien on comença una pintada parcial, no la llista sencera.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel [edge|box"), said);
 
   // **A third word is refused and changes nothing**: a command that guesses between two rectangles is a command that
   // paints a page nobody asked for.
   capture_begin();
   TEST_ASSERT_FALSE(kernel::execute("panel middle"));
   capture_end(said, sizeof(said));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "usage: panel [edge|box]"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "usage: panel [edge|box"), said);
   TEST_ASSERT_TRUE_MESSAGE(kernel::display::partial_from_the_box(), "a refused word changes nothing");
 
   // The emulator is left as it was found: the edge, which is the default of the system and what the board does.
@@ -1926,12 +1932,14 @@ static void test_a_band_is_its_rows_one_after_another() {
 // move the clock of its processor at every turn. The three words are the three steps the policy will use —80, 160, 240— and
 // this case holds the arithmetic and nothing about the board, because the arithmetic is what a board cannot be asked twice.
 static void test_the_load_of_a_window_is_a_word_with_a_band(void) {
-  // Under twenty per cent is a board that is reading and nothing else.
+  // Under twenty per cent is a board that is reading and nothing else, and the nine and a half of the band under it too.
   TEST_ASSERT_TRUE(power::Load::kLow == power::load_of(0, power::Load::kNormal));
-  TEST_ASSERT_TRUE(power::Load::kLow == power::load_of(190, power::Load::kNormal));
-  // **I la banda**: nineteen and a half is still low from normal, but a board that is already low does not need fifteen of
-  // them to say normal —its band is the one above, because it is coming up from under.
-  TEST_ASSERT_TRUE(power::Load::kNormal == power::load_of(195, power::Load::kLow));
+  // **I la banda, als dos costats de la frontera**: nineteen is normal from normal and from low, because it is inside the
+  // five points around the twenty, and a board that is already low says normal only once it has come back over them. The
+  // two numbers here were 190 and 195 —which is the same side of the boundary as the state they came from, so the case was
+  // asking for a clock that moves twice on the same boundary— until 0.189.112.
+  TEST_ASSERT_TRUE(power::Load::kNormal == power::load_of(190, power::Load::kNormal));
+  TEST_ASSERT_TRUE(power::Load::kLow == power::load_of(149, power::Load::kNormal));
   TEST_ASSERT_TRUE(power::Load::kLow == power::load_of(240, power::Load::kLow));
   TEST_ASSERT_TRUE(power::Load::kNormal == power::load_of(250, power::Load::kLow));
   // Between the two bands is normal, and over sixty is high.

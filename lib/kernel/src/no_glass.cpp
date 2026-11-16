@@ -74,6 +74,19 @@ bool take_gesture_of(const char*, Gesture&) { return false; }
 
 bool take_pinch_in(int16_t, Gesture&) { return false; }
 
+// **No finger, so nothing to count** (0.188.8): `stats` prints the three numbers of the glass on every board, and on one
+// with no panel they are three zeros —the same sentence as `no glass`, said as arithmetic because that is what the row is
+// (docs/30, docs/50).
+void counters(uint32_t& asks, uint32_t& frames, uint32_t& false_warnings) {
+  asks = 0;
+  frames = 0;
+  false_warnings = 0;
+}
+
+// **A page cannot begin before a contact of a page that does not exist** (0.189.100): the shell calls this on the way in and
+// out of every app, and a board with no touch has no queue to forget (docs/30).
+void forget_the_page_before() {}
+
 }  // namespace touch
 
 namespace ui {
@@ -95,6 +108,22 @@ const char* keyboard_current() { return "none"; }
 
 bool keyboard_select(const char*) { return false; }
 
+// **No band, so it is never up, never comes down and it types nothing** (0.180.0, 0.189.21): the shell asks these on every
+// board —the wire keyboard is a keyboard of the page, and a board without one has no box for its bytes to land in— and the
+// honest answer to all three is the one this build has (docs/30, docs/50).
+bool keyboard_hide() { return false; }
+
+bool keyboard_visible() { return false; }
+
+bool keyboard_type_the_wire(const char*, size_t) { return false; }
+
+// **Els tres tocs són de la pàgina** (0.189.101): the gesture that closes the app in front belongs to the glass, so a board
+// without one has nothing to take away and nothing to refuse; `true` is what `three_taps_close()` answers on a glass, which is
+// the state this build is always in (docs/30, docs/90).
+bool three_taps_close() { return true; }
+
+bool set_three_taps_close(bool) { return false; }
+
 }  // namespace ui
 
 // **The rectangle of a paint is a question for a glass that is not here** (0.179.12): `panel` at the prompt asks
@@ -107,6 +136,21 @@ bool available() { return false; }
 bool partial_from_the_box() { return false; }
 
 bool set_partial_from_the_box(bool) { return false; }
+
+// **Els píxels no surten de cap placa** (0.189.66): `panel flush` prints the style the glass has and `panel bus` its clock, so
+// these answer what a board with no panel can: the way that every controller has, at the clock the desk says the bus has, and
+// a change of either refused with the sentence of this build (docs/50).
+hal::FlushStyle flush_style() { return hal::FlushStyle::kRows; }
+
+bool set_flush_style(hal::FlushStyle) { return false; }
+
+const char* flush_style_name(hal::FlushStyle) { return kNoGlass; }
+
+bool flush_style_of(const char*, hal::FlushStyle&) { return false; }
+
+uint32_t bus_mhz() { return 0; }
+
+bool set_bus_mhz(uint32_t) { return false; }
 
 }  // namespace display
 

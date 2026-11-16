@@ -442,8 +442,10 @@ static void test_the_whole_glass_turns_with_the_page() {
 // pregunta cada torn— (docs/50, docs/85).
 static void test_a_bar_booted_before_the_charge_was_known_fills_it_in() {
   boot_with_a_panel();
-  // The figure of the battery is the box against the right margin (`kPaddingX` 12 and `kBatteryW` 46 of 540).
-  const uint16_t figure_x = 540 - 12 - kernel::bar_icons::kBatteryW;
+  // The figure of the battery is the box against the right margin of the strip, and the strip is as wide as the glass
+  // (`kPaddingX` 12 and `kBatteryW` 46 of it): **the panel of the Paper is 960 × 540 and the bar runs along the 960**, so a
+  // 540 here scans the middle of the strip and never the figure — which is what this case did from 0.189.57 to 0.189.111.
+  const uint16_t figure_x = static_cast<uint16_t>(glass().width() - 12 - kernel::bar_icons::kBatteryW);
   const uint16_t figure_y = (48 - 2 - kernel::bar_icons::kBatteryH) / 2;
   int ink = 0;
   for (uint16_t y = figure_y; y < figure_y + kernel::bar_icons::kBatteryH; ++y) {

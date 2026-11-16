@@ -888,6 +888,11 @@ bool set_cpu_mhz(uint32_t mhz) {
   // floor because below it the APB goes down with the CPU and the serial port
   // stops making sense, and 240 is the ceiling of this chip (docs/50).
   if (mhz < 80 || mhz > 240) return false;
+  // **El que no és un dels tres passos es refusa i no s'arrodoneix** (0.179.38): a rounded speed is a lie about what it costs,
+  // and the prompt says the number back (`power cpu 200` is not 240). The clamp of 0.189.107 answers the other question —a
+  // step the person forbade— and it was turning that refusal into a silent round up, which is what 0.189.112 undoes here
+  // (docs/50, docs/60).
+  if (mhz != kIdleMhz && mhz != kRestingMhz && mhz != kBusyMhz) return false;
   // **El pas que demana una persona també s'acota** (0.189.107): asking for 240 on a board whose owner forbade it is an ask
   // that lands on the biggest step allowed, and the line of the move says which one (docs/50).
   mhz = allowed_step(mhz);

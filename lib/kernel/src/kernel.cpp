@@ -576,11 +576,16 @@ void boot(hal::IPlatform& platform) {
       // board like this has left. **A panic cannot be painted** —the chip that panics is not driving the glass— so this is
       // the one error of the system a person can be told about (docs/50).
       log_printf(pal::kLogWarn, "HOME", "no app '%s' on this disk; the prompt is yours", home);
+      // **I la imatge és de la pàgina** (0.189.112): `splash.h` and `ui.h` are the two headers this build does not carry
+      // without a glass —`no_glass.cpp` gives the shell the doors it asks in spite of that, and this one is a picture and
+      // not a door—, so a board with no screen says the line and stays at the prompt, which is all it ever had (docs/50).
+#if LUNOK_GLASS
       if (!splash::show(splash::kOops)) {
         log_printf(pal::kLogDebug, "SPLASH", "no picture of the error: %s", splash::last_error());
       } else {
         ui::owe_the_page();
       }
+#endif
     }
   }
 

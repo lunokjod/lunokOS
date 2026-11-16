@@ -58,6 +58,14 @@ const uint16_t kLineHeight = 2;
 // reading is an ADC conversion (docs/50). Half a minute is soon enough for a number that changes once
 // in an hour, and it keeps the reading off the turn a person is typing in.
 const int64_t kBatteryEveryMs = 30000;
+// **La finestra del reintent del càrrec** (0.189.112): the strip takes its first paint at the boot of the bar, and the bar boots
+// before the kernel does —before the power of the board, which is after the shell—, so the gauge may still be coming up and the
+// box of the charge comes out saying `--` with no figure under it. A bar that has **never** known the charge therefore asks
+// again **on every turn of its first ten seconds**, which is the boot of the board, and not for ever: after that a gauge that
+// has not answered is a gauge that is not there, and the strip goes back to the half minute of `kBatteryEveryMs` like a bar
+// that knows its cell (docs/50, docs/85).
+const int64_t kChargeTryForMs = 10000;
+int64_t g_boot_ms = 0;
 // And the hour, at most this often. **A turn of the loop is not the place to read hardware**: the
 // console echoes one character per turn and an app draws one frame per turn, and an I2C read of the
 // clock chip on each of them is a keyboard that does not keep up (measured on the board, 1/11).
@@ -473,6 +481,10 @@ bool boot(hal::IPlatform& platform) {
   }
   g_clock_read_ms = mono;
   g_battery_read_ms = mono;
+  // **La finestra del reintent del càrrec s'obre a cada arrencada** (0.189.112): it is of the run and not of the object, like
+  // every other number this file starts again at the boot, and the paint of the boot, which is above this line, was made
+  // with a gauge that may not have been up yet.
+  g_boot_ms = mono;
   return true;
 }
 
@@ -525,10 +537,25 @@ void poll() {
     mono = clock->monotonic_ms();
   }
   const bool clock_due = (mono - g_clock_read_ms) >= kClockEveryMs;
-  const bool battery_due = (mono - g_battery_read_ms) >= kBatteryEveryMs;
+  // **Una barra que no sabia el càrrec el torna a preguntar** (0.189.112): the gauge of a board that has just come up may
+  // still answer nothing, and what a person read then was `--` and no figure **for the whole half minute of
+  // `kBatteryEveryMs`** (found by the owner, 15/11). The retry lasts the boot of the board and not the life of the bar:
+  // `kChargeTryForMs` is the window, and a gauge that has not answered by then is a gauge that is not there (docs/50, docs/85).
+  hal::IPower* gauge = g_platform->power();
+  const bool charge_missing = (gauge != nullptr) && !g_shown.has_battery && (mono - g_boot_ms) < kChargeTryForMs;
+  const bool battery_due = ((mono - g_battery_read_ms) >= kBatteryEveryMs) || charge_missing;
+  // **I les quatre icones es demanen a cada torn** (0.189.56): the fan goes up when the radio comes on, the rune while a
+  // provisioning runs, the mark of the port when the cable is in, the hourglass while the clock is being set and the alarm
+  // clock when a repeating alarm is armed. **Són paraules de la memòria del nucli** —`net::`, `serial::`, `alarms::`— i no
+  // una lectura del maquinari, o sigui que es poden comparar cada torn i no només quan toca llegir l'hora o el gauge, que és
+  // el que feia que una campana posada trigués fins a mig minut a sortir (el comentari d'aquestes línies ho deia i el codi
+  // no ho feia: es demanaven després del retorn de dalt, 0.189.112). What is not compared is an icon that stays on the glass
+  // after the thing it says is over (docs/30, docs/50).
+  const Signs signs = read_signs(g_read);
+  const bool signs_changed = (signs != g_shown_signs);
   // **Nothing due and nothing said: no read and no paint.** This is the whole turn of a bar that has not
-  // changed, and it is two comparisons (docs/30).
-  if (!clock_due && !battery_due && !g_title_changed && !g_whole_changed) return;
+  // changed, and it is a handful of comparisons (docs/30).
+  if (!clock_due && !battery_due && !g_title_changed && !g_whole_changed && !signs_changed) return;
 
   if (clock_due || battery_due) {
     g_read = read_status(clock_due, battery_due);
@@ -541,12 +568,6 @@ void poll() {
       (g_read.has_battery != g_shown.has_battery) ||
       (g_read.has_battery && (g_read.percent - g_shown.percent >= kChargeDeadBand)) ||
       (g_read.has_battery && (g_shown.percent - g_read.percent >= kChargeDeadBand));
-  // **I les quatre icones, que poden canviar en qualsevol torn** (0.189.56): the fan goes up when the radio comes on, the
-  // rune while a provisioning runs, the mark of the port when the cable is in and the hourglass while the clock is being
-  // set. The four are words of the kernel's memory, so they are asked every turn and compared —what is not compared is an
-  // icon that stays on the glass after the thing it says is over (docs/50).
-  const Signs signs = read_signs(g_read);
-  const bool signs_changed = (signs != g_shown_signs);
   // **A bar with nothing new paints nothing.** Not on a turn, not every five seconds, not at all.
   if (!g_whole_changed && !g_title_changed && !minute_changed && !charge_changed && !signs_changed) return;
 

@@ -61,8 +61,8 @@ bool boot_emulator() {
   snprintf(command, sizeof(command), "mkdir -p '%s'", dir);
   if (system(command) != 0) return false;
   snprintf(command, sizeof(command),
-           "cp test/test_img/data/plan.* test/test_img/data/plan8.bmp test/test_img/data/noise.bin "
-           "test/test_img/data/progressive.jpg '%s/'",
+           "cp test/test_img/data/plan.* test/test_img/data/plan8.bmp test/test_img/data/split.png "
+           "test/test_img/data/noise.bin test/test_img/data/progressive.jpg '%s/'",
            dir);
   if (system(command) != 0) return false;
 
