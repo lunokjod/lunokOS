@@ -700,8 +700,10 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 | `time.now()` | enter | Segons des de l'època (UTC) |
 | `time.now_ms()` | enter | Mil·lisegons des de l'època |
 | `time.utc([t])` | taula `{year, month, day, hour, min, sec, wday, yday}` | El moment tal com el compta el xip, o l'`t` que se li dona |
-| `time.date([t])` | taula | El mateix moment **en l'hora de la persona** (`cfg tz`) |
-| `time.tz([offset])` | enter | El desfasament en minuts: es llegeix sol i s'escriu amb un argument |
+| `time.date([t])` | taula | El mateix moment **en l'hora de la persona**: `time.utc(t)` més `time.offset()`. És el que han de llegir totes les pàgines que ensenyen una hora |
+| `time.offset()` | enter | **L'offset efectiu en minuts** (0.189.130): el del mapa més seixanta si l'hora d'estiu és on. Per ensenyar-lo, i **mai** per compondre una hora a mà |
+| `time.epoch(year, month, day, hour, minute)` | enter o `nil, error` | **La inversa de `time.date()`** (0.189.130): l'època d'una hora del rellotge de paret, amb l'offset efectiu restat. És la porta per posar una hora des d'una pàgina (àmb és el mateix que es passa a `time.set`) |
+| `time.tz([offset])` | enter | El desfasament **del mapa** en minuts: es llegeix sol i s'escriu amb un argument. És l'ajust, i no l'hora de ningú —per a això hi ha `time.offset()`— |
 | `time.leap([on])` | booleà | **Si el febrer té el vint-i-nou** (0.170.0): es llegeix sol i s'escriu amb `true`/`false` o les paraules `on`/`off`, que són les del prompt (`cfg leap on`) |
 | `time.dst([on])` | booleà | **L'hora d'estiu** (0.182.0): es llegeix sola i s'escriu amb `true`/`false` o `on`/`off`, com `time.leap`. És una opció del sistema i es desa, o sigui que `time.date()` dona **el fus del mapa més seixanta minuts** quan és certa, i una rellotgeria que la canvia la fa canviar a l'instant; `time.tz()` continua dient el que diu el mapa |
 | `time.week([dia])` | enter | **Quin dia comença la setmana** (0.170.0): `1` dilluns —el valor del sistema— o `7` diumenge, en el mateix compte que `wday`, i les paraules `monday`/`sunday`. `ui.month` gira les seves set columnes amb això |
@@ -720,14 +722,15 @@ el primer i **desar-se l'època en què va arrencar** per poder tornar a calcula
 quan la placa es va desendollar torna comptant amb la seva estona. El cas sencer, amb el fitxer i el codi, és a
 **docs/45 § «5 ter · El que corre»** i a `apps/clock`.
 
-**Avui hi ha** `time.now()`, `time.now_ms()`, `time.utc`, `time.date`, `time.tz`, `time.leap`, `time.week`, `time.dst`,
+**Avui hi ha** `time.now()`, `time.now_ms()`, `time.utc`, `time.date`, `time.offset`, `time.epoch`, `time.tz`, `time.leap`,
+`time.week`, `time.dst`,
 `time.set` i `time.caps()`. `format`, `parse`, `tz` amb noms de zona i `sync` encara no existeixen; l'hora la dona el
 rellotge i cada u la trenca com vol (docs/60).
 
-**Escriure l'hora és una època i prou, i l'offset el posa qui escriu**: `time.set` compta en UTC, o sigui que una pàgina
-que ensenya l'hora d'una persona —«les nou i mitja del matí del 16 de novembre»— ha de restar-hi `time.tz()` abans de
-desar-ho. L'aritmètica del dia civil que cal per fer-ho és la de Hinnant —`days_from_civil`, a `apps/settings`— perquè
-aquest sistema no té cap `os.time` amb taula: docs/45 § «El panell d'ajustos» té el codi.
+**Escriure l'hora és una època i prou, i l'offset el posa el sistema**: `time.set` compta en UTC i `time.epoch(y, m, d, h, min)`
+és la porta que fa la resta amb l'offset efectiu, o sigui que una pàgina que ensenya l'hora d'una persona —«les nou i mitja del
+matí del 16 de novembre»— dona els cinc números a `time.epoch` i passa el que torna a `time.set`. **No cal l'aritmètica del dia
+civil enlloc**: era a `apps/settings` fins a la 0.189.130, i la va deixar anar quan va arribar la crida (docs/60).
 
 ### `time.utc` i `time.date`: el moment en paraules (0.125.0)
 

@@ -343,8 +343,39 @@ qualsevol altre ajust: `cfg tz +01:00` des de la consola, `time.tz('+01:00')` de
   `time.utc`/`time.date` demanen el dia de la setmana a `kernel::calendar` i el dia de l'any a `hal::days_from_civil`
   (docs/30).
 
-Les proves són `test_the_timeclock_of_the_paper_project_keeps_the_day` (l'app que llegeix l'hora, a `test_apps`) i el
-cas del rellotge de `test_calendar`, que ja dona la volta a l'època.
+### Una sola hora a tot arreu (0.189.130)
+
+L'hora d'estiu es va separar del desfasament a la 0.182.0 —`cfg dst` és un interruptor propi, i el número del mapa es queda com a
+número del mapa— i allò va deixar tres maneres d'arribar a l'hora de la persona escrit a mà en tres llocs: la franja de la
+barra dividia l'època i ensenyava **UTC**, la pàgina de la zona horària sumava l'estiu pel seu compte i la dels ajustos no el
+sumava i es componia l'aritmètica civil. Amb una zona que no fos zero això són **dues hores al mateix vidre** i un rellotge
+posat des d'una pàgina que queda una hora desviat de la que diu l'altra.
+
+La regla és una i el nucli la té tota:
+
+| Crida o porta | Què és |
+|---|---|
+| `cfg::offset_minutes()` (nucli) | l'offset **efectiu**: el del mapa més seixanta minuts si l'estiu és on |
+| `time.offset()` (Lua) | el mateix número, en minuts. Per **ensenyar-lo** |
+| `time.date([t])` (Lua) | l'hora de la persona: `time.utc(t)` més l'offset efectiu |
+| `time.epoch(y, m, d, h, min)` (Lua) | la inversa de `time.date()`: l'època d'una hora del rellotge de paret. Per **escriure'n una** |
+| `time.tz([minuts])` (Lua) | el número del mapa i prou: és **l'ajust** que edita la pàgina de la zona horària, no l'hora de ningú |
+| `time.dst([on])` (Lua) | l'interruptor de l'hora d'estiu, un ajust propi des de la 0.182.0 |
+
+Res més no pot compondre l'hora: **cap pàgina, cap app i cap tros del nucli no sumen l'offset a mà**. La franja de la barra en és
+una (`bar.cpp`, `read_status`), i per això va ensenyar UTC fins a la 0.189.130; les dues apps que toquen l'hora —`apps/tz` i
+`apps/settings`— fan servir `time.offset()` per ensenyar i `time.epoch()` per escriure, i la dels ajustos va deixar anar la seva
+aritmètica civil quan van arribar aquestes portes.
+
+**El que es desa i on**: la zona, l'estiu, el traspàs i el primer dia de la setmana són preferències de la placa i van a la
+memòria de claus (`kernel::cfg`, la NVS, amb la paraula que va teclejar la persona). **El RTC només rep l'època** —
+`clock->set_epoch_ms`, i ni `cfg tz` ni `cfg dst` hi escriuen mai—, perquè un xip amb l'hora local obligaria a reescriure'l cada
+cop que es canvia de zona i dues apps podrien deixar el rellotge desfasat.
+
+Les proves són `test_the_timeclock_of_the_paper_project_keeps_the_day` (l'app que llegeix l'hora, a `test_apps`), el cas del
+rellotge de `test_calendar`, que ja dona la volta a l'època, `test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close` i
+`test_the_panel_of_settings_writes_through_the_doors_of_the_system`, que és el que escriu una hora des d'una pàgina i la
+compara amb l'època del rellotge amb la zona que hi ha en aquell moment.
 
 ## El calendari: la regla dels anys de traspàs, una sola vegada (0.75.0)
 

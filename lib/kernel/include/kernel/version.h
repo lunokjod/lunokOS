@@ -9546,7 +9546,13 @@ namespace kernel {
 // mateix número que `time.date()`— i el llenguatge té les dues portes que faltaven, **`time.offset()`** (l'offset efectiu en
 // minuts) i **`time.epoch(y, m, d, h, min)`** (la inversa de `time.date()`), i les dues apps les fan servir en lloc de la seva
 // aritmètica. `settings` puja a 0.1.6 i `tz` a 0.1.4 (docs/30, docs/60).
-static const char kVersion[] = "0.189.130";
+// 0.189.131 — **i la regla de l'hora, escrita** (l'amo: *«tot accés a l'hora ha de ser igual a tot arreu»*). docs/60 té la taula de
+// les portes —`cfg::offset_minutes`, `time.offset`, `time.date`, `time.epoch`, i `time.tz`/`time.dst` com a ajustos— amb la
+// frase que ho tanca: cap pàgina, cap app i cap tros del nucli no sumen l'offset a mà; i **on es desa**: la zona, l'estiu, el
+// traspàs i el primer dia van a la NVS (`kernel::cfg`) i el RTC només rep l'època, mai l'hora local. docs/30 porta les dues
+// crides noves a la taula de `time` i docs/45 deixa anar el codi de Hinnant que el panell d'ajustos ja no fa servir (docs/30,
+// docs/45, docs/60). I `gen_about.py` torna a dir les versions de les llibreries que han pujat.
+static const char kVersion[] = "0.189.133";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

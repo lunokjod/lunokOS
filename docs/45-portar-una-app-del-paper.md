@@ -312,25 +312,17 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
   el processador amb `power.cpu`, i el teclat, l'arrencada, l'inici, l'ordre, el torn i el cursor amb `cfg.*` (docs/30
   § «`cfg`»). **La pestanya i el cercle són de la pàgina.**
 
-**L'hora local d'una persona és una època, i l'aritmètica és aquesta** (`days_from_civil`, la de Hinnant): `time.set`
-compta en UTC i la pàgina ha de restar-hi `time.tz()` abans de desar.
+**L'hora local d'una persona la converteix el sistema** (0.189.130): `time.set` compta en UTC i **`time.epoch(y, m, d, h, min)`**
+és la seva inversa —porta l'offset efectiu, el del mapa més l'hora d'estiu—, o sigui que la pàgina no té cap aritmètica pròpia.
+La que hi havia aquí —`days_from_civil` i `time.tz()`, la de Hinnant— va marxar amb la crida: era la tercera manera d'arribar a
+l'hora de la persona i **ignorava `time.dst()`**, i per això un rellotge posat des d'aquest panell quedava una hora desviat de la
+que deia la pàgina de la zona horària (docs/30, docs/60).
 
 ```lua
-local function days_from_civil(y, m, d)
-  if m <= 2 then y = y - 1 end
-  local era = (y >= 0) and y or (y - 399)
-  era = era // 400
-  local yoe = y - era * 400
-  local mp = (m + 9) % 12
-  local doy = (153 * mp + 2) // 5 + d - 1
-  local doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
-  return era * 146097 + doe - 719468
-end
-
 local function epoch_of(day, month, hour, minute)
   local today = time.date()
   if today == nil then return nil end
-  return days_from_civil(today.year, month, day) * 86400 + hour * 3600 + minute * 60 - (time.tz() or 0) * 60
+  return time.epoch(today.year, month, day, hour, minute)
 end
 ```
 
