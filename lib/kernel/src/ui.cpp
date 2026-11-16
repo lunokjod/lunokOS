@@ -3241,7 +3241,7 @@ struct Icon {
 };
 
 const Icon kIcons[] = {
-    {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"},
+    {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"}, {"home"},
 };
 const uint8_t kIconCount = static_cast<uint8_t>(sizeof(kIcons) / sizeof(kIcons[0]));
 
@@ -3359,7 +3359,7 @@ const char* icon_at(uint8_t index) { return (index < kIconCount) ? kIcons[index]
 
 uint8_t icon_count() { return kIconCount; }
 
-// **Les cinc marques, una funció** (0.185.0): every mark is drawn in the box it is given, centred, with a reach of thirty per
+// **Les sis marques, una funció** (0.185.0, i la casa des de la 0.189.139): every mark is drawn in the box it is given, centred, with a reach of thirty per
 // cent of the shorter side, so a key of sixty-four and a button of a hundred carry the same drawing at two sizes.
 bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t width, int32_t height, uint8_t level,
                hal::UpdateMode mode) {
@@ -3403,6 +3403,18 @@ bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t wid
     const int32_t tip_y = cy - (reach * 78) / 100;
     icon_triangle(view, tip_x, tip_y, tip_x - reach / 2, tip_y - reach / 4, tip_x - reach / 4, tip_y + reach / 2, level,
                   mode);
+  } else if (strcmp(name, "home") == 0) {
+    // **Una casa** (0.189.139): the two slopes of the roof and the three walls, which is the shape everybody reads at sixty
+    // pixels and the one the key of the page of the start carries when the disk has no `/res/icons` (docs/30, docs/45).
+    const int32_t eave = (reach * 62) / 100;
+    const int32_t ridge = cy - (reach * 55) / 100;
+    const int32_t shoulder = cy - (reach * 5) / 100;
+    const int32_t ground = cy + reach;
+    icon_line(view, cx - eave, shoulder, cx, ridge, stroke, level, mode);
+    icon_line(view, cx, ridge, cx + eave, shoulder, stroke, level, mode);
+    icon_line(view, cx - eave + stroke / 2, shoulder, cx - eave + stroke / 2, ground - stroke / 2, stroke, level, mode);
+    icon_line(view, cx + eave - stroke / 2, shoulder, cx + eave - stroke / 2, ground - stroke / 2, stroke, level, mode);
+    icon_line(view, cx - eave + stroke, ground - stroke / 2, cx + eave - stroke, ground - stroke / 2, stroke, level, mode);
   } else {
     // **El símbol d'apagar**: the ring with a gap at the top and the stem through it, which is the one mark the world
     // already agrees on.

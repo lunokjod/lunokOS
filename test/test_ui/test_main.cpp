@@ -2954,15 +2954,16 @@ void test_the_cross_of_a_text_box_goes_away_with_the_clean_pass(void) {
 // vores … i amb una imatge/icona com a contingut»*): a `framed` false key has no frame ring and no shadow —the paper of its page is
 // its face— and its ink is the mark the kernel draws, so the corners of the box are paper and the middle of it is not. With the
 // finger on it the face turns over, which is the press this system already gives a selected button: the middle is paper and the
-// corners are ink. The five names are the set the panel of the bar uses, and a name that is not one of them is no mark at all
-// (docs/30, docs/92).
+// corners are ink. The six names are the set the panel of the bar uses —**and the house** of the page of the start,
+// 0.189.139—, and a name that is not one of them is no mark at all (docs/30, docs/92).
 void test_a_button_without_a_frame_is_its_mark_and_turns_over(void) {
-  TEST_ASSERT_EQUAL_UINT8(5, ui::icon_count());
+  TEST_ASSERT_EQUAL_UINT8(6, ui::icon_count());
   TEST_ASSERT_TRUE(ui::an_icon_named("back"));
   TEST_ASSERT_TRUE(ui::an_icon_named("close"));
   TEST_ASSERT_TRUE(ui::an_icon_named("settings"));
   TEST_ASSERT_TRUE(ui::an_icon_named("reboot"));
   TEST_ASSERT_TRUE(ui::an_icon_named("poweroff"));
+  TEST_ASSERT_TRUE(ui::an_icon_named("home"));
   TEST_ASSERT_FALSE(ui::an_icon_named("a-mark-that-is-not-one"));
   TEST_ASSERT_FALSE(ui::an_icon_named(nullptr));
 

@@ -4121,6 +4121,25 @@ static bool app_in_front_is_a_launcher() {
 // docs/45).
 bool the_page_in_front_can_be_left() { return g_app_alive && !app_in_front_is_a_launcher(); }
 
+// **Una placa amb pàgina de casa no es queda mai sense pàgina** (0.189.139): l'amo, amb la placa a la mà —*«al tornar del Sleep
+// amb una app en primer pla que no sigui Home, al polsar Back del panell no torna al home, i el sistema es queda sense app al
+// foreground i sense possibilitat de continuar fent res, només el reset»*—. The two roads out (○) closed the app, found that nobody had
+// asked for another one and left the **console prompt** in front, which on a board with no cable is a glass with a page nobody
+// painted: the bar still answers, the card still opens, and every key of it says there is no app to ask —and the only way back was
+// the reset. A board that has a page of the start comes back to it, exactly as the boot does (docs/30, docs/40, docs/90).
+bool start_the_home_app() {
+  const char* home = cfg::home_app();
+  if (home == nullptr || home[0] == '\0') return false;
+  // A board with no glass has no page to come back to and its prompt is where a person wants to be (docs/50).
+  if (display::surface() == nullptr) return false;
+  if (!start_app(home, /*splash=*/true)) {
+    log_printf(pal::kLogWarn, "HOME", "%s is the page of the start and it did not come up", home);
+    return false;
+  }
+  log_printf(pal::kLogInfo, "HOME", "%s: the page of the start takes the glass back", home);
+  return true;
+}
+
 // **The one road out of a page** (0.167.0): the owner's complaint was that three presses of the middle key closed the app
 // and **the launcher did not come back** —the page he came from was lost and the prompt was what he found—, while a pinch
 // came home. It is one function now, and all three gestures call it: a page with another one on top gives the top one
@@ -4142,6 +4161,7 @@ LeaveOutcome leave_one_page() {
   }
   close_app();
   if (start_the_one_that_asked()) return LeaveOutcome::kClosedHome;
+  if (start_the_home_app()) return LeaveOutcome::kClosedHome;
   prompt();
   return LeaveOutcome::kClosed;
 }
@@ -4161,6 +4181,7 @@ LeaveOutcome close_the_app() {
              static_cast<unsigned>(apps::views()));
   close_app();
   if (start_the_one_that_asked()) return LeaveOutcome::kClosedHome;
+  if (start_the_home_app()) return LeaveOutcome::kClosedHome;
   prompt();
   return LeaveOutcome::kClosed;
 }

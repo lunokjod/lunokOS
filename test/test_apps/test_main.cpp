@@ -7709,13 +7709,13 @@ void test_an_app_that_names_a_splash_carries_it(void) {
   TEST_ASSERT_LESS_THAN_MESSAGE(20000, launcher_bytes, launcher_path);
 }
 
-// **Les sis marques de la targeta viuen al disc i són dibuixos** (0.185.1, la sisena des de la 0.189.25): the keys of the card of the
-// bar carry the marks of `tools/iconart.py` —the arrow, the cross, the wheel, the switch, **the moon** and the circle that starts
-// again— and the kernel reads them from `/res/icons`, so the six of them have to be in the repository and be a PNG with something in
-// it (a key of the card that finds no file falls back to the lines of `draw_icon`, which is a mark and not a drawing, and this case
-// keeps the day from passing without anybody noticing) (docs/30, docs/45).
-void test_the_card_of_the_bar_carries_the_six_marks(void) {
-  static const char* const kMarks[] = {"back", "close", "settings", "reboot", "poweroff", "deepsleep"};
+// **Les set marques de la targeta viuen al disc i són dibuixos** (0.185.1, la sisena des de la 0.189.25 i **la casa des de la
+// 0.189.139**): the keys of the card of the bar carry the marks of `tools/iconart.py` —the arrow, the cross, **the house**, the
+// wheel, the switch, **the moon** and the circle that starts again— and the kernel reads them from `/res/icons`, so the seven of them
+// have to be in the repository and be a PNG with something in it (a key of the card that finds no file falls back to the lines of
+// `draw_icon`, which is a mark and not a drawing, and this case keeps the day from passing without anybody noticing) (docs/30, docs/45).
+void test_the_card_of_the_bar_carries_the_seven_marks(void) {
+  static const char* const kMarks[] = {"back", "close", "home", "settings", "reboot", "poweroff", "deepsleep"};
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
   size_t found = 0;
   for (size_t m = 0; m < sizeof(kMarks) / sizeof(kMarks[0]); ++m) {
@@ -7739,7 +7739,7 @@ void test_the_card_of_the_bar_carries_the_six_marks(void) {
     TEST_ASSERT_TRUE_MESSAGE(there, kMarks[m]);
     ++found;
   }
-  TEST_ASSERT_EQUAL_UINT32(6, static_cast<uint32_t>(found));
+  TEST_ASSERT_EQUAL_UINT32(7, static_cast<uint32_t>(found));
 }
 
 // The store answers how full it is in **entries**, which is the number that says whether the
@@ -18185,7 +18185,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_every_app_of_the_repository_carries_an_icon);
   RUN_TEST(test_an_app_that_names_a_splash_carries_it);
-  RUN_TEST(test_the_card_of_the_bar_carries_the_six_marks);
+  RUN_TEST(test_the_card_of_the_bar_carries_the_seven_marks);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);

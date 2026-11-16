@@ -49,14 +49,15 @@ const uint16_t kHandleGap = 14;
 // The two rows that close the card, which are the same line the bar has under itself.
 const uint16_t kLineH = 2;
 
-// **Els sis botons de la targeta** (0.185.0, i la sisena des de la 0.189.25): the arrow of the way back in the left corner and the
-// cross of the way out in the right one —the two of 0.179.52— and **the four of the system in a row in the middle**: the settings,
-// the power off, **the deep sleep** and the restart. All six are **one key**: a `UIButton` of this system with **no frame and no
+// **Els set botons de la targeta** (0.185.0, la sisena des de la 0.189.25 i **la casa** des de la 0.189.139): the arrow of the way
+// back in the left corner, the cross of the way out in the right one, **the house of the page of the start between them**, and
+// **the four of the system in a row in the middle**: the settings, the power off, **the deep sleep** and the restart. All seven are
+// **one key**: a `UIButton` of this system with **no frame and no
 // shadow** (`framed` false), so what a person
 // sees is the mark and nothing else, and it sinks by turning over while the finger is on it, which is the press every button of
 // this glass has (the owner: *«vull que siguin UIButton, però sense vores (afegir propietat al botó si no la te ja) i amb una
 // imatge/icona com a contingut»*) (docs/30, docs/45, docs/92).
-// **Les sis claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
+// **Les set claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
 // icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*). Una clau del sistema ja no és un quadrat d'una
 // icona: és **una icona amb el seu nom**, i el nom és dins del botó, o sigui que prémer el nom és prémer la clau.
 //
@@ -64,6 +65,8 @@ const uint16_t kLineH = 2;
 //     cantonades mirin enfora— i el repartiment el fa el dibuix del botó (`ui::kMarkLeft` i `ui::kMarkRight`);
 //   - **les quatre del mig són altes**: la marca a sobre i la paraula a sota, dins del mateix rectangle, i la paraula a dos passos
 //     de la cara del sistema, que és el que fa que quatre n'hi càpiguen (0.189.25);
+//   - **la casa és ampla i baixa** (0.189.139): it takes the air the two corners leave, 112 × 64, with the mark above and its
+//     word below —the shape of the four of the middle at the height of a corner—, and it is the way to the page of the start;
 //   - **`Settings` va separada de les altres tres** amb quaranta-vuit píxels en lloc dels dotze d'entre claus, que és el que el dibuix
 //     de l'amo marcava amb `|||` (docs/30, docs/45, docs/92).
 const uint16_t kCornerTop = 20;   // la fila de les dues cantonades
@@ -83,8 +86,8 @@ const uint8_t kMiddleWordScale = 2;
 // **Quin botó és quin** (0.185.0): the six of the card, in the order the row of four is drawn —the settings first and then the three
 // that stop the board, with **the deep sleep between the power off and the restart**, which is where the owner asked for it: the
 // closer to off a way down is, the closer they sit— (docs/30).
-enum class Key : uint8_t { kBack = 0, kClose = 1, kSettings = 2, kPowerOff = 3, kDeepSleep = 4, kReboot = 5 };
-const uint8_t kKeyCount = 6;
+enum class Key : uint8_t { kBack = 0, kHome = 1, kClose = 2, kSettings = 3, kPowerOff = 4, kDeepSleep = 5, kReboot = 6 };
+const uint8_t kKeyCount = 7;
 
 bool g_open = false;
 // **Quina clau té el dit a sobre** (0.185.2): the card is painted on the glass and not by a page of controls, so a press is a
@@ -122,6 +125,19 @@ KeyBox key_box(Key which) {
     box.word = "Back";
     return box;
   }
+  // **La casa, al mig de la fila de dalt** (0.189.139): the two corners of the card are the two ways out and the air between them
+  // is the one place a person looks at first, so the way to the page of the start is there and it is the width of a key of the
+  // middle, which is exactly the room the two corners leave (docs/30, docs/45).
+  if (which == Key::kHome) {
+    box.x = static_cast<int16_t>((width - static_cast<int16_t>(kMiddleW)) / 2);
+    box.y = static_cast<int16_t>(kCornerTop);
+    box.w = kMiddleW;
+    box.h = kCornerH;
+    box.mark = ui::kMarkAbove;
+    box.scale = kMiddleWordScale;
+    box.word = "Home";
+    return box;
+  }
   if (which == Key::kClose) {
     box.x = static_cast<int16_t>(width - static_cast<int16_t>(kKeyMargin) - kCornerW);
     box.y = static_cast<int16_t>(kCornerTop);
@@ -157,6 +173,10 @@ const char* key_icon(Key which) {
       return "back";
     case Key::kClose:
       return "close";
+    case Key::kHome:
+      // **La casa** (0.189.139): `U+F015` of the clipart, the same mark the sixth family drew and the seventh keeps
+      // (`data/res/icons/home.png`, `tools/iconart.py`) (docs/45, docs/50).
+      return "home";
     case Key::kSettings:
       return "settings";
     case Key::kDeepSleep:
@@ -179,6 +199,14 @@ const char* key_icon(Key which) {
 // top —they are the system's, and the console that a close leaves behind has them too— (docs/30, docs/45).
 bool key_is_there(Key which) {
   if (which == Key::kClose) return shell::the_page_in_front_can_be_left();
+  // **La casa hi és quan hi ha una pàgina de casa i no és la que ja hi ha** (0.189.139): a board with no page of the start has
+  // nothing to open, and a house over the launcher it would open is a key that does nothing —the same rule as the cross—
+  // (docs/30, docs/45).
+  if (which == Key::kHome) {
+    const char* home = cfg::home_app();
+    if (home == nullptr || home[0] == '\0') return false;
+    return !(shell::app_running() && strcmp(shell::app_id(), home) == 0);
+  }
   if (which == Key::kBack) return apps::views() > 0;
   // **I el son amb les tecles vives, només si la placa en té una** (0.189.25): the same rule as the cross —a key that does
   // nothing says the system can do something it cannot— and it is asked of the board and not of the model of the glass
@@ -350,6 +378,21 @@ void open_the_settings() {
     return;
   }
   char why[96] = {0};
+  // **Amb cap pàgina a sota, el rellotge la fa arrencar i no la demana** (0.189.139): `ask_run` is one app asking for another
+  // —it writes the name down, the page in front is closed and the new one starts at the next turn—, and a board that came back
+  // from a sleep with nothing in front has no page to close: the key answered *«no app is in front to ask for another one»* and
+  // a glass with no page kept no way to the settings at all. The system's own key starts the app the way the boot starts the
+  // page of the start (docs/30, docs/40, docs/90).
+  if (!shell::app_running()) {
+    g_open = false;
+    ui::forget_the_page_hold();
+    if (!shell::start_app(entry.id, /*splash=*/true)) {
+      log_printf(pal::kLogWarn, "PANEL", "the settings key: '%s' did not come up", entry.id);
+      return;
+    }
+    log_printf(pal::kLogInfo, "PANEL", "the settings key: %s comes up with no page under it", entry.id);
+    return;
+  }
   // **I la pàgina que la demana queda darrere** (`back`): closing the page of settings comes back to where the person was, which is
   // what a card that opens an app from the bar owes the page under it (docs/30, docs/40).
   if (!shell::ask_run(entry.id, /*back=*/true, why, sizeof(why))) {
@@ -360,12 +403,59 @@ void open_the_settings() {
   log_printf(pal::kLogInfo, "PANEL", "the settings key: %s comes up", entry.id);
 }
 
-// **Un botó és la seva acció**: the five of the card, one switch, so the paint, the hit test and the press cannot disagree about what
+// **La casa: la pàgina de casa, i cap altra cosa** (0.189.139, l'amo: *«Afegirem un nou botó al panell de sistema, un icona d'una
+// casa per arrencar HOME APP»*). It is the same door the system takes when the app in front goes and nobody asked for another one
+// (`shell::start_the_home_app` asks nothing of the glass and starts the page of the start), so the key and the road out of a page
+// cannot disagree about which app is home —it is `cfg::home_app()`, the name a person chose (docs/30, docs/40, docs/90).
+//
+// **Amb una pàgina a sota es demana, i sense cap s'arrenca**: the two cases are the two the gear has, and the reason is the same
+// —a name written down for the next turn needs a page to close (`shell::ask_run`), and a board with nothing in front starts the app
+// now— (docs/30, docs/40).
+void open_the_home() {
+  const char* home = cfg::home_app();
+  if (home == nullptr || home[0] == '\0') {
+    log_printf(pal::kLogInfo, "PANEL", "the house key: no app of the start is chosen (`cfg home <id>`)");
+    return;
+  }
+  apps::Entry entry;
+  if (!apps::read(home, entry)) {
+    log_printf(pal::kLogWarn, "PANEL", "the house key: there is no app '%s' on this board", home);
+    return;
+  }
+  // **La casa sobre la pàgina que obriria no fa res**, and it is not even painted (`key_is_there`): this is the line for a finger
+  // that was on the card while the page below changed (docs/30).
+  if (shell::app_running() && strcmp(shell::app_id(), entry.id) == 0) {
+    log_printf(pal::kLogInfo, "PANEL", "the house key: %s is already the page in front", entry.id);
+    return;
+  }
+  if (!shell::app_running()) {
+    g_open = false;
+    ui::forget_the_page_hold();
+    if (!shell::start_app(entry.id, /*splash=*/true)) {
+      log_printf(pal::kLogWarn, "PANEL", "the house key: '%s' did not come up", entry.id);
+      return;
+    }
+    log_printf(pal::kLogInfo, "PANEL", "the house key: %s comes up with no page under it", entry.id);
+    return;
+  }
+  char why[96] = {0};
+  if (!shell::ask_run(entry.id, /*back=*/true, why, sizeof(why))) {
+    log_printf(pal::kLogWarn, "PANEL", "the house key: %s could not be asked for: %s", entry.id, why);
+    return;
+  }
+  put_it_away();
+  log_printf(pal::kLogInfo, "PANEL", "the house key: %s comes up", entry.id);
+}
+
+// **Un botó és la seva acció**: the seven of the card, one switch, so the paint, the hit test and the press cannot disagree about what
 // a key does (docs/30, docs/45).
 void run_the_key(Key which) {
   switch (which) {
     case Key::kBack:
       go_back_a_view();
+      return;
+    case Key::kHome:
+      open_the_home();
       return;
     case Key::kClose:
       close_the_app();

@@ -69,6 +69,9 @@ FONTS = (
     os.path.join(HERE, "fontawesome", "fa-solid-900.ttf"),
     "/home/sharek/mnt/node0_bak/node0/public/external/fontawesome-free-5.15.4-web/webfonts/fa-solid-900.ttf",
     "/usr/share/fonts/truetype/fontawesome/fa-solid-900.ttf",
+    # **I la setena, que és la que hi ha en aquesta màquina** (0.189.139): the codes of the house and of the other five marks are
+    # the same ones in the seventh family, so a checkout that only carries this one draws the same card (docs/45).
+    "/home/jrubio/code/TebimaDevices/asset/fontawesome-free-7.2.0-desktop/otfs/Font Awesome 7 Free-Solid-900.otf",
 )
 
 # **Cada marca és un glif del clipart i una frase que diu què vol dir.** El codi
@@ -87,6 +90,11 @@ MARKS = {
     # **La lluna** (0.189.25): the board is still on, drawing current, and asleep until a key is pressed —which is neither the
     # switch of the power off nor the circle of the restart— (docs/45, docs/50).
     "deepsleep": (0xF186, "moon: the board sleeps with its keys awake"),
+    # **La casa** (0.189.139, l'amo: *«un icona d'una casa per arrencar HOME APP»*): the way to the page of the start, which is
+    # the one the board comes back to when the app in front goes and nothing asked for another one. `U+F015` has been the house
+    # of this family since the fifth version and it is still the same address in the seventh, so the mark of the card does not
+    # move the day the font does (docs/45, docs/50).
+    "home": (0xF015, "house: the page of the start"),
 }
 
 
@@ -156,9 +164,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--out", default=ICONS, help="where the icons of the disk go")
     parser.add_argument("--size", type=int, default=KEY, help="the side of an icon of the disk")
     parser.add_argument("--preview", action="store_true", help="also write a contact sheet")
+    # **`--only <name>` torna a fer una sola marca** (0.189.139): a new mark is added without regenerating the six that are
+    # already on the disk and looked at by the owner —a font of another version would change their drawing without anybody
+    # asking— (docs/45).
+    parser.add_argument("--only", default=None, help="one mark of the set, and only it")
     args = parser.parse_args(argv)
+    if args.only is not None and args.only not in MARKS:
+        sys.exit(f"{args.only} is not a mark of the card: {', '.join(MARKS)}")
 
-    for name in MARKS:
+    for name in ([args.only] if args.only is not None else list(MARKS)):
         master = save(draw(name), os.path.join(args.masters, name + ".png"), SIZE)
         icon = save(draw(name), os.path.join(args.out, name + ".png"), args.size)
         print(f"{master}\n{icon}")

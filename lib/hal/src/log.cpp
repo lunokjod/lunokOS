@@ -7,7 +7,13 @@ namespace {
 
 // Long enough for a line of the boot with its words and an address, and short enough that a driver can
 // keep one on the stack (docs/30).
-const size_t kLogLineBytes = 160;
+//
+// **Cent noranta-dos i no cent seixanta** (0.189.139): the line of a paint of the panel is a hundred and sixty characters to the
+// letter —the rectangle, the page, the rows, the two millisecond counts and the style— and the cap of a hundred and sixty cut it
+// at `... ms of ink before i`, so the owner read a line that ended in the middle of a word and asked whether the `(` of the
+// message had ever been closed. It had: what was missing was the room. Twenty more characters than the longest line this system
+// writes, and a line that still does not fit says so with three dots instead of a cut word (docs/30, docs/50).
+const size_t kLogLineBytes = 192;
 
 LogSink g_sink = nullptr;
 
@@ -37,12 +43,31 @@ size_t vformat_log(char* out, size_t cap, pal::LogLevel level, const char* tag, 
   int used = snprintf(out, cap, "[%c][%s] ", level_letter(level), (tag != nullptr) ? tag : "?");
   if (used < 0) return 0;
   if (static_cast<size_t>(used) >= cap - 2) return cap - 2;
-  const int written = vsnprintf(out + used, cap - static_cast<size_t>(used) - 1, fmt, args);
-  if (written > 0) used += written;
-  if (static_cast<size_t>(used) > cap - 2) used = static_cast<int>(cap - 2);
-  out[used++] = '\n';
-  out[used] = '\0';
-  return static_cast<size_t>(used);
+  const size_t prefix = static_cast<size_t>(used);
+  const size_t room = cap - prefix - 1;  // the message, and the byte of its NUL
+  const int written = vsnprintf(out + prefix, room, fmt, args);
+  size_t len = prefix;
+  bool cut = written < 0;
+  if (written > 0) {
+    const size_t asked = static_cast<size_t>(written);
+    if (asked < room) {
+      len = prefix + asked;
+    } else {
+      // What fits, and one byte kept for the newline: `vsnprintf` cut the message where the room ended.
+      len = cap - 2;
+      cut = true;
+    }
+  }
+  // **Una línia que no hi cap ho diu** (0.189.139): three dots and not a word cut in the middle, because a line that ends in
+  // `... of ink before i` is a line a person cannot tell from a message that is missing a bracket (docs/30, docs/50).
+  if (cut && len >= 3) {
+    out[len - 3] = '.';
+    out[len - 2] = '.';
+    out[len - 1] = '.';
+  }
+  out[len++] = '\n';
+  out[len] = '\0';
+  return len;
 }
 
 size_t format_log(char* out, size_t cap, pal::LogLevel level, const char* tag, const char* fmt, ...) {

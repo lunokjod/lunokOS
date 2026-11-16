@@ -32,7 +32,8 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
     passada amb LANCZOS** (les vores porten els grisos del panell en lloc d'una escala de píxels), la vora és el dibuix —15
     unitats, 2,1 px a 64; amb 8 la reducció se la menja—, i la paleta té nom: cos de 8 a 13, vora a 4, paper a 15.
   - **I per a les marques del sistema no es dibuixa res**: `tools/iconart.py` rasteritza els glifs de **Font Awesome Free
-    5.15.4** (`arrow-left`, `times`, `cog`, `redo`, `power-off`), els ajusta al 80 % de la caixa i en desa el mestre a
+    5.15.4** (`angle-left`, `times`, `cog`, `redo`, `power-off`, `moon` i `house`; `--only <nom>` en refà una de sola, que és com
+    es va afegir la casa el 16/11 sense tocar les sis que ja hi eren), els ajusta al 80 % de la caixa i en desa el mestre a
     `tools/icons/system/` i la icona de 64 a `data/res/icons/`, que és el que el disc porta i el que `ui::picture_of_a_mark`
     llegeix (docs/30, docs/92). **Llicències**: els glifs són SIL OFL 1.1 i les icones CC BY 4.0, amb el crèdit al `README`.
 - **La icona es porta amb el seu màster.** Es copia `tools/icons/<App>.png` a

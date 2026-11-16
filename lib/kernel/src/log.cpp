@@ -14,7 +14,9 @@ namespace kernel {
 namespace {
 
 const size_t kRingBytes = 2048;
-const size_t kLineBytes = 160;
+// **The line of the ring is the line of the formatter** (0.189.139): a hundred and ninety-two, the one `hal::logf` writes, or a line
+// that fits there would be cut here a second time (docs/30).
+const size_t kLineBytes = 192;
 
 char g_ring[kRingBytes];
 size_t g_head = 0;   // next byte to write

@@ -3981,15 +3981,16 @@ i res més (0.179.42, 0.179.49).
 - **I amb una sola pàgina la fletxa no hi és**: una app que no ha empès cap vista no té on tornar, i un botó que no pot
   fer res és pitjor que cap botó —la mateixa regla que la creu sobre un llançador (0.179.25)—. El sistema ho pregunta
   abans de pintar (`apps::views() > 0`), i la cantonada de la targeta és paper: un toc allà és un toc a la targeta.
-- **I les sis claus són el mateix botó, sense vores** (0.185.0, l'amo: *«afegeix al panell lliscat … l'icona de Reinciar,
+- **I les claus són el mateix botó, sense vores** (0.185.0, l'amo: *«afegeix al panell lliscat … l'icona de Reinciar,
   d'Apagar i de Settings … aquests botons no tinguin vores, l'icona és tot el que es veu i com qualsevol botó s'enfonsa al pitjar»*).
-  La targeta porta **sis claus de seixanta-quatre píxels**: la fletxa a la cantonada esquerra i la creu a la dreta, com fins ara,
+  La targeta porta **set claus de seixanta-quatre píxels** —**i la casa al mig de dalt des de la 0.189.139**—: la fletxa a la
+  cantonada esquerra i la creu a la dreta, com fins ara,
   i **una fila de quatre al mig** centrada —`settings` (roda dentada), `poweroff` (el símbol d'apagar), **`deepsleep` (la lluna,
   0.189.25)** i `reboot` (fletxa circular), en aquest ordre, que és el que va demanar l'amo: *«l'afegeixes al panell desplegable
   del sistema entre el botó de poweroff i el de reboot»*—,
   totes amb `framed = false` i `icon` a la mateixa clau del sistema: el paper de la targeta és la seva cara, la marca és tota la
   tinta que hi ha, i **el botó s'enfonsa girant-se** quan el dit hi és a sobre (una passada `du` de la clau i després l'acció).
-  Les cinc es calculen en una sola taula (`key_is_there`, `key_x`, `key_y`, `run_the_key`) i la que no pot fer res no es pinta ni
+  Totes set es calculen en una sola taula (`key_is_there`, `key_box`, `key_icon`, `run_the_key`) i la que no pot fer res no es pinta ni
   es pot prémer. El reinici i l'apagat passen pel **mateix camí que la consola** (`shell::reboot` i `shell::power_off`), i
   **`settings` obre l'app dels ajustos, i quina és la diu `cfg`** (0.189.109, l'amo: *«Enllaça el botó de Settings del panell
   desplegable de sistema amb l'app <id: settings> Si no està l'app no passsa res»*): la clau llegeix `cfg settings <id>` —`settings`
@@ -3997,7 +3998,7 @@ i res més (0.179.42, 0.179.49).
   abans d'arrencar la que li demanen i un nom que no és al disc deixaria la placa al prompt amb la pàgina que la va demanar a la
   memòria de ningú. Una roda que no troba l'app **no fa res** i ho diu al registre (`there is no app 'x' on this board`), i quan
   la troba la demana amb la pàgina del darrere (`back`), perquè tancar els ajustos torni on era (docs/30, docs/40, docs/45).
-- **I les cinc marques són dibuixos del disc, fets com al PaperOS** (0.185.1, l'amo: *«fes les icones dels botons del panell
+- **I les marques són dibuixos del disc, fets com al PaperOS** (0.185.1, l'amo: *«fes les icones dels botons del panell
   desplegable de sistema de nou, usa el mateix que feies amb el PaperOS»*). `tools/iconart.py` dibuixa cada marca en una caixa de
   448 unitats —una funció per marca, la paleta de setze tons amb nom, la vora de tinta de 15 unitats que la reducció no
   s'empassa— i en desa dues coses: el **mestre** a `tools/icons/system/` i la **icona de 64 × 64** a `data/res/icons/`, que és el
@@ -4006,12 +4007,14 @@ i res més (0.179.42, 0.179.49).
   fitxer no hi és dibuixa les línies que aquest sistema tenia (`ui::draw_icon`), que és el que veu una placa sense la carpeta.
   **La clau s'enfonsa mentre el dit hi és** (0.185.2): el contacte de l'últim torn és el que la gira, i un dit que s'hi està un
   segon també és un toc, o sigui que el gest `long` fa el mateix que el `tap` (docs/45, docs/92).
-- **I les cinc marques són clipart, no un dibuix meu** (0.185.2, l'amo: *«usa un clipart, clarament no estàs dibuixant com ho
+- **I les marques són clipart, no un dibuix meu** (0.185.2, l'amo: *«usa un clipart, clarament no estàs dibuixant com ho
   feies l'altre dia a PaperOS»*). El primer intent les dibuixava amb primitives i el que sortia era un joc d'icones de casa; el
   que fa el projecte del paper per a la seva interfície és **treure-les d'una família d'icones** (Font Awesome, amb
   `tools/make_keys.py` ja fent-ho per a les cinc lletres del rellotge). `tools/iconart.py` rasteritza ara els glifs
-  **`arrow-left`, `times`, `cog`, `redo` i `power-off`** de **Font Awesome Free 5.15.4**, els ajusta al 80 % de la caixa i els
-  desa igual: mestre de 448 a `tools/icons/system/` i icona de 64 a `data/res/icons/`. **Llicències**: glifs SIL OFL 1.1, icones
+  **`angle-left` (el xevró de la 0.189.33), `times`, `cog`, `redo`, `power-off`, `moon` i `house`** de **Font Awesome Free**
+  (5.15.4, i la setena quan és l'única que hi ha: `U+F015` és la casa a les dues), els ajusta al 80 % de la caixa i els
+  desa igual: mestre de 448 a `tools/icons/system/` i icona de 64 a `data/res/icons/`. `--only <nom>` refà una sola marca,
+  que és com es va afegir la casa sense tocar les sis que l'amo ja havia mirat. **Llicències**: glifs SIL OFL 1.1, icones
   CC BY 4.0, crèdit al `README`.
 - **I les cinc claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
   icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*, amb `Settings ||| Poweroff | Reboot` al dibuix).
@@ -4021,6 +4024,17 @@ i res més (0.179.42, 0.179.49).
   parella** amb quaranta-vuit píxels en lloc dels dotze d'entre claus, que és el `|||` del dibuix, i **l'ordre és Settings,
   Poweroff, Reboot**, que és el que hi ha escrit allà. La paraula va a **tres passos** de la cara del sistema: a un pas fa onze
   píxels i no es llegeix (mesurat a l'emulador, docs/30, docs/92).
+- **I la casa, al mig de la fila de dalt** (0.189.139, l'amo: *«Afegirem un nou botó al panell de sistema, un icona d'una casa per
+  arrencar HOME APP»*): `Home` és la clau de 112 × 64 que cau exactament a l'aire que deixen les dues cantonades —la marca a
+  sobre i la paraula a sota, com les quatre del mig però amb l'alçada d'una cantonada— i obre **la pàgina de casa**,
+  `cfg home <id>`. Amb una pàgina a sota la demana com la roda (`ask_run` amb `back`); **sense cap pàgina la arrenca**, que és
+  el cas que la fa necessària: una placa que torna d'un son sense res al davant. I la clau **no es pinta** quan la pàgina de
+  casa és ja la del davant o quan `cfg home` no n'anomena cap, perquè un botó que no fa res és pitjor que cap botó
+  (docs/30, docs/40, docs/45).
+- **I una placa amb pàgina de casa no es queda mai sense pàgina** (0.189.139): tancar l'app —la creu de la targeta, un pessic,
+  els tres tocs— quan no hi ha cap app que la demanés deixava **el prompt** al davant, que en una placa sense cable és un
+  vidre amb una pàgina que ningú ha pintat: la barra responia, la targeta s'obria i totes les claus deien que no hi havia cap
+  app a qui demanar. El camí de sortir acaba ara a `cfg home <id>`, com l'arrencada (docs/30, docs/40, docs/90).
 - **I sobre un llançador el quadrat no hi és** (0.179.25): el llançador és l'única pàgina que no es
   deixa, i un botó que no pot fer res és pitjor que cap botó. La cantonada de la targeta és paper, i un
   toc allà és un toc a la targeta, que no fa res (0.179.42). El sistema ho pregunta abans de

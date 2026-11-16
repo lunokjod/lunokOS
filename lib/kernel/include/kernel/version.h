@@ -9581,7 +9581,25 @@ namespace kernel {
 // **I el launcher d'un cas no és el d'un altre** (test): les sessions s'aparquen a `/session` i `kernel::boot` les torna,
 // o sigui que un cas que corre després trobava la seva memíria càlida i no llegia cap manifest. `LUNOK_FROM=<cas>` entra
 // a `test_apps`, com ja feia `test_ui`, perquè aquests vermells són d'ordre i cal poder demanar un sufix de la sèrie.
-static const char kVersion[] = "0.189.138";
+// **Una placa amb pàgina de casa no es queda mai sense pàgina** (0.189.139, l'amo: *«al tornar del Sleep desde el panell amb una
+// aplicació en primer pla que no sigui Home, al polsar Back del panell no torna al home, quedant-se el sistema funcionant però
+// sense app al foreground i sense possibilitat de continuar fent res, només el reset»*). The two roads out —the cross and the
+// pinch— closed the app, found that nobody had asked for another one and left **the console prompt** in front: on a board with
+// no cable that is a glass with a page nobody painted, where the bar still answers, the card still comes out and every key of it
+// says there is no app to ask (`the settings app is not there: no app is in front to ask for another one`, his log). Now the road
+// out ends at `cfg home <id>`, as the boot does, and the card's own keys work with nothing in front: the gear and the house
+// **start** the app instead of asking an app for it.
+//
+// **I la casa és un botó nou de la targeta** (l'amo: *«afegirem un nou botó al panell de sistema, un icona d'una casa per
+// arrencar HOME APP»*): `Key::kHome`, `Home`, 112 × 64 in the air the two corners leave, the mark `U+F015` of the clipart
+// (`tools/iconart.py --only home`, the seventh family keeps the address) with the drawing of `ui::draw_icon` for a board that has
+// no `/res/icons`. It is not painted when the page of the start is already the page in front, because a key that does nothing is
+// worse than no key.
+//
+// **I la línia del log que no hi cabia** (l'amo: *«es cosa meva o el log de [D][PANEL] no tanca un parèntesi?»*): the line of a
+// paint is exactly a hundred and sixty characters and the buffer was a hundred and sixty, so it was cut at `... of ink before i`
+// and the `)` never reached the console. The buffer is a hundred and ninety-two and what still does not fit ends in three dots.
+static const char kVersion[] = "0.189.139";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

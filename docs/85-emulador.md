@@ -984,6 +984,12 @@ de tenir una de simple a la cara de dalt. Prémer una tecla **a mà** sí que es
 sobre la tira de tecles crida `emu::press_key` (i la secció de la finestra ho diu). La forma de les
 tecles és a [`90 · Full de ruta`](90-full-de-ruta.md), M8.
 
+**I una línia del log que no hi cap ho diu** (0.189.139): the buffer of a line is a hundred and ninety-two characters —it was a
+hundred and sixty, and the line of a paint of the panel —the rectangle, the page, the rows, the two milliseconds and the
+style— is exactly a hundred and sixty, so it was cut at `... ms of ink before i`— and what does not fit ends in **three dots**.
+The owner read that line and asked whether the `(` had ever been closed: it had, and the answer was a cap, not a format
+(docs/30, docs/50).
+
 **I el log de l'emulador és el de la placa** (1/11, 0.20.0): les mateixes línies amb la mateixa forma
 (`[I][CFG] /cfg on littlefs (asked for littlefs)`, `[I][UI] view 540x912 at 0,48, 246240 bytes of
 canvas`) i els mateixos comptadors, amb una diferència que és honesta i s'ha de saber: **a l'emulador el temps
