@@ -9486,7 +9486,12 @@ namespace kernel {
 // un control te teclat o no… això ho fa el sistema sense intervenció de l'app»*). El tercer valor de la 0.91.0, `keyboard = false`,
 // deia el mateix que `readonly` però s'enduia el cursor, i la 0.116.0 ja va fer el camp semàntic: ara `keyboard` és `'alpha'` o
 // `'numeric'`, un `false` es llegeix com l'alfabet que la caixa no ha dit, i el que no s'escriu diu `readonly` (docs/30).
-static const char kVersion[] = "0.189.118";
+// **I les apps ja ho deien bé**: les set caixes de text de `apps/` s'han mirat una a una i les que no s'escriuen (`fonts`, el
+// full de passatges, i `editor`, el document) ja porten `readonly` des de la 0.116.0/0.189.31, i les que s'escriuen
+// (`clock`, `shell`, `editor` amb el camí, `timeclock`) només diuen l'alfabet. La recepta del full que es llegeix —`readonly`,
+// `caret = false`, `framed = false` i `on_swipe`— queda escrita a docs/30 amb les quatre línies. Cap app no feia servir el
+// `false` que s'ha tret.
+static const char kVersion[] = "0.189.119";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

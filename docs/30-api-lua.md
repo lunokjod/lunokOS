@@ -3427,6 +3427,21 @@ lloc on una persona és, i la línia de sota diu on—. Abans d'aquesta versió,
 `keyboard = false` i s'emportava el bloc amb el teclat (és el que feia l'editor). Les dues caixes, la d'una línia i la
 de diverses, porten el camp.
 
+**Com es fa, en quatre línies.** Un full de text que es llegeix i es desplaça —el que abans es deia amb `keyboard = false`—:
+
+```lua
+local sheet = ui.textbox_multiline(w, h)
+sheet.text = text
+sheet.readonly = true                        -- la banda no puja mai; el cursor s'hi queda
+sheet.caret = false                         -- una pàgina que es llegeix no fa parpellejar cap bloc
+sheet.framed = false                        -- el paper de la pàgina arriba fins a la vora
+sheet.on_swipe = function(self, rows) end    -- i el dit la desplaça (docs/90)
+```
+
+I una caixa on s'escriu **no diu res**: `keyboard` només tria l'alfabet (`'alpha'` o `'numeric'`) i la banda la posa el
+sistema quan el dit hi cau. **`keyboard = false` no és cap manera de fer-ho** des de la 0.189.118: es llegeix com `'alpha'`
+i, si el que es vol és que no s'hi pugui escriure, el camp és `readonly`.
+
 **I `box.framed = false` treu la vora.** El control pinta la vora en `border` i l'interior en `background`, o sigui que
 un marc del color de dins no és cap marc: la bandera dona el segon com a primer i el paper de la pàgina arriba fins a la
 vora del control, que és el que vol un document que és tota la pàgina. És una bandera i no un quart color perquè el que
