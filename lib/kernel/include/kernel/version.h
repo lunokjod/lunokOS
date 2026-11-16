@@ -9536,7 +9536,10 @@ namespace kernel {
 // l'app: l'hora d'estiu té el seu propi ajust (`cfg dst`) i es va escriure quan es va marcar la casella, i tornar-la a sumar al
 // desament seria desar l'estiu dues vegades —una placa que al desembre llegeix +04:00—. El cas ara espera +03:00, comprova que
 // l'hora d'estiu és a `cfg dst` i que el prompt diu el mateix que la pàgina (docs/30, docs/60).
-static const char kVersion[] = "0.189.128";
+// 0.189.129 — **les 14:00 del vidre són les 14:00 menys la zona**. El cas dels ajustos demanava l'època de les 14:00 de UTC i la
+// pàgina té la fila de la zona i hi passa abans, o sigui que l'app desava bé (14:00 locals a +03:00 són les 11:00 de UTC) i el
+// número del cas era el d'una placa a +00:00: tres hores, que és exactament el que deia el vermell (docs/30, docs/60).
+static const char kVersion[] = "0.189.129";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

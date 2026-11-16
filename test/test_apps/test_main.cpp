@@ -16943,7 +16943,11 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   pump_turns(600);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: the clock is set to 14:00"), g_out);
-  TEST_ASSERT_INT_WITHIN_MESSAGE(4, 1794837600, static_cast<int>(hal::platform().clock()->epoch_ms() / 1000), g_out);
+  // **Les 14:00 del vidre són les 14:00 menys la zona**, que és el que fa l'app (`epoch_of` resta `time.tz()`): the number of the
+  // case was the 14:00 of UTC, which is only the same hour on a board at +00:00, i la pàgina dels ajustos té la fila de la zona
+  // i aquest cas hi passa abans (docs/30, docs/60).
+  const int expected_epoch = 1794837600 - static_cast<int>(kernel::cfg::tz_minutes()) * 60;
+  TEST_ASSERT_INT_WITHIN_MESSAGE(4, expected_epoch, static_cast<int>(hal::platform().clock()->epoch_ms() / 1000), g_out);
 
   // ---- the processor: **la política i les tres velocitats que pot fer servir** (0.189.107), que és el que el sostre d'aquest
   // ajust vol dir: apagar-ne una no és una suggerència i la governadora hi acota el que demana el sistema.
