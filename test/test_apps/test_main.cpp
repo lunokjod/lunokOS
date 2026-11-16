@@ -5761,7 +5761,10 @@ void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
     TEST_ASSERT_TRUE(add_app(storage, id, manifest, "while true do sys.delay(20):await() end\n"));
     char dir[32];
     snprintf(dir, sizeof(dir), "/apps/%s/res", id);
-    TEST_ASSERT_TRUE(storage->mkdir(dir));
+    // **Una carpeta que ja hi és no és un fracàs** (0.189.134): a case before this one may have left the folder of the same app
+    // on the disk of the run —the disk is one per process and the tools of the suite live on it—, and the case is about the
+    // cache of the launcher and not about making the same folder twice (docs/80).
+    (void)storage->mkdir(dir);
     char png[40];
     snprintf(png, sizeof(png), "/apps/%s/res/icon.png", id);
     TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", png));
@@ -16946,7 +16949,9 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   // **Les 14:00 del vidre són les 14:00 menys la zona**, que és el que fa l'app (`epoch_of` resta `time.tz()`): the number of the
   // case was the 14:00 of UTC, which is only the same hour on a board at +00:00, i la pàgina dels ajustos té la fila de la zona
   // i aquest cas hi passa abans (docs/30, docs/60).
-  const int expected_epoch = 1794837600 - static_cast<int>(kernel::cfg::tz_minutes()) * 60;
+  // **I l'offset és l'efectiu, no el del mapa** (0.189.130): `time.epoch` resta `offset_minutes()` —la zona més l'hora d'estiu—,
+  // que és el mateix número que fa servir la franja de la barra (docs/30, docs/60).
+  const int expected_epoch = 1794837600 - static_cast<int>(kernel::cfg::offset_minutes()) * 60;
   TEST_ASSERT_INT_WITHIN_MESSAGE(4, expected_epoch, static_cast<int>(hal::platform().clock()->epoch_ms() / 1000), g_out);
 
   // ---- the processor: **la política i les tres velocitats que pot fer servir** (0.189.107), que és el que el sostre d'aquest

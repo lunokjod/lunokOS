@@ -9552,7 +9552,12 @@ namespace kernel {
 // traspàs i el primer dia van a la NVS (`kernel::cfg`) i el RTC només rep l'època, mai l'hora local. docs/30 porta les dues
 // crides noves a la taula de `time` i docs/45 deixa anar el codi de Hinnant que el panell d'ajustos ja no fa servir (docs/30,
 // docs/45, docs/60). I `gen_about.py` torna a dir les versions de les llibreries que han pujat.
-static const char kVersion[] = "0.189.133";
+// 0.189.134 — **l'offset que compta és l'efectiu, i una carpeta que ja hi és no és un fracàs**. El cas dels ajustos restava la zona
+// del mapa del número esperat i des de la 0.189.130 l'app desa amb `time.epoch`, que resta `offset_minutes()` —la zona més
+// l'estiu—: el que el cas mira ara és el mateix número que fa servir la franja. I el cas de la caché del llançador exigia que
+// la carpeta `/apps/<id>/res` no hi fos, quan el disc és un per a tota la correguda i la pot haver deixada un cas anterior: la
+// carpeta s'assegura i el cas mira el que volia mirar (docs/30, docs/60, docs/80).
+static const char kVersion[] = "0.189.134";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
