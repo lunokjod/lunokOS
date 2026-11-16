@@ -9539,7 +9539,14 @@ namespace kernel {
 // 0.189.129 — **les 14:00 del vidre són les 14:00 menys la zona**. El cas dels ajustos demanava l'època de les 14:00 de UTC i la
 // pàgina té la fila de la zona i hi passa abans, o sigui que l'app desava bé (14:00 locals a +03:00 són les 11:00 de UTC) i el
 // número del cas era el d'una placa a +00:00: tres hores, que és exactament el que deia el vermell (docs/30, docs/60).
-static const char kVersion[] = "0.189.129";
+// 0.189.130 — **una sola hora a tot arreu** (l'amo: *«tot accés a l'hora ha de ser igual a tot arreu»*). Hi havia tres maneres:
+// la franja de la barra dividia l'època per seixanta mil i ensenyava **UTC**, la pàgina de la zona horària sumava l'hora d'estiu a
+// mà, i la dels ajustos no la sumava i es componia l'aritmètica civil. Amb una zona que no fos zero, el mateix vidre ensenyava
+// dues hores i un rellotge posat des dels ajustos quedava una hora desviat. Ara: la franja fa servir `cfg::offset_minutes()` —el
+// mateix número que `time.date()`— i el llenguatge té les dues portes que faltaven, **`time.offset()`** (l'offset efectiu en
+// minuts) i **`time.epoch(y, m, d, h, min)`** (la inversa de `time.date()`), i les dues apps les fan servir en lloc de la seva
+// aritmètica. `settings` puja a 0.1.6 i `tz` a 0.1.4 (docs/30, docs/60).
+static const char kVersion[] = "0.189.130";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -224,6 +224,8 @@ local busy = false
 -- **El que la pàgina ensenya i desa**: the offset the map says plus the hour of summer, and the hour of the band that is
 -- filled. One place each, so a checked box cannot move the label and leave the bands behind (0.179.50, docs/30).
 local function shown_offset()
+  -- **L'offset efectiu el diu el sistema** (0.189.130): `time.offset()` is the map's hour plus the hour of summer, the same
+  -- number the strip of the bar and the Settings page use; the page only adds the hour of the box when it is being changed.
   return chosen + (dst and kDaylightMinutes or 0)
 end
 

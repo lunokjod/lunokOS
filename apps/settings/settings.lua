@@ -412,29 +412,18 @@ end
 
 -- ---------------------------------------------------------------- l'hora i la data
 --
--- **L'època d'un moment local** (docs/60): the RTC counts UTC and a person reads their own hour, so the epoch of "today at
--- 09:30" is the days since 1970 times a day plus the hour, less the offset of the map. The arithmetic of a civil day is the
--- one every calendar of this system ends up needing.
-local function days_from_civil(y, m, d)
-  if m <= 2 then y = y - 1 end
-  local era = (y >= 0) and y or (y - 399)
-  era = era // 400
-  local yoe = y - era * 400
-  local mp = (m + 9) % 12
-  local doy = (153 * mp + 2) // 5 + d - 1
-  local doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
-  return era * 146097 + doe - 719468
-end
-
+-- **L'època d'un moment local la fa el sistema** (0.189.130): `time.epoch` és la inversa de `time.date()` i porta l'offset de la
+-- placa —l'hora del mapa i l'hora d'estiu—, que és el mateix número que fan servir la franja de la barra i la resta de pàgines.
+-- Aquí hi havia l'aritmètica civil i l'offset del mapa a mà, i ignorava `time.dst()`: un rellotge posat des d'aquesta pàgina
+-- amb l'estiu marcat quedava una hora desviat de la que deia la pàgina de la zona horària (docs/30, docs/60).
 local function epoch_of(day, month, hour, minute)
   local today = time.date()
   if today == nil then return nil end
-  local offset = time.tz() or 0
-  return days_from_civil(today.year, month, day) * 86400 + hour * 3600 + minute * 60 - offset * 60
+  return time.epoch(today.year, month, day, hour, minute)
 end
 
 local function tz_here()
-  local minutes = time.tz() or 0
+  local minutes = time.offset()
   local sign = (minutes < 0) and '-' or '+'
   local m = math.abs(minutes)
   return string.format('%s%02d:%02d', sign, m // 60, m % 60)

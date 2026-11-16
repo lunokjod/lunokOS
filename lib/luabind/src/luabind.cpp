@@ -1110,6 +1110,38 @@ int l_time_utc(lua_State* L) {
 // **It is `date` and not `local`** because `local` is a word of Lua and `time.local()` does not even parse —the same
 // wall the `in` of an alarm hit (docs/30)—, and `date` is the name the paper project gave this call, which is one more
 // row of the equivalence table of docs/45 with nothing to explain.
+// **L'offset efectiu i l'època d'una hora local** (0.189.130): the one number and the one inverse that every page needs and
+// that each of them was writing for itself —the Time zone page summed the hour of summer by hand and the Settings page did not,
+// so the same board showed +03:00 in one and +04:00 in the other, and a clock set from one of them landed an hour away—. The
+// arithmetic is the kernel's (`cfg::offset_minutes`), the caller only says which hour of the wall it means (docs/30, docs/60).
+int l_time_offset(lua_State* L) {
+  const int32_t minutes = (g_time_ops.offset_minutes != nullptr)
+                              ? g_time_ops.offset_minutes()
+                              : ((g_time_ops.tz_minutes != nullptr) ? g_time_ops.tz_minutes() : 0);
+  lua_pushinteger(L, static_cast<lua_Integer>(minutes));
+  return 1;
+}
+
+int l_time_epoch(lua_State* L) {
+  // The five numbers of a wall clock, as `time.date()` answers them: year, month, day, hour, minute.
+  const lua_Integer year = luaL_checkinteger(L, 1);
+  const lua_Integer month = luaL_checkinteger(L, 2);
+  const lua_Integer day = luaL_checkinteger(L, 3);
+  const lua_Integer hour = luaL_optinteger(L, 4, 0);
+  const lua_Integer minute = luaL_optinteger(L, 5, 0);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return push_nil_error(L, "E_INVAL", "that is not a day of the calendar");
+  }
+  const int32_t shift = (g_time_ops.offset_minutes != nullptr)
+                            ? g_time_ops.offset_minutes()
+                            : ((g_time_ops.tz_minutes != nullptr) ? g_time_ops.tz_minutes() : 0);
+  const int64_t days = hal::days_from_civil(static_cast<int32_t>(year), static_cast<uint32_t>(month),
+                                            static_cast<uint32_t>(day));
+  const int64_t seconds = days * 86400 + hour * 3600 + minute * 60 - static_cast<int64_t>(shift) * 60;
+  lua_pushinteger(L, static_cast<lua_Integer>(seconds));
+  return 1;
+}
+
 int l_time_date(lua_State* L) {
   // **The offset that counts is the map's plus the hour of summer** (0.182.0): `time.tz()` keeps saying what the map says and
   // this is what makes the hour of a person, so a box ticked in the Time zone page moves the clock at once (docs/30, docs/60).
@@ -12248,6 +12280,10 @@ void seal_globals(lua_State* L) {
   set_function(L, "set", l_time_set);
   set_function(L, "utc", l_time_utc);
   set_function(L, "date", l_time_date);
+  // **`time.offset()` i `time.epoch(...)`** (0.189.130): the effective offset and the inverse of `date`, so no page writes the
+  // arithmetic of the hour again (docs/30, docs/60).
+  set_function(L, "offset", l_time_offset);
+  set_function(L, "epoch", l_time_epoch);
   set_function(L, "tz", l_time_tz);
   // **L'hora d'estiu** (0.182.0): the setting the Time zone page ticks, kept in the store and applied to `time.date` (docs/30).
   set_function(L, "dst", l_time_dst);

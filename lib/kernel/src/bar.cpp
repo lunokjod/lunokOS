@@ -2,6 +2,7 @@
 #include "kernel/meter.h"
 #include "alarms/alarms.h"
 #include "kernel/bar.h"
+#include "kernel/cfg.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -143,7 +144,13 @@ Status read_status(bool clock_due, bool battery_due) {
       meter::Scope scope(meter::kClockNow);
       epoch_ms = clock->epoch_ms();
     }
-    status.minute = (epoch_ms < 0) ? 0 : static_cast<uint32_t>(epoch_ms / 60000);
+    // **L'hora de la franja és la de la persona** (0.189.130): the epoch is UTC and the hour a person reads is the epoch plus the
+    // offset of the board —`cfg::offset_minutes()`, the map's hour and the hour of summer—, which is the same number
+    // `time.date()` gives an app. The strip was showing UTC while every page showed the local hour, o sigui dues hores al mateix
+    // vidre amb una zona que no fos zero (l'amo: *«tot accés a l'hora ha de ser igual a tot arreu»*) (docs/30, docs/60).
+    const int64_t shift_ms = static_cast<int64_t>(cfg::offset_minutes()) * 60000;
+    const int64_t local_ms = epoch_ms + shift_ms;
+    status.minute = (local_ms < 0) ? 0 : static_cast<uint32_t>(local_ms / 60000);
   }
   if (battery_due) {
     int mv = 0;
