@@ -3729,17 +3729,19 @@ bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mar
     // state, and the state is not the finger (docs/30, docs/90).
     const int32_t x = target.x + kCheckboxAir;
     const int32_t y = target.y + (static_cast<int32_t>(height) - h) / 2 + (pressed ? 1 : 0);
-    draw_bits(*target.canvas, x, y, w, h, checked ? toggle_mark::art::kOnBits : toggle_mark::art::kOffBits, border);
     // **The focus is the ring of the system and not an inversion** (0.189.90): a button answers a focus with its face
     // inverted because the inversion says "this is the one that will answer" and a button has no state of its own; a
     // switch does, and one that inverted itself would be a switch nobody can read —the ink band of "on" would be the
     // paper band of "off" while the ring of the dial is on it—. Two pixels of band and one of pause, outside the mark
-    // (docs/30, docs/92).
+    // (docs/30, docs/92). **The ring goes down before the mark** (0.189.140): the inside of the ring is paper —that is
+    // the pause— and drawn after the picture it erased the switch it was pointing at, which is the drawing the test
+    // found: an empty capsule under the dial.
     if (focused) {
       const int32_t radius = (h + 4) / 2;
       draw_round_fill(*target.canvas, x - 2, y - 2, w + 4, h + 4, radius, border, mode);
       draw_round_fill(*target.canvas, x - 1, y - 1, w + 2, h + 2, radius - 1, background, mode);
     }
+    draw_bits(*target.canvas, x, y, w, h, checked ? toggle_mark::art::kOnBits : toggle_mark::art::kOffBits, border);
   }
   // **The row is opaque too**: the child that names the setting was drawn after this control and the row
   // covers it, so a checkbox that redraws asks its children to draw again, as the button does (docs/30,

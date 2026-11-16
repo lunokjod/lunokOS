@@ -9567,7 +9567,13 @@ namespace kernel {
 // el primer lloc de la targeta pren el dial quan el focus és fora de la llista, i el bloc que ja hi era el torna a la pàgina quan
 // la targeta marxa (0.172.1, docs/30, docs/90). Els dos casos de l'esborrador passen, i el de la targeta sobre la pàgina recupera
 // les dues línies de `on_focus` que la 0.179.7 havia deixat de complir.
-static const char kVersion[] = "0.189.136";
+// **L'anell del focus es pintava damunt del commutador i el seu paper esborrava el dibuix** (0.189.136, docs/30, docs/92):
+// `checkbox_draw` dibuixava la marca del clipart i després l'anell —la banda de dos píxels i el paper de pausa—, i el paper
+// de dins queia exactament sobre la marca, o sigui que un commutador amb el dial a sobre era una càpsula buida. El va trobar
+// el cas del clipart de `test_ui` quan va deixar de quadrar-li el píxel de la banda. Ara l'anell va **abans** de la marca.
+// I la pàgina de `run panel` torna a quadrar amb la placa: la fila del bus és de cent microsegons i no d'1 100 (0.189.69,
+// docs/95 E-11), o sigui que la pàgina sencera són **902 ms** i el model i els documents deien 1 970 (docs/85).
+static const char kVersion[] = "0.189.137";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -1281,21 +1281,27 @@ static void test_with_the_waits_off_a_paint_is_instant_and_still_leaves_ink() {
 }
 
 // **The bus is part of the paint, and not a detail of the emulator**: the page of `run panel` is the whole
-// view with `du` (540 x 932) and the ladder of sixteen levels with `gc16` (528 x 120), and on 1/11 it
-// came to **1 970 ms at the emulator** and **1 985 ms on the board** (docs/95, E-7). This is the arithmetic
-// that makes those two numbers the same number: if it moves, a constant in `emu_ink.cpp` moved and the
-// documents have to move with it (docs/85).
+// view with `du` (540 x 932) and the ladder of sixteen levels with `gc16` (528 x 120). On 1/11 the model
+// squared it with the board's **1 985 ms** by inferring a row of 1 100 µs; on 15/11 the driver counted the
+// transactions themselves and a row is **a hundred microseconds**, ten times less (docs/95, E-11), so the page
+// is **902 ms** —the ink of the two paints and the wire— and the table of rows is the one the board measured.
+// If it moves, a constant in `emu_ink.cpp` moved and the documents have to move with it (docs/85).
 static void test_a_page_costs_what_the_board_says_a_page_costs(void) {
   const uint32_t du_ms = emu::ink_mode(hal::UpdateMode::kDu).ms;
   const uint32_t gc16_ms = emu::ink_mode(hal::UpdateMode::kGc16).ms;
   const uint32_t bus = emu::ink_transfer_us(540, 932, hal::FlushStyle::kRows) + emu::ink_transfer_us(528, 120, hal::FlushStyle::kRows);
   const uint32_t page = bus + (du_ms + gc16_ms) * 1000u;
-  TEST_ASSERT_UINT32_WITHIN_MESSAGE(20000, 1970000, page, "the page of run panel is not the page the emulator painted");
-  TEST_ASSERT_UINT32_WITHIN_MESSAGE(40000, 1985000, page, "the page of run panel is not the page the board painted");
-  // A region of nothing costs nothing, and a full page of the glass is over half a second of wire and rows.
+  TEST_ASSERT_UINT32_WITHIN_MESSAGE(20000, 902000, page, "the page of run panel is not the page the emulator painted");
+  // **I la fila és la que va comptar el driver** (0.189.69, docs/95 E-11): the same page of five hundred and forty rows
+  // spent **282 ms** on the wire, and a transaction of a row is a hundred microseconds and not a millisecond.
+  TEST_ASSERT_UINT32_WITHIN_MESSAGE(15000, 282000, emu::ink_transfer_us(540, 932, hal::FlushStyle::kRows),
+                                    "a row does not cost what the driver counted");
+  // A region of nothing costs nothing, and **a full page of the glass is the same page the driver counted** (0.189.69):
+  // five hundred and forty rows of four hundred and eighty bytes, 261 ms of wire and rows against the 282 ms the board
+  // spent — the eight per cent of difference is the gathering and the edge of the driver, which this arithmetic does not model.
   TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(0, 540, hal::FlushStyle::kRows));
   TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(540, 0, hal::FlushStyle::kRows));
-  TEST_ASSERT_TRUE(emu::ink_transfer_us(960, 540, hal::FlushStyle::kRows) > 540000u);
+  TEST_ASSERT_UINT32_WITHIN(30000, 282000, emu::ink_transfer_us(960, 540, hal::FlushStyle::kRows));
   // Twice the rows is twice the price.
   TEST_ASSERT_EQUAL_UINT32(2 * emu::ink_transfer_us(960, 270, hal::FlushStyle::kRows), emu::ink_transfer_us(960, 540, hal::FlushStyle::kRows));
 }
@@ -3476,10 +3482,11 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   TEST_ASSERT_EQUAL_UINT8(0, view_level(3, 80));
   // **The box of the tick of the first entry**, which is the row the dial is on: the row is ink and the box flips to
   // paper —its frame and its tick—, and between them the ink of the row (docs/92). The mark is the character `U+F14A` of
-  // the clipart at 18 by 18 (`tools/make_toggle_mark.py`), so the column of a pixel of it is the one the table has.
+  // the clipart at 18 by 18 (`tools/make_toggle_mark.py`), so the box is eighteen columns from 12 —frame at 12 and 13,
+  // tick at 22 to 24, frame again at 28 and 29— and the ink of the row runs between them.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 80));  // the frame of the box
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(18, 80));  // the tick, which is paper on a row of ink
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(26, 80));   // and the ink of the row between the two
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(18, 80));   // the ink of the row between the two
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(23, 80));  // the tick, which is paper on a row of ink
   // **An entry that cannot be used is the dim tone**: there is a level eight in the row of "Quit" and none in the row of
   // "Open", which is the row of a word that works.
   int dim_row = 0;
@@ -4458,9 +4465,35 @@ void test_a_page_of_a_book_paints_with_the_ink_it_is_given() {
   ui::release(slot);
 }
 
+// **`LUNOK_TEST=<name>` runs one case and `LUNOK_FROM=<name>` starts the run there** (0.189.139): Unity has no filter
+// of its own, and the reds of this suite only appear *after* other cases have run, so finding which predecessor leaves
+// the state behind means asking for a suffix of the run and not for a single case.
+static const char* g_only = nullptr;
+static const char* g_from = nullptr;
+static bool g_started = false;
+
+static bool runs_now(const char* name) {
+  if (g_only != nullptr && g_only[0] != '\0') return strcmp(g_only, name) == 0;
+  if (g_from != nullptr && g_from[0] != '\0') {
+    if (!g_started && strcmp(g_from, name) == 0) g_started = true;
+    return g_started;
+  }
+  return true;
+}
+
+#undef RUN_TEST
+#define RUN_TEST(func)                            \
+  do {                                            \
+    if (runs_now(#func)) {                        \
+      UnityDefaultTestRun(func, #func, __LINE__); \
+    }                                             \
+  } while (0)
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
+  g_only = getenv("LUNOK_TEST");
+  g_from = getenv("LUNOK_FROM");
   UNITY_BEGIN();
   RUN_TEST(test_without_an_app_there_is_no_view);
   RUN_TEST(test_the_canvas_is_the_glass_and_starts_white);
