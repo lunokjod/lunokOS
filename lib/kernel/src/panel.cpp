@@ -199,13 +199,15 @@ const char* key_icon(Key which) {
 // top —they are the system's, and the console that a close leaves behind has them too— (docs/30, docs/45).
 bool key_is_there(Key which) {
   if (which == Key::kClose) return shell::the_page_in_front_can_be_left();
-  // **La casa hi és quan hi ha una pàgina de casa i no és la que ja hi ha** (0.189.139): a board with no page of the start has
-  // nothing to open, and a house over the launcher it would open is a key that does nothing —the same rule as the cross—
+  // **La casa hi és quan `cfg home` nomena una app** (0.189.139, i **no s'amaga sobre el llançador**, 0.189.140): the first
+  // version hid the key when the page of the start was already in front —the rule of the cross, a key that does nothing— and
+  // the owner opened the card of the emulator, which comes up **on the launcher**, and asked where his house was. A board with
+  // no page of the start has nothing to open and the key is not there; over the page of the start the key **starts it again**,
+  // which is what a house means: the way to the beginning, and the way out of a page of it that has stopped answering
   // (docs/30, docs/45).
   if (which == Key::kHome) {
     const char* home = cfg::home_app();
-    if (home == nullptr || home[0] == '\0') return false;
-    return !(shell::app_running() && strcmp(shell::app_id(), home) == 0);
+    return home != nullptr && home[0] != '\0';
   }
   if (which == Key::kBack) return apps::views() > 0;
   // **I el son amb les tecles vives, només si la placa en té una** (0.189.25): the same rule as the cross —a key that does
@@ -408,9 +410,9 @@ void open_the_settings() {
 // (`shell::start_the_home_app` asks nothing of the glass and starts the page of the start), so the key and the road out of a page
 // cannot disagree about which app is home —it is `cfg::home_app()`, the name a person chose (docs/30, docs/40, docs/90).
 //
-// **Amb una pàgina a sota es demana, i sense cap s'arrenca**: the two cases are the two the gear has, and the reason is the same
-// —a name written down for the next turn needs a page to close (`shell::ask_run`), and a board with nothing in front starts the app
-// now— (docs/30, docs/40).
+// **Amb una altra pàgina a sota es demana; sense cap, o sobre la de casa mateixa, s'arrenca**: the two cases are the two the gear
+// has, and the reason is the same —a name written down for the next turn needs a page to close (`shell::ask_run`), and a board with
+// nothing in front starts the app now— (docs/30, docs/40).
 void open_the_home() {
   const char* home = cfg::home_app();
   if (home == nullptr || home[0] == '\0') {
@@ -422,20 +424,19 @@ void open_the_home() {
     log_printf(pal::kLogWarn, "PANEL", "the house key: there is no app '%s' on this board", home);
     return;
   }
-  // **La casa sobre la pàgina que obriria no fa res**, and it is not even painted (`key_is_there`): this is the line for a finger
-  // that was on the card while the page below changed (docs/30).
-  if (shell::app_running() && strcmp(shell::app_id(), entry.id) == 0) {
-    log_printf(pal::kLogInfo, "PANEL", "the house key: %s is already the page in front", entry.id);
-    return;
-  }
-  if (!shell::app_running()) {
+  // **Sobre la pàgina que obriria, la torna a arrencar** (0.189.140): the house is the way to the beginning, and a page of the
+  // start that has stopped answering is a page whose house is the way out of it. It is the same road as a board with nothing in
+  // front —close what there is and start it— and it is why the key is painted over the launcher too (docs/30, docs/45).
+  const bool already = shell::app_running() && strcmp(shell::app_id(), entry.id) == 0;
+  if (!shell::app_running() || already) {
     g_open = false;
     ui::forget_the_page_hold();
     if (!shell::start_app(entry.id, /*splash=*/true)) {
       log_printf(pal::kLogWarn, "PANEL", "the house key: '%s' did not come up", entry.id);
       return;
     }
-    log_printf(pal::kLogInfo, "PANEL", "the house key: %s comes up with no page under it", entry.id);
+    log_printf(pal::kLogInfo, "PANEL", "the house key: %s %s", entry.id,
+               already ? "starts again from its first page" : "comes up with no page under it");
     return;
   }
   char why[96] = {0};

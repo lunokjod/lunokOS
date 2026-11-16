@@ -9599,7 +9599,13 @@ namespace kernel {
 // **I la línia del log que no hi cabia** (l'amo: *«es cosa meva o el log de [D][PANEL] no tanca un parèntesi?»*): the line of a
 // paint is exactly a hundred and sixty characters and the buffer was a hundred and sixty, so it was cut at `... of ink before i`
 // and the `)` never reached the console. The buffer is a hundred and ninety-two and what still does not fit ends in three dots.
-static const char kVersion[] = "0.189.139";
+// **I la casa s'amagava sobre el llançador, que és on arrenca l'emulador** (0.189.140, l'amo: *«no veig el botó home al
+// panell»*). The first version hid the key when the page of the start was already in front —the rule of the cross, "a key that
+// does nothing is worse than no key"— and the emulator of this repository comes up **on the launcher** (`LUNOK_HOME_APP` is
+// `home_eink`), so the house was hidden exactly where a person looks at the card for the first time. Now the key is there
+// whenever `cfg home` names an app, and over the page of the start it **starts it again**: the way to the beginning, and the way
+// out of a page of the start that has stopped answering (docs/30, docs/45).
+static const char kVersion[] = "0.189.140";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
