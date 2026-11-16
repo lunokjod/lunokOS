@@ -9482,7 +9482,11 @@ namespace kernel {
 // quedar pintada a la targeta d'una app d'una sola pàgina, amb `views` a zero i el bucle de `paint()` saltant-se-la —el cas del
 // panell ho va trobar mirant el vidre, i el bolcat de 24 × 24 en va dir la forma de seguida—. Un `g_sunk` que ja no és una
 // tecla del card no es repinta (docs/30, docs/45).
-static const char kVersion[] = "0.189.117";
+// 0.189.118 — **la banda és del sistema i `box.keyboard` només diu l'alfabet** (l'amo: *«no trobo que l'app hagi d'escollir si
+// un control te teclat o no… això ho fa el sistema sense intervenció de l'app»*). El tercer valor de la 0.91.0, `keyboard = false`,
+// deia el mateix que `readonly` però s'enduia el cursor, i la 0.116.0 ja va fer el camp semàntic: ara `keyboard` és `'alpha'` o
+// `'numeric'`, un `false` es llegeix com l'alfabet que la caixa no ha dit, i el que no s'escriu diu `readonly` (docs/30).
+static const char kVersion[] = "0.189.118";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

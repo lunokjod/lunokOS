@@ -8488,12 +8488,16 @@ void caret_stop(lua_State* L) {
   lua_pop(L, 1);
 }
 
-// **What a text box says about the keyboard** (0.91.0): a box of one line or of several, and the field `keyboard`
-// —`'alpha'` by default, `'numeric'`, or `false` for a box that takes no keys—. It is the one question the system
-// asks before a band comes up, and the one that lets a page read-only scroll without opening a keyboard (docs/30).
-// **And `readonly` says it with a word that means it** (0.116.0): a document a person reads has no keys to press, and an
-// app that had to write `keyboard = false` to say "this box is not to be written in" was an app that threw the caret
-// away with the keyboard. A read-only box keeps its block and never brings the band (docs/30, docs/92).
+// **What a text box says about the keyboard** (0.91.0): a box of one line or of several, and the field `keyboard` says
+// **which alphabet** —`'alpha'` by default, `'numeric'` for digits—. It is the one question the system asks before a band comes
+// up, and the answer to "is there a band at all" is not here: **a text box is for writing in, and the band is the system's**
+// (l'amo: *«no trobo que l'app hagi d'escollir si un control te teclat o no… això ho fa el sistema»*, 16/11).
+// **I qui ho diu que no és `readonly`** (0.116.0): a document a person reads has no keys to press, and an app that had to write
+// `keyboard = false` to say "this box is not to be written in" was an app that threw the caret away with the keyboard. A
+// read-only box keeps its block and never brings the band (docs/30, docs/92).
+// **`keyboard = false` es va quedar sense feina i ja no la fa** (0.189.118): the third value of this field said the same as
+// `readonly` with a word that hides the semicolon —and it took the caret with it—, so a `false` here is read as the alphabet
+// the box did not name, which is `'alpha'`, and a box that must not be written in says `readonly` (docs/30, docs/90).
 bool ui_box_keyboard(lua_State* L, int object, bool& wants, uint8_t& kind) {
   object = lua_absindex(L, object);
   const bool line = ui_field_bool(L, object, "__textbox", false);
@@ -8504,9 +8508,7 @@ bool ui_box_keyboard(lua_State* L, int object, bool& wants, uint8_t& kind) {
   lua_getiuservalue(L, object, 1);
   if (lua_istable(L, -1)) {
     lua_getfield(L, -1, "keyboard");
-    if (lua_isboolean(L, -1)) {
-      wants = lua_toboolean(L, -1) != 0;
-    } else if (lua_isstring(L, -1)) {
+    if (lua_isstring(L, -1)) {
       const char* asked = lua_tostring(L, -1);
       kind = (asked != nullptr && strcmp(asked, "numeric") == 0) ? 1 : 0;
     }

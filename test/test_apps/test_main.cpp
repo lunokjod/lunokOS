@@ -7976,7 +7976,7 @@ void test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page(void
       "box.cursor = 0\n"
       // The page is a sheet to scroll and not a field to type into: since 0.91.0 a finger on a box that takes keys
       // brings the keyboard, so a box that does not want one says it (docs/30, docs/90).
-      "box.keyboard = false\n"
+      "box.readonly = true\n"
       "console.print('lines ' .. box:lines() .. ' rows ' .. box:rows())\n"
       "box.on_swipe = function(self, rows)\n"
       "  console.print('swipe ' .. rows .. ' top ' .. tostring(self.top))\n"
@@ -8232,7 +8232,7 @@ void test_a_swipe_only_moves_the_box_that_has_the_dial(void) {
       "box.scale = 2\n"
       "box.text = table.concat(lines, '\\n')\n"
       "box.cursor = 0\n"
-      "box.keyboard = false\n"
+      "box.readonly = true\n"
       "local button = ui.button(120, 40)\n"
       "button:place(10, 260)\n"
       "box.on_swipe = function(self, rows)\n"
@@ -8314,7 +8314,7 @@ void test_a_swipe_that_leaves_the_box_stops_where_it_left_it(void) {
       "box.scale = 2\n"
       "box.text = table.concat(lines, '\\n')\n"
       "box.cursor = 0\n"
-      "box.keyboard = false\n"
+      "box.readonly = true\n"
       "box.on_swipe = function(self, rows)\n"
       "  console.print('swipe ' .. rows .. ' top ' .. tostring(self.top))\n"
       "end\n"
@@ -8399,7 +8399,7 @@ void test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows(void)
       "box.scale = 2\n"
       "box.text = text\n"
       "box.cursor = 0\n"
-      "box.keyboard = false\n"
+      "box.readonly = true\n"
       "local fresh = nil\n"
       "local heard = 0\n"
       "box.on_swipe = function(self, rows)\n"
@@ -8411,7 +8411,7 @@ void test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows(void)
       "    fresh:place(10, 10)\n"
       "    fresh.scale = 2\n"
       "    fresh.text = text\n"
-      "    fresh.keyboard = false\n"
+      "    fresh.readonly = true\n"
       "    fresh.on_swipe = function(self, said) console.print('fresh ' .. said) end\n"
       "    console.print('given back')\n"
       "    ui.present()\n"
@@ -11667,8 +11667,9 @@ void test_a_drag_that_crosses_the_keyboard_types_nothing(void) {
   kernel::boot(hal::platform());
 }
 
-// **A box that takes no keys is a sheet to scroll** (0.91.0): the field `keyboard = false` keeps the finger and the
-// caret and leaves the band closed; a read-only page has somewhere to put the thumb and nothing to type.
+// **A box that takes no keys is a sheet to scroll** (0.91.0, i el camp de la 0.189.118): `readonly` keeps the finger and the
+// caret and leaves the band closed —the band is the system's, and a box that must not be written in says so with the word
+// that means it—; a read-only page has somewhere to put the thumb and nothing to type.
 void test_a_box_that_takes_no_keys_does_not_open_the_keyboard(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
@@ -11688,7 +11689,7 @@ void test_a_box_that_takes_no_keys_does_not_open_the_keyboard(void) {
                            "local kb = ui.keyboard()\n"
                            "local box = ui.textbox(200, 48)\n"
                            "box:place(20, 60)\n"
-                           "box.keyboard = false\n"
+                           "box.readonly = true\n"
                            "box.on_focus = function(self, on)\n"
                            "  console.print('focus ' .. tostring(on) .. ' kb ' .. tostring(kb:visible()))\n"
                            "end\n"
