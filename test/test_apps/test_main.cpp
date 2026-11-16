@@ -6878,9 +6878,12 @@ void test_the_cross_of_a_text_box_empties_it_and_tells_the_app_first(void) {
   emu::Gt911Panel* panel = emu::touch_panel();
   TEST_ASSERT_NOT_NULL(panel);
   const kernel::ui::Canvas& view = kernel::ui::canvas();
-  // The cross is at the right end of the box: a square of the face's line height, inside the frame and its air, so a finger
-  // that lands in the last piece of the box's inside lands on it.
-  const uint16_t at_x = static_cast<uint16_t>(view.x + 20 + 400 - 24);
+  // **El quadrat de la creu, amb l'aritmètica del sistema** (0.189.120): `clear_square_of` (ui.cpp) gives a side of the
+  // face's line height —seven rows at scale two, so fourteen— and puts it at `width - pad - side` with `pad = thickness + 6 =
+  // 8`, o sigui a 378..392 d'aquest quadre de 400. El cas tocava a 400 − 24 = 376, dos píxels a l'esquerra del quadrat: era un
+  // toc al text i no a la creu, i per això la caixa no es buidava i la banda pujava com amb qualsevol toc. El mig del quadrat
+  // és 378 + 7 = 385.
+  const uint16_t at_x = static_cast<uint16_t>(view.x + 20 + 385);
   const uint16_t at_y = static_cast<uint16_t>(view.y + 20 + 30);
   capture_begin();
   TEST_ASSERT_TRUE(panel->finger_down(0, at_x, at_y));

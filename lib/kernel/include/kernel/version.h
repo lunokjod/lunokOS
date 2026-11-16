@@ -9491,7 +9491,11 @@ namespace kernel {
 // (`clock`, `shell`, `editor` amb el camí, `timeclock`) només diuen l'alfabet. La recepta del full que es llegeix —`readonly`,
 // `caret = false`, `framed = false` i `on_swipe`— queda escrita a docs/30 amb les quatre línies. Cap app no feia servir el
 // `false` que s'ha tret.
-static const char kVersion[] = "0.189.119";
+// 0.189.120 — **el toc de la creu d'una caixa de text, dos píxels a l'esquerra**. El cas tocava a `400 − 24` i el quadrat del
+// botó —`clear_square_of` a ui.cpp— és de la seva alçada de lletra (catorze a escala dos) i comença a `width − pad − side`
+// amb `pad = thickness + 6 = 8`, o sigui a 378..392: el dit queia sobre el text, la caixa no es buidava i la banda pujava com
+// amb qualsevol toc. El mig del quadrat és 385 (docs/30, docs/90, docs/80).
+static const char kVersion[] = "0.189.120";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
