@@ -9467,7 +9467,13 @@ namespace kernel {
 // tres casos de l'entrega del dial ho demanaven a la manera de la 0.113.0 (`swipe 1` per pas) i ara llegeixen el gest —`swipe 4`
 // en el primer, `swipe 7 top 7` en el segon—, i busquen la línia de l'app i no la paraula, que des de la 0.189.1 també surt al
 // registre del nucli (`swipe 0,-60: not a page`, `the band asked ... top 0`) (docs/30, docs/92).
-static const char kVersion[] = "0.189.114";
+// 0.189.115 — **el quadre que es dona a mig gest**. El cas demanava el `box:release()` al **segon** avís de l'on_swipe, o sigui
+// al segon graó de quinze píxels, i des de la 0.185.0 el sistema compta files senceres i les lliura d'un sol cop (`ui_swipe_by`):
+// aquell drag era un sol `swipe 4`, el quadre no es donava mai i el cas mesurava la granulositat del panell i no la promesa. Ara
+// l'app el dona al primer avís, que passa sempre dins del contacte, i el cas comprova a més que el `given back` és **abans** de la
+// línia `[I][TOUCH] drag` —la de l'aixecada—, o sigui que la donada va passar amb el dit a baix i quedava camí per recórrer
+// (docs/30, docs/90, docs/92 §28).
+static const char kVersion[] = "0.189.115";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

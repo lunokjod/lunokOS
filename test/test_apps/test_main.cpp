@@ -8405,7 +8405,7 @@ void test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows(void)
       "box.on_swipe = function(self, rows)\n"
       "  console.print('swipe ' .. rows)\n"
       "  heard = heard + 1\n"
-      "  if heard == 2 then\n"
+      "  if heard == 1 then\n"
       "    box:release()\n"
       "    fresh = ui.textbox_multiline(300, 200)\n"
       "    fresh:place(10, 10)\n"
@@ -8427,9 +8427,12 @@ void test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows(void)
   pump_captured(20, g_out, sizeof(g_out), "run giver");
   const kernel::ui::Canvas& view = kernel::ui::canvas();
 
-  // **The whole gesture completes**: two rows of the first box, which is the one that is given back, and two more moves
-  // of a finger that has no control any more — it is on the glass over the box the app has just built, and that box is
-  // not pressed by a contact that began on another one (0.113.0, docs/30).
+  // **El gest és un sol contacte i el quadre es dona dins d'ell** (0.189.115): the app gives the box back at the **first**
+  // thing the swipe says, whatever number of rows it says, and the finger that is still down walks on over the box it has
+  // just built. What was asked before was a give back at the *second* notice —one per fifteen pixels— and since 0.185.0
+  // the system counts whole rows and hands them over in one piece (`ui_swipe_by`, luabind.cpp), so that drag was a single
+  // `swipe 4` and the box was never given back: the case measured the granularity of the panel and not the promise
+  // (0.113.0, docs/30, docs/90).
   capture_begin();
   TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 100),
                                       static_cast<uint16_t>(view.y + 160)));
@@ -8442,8 +8445,16 @@ void test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows(void)
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "given back"), g_out);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(2, times_in(g_out, "swipe "), g_out);
+  const char* gave_back = strstr(g_out, "given back");
+  TEST_ASSERT_NOT_NULL_MESSAGE(gave_back, g_out);
+  // **I amb el dit encara a baix**: the line of the lift is `[I][TOUCH] drag ...`, written when the contact ends, so the give
+  // back before it is a give back in the middle of the gesture and not one at the end of it, where there is nothing left to
+  // walk (0.189.115, docs/90). Without this the case would pass with a hand over that never happened while it mattered.
+  const char* lift = strstr(g_out, "[I][TOUCH] drag ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(lift, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(gave_back < lift, g_out);
+  // **I el quadre nou no ha sentit res del contacte que va començar a l'altre**: the contact belongs to the slot the finger
+  // landed on, and the box the app built in its place is a control that no finger has touched yet (docs/30, docs/90).
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fresh "), g_out);
 
   kernel::shell::close_app();
