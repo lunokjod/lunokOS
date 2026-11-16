@@ -9462,7 +9462,12 @@ namespace kernel {
 // d'un de sol. Ara es mira `luabind::running()` i s'atura el que quedi, que és l'últim que fa `close_app` (docs/80).
 // **I el cas de la pàgina que no gira busca la línia de l'app** i no `page `, que des de la 0.189.1 també és el registre del
 // nucli (`list 1: page 1 of 6 (already there)`).
-static const char kVersion[] = "0.189.113";
+// 0.189.114 — **l'escombrat dels estris del dit, amb la seva forma**. Des de la 0.185.0 un swipe és un gest que es decideix quan
+// el dit marxa, i no un informe per cada quinze píxels: el ganxo d'un quadre de text rep **un** avís amb el net del camí. Els
+// tres casos de l'entrega del dial ho demanaven a la manera de la 0.113.0 (`swipe 1` per pas) i ara llegeixen el gest —`swipe 4`
+// en el primer, `swipe 7 top 7` en el segon—, i busquen la línia de l'app i no la paraula, que des de la 0.189.1 també surt al
+// registre del nucli (`swipe 0,-60: not a page`, `the band asked ... top 0`) (docs/30, docs/92).
+static const char kVersion[] = "0.189.114";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
