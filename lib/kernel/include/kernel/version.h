@@ -9704,7 +9704,22 @@ namespace kernel {
 // El format de cada línia és de la biblioteca (`alarms::describe`) i no de qui la crida: els camps són seus, i un segon
 // lector del mateix struct és el que discrepa el dia que hi arriba un camp. `alarm.caps()` guanya la clau `keeper` perquè
 // una app pugui dir el mateix (docs/30, docs/45, docs/50, docs/60, docs/85).
-static const char kVersion[] = "0.189.149";
+// **El bloqueig del vidre és una app, i té tres moments** (0.189.150, l'amo: *«El Toggle de la pestanya "Privacy" activa que
+// es llenci l'app escollida com lock al inici del sistema i al despertar d'un sleep. Afegeix també un selector de temps al
+// panell Privacy "Lock after:" 5, 10, 15 minutes, per defecte 10 minutes. Aquest comptador torna a començar quant l'usuari
+// deixa d'interactuar amb la placa, no toca botons físics ni pantalla durant aquest temps, llavors salta l'app lock»*,
+// *«A l'app Settings->System s'escullen les aplicacions per defecte: App at start (canvia'l per "Home"), Panel gear
+// (canvia'l per "Settings"), Lock (nova entrada)… Si alguna de les opcions es buida, el botó del panell desplegable de
+// sistema no mostrarà l'icona corresponent»*). Tres claus noves al magatzem de `cfg` —`lock` (la pàgina, `device_lock`
+// de sèrie), `lockon` (el commutador, apagat) i `lockafter` (cinc, deu o quinze minuts, deu)—, tres portes al prompt i al
+// Lua i un mòdul nou, `kernel::lock`, que és **el que compta els minuts i no el que dibuixa**: obre la pàgina que `cfg`
+// nomena a l'arrencada, al despert d'un son lleuger i quan la placa porta els minuts del commutador sense cap tecla, cap dit
+// i cap byte de consola. El pany no és una barra que s'amaga —el que la 0.189.101 va fer servir— perquè una barra no és una
+// pàgina: la pàgina és una app del disc i es tanca com qualsevol altra. La pestanya Privacy del panell d'ajustos canvia de
+// sentit (el commutador escriu `cfg.lockon` i la fila nova «Lock after» els minuts), la pestanya System reanomena les seves
+// dues files a `Home` i `Settings` i en guanya una tercera, `Lock`, i el botó del panell que no té app deixa de pintar-se
+// (`key_is_there` pregunta `cfg`). Una placa sense vidre no bloqueja res i no diu res (docs/30, docs/40, docs/45, docs/50, docs/60).
+static const char kVersion[] = "0.189.150";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

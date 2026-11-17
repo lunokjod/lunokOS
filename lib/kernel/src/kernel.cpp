@@ -12,6 +12,7 @@
 #include "kernel/env.h"
 #include "kernel/imu.h"
 #include "kernel/led.h"
+#include "kernel/lock.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/net.h"
@@ -673,6 +674,11 @@ void boot(hal::IPlatform& platform) {
     }
   }
 
+  // **I la pantalla es tapa si la persona ho ha demanat** (0.189.150): the lock app comes to the front **after** the home app,
+  // so opening the lock gives back the page the board was going to show and not the prompt —which is the whole point of a
+  // lock on a board with no cable— (docs/30, docs/90).
+  lock::boot();
+
   // **I el sistema carregat treballa a la velocitat de repòs** (0.179.38): the boot is one window and the home app is part
   // of it —its first page is part of what the boot lays down, and a launcher that is arriving is not worth a second burst—,
   // so this is where the board goes back to a hundred and sixty. An app started after the boot —`run`, another app, an
@@ -822,6 +828,11 @@ void poll() {
   panel::poll();
 #endif  // LUNOK_GLASS
 
+  // **I la pantalla que es tapa, entre torns** (0.189.150): the counter of the idle minutes and the page a sleep owes. It goes
+  // here and not inside the sleep or inside a hook because starting an app closes the one in front, and that is a thing the
+  // kernel does between turns and never from the middle of somebody's call (docs/30, docs/60).
+  lock::poll();
+
   // **L'APP NO CORRE MENTRE LA TARGETA DEL SISTEMA ÉS A SOBRE** (0.179.42): the card hangs from the bar, the fingers on it
   // are the panel's and the ink of the page under it is held, so the turn of the app is a turn under a page that nobody is
   // looking at —and the one way an app could end the card by itself—. The owner asked for it in one sentence: *«un cop el
@@ -850,6 +861,7 @@ void poll() {
       // A person is at the keyboard: the board is being used and does not put itself to
       // sleep until the prompt has been quiet for a while (docs/60).
       power::note_activity();
+      lock::note_activity();
       shell::feed(buf, n);
       n = console->read(buf, sizeof(buf));
     }

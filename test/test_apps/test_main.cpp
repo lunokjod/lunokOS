@@ -32,6 +32,7 @@
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
 #include "kernel/led.h"
+#include "kernel/lock.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/panel.h"
@@ -13650,6 +13651,72 @@ void test_the_cross_of_a_notice_dismisses_the_newest(void) {
 
 // **A grid walks its cells and pages itself**: the arrows walk the cells, the page follows the cursor so the app never turns
 // a page, and the centre picks the cell it is on with `on_pick(self, index)` (docs/30, docs/90).
+// **El bloqueig de la pantalla és una app i el sistema l'obre en tres moments** (0.189.150, l'amo: *«El Toggle de la pestanya
+// "Privacy" activa que es llenci l'app escollida com lock al inici del sistema i al despertar d'un sleep»*): l'arrencada de la
+// placa, el retorn d'un son i els minuts sense màns. Aquest cas prova els dos que no han d'esperar deu minuts —l'inici i el
+// despert— i la porta que refusa un número de minuts que la pàgina no sap ensenyar, amb una pàgina de la seva collita perquè
+// el que es mira és el nucli i no una app del disc (docs/30, docs/60).
+void test_the_lock_covers_the_glass_at_the_start_and_after_a_sleep(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "lockpage",
+                           "{\"title\":\"Lock\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('the glass is covered')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  TEST_ASSERT_NOT_NULL(hal::platform().display());
+
+  // **La porta dels minuts és la llista de la pàgina** (5, 10 i 15, amb deu de sèrie): a number the row cannot show would be a
+  // setting a person cannot change back, so the door says no and the store keeps what it had (docs/30).
+  TEST_ASSERT_EQUAL_UINT8(10, kernel::cfg::lock_after_minutes());
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::set_lock_after_minutes(7), "the door took seven minutes");
+  TEST_ASSERT_EQUAL_UINT8(10, kernel::cfg::lock_after_minutes());
+  TEST_ASSERT_TRUE(kernel::cfg::set_lock_after_minutes(5));
+
+  // **I amb el commutador cert, l'arrencada acaba amb la pàgina al davant**: the home app still comes up first —it is the board's
+  // page— and the lock is asked for after it, which is the order a person would draw (docs/30, docs/60).
+  TEST_ASSERT_TRUE(kernel::cfg::set_lock_app("lockpage"));
+  TEST_ASSERT_TRUE(kernel::cfg::set_lock_on(true));
+  capture_begin();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "nothing came up with the board");
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("lockpage", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::lock::locked(), "the lock says the glass is not covered");
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the glass is covered"), g_out);
+
+  // **El despert d'un son demana la pàgina una altra vegada**: a person who has opened it comes back to a covered glass, which is
+  // the whole point of the switch —`lock::note_a_wake` is what `power.cpp` calls when a light sleep returns— (docs/60).
+  close_any_app();
+  TEST_ASSERT_FALSE(kernel::lock::locked());
+  kernel::lock::note_a_wake();
+  pump_turns(60);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::lock::locked(), "the wake did not bring the lock back");
+
+  // **I amb el commutador apagat no hi ha cap pàgina**: the same wake and the same turns, and the board stays where the person
+  // left it —un bloqueig que no es pot apagar seria una placa que no es deixa fer servir (docs/30, docs/45).
+  close_any_app();
+  TEST_ASSERT_TRUE(kernel::cfg::set_lock_on(false));
+  kernel::lock::note_a_wake();
+  pump_turns(60);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::lock::locked(), "the lock came up with the switch off");
+
+  // The next case gets the board of the build again: the page, the switch and the minutes were this one's.
+  kernel::cfg::set_lock_app("none");
+  kernel::cfg::set_lock_on(false);
+  kernel::cfg::set_lock_after_minutes(10);
+  storage->remove("/apps/lockpage/app.lua");
+  storage->remove("/apps/lockpage/manifest.json");
+  storage->remove("/apps/lockpage");
+}
+
 // **El paquet d'un administrador, el pany de la pantalla i els tres tocs** (0.189.99, 0.189.101): `"admin": true` al manifest
 // és el que fa que la màquina de Lua d'una app es faci amb la taula `admin` a dins, i una app que no el porta no la té —`nil`
 // i no una taula que refusa—. El pany és el vidre sencer de la 0.136.0 amb **les portes de tornada tancades**:
@@ -17439,21 +17506,29 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   kernel::cfg::set_freq_allowed(80, true);
   kernel::cfg::set_freq_allowed(240, true);
 
-  // ---- the privacy tab: the lock of the screen is the door of an administrator, and the same switch gives the bar back
+  // ---- **la privacitat és el commutador del bloqueig i els minuts, i no una barra que desapareix** (0.189.150, l'amo:
+  // *«El Toggle de la pestanya "Privacy" activa que es llenci l'app escollida com lock al inici del sistema i al despertar
+  // d'un sleep. Afegeix també un selector de temps al panell Privacy "Lock after:" 5, 10, 15 minutes, per defecte 10
+  // minutes»*): the switch writes `cfg.lock_on`, the bar stays where it is —a page that tapa el vidre és una app i no una
+  // barra que s'amaga— and the minutes of the row below are the three of the list with ten by default (docs/30, docs/45).
+  TEST_ASSERT_EQUAL_UINT8(10, kernel::cfg::lock_after_minutes());
+  TEST_ASSERT_FALSE(kernel::cfg::lock_on());
   capture_begin();
   press_finger(panel, 98, static_cast<uint16_t>(bar + 142));
   press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 28));
   pump_turns(600);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_TRUE_MESSAGE(kernel::ui::screen_locked(), g_out);
-  TEST_ASSERT_EQUAL_UINT16_MESSAGE(0, kernel::ui::canvas().y, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::lock_on(), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::ui::screen_locked(), g_out);
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(bar, kernel::ui::canvas().y, g_out);
   TEST_ASSERT_TRUE(kernel::app_running());
-  // the bar is away, so the page starts at the top of the glass: the same switch is at the row without the forty-eight
+  // **i el mateix commutador el torna a apagar**: the row reads `cfg.lock_on` again after every write, so the page cannot say
+  // one thing and the store another.
   capture_begin();
-  press_finger(panel, 270, static_cast<uint16_t>(kRowOne + 28));
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 28));
   pump_turns(600);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_FALSE_MESSAGE(kernel::ui::screen_locked(), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::lock_on(), g_out);
   TEST_ASSERT_EQUAL_UINT16_MESSAGE(bar, kernel::ui::canvas().y, g_out);
 
   // ---- the disk: a format asks first, and the yes is the door of the card
@@ -18694,6 +18769,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_selector_opens_the_list_the_app_puts_up);
   RUN_TEST(test_the_cross_of_a_notice_dismisses_the_newest);
   RUN_TEST(test_a_grid_walks_its_cells_and_pages_itself);
+  RUN_TEST(test_the_lock_covers_the_glass_at_the_start_and_after_a_sleep);
   RUN_TEST(test_only_an_administrator_gets_the_admin_table_and_a_lock);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);

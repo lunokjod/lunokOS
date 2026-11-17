@@ -3204,7 +3204,12 @@ bool label_draw(int16_t slot, const char* text, uint8_t color, uint8_t backgroun
     // **The line a label shows lives in a static block and not on the stack**: a kilobyte of the eight the
     // loop task has is not something a control that is drawn may borrow, and labels are drawn one at a time
     // (docs/75).
-    static char shown[1024];
+    // **I el bloc és el que el vidre pot ensenyar i no més** (0.189.150): the widest glass of this system is 540 pixels
+    // across and the densest face draws four pixels per glyph at scale one, o sigui que cap línia que el vidre ensenyi
+    // arriba a cent trenta-cinc glifs —i el que no es veu no cal copiar-lo, perquè el que en queda fora ja el talla la
+    // caixa—. Two hundred and fifty-six is that with room to spare, and it gave back the three quarters of a kilobyte
+    // that the lock of the screen needed in a build whose `dram0.bss` was exactly full (docs/60, docs/75).
+    static char shown[256];
     const uint16_t shown_w = label_text(label.face, text, width, scale, shown, sizeof(shown));
     const uint16_t line_h =
         static_cast<uint16_t>((face.height != 0) ? face.height * scale : font::kGlyphHeight * scale);

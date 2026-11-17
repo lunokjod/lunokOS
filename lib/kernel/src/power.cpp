@@ -2,6 +2,8 @@
 // says when, what is said to the app first and what is read afterwards (docs/90).
 #include "kernel/meter.h"
 #include "kernel/power.h"
+
+#include "kernel/lock.h"
 #include "kernel/splash.h"
 #include "kernel/vfs.h"
 
@@ -508,6 +510,10 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // chip has a better hour than its counter does (docs/60).
   if (g_clock != nullptr) g_clock->resync();
   report_wake(false);
+  // **I el despertar tapa la pantalla si la persona ho ha demanat** (0.189.150): a flag and not a call, perquè som a dins
+  // d'un torn i obrir una app tanca la que hi ha, que és una cosa que el nucli fa entre torns i no des de dins de la crida
+  // d'algú (docs/30, docs/60).
+  lock::note_a_wake();
   return true;
 }
 

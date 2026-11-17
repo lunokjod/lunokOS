@@ -13,10 +13,11 @@
 --                  no, torna a construir-ho tot i deixa el cercle al control on era (docs/45).
 --   QUI ESCRIU     **les portes del sistema**, que són les de la comanda `cfg`: `cfg.keyboard`, `cfg.boot`, `cfg.home`,
 --                  `cfg.sort`, `cfg.turn`, `cfg.cursor`, `cfg.freq` (les tres velocitats que el governador pot fer servir),
---                  `cfg.settings` (l'app que obre el botó dels ajustos del panell), més `time.tz`/`dst`/`leap`/`week`/`set`,
---                  `fs.cfg`, `power.cpu`, `power.cpu_auto` i `admin.LockScreen`. Cada porta **respon el que queda dempeus**, i
---                  la pàgina torna a llegir el valor després d'escriure'l: el que s'ensenya és el que el sistema ha acceptat
---                  (docs/30, docs/70).
+--                  `cfg.settings` (l'app que obre el botó dels ajustos del panell), `cfg.lock`/`cfg.lock_on`/`cfg.lock_after`
+--                  (la pàgina que tapa el vidre, si el bloqueig és actiu i quants minuts sense màns el disparen; 0.189.150),
+--                  més `time.tz`/`dst`/`leap`/`week`/`set`, `fs.cfg`, `power.cpu` i `power.cpu_auto`. Cada porta **respon el que
+--                  queda dempeus**, i la pàgina torna a llegir el valor després d'escriure'l: el que s'ensenya és el que el
+--                  sistema ha acceptat (docs/30, docs/70).
 --   LA MESURA      la pestanya de la CPU **diu què és el número d'un torn i què val en aquesta placa**: la volta de
 --                  `k = k + 1` en dona el preu d'una instrucció i `sys.stats()` els torns de debò que ha fet el sistema i el
 --                  que hi ha de Lua a dins (0.189.108, docs/75 i docs/95).
@@ -785,10 +786,11 @@ function build()
                function(index) cfg.boot(boots[index]) end)
   end
 
-  -- ---- System: **les dues apps que el sistema arrenca per una persona** (0.189.109): the one that comes up with the board
-  -- (`cfg.home`) and **the one the gear of the panel opens** (`cfg.settings`, l'amo: *«Afegeix un selector d'aplicació per
-  -- gestionar els settings … a la pestanya "System" on posa "App at start" doncs igual»*). The list is the apps of this disk and
-  -- `none` for both, which are the same door and the same words (docs/30, docs/40).
+  -- ---- System: **les tres apps que el sistema obre per una persona** (0.189.109, la tercera a 0.189.150): the one that comes
+  -- up with the board (`cfg.home`), **the one the gear of the panel opens** (`cfg.settings`, l'amo: *«Afegeix un selector
+  -- d'aplicació per gestionar els settings … a la pestanya "System" on posa "App at start" doncs igual»*) i **la que tapa el
+  -- vidre quan el sistema es bloqueja** (`cfg.lock`). The list is the apps of this disk and `none` for all three, which are the
+  -- same door and the same words (docs/30, docs/40).
   -- **La llista d'apps d'aquest disc, i les dues de sota són la mateixa porta** (0.189.109): `none` primer —una app que no hi és
   -- és una tria i no un forat— i després tot el que el disc té. **L'app dels ajustos no s'ofereix com a app d'inici** (una pàgina
   -- que obre els ajustos no és la pàgina amb què arrenca una placa), però sí que és a la llista del botó, que és el seu lloc.
@@ -801,16 +803,28 @@ function build()
   for _, id in ipairs(every) do
     if id ~= 'settings' then list[#list + 1] = id end
   end
-  choice_row(5, 'home', 'App at start', list, function() return index_of(list, cfg.home() or 'none') end,
+  -- **Els tres noms que l'amo va demanar** (0.189.150): `Home` és l'app de l'inici, `Settings` la del botó del panell i **`Lock`
+  -- la que tapa el vidre**. The names are the owner's and the value is the app's, so a page that says `Home` is saying what
+  -- the setting is and not the name of a variable (docs/30, docs/45).
+  choice_row(5, 'home', 'Home', list, function() return index_of(list, cfg.home() or 'none') end,
              function(index) cfg.home(list[index]) end)
   local gears = { 'none' }
   for _, id in ipairs(every) do gears[#gears + 1] = id end
-  choice_row(5, 'gear', 'Panel gear', gears, function()
+  choice_row(5, 'gear', 'Settings', gears, function()
     local id = cfg.settings() or ''
     if id == '' then return 1 end
     return index_of(gears, id)
   end, function(index)
     cfg.settings((index == 1) and 'none' or gears[index])
+  end)
+  local locks = { 'none' }
+  for _, id in ipairs(every) do locks[#locks + 1] = id end
+  choice_row(5, 'lock', 'Lock', locks, function()
+    local id = cfg.lock() or ''
+    if id == '' then return 1 end
+    return index_of(locks, id)
+  end, function(index)
+    cfg.lock((index == 1) and 'none' or locks[index])
   end)
 
   -- ---- Battery: **el que la placa sap de la seva pila**, que és un número i no un ajust d'aquesta pàgina (docs/30). Les
@@ -824,17 +838,28 @@ function build()
   end)
   read_row(6, 'board', 'Board', function() return string.format('%s, %d MHz', sys.board, power.cpu()) end)
 
-  -- ---- Privacy
-  local locked = (admin ~= nil and admin.LockScreen ~= nil) and (admin.LockScreen() and true or false) or false
-  check_row(7, 'lock', 'Lock the screen', function() return locked end, function(on)
-    if admin == nil or admin.LockScreen == nil then
-      say('This app is not an administrator on this board')
-      return
+  -- ---- Privacy: **el bloqueig de la pantalla, que és una app i no una barra que desapareix** (0.189.150, l'amo: *«El Toggle
+  -- de la pestanya "Privacy" activa que es llenci l'app escollida com lock al inici del sistema i al despertar d'un sleep.
+  -- Afegeix també un selector de temps al panell Privacy "Lock after:" 5, 10, 15 minutes, per defecte 10 minutes»*). The switch
+  -- writes `cfg.lockon` i el desplegable els minuts; l'app que s'obre és la fila `Lock` de la pestanya System, i si no n'hi ha
+  -- cap el commutador no té res a obrir i ho diu en comptes d'engegar una pàgina que no existeix (docs/30, docs/45, docs/60).
+  check_row(7, 'lockon', 'Lock the screen', function() return cfg.lock_on() == true end, function(on)
+    cfg.lock_on(on)
+    local page = cfg.lock() or ''
+    if on and page == '' then
+      say('No lock app: choose one in System')
+      console.print('settings: the lock is on and no page is chosen (`cfg lock <id>`)')
+    else
+      say(on and 'The screen locks at the start, after a sleep and when idle' or '')
     end
-    local ok3, kept = pcall(admin.LockScreen, on)
-    locked = ok3 and (kept and true or false) or false
-    say(locked and 'The bar is off until the screen is unlocked' or '')
   end)
+  -- **Els minuts sense tocar res**, amb els tres de la llista i el deu de sèrie: `cfg.lock_after` els desa i el nucli els
+  -- compta amb el rellotge de les durades, no amb l'hora (docs/30, docs/60).
+  local LOCK_AFTER = { '5 minutes', '10 minutes', '15 minutes' }
+  local LOCK_AFTER_MIN = { 5, 10, 15 }
+  choice_row(7, 'lockafter', 'Lock after', LOCK_AFTER, function()
+    return index_of(LOCK_AFTER_MIN, cfg.lock_after() or 10)
+  end, function(index) cfg.lock_after(LOCK_AFTER_MIN[index]) end)
 
   return true
 end

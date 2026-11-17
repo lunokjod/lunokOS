@@ -255,6 +255,15 @@ struct CfgOps {
   // (docs/30, docs/40).
   const char* (*settings_app)();
   bool (*set_settings_app)(const char* id);
+  // **El bloqueig de la pantalla** (0.189.150): the page that covers the glass, the switch that runs it at the start and after
+  // a sleep, and the minutes without a hand on the board. The three are settings of the system and the page of Privacy writes
+  // them with these doors, so the app and the prompt cannot disagree about what a lock is (docs/30, docs/40, docs/60).
+  const char* (*lock_app)();
+  bool (*set_lock_app)(const char* id);
+  bool (*lock_on)();
+  bool (*set_lock_on)(bool on);
+  uint8_t (*lock_after_minutes)();
+  bool (*set_lock_after_minutes)(uint8_t minutes);
 };
 
 void set_cfg_ops(const CfgOps& ops);

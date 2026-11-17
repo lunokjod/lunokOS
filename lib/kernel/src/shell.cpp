@@ -607,6 +607,7 @@ void print_help(const char* only) {
   help_line("  repo info <app>   the manifest of one app of the repository", only);
   help_line("  repo install <app>  the whole folder of an app, onto the disk `cfg` names", only);
   help_line("  alarm [list]      the queue of alarms, the nearest first, and where the wake is armed", only);
+  help_line("  cfg lock [<id>|none]  the page that covers the screen, and `cfg lockon on|off` with `cfg lockafter 5|10|15`", only);
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
   help_line("  power last        how far the last sleep was from the hour it was given", only);
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
@@ -4523,9 +4524,9 @@ bool command_cfg(const char* argument) {
   size_t count = 0;
   if (!read_words(argument, words, 3, count)) return false;
   if (count > 3) {
-    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
+    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|lock [<id>|none]|"
               "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-              "settings [<id>|none]|cursor delay [<ms>]]\r\n");
+              "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|cursor delay [<ms>]]\r\n");
     return false;
   }
   // **El parpalleig del cursor** (0.189.34, l'amo: *«Crea una opcio nova de cfg anomenada "cursor delay"… Aquest valor es
@@ -4614,6 +4615,62 @@ bool command_cfg(const char* argument) {
       out(cfg::settings_app());
       newline();
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **La pàgina que tapa el vidre** (0.189.150): the same door as the app of the start and the gear —the name is checked
+    // against the apps of this board, so a typo is refused where it is typed— and `none` is the word that leaves the screen
+    // with no lock at all, which is also what the panel key of Settings does when nothing is chosen (docs/30, docs/40).
+    if (strcmp(words[0], "lock") == 0) {
+      if (strcmp(words[1], "none") == 0) {
+        const bool kept = cfg::set_lock_app(nullptr);
+        out("settings: the screen has no lock page\r\n");
+        if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+        return true;
+      }
+      apps::Entry entry;
+      if (!apps::read(words[1], entry)) {
+        out("cfg: no app '");
+        out(words[1]);
+        out("' that runs on this board; `apps` lists what is there\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_lock_app(entry.id);
+      out("settings: the screen locks with ");
+      out(cfg::lock_app());
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg lockon on|off`**: the switch of the Privacy tab, which is what makes the page come up at the start and after a
+    // sleep and what arms the idle counter (0.189.150, docs/30, docs/60).
+    if (strcmp(words[0], "lockon") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the lock of the screen is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_lock_on(on);
+      out("settings: lock ");
+      out(on ? "on" : "off");
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg lockafter <5|10|15>`**: the minutes without a hand on the board. The three of the list and nothing else, perquè
+    // és una tria d'una pàgina i no un número que es pugui inventar (0.189.150, docs/30, docs/60).
+    if (strcmp(words[0], "lockafter") == 0) {
+      const int minutes = atoi(words[1]);
+      if (!cfg::set_lock_after_minutes(static_cast<uint8_t>(minutes))) {
+        out("cfg: lock after is 5, 10 or 15 minutes (now ");
+        out_num(cfg::lock_after_minutes());
+        out(")\r\n");
+        return false;
+      }
+      out("settings: lock after ");
+      out_num(cfg::lock_after_minutes());
+      out(" minutes\r\n");
       return true;
     }
     // **The drawing of the logo that comes up with the board** (0.115.0): the word is checked against the moments
@@ -4802,7 +4859,7 @@ bool command_cfg(const char* argument) {
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
                 "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-                "settings [<id>|none]|cursor delay [<ms>]]\r\n");
+                "settings [<id>|none]|lock [<id>|none]|lockon [on|off]|lockafter [5|10|15]|cursor delay [<ms>]]\r\n");
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
@@ -4875,6 +4932,32 @@ bool command_cfg(const char* argument) {
       out(" (this board's default is ");
       out(cfg::settings_default());
       out(")\r\n");
+      return true;
+    }
+    // **El bloqueig de la pantalla, les tres coses** (0.189.150): the page, the switch and the minutes, with the default of
+    // this build beside the page for the reason `cfg home` says it (docs/30, docs/40).
+    if (strcmp(words[0], "lock") == 0) {
+      out("settings: the screen locks with ");
+      out((cfg::lock_app()[0] != '\0') ? cfg::lock_app() : "none");
+      out(" (this board's default is ");
+      out(cfg::lock_default());
+      out("), lock ");
+      out(cfg::lock_on() ? "on" : "off");
+      out(", after ");
+      out_num(cfg::lock_after_minutes());
+      out(" minutes\r\n");
+      return true;
+    }
+    if (strcmp(words[0], "lockon") == 0) {
+      out("settings: lock ");
+      out(cfg::lock_on() ? "on" : "off");
+      newline();
+      return true;
+    }
+    if (strcmp(words[0], "lockafter") == 0) {
+      out("settings: lock after ");
+      out_num(cfg::lock_after_minutes());
+      out(" minutes\r\n");
       return true;
     }
     if (strcmp(words[0], "keyboard") == 0) {

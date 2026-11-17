@@ -79,6 +79,14 @@ const char kSettingsKey[] = "settings";
 // —`80,160,240`— and never as a number, for the same reason the hour is `+01:00` (docs/50, docs/70).
 const char kFreqKey[] = "freq";
 const size_t kFreqCap = 12;  // "80,160,240" and the null
+// **El bloqueig de la pantalla** (0.189.150): l'app que tapa la pàgina, si s'usa a l'arrencada i al despertar, i quants minuts
+// sense tocar res la fan sortir. Tres claus i les tres amb les paraules que una persona llegeix al `nvs` (docs/30, docs/60,
+// docs/70).
+const char kLockKey[] = "lock";
+const char kLockOnKey[] = "lockon";
+const char kLockAfterKey[] = "lockafter";
+const size_t kLockCap = 40;
+const uint8_t kLockAfterDefault = 10;
 const char kOn[] = "on";
 const char kOff[] = "off";
 const char kMonday[] = "monday";
@@ -100,6 +108,11 @@ char g_home[kHomeCap] = LUNOK_HOME_APP;
 // **L'app que obre el botó dels ajustos** (0.189.109): `settings` unless the store says another name, and empty when a person said
 // `none` —a gear that does nothing is a choice and the panel says so before it asks for anything— (docs/30, docs/40).
 char g_settings[kNameCap] = "settings";
+// **El bloqueig de la pantalla** (0.189.150): the page, the switch and the minutes. The page starts as `device_lock` —the one
+// this system carries for exactly this—, the switch off, and ten minutes, which is the middle of the three a person can pick.
+char g_lock[kLockCap] = "device_lock";
+bool g_lock_on = false;
+uint8_t g_lock_after = kLockAfterDefault;
 // The minutes the local hour is ahead of UTC, which is zero until somebody says otherwise (0.125.0).
 int16_t g_tz_minutes = 0;
 // What the store said, which is also what the calendar is using: the two are written together.
@@ -198,6 +211,28 @@ bool remember_settings() {
   const char* value = (g_settings[0] != '\0') ? g_settings : "none";
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kSettingsKey, value, strlen(value));
+}
+
+bool remember_lock() {
+  if (g_nvs == nullptr) return false;
+  const char* value = (g_lock[0] != '\0') ? g_lock : "none";
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kLockKey, value, strlen(value));
+}
+
+bool remember_lock_on() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_lock_on ? kOn : kOff;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kLockOnKey, word, strlen(word));
+}
+
+bool remember_lock_after() {
+  if (g_nvs == nullptr) return false;
+  char text[8];
+  snprintf(text, sizeof(text), "%u", static_cast<unsigned>(g_lock_after));
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kLockAfterKey, text, strlen(text));
 }
 
 bool remember_freq() {
@@ -446,6 +481,49 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
+  // **El bloqueig de la pantalla, si la botiga en diu res** (0.189.150): the page, the switch and the minutes. A `lockon` that
+  // is neither `on` nor `off` leaves the switch off and says so —a switch that reads half a word is a board that locks
+  // itself or does not for a reason nobody can see— and the minutes only take the three the page offers.
+  {
+    char raw_lock[kLockCap] = {0};
+    size_t lock_len = 0;
+    if (g_nvs != nullptr) {
+      meter::Scope scope(meter::kKvGet);
+      if (g_nvs->get(kNamespace, kLockKey, raw_lock, sizeof(raw_lock) - 1, lock_len) && lock_len > 0 &&
+          lock_len < sizeof(raw_lock)) {
+        raw_lock[lock_len] = '\0';
+        if (same(raw_lock, "none")) {
+          g_lock[0] = '\0';
+        } else {
+          snprintf(g_lock, sizeof(g_lock), "%s", raw_lock);
+        }
+      }
+      char raw_on[8] = {0};
+      size_t on_len = 0;
+      if (g_nvs->get(kNamespace, kLockOnKey, raw_on, sizeof(raw_on) - 1, on_len) && on_len > 0 &&
+          on_len < sizeof(raw_on)) {
+        raw_on[on_len] = '\0';
+        if (same(raw_on, kOn) || same(raw_on, kOff)) {
+          g_lock_on = same(raw_on, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "lock '%s' is not on or off; the screen is not locked", raw_on);
+        }
+      }
+      char raw_after[8] = {0};
+      size_t after_len = 0;
+      if (g_nvs->get(kNamespace, kLockAfterKey, raw_after, sizeof(raw_after) - 1, after_len) && after_len > 0 &&
+          after_len < sizeof(raw_after)) {
+        raw_after[after_len] = '\0';
+        const int minutes = atoi(raw_after);
+        if (minutes == 5 || minutes == 10 || minutes == 15) {
+          g_lock_after = static_cast<uint8_t>(minutes);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "lock after '%s' is not 5, 10 or 15 minutes; %u stays", raw_after,
+                     static_cast<unsigned>(g_lock_after));
+        }
+      }
+    }
+  }
   // **Les velocitats permeses, llegides abans d'aplicar res**: the mask is what the governor may use, so it has to be in
   // `power` before the first paint of the boot asks for the top step (0.189.107, docs/50, docs/60).
   power::set_allowed_steps(kFreqAll);
@@ -486,14 +564,21 @@ void boot(hal::IPlatform& platform) {
   }
   char freq_words[kFreqCap] = {0};
   freq_text(freq_words, sizeof(freq_words), freq_mask());
+  // **Dues línies i no una** (0.189.150): the summary had grown past the hundred and ninety-two bytes of a line of the
+  // registry, o sigui que la cua s'escrivia i no es veia —el valor de `settings app` feia versions que no es podia llegir i els
+  // tres del bloqueig hi queien de ple—. La primera línia és la placa (el magatzem, el teclat, la imatge, el calendari, la
+  // marxa i el processador) i la segona **les apps que una persona ha triat**, que és la pestanya System llegida en veu alta
+  // (docs/30, docs/45).
   log_printf(pal::kLogInfo, "CFG",
-             "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, dst %s, week %s, turn %u, "
-             "sort apps by usage %s, cursor delay %d ms, cpu allows %s, settings app %s",
-             (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot,
-             (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60,
-             g_leap_years ? kOn : kOff, g_dst ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday,
-             static_cast<unsigned>(luabind::turn_budget()), g_sort_by_usage ? kOn : kOff,
-             static_cast<int>(luabind::caret_blink_ms()), freq_words, (g_settings[0] != '\0') ? g_settings : "none");
+             "/cfg on %s (asked for %s), keyboard %s, boot %s, tz %+03d:%02d, leap %s, dst %s, week %s, turn %u, "
+             "sort apps by usage %s, cursor delay %d ms, cpu allows %s",
+             (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot, g_tz_minutes / 60,
+             (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60, g_leap_years ? kOn : kOff, g_dst ? kOn : kOff,
+             (g_week_start == 7) ? kSunday : kMonday, static_cast<unsigned>(luabind::turn_budget()),
+             g_sort_by_usage ? kOn : kOff, static_cast<int>(luabind::caret_blink_ms()), freq_words);
+  log_printf(pal::kLogInfo, "CFG", "the apps a person chose: home %s, settings %s, lock %s; the lock is %s and waits %u min",
+             (g_home[0] != '\0') ? g_home : "none", (g_settings[0] != '\0') ? g_settings : "none",
+             (g_lock[0] != '\0') ? g_lock : "none", g_lock_on ? kOn : kOff, static_cast<unsigned>(g_lock_after));
 }
 
 const char* unit() { return g_unit; }
@@ -560,6 +645,37 @@ bool set_settings_app(const char* id) {
   if (strlen(id) >= sizeof(g_settings)) return false;
   snprintf(g_settings, sizeof(g_settings), "%s", id);
   return remember_settings();
+}
+
+const char* lock_app() { return g_lock; }
+
+const char* lock_default() { return "device_lock"; }
+
+bool set_lock_app(const char* id) {
+  if (id == nullptr || id[0] == '\0' || same(id, "none")) {
+    g_lock[0] = '\0';
+    return remember_lock();
+  }
+  if (strlen(id) >= sizeof(g_lock)) return false;
+  snprintf(g_lock, sizeof(g_lock), "%s", id);
+  return remember_lock();
+}
+
+bool lock_on() { return g_lock_on; }
+
+bool set_lock_on(bool on) {
+  g_lock_on = on;
+  return remember_lock_on();
+}
+
+uint8_t lock_after_minutes() { return g_lock_after; }
+
+bool set_lock_after_minutes(uint8_t minutes) {
+  // **Cinc, deu o quinze i res més**: the list of the page is these three, and a number that is not one of them would be a
+  // setting the page cannot show and a person cannot change back (docs/30, docs/60).
+  if (minutes != 5 && minutes != 10 && minutes != 15) return false;
+  g_lock_after = minutes;
+  return remember_lock_after();
 }
 
 uint32_t freq_step_of(uint8_t bit) {

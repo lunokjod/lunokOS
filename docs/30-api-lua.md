@@ -823,6 +823,9 @@ consola no acceptaria (docs/30, docs/70).
 | `cfg.cursor([ms])` | enter | **El parpelleig del cursor** en mil·lisegons (`cfg cursor delay <ms>`) |
 | `cfg.freq([mhz, on])` | taula de números | **Les velocitats que el governador pot fer servir** (0.189.107): sense arguments, la llista dels passos permesos en ordre (`{80, 160, 240}`); amb un pas i un booleà, el gira i torna la llista que queda. Un número que no és un dels tres passos, o un gir que deixaria la placa sense cap, és `E_INVAL` i la llista no es toca (`cfg freq 240 off`) |
 | `cfg.settings([id])` | cadena | **L'app que obre el botó dels ajustos del panell** (0.189.109): es llegeix sola i s'escriu amb un id, o amb `none` (que torna com la cadena buida). El nom el comprova el nucli: una app que aquesta placa no té no es pot desar aquí, i el panell la mira abans de demanar-la (docs/30, docs/40) |
+| `cfg.lock([id])` | cadena o `nil, error` | **L'app que tapa el vidre quan el sistema es bloqueja** (0.189.150): `device_lock` de sèrie, amb `none` per no tenir-ne cap (que torna com la cadena buida). Si la tria no és l'app que ha de venir, és `E_INVAL` i el valor no es toca: **una app que no hi és seria un vidre que no es tapa mai** |
+| `cfg.lock_on([on])` | booleà | **Si el bloqueig és actiu** (0.189.150, `cfg lockon on`): amb el commutador cert el sistema obre `cfg.lock` **al final de l'arrencada** i **al despertar d'un sleep lleuger**, i el torna a obrir quan la placa porta `cfg.lock_after` minuts sense cap contacte, cap tecla i cap byte de consola (docs/60) |
+| `cfg.lock_after([minuts])` | enter | **Els minuts sense tocar res abans de bloquejar** (0.189.150, `cfg lockafter <minuts>`): cinc, deu o quinze —el de sèrie són deu— i qualsevol altre número és `E_INVAL` i no es desa, perquè és la llista que la pàgina sap ensenyar (docs/30, docs/60) |
 
 - **Les de lectura i escriptura són la mateixa crida i el valor és la resposta**: `cfg.cursor()` diu el que hi ha i
   `cfg.cursor(600)` escriu i torna el que ha quedat, o sigui que una pàgina que ensenya el que ha demanat **no pot mentir**
@@ -838,10 +841,15 @@ consola no acceptaria (docs/30, docs/70).
 
 ```
 lunok> cfg
-[I][CFG] /cfg on sd (asked for auto), keyboard qwerty, boot boot, home home_eink, tz +00:00, leap on, dst off,
-         week monday, turn 20000, sort apps by usage off, cursor delay 850 ms, cpu allows 80,160,240,
-         settings app settings
+[I][CFG] /cfg on sd (asked for auto), keyboard qwerty, boot boot, tz +00:00, leap on, dst off, week monday,
+         turn 20000, sort apps by usage off, cursor delay 850 ms, cpu allows 80,160,240
+[I][CFG] the apps a person chose: home home_eink, settings settings, lock device_lock; the lock is off and waits 10 min
 ```
+
+**I són dues línies perquè una no hi cabia** (0.189.150): a line of the registry is 192 bytes and the summary had grown past
+them, o sigui que la cua —el `settings app` des de la 0.189.109 i el bloqueig des d'ara— s'escrivia i no es veia. La primera
+línia és la placa i la segona les apps que una persona ha triat, que és la pestanya System del panell d'ajustos llegida en veu
+alta (docs/45, docs/85).
 
 ## `admin`: el paquet d'una app d'administrador (0.189.99)
 

@@ -195,8 +195,10 @@ const char* key_icon(Key which) {
 // is worse than no button: it says the system can do something it cannot (docs/30, docs/45). **La fletxa, quan hi ha una vista a
 // sota**: an app with one page has nowhere to go back to, and the same rule applies to it.
 //
-// **Els tres del mig hi són sempre**: the settings, the restart and the power off do not depend on how many pages the app has on
-// top —they are the system's, and the console that a close leaves behind has them too— (docs/30, docs/45).
+// **El reinici i l'apagat hi són sempre, i la roda quan té app** (0.189.150): the restart and the power off do not depend on
+// how many pages the app has on top —they are the system's, and the console that a close leaves behind has them too— and the
+// gear depends on `cfg settings` naming an app, perquè una roda que no obre res és una clau que diu el que no pot fer (docs/30,
+// docs/45).
 bool key_is_there(Key which) {
   if (which == Key::kClose) return shell::the_page_in_front_can_be_left();
   // **La casa hi és quan `cfg home` nomena una app** (0.189.139, i **no s'amaga sobre el llançador**, 0.189.140): the first
@@ -208,6 +210,13 @@ bool key_is_there(Key which) {
   if (which == Key::kHome) {
     const char* home = cfg::home_app();
     return home != nullptr && home[0] != '\0';
+  }
+  // **I la roda, quan hi ha una app de settings** (0.189.150, l'amo: *«Si alguna de les opcions es buida, el botó del panell
+  // desplegable de sistema no mostrarà la icona corresponent»*): `cfg settings none` is a gear that opens nothing, and a key
+  // that says it can do something it cannot is the thing the cross of a launcher already does not do (docs/30, docs/45).
+  if (which == Key::kSettings) {
+    const char* settings = cfg::settings_app();
+    return settings != nullptr && settings[0] != '\0';
   }
   if (which == Key::kBack) return apps::views() > 0;
   // **I el son amb les tecles vives, només si la placa en té una** (0.189.25): the same rule as the cross —a key that does

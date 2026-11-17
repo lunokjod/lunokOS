@@ -1,10 +1,9 @@
 {
   "title": "Settings",
   "author": "@lunokjod",
-  "version": "0.1.10",
+  "version": "0.2.0",
   "entry": "settings.lua",
   "boards": ["esp32"],
-  "admin": true,
   "icon": "res/icon.png",
-  "description": "The panel of the system's settings, a tab per subject: the hour and the calendar, the speeds the processor may use and the swings of a turn with the milliseconds each one costs on this board, the disk, the keyboard and the caret, the two apps the system starts by itself (the one of the board and the one the panel's gear opens), the battery and the lock of the screen.\nEvery row is a control of the system and every write goes through the doors of cfg, and what a row shows is what the system accepted."
+  "description": "The panel of the system's settings, a tab per subject: the hour and the calendar, the speeds the processor may use and the swings of a turn with the milliseconds each one costs on this board, the disk, the keyboard and the caret, the three apps the system opens for a person (the one of the board, the one the panel's gear opens and the one that covers the glass when the screen locks), the battery and the lock of the screen, which is a switch and the minutes without hands that fire it.\nEvery row is a control of the system and every write goes through the doors of cfg, and what a row shows is what the system accepted."
 }

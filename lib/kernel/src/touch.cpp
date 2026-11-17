@@ -1,6 +1,8 @@
 // The glass: the frame of the last turn and the gestures made out of it (docs/30, docs/50).
 #include "kernel/touch.h"
 
+#include "kernel/lock.h"
+
 #include <string.h>
 
 #include "kernel/display.h"
@@ -376,6 +378,10 @@ void poll() {
     if (taken > 0) ++g_frames;
   }
   if (taken > 0) {
+    // **Un dit al vidre és una mà a la placa** (0.189.150): every frame with a contact on it starts the counter of the lock
+    // again, perquè el que la persona fa amb el dit és el que la pàgina de bloqueig ha d'esperar, i un dit que s'hi està
+    // quiet també és un dit (docs/30, docs/60).
+    lock::note_activity();
     // **A frame of a finger that is already gone is a tap that is over**, and it carries its own release: the chip
     // hands over the frame of its last scan and a finger that came and went between two reads is not on the glass any
     // more. The keyboard hears that release before the press, or the tap after one whose release was missed —while a

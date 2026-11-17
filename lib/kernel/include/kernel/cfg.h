@@ -56,6 +56,29 @@ const char* home_default();
 // Keeps the name (`nullptr` or "none" clears it) and saves it. False when it could not be written.
 bool set_home_app(const char* id);
 
+// **La pàgina que es posa a sobre quan la placa es bloqueja** (0.189.150): the app the system runs when the screen has to be
+// covered —the one of the Privacy tab, `device_lock` of series—, the switch that says whether it is used at the start and
+// when the board comes back from a sleep, and **how long a person may leave it alone before it happens**. The three are
+// settings of the system and live here for the reason `cfg home` does: a page that chooses them is a page, and a board that
+// boots without one still has to know what to do with its glass (docs/30, docs/40, docs/60).
+//
+// `device_lock` is the default because it is the page the system already carries for this; an empty name is **no lock at
+// all**, which is what a board with no such page wants and what a person gets when they choose `none`.
+const char* lock_app();
+const char* lock_default();
+// Keeps the name (`nullptr` or "none" clears it) and saves it. False when it is too long to be an id of this system.
+bool set_lock_app(const char* id);
+
+// **The switch of the Privacy tab**: on, the lock app is run at the start of the board and when it comes back from a sleep,
+// and the idle counter of `lock after` is armed. Off, none of it happens and the page under the finger stays where it is.
+bool lock_on();
+bool set_lock_on(bool on);
+
+// **Els minuts sense tocar res** abans que la pàgina de bloqueig surti: five, ten or fifteen and nothing else, perquè és una
+// tria d'una llista i no un número que una app pugui inventar-se. Ten by default (docs/30, docs/60).
+uint8_t lock_after_minutes();
+bool set_lock_after_minutes(uint8_t minutes);
+
 // Asks for a unit and persists it. `auto` prefers the card and falls back to the flash.
 // False when the name is not one of the three, or when that unit is not mounted.
 bool set_unit(const char* name);

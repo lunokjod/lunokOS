@@ -12399,6 +12399,52 @@ int l_cfg_settings_app(lua_State* L) {
   return 1;
 }
 
+// **`cfg.lock([<id>])`: la pàgina que tapa el vidre** (0.189.150): with no argument it answers the name —the empty string when a
+// person chose `none`—, and with a name it writes it and answers the one that stands, exactly like `cfg.home` and
+// `cfg.settings`. `cfg.lockon([on])` és el commutador de la pestanya Privacy i `cfg.lockafter([minutes])` els minuts sense
+// tocar res, amb els tres de la llista i res més (docs/30, docs/40, docs/60).
+int l_cfg_lock(lua_State* L) {
+  if (g_cfg_ops.lock_app == nullptr || g_cfg_ops.set_lock_app == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no lock of the screen");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* asked = luaL_checkstring(L, 1);
+    if (!g_cfg_ops.set_lock_app(asked)) {
+      return push_nil_error(L, "E_INVAL", "that is not a name an app of this system can have");
+    }
+  }
+  lua_pushstring(L, g_cfg_ops.lock_app());
+  return 1;
+}
+
+int l_cfg_lock_on(lua_State* L) {
+  if (g_cfg_ops.lock_on == nullptr || g_cfg_ops.set_lock_on == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no lock of the screen");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (!cfg_switch(L, 1, on) || !g_cfg_ops.set_lock_on(on)) {
+      return push_nil_error(L, "E_INVAL", "the lock of the screen is on or off");
+    }
+  }
+  lua_pushboolean(L, g_cfg_ops.lock_on() ? 1 : 0);
+  return 1;
+}
+
+int l_cfg_lock_after(lua_State* L) {
+  if (g_cfg_ops.lock_after_minutes == nullptr || g_cfg_ops.set_lock_after_minutes == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no lock of the screen");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const lua_Integer asked = luaL_checkinteger(L, 1);
+    if (!g_cfg_ops.set_lock_after_minutes(static_cast<uint8_t>(asked))) {
+      return push_nil_error(L, "E_INVAL", "the screen locks after 5, 10 or 15 minutes");
+    }
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_cfg_ops.lock_after_minutes()));
+  return 1;
+}
+
 // **`cfg.freq([<mhz>, <on>])`: les velocitats del processador** (0.189.107, l'amo: *«[X] Frequency scaling allowed:
 // [X] 80Mhz [X] 160Mhz [X] 240Mhz»*). With no argument it answers **the list of the steps the policy may use**, in
 // ascending order; with a step and a boolean it turns that one on or off and answers the list it has now —which is the
@@ -12540,6 +12586,9 @@ void seal_globals(lua_State* L) {
   set_function(L, "cursor", l_cfg_cursor);
   set_function(L, "freq", l_cfg_freq);
   set_function(L, "settings", l_cfg_settings_app);
+  set_function(L, "lock", l_cfg_lock);
+  set_function(L, "lock_on", l_cfg_lock_on);
+  set_function(L, "lock_after", l_cfg_lock_after);
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);
   lua_setglobal(L, "cfg");

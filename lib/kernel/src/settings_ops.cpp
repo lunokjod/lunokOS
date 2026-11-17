@@ -60,6 +60,18 @@ bool write_settings_app(const char* id) {
   return cfg::set_settings_app(entry.id);
 }
 
+// **La pàgina del bloqueig, amb la mateixa comprovació** (0.189.150): a name that is not an app of this board is not a value of
+// this setting —the lock has to find a page to open when the minutes run out, and a typo would be a screen that never gets
+// covered— so the door refuses it here and the store keeps only a name that works. `none` and the empty string are the words
+// that leave the screen with no lock (docs/30, docs/40, docs/60).
+bool write_lock_app(const char* id) {
+  if (id == nullptr) return false;
+  if (strcmp(id, "none") == 0 || id[0] == '\0') return cfg::set_lock_app(nullptr);
+  apps::Entry entry;
+  if (!apps::read(id, entry)) return false;
+  return cfg::set_lock_app(entry.id);
+}
+
 bool write_boot(const char* word) {
   if (word == nullptr || !cfg::is_a_boot_word(word)) return false;
   return cfg::set_boot_splash(word);
@@ -130,6 +142,14 @@ void install_settings_ops() {
   doors.set_settings_app = &write_settings_app;
   doors.freq_mask = &cfg::freq_mask;
   doors.set_freq_allowed = &cfg::set_freq_allowed;
+  // **El bloqueig de la pantalla** (0.189.150): the page through the door of the apps, the switch and the minutes as `cfg`
+  // keeps them.
+  doors.lock_app = &cfg::lock_app;
+  doors.set_lock_app = &write_lock_app;
+  doors.lock_on = &cfg::lock_on;
+  doors.set_lock_on = &cfg::set_lock_on;
+  doors.lock_after_minutes = &cfg::lock_after_minutes;
+  doors.set_lock_after_minutes = &cfg::set_lock_after_minutes;
   luabind::set_cfg_ops(doors);
 }
 

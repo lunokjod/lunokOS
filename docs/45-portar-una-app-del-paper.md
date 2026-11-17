@@ -313,11 +313,19 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
 - **El paginador d'un desplegable es gira amb el dit**: la targeta d'una tria és una llista de valors per pàgines i el gest
   de costat és el mateix —el sistema el gasta i l'aixecar el dit no tria res—, o sigui que una app no ha de fer res perquè
   funcioni (docs/30).
-- **Les dues apps que el sistema arrenca per una persona són a la pestanya System** (0.189.109, l'amo: *«Afegeix un selector
-  d'aplicació per gestionar els settings … a la pestanya "System" on posa "App at start" doncs igual»*): la de l'inici
-  (`cfg.home`, que és la que surt amb la placa) i **la del botó dels ajustos del panell** (`cfg.settings`), totes dues amb la
-  llista d'apps del disc i `none` al davant. **L'app dels ajustos no s'ofereix com a app d'inici** —una pàgina que obre els
-  ajustos no és la pàgina amb què arrenca una placa— i sí que és a la llista del botó, que és el seu lloc (docs/30, docs/40).
+- **Les tres apps que el sistema obre per una persona són a la pestanya System** (0.189.109, la tercera a 0.189.150, l'amo:
+  *«Afegeix un selector d'aplicació per gestionar els settings … a la pestanya "System" on posa "App at start" doncs igual»*):
+  la de l'inici —la fila **Home**, que és `cfg.home` i la que surt amb la placa—, **la del botó dels ajustos del panell** —la
+  fila **Settings**, `cfg.settings`— i **la que tapa el vidre** —la fila **Lock**, `cfg.lock`, que és `device_lock` de sèrie—,
+  totes tres amb la llista d'apps del disc i `none` al davant. **L'app dels ajustos no s'ofereix com a app d'inici** —una
+  pàgina que obre els ajustos no és la pàgina amb què arrenca una placa— i sí que és a la llista del botó i a la del pany, que
+  és el seu lloc (docs/30, docs/40). **Els noms són els que va demanar l'amo** (`Home`, `Settings` i `Lock`): una fila que diu
+  `Home` diu què és l'ajust i no com es diu una variable.
+- **La pestanya Privacy és el bloqueig** (0.189.150): el commutador **Lock the screen** escriu `cfg.lockon` —la barra no
+  desapareix, perquè el que tapa el vidre és una app i no una barra que s'amaga— i la fila **Lock after** escull **5, 10 o 15
+  minutes** amb deu de sèrie, que és `cfg.lockafter`. Amb el commutador cert i cap pàgina triada, la línia de sota les files ho
+  diu («No lock app: choose one in System») i el registre hi posa la comanda, en comptes d'engegar una pàgina que no existeix
+  (docs/30, docs/60).
 - **El que la pàgina escriu és de `cfg` i el que la persona va deixar a mitges és de `state`**: les hores i la data es
   desen amb `time.set`, la zona amb `time.tz`, el calendari amb `time.leap`/`time.week`/`time.dst`, el disc amb `fs.cfg`,
   el processador amb `power.cpu`, i el teclat, l'arrencada, l'inici, l'ordre, el torn i el cursor amb `cfg.*` (docs/30
@@ -358,16 +366,17 @@ una hora més**. El que es desa és el que s'ensenya menys l'hora de la casella,
 **El que encara no hi és, i per què** (i és la resposta honesta a mitja llista de l'amo): el panell té set pestanyes i
 només les que tenen porta darrere. **Ja hi són** les tres velocitats del processador amb la seva llista blanca i la marxa del
 torn amb nom (0.189.107 i 0.189.108, amb les xifres mesurades a la placa) i **l'app del botó dels ajustos** (0.189.109, que és
-a la pestanya System amb el mateix selector que l'app de l'inici). **Falten** la política de miniatures, les sessions al disc,
-el NTP a l'arrencada, el paper pintat de fons, el splash propi amb el navegador de fitxers, el PIN i els temps de son
-(lleuger, profund i d'inactivitat): **cap d'aquests no és un ajust del nucli encara**, i una fila que no escriu res és pitjor
-que una fila que no hi és. Cadascun és una feina de subsistema amb la seva porta, la seva prova i el seu document.
+a la pestanya System amb el mateix selector que l'app de l'inici) i **el bloqueig del vidre** (0.189.150: la fila `Lock`, el
+commutador i els minuts de la pestanya Privacy). **Falten** la política de miniatures, les sessions al disc, el NTP a
+l'arrencada, el paper pintat de fons, el splash propi amb el navegador de fitxers i el PIN: **cap d'aquests no és un ajust del
+nucli encara**, i una fila que no escriu res és pitjor que una fila que no hi és. Els temps de son lleuger i profund tampoc no
+són una fila: els decideix la política d'energia (docs/60), i el que s'hi pot triar és el bloqueig que ve després. Cadascun és una feina de subsistema amb la seva porta, la seva prova i el seu document.
 
 **I el que es prova, es prova amb el dit i amb el dial** (`test_apps`,
 `test_the_panel_of_settings_writes_through_the_doors_of_the_system`): una pestanya de la segona fila es tria amb un dit,
 la fletxa d'un `ui.selector` obre el `ui.picker` i **el dial tria el valor** (les tres tecles de la Paper són centre, amunt i
-avall: clau 0, 1 i 2), un dit tria l'hora al quadrant de la targeta, el botó escriu l'hora a la placa, la casella de la
-privacitat treu la barra i la torna, i una esborrada pregunta abans.
+avall: clau 0, 1 i 2), un dit tria l'hora al quadrant de la targeta, el botó escriu l'hora a la placa, el commutador de la
+privacitat encén i apaga `cfg.lockon` —la barra es queda on és, que és el canvi de la 0.189.150—, i una esborrada pregunta abans.
 
 ## 6 · Les proves, i la versió de l'app
 

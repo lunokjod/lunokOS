@@ -351,6 +351,40 @@ Com està avui:
    Paper torna a llegir el BM8563 i corregeix el comptador del SoC, perquè el son és exactament
    quan el comptador deriva i el quars no.
 
+## El bloqueig de la pantalla (0.189.150)
+
+L'amo va demanar un bloqueig que fos **una app i no una barra que s'amaga**: *«El Toggle de la pestanya "Privacy" activa que es
+llençi l'app escollida com lock al inici del sistema i al despertar d'un sleep. Afegeix també un selector de temps al panell
+Privacy "Lock after:" 5, 10, 15 minutes, per defecte 10 minutes. Aquest comptador torna a començar quant l'usuari deixa
+d'interactuar amb la placa, no toca botons físics ni pantalla durant aquest temps, llavors salta l'app lock»*. El nucli no dibuixa
+ni una línia del que hi surt: obre la pàgina que `cfg lock` nomena i prou (`lib/kernel/src/lock.cpp`).
+
+| Moment | Què passa |
+|---|---|
+| **Arrencar la placa** | Després de l'app de l'inici, `lock::boot()` obre la pàgina si el commutador és cert |
+| **Tornar d'un son lleuger** | `power.cpp` avisa amb `lock::note_a_wake()`; el primer torn que ve després obre la pàgina |
+| **Els minuts sense màns** | Cada tecla, cada dit i cada byte de consola tornen a començar el comptador; quan s'acaba, la pàgina puja al davant |
+| **El commutador apagat** | Cap dels tres: la placa es queda on era |
+
+- **El comptador és una durada i no una hora**: surt de `pal::system().millis()`, el monòton, i no de l'`epoch`, perquè posar
+  l'hora endavant no ha de bloquejar la placa i posar-la enrere no ha de deixar-la sense bloquejar mai. És el mateix rellotge
+  que compten les alarmes.
+- **Qui compta com a mà**: el flanc de pujada d'un botó (`button.cpp`), cada fotograma amb un contacte al vidre
+  (`touch.cpp`) i cada byte que arriba a la consola (`kernel.cpp`). Un son no compta com a mà: és el que fa saltar el pany.
+- **Els minuts són cinc, deu o quinze i res més** (`cfg lockafter`): la llista és la de la pàgina i un número que la fila no sap
+  ensenyar seria un ajust que una persona no pot desfer. El de sèrie són deu.
+- **La pàgina no es torna a demanar si ja és al davant** (`lock::locked()`): preguntar-la cada torn seria tancar i obrir l'app
+  cada torn, i el comptador torna a començar quan la pàgina ha pujat, o el torn següent la tornaria a demanar.
+- **Una placa sense vidre no tapa res**: als quatre entorns sense `LUNOK_GLASS` el bloqueig no fa res i no diu res, perquè la
+  consola és tot el que tenen (docs/50).
+- **I si el commutador és cert sense cap pàgina triada, ho diu una vegada** —`the screen is set to lock and no lock app is
+  chosen`— i prou: una línia per torn és un registre que no es pot llegir.
+
+**El que el bloqueig no fa**: no hi ha PIN (el pany del vidre és el de `device_lock`, que és una app), no compta els minuts
+durant un son profund —en tornar, el rellotge monòton no ha corregut i el despert ja bloqueja igualment— i no impedeix que una
+alarma amb `raise` es posi al davant d'una pantalla bloquejada: qui decideix això és l'app de l'alarma, i una alarma que no
+pogués avisar seria pitjor que un vidre tapat (docs/30).
+
 ## Què hi ha avui
 
 | Peça | Estat |
@@ -366,6 +400,7 @@ Com està avui:
 | Repeticions | Una diària perduda tres dies arriba **una vegada**, amb `missed = 2` |
 | `persist` | La cua es desa a la NVS amb una **època per línia**, i les vençudes es disparen en arrencar amb el seu `late_ms`. Sense època no s'escriu res |
 | Despert | `can_wake()` és cert a les dues bandes, i a l'ATOM el despert és el temporitzador del RTC i el botó. Una alarma no es pot impedir que es perdi: si no hi ha corrent, es reprodueix en arrencar |
+| Bloqueig del vidre | **Una app i no una barra**: `cfg lock` (la pàgina), `cfg lockon` (el commutador) i `cfg lockafter` (5, 10 o 15 minuts) obren la pàgina a l'arrencada, al despert d'un son lleuger i quan passen els minuts sense cap mà (0.189.150, docs/60) |
 
 ## L'hora de la persona: un desfasament i no una zona (0.125.0)
 

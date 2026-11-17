@@ -3,6 +3,8 @@
 #include "kernel/meter.h"
 #include "kernel/button.h"
 
+#include "kernel/lock.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -306,6 +308,9 @@ void poll() {
     g_was_down[key] = down;
 
     if (rising) {
+      // **Una tecla és una mà a la placa** (0.189.150): every press —the middle key, a side one, a key the app took— starts
+      // the counter of the lock again, because a person pressing keys is a person using the board (docs/30, docs/60).
+      lock::note_activity();
       g_long_sent[key] = false;
       if (key != 0) {
         // A side key has no gesture of the system on it: that one is the app's
