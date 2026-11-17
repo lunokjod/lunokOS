@@ -9760,7 +9760,17 @@ namespace kernel {
 // recorregut de l'arbre que fa el dial, mirant `__icon_grid` i la caixa de cada fill) i la pàgina gira igual que si el dit hagués
 // caigut damunt d'una cel·la (docs/30, docs/90). Mirat a l'emulador amb una graella de vuit cel·les i tres columnes: un dit al paper
 // de la tercera pàgina la porta a la segona (`grid at 4` al registre) i un altre cap a l'altra banda el torna a la tercera.
-static const char kVersion[] = "0.189.155";
+// **Una alarma d'un dia i una hora, dita sencera** (0.189.156, l'amo: *«les apps han de poder posar alarmes, tant
+// temportizades (avisa'm en 30 minuts) com a una hora:minut dia/mes/any … El nucli el processa com una alarma i la gestiona,
+// agafa la cua d'alarmes de tot el sistema, l'ordena per quina es la mes propera i configura els dispositius per despertar del
+// son … Si la alarma es molt llunyana es molt possible que hagis de fer despertars intermitjos per recodificar l'alarma»*).
+// Tot això ja hi era —`on` (o `in_ms`), la cua ordenada, el xip del rellotge o el temporitzador del SoC, i les tandes d'una
+// espera d'un dia o més— però el document no ho deia sencer: no deia que `on` són **segons** d'època, ni que n'hi ha prou
+// amb `time.epoch` per a una data, ni què passa amb una hora que ja ha passat (venç de seguida i arriba amb `late_ms`, com la
+// d'una alarma que ha sobreviscut a un tall) ni amb una data en una placa sense hora (`E_INVAL`). I el camí sencer —la data,
+// `persist`, `raise`, el guard de la finestra i el ganxo que llegeix el que reescriurà— no era enlloc amb les tres crides
+// juntes: ara hi ha l'exemple de `docs/30` i les tres vores del contracte (docs/30, docs/60).
+static const char kVersion[] = "0.189.156";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

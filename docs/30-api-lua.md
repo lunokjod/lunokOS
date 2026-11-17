@@ -921,10 +921,26 @@ sobrevisquin a un reinici i a la destrucció de la VM.
 
 Camps de `spec`:
 
+- **`on`**: l'hora **en segons d'època** (el que torna `time.now()`, no mil·lisegons), o bé **`in_ms`** per a una espera
+  relativa. N'hi ha prou amb un dels dos, i `in_ms` té un terra de cent mil·lisegons. **Una data del calendari es demana amb
+  `time.epoch(year, month, day, hour, minute)`**, que porta la zona i l'hora d'estiu de la placa, i una hora relativa amb
+  `in_ms` o la drecera `alarm.after(ms)`.
 - `payload`: qualsevol valor que es pugui desar com a JSON (petit).
 - `repeat`: `nil` (un cop), un número (segons) o `"daily"`.
 - `raise`: si és `true`, quan venç l'app passa a primer pla.
 - `persist`: si és `true`, sobreviu a un reinici. Per defecte `true` si `repeat` hi és.
+
+**I les tres vores del contracte** (0.189.156, l'amo: *«les apps han de poder posar alarmes, tant temportizades … com a una
+hora:minut dia/mes/any»*):
+
+- **una època en el passat no es refusa**: la placa no té rellotge de paret, no hi ha manera de saber si la persona vol dir
+  «ahir» o «d'aquí a dotze mesos», o sigui que l'alarma venç de seguida i arriba amb `meta.late_ms` —el mateix camí que una
+  alarma desada que ha sobreviscut a un tall de corrent—, i el registre diu què ha passat;
+- **una hora absoluta sense rellotge és `E_INVAL`**: una placa que no sap quina hora és no pot col·locar cap data (una
+  `in_ms`, en canvi, no necessita saber res);
+- **i una hora llunyana s'arma en tandes**: el xip del rellotge compta fines a 255 minuts i la seva alarma de rellotge va al
+  minut, o sigui que una espera d'un dia o més no hi cap d'una tirada: la placa es desperta **abans d'hora**, no troba res a
+  la cua, desa l'hora i torna a adormir-se amb la resta, sense obrir l'app (docs/60).
 
 `meta` que rep `on_alarm` és `{late_ms, missed}`: quant tard s'ha entregat i quantes repeticions
 s'han perdut mentre el sistema era apagat.
@@ -993,6 +1009,50 @@ arriba.
 monòton torna a començar a cada arrencada), i en arrencar les vençudes es disparen amb el seu
 `late_ms`. Sense època no s'escriu res, perquè una hora relativa no vol dir res després d'un
 reinici (docs/60).
+
+**Una alarma per a un dia i una hora, sencera** (0.189.156): the whole road an app has to walk —la data, el que es desa, la
+finestra i el que el ganxo fa— and not one of the three calls on its own. `time.epoch` porta la zona i l'estiu, `persist` la
+fa sobreviure a un tall, `raise` la fa sonar a la pàgina, i el ganxo llegeix el que ha de reescriure **abans** d'escriure-hi,
+perquè una finestra no ha llegit res:
+
+```lua
+local armed = {}   -- els ids que ha posat aquesta pàgina i què volen dir
+
+-- **La data de la persona, no la de la màquina**: time.epoch rep l'hora local i en torna l'època.
+local function arm_a_date(year, month, day, hour, minute, payload)
+  local on, why = time.epoch(year, month, day, hour, minute)
+  if on == nil then
+    return nil, (why and why.message) or 'this board has no hour: a date cannot be placed'
+  end
+  local ok, id = pcall(alarm.at, { on = on, raise = true, persist = true, payload = payload })
+  if not ok or type(id) ~= 'number' then
+    return nil, tostring(ok and id or (id and id.code) or 'the queue said no')
+  end
+  armed[id] = payload
+  return id
+end
+
+-- **El ganxo no pot esperar**: es crida entre dos torns i la VM mor tot seguit. El que hagi de llegir del disc ho llegeix
+-- aquí, i el que hagi d'escriure ho escriu aquí (docs/30, docs/60).
+function on_alarm(id, payload, meta)
+  if not read_the_log_once() then return end          -- una finestra arrenca amb la memòria buida
+  note_that_it_rang(id, payload, meta.late_ms, meta.missed)
+  armed[id] = nil
+  if meta.missed > 0 then
+    console.print(string.format('it was missed %d time(s) while the board was off', meta.missed))
+  end
+end
+
+-- **Dins una finestra, res més**: l'entry corre per carregar l'app i aleshores arriba on_alarm; si el chunk d'aquí sota
+-- armés una alarma, el sistema es cridaria a si mateix per sempre.
+if not console.is_foreground() then return end
+build_the_page()
+local id, why = arm_a_date(2026, 12, 24, 7, 30, 'presents')
+if id == nil then console.print('no alarm: ' .. why) end
+```
+
+I **una alarma només la pot treure qui l'ha posada** (`alarm.cancel(id)` respon `false` per a les de les altres apps), perquè
+la cua és de tot el sistema i no d'una app (docs/60).
 
 ## `epub`
 
