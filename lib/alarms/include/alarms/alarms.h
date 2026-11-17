@@ -56,6 +56,11 @@ uint32_t count();
 // **Les dues preguntes de la barra** (0.189.57): hi ha una alarma que es repeteix —el despertador de cada dia— o una que
 // sona un sol cop —el temporitzador que algú ha deixat? The queue is eight at most and the answer is one boolean, so the
 // strip can ask it on every turn without walking the list (docs/50, docs/60).
+//
+// **I només compten les que sonen** (0.189.154): la cua també porta la feina de fons d'una app —`battery` hi posa una
+// alarma que es repeteix cada deu minuts per prendre una mostra— i una campana que s'encés per ella deia que hi havia una
+// alarma posada quan no n'hi havia cap. Les dues responen `raise_to_front`: l'alarma d'una persona vol el vidre, la de fons
+// no (docs/30, docs/60).
 bool has_repeating();
 bool has_once();
 // The i-th alarm of the ordered list, or nullptr. The pointer is only valid

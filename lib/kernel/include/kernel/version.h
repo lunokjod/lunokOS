@@ -9745,7 +9745,14 @@ namespace kernel {
 // (si n'hi ha), el candau (si n'hi ha) i les de parar la placa. El camí de tornar a arrencar la pàgina d'inici des de la targeta
 // marxa amb ella; el que queda és la cursa —la targeta pintada amb una altra app al davant i el dit que s'aixeca quan la casa ja
 // hi és—, que `open_the_home` encara atén (docs/30, docs/45).
-static const char kVersion[] = "0.189.153";
+// **La campana de la barra és per a les alarmes que sonen** (0.189.154, l'amo: *«Veig l'icona d'alarma a la barra de sistema,
+// està activa per algun motiu?»*). Ho estava, i per un motiu que no és el que la campana diu: `battery` arma una alarma que es
+// repeteix cada deu minuts per prendre una mostra i la desa (`persist`), o sigui que la cua del sistema la tenia sempre i
+// `alarms::has_repeating()` responia que sí a cada arrencada. Una alarma de fons no és una alarma posada per una persona, i el
+// que les separa ja és a la cua: `raise_to_front`, que és el que l'app demana quan vol que la seva alarma obri la pàgina. Les
+// dues preguntes de la barra —el despertador i el rellotge de sorra— compten ara només les alarmes que vindran al vidre, i la
+// mostra de la bateria no encén res; la del rellotge de cada dia i el compte enrere sí (docs/30, docs/50, docs/60).
+static const char kVersion[] = "0.189.154";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

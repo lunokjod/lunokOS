@@ -65,16 +65,22 @@ uint32_t max() { return kMaxAlarms; }
 
 uint32_t count() { return g_count; }
 
+// **I només les que sonen** (0.189.154, l'amo: *«Veig l'icona d'alarma a la barra de sistema, està activa per algun motiu?»*):
+// the queue of the system is not only the alarms of a person —`battery` arms a repeating alarm every ten minutes to take a
+// sample, and it is a `persist` one, o sigui que era a la cua sempre i la campana de la barra deia que hi havia una alarma posada
+// quan no n'hi havia cap—. The mark of the strip is for the alarms that will **come to the glass**: `raise_to_front` is what the
+// app asked for when it wants to be opened, and an alarm of a person asks for it (the clock's daily one, the countdown) while
+// the housekeeping of an app does not (docs/30, docs/60).
 bool has_repeating() {
   for (uint32_t i = 0; i < g_count; ++i) {
-    if (g_entries[i].repeat_ms != 0) return true;
+    if (g_entries[i].repeat_ms != 0 && g_entries[i].raise_to_front) return true;
   }
   return false;
 }
 
 bool has_once() {
   for (uint32_t i = 0; i < g_count; ++i) {
-    if (g_entries[i].repeat_ms == 0) return true;
+    if (g_entries[i].repeat_ms == 0 && g_entries[i].raise_to_front) return true;
   }
   return false;
 }

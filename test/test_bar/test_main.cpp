@@ -501,10 +501,31 @@ static void test_an_alarm_puts_the_bell_on_the_strip() {
   }
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, before, "a bar with no alarms drew something after the hour");
 
+  // **Una alarma de fons no l'encén** (0.189.154, l'amo: *«Veig l'icona d'alarma a la barra de sistema, està activa per algun
+  // motiu?»*): the `battery` app arms a repeating alarm every ten minutes to take a sample and never asks for the glass, i la
+  // campana s'hi encenia per ella. El que encén el despertador és una alarma que ha de **venir al vidre**, o sigui que la de fons
+  // no el mou i la d'una persona sí (docs/30, docs/60).
+  alarms::Spec background;
+  background.app = "test_bar";
+  background.on_mono_ms = 60000;
+  background.repeat_ms = 600 * 1000;
+  background.persist = true;
+  TEST_ASSERT_TRUE_MESSAGE(alarms::add(background) != 0, "the queue took no alarm");
+  bar::poll();
+  int ink_of_background = 0;
+  for (uint16_t y = 9; y < 37; ++y) {
+    for (uint16_t x = left_x; x < right_x; ++x) {
+      if (glass().level_at(x, y) == 0) ++ink_of_background;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_of_background, "a repeating alarm of the housekeeping lit the bell of the strip");
+  alarms::reset();
+
   alarms::Spec spec;
   spec.app = "test_bar";
   spec.on_mono_ms = 60000;
   spec.repeat_ms = alarms::kDailyMs;  // the one a person sets for a time of day: the alarm clock and not the timer
+  spec.raise_to_front = true;         // i que ha de sonar: és el que fa l'app del rellotge amb la seva alarma de cada dia
   TEST_ASSERT_TRUE_MESSAGE(alarms::add(spec) != 0, "the queue took no alarm");
   bar::poll();
   int after = 0;

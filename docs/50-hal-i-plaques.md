@@ -1356,7 +1356,13 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   despertador alarma i el rellotge de sorra per el temportizador»*): the **bell** says an alarm is set —a repeating one, the
   one a person sets for a time of day— and the **hourglass** says something is counting down, which is the clock being set
   from the network **or** a timer somebody left (`alarms::has_once()`). They sit between the hour and the title, so the
-  strip reads outwards from the clock. The alarm is **`U+23F0 ALARM CLOCK`** —a bedroom alarm clock: two bells, the hammer,
+  strip reads outwards from the clock.
+  **I només s'encenen per a les alarmes que sonen** (0.189.154, l'amo: *«Veig l'icona d'alarma a la barra de sistema, està
+  activa per algun motiu?»*): la cua del sistema també porta la feina de fons d'una app —`battery` hi arma una alarma que es
+  repeteix cada deu minuts per prendre una mostra, i és `persist`, o sigui que era a la cua a cada arrencada— i la campana
+  s'encenia per ella com si una persona hagués posat una alarma. Les dues preguntes de la barra compten ara **només les
+  alarmes que han de venir al vidre** (`raise_to_front`): la del rellotge de cada dia i el compte enrere el demanen, la mostra
+  de la bateria no, i per tant la franja diu el que una persona ha posat i no el que el sistema s'ha manat a si mateix (docs/60). The alarm is **`U+23F0 ALARM CLOCK`** —a bedroom alarm clock: two bells, the hammer,
   the face, the two handles and the hand— and it is the only icon of this bar that is a **table of bits** and not lines. It is
   a drawing that was tried three times by hand and did not work at twenty pixels: two bells over a face is a smiley, the bells
   glued to the ring are an eyebrow, and a bigger bell with the hammer between the two is an `M`. The table is generated and
