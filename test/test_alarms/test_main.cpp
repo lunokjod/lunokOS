@@ -179,6 +179,73 @@ void test_the_revision_moves_when_the_queue_changes(void) {
   (void)id;
 }
 
+// **Cada alarma, dita amb les paraules d'una persona** (0.189.149, l'amo: *«quan es programa una alarma també ho vull veure i a
+// quin dispositiu s'envia o quin métode»* / *«Vull que el sistema mostri la llista de alarmes que te i quina es la mes
+// propera»*): the library formats the line because these are its fields —a caller that rebuilt it from `at()` would be a
+// second reader of the same struct— and the two clocks arrive as numbers, exactly as in `dump`. The tests are the three
+// shapes the log and the prompt show: an alarm that is armed, one that repeats every day, and one whose hour is not known
+// (docs/30, docs/60).
+void test_an_alarm_describes_itself_with_a_person_s_words(void) {
+  alarms::Spec once;
+  once.app = "clock";
+  once.on_mono_ms = 10000;
+  once.payload_kind = alarms::Payload::kText;
+  once.payload = "ring";
+  const uint32_t id = alarms::add(once);
+  TEST_ASSERT_TRUE(id != 0);
+
+  // **Amb hora**: the monotonic deadline and the epoch are the two clocks, so the hour of the line is the one a person reads
+  // on the glass —the offset of the system is the third number and it is the caller's, as everywhere (docs/30)—.
+  char line[160];
+  // 2026-11-16 14:00:00 UTC with five seconds left, in an hour of +01:00: 15:00:05.
+  const int64_t epoch_now = 1794837600000LL;
+  TEST_ASSERT_TRUE(alarms::describe(0, 5000, epoch_now, 60, line, sizeof(line)) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(line, "#"));
+  TEST_ASSERT_NOT_NULL(strstr(line, " clock"));
+  TEST_ASSERT_NOT_NULL(strstr(line, "in 5 s"));
+  TEST_ASSERT_NOT_NULL(strstr(line, "at 15:00:05"));
+  TEST_ASSERT_NOT_NULL(strstr(line, "payload text 4 B"));
+  TEST_ASSERT_NULL(strstr(line, "repeats"));
+
+  // **Sense hora**: a board whose epoch nobody has set still has a real deadline —the monotonic one— and the line says what
+  // is left and nothing else. A `1970` would be a date a person reads as a fact (docs/30, docs/85).
+  TEST_ASSERT_TRUE(alarms::describe(0, 5000, 0, 60, line, sizeof(line)) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(line, "in 5 s"));
+  TEST_ASSERT_NULL(strstr(line, " at "));
+
+  // **I una que es repeteix cada dia, amb el que li queda i el que fa quan sona**: the daily one names the day and not the
+  // number of seconds, because that is how the page of the alarms says it (docs/60).
+  alarms::reset();
+  alarms::Spec daily = make("clock", 90000000, static_cast<int32_t>(alarms::kDailyMs));
+  daily.persist = true;
+  daily.raise_to_front = true;
+  TEST_ASSERT_TRUE(alarms::add(daily) != 0);
+  TEST_ASSERT_TRUE(alarms::describe(0, 0, 0, 0, line, sizeof(line)) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(line, "repeats daily"));
+  TEST_ASSERT_NOT_NULL(strstr(line, "persist"));
+  TEST_ASSERT_NOT_NULL(strstr(line, "raises the app"));
+
+  // **I una que ja era a punt de sonar diu quant tard arriba**, que és el que el registre escriu quan la lliura.
+  alarms::reset();
+  TEST_ASSERT_TRUE(alarms::add(make("clock", 1000)) != 0);
+  TEST_ASSERT_TRUE(alarms::describe(0, 4000, 0, 0, line, sizeof(line)) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(line, "3 s late"));
+}
+
+// **El que no hi és no es descriu i el que no hi cap no es parteix** (0.189.149): an index past the queue and a buffer of four
+// bytes are the two ways this formatter can be asked for something it cannot give, and both have to answer zero instead of
+// a line cut in the middle —the log reads the answer, and a half line is worse than no line (docs/30).
+void test_describe_refuses_what_it_cannot_say(void) {
+  char line[160];
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::describe(0, 0, 0, 0, line, sizeof(line)));
+  TEST_ASSERT_TRUE(alarms::add(make("clock", 1000)) != 0);
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::describe(1, 0, 0, 0, line, sizeof(line)));
+
+  char tiny[4];
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::describe(0, 0, 0, 0, tiny, sizeof(tiny)));
+  TEST_ASSERT_EQUAL_UINT8('\0', static_cast<uint8_t>(tiny[0]));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -193,5 +260,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_dump_and_load_keep_the_persistent_alarms);
   RUN_TEST(test_dump_without_an_epoch_writes_nothing);
   RUN_TEST(test_the_revision_moves_when_the_queue_changes);
+  RUN_TEST(test_an_alarm_describes_itself_with_a_person_s_words);
+  RUN_TEST(test_describe_refuses_what_it_cannot_say);
   return UNITY_END();
 }

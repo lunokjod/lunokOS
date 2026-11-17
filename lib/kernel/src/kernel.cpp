@@ -1,8 +1,10 @@
 #include "kernel/kernel.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "alarms/alarms.h"
+#include "hal/civil.h"
 #include "kernel/apps.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
@@ -230,10 +232,37 @@ void save_alarms() {
 
 // Only the nearest alarm is ever armed, and only when the nearest one changed:
 // that is what makes dozens of alarms cost one wake (docs/60).
+// **On ha anat l'alarma, i per què** (0.189.149, l'amo: *«quan es programa una alarma també ho vull veure i a quin
+// dispositiu s'envia o quin métode (si es un comptador intern o un RTC...)»*). A board keeps one deadline and it keeps it
+// in one place: the chip of the clock when there is one behind the power circuit, the SoC's timer when there is not, and
+// **the turn of the loop** when the board cannot wake itself at all —which is the answer that was never written down and it
+// is the one that matters, because such an alarm only fires while somebody is watching the board— (docs/50, docs/60).
+const char* keeper_word(const char* keeper) {
+  if (keeper == nullptr) return "nothing";
+  if (strcmp(keeper, "chip") == 0) return "the clock chip";
+  if (strcmp(keeper, "timer") == 0) return "the RTC timer of the SoC";
+  return "nothing";
+}
+
+// The wall clock of an epoch, in the hour this system shows everywhere, or an empty text when there is no hour yet.
+void hour_text(int64_t epoch_ms, char* out, size_t cap) {
+  out[0] = '\0';
+  if (epoch_ms <= 0 || cap == 0) return;
+  int year = 1970;
+  int month = 1;
+  int day = 1;
+  int hour = 0;
+  int minute = 0;
+  int second = 0;
+  hal::epoch_ms_to_civil(epoch_ms + static_cast<int64_t>(cfg::offset_minutes()) * 60000, year, month, day, hour, minute,
+                         second);
+  snprintf(out, cap, "%02d:%02d:%02d on %d-%02d-%02d", hour, minute, second, year, month, day);
+}
+
 void arm_nearest_alarm() {
   if (g_platform == nullptr) return;
   hal::IClock* clock = g_platform->clock();
-  if (clock == nullptr || !clock->can_wake()) return;
+  if (clock == nullptr) return;
 
   const int64_t next_mono = alarms::next_due_mono_ms();
   if (next_mono == g_armed_at) return;
@@ -241,19 +270,66 @@ void arm_nearest_alarm() {
   // (docs/30, docs/50).
   meter::Scope scope(meter::kClockWake);
   g_armed_at = next_mono;
-  if (next_mono < 0) {
-    clock->disarm_wake();
+  const uint32_t id = (alarms::count() > 0 && alarms::at(0) != nullptr) ? alarms::at(0)->id : 0;
+  if (!clock->can_wake()) {
+    // No timer and no chip that can bring the board back: the deadline is only seen between turns.
+    if (next_mono < 0) return;
+    log_printf(pal::kLogWarn, "ALARM",
+               "#%u is kept by the turn of the loop: this board cannot wake itself, so it fires only while it is on",
+               static_cast<unsigned>(id));
     return;
   }
-  const int64_t at_epoch = clock->epoch_ms() + (next_mono - clock->monotonic_ms());
-  if (!clock->arm_wake(at_epoch)) {
-    log_printf(pal::kLogWarn, "CLOCK", "cannot arm the wake for %lld",
-               static_cast<long long>(at_epoch));
+  if (next_mono < 0) {
+    clock->disarm_wake();
+    log_printf(pal::kLogInfo, "ALARM", "no alarm is pending: the wake is disarmed");
+    return;
   }
+  const int64_t left = next_mono - clock->monotonic_ms();
+  const int64_t at_epoch = clock->epoch_ms() + left;
+  if (!clock->arm_wake(at_epoch)) {
+    log_printf(pal::kLogWarn, "CLOCK", "#%u: cannot arm the wake for %lld", static_cast<unsigned>(id),
+               static_cast<long long>(at_epoch));
+    return;
+  }
+  // **Una hora de debò i no una de 1970** (0.189.149): a board whose epoch nobody has set still counts its own monotonic
+  // clock —the alarm is real— but the hour it would print is the first of January of 1970, which is a number a person would
+  // read as a date. Without an hour the line says only what is left (docs/30, docs/60).
+  char when[64] = {0};
+  if (clock->epoch_ms() > 0) {
+    char at[48];
+    hour_text(at_epoch, at, sizeof(at));
+    snprintf(when, sizeof(when), " for %s", at);
+  }
+  log_printf(pal::kLogInfo, "ALARM", "#%u armed on %s%s (%lld s from now)", static_cast<unsigned>(id),
+             keeper_word(clock->wake_keeper()), when, static_cast<long long>((left + 999) / 1000));
 }
 
 // An alarm that is due is delivered here, between two turns of the app, so the
 // app's coroutine is always suspended when its on_alarm runs.
+// **La cua sencera, amb la més propera al davant** (0.189.149): the same list the door of an app writes when it adds or
+// cancels one, so a board that comes back from the nvs says what it came back with —the formatter is the library's and this
+// only puts it on the console, which is the one thing the alarm queue does not do for itself (docs/60).
+void note_the_queue(const char* why) {
+  const uint32_t count = alarms::count();
+  if (count == 0) {
+    log_printf(pal::kLogInfo, "ALARM", "%s: the queue is empty", why);
+    return;
+  }
+  const int64_t mono_now = clock_mono();
+  const int64_t epoch_now = clock_epoch();
+  const int32_t offset = cfg::offset_minutes();
+  const alarms::Entry* first = alarms::at(0);
+  log_printf(pal::kLogInfo, "ALARM", "%s: %u of %u, the nearest is #%u (%s) in %lld s", why,
+             static_cast<unsigned>(count), static_cast<unsigned>(alarms::max()),
+             static_cast<unsigned>(first->id), first->app,
+             static_cast<long long>((first->on_mono_ms - mono_now + 999) / 1000));
+  for (uint32_t i = 0; i < count; ++i) {
+    char line[160];
+    if (alarms::describe(i, mono_now, epoch_now, offset, line, sizeof(line)) == 0) continue;
+    log_printf(pal::kLogInfo, "ALARM", "  %s", line);
+  }
+}
+
 void deliver_alarms() {
   if (g_platform == nullptr) return;
   alarms::Entry entry;
@@ -266,6 +342,14 @@ void deliver_alarms() {
     const int64_t late = now - entry.on_mono_ms;
     const bool owner_running =
         luabind::running() && (strcmp(luabind::app_id(), entry.app) == 0);
+    // **I que ha sonat es diu sempre** (0.189.149): a delivered alarm used to leave no line at all when the app was in front
+    // and had its hook —the commonest case—, o sigui que el registre callava justament el cas que funciona i només parlava
+    // dels tres que fallen. La línia diu de qui és, quant tard arriba, si es repeteix i quantes voltes s'ha perdut, i amb
+    // quanta cua es queda el sistema després (docs/30, docs/60).
+    log_printf(pal::kLogInfo, "ALARM", "#%u fired for %s, %lld ms late%s%s, %u left in the queue",
+               static_cast<unsigned>(entry.id), entry.app, static_cast<long long>(late),
+               (entry.repeat_ms > 0) ? ", repeating" : "", (entry.missed > 0) ? " (missed)" : "",
+               static_cast<unsigned>(alarms::count()));
     if (owner_running && !luabind::call_alarm(entry, late)) {
       log_printf(pal::kLogWarn, "ALARM", "%u for %s: the app has no on_alarm",
                  static_cast<unsigned>(entry.id), entry.app);
@@ -617,6 +701,7 @@ void alarms_restore() {
   if (alarms::load(clock_mono(), epoch, blob)) {
     log_printf(pal::kLogInfo, "ALARM", "%u restored from nvs",
                static_cast<unsigned>(alarms::count()));
+    note_the_queue("the queue of the board");
     g_alarms_stored = true;
   } else {
     log_printf(pal::kLogWarn, "ALARM", "the nvs queue could not be used");

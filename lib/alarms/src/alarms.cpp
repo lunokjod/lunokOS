@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "hal/civil.h"
+
 namespace alarms {
 namespace {
 
@@ -157,6 +159,68 @@ bool take_due(int64_t now_mono_ms, Entry& out) {
 }
 
 uint32_t revision() { return g_revision; }
+
+size_t describe(uint32_t index, int64_t mono_now_ms, int64_t epoch_now_ms, int32_t offset_minutes, char* buf,
+                size_t cap) {
+  if (buf == nullptr || cap == 0 || index >= g_count) return 0;
+  buf[0] = '\0';
+  const Entry& entry = g_entries[index];
+
+  // **Quant li falta, i quan serà a l'hora de la persona**: the deadline is a monotonic one —it is what the board counts—
+  // and a person reads an hour, so the epoch comes from the difference between the two clocks, with the offset the system
+  // shows everywhere (docs/30, docs/60).
+  char when[48] = {0};
+  const int64_t left_ms = entry.on_mono_ms - mono_now_ms;
+  if (left_ms >= 0) {
+    snprintf(when, sizeof(when), "in %lld s", static_cast<long long>((left_ms + 999) / 1000));
+  } else {
+    snprintf(when, sizeof(when), "%lld s late", static_cast<long long>((-left_ms + 999) / 1000));
+  }
+  char at[32] = {0};
+  if (epoch_now_ms > 0) {
+    int year = 1970;
+    int month = 1;
+    int day = 1;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    // The wall clock of the alarm: now plus what is left, in the hour the board shows.
+    const int64_t at_ms = epoch_now_ms + left_ms + static_cast<int64_t>(offset_minutes) * 60000;
+    hal::epoch_ms_to_civil(at_ms, year, month, day, hour, minute, second);
+    snprintf(at, sizeof(at), ", at %02d:%02d:%02d", hour, minute, second);
+  }
+
+  char how[64] = {0};
+  if (entry.repeat_ms > 0) {
+    if (entry.repeat_ms == static_cast<int32_t>(kDailyMs)) {
+      snprintf(how, sizeof(how), ", repeats daily");
+    } else {
+      snprintf(how, sizeof(how), ", repeats every %d s", static_cast<int>(entry.repeat_ms / 1000));
+    }
+  }
+
+  char extra[64] = {0};
+  size_t used = 0;
+  if (entry.persist) {
+    used += static_cast<size_t>(snprintf(extra + used, sizeof(extra) - used, ", persist"));
+  }
+  if (entry.raise_to_front) {
+    used += static_cast<size_t>(snprintf(extra + used, sizeof(extra) - used, ", raises the app"));
+  }
+  if (entry.payload_kind != Payload::kNone) {
+    snprintf(extra + used, sizeof(extra) - used, ", payload %s %u B",
+             (entry.payload_kind == Payload::kNumber) ? "number" : "text",
+             static_cast<unsigned>(strlen(entry.payload)));
+  }
+
+  const int written = snprintf(buf, cap, "#%u %s: %s%s%s%s", static_cast<unsigned>(entry.id), entry.app, when, at, how,
+                               extra);
+  if (written <= 0 || static_cast<size_t>(written) >= cap) {
+    buf[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(written);
+}
 
 size_t dump(int64_t mono_now_ms, int64_t epoch_now_ms, char* buf, size_t cap) {
   if (buf == nullptr || cap == 0) return 0;

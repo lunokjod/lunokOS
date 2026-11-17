@@ -288,10 +288,19 @@ class HostClock : public IClock {
   // instead of stopping the PC (docs/85).
   bool arm_wake(int64_t at_epoch_ms) override {
     armed_ = at_epoch_ms;
+    keeper_ = emu::model().keeps_the_hour ? "chip" : "timer";
     return true;
   }
 
-  void disarm_wake() override { armed_ = 0; }
+  void disarm_wake() override {
+    armed_ = 0;
+    keeper_ = "none";
+  }
+
+  // **El model de la placa, que és el que la línia del registre ha de dir** (0.189.149): the Paper has a clock chip behind its
+  // power circuit and the ATOMs have only the SoC's timer, which is the same answer `last_wake()` gives and the same one
+  // `source()` gives for the hour —the emulator of a board does not invent a keeper the board does not have (docs/85)—.
+  const char* wake_keeper() const override { return keeper_; }
 
   WakeCause last_wake() override {
     // On the Paper the alarm is the chip's, so a wake that was armed is the clock's; on the ATOMs
@@ -337,6 +346,8 @@ class HostClock : public IClock {
   int64_t pinned_epoch_;
   int64_t armed_ = 0;
   int64_t slept_ = 0;
+  // Where the last arming went, for the line of the log (0.189.149).
+  const char* keeper_ = "none";
 };
 
 // One clock for the whole band: the power has to move the same one the kernel

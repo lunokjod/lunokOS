@@ -1338,6 +1338,33 @@ bool read_payload(lua_State* L, int idx, alarms::Spec& spec, char* store, size_t
   return false;
 }
 
+// **La cua de les alarmes, al registre cada cop que canvia** (0.189.149, l'amo: *«Vull que quan una app afegeixi, tregui o rebi
+// una alarma surti al log»* i *«Vull que el sistema mostri la llista de alarmes que te i quina es la mes propera»*). One line
+// says what happened and how many there are with the nearest first; then one line per alarm, which is `alarms::describe`
+// and not a second reader of the struct. The library of the alarm never writes to a console —that is its first rule— so
+// the words are here, where the app's door is, and in the kernel for what only the kernel sees (the fire and the arming).
+void note_the_queue(const char* why) {
+  const uint32_t count = alarms::count();
+  if (count == 0) {
+    hal::logf(pal::kLogInfo, "ALARM", "%s; the queue is empty", why);
+    return;
+  }
+  const alarms::Entry* first = alarms::at(0);
+  const int64_t now = alarm_mono_now();
+  const int64_t left_ms = first->on_mono_ms - now;
+  hal::logf(pal::kLogInfo, "ALARM", "%s; %u of %u, the nearest is #%u (%s) in %lld s", why,
+            static_cast<unsigned>(count), static_cast<unsigned>(alarms::max()),
+            static_cast<unsigned>(first->id), first->app,
+            static_cast<long long>((left_ms + 999) / 1000));
+  const int32_t offset = (g_time_ops.offset_minutes != nullptr) ? g_time_ops.offset_minutes() : 0;
+  const int64_t epoch = epoch_ms_or_zero();
+  for (uint32_t i = 0; i < count; ++i) {
+    char line[160];
+    if (alarms::describe(i, now, epoch, offset, line, sizeof(line)) == 0) continue;
+    hal::logf(pal::kLogInfo, "ALARM", "  %s", line);
+  }
+}
+
 int l_alarm_at(lua_State* L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   if (alarm_owner()[0] == '\0') {
@@ -1407,6 +1434,9 @@ int l_alarm_at(lua_State* L) {
 
   const uint32_t id = alarms::add(spec);
   if (id == 0) return raise_coded(L, "E_NOMEM", "no room for another alarm");
+  char why[64];
+  snprintf(why, sizeof(why), "%s adds #%u", alarm_owner(), static_cast<unsigned>(id));
+  note_the_queue(why);
   lua_pushinteger(L, static_cast<lua_Integer>(id));
   return 1;
 }
@@ -1431,13 +1461,27 @@ int l_alarm_after(lua_State* L) {
 
   const uint32_t id = alarms::add(spec);
   if (id == 0) return raise_coded(L, "E_NOMEM", "no room for another alarm");
+  char why[64];
+  snprintf(why, sizeof(why), "%s adds #%u", alarm_owner(), static_cast<unsigned>(id));
+  note_the_queue(why);
   lua_pushinteger(L, static_cast<lua_Integer>(id));
   return 1;
 }
 
 int l_alarm_cancel(lua_State* L) {
   const uint32_t id = static_cast<uint32_t>(luaL_checkinteger(L, 1));
-  lua_pushboolean(L, alarms::cancel(alarm_owner(), id) ? 1 : 0);
+  const bool gone = alarms::cancel(alarm_owner(), id);
+  // **Una baixa que no es pot fer tambe es diu** (0.189.149): an alarm of another app and an id that is not there are two
+  // different mistakes and a `false` alone does not tell them apart in a log (docs/30, docs/60).
+  if (!gone) {
+    hal::logf(pal::kLogWarn, "ALARM", "%s cannot cancel #%u: it is not one of its alarms", alarm_owner(),
+              static_cast<unsigned>(id));
+  } else {
+    char why[64];
+    snprintf(why, sizeof(why), "%s cancels #%u", alarm_owner(), static_cast<unsigned>(id));
+    note_the_queue(why);
+  }
+  lua_pushboolean(L, gone ? 1 : 0);
   return 1;
 }
 
@@ -1475,6 +1519,11 @@ int l_alarm_caps(lua_State* L) {
   lua_setfield(L, -2, "min_period_ms");
   lua_pushstring(L, (clock != nullptr && clock->can_wake()) ? "yes" : "no");
   lua_setfield(L, -2, "wake");
+  // **I on ha quedat el despertar** (0.189.149): `"chip"` és el rellotge amb pila de la placa, `"timer"` és el comptador del
+  // SoC i `"none"` és que no hi ha res armat —la mateixa resposta que el registre escriu quan arma una alarma, o sigui que
+  // una app pot dir per què el seu avís s'ha de creure i una altra no (docs/30, docs/60).
+  lua_pushstring(L, (clock != nullptr) ? clock->wake_keeper() : "none");
+  lua_setfield(L, -2, "keeper");
   return 1;
 }
 

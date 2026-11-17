@@ -936,6 +936,108 @@ void test_an_alarm_reaches_the_app_that_owns_it(void) {
   storage->remove("/apps/clocked");
 }
 
+// **La cua de les alarmes es al registre, i el sistema diu on ha quedat el despertar** (0.189.149, l'amo: *«Vull que quan una
+// app afegeixi, tregui o rebi una alarma surti al log»*, *«quan es programa una alarma també ho vull veure i a quin
+// dispositiu s'envia o quin métode (si es un comptador intern o un RTC...)»* i *«Vull que el sistema mostri la llista
+// d'alarmes que te i quina es la mes propera»*). Four lines and the order matters: the app adds, the queue says what it has
+// with the nearest first, the kernel says which device keeps the deadline, the alarm fires and says so —which is the line
+// that did not exist for the commonest case, an app that is in front with its hook—, i l'app el treu (docs/30, docs/60).
+void test_the_queue_of_alarms_is_said_in_the_log(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "noisy",
+                            "{\"title\":\"Noisy\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "function on_alarm(id, payload)\n"
+                            "  console.print('noisy rang ' .. tostring(payload))\n"
+                            "end\n"
+                            "local id = alarm.after(200, 'ring')\n"
+                            "console.print('noisy armed ' .. tostring(id))\n"
+                            "sys.delay(600):await()\n"
+                            "local two = alarm.after(60000, 'later')\n"
+                            "console.print('noisy again ' .. tostring(two))\n"
+                            "console.print('noisy gone ' .. tostring(alarm.cancel(two)))\n"
+                            "console.print('noisy done')\n"));
+
+  capture_begin();
+  pump_captured(900, g_out, sizeof(g_out), "run noisy");
+  capture_end(g_out, sizeof(g_out));
+  // **El que l'app demana, i amb quanta cua es queda**: the line names the app and the id, counts the queue and puts the
+  // nearest one by name, which is the question a person has when something goes off (docs/60).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy adds #"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the nearest is #"), g_out);
+  // **I on s'ha armat**: a board with a clock chip keeps the deadline in the chip and one without it in the SoC's timer,
+  // and the line says which, because «una alarma armada» without a device is a line that explains nothing.
+  const bool chip = hal::platform().clock() != nullptr &&
+                    strcmp(hal::platform().clock()->wake_keeper(), "chip") == 0;
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, chip ? "armed on the clock chip" : "armed on the RTC timer of the SoC"), g_out);
+  // **I quan sona**: the id, whose it is, how late, and how much is left in the queue.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fired for noisy"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "left in the queue"), g_out);
+  // **I quan la treu**: the cancel writes the queue again and there is nothing left in it.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy cancels #"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the queue is empty"), g_out);
+  // The three of the app happened, which is what says the lines are not the whole of it.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy rang ring"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy gone true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy done"), g_out);
+
+  storage->remove("/apps/noisy/app.lua");
+  storage->remove("/apps/noisy/manifest.json");
+  storage->remove("/apps/noisy");
+}
+
+// **`alarm` al prompt: la cua sencera i el dispositiu que la guarda** (0.189.149). The name was in the list of `help` and it
+// had no body —a person who typed it was answered by nothing— so this is the command and the case that says it exists:
+// an empty queue, then a queue of two with the nearest first, and the `wake:` line that only the prompt can give because
+// it is the clock of the board and not the queue (docs/30, docs/50, docs/60).
+void test_the_prompt_shows_the_queue_of_alarms(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  TEST_ASSERT_TRUE(run_captured("alarm", g_out, sizeof(g_out)));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "unknown command"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alarms: 0 of 8"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the queue is empty"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wake: "), g_out);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "arder",
+                            "{\"title\":\"Arder\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "alarm.after(60000, 'later')\n"
+                            "alarm.after(120000, 'later still')\n"
+                            "console.print('arder armed two')\n"
+                            "sys.delay(2000):await()\n"));
+  pump_captured(300, g_out, sizeof(g_out), "run arder");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "arder armed two"), g_out);
+
+  TEST_ASSERT_TRUE(run_captured("alarm", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alarms: 2 of 8"), g_out);
+  // **La més propera al davant**: the queue is ordered and the command prints it in that order, which is the whole point of
+  // the order (docs/60).
+  const char* first = strstr(g_out, "in 60 s");
+  const char* second = strstr(g_out, "in 120 s");
+  TEST_ASSERT_NOT_NULL_MESSAGE(first, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(second, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(first < second, g_out);
+  // **I on és el despertar**, que és la meitat de la pregunta que la cua no pot contestar de si mateixa.
+  const bool chip = hal::platform().clock() != nullptr &&
+                    strcmp(hal::platform().clock()->wake_keeper(), "chip") == 0;
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, chip ? "wake: the clock chip" : "wake: the RTC timer of the SoC"), g_out);
+  // A word that is not `list` is refused with the usage, and not answered as an empty queue.
+  TEST_ASSERT_TRUE(run_captured("alarm nope", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "usage: alarm"), g_out);
+
+  // The queue of this case is not the queue of the case after it.
+  kernel::execute("stop");
+  pump_turns(30);
+  storage->remove("/apps/arder/app.lua");
+  storage->remove("/apps/arder/manifest.json");
+  storage->remove("/apps/arder");
+  alarms::reset();
+}
+
 // A cancelled alarm never fires, and list() says what is armed and what is not.
 void test_a_cancelled_alarm_never_fires(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -18384,6 +18486,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_net_connect_gives_up_at_the_deadline);
   RUN_TEST(test_a_second_connect_says_busy);
   RUN_TEST(test_an_alarm_reaches_the_app_that_owns_it);
+  RUN_TEST(test_the_queue_of_alarms_is_said_in_the_log);
+  RUN_TEST(test_the_prompt_shows_the_queue_of_alarms);
   RUN_TEST(test_a_cancelled_alarm_never_fires);
   RUN_TEST(test_alarm_caps_and_a_payload_that_cannot_be_kept);
   RUN_TEST(test_an_alarm_for_an_app_that_is_not_loaded_runs_in_a_window);

@@ -909,7 +909,7 @@ sobrevisquin a un reinici i a la destrucció de la VM.
 | `alarm.after(ms[, payload])` | enter (id) | Drecera: alarma d'un sol cop |
 | `alarm.cancel(id)` | booleà | |
 | `alarm.list()` | taula | `{id, on, repeat, persist, raise}` de cada alarma |
-| `alarm.caps()` | `{max, min_period_ms, wake}` | `max` alarmes simultànies, i `wake` diu si la placa pot despertar-se sola (`"yes"`/`"no"`) |
+| `alarm.caps()` | `{max, min_period_ms, wake, keeper}` | `max` alarmes simultànies; `wake` diu si la placa pot despertar-se sola (`"yes"`/`"no"`); **`keeper` diu on ha quedat el despertar** (0.189.149): `"chip"` és el rellotge amb pila de la placa (la BM8563 de la Paper), `"timer"` és el comptador del SoC i `"none"` és que no hi ha res armat |
 
 Camps de `spec`:
 
@@ -920,6 +920,34 @@ Camps de `spec`:
 
 `meta` que rep `on_alarm` és `{late_ms, missed}`: quant tard s'ha entregat i quantes repeticions
 s'han perdut mentre el sistema era apagat.
+
+**Tot el que passa amb una alarma surt al registre** (0.189.149, l'amo: *«Vull que quan una app afegeixi, tregui o rebi una
+alarma surti al log»*). Són línies del sistema i no de l'app, i per tant una app no ha de fer res per tenir-les —però sí que
+les ha de saber llegir, perquè expliquen per què una alarma no ha sonat:
+
+```
+[I][ALARM] zzalarm adds #2; 2 of 8, the nearest is #2 (zzalarm) in 3 s
+[I][ALARM]   #2 zzalarm: in 3 s, at 19:13:30, payload text 4 B
+[I][ALARM]   #1 battery: in 378 s, at 19:19:44, repeats every 600 s, persist, payload text 6 B
+[I][ALARM] #2 armed on the clock chip for 19:13:30 on 2015-11-15 (3 s from now)
+[I][ALARM] #2 fired for zzalarm, 0 ms late, 1 left in the queue
+[I][ALARM] zzalarm cancels #3; 2 of 8, the nearest is #2 (zzalarm) in 3 s
+```
+
+- **la primera línia diu qui l'ha posada, quin id té, quantes n'hi ha i quina és la més propera**, i després **una línia per
+  alarma** en l'ordre en què sonaran: el que li falta, l'hora de la persona (o res, si la placa no té hora), si es repeteix,
+  si es desa, si puja l'app i quin payload porta;
+- **`armed on ...` diu el dispositiu**: el xip del rellotge quan la placa en té (és el que arriba amb el corrent tallat), el
+  temporitzador del SoC quan no, i **`kept by the turn of the loop` quan la placa no es pot despertar de cap manera** —una
+  alarma així només sona amb la placa desperta, i abans no ho deia enlloc—;
+- **`fired for ...` surt sempre**, també quan l'app és al davant i el seu `on_alarm` respon: és el cas que no deixava cap
+  línia i el que fa que una alarma que no sona es pugui distingir d'una que sona i no es veu;
+- **una baixa que no es pot fer també es diu** (`cannot cancel #3: it is not one of its alarms`), que és el motiu i no el
+  silenci d'un `false`.
+
+I **`alarm` al prompt** mostra la mateixa cua quan la persona la vol mirar, amb una línia més que només el prompt pot donar:
+`wake: the clock chip` —o `wake: the RTC timer of the SoC` o `wake: nothing armed`—, perquè on és el despertar és del
+rellotge de la placa i no de la cua (0.189.149, docs/50, docs/60).
 
 **Avui hi ha** `alarm.at`, `alarm.after`, `alarm.cancel`, `alarm.list`, `alarm.caps`, `on_alarm` i
 `console.is_foreground()`. Cinc coses que l'app ha de saber:

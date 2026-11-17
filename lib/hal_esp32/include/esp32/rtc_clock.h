@@ -44,17 +44,26 @@ class RtcClock : public IClock {
         chip_->arm_at(at_epoch_ms)) {
       // Nothing else keeps this deadline: the SoC's timer is taken back down.
       inner_->disarm_wake();
+      keeper_ = "chip";
       return true;
     }
     // Whatever the chip had armed is not this deadline any more.
     if (chip_ != nullptr) chip_->disarm();
-    return inner_->arm_wake(at_epoch_ms);
+    const bool ok = inner_->arm_wake(at_epoch_ms);
+    keeper_ = ok ? "timer" : "none";
+    return ok;
   }
 
   void disarm_wake() override {
     if (chip_ != nullptr) chip_->disarm();
     inner_->disarm_wake();
+    keeper_ = "none";
   }
+
+  // **El chip o el temporitzador, i no tots dos** (0.189.149): this board has two ways of keeping a deadline and the one that
+  // took it is the answer to «on s'ha enviat l'alarma» —the BM8563's alarm reaches the power circuit and its quartz
+  // counts, the SoC's timer is the fallback when the chip cannot be told (docs/50, docs/60).
+  const char* wake_keeper() const override { return keeper_; }
   WakeCause last_wake() override {
     // The chip's alarm is a better answer than what the SoC's reset reason says: after a power
     // off there is no reset reason to read, only this flag (docs/60).
@@ -82,6 +91,8 @@ class RtcClock : public IClock {
   // not be written and the hour is only in the RAM of the chip, "none" while nobody has set
   // it (docs/60).
   const char* source_ = "none";
+  // Where the last arming went: "chip", "timer", or "none" (0.189.149).
+  const char* keeper_ = "none";
 };
 
 }  // namespace hal

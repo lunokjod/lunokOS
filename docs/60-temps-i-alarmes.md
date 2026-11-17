@@ -61,6 +61,33 @@ sol: el despert serveix quan algú ha demanat `power.sleep`, que és el que M6 h
 Aquesta ordenació és el que fa que el sistema només hagi de gestionar un despertador encara que hi
 hagi desenes d'alarmes.
 
+### I tot el que li passa, al registre (0.189.149)
+
+L'amo ho va demanar amb aquestes paraules: *«El log no informa sobre les alarmes … Quan es programa una alarma també ho
+vull veure i a quin dispositiu s'envia o quin métode (si es un comptador intern o un RTC…)»*. Fins avui la cua només
+escrivia quan una cosa anava malament, i el cas que funciona —l'app al davant amb el seu `on_alarm`— era mut. Ara hi ha
+aquestes línies, totes amb l'etiqueta `ALARM`:
+
+| Quan | Línia |
+|---|---|
+| Una app la posa (`alarm.at`, `alarm.after`) | `zzalarm adds #2; 2 of 8, the nearest is #2 (zzalarm) in 3 s`, i a sota **una línia per alarma** |
+| Una app la treu (`alarm.cancel`) | `zzalarm cancels #3; 2 of 8, the nearest is ...` |
+| Una baixa que no es pot fer | `zzalarm cannot cancel #3: it is not one of its alarms` |
+| El nucli l'arma al maquinari | `#2 armed on the clock chip for 19:13:30 on 2026-11-16 (3 s from now)` |
+| Una placa que no es pot despertar sola | `#2 is kept by the turn of the loop: this board cannot wake itself, so it fires only while it is on` |
+| Sona | `#2 fired for zzalarm, 0 ms late, 1 left in the queue`, i després com s'ha lliurat |
+| Arrenca amb alarmes desades | `1 restored from nvs`, i la cua sencera |
+
+**`armed on` és la resposta al «quin métode»**: `the clock chip` és la BM8563 de la Paper —el seu alarmé arriba al circuit
+d'alimentació i el seu quars compta, o sigui que és l'únic que torna una placa amb el corrent tallat—, `the RTC timer of the
+SoC` és el comptador del xip quan no hi ha rellotge amb pila, i **`the turn of the loop`** és el cas que no s'escrivia i el
+que més importa: en una placa sense despert possible una alarma només sona amb la placa desperta.
+
+El text de cada alarma el fa **la biblioteca** (`alarms::describe`) i no qui la crida: els camps són seus, i un segon lector
+del mateix `struct` és el que discrepa el dia que hi arriba un camp. I la comanda **`alarm`** del prompt diu la mateixa cua
+quan una persona la vol mirar, amb una línia que només el prompt pot donar perquè és del rellotge i no de la cua:
+`wake: the clock chip`, `wake: the RTC timer of the SoC` o `wake: nothing armed` (docs/30, docs/50).
+
 ## Què és una alarma
 
 ```json
@@ -309,6 +336,9 @@ Com està avui:
    temporitzador del SoC**, perquè dos armats per a la mateixa data són dues veritats i una seria
    falsa. El del SoC només s'arma quan el xip no pot dir res (no contesta, no té hora, o la data
    se li escapa), i llavors el xip es desarma.
+   **I quin dels dos l'ha agafada ho diu el registre** (0.189.149): `#1 armed on the clock chip ...` o `#1 armed on the RTC
+   timer of the SoC ...`, amb l'hora de la persona i quants segons falten. És la resposta al *«quin métode»* que l'amo va
+   demanar de veure, i surt del propi rellotge (`IClock::wake_keeper`) i no d'una deducció de qui crida.
 5. **Quan sona, se n'arma la següent.** El xip dispara una vegada: a l'arrencada es desarma, la cua
    es torna a carregar de la NVS, l'alarma que tocava s'entrega i `arm_nearest_alarm()` hi posa la
    següent. És el mateix ball que feia el temporitzador simulat, amb el quars al mig.

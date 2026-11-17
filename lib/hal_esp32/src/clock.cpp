@@ -42,9 +42,20 @@ class Esp32Clock : public IClock {
 
   // The RTC timer is the wake the kernel programs: only the nearest alarm is ever
   // armed, and a key that brings the board back is the board's business (docs/60).
-  bool arm_wake(int64_t at_epoch_ms) override { return esp32_arm_timer_wake(at_epoch_ms); }
+  // **On ha anat el despertar** (0.189.149): on this chip it is always its own RTC timer, and the keeper says so for the
+  // line of the log. The board with a clock chip on top of it is `RtcClock`, which answers `"chip"` when the BM8563 took it.
+  bool arm_wake(int64_t at_epoch_ms) override {
+    const bool ok = esp32_arm_timer_wake(at_epoch_ms);
+    keeper_ = ok ? "timer" : "none";
+    return ok;
+  }
 
-  void disarm_wake() override { esp32_disarm_timer_wake(); }
+  void disarm_wake() override {
+    esp32_disarm_timer_wake();
+    keeper_ = "none";
+  }
+
+  const char* wake_keeper() const override { return keeper_; }
 
   WakeCause last_wake() override {
     switch (esp_sleep_get_wakeup_cause()) {
@@ -64,6 +75,7 @@ class Esp32Clock : public IClock {
 
  private:
   bool known_ = false;
+  const char* keeper_ = "none";
 };
 
 }  // namespace

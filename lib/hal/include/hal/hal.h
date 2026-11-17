@@ -111,6 +111,12 @@ class IClock {
   virtual void disarm_wake() = 0;
   virtual WakeCause last_wake() = 0;
   virtual bool can_wake() const = 0;
+  // **Qui s'ha quedat el despertar** (0.189.149): on the last `arm_wake` went —`"chip"` is the battery-backed clock of the
+  // board (the Paper's BM8563, whose alarm is wired to the power circuit and whose quartz counts the wait), `"timer"` is
+  // the SoC's own RTC timer, and `"none"` is nothing armed—. A board with both keeps the deadline in one of them and never
+  // in the two (docs/50, docs/60), o sigui que «una alarma armada» sense dir on és una línia que no explica res, que és el
+  // que l'amo va demanar de veure al registre.
+  virtual const char* wake_keeper() const { return "none"; }
   // Takes the hour back from wherever this board keeps it properly. A board whose hour is a
   // chip with a battery behind it answers by reading it; one whose hour is the chip's own
   // counter has nothing to take and does nothing. The system asks after every sleep that came

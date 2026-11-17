@@ -86,6 +86,18 @@ bool remove_id(uint32_t id);
 // persistent alarms when it moves, so nobody has to remember to save.
 uint32_t revision();
 
+// **Una alarma dita amb les paraules d'una persona** (0.189.149): `#3 clock: in 600 s, at 14:32:10, repeats every 600 s,
+// persist, raises the app, payload text 4 B`. It is the line the log writes when the queue changes —the owner: *«Vull que
+// el sistema mostri la llista de alarmes que te i quina es la mes propera quan s'afegeixi o tregui una alarma»*— and it
+// lives here and not in a caller because these are this struct's fields: a caller that rebuilt the line from `at()` would
+// be a second reader of the same struct, and the day a field arrived the two would disagree (docs/60).
+//
+// It is **pure** like the rest of the file: the two clocks and the offset come as numbers, exactly as they do in `dump()`.
+// `epoch_now_ms <= 0` is a board with no hour, and then the line has no `at`. Returns the characters written, or 0 when
+// there is no such alarm or the text does not fit.
+size_t describe(uint32_t index, int64_t mono_now_ms, int64_t epoch_now_ms, int32_t offset_minutes, char* buf,
+                size_t cap);
+
 // Writes the alarms that have `persist` as text, one per line, with the deadline
 // as an epoch like every other time the system shows (docs/60). Returns the bytes
 // written, 0 when there is nothing to keep (or when the epoch is not known, which

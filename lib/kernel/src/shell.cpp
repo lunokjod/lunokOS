@@ -606,6 +606,7 @@ void print_help(const char* only) {
   help_line("  repo [owner/repo] [dir]  the folders of a directory of the repository, from GitHub", only);
   help_line("  repo info <app>   the manifest of one app of the repository", only);
   help_line("  repo install <app>  the whole folder of an app, onto the disk `cfg` names", only);
+  help_line("  alarm [list]      the queue of alarms, the nearest first, and where the wake is armed", only);
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
   help_line("  power last        how far the last sleep was from the hour it was given", only);
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
@@ -3417,6 +3418,61 @@ bool command_repo(const char* argument) {
 
 // power: what this board can do about energy, with the numbers and not with
 // adjectives (docs/30, docs/90).
+// **`alarm`: la cua de les alarmes, la més propera al davant** (0.189.149, l'amo: *«Vull que el sistema mostri la llista
+// d'alarmes que te i quina es la mes propera quan s'afegeixi o tregui una alarma»*). The name was in the list of `help` and
+// it had no body: a person who typed it got the usage of nothing. The words of each line are the library's
+// (`alarms::describe`), which is the same formatter the log uses, i el que aquesta comanda afegeix és **on és el despertar**,
+// que és la meitat de la pregunta que el registre contesta quan arma (docs/30, docs/60).
+bool command_alarm(const char* argument) {
+  char words[2][kWordCap];
+  size_t count = 0;
+  if (!read_words(argument, words, 2, count)) return false;
+  if (count > 0 && strcmp(words[0], "list") != 0) {
+    usage_out("usage: alarm [list]\r\n");
+    return false;
+  }
+  hal::IClock* clock = platform().clock();
+  const uint32_t total = alarms::count();
+  out("alarms: ");
+  out_num(total);
+  out(" of ");
+  out_num(alarms::max());
+  out("\r\n");
+  if (total == 0) {
+    out("  the queue is empty\r\n");
+  } else {
+    const int64_t mono_now = (clock != nullptr) ? clock->monotonic_ms() : pal::system().millis();
+    const int64_t epoch_now = (clock != nullptr) ? clock->epoch_ms() : 0;
+    for (uint32_t i = 0; i < total; ++i) {
+      char line[160];
+      if (alarms::describe(i, mono_now, epoch_now, cfg::offset_minutes(), line, sizeof(line)) == 0) continue;
+      out("  ");
+      out(line);
+      out("\r\n");
+    }
+  }
+  // **On és el despertar, que és el que la cua no pot dir de si mateixa**: la cua sàp quina alarma és la propera i no
+  // sàp en quin xip s'ha quedat, perquè aò és del rellotge de la placa (docs/50, docs/60).
+  if (clock == nullptr) {
+    out("wake: this board has no clock to arm\r\n");
+    return true;
+  }
+  out("wake: ");
+  if (!clock->can_wake()) {
+    out("the turn of the loop (this board cannot wake itself)\r\n");
+    return true;
+  }
+  const char* keeper = clock->wake_keeper();
+  if (strcmp(keeper, "chip") == 0) {
+    out("the clock chip\r\n");
+  } else if (strcmp(keeper, "timer") == 0) {
+    out("the RTC timer of the SoC\r\n");
+  } else {
+    out("nothing armed\r\n");
+  }
+  return true;
+}
+
 bool command_power(const char* argument) {
   char words[2][kWordCap];
   size_t count = 0;
@@ -5350,6 +5406,9 @@ bool execute(char* line) {
   }
   if (strncmp(line, "repo", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
     return command_repo(line + 4);
+  }
+  if (strncmp(line, "alarm", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
+    return command_alarm(line + 5);
   }
   if (strncmp(line, "power", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
     return command_power(line + 5);

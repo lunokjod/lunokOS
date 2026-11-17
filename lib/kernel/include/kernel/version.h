@@ -9685,7 +9685,26 @@ namespace kernel {
 // a la cua, sense el qual un torn de deu mil·lisegons es llegeix com una CPU saturada quan és una placa esperant una
 // tecla— i **«Of that, Lua»** és `lua.run`. A la placa les tres són la mateixa moneda i les parts hi caben; a l'emulador
 // `kernel.loop` és el rellotge del PC i la línia del registre ho diu (docs/30, docs/45, docs/85, docs/95).
-static const char kVersion[] = "0.189.148";
+// **Les alarmes parlen al registre, i el prompt les ensenya** (0.189.149, l'amo: *«El log no informa sobre les alarmes …
+// quan s'afegeixi, es tregui o s'activi una alarma al log es vegi. Quan es programa una alarma també ho vull veure i a quin
+// dispositiu s'envia o quin mètode (si es un comptador intern o un RTC…)»*, *«Vull que el sistema mostri la llista
+// d'alarmes que te i quina es la mes propera»*). Fins avui la cua d'alarmes només escrivia quan alguna cosa anava malament:
+// el cas que funciona —l'app al davant amb el seu `on_alarm`— no deixava cap línia, i afegir o treure una alarma era mut.
+// Ara hi ha cinc veus:
+//   - **qui la posa i qui la treu**: `zzalarm adds #2; 2 of 8, the nearest is #2 (zzalarm) in 3 s` i, a sota, **una línia
+//     per alarma** amb el que li falta, l'hora de la persona, si es repeteix, si es desa, si puja l'app i quin payload porta;
+//   - **qui la guarda**: `#1 armed on the clock chip for 19:19:44 on 2023-11-15 (386 s from now)` — el chip del rellotge de
+//     la Paper, el temporitzador del SoC quan no hi ha chip, i **la volta del bucle** quan la placa no es pot despertar de
+//     cap manera, que és l'avís que no s'escrivia i el que més importa (una alarma així només sona amb la placa desperta)—;
+//   - **quan sona**: `#2 fired for zzalarm, 1 ms late, 1 left in the queue`, sempre, i després la línia de com s'ha lliurat;
+//   - **quan una baixa no es pot fer**: `zzalarm cannot cancel #3: it is not one of its alarms`, que diu el motiu i no el
+//     silenci d'un `false`;
+//   - **i la comanda `alarm` del prompt**: el nom era a `help` **sense cos** —qui el teclejava no rebia res— i ara diu la
+//     cua sencera, la més propera al davant, i on és el despertar.
+// El format de cada línia és de la biblioteca (`alarms::describe`) i no de qui la crida: els camps són seus, i un segon
+// lector del mateix struct és el que discrepa el dia que hi arriba un camp. `alarm.caps()` guanya la clau `keeper` perquè
+// una app pugui dir el mateix (docs/30, docs/45, docs/50, docs/60, docs/85).
+static const char kVersion[] = "0.189.149";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
