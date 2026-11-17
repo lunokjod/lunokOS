@@ -126,6 +126,26 @@ bool cancel(const char* app, uint32_t id) {
   return false;
 }
 
+// **Les alarmes d'una app que marxa** (0.189.157, l'amo: *«i que passa amb les alarmes que ha deixat l'app al sistema si es
+// desinstala?»*): a deleted app's alarms are no longer anybody's —the queue is ordered and only the nearest is armed, o sigui
+// que una alarma d'una app que ja no hi és **despertava la placa** per a res i el sistema la descartava amb una línia al
+// registre—. El que les ha de treure és qui esborra l'app (`apps::remove`) i no l'execució, perquè una alarma que es queda
+// és una alarma que encara farà sonar el xip del rellotge (docs/30, docs/40, docs/60).
+uint32_t remove_of(const char* app) {
+  if (app == nullptr || app[0] == '\0') return 0;
+  uint32_t gone = 0;
+  for (uint32_t i = 0; i < g_count;) {
+    if (strcmp(g_entries[i].app, app) != 0) {
+      ++i;
+      continue;
+    }
+    remove_at(i);
+    ++gone;
+  }
+  if (gone > 0) ++g_revision;
+  return gone;
+}
+
 bool remove_id(uint32_t id) {
   const int32_t index = find_id(id);
   if (index < 0) return false;

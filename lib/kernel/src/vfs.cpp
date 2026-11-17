@@ -631,6 +631,56 @@ bool stat(const char* path, hal::Stat& out) {
   return storage->stat(rel, out);
 }
 
+// **The tree of a folder, thrown away** (0.189.157): one sink that walks down and removes what it found, so the delete of an app
+// —the prompt's, the one an uninstall walks and the one of a folder that moves— is the same recursion and not three
+// (docs/70).
+namespace {
+class TreeSink : public hal::ListSink {
+ public:
+  TreeSink(hal::IStorage* storage, const char* rel, uint8_t depth, Dropped& gone)
+      : storage_(storage), depth_(depth), gone_(gone) {
+    snprintf(rel_, sizeof(rel_), "%s", rel);
+  }
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.name == nullptr) return true;
+    char child[128];
+    const int made = snprintf(child, sizeof(child), "%s/%s", rel_, entry.name);
+    if (made <= 0 || static_cast<size_t>(made) >= sizeof(child)) return true;
+    if (entry.type == hal::NodeType::kDir) {
+      ++gone_.folders;
+    } else {
+      ++gone_.files;
+      gone_.bytes += entry.size;
+    }
+    if (entry.type == hal::NodeType::kDir && depth_ < 6) {
+      TreeSink deeper(storage_, child, static_cast<uint8_t>(depth_ + 1), gone_);
+      storage_->list(child, deeper);
+    }
+    storage_->remove(child);
+    return true;
+  }
+
+ private:
+  hal::IStorage* storage_;
+  char rel_[128];
+  uint8_t depth_;
+  Dropped& gone_;
+};
+}  // namespace
+
+bool drop_tree(const char* path, Dropped& gone) {
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  hal::Stat info;
+  if (!storage->stat(rel, info)) return false;
+  TreeSink sink(storage, rel, 0, gone);
+  storage->list(rel, sink);
+  storage->remove(rel);
+  return !storage->stat(rel, info);
+}
+
 bool list(const char* path, hal::ListSink& sink) {
   // Asking for the root means asking which mounts exist. There is no backend to
   // pass it to: the names come from the table.

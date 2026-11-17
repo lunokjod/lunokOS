@@ -87,6 +87,11 @@ bool take_due(int64_t now_mono_ms, Entry& out);
 // list of missed alarms, which belong to the system.
 bool remove_id(uint32_t id);
 
+// **Les alarmes d'una app, totes** (0.189.157): the door an app's uninstall walks, because an alarm of an app that is gone
+// is a board that wakes up for nothing (the queue shoots the nearest one at the clock chip). Returns how many went, so the
+// line the log writes says a number instead of "some" (docs/30, docs/40, docs/60).
+uint32_t remove_of(const char* app);
+
 // A number that changes every time the list does. The kernel saves the
 // persistent alarms when it moves, so nobody has to remember to save.
 uint32_t revision();

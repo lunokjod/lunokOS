@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "kernel/vfs.h"
+
 namespace kernel {
 namespace apps {
 
@@ -151,6 +153,27 @@ uint8_t views();
 uint8_t view_push();
 uint8_t view_pop();
 void reset_views();
+
+// **Una app marxa, i només l'app** (0.189.157, l'amo: *«Permet desinstalarla (esborrarla)»*): the folder of the app on the
+// disk it came from goes with everything inside it, and **what the app had left in the system goes with it**: the alarms it
+// armed —una alarma d'una app que ja no hi és despertaria la placa per a res— and its session blocks, in the memory and on
+// the disk. **Els seus ajustos i la seva dada es queden** (`/cfg/<id>` and `/data/<id>`): those are what a person wrote and not
+// the app, i esborrar els apunts d'algú perquè ha tret una app és una decisió que no es pren per ell (docs/30, docs/40, docs/70).
+// The three numbers say what went, and the disk says where it was. It is the one road: the prompt's `apps remove` and the
+// `admin.uninstall` of an app both come here (docs/30).
+struct Removing {
+  vfs::Dropped gone;         // the files and the folders of the app
+  uint32_t alarms = 0;       // les alarmes que havia armat
+  uint32_t sessions = 0;     // els blocs de sessió, de la memòria i del disc
+  uint32_t session_bytes = 0;
+  char disk[48] = {0};       // on era, amb el nom del disc i no el de la porta
+  // **Per què no s'ha pogut, quan no s'ha pogut**: una carpeta que no hi és i una carpeta que hi és però no és cap app són
+  // dos errors diferents i el prompt els diu amb dues frases (docs/40). La porta de Lua només en fa un, perquè una pàgina
+  // que pregunta per un nom sap si el nom era seu o no.
+  enum class Missing { kNone, kNotThere, kNoManifest, kNotDropped };
+  Missing missing = Missing::kNone;
+};
+bool remove(const char* id, Removing& out);
 
 // **La llista d'apps té un número, i puja quan la llista canvia** (0.189.23): `repo install <id>` i `apps remove <id>` són
 // els dos moments en què el conjunt d'apps canvia amb la placa encesa, i qui dibuixa aquesta llista és l'app que `cfg home`

@@ -111,6 +111,13 @@ Límit: `alarm.caps().max` alarmes vives alhora (valor a fixar quan es mesuri l'
 | L'app propietària no està carregada | **Finestra d'alarma** |
 | L'app propietària no existeix (desinstal·lada) | Es descarta, amb una línia al log |
 
+**I les alarmes d'una app desinstal·lada no haurien d'arribar aquí** (0.189.157): `apps remove <id>` i
+`admin.uninstall(id)` esborren la carpeta **i les alarmes d'aquella app**, perquè una alarma que només pot servir per
+despertar la placa per a una pàgina que no hi és és una pila gastada i un registre que diu `no window (app gone or no
+on_alarm)` cada dia. La fila de dalt es queda com a xarxa: una targeta que va perdre la carpeta per fora —un `rm` des de
+l'ordinador— no té cap camí on llançar l'esborrada, i el sistema l'ha de pair quan venç. **Les alarmes d'una app que
+només ha canviat de versió no es toquen**: la cua és de qui la va omplir i no de qui la llegeix (docs/30, docs/40).
+
 ### La finestra d'alarma
 
 1. Es comprova que el heap lliure arribi al sostre de l'app (`IPlatform::heap_limit_kb()`; si no, es

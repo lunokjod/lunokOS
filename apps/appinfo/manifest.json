@@ -1,0 +1,12 @@
+{
+  "title": "Application Info",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "appinfo.lua",
+  "boards": [
+    "esp32"
+  ],
+  "icon": "res/icon.png",
+  "admin": true,
+  "description": "Every app of `/apps`, read from its own manifest: what it is, what it says it is worth, where it lives and how much of the disk it takes \u2014 its folder, its cache, its data and its settings. Tap one to see its whole card, clear the cache it left or uninstall it, which takes its folder, the alarms it left in the queue and its cache, and keeps its data and its settings."
+}

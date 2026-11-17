@@ -9770,7 +9770,26 @@ namespace kernel {
 // d'una alarma que ha sobreviscut a un tall) ni amb una data en una placa sense hora (`E_INVAL`). I el camí sencer —la data,
 // `persist`, `raise`, el guard de la finestra i el ganxo que llegeix el que reescriurà— no era enlloc amb les tres crides
 // juntes: ara hi ha l'exemple de `docs/30` i les tres vores del contracte (docs/30, docs/60).
-static const char kVersion[] = "0.189.156";
+// **Una app que es desinstal·la no deixa alarmes armades, i una pàgina ho pot fer des de Lua** (0.189.157, l'amo:
+// *«I ja que estem, que passa amb les alarmes que ha deixat l'app al sistema si es desinstala?»*). La resposta era dolenta: la
+// cua de `/apps` marxava i **l'alarma es quedava**, o sigui que la placa es despertava per a una finestra que no podia córrer i
+// el registre deia `no window (app gone or no on_alarm)` cada cop. Ara `apps remove <id>` —i la porta nova
+// `admin.uninstall(id)`— s'emporta **tres coses**: la carpeta (amb `vfs::drop_tree`, que és el mateix recorregut que el prompt
+// ja feia), les alarmes d'aquella app (`alarms::remove_of`) i la seva memòria cau de sessions (`session::forget`); i **es
+// queden** `/data/<id>` i `/cfg/<id>`, que són de la persona i no de l'app. La porta de Lua torna els quatre números
+// —fitxers, bytes, alarmes, blocs— perquè la pàgina que pregunta ensenyi el que el sistema ha fet i no el que esperava.
+// **L'app nova `appinfo`** (l'amo: *«Parseja el manifes de les apps de /apps inclòs l'espai en disc · Dona tota l'informació ·
+// Permet esborrar el seu cache (sessions) · Permet desinstal·lar-la»*) és la que fa servir les dues portes: un llistat de les
+// apps de `/apps` amb la seva versió i una fitxa per app amb el manifest sencer, el que ocupa la carpeta, la cau, les dades i
+// els ajustos, i les alarmes que té a la cua. El detall és **un `ui.list`** i no una columna de labels —una descripció llarga
+// no cap en un vidre i el llistat es passa sol— i el que la porta ha contestat es llegeix a la mateixa pàgina.
+// `alarm.list()` diu també **de qui és** cada alarma (`app`), que és el que la fitxa compta abans de preguntar (docs/30,
+// docs/40, docs/60).
+// **I dues coses que la suite va trobar en passar-la sencera** (722/722 el 17/11): les vuit marques de la targeta —la lluna de
+// la clau de la son es dibuixava amb `draw_icon` i el seu nom no era al joc de `kIcons`, o sigui que una placa sense
+// `/res/icons` ensenyava aquella clau buida—, i `apps remove` tornava a dir els dos errors com a dos («no such app» i «not an
+// app: … has no manifest.json») i a comprovar que la carpeta no hi és després d'esborrar-la (docs/30, docs/40, docs/80).
+static const char kVersion[] = "0.189.157";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

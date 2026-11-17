@@ -1494,7 +1494,7 @@ int l_alarm_list(lua_State* L) {
   for (uint32_t i = 0; i < alarms::count(); ++i) {
     const alarms::Entry* entry = alarms::at(i);
     if (entry == nullptr) continue;
-    lua_createtable(L, 0, 5);
+    lua_createtable(L, 0, 6);
     lua_pushinteger(L, static_cast<lua_Integer>(entry->id));
     lua_setfield(L, -2, "id");
     lua_pushinteger(L, static_cast<lua_Integer>((entry->on_mono_ms - mono_now + epoch_now) / 1000));
@@ -1505,6 +1505,11 @@ int l_alarm_list(lua_State* L) {
     lua_setfield(L, -2, "persist");
     lua_pushboolean(L, entry->raise_to_front ? 1 : 0);
     lua_setfield(L, -2, "raise");
+    // **I de qui és** (0.189.157): the queue is of the system and an app may look at it, so the name of the app that set the
+    // alarm travels with it — it is what `admin.uninstall` takes away and what a page of apps has to be able to count
+    // (docs/30, docs/60).
+    lua_pushstring(L, entry->app);
+    lua_setfield(L, -2, "app");
     lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
   }
   return 1;
@@ -13048,15 +13053,67 @@ int l_admin_triple_tap_close(lua_State* L) {
   return 1;
 }
 
+// **`admin.uninstall(id)`: l'app marxa, i amb ella el que havia deixat al sistema** (0.189.157, l'amo: *«Permet
+// desinstalarla (esborrarla)»* i *«i que passa amb les alarmes que ha deixat l'app al sistema si es desinstala?»*). La
+// carpeta de l'app al seu disc, **les alarmes que havia armat** i els blocs de sessió que havia escrit; els ajustos i la dada
+// de la persona es queden. Torna una taula amb el que ha deixat anar —«files», «bytes», «alarms» i «sessions»—
+// perquè una pàgina pugui dir-ho, i `nil, error` quan no hi ha cap app amb aquell nom o quan és la pàgina mateixa (docs/30,
+// docs/40).
+int l_admin_uninstall(lua_State* L) {
+  if (g_admin_ops.uninstall == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build cannot remove an app");
+  }
+  const char* id = luaL_checkstring(L, 1);
+  AdminGone gone;
+  if (!g_admin_ops.uninstall(id, gone)) {
+    return push_nil_error(L, "E_INVAL", "that is not an app of this board, or it is the one that is running");
+  }
+  lua_createtable(L, 0, 4);
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.files));
+  lua_setfield(L, -2, "files");
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.bytes));
+  lua_setfield(L, -2, "bytes");
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.alarms));
+  lua_setfield(L, -2, "alarms");
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.sessions));
+  lua_setfield(L, -2, "sessions");
+  return 1;
+}
+
+// **`admin.forget_cache(id)`: la caché d'una app, i només la caché** (0.189.157): els blocs de sessió d'aquella app, **de la
+// memòria i del disc**, que és la mateixa porta que `sessions destroy <id>` al prompt. L'app es queda, la seva dada es queda i
+// la persona la torna a obrir amb la caché freda. Torna «blocks», «files» i «bytes» —zero no és cap error: no hi havia res a
+// oblidar— (docs/30, docs/75).
+int l_admin_forget_cache(lua_State* L) {
+  if (g_admin_ops.forget_cache == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no cache");
+  }
+  const char* id = luaL_checkstring(L, 1);
+  AdminGone gone;
+  if (!g_admin_ops.forget_cache(id, gone)) {
+    return push_nil_error(L, "E_INVAL", "that is not an app of this board");
+  }
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.sessions));
+  lua_setfield(L, -2, "blocks");
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.files));
+  lua_setfield(L, -2, "files");
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.bytes));
+  lua_setfield(L, -2, "bytes");
+  return 1;
+}
+
 // **The table is made only for a machine whose manifest asked for it** (0.189.99): an app without the key does not get a
 // table that refuses its calls, it gets nothing at all, so `admin ~= nil` is a question a page can ask and a `nil` is the
 // whole answer. The pack is registered here and not with `ui` because it is not a control and it is not a page's business
 // (docs/30, docs/40).
 void open_admin(lua_State* L) {
   if (!g_boot.admin) return;
-  lua_createtable(L, 0, 2);
+  lua_createtable(L, 0, 4);
   set_function(L, "LockScreen", l_admin_lock_screen);
   set_function(L, "triple_tap_close", l_admin_triple_tap_close);
+  set_function(L, "uninstall", l_admin_uninstall);
+  set_function(L, "forget_cache", l_admin_forget_cache);
   lua_setglobal(L, "admin");
 }
 

@@ -81,18 +81,25 @@ que porti a `res/`, carpetes incloses— al disc que la persona ha triat amb `cf
 l'API de continguts de GitHub és el que diu quins fitxers té cada carpeta i des d'on baixar-los
 (docs/30, docs/70, docs/75).
 
-**`apps remove <id>` esborra l'app** (0.89.0), i el nom és el que surt al llistat: `editor` per a la
-còpia de la flash i `*editor` per a la de la targeta, o sigui que una de les dues còpies se'n va i
-l'altra es queda —i quan la de la flash ja no hi és, la de la targeta perd el sufix—. Se'n va **la
-carpeta de l'app i res més**: el que ha deixat a `/data/<id>` i a `/cfg/<id>` és el seu passat i no
-l'app, i qui ho vulgui esborrar ha de dir aquell camí. Una carpeta de `/apps` que no porta
-`manifest.json` **no és cap app** i no es pot esborrar escrivint-ne el nom, i l'ordre diu el disc i el
-que ha tornat:
+**`apps remove <id>` esborra l'app** (0.89.0, i des de la 0.189.157 se n'emporta també el que l'app va deixar armat), i
+el nom és el que surt al llistat: `editor` per a la còpia de la flash i `*editor` per a la de la targeta, o sigui que una
+de les dues còpies se'n va i l'altra es queda —i quan de la flash ja no hi és, la de la targeta perd el sufix—. Se'n van
+**tres coses**: la carpeta de l'app, **les alarmes que hagi deixat a la cua del sistema** i **la seva memòria cau de
+sessions** (els blocs de la memòria i els fitxers de `/session/<id>`). La primera és de l'app; la segona és una alarma que
+despertaria la placa per a una pàgina que ja no hi és; i la tercera és una còpia del que l'app ja sabia tornar a fer
+(docs/30, docs/60, docs/70). **El que es queda** és el que ha deixat a `/data/<id>` i a `/cfg/<id>`: és el passat d'una
+persona i no de l'app, i qui ho vulgui esborrar ha de dir aquell camí. Una carpeta de `/apps` que no porta `manifest.json`
+**no és cap app** i no es pot esborrar escrivint-ne el nom, i l'ordre diu el disc i tot el que ha tornat:
 
 ```
 lunok> apps remove squares
-apps: squares removed from /littlefs/apps/squares, 2 files, 1 folder, 4028 bytes
+apps: squares removed from /littlefs/apps/squares, 2 files, 1 folder, 4028 bytes, 1 alarm(s), 0 session block(s)
 ```
+
+**La mateixa esborrada, des d'una pàgina** (0.189.157): `admin.uninstall(id)` és la porta que fa exactament això des de
+Lua, i torna els quatre números a l'app que la crida —fitxers, bytes, alarmes i blocs de sessió—, que és el que la pàgina
+de les apps ensenya abans i després de preguntar-ho (docs/30). Una app **no es pot esborrar a si mateixa** mentre corre, i
+la porta ho refusa.
 
 **`apps info <id>` llegeix el manifest d'una app que ja hi és** (0.120.0), clau per clau, amb la
 mateixa fitxa que `repo info` treu per a una del repositori:
@@ -150,7 +157,7 @@ El que el codi llegeix avui, amb la mida que hi cap:
 | `opensArgs` | cadena | No | 31 B | Els commutadors que l'app vol quan li donen un fitxer; comença per `-` (0.120.0) |
 | `icon` | cadena | **Sí** (0.170.1) | 47 B | La imatge de l'app per a un llistat, relativa al directori de l'app (0.120.0). **Des de la 0.153.0 es pinta**: el llançador `home_eink` la posa a la seva graella amb `apps.list()` i `canvas:image` (docs/30). **Tota app d'aquest projecte en porta una** —vegeu la norma de sota— |
 | `splash` | cadena | No | 47 B | La imatge que el sistema pinta abans d'arrencar l'app, relativa al directori de l'app |
-| `admin` | booleà | No | — | **L'app és d'administrador** (0.189.99): `true` fa que la seva màquina de Lua tingui la taula **`admin`** —les crides que canvien el sistema i no la pàgina (docs/30)— i un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina. **No és un permís que es demani en marxa**: la taula es fa o no es fa abans que l'app corregui cap línia, o sigui que per a la resta d'apps `admin` és `nil` i no una taula que refusa. L'app que el porta avui és `device_lock`, que amb `admin.LockScreen(true)` treu la barra del sistema i el toc que obre la targeta que pot tancar-la (docs/30, docs/45) |
+| `admin` | booleà | No | — | **L'app és d'administrador** (0.189.99): `true` fa que la seva màquina de Lua tingui la taula **`admin`** —les crides que canvien el sistema i no la pàgina (docs/30)— i un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina. **No és un permís que es demani en marxa**: la taula es fa o no es fa abans que l'app corregui cap línia, o sigui que per a la resta d'apps `admin` és `nil` i no una taula que refusa. Les apps que el porten avui són `device_lock`, que amb `admin.LockScreen(true)` treu la barra del sistema i el toc que obre la targeta que pot tancar-la, i **`appinfo`** (0.189.157), que llegeix el manifest de cada app i en pot esborrar la memòria cau o l'app sencera amb `admin.forget_cache` i `admin.uninstall` (docs/30, docs/45) |
 | `launcher` | booleà | No | — | **L'app és un llançador** (0.153.0): `true` vol dir que la graella d'un altre llançador no la llista. Continua sent una app —`apps` la mostra, `run` l'arrenca i obre el que sap obrir—, i el sistema no ho endevina pel títol ni per l'id: ho diu l'app. Un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina. **Des de la 0.163.0 també és la pàgina que un pessic no tanca**: el gest de tancar és del sistema i ho pregunta aquí, perquè una placa que es quedés sense cap pàgina s'hauria d'anar a buscar amb un cable (docs/30) |
 
 Els camps que aquest document preveia i que **no existeixen al codi** —`permissions`, `mem_kb`—
@@ -603,7 +610,7 @@ Manifest:
 | Camp | Format | Qui el pinta |
 |---|---|---|
 | `splash` | El que llegeixi `img`: avui **PNG**, BMP, GIF, ICO i PNM | El sistema, abans d'arrencar l'app (0.114.0) |
-| `icon` | El mateix que el `splash` | **Ningú encara**: la pàgina que llistaria les apps a la pantalla no existeix. El nom es llegeix, es comprova que quedi dins de l'app i `apps info <id>` el diu (0.120.0) |
+| `icon` | El mateix que el `splash` | El llançador `home_eink` a la seva graella (0.153.0) i, des de la 0.189.157, **`appinfo` a la fitxa de cada app**. El nom es llegeix, es comprova que quedi dins de l'app i `apps info <id>` el diu (0.120.0) |
 
 El format `.icn` d'M5 —el que porten les apps de PaperOS, `icon.icn`— **no està documentat** fins a
 tenir un fitxer de mostra i, per tant, no es llegeix: un manifest que l'anomeni queda amb un `icon`
@@ -633,8 +640,9 @@ font de l'EPUB de PaperOS (`OLD/PaperOS/tools/icons/EPUB.png`, 448×448, escala 
 L'`icon.icn` d'aquella app **no s'ha portat**: el manifest nomeja el PNG, que és el que aquest
 sistema sap llegir.
 
-Les altres apps —`about`, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`, `home_eink`, `life`,
-`reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i `rainbow`— segueixen la mateixa convenció,
+Les altres apps —`about`, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
+`home_eink`, `life`, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i `rainbow`— segueixen la
+mateixa convenció,
 amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
 **totes les apps del disc declaren `icon`**: el camp va néixer perquè el manifest el pogués dir el dia que la
 pàgina de les apps es dibuixés, i aquell dia és el llançador, que les posa a la seva graella (docs/30, docs/85).

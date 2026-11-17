@@ -863,6 +863,8 @@ l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
 |---|---|---|
 | `admin.LockScreen([on])` | booleà o `nil, error` | **La barra del sistema fora i la clau girada**: sense argument diu si la pantalla és bloquejada; amb `true` tanca i amb `false` obre, i sempre torna el que hi ha ara |
 | `admin.triple_tap_close([on])` | booleà o `nil, error` | **Els tres tocs del vidre, cedits a la pàgina** (0.189.101): sense argument diu si els tres tocs tanquen l'app; amb `true` el sistema se'ls queda i amb `false` queden per a la pàgina, que els llegeix amb `touch.gesture()` com un `triple`. Sempre torna el que hi ha ara |
+| `admin.uninstall(id)` | `{files, bytes, alarms, sessions}` o `nil, error` | **Esborra una app de `/apps`** (0.189.157): la carpeta amb tot el que hi ha a dins, les alarmes que hagi deixat a la cua del sistema i la seva memòria cau de sessions. **No toca `/data/<id>` ni `/cfg/<id>`** —les dades i els ajustos són de la persona i no de l'app— i refusa l'app que ho demana (una app no s'esborra a si mateixa mentre corre) i un `id` buit |
+| `admin.forget_cache(id)` | `{blocks, files, bytes}` o `nil, error` | **La memòria cau d'una app, fora** (0.189.157): els blocs de sessió de la memòria i els fitxers de `/session/<id>`, que és el que fa `sessions destroy <id>` des del prompt. Ni la carpeta, ni les dades, ni els ajustos no es toquen |
 
 - **Què és una pantalla bloquejada.** És el vidre sencer —el de `ui.full_screen(true)`: la barra no hi és, la vista és el
   panell i l'app rep `on_resize`— **amb les portes de tornada tancades**. La targeta del sistema, la que té la creu que
@@ -883,10 +885,28 @@ l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
   la pàgina dibuixi**. Les tres premudes de la tecla del mig **no** es toquen: són una altra carretera i són la vàlvula que
   deixa una placa amb una pàgina que no s'obre bé a l'abast d'una persona.
 - **I la pàgina nova no els hereta**: com el pany, els tres tocs tornen al sistema quan l'app s'acaba (docs/50).
+- **Què se'n va amb una app esborrada, i què es queda** (0.189.157): `admin.uninstall(id)` esborra **la carpeta, les
+  alarmes i la memòria cau**; `/data/<id>` i `/cfg/<id>` es queden. La raó és qui és l'amo de cada cosa: la carpeta és de
+  l'app i marxa amb ella, l'alarma d'una app que ja no hi és només serviria per despertar la placa per a una pàgina que no
+  pot córrer —i el sistema la descarta quan venç, però millor no tenir-la armada (docs/60)—, i la memòria cau és una còpia
+  del que l'app ja sap tornar a fer; en canvi les dades són el que una persona va escriure i els ajustos són els seus
+  (docs/70).
+- **I el llistat de les apps se n'assabenta**: cada esborrada apuja la generació de la llista, que és el número amb què el
+  launcher sap que la seva graella ha canviat (docs/40).
 - **El que no fa**: no dona cap accés al maquinari, no salta cap límit de memòria ni de permisos de fitxers, i no canvia res
   de la màquina de Lua que no sigui aquesta taula. És el mateix entorn que el d'una app d'usuari amb una taula més.
 
 ```lua
+-- **Una pàgina que ensenya les apps i les pot esborrar** (és el que fa `appinfo`): les alarmes d'una app es compten amb el
+-- nom que `alarm.list()` dona, i la baixa diu què se n'ha endut el sistema.
+local taken, why = admin.uninstall('battery')
+if taken == nil then
+  console.print('no s\'ha pogut esborrar: ' .. tostring(why and why.message))
+else
+  console.print(string.format('%d fitxer(s), %d B, %d alarma(es), %d sessió(ns)', taken.files, taken.bytes,
+                              taken.alarms, taken.sessions))
+end
+
 -- Una app d'administrador que vol que no es pugui sortir de la seva pàgina, i que els tres tocs que l'obren siguin seus
 -- (és el que fa `device_lock`).
 admin.LockScreen(true)
@@ -916,7 +936,7 @@ sobrevisquin a un reinici i a la destrucció de la VM.
 | `alarm.at(spec)` | enter (id) | `spec` = `{on=època}` o `{in_ms=ms}`, més `payload`, `repeat`, `raise`, `persist` |
 | `alarm.after(ms[, payload])` | enter (id) | Drecera: alarma d'un sol cop |
 | `alarm.cancel(id)` | booleà | |
-| `alarm.list()` | taula | `{id, on, repeat, persist, raise}` de cada alarma |
+| `alarm.list()` | taula | `{id, on, repeat, persist, raise, app}` de cada alarma — **`app` és de qui és** (0.189.157), que és el que una pàgina d'apps compta abans d'esborrar-ne una |
 | `alarm.caps()` | `{max, min_period_ms, wake, keeper}` | `max` alarmes simultànies; `wake` diu si la placa pot despertar-se sola (`"yes"`/`"no"`); **`keeper` diu on ha quedat el despertar** (0.189.149): `"chip"` és el rellotge amb pila de la placa (la BM8563 de la Paper), `"timer"` és el comptador del SoC i `"none"` és que no hi ha res armat |
 
 Camps de `spec`:

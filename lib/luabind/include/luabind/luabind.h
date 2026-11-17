@@ -611,6 +611,15 @@ void set_splash_ops(const SplashOps& ops);
 // library keeps in a table of their own. They are not in `ui` on purpose —a table that is there for everybody and refuses
 // half of its calls is a promise the board does not keep— and the table `admin` exists only in the machine of an app whose
 // manifest says `"admin": true` (docs/30, docs/40).
+// **El que una esborrada ha deixat anar**, per a la pàgina que ho ha demanat: els fitxers i els bytes de l'app, les alarmes que
+// havia armat i els blocs de sessió que se n'han anat (0.189.157, docs/30).
+struct AdminGone {
+  uint32_t files = 0;
+  uint32_t bytes = 0;
+  uint32_t alarms = 0;
+  uint32_t sessions = 0;
+};
+
 struct AdminOps {
   // **La barra del sistema i la targeta que en penja, fora** (0.189.99): with the screen locked the strip of the system is
   // not on the glass and the view of the app is the whole panel, which is what makes the card of the system —the one with
@@ -628,7 +637,19 @@ struct AdminOps {
   // with them, so a page can ask without changing anything (docs/30, docs/46 D1).
   bool (*three_taps_close)();
   bool (*set_three_taps_close)(bool on);
+  // **Una app que marxa, i el que havia deixat al sistema** (0.189.157, l'amo: *«Permet desinstalarla (esborrarla)»* i *«i que
+  // passa amb les alarmes que ha deixat l'app al sistema si es desinstala?»*): the folder of the app on its disk goes, and so do
+  // **the alarms it had armed** —una alarma d'una app que ja no hi és despertaria la placa per a res— and its session blocks.
+  // Els ajustos i la dada de la persona es queden. False is "there is no such app", which is the one thing the caller needs to
+  // tell apart (docs/30, docs/40).
+  bool (*uninstall)(const char* id, AdminGone& out);
+  // **La caché d'una app, esborrada** (0.189.157): the session blocks of that app, **in the memory and on the disk** —a file
+  // that stays is the very cache a person asked to forget— and nothing else of it. A block of zero and no file is not an
+  // error: there was nothing to forget (docs/30, docs/75).
+  bool (*forget_cache)(const char* id, AdminGone& out);
 };
+
+
 
 void set_admin_ops(const AdminOps& ops);
 

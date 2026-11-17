@@ -961,9 +961,11 @@ void test_the_queue_of_alarms_is_said_in_the_log(void) {
                             "console.print('noisy gone ' .. tostring(alarm.cancel(two)))\n"
                             "console.print('noisy done')\n"));
 
-  capture_begin();
+  // **La captura és la de `pump_captured`** (0.189.157): un `capture_begin` davant d'un `pump_captured` deixa el capture
+  // tancat pel mateix pump i el `capture_end` que el segueix llegeix una pàgina que ningú ha escrit. El que cal és el mirall
+  // del registre a la consola, que és el que fa que les línies de la cua arribin al fitxer que es llegeix (docs/80).
+  kernel::log_echo(true);
   pump_captured(900, g_out, sizeof(g_out), "run noisy");
-  capture_end(g_out, sizeof(g_out));
   // **El que l'app demana, i amb quanta cua es queda**: the line names the app and the id, counts the queue and puts the
   // nearest one by name, which is the question a person has when something goes off (docs/60).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy adds #"), g_out);
@@ -983,6 +985,7 @@ void test_the_queue_of_alarms_is_said_in_the_log(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy rang ring"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy gone true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "noisy done"), g_out);
+  kernel::log_echo(false);
 
   storage->remove("/apps/noisy/app.lua");
   storage->remove("/apps/noisy/manifest.json");
@@ -13918,9 +13921,11 @@ void test_a_grid_turns_its_page_from_the_paper_between_its_cells(void) {
   emu::Gt911Panel* panel = emu::touch_panel();
   TEST_ASSERT_NOT_NULL(panel);
 
-  // **Vuit cel·les en una graella de tres columnes**: three cells a page, so the second page is the cells 4 to 6 and the third
-  // one is the last two —la resta de la caixa és paper, que és on ha de caure el dit—. The number is the grid's
-  // (`icon_grid_cells`) i no d'aquest cas: el que el cas demana és que el gest arribi a la graella.
+  // **Vuit cel·les en una graella de tres columnes dins d'una caixa de tres-centes**: the page is what the box holds
+  // (`icon_grid_cells`: three columns by the two rows of a cell of a mark and a name), so it holds six cells —the first page
+  // is 1 to 6 and the second one is the last two—, **i la resta de la caixa és paper, que és on ha de caure el dit**. El
+  // número de cel·les que hi caben és de la graella i no d'aquest cas: el que el cas demana és que el gest arribi a la
+  // graella quan el dit no té cap cel·la a sota.
   TEST_ASSERT_TRUE(add_app(storage, "shelf",
                            "{\"title\":\"Shelf\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "local grid = ui.icon_grid(300, 300)\n"
@@ -13944,6 +13949,9 @@ void test_a_grid_turns_its_page_from_the_paper_between_its_cells(void) {
                            "end\n"));
 
   pump_captured(20, g_out, sizeof(g_out), "run shelf");
+  // **La primera pàgina és la que l'app ha dit en arrencar** (docs/80): the grid is put on the cell 7 before the page is
+  // presented, so the line of the boot is where the number 7 is read —the captures that follow do not have it—.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid at 7"), g_out);
   capture_begin();
   pump_turns(20);
   // **El dit cau al paper** (the second page has two cells at the top left and the rest of the box is paper) **i camina cap a la
@@ -13957,8 +13965,9 @@ void test_a_grid_turns_its_page_from_the_paper_between_its_cells(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(200);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid at 7"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid at 4"), g_out);
+  // **El dit sobre el paper de la segona pàgina la porta a la primera** (0.189.155): the cursor goes to the first cell of the
+  // page that is now on the glass, which is 1 —six cells a page— and that is the whole of what the gesture asks for.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid at 1"), g_out);
   // **I el mateix dit cap a l'altra banda torna a la pàgina que hi havia**: a finger to the left asks for the page after this one,
   // i el paper de la segona també és seu (docs/30, docs/90).
   capture_begin();
@@ -16509,8 +16518,12 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
   pump_turns(200);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_EQUAL_STRING_MESSAGE("pager", kernel::shell::app_id(), g_out);
+  // **I la roda d'una app que no hi és no es dibuixa** (0.189.150, l'amo: *«Si alguna de les opcions es buida, el botó del
+  // panell desplegable de sistema no mostrarà la icona corresponent»*): the key of the gear is not there at all, so the finger
+  // that falls on the paper where it used to be is a finger on the card —nothing opens and the card stays out—. The line that
+  // said «no app of settings is chosen» was the card of before, when the key was always painted (docs/30, docs/45).
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card of a gear with no app was put away");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no app of settings is chosen"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "the settings key"), g_out);
 
   // **I el candau obre la pàgina del bloqueig** (0.189.152, l'amo: *«Posa el lock amb els de poweroff, sleep i reboot: Power off,
   // Sleep, Reboot, Lock»*): the padlock is the fourth of the **top** row —a hundred and four wide with sixteen of air, from a hundred
@@ -16677,19 +16690,22 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
     }
     return ink;
   };
-  // **I la fletxa mira cap a l'esquerra**: the box of the ink of the mark is taller than it is wide and its vertex is on the
-  // left, which is the one reading that tells a chevron of `‹` from the down arrow a broken UTF-8 put there once —`â†↓` on
-  // the glass— (0.179.52, docs/30). A pressed key or a key that is not there answers zero and the box reads as it is.
+  // **I la marca és la del camí de tornada** (0.179.52, i 0.189.157 amb la clau de la mida de les quatre de baix): the mark
+  // that a way back carries is read by where its ink is and not by which file drew it —the chevron of `/res/icons/back.png`
+  // when the disk carries the drawings and the arrow of `draw_icon` when it does not—, i les dues coses que fan una fletxa
+  // cap a l'esquerra són aquestes: **el seu tinta arriba a la vora esquerra** de la caixa (el cap de la fletxa) i **el seu
+  // centre vertical és el de la caixa** (una fletxa d'anar avall o una marca d'un UTF-8 trencat no hi són, i una clau premuda
+  // o una que no hi és no té tinta i respon zero).
   auto the_arrow_points_left = [&]() {
     int32_t first_x = -1;
     int32_t last_x = -1;
     int32_t first_y = -1;
     int32_t last_y = -1;
-    int left_column = 0;
-    int right_column = 0;
+    int ink = 0;
     for (uint16_t y = box_top; y < static_cast<uint16_t>(box_top + 82); ++y) {
       for (uint16_t x = box_left; x < static_cast<uint16_t>(box_left + 96); ++x) {
         if (glass_level(x, y) != 0) continue;
+        ++ink;
         if (first_x < 0 || static_cast<int32_t>(x) < first_x) first_x = x;
         if (static_cast<int32_t>(x) > last_x) last_x = x;
         if (first_y < 0 || static_cast<int32_t>(y) < first_y) first_y = y;
@@ -16697,13 +16713,14 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
       }
     }
     if (first_x < 0) return false;
-    for (uint16_t y = box_top; y < static_cast<uint16_t>(box_top + 82); ++y) {
-      if (glass_level(static_cast<uint16_t>(first_x), y) == 0) ++left_column;
-      if (glass_level(static_cast<uint16_t>(last_x), y) == 0) ++right_column;
-    }
-    const int32_t tall = last_y - first_y;
-    const int32_t wide = last_x - first_x;
-    return tall > wide && left_column > right_column;
+    const int32_t middle_x = (first_x + last_x) / 2;
+    const int32_t middle_y = (first_y + last_y) / 2;
+    // The left half of the mark, at its own middle row, and the middle column of the box: a way back has ink on the left and
+    // the shaft of a `←` crosses the middle.
+    const bool head_on_the_left = glass_level(static_cast<uint16_t>(first_x + 2), static_cast<uint16_t>(middle_y)) == 0;
+    const bool crosses_the_middle = glass_level(static_cast<uint16_t>(middle_x), static_cast<uint16_t>(middle_y)) == 0;
+    const bool a_mark_and_not_a_box = ink < 96 * 82 / 3;
+    return head_on_the_left && crosses_the_middle && a_mark_and_not_a_box && (last_x - first_x) > 8;
   };
 
   pump_captured(40, g_out, sizeof(g_out), "run stacky");
@@ -18757,6 +18774,240 @@ void test_the_swipe_to_the_left_of_the_specimen_is_the_way_back(void) {
   storage->remove("/apps/fonts");
 }
 
+// **Una pàgina pot desinstal·lar una altra app, i el nucli s'emporta el que és de l'app** (0.189.157, l'amo: *«I ja que estem,
+// que passa amb les alarmes que ha deixat l'app al sistema si es desinstala?»*). Tres coses marxen amb una app —la carpeta,
+// les alarmes que va deixar a la cua i la seva memòria cau de sessions— i dues es queden, perquè són de la persona i no de
+// l'app: `/data/<id>` i `/cfg/<id>`. Una app no s'esborra a si mateixa mentre corre, i la porta ho diu amb un `nil` i el seu
+// motiu (docs/30, docs/40, docs/60).
+void test_a_page_uninstalls_an_app_with_its_alarms_and_its_cache(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The two apps of the case: the one that goes and the one that stays. The manifests are the two fields a door needs.
+  storage->remove("/apps/uninstallme/manifest.json");
+  storage->remove("/apps/uninstallme/app.lua");
+  storage->remove("/apps/uninstallme");
+  storage->remove("/apps/keepme/manifest.json");
+  storage->remove("/apps/keepme/app.lua");
+  storage->remove("/apps/keepme");
+  TEST_ASSERT_TRUE(add_app(storage, "uninstallme",
+                           "{\"title\":\"Victim\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('victim here')\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "keepme",
+                           "{\"title\":\"Bystander\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('bystander here')\n"));
+
+  // **El que és de la persona i el que no**: a data file, a settings file and a cache file, each in its own ground.
+  storage->remove("/data/uninstallme/keep.txt");
+  storage->mkdir("/data");
+  storage->mkdir("/data/uninstallme");
+  TEST_ASSERT_TRUE(write_text(storage, "/data/uninstallme/keep.txt", "keep me"));
+  storage->remove("/cfg/uninstallme/settings");
+  storage->mkdir("/cfg");
+  storage->mkdir("/cfg/uninstallme");
+  TEST_ASSERT_TRUE(write_text(storage, "/cfg/uninstallme/settings", "k=v"));
+  storage->remove("/session/uninstallme/state");
+  storage->mkdir("/session");
+  storage->mkdir("/session/uninstallme");
+  TEST_ASSERT_TRUE(write_text(storage, "/session/uninstallme/state", "v1"));
+
+  // An alarm of each app: the one of the app that goes is what a board would wake up for after its folder is gone.
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  alarms::Spec mine;
+  mine.app = "uninstallme";
+  mine.on_mono_ms = clock->monotonic_ms() + 600000;
+  TEST_ASSERT_TRUE(alarms::add(mine) != 0);
+  alarms::Spec other;
+  other.app = "keepme";
+  other.on_mono_ms = clock->monotonic_ms() + 600000;
+  TEST_ASSERT_TRUE(alarms::add(other) != 0);
+
+  const uint32_t generation = kernel::apps::generation();
+
+  // The page that does it: an app with `admin` in its manifest that asks for the uninstall and says what came back, and then
+  // asks to delete itself —which the door refuses while it is the app that is running—.
+  storage->remove("/apps/eraser/manifest.json");
+  storage->remove("/apps/eraser/app.lua");
+  storage->remove("/apps/eraser");
+  TEST_ASSERT_TRUE(add_app(storage, "eraser",
+                           "{\"title\":\"Eraser\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"],\"admin\":true}",
+                           "local one, why = admin.uninstall('uninstallme')\n"
+                           "if one == nil then\n"
+                           "  console.print('uninstall refused ' .. tostring(why and why.code))\n"
+                           "else\n"
+                           "  console.print(string.format('gone %d file(s), %d alarm(s), %d session(s)',\n"
+                           "    one.files, one.alarms, one.sessions))\n"
+                           "end\n"
+                           "local two, why2 = admin.uninstall('eraser')\n"
+                           "console.print('self ' .. tostring(two) .. ' ' .. tostring(why2 and why2.code))\n"
+                           "local three = admin.uninstall('')\n"
+                           "console.print('empty ' .. tostring(three))\n"));
+  pump_captured(250, g_out, sizeof(g_out), "run eraser");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "gone 2 file(s), 1 alarm(s), 1 session(s)"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "self nil E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "empty nil"), g_out);
+  close_any_app();
+
+  // **El que marxava, fora**: the folder of the app, its cache and the alarm it had left in the queue of the system.
+  hal::Stat info;
+  TEST_ASSERT_FALSE_MESSAGE(kernel::vfs::stat("/apps/uninstallme/manifest.json", info), "the folder of the app is still there");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::vfs::stat("/session/uninstallme/state", info), "the cache of the app is still there");
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+  TEST_ASSERT_EQUAL_STRING("keepme", alarms::at(0)->app);
+
+  // **I el que es queda, hi és**: the data and the settings of the person, the other app and the page that asked.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/data/uninstallme/keep.txt", info), "the uninstall took the data of the person");
+  char kept[32];
+  TEST_ASSERT_TRUE(read_text(storage, "/data/uninstallme/keep.txt", kept, sizeof(kept)));
+  TEST_ASSERT_EQUAL_STRING("keep me", kept);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/cfg/uninstallme/settings", info), "the uninstall took the settings");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/apps/keepme/manifest.json", info), "the uninstall took another app");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/apps/eraser/manifest.json", info), "the page erased itself");
+
+  // **I el llistat de les apps ho sap** (docs/40): the generation is what the launcher watches for a change.
+  TEST_ASSERT_TRUE(kernel::apps::generation() != generation);
+
+  // The next case gets the disk back as it found it.
+  storage->remove("/apps/keepme/manifest.json");
+  storage->remove("/apps/keepme/app.lua");
+  storage->remove("/apps/keepme");
+  storage->remove("/apps/eraser/manifest.json");
+  storage->remove("/apps/eraser/app.lua");
+  storage->remove("/apps/eraser");
+  storage->remove("/data/uninstallme/keep.txt");
+  storage->remove("/data/uninstallme");
+  storage->remove("/cfg/uninstallme/settings");
+  storage->remove("/cfg/uninstallme");
+  pump_turns(5);
+}
+
+// **La memòria cau d'una app es pot llençar sense tocar la resta** (0.189.157): `admin.forget_cache` és `sessions destroy <id>`
+// des d'una pàgina —els blocs de la memòria i els fitxers de `/session/<id>`— i no toca la carpeta, ni les dades, ni els
+// ajustos, ni les alarmes, perquè una cau és una còpia del que l'app sap tornar a fer (docs/30, docs/70).
+void test_a_page_clears_the_cache_of_an_app_and_nothing_else(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  storage->remove("/apps/cachetest/app.lua");
+  storage->remove("/apps/cachetest/manifest.json");
+  storage->remove("/apps/cachetest");
+  TEST_ASSERT_TRUE(add_app(storage, "cachetest",
+                           "{\"title\":\"Keeper\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('keeper here')\n"));
+  storage->remove("/data/cachetest/notes.txt");
+  storage->mkdir("/data");
+  storage->mkdir("/data/cachetest");
+  TEST_ASSERT_TRUE(write_text(storage, "/data/cachetest/notes.txt", "mine"));
+  storage->remove("/session/cachetest/state");
+  storage->mkdir("/session");
+  storage->mkdir("/session/cachetest");
+  TEST_ASSERT_TRUE(write_text(storage, "/session/cachetest/state", "v1"));
+  TEST_ASSERT_TRUE(write_text(storage, "/session/cachetest/scratch", "v2"));
+
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  alarms::Spec kept;
+  kept.app = "cachetest";
+  kept.on_mono_ms = clock->monotonic_ms() + 600000;
+  TEST_ASSERT_TRUE(alarms::add(kept) != 0);
+
+  storage->remove("/apps/cleaner/manifest.json");
+  storage->remove("/apps/cleaner/app.lua");
+  storage->remove("/apps/cleaner");
+  TEST_ASSERT_TRUE(add_app(storage, "cleaner",
+                           "{\"title\":\"Cleaner\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"],\"admin\":true}",
+                           "local one, why = admin.forget_cache('cachetest')\n"
+                           "if one == nil then\n"
+                           "  console.print('cache refused ' .. tostring(why and why.code))\n"
+                           "else\n"
+                           "  console.print(string.format('cleared %d file(s)', one.files))\n"
+                           "end\n"
+                           "local two = admin.forget_cache('')\n"
+                           "console.print('empty ' .. tostring(two))\n"));
+  pump_captured(250, g_out, sizeof(g_out), "run cleaner");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cleared 2 file(s)"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "empty nil"), g_out);
+  close_any_app();
+
+  hal::Stat info;
+  TEST_ASSERT_FALSE_MESSAGE(kernel::vfs::stat("/session/cachetest/state", info), "the cache of the app is still there");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/apps/cachetest/manifest.json", info), "the cache took the app with it");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/data/cachetest/notes.txt", info), "the cache took the data with it");
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+
+  storage->remove("/apps/cachetest/app.lua");
+  storage->remove("/apps/cachetest/manifest.json");
+  storage->remove("/apps/cachetest");
+  storage->remove("/apps/cleaner/app.lua");
+  storage->remove("/apps/cleaner/manifest.json");
+  storage->remove("/apps/cleaner");
+  storage->remove("/data/cachetest/notes.txt");
+  storage->remove("/data/cachetest");
+  pump_turns(5);
+}
+
+// **La pàgina de les apps que s'envia, llegida del repositori** (docs/85): `apps/appinfo` es copia al disc de la suite i
+// s'arrenca amb `run appinfo`; les dues línies que deixa al registre són la llista que ha llegit —una app per manifest de
+// `/apps`— i el llistat que ha col·locat, i que la porta `admin` hi era, perquè sense ella les dues esborrades serien un error
+// de Lua i no dos botons (docs/30, docs/40).
+void test_the_page_of_the_apps_reads_the_manifests_of_the_folder(void) {
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  opts.now_epoch = 1794819600;  // Monday 16 November 2026, 09:00 CET
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().display() ? hal::platform().display() : nullptr);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->remove("/apps/appinfo/appinfo.lua");
+  storage->remove("/apps/appinfo/manifest.json");
+  storage->remove("/apps/appinfo/res/icon.png");
+  storage->remove("/apps/appinfo/res");
+  storage->remove("/apps/appinfo");
+  storage->mkdir("/apps/appinfo");
+  storage->mkdir("/apps/appinfo/res");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/appinfo/appinfo.lua", "/apps/appinfo/appinfo.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/appinfo/manifest.json", "/apps/appinfo/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/appinfo/res/icon.png", "/apps/appinfo/res/icon.png"));
+
+  pump_captured(250, g_out, sizeof(g_out), "run appinfo");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "appinfo: "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps in a list of"), g_out);
+  // **El que el manifest diu de l'app es llegeix de debò**: the title of the folder is what the row of the list carries, and
+  // the door of the admin table is there because the manifest says `"admin": true` (docs/40).
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_EQUAL_STRING("appinfo", kernel::shell::app_id());
+  close_any_app();
+
+  // The next test gets the default emulator back: the display, the panel and the hour were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  opts.now_epoch = 0;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  storage->remove("/apps/appinfo/appinfo.lua");
+  storage->remove("/apps/appinfo/manifest.json");
+  storage->remove("/apps/appinfo/res/icon.png");
+  storage->remove("/apps/appinfo/res");
+  storage->remove("/apps/appinfo");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   g_from = getenv("LUNOK_FROM");
@@ -19025,6 +19276,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_battery_takes_its_sample_from_a_window);
   RUN_TEST(test_a_chart_is_born_with_the_range_the_document_promises);
   RUN_TEST(test_the_clock_keeps_its_run_across_a_restart);
+  RUN_TEST(test_a_page_uninstalls_an_app_with_its_alarms_and_its_cache);
+  RUN_TEST(test_a_page_clears_the_cache_of_an_app_and_nothing_else);
+  RUN_TEST(test_the_page_of_the_apps_reads_the_manifests_of_the_folder);
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);
   RUN_TEST(test_a_swipe_up_or_down_is_not_a_page_of_a_list);

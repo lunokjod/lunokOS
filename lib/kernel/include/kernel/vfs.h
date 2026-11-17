@@ -45,6 +45,19 @@ bool on_disk(const char* path, char* out, size_t cap);
 bool stat(const char* path, hal::Stat& out);
 bool list(const char* path, hal::ListSink& sink);
 
+// **Una carpeta i tot el que hi ha a dins, esborrat** (0.189.157): the shell's `apps remove`, the one an app's uninstall walks
+// and a folder that moves all throw away a tree, i la recursió és la mateixa per als tres. **Què s'hi ha trobat es compta** en
+// els tres números —fitxers, carpetes i bytes— perquè una esborrada que diu què ha deixat anar és una esborrada que una
+// persona pot comprovar, i un punter nul és un àmbit que no ho vol saber (docs/70).
+struct Dropped {
+  uint32_t files = 0;
+  uint32_t folders = 0;
+  uint32_t bytes = 0;
+};
+// **The folder goes with everything inside it**, and what is left after is the answer: false when the path is not there or
+// when the disk would not take it away —a read-only mount, or one that was pulled out says the same as a success— (docs/70).
+bool drop_tree(const char* path, Dropped& gone);
+
 // True when the mount the path lives on was mounted writable (docs/70).
 bool is_writable(const char* path);
 

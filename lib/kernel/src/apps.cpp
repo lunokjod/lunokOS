@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include "json/json.h"
+#include "alarms/alarms.h"
+#include "kernel/session.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/vfs.h"
@@ -553,6 +555,70 @@ uint32_t g_generation = 0;
 // an app that hears this asks the door for the whole list anyway (docs/30, docs/75).
 uint8_t g_pending = 0;  // 0 none, 1 install, 2 remove
 }  // namespace
+
+// **Una app marxa, i només l'app** (0.189.157): the folder on the disk it came from, with everything inside it, **and what the
+// app had left in the system**: the alarms it armed —the queue is ordered and only the nearest one is given to the clock chip,
+// o sigui que una alarma d'una app esborrada despertava la placa per a res— and its session blocks, in the memory and on the
+// disk. **Els ajustos i la dada de la persona es queden** (`/cfg/<id>`, `/data/<id>`): treure una app no és treure el que la
+// persona va escriure amb ella (docs/30, docs/40, docs/70). És l'única porta: la comanda `apps remove` i el `admin.uninstall`
+// d'una app venen totes dues aquí, i per tant no hi ha dues esborrades que es puguin desdir (docs/30).
+bool remove(const char* id, Removing& out) {
+  out = Removing();
+  char root[96];
+  if (id == nullptr || id[0] == '\0') {
+    out.missing = Removing::Missing::kNotThere;
+    return false;
+  }
+  if (!root_of(id, root, sizeof(root))) {
+    out.missing = Removing::Missing::kNotThere;
+    return false;
+  }
+  // **The disk is asked once and kept**: the door answers which of the two copies the name is, and every question after that
+  // goes to that copy —a door asked twice would answer the card's folder as soon as the flash's has gone— (docs/40, docs/70).
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  hal::Stat info;
+  if (!vfs::resolve(root, storage, rel, sizeof(rel)) || storage == nullptr || !storage->stat(rel, info) ||
+      info.type != hal::NodeType::kDir) {
+    out.missing = Removing::Missing::kNotThere;
+    return false;
+  }
+  // **A folder is not an app because it is in `/apps`**: the manifest is the question the door asks when it lists one, so a
+  // folder of notes next to the apps cannot be deleted by a name typed by mistake (docs/40).
+  char manifest[160];
+  const int made = snprintf(manifest, sizeof(manifest), "%s/manifest.json", rel);
+  if (made <= 0 || static_cast<size_t>(made) >= sizeof(manifest) || !storage->stat(manifest, info) ||
+      info.type != hal::NodeType::kFile) {
+    out.missing = Removing::Missing::kNoManifest;
+    return false;
+  }
+  // **Where it was is said with the disk and not with the door**: `/apps/squares-SD` is a name and `/sd/apps/squares` is a
+  // place (docs/70).
+  vfs::on_disk(root, out.disk, sizeof(out.disk));
+  if (!vfs::drop_tree(root, out.gone)) {
+    out.missing = Removing::Missing::kNotDropped;
+    return false;
+  }
+  // **A delete that deleted nothing is not a delete**: the folder is asked for again on the disk it came from, because a
+  // read-only disk or one that was pulled out answers the same as a success otherwise (docs/30, docs/70).
+  if (storage->stat(rel, info)) {
+    out.missing = Removing::Missing::kNotDropped;
+    log_printf(pal::kLogWarn, "APPS", "%s is still there after the delete", id);
+    return false;
+  }
+  // **I el que havia deixat al sistema se'n va amb ella**, que és la meitat que no es veia: una alarma que queda és una placa
+  // que es desperta per a res i un bloc de sessió que queda és una caché que ningú no tornarà a llegir (docs/30, docs/60, docs/75).
+  out.alarms = alarms::remove_of(id);
+  const session::Forgotten forgotten = session::forget(id);
+  out.sessions = forgotten.blocks + forgotten.files;
+  out.session_bytes = static_cast<uint32_t>(forgotten.bytes);
+  note_a_change("remove", id);
+  log_printf(pal::kLogInfo, "APPS", "%s is gone: %u file(s), %u folder(s), %u B, %u alarm(s) and %u session block(s)",
+             id, static_cast<unsigned>(out.gone.files), static_cast<unsigned>(out.gone.folders),
+             static_cast<unsigned>(out.gone.bytes), static_cast<unsigned>(out.alarms),
+             static_cast<unsigned>(out.sessions));
+  return true;
+}
 
 uint32_t generation() { return g_generation; }
 

@@ -246,6 +246,40 @@ void test_describe_refuses_what_it_cannot_say(void) {
   TEST_ASSERT_EQUAL_UINT8('\0', static_cast<uint8_t>(tiny[0]));
 }
 
+// **Una app desinstal·lada no deixa res armat** (0.189.157, l'amo: *«I ja que estem, que passa amb les alarmes que ha deixat
+// l'app al sistema si es desinstala?»*): `remove_of` takes the entries of that app —the one that is due first and the one far
+// away, the single and the repeating— and leaves every other app's alarm where it was, in the order it was. An empty name is
+// not an app and takes nothing with it, because a bug that passed `NULL` would empty the queue of everyone (docs/60).
+void test_remove_of_takes_the_alarms_of_one_app(void) {
+  TEST_ASSERT_TRUE(alarms::add(make("battery", 1000, 600000)) != 0);
+  TEST_ASSERT_TRUE(alarms::add(make("clock", 2000)) != 0);
+  TEST_ASSERT_TRUE(alarms::add(make("battery", 3000)) != 0);
+  TEST_ASSERT_TRUE(alarms::add(make("battery", 4000, static_cast<int32_t>(alarms::kDailyMs))) != 0);
+  TEST_ASSERT_EQUAL_UINT32(4, alarms::count());
+
+  TEST_ASSERT_EQUAL_UINT32(3, alarms::remove_of("battery"));
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+  TEST_ASSERT_EQUAL_STRING("clock", alarms::at(0)->app);
+  TEST_ASSERT_EQUAL_INT64(2000, alarms::next_due_mono_ms());
+
+  // Nothing of that app is left to take, and asking again is not an error.
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::remove_of("battery"));
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::remove_of(""));
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::remove_of(nullptr));
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+}
+
+// **I el número de la cua canvia, perquè això és el que fa que el despertar es torni a armar**: a queue that lost an entry
+// without moving its revision is a clock still armed for an alarm nobody is waiting for (docs/60).
+void test_remove_of_moves_the_revision(void) {
+  TEST_ASSERT_TRUE(alarms::add(make("gone", 5000)) != 0);
+  TEST_ASSERT_TRUE(alarms::add(make("here", 6000)) != 0);
+  const uint32_t before = alarms::revision();
+
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::remove_of("gone"));
+  TEST_ASSERT_TRUE(alarms::revision() != before);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -262,5 +296,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_revision_moves_when_the_queue_changes);
   RUN_TEST(test_an_alarm_describes_itself_with_a_person_s_words);
   RUN_TEST(test_describe_refuses_what_it_cannot_say);
+  RUN_TEST(test_remove_of_takes_the_alarms_of_one_app);
+  RUN_TEST(test_remove_of_moves_the_revision);
   return UNITY_END();
 }

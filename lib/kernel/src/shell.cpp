@@ -2839,56 +2839,23 @@ bool install_file_path(char* out, size_t cap, const char* name) {
 //
 // **What was thrown away is counted** (0.89.0): the same three numbers `repo install` says when it puts an app in, so an
 // app that is deleted says how much room came back. A caller that does not care passes nothing.
+//
+// **I la recursió és una de sola** (0.189.157): `vfs::drop_tree` és la que fa servir l'esborrada d'una app i la que mou una
+// carpeta, o sigui que aquesta shell només hi passa el compte (docs/70).
 struct Dropped {
   uint32_t files;
   uint32_t folders;
   uint32_t bytes;
 };
 
-void drop_tree(const char* path, uint8_t depth, Dropped* counted = nullptr);
-
-class TreeSink : public hal::ListSink {
- public:
-  TreeSink(hal::IStorage* storage, const char* rel, uint8_t depth, Dropped* counted)
-      : storage_(storage), depth_(depth), counted_(counted) {
-    copy_text(rel_, sizeof(rel_), rel);
-  }
-
-  bool on_entry(const hal::ListEntry& entry) override {
-    if (entry.name == nullptr) return true;
-    char child[128];
-    const int made = snprintf(child, sizeof(child), "%s/%s", rel_, entry.name);
-    if (made <= 0 || static_cast<size_t>(made) >= sizeof(child)) return true;
-    if (counted_ != nullptr) {
-      if (entry.type == hal::NodeType::kDir) {
-        ++counted_->folders;
-      } else {
-        ++counted_->files;
-        counted_->bytes += entry.size;
-      }
-    }
-    if (entry.type == hal::NodeType::kDir && depth_ < 6) {
-      TreeSink deeper(storage_, child, static_cast<uint8_t>(depth_ + 1), counted_);
-      storage_->list(child, deeper);
-    }
-    storage_->remove(child);
-    return true;
-  }
-
- private:
-  hal::IStorage* storage_;
-  char rel_[128];
-  uint8_t depth_;
-  Dropped* counted_;
-};
-
-void drop_tree(const char* path, uint8_t depth, Dropped* counted) {
-  hal::IStorage* storage = nullptr;
-  char rel[128];
-  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr || depth > 6) return;
-  TreeSink sink(storage, rel, depth, counted);
-  storage->list(rel, sink);
-  storage->remove(rel);
+void drop_tree(const char* path, uint8_t depth, Dropped* counted = nullptr) {
+  (void)depth;
+  vfs::Dropped gone;
+  if (!vfs::drop_tree(path, gone)) return;
+  if (counted == nullptr) return;
+  counted->files += gone.files;
+  counted->folders += gone.folders;
+  counted->bytes += gone.bytes;
 }
 
 // **`apps remove <id>`: the app goes, and only the app** (0.89.0). The id is the name `apps` and `run` show —`squares`
@@ -2897,69 +2864,58 @@ void drop_tree(const char* path, uint8_t depth, Dropped* counted) {
 // `/data/<id>`): those are what the app left behind and not the app, and a person who wants them gone says so with
 // another path, not with this one (docs/30, docs/40, docs/70).
 bool apps_remove(const char* id) {
-  char root[96];
-  if (id == nullptr || id[0] == '\0' || !apps::root_of(id, root, sizeof(root))) {
+  // **La mateixa porta que `admin.uninstall`** (0.189.157): the folder, the alarms the app had armed and the sessions it had
+  // written, all in `apps::remove`; the prompt only says what went. **Els seus ajustos i la seva dada es queden** (docs/30,
+  // docs/40, docs/70).
+  if (id == nullptr || id[0] == '\0') {
     usage_out("usage: apps remove <id>\r\n");
     return false;
   }
-  // **The disk is asked once and kept** (0.89.0): the door answers which of the two copies the name is, and every question
-  // after that goes to that copy and not to the door again —a door that is asked twice would answer the card's folder as
-  // soon as the flash's has gone, and a delete would report that it failed at the moment it worked— (docs/40, docs/70).
-  hal::IStorage* storage = nullptr;
-  char rel[128];
-  hal::Stat info;
-  if (!vfs::resolve(root, storage, rel, sizeof(rel)) || storage == nullptr || !storage->stat(rel, info) ||
-      info.type != hal::NodeType::kDir) {
-    error_out("no such app: ");
-    out(id);
-    newline();
-    return false;
-  }
-  // **A folder is not an app because it is in `/apps`** (0.89.0): the manifest is the same question the door asks when it
-  // lists one, so a folder of notes that a person keeps next to the apps cannot be deleted by typing its name by mistake
-  // (docs/40).
-  char manifest[160];
-  const int made = snprintf(manifest, sizeof(manifest), "%s/manifest.json", rel);
-  if (made <= 0 || static_cast<size_t>(made) >= sizeof(manifest) || !storage->stat(manifest, info) ||
-      info.type != hal::NodeType::kFile) {
-    error_out("not an app: ");
-    out(id);
-    out(" has no manifest.json\r\n");
-    return false;
-  }
-  // **Where it was is said with the disk and not with the door**: `/apps/squares-SD` is a name and `/sd/apps/squares` is
-  // a place (docs/70).
-  char disk[160];
-  if (!vfs::on_disk(root, disk, sizeof(disk))) copy_text(disk, sizeof(disk), root);
-  Dropped gone{0, 0, 0};
-  drop_tree(root, 0, &gone);
-  // **A delete that deleted nothing is not a delete**: the folder is asked for again on the disk it came from, because a
-  // read-only disk or one that was pulled out answers the same as a success otherwise (docs/30, docs/70).
-  if (storage->stat(rel, info)) {
-    error_out("apps: ");
-    out(id);
-    out(" is still there (a read-only disk, or a file the disk would not remove)\r\n");
+  apps::Removing gone;
+  if (!apps::remove(id, gone)) {
+    // **Els dos errors són dos i es diuen diferent** (docs/40): a folder that is not there and a folder that is there but
+    // carries no manifest are not the same mistake, and a person typing a name has to know which one they made.
+    if (gone.missing == apps::Removing::Missing::kNotDropped) {
+      error_out("apps: ");
+      out(id);
+      out(" is still there (a read-only disk, or a file the disk would not remove)\r\n");
+    } else if (gone.missing == apps::Removing::Missing::kNoManifest) {
+      error_out("not an app: ");
+      out(id);
+      out(" has no manifest.json\r\n");
+    } else {
+      error_out("no such app: ");
+      out(id);
+      out("\r\n");
+    }
     return false;
   }
   good_out("apps: ");
   out(id);
   out(" removed from ");
-  out(disk);
+  out(gone.disk);
   out(", ");
-  out_num(gone.files);
-  out((gone.files == 1) ? " file" : " files");
-  if (gone.folders > 0) {
+  out_num(gone.gone.files);
+  out((gone.gone.files == 1) ? " file" : " files");
+  if (gone.gone.folders > 0) {
     out(", ");
-    out_num(gone.folders);
-    out((gone.folders == 1) ? " folder" : " folders");
+    out_num(gone.gone.folders);
+    out((gone.gone.folders == 1) ? " folder" : " folders");
   }
   out(", ");
-  out_num(gone.bytes);
-  out(" bytes\r\n");
-  // **I la llista d'apps ha canviat** (0.189.23): el canvi es deixa a la porta i el bucle del nucli el diu al llançador
-  // (`cfg home`) entre dos torns, si és que hi és. Una app esborrada amb el prompt a la mà no té ningú que l'escolti, i no
-  // cal: la pàgina que arrenqui després llegeix la llista de la porta i ja no la veu (docs/30, docs/40).
-  apps::note_a_change("remove", id);
+  out_num(gone.gone.bytes);
+  out(" bytes");
+  if (gone.alarms > 0) {
+    out(", ");
+    out_num(gone.alarms);
+    out((gone.alarms == 1) ? " alarm" : " alarms");
+  }
+  if (gone.sessions > 0) {
+    out(", ");
+    out_num(gone.sessions);
+    out(" session block(s)");
+  }
+  out("\r\n");
   return true;
 }
 

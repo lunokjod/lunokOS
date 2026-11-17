@@ -20,12 +20,15 @@
 
 #include "img/img.h"
 
+#include "kernel/apps.h"
 #include "kernel/bar.h"
 #include "kernel/calendar.h"
 #include "kernel/display.h"
 #include "kernel/font.h"
 #include "kernel/fs_ops.h"
 #include "kernel/serial.h"
+#include "kernel/session.h"
+#include "kernel/shell.h"
 #include "kernel/splash.h"
 #include "kernel/touch.h"
 #include "kernel/vfs.h"
@@ -48,6 +51,11 @@
 
 namespace kernel {
 namespace ui {
+
+// **Les dues portes d'administrador que esborren** (0.189.157): the definitions live with the rest of the admin calls, at the bottom of the file, and the table is installed near the top, so the two are said here first (docs/30, docs/40).
+bool uninstall_a_page(const char* id, luabind::AdminGone& out);
+bool forget_the_cache_of_a_page(const char* id, luabind::AdminGone& out);
+
 namespace {
 
 // **The canvases the system holds**, slot 0 is the view of the app and the rest are the controls an app makes
@@ -2269,7 +2277,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                              splash_hide_for_lua, splash_error_for_lua});
   // **El paquet d'un administrador** (0.189.99): the two calls the `admin` table of an administrator's machine answers. The
   // table is built by the interpreter only for an app whose manifest says so, and this is the system's half of it (docs/30).
-  luabind::set_admin_ops(luabind::AdminOps{lock_the_screen, screen_locked, three_taps_close, set_three_taps_close});
+  luabind::set_admin_ops(luabind::AdminOps{lock_the_screen, screen_locked, three_taps_close, set_three_taps_close,
+                                           uninstall_a_page, forget_the_cache_of_a_page});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -3246,8 +3255,11 @@ struct Icon {
   const char* name;
 };
 
+// **Les vuit marques del sistema** (0.189.157): the moon of the key that puts the board to sleep was drawn by `draw_icon` and
+// its name was not in this set, so a board with no `/res/icons` showed that key empty —the set is what `an_icon_named` asks,
+// and a mark that is not in it is not painted at all— i el candau de la 0.189.151 hi és des de llavors (docs/30, docs/45).
 const Icon kIcons[] = {
-    {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"}, {"home"}, {"lock"},
+    {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"}, {"home"}, {"lock"}, {"deepsleep"},
 };
 const uint8_t kIconCount = static_cast<uint8_t>(sizeof(kIcons) / sizeof(kIcons[0]));
 
@@ -9032,6 +9044,36 @@ bool lock_the_screen(bool on) {
 }
 
 bool screen_locked() { return g_screen_locked; }
+
+// **Una app que marxa, i el que havia deixat al sistema** (0.189.157, l'amo: *«Permet desinstalarla (esborrarla)»* i *«i que
+// passa amb les alarmes que ha deixat l'app al sistema si es desinstala?»*): the folder of the app on its disk and, with it,
+// **the alarms it had armed and the sessions it had written** —una alarma d'una app que ja no hi és és una placa que es
+// desperta per a res, i un bloc de sessió que queda és una caché que ningú tornarà a llegir—. **Els seus ajustos i la dada de la
+// persona es queden**, que és el que una persona no ha demanat treure (docs/30, docs/40, docs/70).
+bool uninstall_a_page(const char* id, luabind::AdminGone& out) {
+  // **Una app no s'esborra a si mateixa mentre corre**: the page that asks is in front and its own files would go under its
+  // feet, o sigui que el que es demana és un nom i no el de la pàgina que ho demana (docs/30, docs/40).
+  if (id == nullptr || id[0] == '\0' || (shell::app_running() && strcmp(shell::app_id(), id) == 0)) return false;
+  apps::Removing gone;
+  if (!apps::remove(id, gone)) return false;
+  out.files = gone.gone.files;
+  out.bytes = gone.gone.bytes;
+  out.alarms = gone.alarms;
+  out.sessions = gone.sessions;
+  return true;
+}
+
+// **I la caché d'una app, que és una altra cosa** (0.189.157): the session blocks of that app, **in the memory and on the
+// disk**, and nothing else of it —the app stays, its data stays and the person keeps reading it—. És la mateixa porta que
+// `sessions destroy <id>` al prompt (docs/30, docs/75).
+bool forget_the_cache_of_a_page(const char* id, luabind::AdminGone& out) {
+  if (id == nullptr || id[0] == '\0') return false;
+  const session::Forgotten forgotten = session::forget(id);
+  out.sessions = forgotten.blocks;
+  out.files = forgotten.files;
+  out.bytes = static_cast<uint32_t>(forgotten.bytes);
+  return true;
+}
 
 // **Els tres tocs, cedits o no** (0.189.101): asking for what one has is free and says the truth, and a page that ends gives
 // them back through `give_back_the_glass` —the same hand the lock goes with— so the next app opens with the way out the
