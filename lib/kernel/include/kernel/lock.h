@@ -12,10 +12,13 @@
 namespace kernel {
 namespace lock {
 
-// **The start of the board**: the counter is set to nothing-has-happened-yet and the page goes up if the switch of
-// `cfg::lock_on` says so. It is called at the end of the boot, after the home app, so that opening the lock and closing it
-// gives the person the page they had and not the prompt (docs/30, docs/90).
-void boot();
+// **The start of the board** (0.189.159): the counter is set to nothing-has-happened-yet and **the page of the lock is the
+// page of the boot**, if the switch of `cfg::lock_on` says so and the app it names is on the disk. It answers the app it put
+// in front —`nullptr` when the glass is not covered, which is the answer that lets the kernel start the home app—, and the
+// kernel calls it **before** the home app: the lock is the first thing a board shows and the page of the start comes after
+// it, started by the lock itself (`device_lock` asks `cfg home` when it opens), perquè una casa que s'arrenca darrere del
+// pany és una casa que no hi és quan el pany s'obre (docs/30, docs/40, docs/90).
+const char* boot();
 
 // **A hand on the board**: a key that goes down, a finger on the glass, a byte on the console. Every one of them starts the
 // counter of `lock after` again, which is the whole rule the owner asked for: *«Aquest comptador torna a començar quant

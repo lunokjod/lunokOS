@@ -646,8 +646,15 @@ void boot(hal::IPlatform& platform) {
   // app and not to the launcher) and a home app never starts on top of anything. A name that is not on the disk is a
   // line in the log and the prompt: a boot that insists on an app that is not there is a boot loop nobody asked for
   // (docs/30, docs/40, docs/90).
+  // **I la pàgina del pany és la primera** (0.189.159, l'amo: *«Arrenca abans el lock i després si hi ha home definida l'arrenques
+  // desde device_lock»*): el commutador de `cfg.lock_on` i l'app que `cfg lock` nomena decideixen si el vidre s'obre tapat. Si
+  // sí, **la targeta del pany és la del començament** i la casa no s'arrenca aquí —la demana la mateixa pàgina del pany quan
+  // s'obre (`device_lock` llegeix `cfg home`)—, perquè una casa que s'arrenca darrere la cortina és una casa que no hi és quan
+  // la cortina s'aixeca (docs/30, docs/40, docs/60).
+  const char* lock_page = lock::boot();
+
   const char* home = cfg::home_app();
-  if (home[0] != '\0' && !app_running()) {
+  if (lock_page == nullptr && home[0] != '\0' && !app_running()) {
     // **I ARRENCA SENSE LA SEVA TARGETA** (0.179.33, l'amo: *«en launcher no ha de mostrar l'splash rera el boot, tenim
     // l'splash del sistema»*): the board has just painted the picture of its boot on that glass, so the home app comes up
     // with the page and nothing else. Its card is for the way back —a Lua app ends and the launcher arrives with it—
@@ -673,11 +680,6 @@ void boot(hal::IPlatform& platform) {
 #endif
     }
   }
-
-  // **I la pantalla es tapa si la persona ho ha demanat** (0.189.150): the lock app comes to the front **after** the home app,
-  // so opening the lock gives back the page the board was going to show and not the prompt —which is the whole point of a
-  // lock on a board with no cable— (docs/30, docs/90).
-  lock::boot();
 
   // **I el sistema carregat treballa a la velocitat de repòs** (0.179.38): the boot is one window and the home app is part
   // of it —its first page is part of what the boot lays down, and a launcher that is arriving is not worth a second burst—,

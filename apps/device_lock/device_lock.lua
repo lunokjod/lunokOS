@@ -270,6 +270,19 @@ local function unlock()
   -- l'anella (`log.info`) encara no hi és per a Lua (docs/30)—, i el sistema ja diu la seva mitja línia: `[I][UI] the screen
   -- is unlocked`.
   console.print('device lock: three taps on the padlock, the screen is unlocked')
+  -- **I la pàgina del començament ve darrere del pany** (0.189.159, l'amo: *«Arrenca abans el lock i després si hi ha home
+  -- definida l'arrenques desde device_lock»*): the board boots into this page and not into the launcher, so the launcher is
+  -- asked for here —`cfg home` is the person's word for it—. **`app.run` és el camí sencer**: the wish is carried out at the
+  -- end of the turn and the app that asked for it is the one that goes away, o sigui que aquesta pàgina **no** ha de cridar
+  -- `app.exit()`: l'exit acaba el torn abans que el nucli llegeixi el desig i el que queda és el prompt (vist a l'emulador,
+  -- 17/11). A home that is not chosen (`none`) or that is this very page is not started: an app that opens another one on top
+  -- of itself is a page that comes back to a lock (docs/30, docs/40).
+  local home = cfg.home()
+  if home ~= nil and home ~= '' and home ~= 'none' and home ~= app.id then
+    console.print('device lock: the page of the start is ' .. home)
+    app.run(home)
+    return
+  end
   app.exit()
 end
 

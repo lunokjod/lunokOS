@@ -75,14 +75,38 @@ void bring_it_up(const char* why) {
 
 }  // namespace
 
-void boot() {
+const char* boot() {
   g_last_ms = now_ms();
   g_a_wake_is_owed = false;
   g_complained = nullptr;
   // **Un tauler sense vidre no tapa res**: the four boards of this build with no screen keep their prompt, which is all they
   // ever had, and a lock over a console nobody sees is an app started for nothing (docs/50).
-  if (display::surface() == nullptr) return;
-  bring_it_up("the board has just started");
+  if (display::surface() == nullptr) return nullptr;
+  const char* id = the_page();
+  if (id == nullptr) return nullptr;
+  // **I una app que torna d'una sessió no es trepitja** (docs/90): a board that went to sleep inside an app comes back into
+  // that app, and the lock goes **over** it —the shell gives it back when the lock opens, which is the session the person
+  // left— and no home app is owed, because the page under the lock is already theirs.
+  if (shell::app_running()) {
+    bring_it_up("the board has just started");
+    return nullptr;
+  }
+  apps::Entry entry;
+  if (!apps::read(id, entry)) {
+    log_printf(pal::kLogWarn, "LOCK", "the board has just started: there is no app '%s' on this board", id);
+    return nullptr;
+  }
+  // **La pàgina abans que la casa** (0.189.159, l'amo: *«Arrenca abans el lock i després si hi ha home definida l'arrenques
+  // desde device_lock»*): the lock is started as the page of the boot and the app it names is what answers for the way back;
+  // the kernel starts no home app behind it (docs/30, docs/40).
+  if (!shell::start_app(entry.id, /*splash=*/false)) {
+    log_printf(pal::kLogWarn, "LOCK", "the board has just started: '%s' did not come up", entry.id);
+    return nullptr;
+  }
+  log_printf(pal::kLogInfo, "LOCK", "the board has just started: %s is the page of this boot", entry.id);
+  // **El nom que es torna és el de la porta i no el d'una fitxa local**: the kernel only asks whether the glass was covered, and
+  // a pointer into a struct of this frame would be a string that is not there by the next turn (docs/30, docs/90).
+  return id;
 }
 
 void note_activity() {

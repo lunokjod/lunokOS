@@ -9796,7 +9796,21 @@ namespace kernel {
 // casa) i les dues que tanquen a la dreta (la creu i la fletxa), amb la creu abans de la fletxa: un toc al lloc de sempre de la creu
 // tanca la pàgina i un toc al de sempre de la fletxa en torna una vista, i les dues són on la mà les busca perquè la fila es llegeix
 // d'esquerra a dreta (docs/30, docs/45). Les coordenades de les proves de la targeta (la creu i la fletxa) es mouen amb ella.
-static const char kVersion[] = "0.189.158";
+// **La pàgina del pany és la primera, i la casa ve darrere seu** (0.189.159, l'amo: *«El Lock del arranc falla al acabar amb el
+// device_lock no arrenca home.... tampoc al tornar d'sleep. Es veu com s'arrenca home i després lock i al acabar lock no torna a home.
+// A l'arrencada fes: està habilitat el lock? existeix lock? → Arrencar lock → En acabar arrencar Home (si existeix)»*). L'arrencada
+// arrencava **la casa i després el pany a sobre**, i el pany no tenia cap camí de tornada: `lock::boot()` feia `raise_app`, o sigui
+// que la casa quedava darrere la cortina —i en una arrencada sense sessió no hi havia res a tornar—, i el que l'amo veia era la casa
+// un moment, el pany, i el prompt en obrir-lo. Ara `lock::boot()` **respon l'app que ha posat al davant** i el nucli només arrenca la
+// casa si la resposta és buida; el pany s'arrenca amb `start_app` (sense la targeta, que el vidre té la imatge de l'arrencada) i
+// **l'app del pany és la que demana la pàgina del començament quan s'obre** (`device_lock` fa `cfg.home()` i `app.run`), que és el que
+// l'amo va demanar. **I el desig no es diu després d'un `app.exit()`**: l'exit acaba el torn abans que el nucli llegeixi el desig i
+// el que queda és el prompt (vist a l'emulador) —`app.run` ja tanca la pàgina que el demana (docs/30, docs/40, docs/60).
+// Una app que torna d'una sessió (una placa adormida dins d'una pàgina) no es trepitja: el pany hi va a sobre amb `raise_app` i la
+// pàgina torna quan s'obre. Mirat a l'emulador amb `lock device_lock`, `lockon on` i `home home_eink`: el registre diu
+// `the board has just started: device_lock is the page of this boot`, cap línia de `HOME`, els tres tocs del candau obren la pàgina
+// i `home_eink` arrenca amb la seva llista d'apps al vidre.
+static const char kVersion[] = "0.189.159";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

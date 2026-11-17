@@ -13683,8 +13683,9 @@ void test_the_lock_covers_the_glass_at_the_start_and_after_a_sleep(void) {
   TEST_ASSERT_EQUAL_UINT8(10, kernel::cfg::lock_after_minutes());
   TEST_ASSERT_TRUE(kernel::cfg::set_lock_after_minutes(5));
 
-  // **I amb el commutador cert, l'arrencada acaba amb la pàgina al davant**: the home app still comes up first —it is the board's
-  // page— and the lock is asked for after it, which is the order a person would draw (docs/30, docs/60).
+  // **I amb el commutador cert, la pàgina del pany és la del començament** (0.189.159): the lock is started as the page of the
+  // boot and **no home app is started behind it** —the page of the start is asked for by the lock itself when it opens—, which is
+  // the order the owner asked for (docs/30, docs/60).
   TEST_ASSERT_TRUE(kernel::cfg::set_lock_app("lockpage"));
   TEST_ASSERT_TRUE(kernel::cfg::set_lock_on(true));
   capture_begin();
@@ -13695,6 +13696,9 @@ void test_the_lock_covers_the_glass_at_the_start_and_after_a_sleep(void) {
   pump_turns(30);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the glass is covered"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the board has just started: lockpage is the page of this boot"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "[I][HOME]"),
+                           "the home app was started behind the lock, and the lock is the one that asks for it");
 
   // **El despert d'un son demana la pàgina una altra vegada**: a person who has opened it comes back to a covered glass, which is
   // the whole point of the switch —`lock::note_a_wake` is what `power.cpp` calls when a light sleep returns— (docs/60).
@@ -19008,6 +19012,106 @@ void test_the_page_of_the_apps_reads_the_manifests_of_the_folder(void) {
   storage->remove("/apps/appinfo");
 }
 
+// **La casa del començament ve del pany, i no d'un arrencada que la deixi darrere** (0.189.159, l'amo: *«El Lock del arranc falla
+// al acabar amb el device_lock no arrenca home.... Es veu com s'arrenca home i després lock i al acabar lock no torna a home»*). The
+// app that ships is the app this case runs: the real `device_lock` from the repository, three taps on its padlock —the count of the
+// page— and a probe app as the page of the start. El que el cas demostra és que **el pany arrenca la casa quan s'obre**: sense
+// aquesta línia el que queda és el prompt, que és el que l'amo va veure a la placa (docs/30, docs/40, docs/60).
+//
+// **I l'app s'arrenca des del prompt i no dins d'un `kernel::boot`** (docs/85): the arena of the extra memory is not given back
+// between two boots of one process, so an app started *by* the second boot has no room for its interpreter and the case would
+// measure the suite instead of the system —`run device_lock` is the same road a person takes (docs/75).
+void test_the_lock_starts_the_page_of_the_start_when_it_opens(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The page of the start is a probe of this case: its line in the capture is what says that it came up.
+  storage->remove("/apps/afterlock/app.lua");
+  storage->remove("/apps/afterlock/manifest.json");
+  storage->remove("/apps/afterlock");
+  TEST_ASSERT_TRUE(add_app(storage, "afterlock",
+                           "{\"title\":\"After\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('the page of the start is here')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  // **L'app del repositori** (docs/85): the lock of this system, with the manifest that makes it an administrator and the icon
+  // of its card.
+  storage->remove("/apps/device_lock/device_lock.lua");
+  storage->remove("/apps/device_lock/manifest.json");
+  storage->remove("/apps/device_lock/res/icon.png");
+  storage->remove("/apps/device_lock/res");
+  storage->remove("/apps/device_lock");
+  storage->mkdir("/apps/device_lock");
+  storage->mkdir("/apps/device_lock/res");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/device_lock/device_lock.lua", "/apps/device_lock/device_lock.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/device_lock/manifest.json", "/apps/device_lock/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/device_lock/res/icon.png", "/apps/device_lock/res/icon.png"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  close_any_app();
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app("afterlock"));
+  TEST_ASSERT_TRUE(kernel::cfg::set_lock_app("device_lock"));
+  TEST_ASSERT_TRUE(kernel::cfg::set_lock_on(false));
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  close_any_app();
+
+  // **El pany, amb el commutador cert i la pàgina del començament triada**: the page covers the glass, and no page of the start is
+  // started behind it.
+  TEST_ASSERT_TRUE(kernel::cfg::set_lock_on(true));
+  // **La captura s'obre una vegada per a tot el camí** (docs/80): el pany, els tres tocs i la pàgina que ve darrere són la
+  // mateixa història i el que la llegeix és el registre que acompanya l'app; un `pump_captured` al mig la tancaria i es
+  // quedaria amb la pàgina de després (trobat aquí, 17/11).
+  capture_begin();
+  kernel::execute("run device_lock");
+  pump_turns(300);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::lock::locked(), "the lock did not cover the glass");
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("device_lock", kernel::shell::app_id(), "the app in front is not the lock");
+
+  // **I els tres tocs del candau obren la pàgina**, amb el dit posat on el candau és: la caixa del dibuix és el 34 % del costat
+  // curt (183 × 255 en aquest vidre de 540 × 960) i el bloc sencer —el candau, el títol, la frase i els punts— es centra, o
+  // sigui que el mig del candau és a (270, 382) (docs/30, docs/90).
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  for (int i = 0; i < 3; ++i) {
+    TEST_ASSERT_TRUE(panel->finger_down(0, 270, 382));
+    pump_turns(20);
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(40);
+  }
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::lock::locked(), "the glass is still locked after the three taps");
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("afterlock", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the page of the start is here"), g_out);
+
+  // The next case gets the board of the build again: the two names and the switch were this one's.
+  kernel::cfg::set_lock_app("none");
+  kernel::cfg::set_lock_on(false);
+  kernel::cfg::set_home_app("home_eink");
+  close_any_app();
+  storage->remove("/apps/afterlock/app.lua");
+  storage->remove("/apps/afterlock/manifest.json");
+  storage->remove("/apps/afterlock");
+  storage->remove("/apps/device_lock/device_lock.lua");
+  storage->remove("/apps/device_lock/manifest.json");
+  storage->remove("/apps/device_lock/res/icon.png");
+  storage->remove("/apps/device_lock/res");
+  storage->remove("/apps/device_lock");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   g_from = getenv("LUNOK_FROM");
@@ -19240,6 +19344,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_grid_walks_its_cells_and_pages_itself);
   RUN_TEST(test_a_grid_turns_its_page_from_the_paper_between_its_cells);
   RUN_TEST(test_the_lock_covers_the_glass_at_the_start_and_after_a_sleep);
+  RUN_TEST(test_the_lock_starts_the_page_of_the_start_when_it_opens);
   RUN_TEST(test_only_an_administrator_gets_the_admin_table_and_a_lock);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);

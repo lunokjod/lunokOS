@@ -640,6 +640,11 @@ font de l'EPUB de PaperOS (`OLD/PaperOS/tools/icons/EPUB.png`, 448×448, escala 
 L'`icon.icn` d'aquella app **no s'ha portat**: el manifest nomeja el PNG, que és el que aquest
 sistema sap llegir.
 
+**`device_lock` és la pàgina del pany i la que arrenca la casa** (0.189.159): the board boots into it when `cfg lockon` is on, and
+when the three taps open it, **it is the app that asks for `cfg home`** (`app.run`, without `app.exit()` after it —the exit ends
+the turn before the kernel reads the wish—), because a home started by the boot would be a page behind the lock that nobody sees
+and a board left at the prompt when the lock opens (docs/30, docs/60).
+
 Les altres apps —`about`, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
 `home_eink`, `life`, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i `rainbow`— segueixen la
 mateixa convenció,

@@ -824,7 +824,7 @@ consola no acceptaria (docs/30, docs/70).
 | `cfg.freq([mhz, on])` | taula de números | **Les velocitats que el governador pot fer servir** (0.189.107): sense arguments, la llista dels passos permesos en ordre (`{80, 160, 240}`); amb un pas i un booleà, el gira i torna la llista que queda. Un número que no és un dels tres passos, o un gir que deixaria la placa sense cap, és `E_INVAL` i la llista no es toca (`cfg freq 240 off`) |
 | `cfg.settings([id])` | cadena | **L'app que obre el botó dels ajustos del panell** (0.189.109): es llegeix sola i s'escriu amb un id, o amb `none` (que torna com la cadena buida). El nom el comprova el nucli: una app que aquesta placa no té no es pot desar aquí, i el panell la mira abans de demanar-la (docs/30, docs/40) |
 | `cfg.lock([id])` | cadena o `nil, error` | **L'app que tapa el vidre quan el sistema es bloqueja** (0.189.150): `device_lock` de sèrie, amb `none` per no tenir-ne cap (que torna com la cadena buida). Si la tria no és l'app que ha de venir, és `E_INVAL` i el valor no es toca: **una app que no hi és seria un vidre que no es tapa mai** |
-| `cfg.lock_on([on])` | booleà | **Si el bloqueig és actiu** (0.189.150, `cfg lockon on`): amb el commutador cert el sistema obre `cfg.lock` **al final de l'arrencada** i **al despertar d'un sleep lleuger**, i el torna a obrir quan la placa porta `cfg.lock_after` minuts sense cap contacte, cap tecla i cap byte de consola (docs/60) |
+| `cfg.lock_on([on])` | booleà | **Si el bloqueig és actiu** (0.189.150, `cfg lockon on`): amb el commutador cert el sistema obre `cfg.lock` **a l'arrencada —abans de la casa—** i **al despertar d'un sleep lleuger**, i el torna a obrir quan la placa porta `cfg.lock_after` minuts sense cap contacte, cap tecla i cap byte de consola (docs/60) |
 | `cfg.lock_after([minuts])` | enter | **Els minuts sense tocar res abans de bloquejar** (0.189.150, `cfg lockafter <minuts>`): cinc, deu o quinze —el de sèrie són deu— i qualsevol altre número és `E_INVAL` i no es desa, perquè és la llista que la pàgina sap ensenyar (docs/30, docs/60) |
 
 - **Les de lectura i escriptura són la mateixa crida i el valor és la resposta**: `cfg.cursor()` diu el que hi ha i
@@ -866,6 +866,14 @@ l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
 | `admin.uninstall(id)` | `{files, bytes, alarms, sessions}` o `nil, error` | **Esborra una app de `/apps`** (0.189.157): la carpeta amb tot el que hi ha a dins, les alarmes que hagi deixat a la cua del sistema i la seva memòria cau de sessions. **No toca `/data/<id>` ni `/cfg/<id>`** —les dades i els ajustos són de la persona i no de l'app— i refusa l'app que ho demana (una app no s'esborra a si mateixa mentre corre) i un `id` buit |
 | `admin.forget_cache(id)` | `{blocks, files, bytes}` o `nil, error` | **La memòria cau d'una app, fora** (0.189.157): els blocs de sessió de la memòria i els fitxers de `/session/<id>`, que és el que fa `sessions destroy <id>` des del prompt. Ni la carpeta, ni les dades, ni els ajustos no es toquen |
 
+- **I la pàgina del pany és la primera de la placa** (0.189.159, l'amo: *«El Lock del arranc falla al acabar amb el device_lock no
+  arrenca home… Es veu com s'arrenca home i després lock i al acabar lock no torna a home. A l'arrencada fes: està habilitat el
+  lock? existeix lock? → Arrencar lock → En acabar arrencar Home (si existeix)»*): l'arrencada mira **el commutador** i **si l'app
+  que `cfg lock` nomena és al disc**, i si ho són arrenca el pany i **no arrenca la casa**; quan el pany s'obre és ell qui demana
+  la pàgina del començament (`device_lock` llegeix `cfg home` i fa `app.run`, que és el desig que el nucli executa al final del
+  torn i que tanca la pàgina que el va demanar). Sense commutador, sense app o amb una app que no hi és, la casa arrenca com
+  sempre. Una app que torna d'una sessió —una placa que s'ha adormit dins d'una pàgina— **no es trepitja**: el pany hi va a sobre i
+  la pàgina torna quan s'obre (docs/30, docs/40, docs/60).
 - **Què és una pantalla bloquejada.** És el vidre sencer —el de `ui.full_screen(true)`: la barra no hi és, la vista és el
   panell i l'app rep `on_resize`— **amb les portes de tornada tancades**. La targeta del sistema, la que té la creu que
   tanca l'app de sota, s'obre amb un gest cap avall **des de la barra**, o sigui que sense barra no hi ha targeta, i per tant
