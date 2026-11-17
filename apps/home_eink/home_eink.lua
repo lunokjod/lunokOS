@@ -63,7 +63,11 @@ local function scale_for(line_px)
 end
 
 local kName = scale_for(33)
+
+-- **El nom de la pàgina que explica una app** (0.189.161): the launcher does not draw an app's card, it asks the app that does
+-- —`appinfo` and its `-d <id>`—, i el nom és aquí una vegada perquè un canvi de nom no es quedi a mitges (docs/40).
 local kNameLine = kName * ui.line_height(1)
+local kInfoApp = 'appinfo'
 
 -- **The box of a cell, in the arithmetic of `icon_grid_cells`** (docs/90): three columns make a cell wide enough for a
 -- name, and the icon is the seventy-two pixels the grid gives a mark when the cell is not narrow.
@@ -623,6 +627,20 @@ local function add_cell(cell_w, cell_h, name_w, id)
     name.background = 15
     name:place(kPad, kIcon + 6)
     cell:add(name)
+  end
+
+  -- **El dit llarg obre la fitxa de l'app** (0.189.161, l'amo: *«al fer polsació llarga a Home sobre una app: Inicia l'app App
+  -- Info amb l'app de paràmetre perquè mostri la finestra detalls directament»*): the pad of a second on a cell is not a launch
+  -- —a person who rests a finger on a launcher has not asked for the app yet— and it is the page that says what an app is, which
+  -- is what a person does before deciding to run it. **La porta és `app.run` amb commutadors**: the id of the page is `appinfo`
+  -- and `-d <id>` is the app whose detail it has to open first (docs/30, docs/40).
+  cell.on_long = function()
+    local ok, err = app.run(kInfoApp, '-d ' .. id)
+    if ok then
+      console.print('home: the details of ' .. id)
+    else
+      console.print('home: the details of ' .. id .. ' cannot start: ' .. tostring(err and err.message or err))
+    end
   end
 
   -- The finger and the centre of the dial both come here: the click of a cell is the click of a control (docs/30).

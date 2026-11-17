@@ -335,7 +335,7 @@ arrencada, a `version` i a `app.version`. La regla és del propietari del projec
 | Dígit | Quan puja | Exemples |
 |---|---|---|
 | **Z** (pedaç) | una correcció, un número que s'ha mesurat, un document que deia una cosa falsa | un marge que era un minut curt, el drift que comptava l'arrencada, `docs/70` que deia que `/fram` no hi era |
-| **Y** (menor) | una cosa **nova** que una persona o una app pot fer servir | una crida de Lua, un comandament del prompt (`poweroff`), una peça de maquinari conduïda (la FRAM, la PSRAM), `run <id> [path]` |
+| **Y** (menor) | una cosa **nova** que una persona o una app pot fer servir | una crida de Lua, un comandament del prompt (`poweroff`), una peça de maquinari conduïda (la FRAM, la PSRAM), `run <id> [path | -switch ...]` |
 | **X** (major) | una **reescriptura de debò**, d'aquelles que fan que una app que anava s'hagi de tornar a mirar | canviar el model d'apps o el contracte de Lua d'una manera que trenca |
 
 - **Cada canvi puja un dels tres, i el número puja al mateix commit que el canvi.** Un torn que toca

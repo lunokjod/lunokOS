@@ -1601,6 +1601,12 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
 // not a queue: a launcher starts one app per press, and a second wish in the same turn is refused where it is asked, in
 // the words a person reads (docs/30, docs/90).
 char g_run_wanted[40] = {0};
+// **Els commutadors del desig** (0.189.161): the switches the app that asked carried, given to the next start as `app.args.flags`
+// and spent with the wish —a string of the wish and not of the manifest, which is what `run appinfo -d battery` says (docs/30).
+char g_run_flags[48] = {0};
+// **Els commutadors que el proper arrencada ha de rebre** (0.189.161): filled by the consumer of the wish —or by the prompt— and
+// read by the start that follows, which is the one the wish was about.
+char g_start_flags[48] = {0};
 // **The app to come back to** (0.153.0): the launcher that asked for another one and wants it back when that one ends,
 // which is what makes a launcher usable on a board whose only way out of an app is three presses of a key. Empty when
 // the app that asked handed the glass over for good (docs/30, docs/90).
@@ -1727,7 +1733,16 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   boot.app_opens = target.opens;
   // **The app's own switches, never the system's** (0.120.0): `opensArgs` of the manifest goes to the app as
   // `app.args.flags` and nowhere else —the system does not read it, does not split it and does not act on it— (docs/30).
-  boot.args_flags = target.opens_arg;
+  // **Els commutadors es copien a un buffer de l'arrencada** (0.189.161): the wish's own string is cleared before the app
+  // reads it, so a `boot.args_flags` pointing at it was an empty string by the time the machine was built —the page opened on
+  // the list with the switch right there in the log— (vist a l'emulador, 17/11).
+  static char flags_of_this_start[sizeof(g_start_flags)] = {0};
+  snprintf(flags_of_this_start, sizeof(flags_of_this_start), "%s",
+           (g_start_flags[0] != '\0') ? g_start_flags : target.opens_arg);
+  boot.args_flags = flags_of_this_start;
+  // **I es gasten amb l'arrencada**: a switch of a wish is not a switch of the app, and the next start of it —from the
+  // launcher, from the prompt— is a start without them (docs/30, docs/40).
+  g_start_flags[0] = '\0';
   // True when the app is being brought back from a sleep: it is how an app knows
   // to read what it saved instead of starting from nothing (docs/90).
   boot.args_restore = restore;
@@ -3922,7 +3937,7 @@ bool native_running() { return g_job != RadioJob::kNone || g_install_pending; }
 
 const char* app_id() { return g_app_alive ? luabind::app_id() : ""; }
 
-bool ask_run(const char* id, bool back, char* why, size_t why_cap) {
+bool ask_run(const char* id, bool back, const char* flags, char* why, size_t why_cap) {
   if (id == nullptr || id[0] == '\0') {
     snprintf(why, why_cap, "%s", "an app with no name");
     return false;
@@ -3939,8 +3954,13 @@ bool ask_run(const char* id, bool back, char* why, size_t why_cap) {
     snprintf(why, why_cap, "%s", "an app was asked for already in this turn");
     return false;
   }
+  if (flags != nullptr && strlen(flags) >= sizeof(g_run_flags)) {
+    snprintf(why, why_cap, "%s", "switches longer than an app of this system takes");
+    return false;
+  }
   snprintf(g_run_wanted, sizeof(g_run_wanted), "%s", id);
   g_run_wanted_back = back;
+  snprintf(g_run_flags, sizeof(g_run_flags), "%s", (flags != nullptr) ? flags : "");
   return true;
 }
 
@@ -3958,11 +3978,13 @@ bool start_the_one_that_asked() {
   return run_app(back_to, nullptr, false, true);
 }
 
-bool app_run_wanted(char* out, size_t cap, bool& back) {
+bool app_run_wanted(char* out, size_t cap, bool& back, char* flags, size_t flags_cap) {
   if (g_run_wanted[0] == '\0') return false;
   if (out != nullptr && cap > 0) snprintf(out, cap, "%s", g_run_wanted);
+  if (flags != nullptr && flags_cap > 0) snprintf(flags, flags_cap, "%s", g_run_flags);
   back = g_run_wanted_back;
   g_run_wanted[0] = '\0';
+  g_run_flags[0] = '\0';
   g_run_wanted_back = false;
   return true;
 }
@@ -4326,8 +4348,12 @@ bool poll_app() {
     // `close_app` does, and the one it asked for comes up in its place; a start that fails leaves the prompt, because
     // the app that asked is already gone (docs/30, docs/90).
     char wanted[sizeof(g_run_wanted)];
+    char switches[sizeof(g_run_flags)];
     bool back = false;
-    if (app_run_wanted(wanted, sizeof(wanted), back)) {
+    if (app_run_wanted(wanted, sizeof(wanted), back, switches, sizeof(switches))) {
+      // **Els commutadors del desig, i només d'aquest arrencada** (0.189.161): the start of the app that was asked for reads
+      // them where the manifest's `opensArgs` go, and a wish without any leaves the manifest's own in place (docs/30).
+      snprintf(g_start_flags, sizeof(g_start_flags), "%s", switches);
       // The app that asked is the one that goes away, and **it leaves its name behind when it wants the glass back**:
       // the wish is set after `close_app`, which clears whatever an app that is going away was holding (0.153.0).
       char asked_by[sizeof(g_run_back)];
@@ -5280,13 +5306,22 @@ bool execute(char* line) {
     size_t count = 0;
     if (!read_words(line + 3, words, 2, count)) return false;
     if (count == 0) {
-      usage_out("usage: run <id> [path]\r\n");
+      usage_out("usage: run <id> [path | -switch ...]\r\n");
       return false;
+    }
+    // **Un segon mot que comença per `-` són commutadors i no un camí** (0.189.161, l'amo: *«run <id_app_info> -d <id_app>»*): the
+    // rest of the line goes to the app as `app.args.flags`, which is where the manifest's `opensArgs` goes, i un camí que comenci
+    // per guió curt no existeix en aquest sistema (docs/30, docs/40).
+    const char* open_path = (count > 1) ? words[1] : nullptr;
+    if (open_path != nullptr && open_path[0] == '-') {
+      const char* switches = strstr(line, open_path);
+      if (switches != nullptr) snprintf(g_start_flags, sizeof(g_start_flags), "%s", switches);
+      open_path = nullptr;
     }
     // **`&` is read by `run_app` and not here** (0.160.0): the flag lives for one start, so an app that asks for
     // another one from its own turns is not detached by accident.
     g_start_detached = background;
-    const bool started = run_app(words[0], (count > 1) ? words[1] : nullptr);
+    const bool started = run_app(words[0], open_path);
     g_start_detached = false;
     return started;
   }

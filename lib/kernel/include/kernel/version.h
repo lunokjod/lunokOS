@@ -9819,7 +9819,18 @@ namespace kernel {
 // dels fitxers del disc—. La fitxa diu la cau i, a part, quants blocs en té la memòria: una sessió és un bloc i el seu fitxer, i
 // comptar-los junts seria dir dues vegades el que l'app té. Mirat a l'emulador: `cache 3/34816 B, data 1/100 B, cfg 1/4 B` i un
 // terreny que no existeix respon `nil` (docs/30, docs/40, docs/70).
-static const char kVersion[] = "0.189.160";
+// **El dit llarg sobre una app obre la seva fitxa** (0.189.161, l'amo: *«al fer polsació llarga a Home sobre una app: Inicia l'app
+// App Info amb l'app de paràmetre perquè mostri la finestra detalls directament run <id_app_info> -d <id_app>»*). Tres peces, i les
+// tres són del sistema i no d'una app: **`on_long`** al control (`touch.cpp` ja distingia un dit llarg d'un toc i d'un lliscament i
+// el llarg anava a `ui_gesture`; ara el control que hi ha sota el punt el sent i el contacte s'acaba allà, sense clic ni gir de
+// pàgina), **`app.run(id, back, flags)`** —els commutadors de l'app que s'arrenca, que arriben a `app.args.flags` com els
+// `opensArgs` d'un manifest, i `app.args` existeix encara que no hi hagi cap fitxer— i **`run <id> -switch ...`** al prompt, on un
+// segon mot que comença per guió és un commutador i no un camí. El llançador penja el dit llarg de cada cel·la a `app.run('appinfo',
+// '-d <id>')` i `appinfo` obre aquella fitxa de seguida (0.1.2). **I una trampa que va costar un tomb**: `boot.args_flags` apuntava
+// al buffer del desig, que es buida abans que l'app el llegeixi, i la pàgina s'obria a la llista amb el commutador ben viu al registre
+// —ara es copia a un buffer de l'arrencada—. Mirat a l'emulador: el dit llarg sobre la cel·la `2048` deixa `home: the details of 2048`,
+// `appinfo: the details of 2048 were asked for` i la fitxa de 2048 al vidre (docs/30, docs/40, docs/45).
+static const char kVersion[] = "0.189.161";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

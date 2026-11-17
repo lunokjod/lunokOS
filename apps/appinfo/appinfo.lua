@@ -22,6 +22,10 @@
 --
 -- **A copy of the manifest is not kept**: the detail reads the file every time it is built, so a version that changed under
 -- the page is the version that is shown (docs/30, docs/45).
+--
+-- **`-d <id>` obre la fitxa d'una app de seguida** (0.189.161): the launcher's long press on a cell and the prompt's
+-- `run appinfo -d battery` both leave that switch in `app.args.flags`, so the page opens where a person asked for it instead of
+-- on the list of every app (docs/30, docs/40).
 
 local caps = sys.caps()
 if not caps.display then
@@ -703,9 +707,26 @@ end
 
 build_cover()
 
+-- **`-d <id>`: la fitxa d'una app, oberta des del primer torn** (0.189.161, l'amo: *«al fer polsació llarga a Home sobre una app:
+-- Inicia l'app App Info amb l'app de paràmetre perquè mostri la finestra detalls directament run <id_app_info> -d <id_app>»*). És
+-- el commutador que el llançador deixa a `app.args.flags` i el que el prompt escriu amb `run appinfo -d battery`; guanya a la
+-- forma que la persona va deixar al bloc `state`, perquè el que demana una ordre és el que ha de passar (docs/30, docs/40).
+local asked = nil
+local flags = app.args and app.args.flags or nil
+if flags ~= nil then
+  asked = flags:match('%-d%s+(%S+)')
+end
+
+if asked ~= nil and index_of(asked) > 0 then
+  console.print('appinfo: the details of ' .. asked .. ' were asked for')
+  show(asked)
+elseif asked ~= nil then
+  console.print('appinfo: there is no app ' .. asked .. ' on this board')
+end
+
 -- **I si la persona tenia un detall obert, és el que torna**: the same road a finger takes, and an id that is not in the
 -- folder opens nothing at all (docs/30, docs/45 §5 bis).
-if shape.marked ~= nil and index_of(shape.marked) > 0 then
+if shape.marked ~= nil and asked == nil and index_of(shape.marked) > 0 then
   console.print('appinfo: came back to ' .. shape.marked)
   show(shape.marked)
 end

@@ -83,7 +83,7 @@ bool lua_info(const char* id, luabind::AppInfo& out, char* why, size_t why_cap) 
 // **`app.run(id)`**: every way a launcher can be wrong is answered here, before the wish is taken, so the app has a
 // reason to show. The name is checked against the door —it is an app, and it runs on this board— and against the app in
 // front —a launcher that asks for itself is a loop with a finger on it— (docs/30, docs/90).
-bool lua_run(const char* id, bool back, char* why, size_t why_cap) {
+bool lua_run(const char* id, bool back, const char* flags, char* why, size_t why_cap) {
   if (id == nullptr || id[0] == '\0') {
     say(why, why_cap, "an app with no name");
     return false;
@@ -107,7 +107,7 @@ bool lua_run(const char* id, bool back, char* why, size_t why_cap) {
     say(why, why_cap, text);
     return false;
   }
-  return shell::ask_run(id, back, why, why_cap);
+  return shell::ask_run(id, back, flags, why, why_cap);
 }
 
 // **An app that restarts the board** (0.171.0): the page of the eraser offers it when it ends, because an app that has

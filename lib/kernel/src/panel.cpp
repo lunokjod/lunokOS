@@ -425,7 +425,7 @@ void open_a_chosen_app(const char* id, const char* name, const char* command) {
   }
   // **I la pàgina que la demana queda darrere** (`back`): closing the page of settings comes back to where the person was, which is
   // what a card that opens an app from the bar owes the page under it (docs/30, docs/40).
-  if (!shell::ask_run(entry.id, /*back=*/true, why, sizeof(why))) {
+  if (!shell::ask_run(entry.id, /*back=*/true, nullptr, why, sizeof(why))) {
     log_printf(pal::kLogWarn, "PANEL", "the %s app is not there: %s", name, why);
     return;
   }
@@ -478,7 +478,7 @@ void open_the_home() {
     return;
   }
   char why[96] = {0};
-  if (!shell::ask_run(entry.id, /*back=*/true, why, sizeof(why))) {
+  if (!shell::ask_run(entry.id, /*back=*/true, nullptr, why, sizeof(why))) {
     log_printf(pal::kLogWarn, "PANEL", "the house key: %s could not be asked for: %s", entry.id, why);
     return;
   }

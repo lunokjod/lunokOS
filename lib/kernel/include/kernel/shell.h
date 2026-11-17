@@ -134,7 +134,10 @@ bool raise_app(const char* id);
 // False with a reason when there is nothing to ask right now; the name is taken at most once per turn (docs/30, docs/90).
 // `back` is what a launcher wants: the app that asked is started again when the one it opened ends, which is the only
 // way back to a page on a board whose only way out of an app is a key (docs/30, docs/90).
-bool ask_run(const char* id, bool back, char* why, size_t why_cap);
+// **`flags` are the switches the wish carries** (0.189.161): `app.run(id, back, '-d battery')` and `run appinfo -d battery` both
+// leave a string here that the next start gives to the app as `app.args.flags`, which is the door the manifest's `opensArgs`
+// already uses. Null or empty is no switches, and the manifest's own are what the app gets then (docs/30, docs/40).
+bool ask_run(const char* id, bool back, const char* flags, char* why, size_t why_cap);
 
 // The app that was in front when the board went to sleep comes back, with
 // `app.args.restore` in its args so it knows to read what it saved (docs/90).

@@ -645,6 +645,13 @@ when the three taps open it, **it is the app that asks for `cfg home`** (`app.ru
 the turn before the kernel reads the wish—), because a home started by the boot would be a page behind the lock that nobody sees
 and a board left at the prompt when the lock opens (docs/30, docs/60).
 
+**I el dit llarg sobre una cel·la del llançador obre la fitxa d'aquella app** (0.189.161, l'amo: *«al fer polsació llarga a Home
+sobre una app: Inicia l'app App Info amb l'app de paràmetre perquè mostri la finestra detalls directament run <id_app_info> -d
+<id_app>»*): `home_eink` penja `on_long` de cada cel·la i fa `app.run('appinfo', '-d <id>')`, i `appinfo` obre aquella fitxa de
+seguida en lloc de la llista. El commutador viatja com qualsevol altre (`app.args.flags`, com els `opensArgs` d'un manifest) i el
+prompt el sap escriure igual: `run appinfo -d battery`, on un segon mot que comença per `-` és un commutador i no un camí
+(docs/30, docs/40).
+
 Les altres apps —`about`, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
 `home_eink`, `life`, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i `rainbow`— segueixen la
 mateixa convenció,

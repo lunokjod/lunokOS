@@ -456,8 +456,9 @@ void poll() {
       //  - **un gest**: `ui_gesture` with the landing point and the travel of the whole contact, and **no press at all** —so a
       //    swipe paints nothing, focuses nothing and clicks nothing, which is what the row of a list was doing wrong—.
       //
-      // A long press is a gesture here and not a tap: an app hears it at `touch.gesture()` as it always did, and the page
-      // does nothing with it (docs/30, docs/50, docs/90).
+      // A long press is a gesture here and not a tap: an app hears it at `touch.gesture()` as it always did, i **el control que
+      // el vol el senta a `on_long`** (0.189.161) —el dit llarg sobre una cel·la del llançador és el que obre la fitxa d'aquella
+      // app—, i un control que no el porta no fa res amb ell (docs/30, docs/50, docs/90).
       const int16_t walked_x = static_cast<int16_t>(static_cast<int32_t>(g_last_x) - static_cast<int32_t>(g_start_x));
       const int16_t walked_y = static_cast<int16_t>(static_cast<int32_t>(g_last_y) - static_cast<int32_t>(g_start_y));
       g_last_contact = LastContact();
@@ -473,7 +474,7 @@ void poll() {
         g_last_contact.told = Told::kAGesture;
         g_last_contact.dx = walked_x;
         g_last_contact.dy = walked_y;
-        luabind::ui_gesture(g_start_x, g_start_y, walked_x, walked_y);
+        luabind::ui_gesture(g_start_x, g_start_y, walked_x, walked_y, g_long_said);
       }
     }
     // **El compte es buida quan el contacte s'ha acabat i no abans** (0.189.43): clearing it before the line above copied

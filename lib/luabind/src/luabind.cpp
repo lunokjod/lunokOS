@@ -2496,16 +2496,27 @@ int l_sys_deepsleep(lua_State* L) {
 
 int l_app_run(lua_State* L) {
   const char* id = luaL_checkstring(L, 1);
-  // **`app.run(id[, back])`**: `back` is true unless the app says otherwise, because an app that opens another one is
+  // **`app.run(id[, back[, flags]])`**: `back` is true unless the app says otherwise, because an app that opens another one is
   // the page the person expects to come back to —a launcher, a menu, a shelf— and a handover with no way back is the
-  // one that needs to be asked for (docs/30, docs/90).
-  const bool back = (lua_gettop(L) >= 2) ? (lua_toboolean(L, 2) != 0) : true;
+  // one that needs to be asked for (docs/30, docs/90). **`flags` són els commutadors de l'app que s'arrenca** (0.189.161): they
+  // reach it as `app.args.flags`, the same door `opensArgs` of a manifest uses, i una segona cadena vol dir els commutadors amb la
+  // tornada de sèrie —`app.run('appinfo', '-d battery')` és el que el llançador demana al dit llarg d'una cel·la— (docs/30, docs/40).
+  bool back = true;
+  const char* flags = nullptr;
+  if (lua_gettop(L) >= 2) {
+    if (lua_type(L, 2) == LUA_TSTRING) {
+      flags = lua_tostring(L, 2);
+    } else {
+      back = (lua_toboolean(L, 2) != 0);
+    }
+  }
+  if (lua_gettop(L) >= 3 && lua_type(L, 3) == LUA_TSTRING) flags = lua_tostring(L, 3);
   if (g_app_ops.run == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this system cannot start another app");
   }
   char why[96];
   why[0] = '\0';
-  if (!g_app_ops.run(id, back, why, sizeof(why))) {
+  if (!g_app_ops.run(id, back, flags, why, sizeof(why))) {
     return push_nil_error(L, "E_INVAL", (why[0] != '\0') ? why : "that app cannot be started");
   }
   lua_pushboolean(L, 1);
@@ -12897,7 +12908,10 @@ void seal_globals(lua_State* L) {
   lua_createtable(L, 0, 3);
   lua_pushstring(L, g_boot.app_id);
   lua_setfield(L, -2, "id");
-  if (g_boot.args_path != nullptr || g_boot.args_restore) {
+  // **`app.args` hi és quan l'app té alguna cosa a llegir**: a file of the prompt, a session that comes back **or the switches a
+  // wish carried** (0.189.161) —the launcher's `app.run('appinfo', '-d battery')` arrives here with no path at all, and a table
+  // that did not exist for it was a page that opened on the list instead of on the app that was asked for (docs/30, docs/40).
+  if (g_boot.args_path != nullptr || g_boot.args_restore || (g_boot.args_flags != nullptr && g_boot.args_flags[0] != '\0')) {
     lua_createtable(L, 0, 5);
     if (g_boot.args_path != nullptr) {
       lua_pushstring(L, g_boot.args_path);
@@ -15077,7 +15091,7 @@ bool ui_turn_the_page_of_a_travel(int objects, FocusTarget* targets, int capacit
 //    walked —the sign is the finger's, a finger that goes up shows what is further down—;
 //  - **i res**: a finger over the paper, over a row, over a button. A row is a place a person taps and a gesture is not
 //    a tap (docs/30, docs/90).
-void ui_gesture(uint16_t x, uint16_t y, int16_t dx, int16_t dy) {
+void ui_gesture(uint16_t x, uint16_t y, int16_t dx, int16_t dy, bool long_press) {
   if (g_state == nullptr) return;
   FocusList list;
   FocusTarget* targets = list.items;
@@ -15085,6 +15099,21 @@ void ui_gesture(uint16_t x, uint16_t y, int16_t dx, int16_t dy) {
   const int count = ui_collect_targets(g_state, targets, list.capacity);
   const int objects = top + 1;
   const int index = ui_hit(targets, count, x, y);
+  // **Una premuda llarga és del control que la vol** (0.189.161, l'amo: *«al fer polsació llarga a Home sobre una app: Inicia l'app
+  // App Info amb l'app de paràmetre perquè mostri la finestra detalls directament»*). El kernel ja distingeix un dit llarg d'un toc i
+  // d'un lliscament, i el dit llarg arriba aquí amb el punt on va caure: el control d'aquell punt que porta `on_long` el sent i **el
+  // contacte s'acaba aquí** —no hi ha clic, no hi ha gir de pàgina i no hi ha anell—; un control que no el porta no canvia gens i el
+  // gest segueix el seu camí de sempre (docs/30, docs/90).
+  if (long_press && index >= 0 && index < count) {
+    lua_rawgeti(g_state, objects, index + 1);
+    const int object = lua_gettop(g_state);
+    if (ui_call_hook(g_state, object, "on_long", false, false)) {
+      ui_invalidate(g_state, object);
+      lua_settop(g_state, top);
+      return;
+    }
+    lua_pop(g_state, 1);
+  }
   // **La pàgina és la primera pregunta**: a list and a grid answer for themselves and the page turn takes the whole gesture
   // when it happens, the same road the frames used to take (docs/30, docs/90).
   if (ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, dx, dy, top, x, y)) {

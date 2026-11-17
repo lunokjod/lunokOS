@@ -19184,6 +19184,93 @@ void test_a_page_asks_the_system_how_much_an_app_takes(void) {
   storage->remove("/apps/sizes");
 }
 
+// **El dit llarg d'un control és un esdeveniment seu, i el del llançador arrenca l'app de la fitxa** (0.189.161, l'amo: *«al fer
+// polsació llarga a Home sobre una app: Inicia l'app App Info amb l'app de paràmetre perquè mostri la finestra detalls
+// directament»*). A cell that carries `on_long` hears the contact of a second **instead of** its click, and the switches it asks
+// for with `app.run(id, flags)` reach the app that starts as `app.args.flags` —la mateixa porta que els `opensArgs` d'un manifest—
+// (docs/30, docs/40).
+void test_a_long_press_opens_the_app_that_was_asked_for_with_its_switches(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The page of the details: it prints the switch it was given, which is the whole of what the launcher's long press needs.
+  storage->remove("/apps/details/app.lua");
+  storage->remove("/apps/details/manifest.json");
+  storage->remove("/apps/details");
+  TEST_ASSERT_TRUE(add_app(storage, "details",
+                           "{\"title\":\"Details\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local flags = app.args and app.args.flags or ''\n"
+                           "console.print('details here with ' .. flags)\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  // The cell: a button with a click and a long press, of the size a finger cannot miss.
+  storage->remove("/apps/cell/app.lua");
+  storage->remove("/apps/cell/manifest.json");
+  storage->remove("/apps/cell");
+  TEST_ASSERT_TRUE(add_app(storage, "cell",
+                           "{\"title\":\"Cell\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local button = ui.button(240, 120)\n"
+                           "button.title = 'one'\n"
+                           "button:place(20, 60)\n"
+                           "button.on_click = function()\n"
+                           "  console.print('cell clicked')\n"
+                           "end\n"
+                           "button.on_long = function()\n"
+                           "  console.print('cell held')\n"
+                           "  app.run('details', '-d one')\n"
+                           "end\n"
+                           "ui.present()\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app("home_eink"));
+  close_any_app();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  close_any_app();
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  pump_captured(50, g_out, sizeof(g_out), "run cell");
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("cell", kernel::shell::app_id(), g_out);
+
+  // **Un dit que s'hi està un segon és una premuda llarga**: the finger goes down on the middle of the button and comes up more
+  // than a second later, which is the `long` of the kernel (docs/30, docs/90).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 140, 168));
+  pump_turns(1200);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cell held"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cell clicked"), g_out);
+  // **I la fitxa arrenca amb els seus commutadors**: `app.args.flags` és el que el control va demanar.
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("details", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "details here with -d one"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/details/app.lua");
+  storage->remove("/apps/details/manifest.json");
+  storage->remove("/apps/details");
+  storage->remove("/apps/cell/app.lua");
+  storage->remove("/apps/cell/manifest.json");
+  storage->remove("/apps/cell");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   g_from = getenv("LUNOK_FROM");
@@ -19455,6 +19542,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_clock_keeps_its_run_across_a_restart);
   RUN_TEST(test_a_page_uninstalls_an_app_with_its_alarms_and_its_cache);
   RUN_TEST(test_a_page_asks_the_system_how_much_an_app_takes);
+  RUN_TEST(test_a_long_press_opens_the_app_that_was_asked_for_with_its_switches);
   RUN_TEST(test_a_page_clears_the_cache_of_an_app_and_nothing_else);
   RUN_TEST(test_the_page_of_the_apps_reads_the_manifests_of_the_folder);
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);

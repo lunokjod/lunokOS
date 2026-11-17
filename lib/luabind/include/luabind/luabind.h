@@ -307,7 +307,9 @@ struct AppOps {
   // False with a reason when there is no such app, when it names another board, or when it is the app that asks.
   // **`back` is the page the person comes back to**: true means the app that asked is started again when the one it
   // opened ends, which is what a launcher wants and the only way back on a board with three keys (docs/30, docs/90).
-  bool (*run)(const char* id, bool back, char* why, size_t why_cap);
+  // **I els seus commutadors** (0.189.161): a string the app that is started reads as `app.args.flags`, which is how the
+  // launcher opens the page of an app's details (`app.run('appinfo', true, '-d battery')`). Null is no switches.
+  bool (*run)(const char* id, bool back, const char* flags, char* why, size_t why_cap);
   // **The views of the app in front** (0.163.0): how many pages it has on top of its first one, and the two calls that
   // move that number. They are the kernel's counter and not the app's, because a pinch means the same wish in every
   // app and an app that had to keep the number itself is an app that can get it wrong (docs/30, docs/46).
@@ -1207,7 +1209,10 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down);
 // contact that walked is never a press —the controls hear **nothing** of its frames—: they hear this, once, at the end, with
 // the point the finger landed on and how far it went. A page turn, a scroll of a box and a swipe of an app's own are the only
 // three things a gesture can mean on a page (the app reads the rest with `touch.gesture()`) (docs/30, docs/90).
-void ui_gesture(uint16_t x, uint16_t y, int16_t dx, int16_t dy);
+// **I si el contacte va durar prou per ser una premuda llarga** (0.189.161): the kernel already tells a long press from a tap and
+// from a drag, and a control that carries `on_long` hears it here —the launcher's long press on a cell is what opens the page of
+// an app's details— (docs/30, docs/90).
+void ui_gesture(uint16_t x, uint16_t y, int16_t dx, int16_t dy, bool long_press = false);
 
 // **One key of the system's keyboard arrives here** (docs/30, docs/90): the letter as its code, or 8 for the
 // delete and 13 for the enter, and this layer writes it into the text box that asked for the keyboard —the field
