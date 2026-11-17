@@ -16272,11 +16272,11 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  // **The cross is the last of the four of the bottom row** (0.189.152): the row starts sixty-six pixels off the left of the
-  // card, the keys are ninety-six wide with eight of air between them, and the middle of the fourth is that plus three of those
+  // **The cross is the third of the four of the bottom row** (0.189.158): the row starts sixty-six pixels off the left of the
+  // card, the keys are ninety-six wide with eight of air between them, and the middle of the third is that plus two of those
   // and half a key; the row starts a hundred and sixty-eight rows under the bar and is a hundred and four tall, so its middle
   // is two hundred and twenty under it —the rows of the view, and the bar taken off (docs/30, docs/85).
-  const uint16_t cross_x = static_cast<uint16_t>(66 + 3 * (96 + 8) + 96 / 2);
+  const uint16_t cross_x = static_cast<uint16_t>(66 + 2 * (96 + 8) + 96 / 2);
   const uint16_t cross_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);
   // **The level of one pixel of the glass**, which is where the card is painted.
   auto glass_level = [](uint16_t x, uint16_t y) {
@@ -16655,10 +16655,10 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  // **The arrow is next to the house** (0.189.152, l'amo: *«Back al costat de home: Settings, Home, Back, Close»*), the third of
-  // the four of the bottom row: sixty-six off the left of the card, two keys and two gaps in, and half a key, in the rows of the
-  // view, on the glass where the bar has already been taken off (docs/30).
-  const uint16_t arrow_x = static_cast<uint16_t>(66 + 2 * (96 + 8) + 96 / 2);
+  // **The arrow is the last of the four** (0.189.158, l'amo: *«"Back" està al costat de "Home"… posem-ho així: Settings, Home,
+  // Close, Back»*): sixty-six off the left of the card, three keys and three gaps in, and half a key, in the rows of the view, on
+  // the glass where the bar has already been taken off (docs/30).
+  const uint16_t arrow_x = static_cast<uint16_t>(66 + 3 * (96 + 8) + 96 / 2);
   const uint16_t arrow_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);
   auto glass_level = [](uint16_t x, uint16_t y) {
     emu::MemorySurface* glass = emu::memory_surface();

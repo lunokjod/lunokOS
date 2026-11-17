@@ -71,8 +71,10 @@ const uint16_t kLineH = 2;
 //   - **el candau va amb els que paren la placa** (0.189.152, l'amo: *«Posa el lock amb els de poweroff, sleep i reboot: Power off,
 //     Sleep, Reboot, Lock»*): the page of `cfg lock`, the fourth of the top row, perquè una clau que tapa el vidre és una de les
 //     que paren la placa i no una de les que hi naveguen (docs/30, docs/40, docs/60);
-//   - **i la de baix és `Settings`, `Home`, `Back`, `Close`** (l'amo: *«Back al costat de home: Settings, Home, Back, Close»*):
-//     the two that go somewhere in the middle and the two of the way in and the way out on the sides (docs/30, docs/45).
+//   - **i la de baix és `Settings`, `Home`, `Close`, `Back`** (0.189.158, l'amo: *«al panell desplegable del sistema "Back" està
+//     al costat de "Home"... posem-ho així: Settings, Home, Close, Back»*): the two that go somewhere on the left —the gear and
+//     the house— and the two that end the page on the right, with the way out **before** the way back, perquè la creu tanca el
+//     que la fletxa ha deixat enrere (docs/30, docs/45).
 const uint16_t kTopRowY = 20;      // la fila de les quatre que paren la placa
 const uint16_t kTopW = 104;        // una mica més ampla i més baixa que les de sota
 const uint16_t kTopH = 88;
@@ -86,14 +88,14 @@ const uint16_t kBottomGap = 8;
 // L'escala de tres era de les cantonades amples, i amb elles se'n va anar quan el dibuix de la targeta es va fer de dues files.
 const uint8_t kWordScale = 2;
 
-// **Quin botó és quin** (0.185.0): the eight of the card, in the order the two rows are drawn —the gear, the house, the way back
-// and the cross below; the power off, **the deep sleep**, the restart and the padlock above, with the sleep between the power off
+// **Quin botó és quin** (0.185.0): the eight of the card, in the order the two rows are drawn —the gear, the house, the cross
+// and the way back below; the power off, **the deep sleep**, the restart and the padlock above, with the sleep between the power off
 // and the restart, which is where the owner asked for it: the closer to off a way down is, the closer they sit— (docs/30).
 enum class Key : uint8_t {
-  kBack = 0,
+  kSettings = 0,
   kHome = 1,
   kClose = 2,
-  kSettings = 3,
+  kBack = 3,
   kPowerOff = 4,
   kDeepSleep = 5,
   kReboot = 6,
@@ -150,15 +152,15 @@ KeyBox key_box(Key which) {
                                          : "Lock";
     return box;
   }
-  // **I la fila de baix: les quatre del sistema** (0.189.152, l'amo: *«Back al costat de home: Settings, Home, Back, Close»*):
-  // the gear, the house, the arrow of one page back and the cross of the way out, en aquest ordre, amb la casa i la fletxa al mig
-  // de la fila —les dues que van a un lloc— i les dues que obren i tanquen als costats (docs/30, docs/45).
+  // **I la fila de baix: les quatre del sistema** (0.189.152, i l'ordre de la 0.189.158): the gear, the house, the cross of the
+  // way out and the arrow of one page back, en aquest ordre —les dues que van a un lloc a l'esquerra i les dues que tanquen a la
+  // dreta—, que és el que l'amo va demanar després de veure-hi la fletxa a frec de la casa (docs/30, docs/45).
   const int16_t total = static_cast<int16_t>(4 * kBottomW + 3 * kBottomGap);
   const int16_t left = static_cast<int16_t>((width - total) / 2);
   uint8_t place = 0;
   if (which == Key::kHome) place = 1;
-  if (which == Key::kBack) place = 2;
-  if (which == Key::kClose) place = 3;
+  if (which == Key::kClose) place = 2;
+  if (which == Key::kBack) place = 3;
   box.x = static_cast<int16_t>(left + place * (kBottomW + kBottomGap));
   box.y = static_cast<int16_t>(kBottomRowY);
   box.w = kBottomW;

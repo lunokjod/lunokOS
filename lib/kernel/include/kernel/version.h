@@ -9789,7 +9789,14 @@ namespace kernel {
 // la clau de la son es dibuixava amb `draw_icon` i el seu nom no era al joc de `kIcons`, o sigui que una placa sense
 // `/res/icons` ensenyava aquella clau buida—, i `apps remove` tornava a dir els dos errors com a dos («no such app» i «not an
 // app: … has no manifest.json») i a comprovar que la carpeta no hi és després d'esborrar-la (docs/30, docs/40, docs/80).
-static const char kVersion[] = "0.189.157";
+// **La creu abans de la fletxa** (0.189.158, l'amo: *«al panell desplegable del sistema "Back" està al costat de "Home"... posem-ho
+// així: Settings, Home, Close, Back»*). La fila de baix de la targeta era `Settings`, `Home`, `Back`, `Close` des de la 0.189.152
+// —la fletxa a frec de la casa, que és on l'amo la va demanar llavors— i amb la fletxa allà la creu quedava a l'extrem, o sigui que
+// les dues claus que tanquen estaven separades per la que navega. Ara les dues que van a un lloc són a l'esquerra (la roda i la
+// casa) i les dues que tanquen a la dreta (la creu i la fletxa), amb la creu abans de la fletxa: un toc al lloc de sempre de la creu
+// tanca la pàgina i un toc al de sempre de la fletxa en torna una vista, i les dues són on la mà les busca perquè la fila es llegeix
+// d'esquerra a dreta (docs/30, docs/45). Les coordenades de les proves de la targeta (la creu i la fletxa) es mouen amb ella.
+static const char kVersion[] = "0.189.158";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

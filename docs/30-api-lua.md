@@ -4136,14 +4136,17 @@ comenci**, i res més (0.179.42, 0.179.49).
   **Les vuit claus de la targeta van en dues files des de la 0.189.151** (l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica
   mes petits (lleugerament, no tant petits com es ara "Home") a la part de dalt del panell. A baix de tot Home, Close i Settings en
   el tamany que tenen ara PowerOff Sleep i Reboot»*, i després *«Posem-los en ordre: "Home" sempre al centre: Settings, Home,
-  Close. Posa el lock amb els de poweroff, sleep i reboot: Power off, Sleep, Reboot, Lock»* i *«Back al costat de home»*):
+  Close. Posa el lock amb els de poweroff, sleep i reboot: Power off, Sleep, Reboot, Lock»*, *«Back al costat de home»* i, quan la
+  fletxa va quedar a frec de la casa, *«al panell desplegable del sistema "Back" està al costat de "Home"... posem-ho així:
+  Settings, Home, Close, Back»* (0.189.158)):
   **a dalt, les quatre que paren la placa** —`poweroff`, **`deepsleep` (la lluna, 0.189.25)**, `reboot` i **`lock` (el candau,
   0.189.151)**, en aquest ordre: la son entre el corrent i el reinici, que és el que va demanar l'amo amb *«l'afegeixes al panell
   desplegable del sistema entre el botó de poweroff i el de reboot»*, i el candau al final—, de **104 × 88** (la marca a sobre i
   la paraula a sota, una mica més petits que els d'abaix);
-  **a baix, les quatre del sistema** —`settings` (roda dentada), `home` (**la casa**, 0.189.139), `back` (la fletxa) i `close` (la
-  creu), en aquest ordre, amb les dues que van a un lloc al mig i les que entren i surten als costats—, de **96 × 104**, la mida
-  que tenien les quatre del mig.
+  **a baix, les quatre del sistema** —`settings` (roda dentada), `home` (**la casa**, 0.189.139), `close` (la creu) i `back` (la
+  fletxa), en aquest ordre des de la 0.189.158: les dues que van a un lloc a l'esquerra i les dues que tanquen a la dreta, amb la
+  creu abans de la fletxa perquè tancar és el que queda quan tornar no hi és—, de **96 × 104**, la mida que tenien les quatre del
+  mig.
   Totes amb `framed = false` i `icon` a la mateixa clau del sistema: el paper de la targeta és la seva cara, la marca és tota la
   tinta que hi ha, i **el botó s'enfonsa girant-se** quan el dit hi és a sobre (una passada `du` de la clau i després l'acció).
   Totes vuit es calculen en una sola taula (`key_is_there`, `key_box`, `key_icon`, `run_the_key`) i la que no pot fer res no es pinta ni
