@@ -296,10 +296,20 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
 - **I les xifres surten de dues bandes, totes dues mesurades en aquesta placa**: una volta de `k = k + 1` és tres
   instruccions i el temps de vuit mil voltes (la més barata de tres) diu què costa una instrucció amb el torn del nucli a
   dins, o sigui que `sys.turn() / 3 × µs_per_volta` és la fila «a turn of 20 000 = 2 ms»; i **`sys.stats()`** dona els
-  comptadors de debò —`kernel.loop` (les voltes i els seus microsegons → la mitjana d'un torn del sistema, amb quantes n'hi
-  ha hagut), `lua.run` entre els torns → què hi ha de Lua a dins— que són les files «Turns» i «Lua». Amb les dues, una persona
-  tria el número: un torn de quaranta mil·lisegons és un dit que espera quaranta, i el que hi guanya és el que la fila de Lua
-  diu que s'hi estarà més estona (docs/30, docs/75, docs/95; `apps/luaperf` és la recepta sencera de la mesura).
+  comptadors de debò, que són tres files:
+  - **«A whole turn»** és la mitjana de `kernel.loop`: **el que triga un torn de tot el sistema**, amb l'app, els
+    dispositius, el rellotge i l'espera a dins (0.189.148). És el número que la fila de dalt només *pronostica*: allà
+    surt del preu d'una instrucció i de la llesca triada, i aquí surt del rellotge;
+  - **«Of that, waiting»** és `queue.wait` entre els torns: el tros d'aquell mateix torn que la placa va passar **aturada
+    a la cua d'esdeveniments**. Sense aquesta fila el número enganya —en una placa quieta gairebé tot un torn de deu
+    mil·lisegons és espera, i es llegeix com una CPU saturada—, i el tros de treball és el que queda;
+  - **«Of that, Lua»** és `lua.run` entre els torns: què hi ha de l'app a dins.
+
+  Les tres files són la mateixa moneda a la placa i les parts hi caben dins del torn. **A l'emulador no**: `kernel.loop`
+  es mesura amb el rellotge del PC, i la línia del registre ho diu («the clock of this PC, not the board's») perquè una
+  persona no busqui una incoherència que és del maquinari de mentida (docs/85). Amb les tres, una persona tria el número:
+  un torn de quaranta mil·lisegons és un dit que espera quaranta, i el que hi guanya és el que la fila de Lua diu que s'hi
+  estarà més estona (docs/30, docs/75, docs/95; `apps/luaperf` és la recepta sencera de la mesura).
 - **El paginador d'un desplegable es gira amb el dit**: la targeta d'una tria és una llista de valors per pàgines i el gest
   de costat és el mateix —el sistema el gasta i l'aixecar el dit no tria res—, o sigui que una app no ha de fer res perquè
   funcioni (docs/30).

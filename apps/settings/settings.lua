@@ -33,7 +33,11 @@ if not caps.display then
   return
 end
 
-local kLayout = 'v1'   -- puja quan un control canvia de nom o una pestanya canvia de forma
+-- **La forma que es desa no ha canviat** (0.189.148): the `state` of this page is the tab and the name of the control with
+-- the ring, and the two rows that the CPU tab gained are `read_row`s —`ui.row` is born `focusable = false`, so a read row
+-- never takes the dial and its name never reaches the block—. A `kLayout` that went up here would throw away the tab a
+-- person left for nothing, which is the one cosa que el bloc existeix per a recordar (docs/30, docs/45 §5 bis).
+local kLayout = 'v1'   -- puja quan un control AMB FOCUS canvia de nom, o quan la forma del bloc canvia
 local kCheapMode = 'du'
 -- **Quant s'espera una hora d'un servidor** (0.189.143): the same deadline the page of the time zone asks with, because the two
 -- buttons are the same request and a person should not wait longer on one page than on the other (docs/30, docs/60).
@@ -404,10 +408,42 @@ end
 -- llegeix què és el número i què val abans de moure'l (docs/75, docs/95).
 local kTurnNote = 'Instructions of the Lua VM in one turn'
 
+-- **El torn sencer, i quina part se'n va esperant** (0.189.148): `kernel.loop` és la volta del sistema amb tot a dins
+-- —l'app, els dispositius, el rellotge— i `queue.wait` és el tros que va passar aturat a la cua d'esdeveniments, que
+-- també és dins del torn. El número sol enganya: en una placa quieta gairebé tot és espera, i per això el nucli va separar
+-- els dos comptadors (`meter.h`, 0.189.85) —un torn de deu mil·lisegons és feina o és silenci, i són dues vides diferents
+-- per a la placa— (docs/30, docs/95).
+local function whole_turn_us()
+  return mean_us('kernel.loop')
+end
+
+local function turn_wait_us()
+  local turns = stats_of('kernel.loop')
+  local wait_calls, wait_us = stats_of('queue.wait')
+  if turns == nil or wait_calls == nil or wait_us == nil then return nil end
+  return wait_us / turns
+end
+
 local function us_text(us)
   if us == nil then return '-' end
   if us >= 1000 then return string.format('%d ms', math.floor(us / 1000 + 0.5)) end
   return string.format('%d us', math.floor(us + 0.5))
+end
+
+-- **El torn, dit al registre amb quantes voltes s'ha mesurat** (0.189.148): the rows are read when the page is laid out, and
+-- a board that opens straight onto this tab has taken one turn —so the number is a curiosity and not a measurement—; the line
+-- under it says the count, which is the only thing that tells the two apart, and it is written when a person opens the tab
+-- and not on every paint, because a line per turn is a console nobody reads (docs/30, docs/95).
+local function note_the_turn()
+  local calls = stats_of('kernel.loop') or 0
+  -- **I al PC el torn és el del PC** (0.189.148): `kernel.loop` es mesura amb el rellotge de debò, i en aquesta máquina
+  -- aquest rellotge és el del PC —de pressa— mentre que `lua.run` és el model del que costaria a la placa (`--lua-cpu`,
+  -- seixanta nanosegons per instrucció). A la placa les dues són la mateixa moneda i el tros de Lua cap dins del torn; a
+  -- l'emulador no, i per això la línia ho diu en comptes de deixar que la suma no quadri (docs/85, docs/95).
+  console.print(string.format('settings: a whole turn is %s over %d %s, %s of it waiting%s',
+                              us_text(whole_turn_us()), calls, (calls == 1) and 'turn' or 'turns',
+                              us_text(turn_wait_us()),
+                              sys.emulator and ' (the clock of this PC, not the board\'s)' or ''))
 end
 
 -- **Les velocitats que el governador pot fer servir**: the list the door answers, which is the same mask the policy reads.
@@ -555,7 +591,10 @@ function build()
       -- **La mesura es fa quan algú mira el processador** (0.189.107): the milliseconds of a turn are what the numbers of
       -- the slice are worth on this board, so they are measured the first time the tab is opened and said in the line
       -- under the rows, which is where a person looks after moving something (docs/75, docs/95).
-      if page == 2 then say(kTurnNote) end
+      if page == 2 then
+        say(kTurnNote)
+        note_the_turn()
+      end
       settle()
       save_state()
     end
@@ -687,19 +726,30 @@ function build()
     local ms = turn_ms()
     return string.format('A turn of %s', sys.turn()), (ms ~= nil) and string.format('%d ms', math.floor(ms + 0.5)) or '-'
   end)
-  -- **I el que el sistema està fent de debò**: the mean of a whole turn of the kernel, how many it has taken and what part of
-  -- one is Lua, which is the other half of the question —a slice that makes a turn of forty milliseconds is a finger that
-  -- waits forty, and the numbers of the table are the ones that say it and not an adjective (docs/30, docs/95).
-  read_row(2, 'turns', 'Turns', function()
-    local calls = stats_of('kernel.loop')
-    local us = mean_us('kernel.loop')
+  -- **I el que el sistema està fent de debò**: la mitjana d'un torn **sencer** del nucli i quantes n'hi ha hagut, que és el
+  -- número que la fila de dalt només *pronostica*: allà el càlcul surt del preu d'una instrucció i de la llesca triada, i
+  -- aquí surt del rellotge. Si els dos no s'assemblen, el que falla és el pronòstic o la placa, i una persona ho ha de
+  -- poder veure (0.189.148, docs/30, docs/95).
+  read_row(2, 'whole', 'A whole turn', function()
+    local calls, us = stats_of('kernel.loop')
     if calls == nil then return nil, 'nothing counted' end
-    return nil, string.format('%d, %s each', calls, us_text(us))
+    -- **El número sol, i el compte al registre** (0.189.148): the row used to say `12, 338 us each`, and a row that says a count
+    -- and a time side by side reads as one thousand two hundred and thirty-eight microseconds. What a person wants here is the
+    -- time; the number of turns the mean is worth is in the line of the log and in `stats` (docs/30, docs/95).
+    return nil, us_text(us / calls)
+  end)
+  -- **I quin tros d'aquell torn és espera i no feina** (0.189.148): `queue.wait` és la estona aturada a la cua, que el
+  -- rellotge del torn també compta. Sense aquesta fila, «a whole turn: 10 ms» es llegeix com una CPU saturada quan és una
+  -- placa esperant una tecla; amb ella, el tros de treball és el que queda (docs/30, docs/95).
+  read_row(2, 'waiting', 'Of that, waiting', function()
+    local us = turn_wait_us()
+    if us == nil then return nil, '-' end
+    return nil, us_text(us)
   end)
   read_row(2, 'lua', 'Of that, Lua', function()
     local us = per_turn_us('lua.run')
     if us == nil then return nil, '-' end
-    return 'Lua', us_text(us)
+    return nil, us_text(us)
   end)
 
   -- ---- Disc
@@ -811,6 +861,9 @@ paint_page()
 if shape.focus ~= nil and named[shape.focus] ~= nil then ui.focus(named[shape.focus]) end
 
 console.print('settings: ' .. #TABS .. ' tabs, and the doors of cfg behind them')
+-- **I si la pàgina s'obre ja al processador, el torn es diu igual** (0.189.148): the tab that was left is the tab that comes
+-- back (the `state` session), o sigui que el camí del desplegable no és l'únic que hi arriba (docs/30, docs/95).
+if page == 2 then note_the_turn() end
 
 function on_pause() save_state() end
 function on_save() save_state() end

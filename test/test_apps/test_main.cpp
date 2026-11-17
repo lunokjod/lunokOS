@@ -17308,6 +17308,12 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_FALSE_MESSAGE(kernel::power::cpu_auto(), g_out);
   TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::freq_allowed(240), g_out);
+  // **I obrir el processador diu quant triga un torn de tot el sistema** (0.189.148): the tab reads `kernel.loop` for the whole
+  // turn and `queue.wait` for the part of it the board spent waiting, and the line of the log says both with the number of
+  // turns they are a mean of —without the count, un torn mesurat sobre una sola volta sembla una mesura i és una curiositat—.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: a whole turn is"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "of it waiting"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " turn"), g_out);
 
   capture_begin();
   press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 3 * kRowStep + 28));  // Allow 240 MHz, off

@@ -9677,7 +9677,15 @@ namespace kernel {
 // docs/90). El cas `test_a_chart_is_born_with_the_range_the_document_promises` és el que ho vigila: sense l'arranjament
 // llegeix `min nil max nil`, i el 17/11 el mateix gràfic dibuixat sense `max` i amb `max = 100` va sortir **pixel a pixel
 // igual** a l'emulador, que és la prova que el defecte de dalt era el rang i no el dibuix.
-static const char kVersion[] = "0.189.147";
+// **La pestanya CPU diu el que triga un torn de tot el sistema** (0.189.148, l'amo: *«A la pestanya CPU de Settings vull que
+// afegeixis el temps que triga un torn de tot el sistema»*). El comptador ja hi era —`kernel.loop`, la volta del nucli amb
+// l'app, els dispositius i el rellotge a dins— i la fila que el llegia deia `12, 338 us each`, que es llegeix com mil dos-
+// cents trenta-vuit microsegons i no com dotze voltes de 338. Ara són tres files: **«A whole turn»** és la mitjana del
+// torn i el número de voltes va al registre, **«Of that, waiting»** és `queue.wait` —el tros del mateix torn passat aturat
+// a la cua, sense el qual un torn de deu mil·lisegons es llegeix com una CPU saturada quan és una placa esperant una
+// tecla— i **«Of that, Lua»** és `lua.run`. A la placa les tres són la mateixa moneda i les parts hi caben; a l'emulador
+// `kernel.loop` és el rellotge del PC i la línia del registre ho diu (docs/30, docs/45, docs/85, docs/95).
+static const char kVersion[] = "0.189.148";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
