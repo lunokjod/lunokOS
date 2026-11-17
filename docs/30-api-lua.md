@@ -4044,16 +4044,17 @@ i res més (0.179.42, 0.179.49).
   abans de pintar (`apps::views() > 0`), i la cantonada de la targeta és paper: un toc allà és un toc a la targeta.
 - **I les claus són el mateix botó, sense vores** (0.185.0, l'amo: *«afegeix al panell lliscat … l'icona de Reinciar,
   d'Apagar i de Settings … aquests botons no tinguin vores, l'icona és tot el que es veu i com qualsevol botó s'enfonsa al pitjar»*).
-  **Les vuit claus de la targeta van en dues files des de la 0.189.150** (l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica
+  **Les vuit claus de la targeta van en dues files des de la 0.189.151** (l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica
   mes petits (lleugerament, no tant petits com es ara "Home") a la part de dalt del panell. A baix de tot Home, Close i Settings en
-  el tamany que tenen ara PowerOff Sleep i Reboot»* i *«L'app "Lock" també ha de sortir, a la línia d'icones de Home, Settings,
-  Back i Close»*):
-  **a dalt, els tres que paren la placa** —`poweroff`, **`deepsleep` (la lluna, 0.189.25)** i `reboot`, en aquest ordre, que és el
-  que va demanar l'amo: *«l'afegeixes al panell desplegable del sistema entre el botó de poweroff i el de reboot»*—, de
-  **104 × 88** (la marca a sobre i la paraula a sota, una mica més petits que els d'abaix);
-  **a baix, les cinc del sistema** —`back` (fletxa), `home` (**la casa**, 0.189.139), `settings` (roda dentada), **`lock` (el
-  candau, 0.189.150)** i `close` (la creu), amb la fletxa a l'esquerra i la creu a la dreta, que és el lloc que tenien quan eren les
-  cantonades—, de **96 × 104**, la mida que tenien les quatre del mig.
+  el tamany que tenen ara PowerOff Sleep i Reboot»*, i després *«Posem-los en ordre: "Home" sempre al centre: Settings, Home,
+  Close. Posa el lock amb els de poweroff, sleep i reboot: Power off, Sleep, Reboot, Lock»* i *«Back al costat de home»*):
+  **a dalt, les quatre que paren la placa** —`poweroff`, **`deepsleep` (la lluna, 0.189.25)**, `reboot` i **`lock` (el candau,
+  0.189.151)**, en aquest ordre: la son entre el corrent i el reinici, que és el que va demanar l'amo amb *«l'afegeixes al panell
+  desplegable del sistema entre el botó de poweroff i el de reboot»*, i el candau al final—, de **104 × 88** (la marca a sobre i
+  la paraula a sota, una mica més petits que els d'abaix);
+  **a baix, les quatre del sistema** —`settings` (roda dentada), `home` (**la casa**, 0.189.139), `back` (la fletxa) i `close` (la
+  creu), en aquest ordre, amb les dues que van a un lloc al mig i les que entren i surten als costats—, de **96 × 104**, la mida
+  que tenien les quatre del mig.
   Totes amb `framed = false` i `icon` a la mateixa clau del sistema: el paper de la targeta és la seva cara, la marca és tota la
   tinta que hi ha, i **el botó s'enfonsa girant-se** quan el dit hi és a sobre (una passada `du` de la clau i després l'acció).
   Totes vuit es calculen en una sola taula (`key_is_there`, `key_box`, `key_icon`, `run_the_key`) i la que no pot fer res no es pinta ni
@@ -4064,9 +4065,9 @@ i res més (0.179.42, 0.179.49).
   abans d'arrencar la que li demanen i un nom que no és al disc deixaria la placa al prompt amb la pàgina que la va demanar a la
   memòria de ningú. Una roda que no troba l'app **no fa res** i ho diu al registre (`there is no app 'x' on this board`), i quan
   la troba la demana amb la pàgina del darrere (`back`), perquè tancar els ajustos torni on era (docs/30, docs/40, docs/45).
-  **El candau és la mateixa porta** (0.189.150, `open_a_chosen_app`): obre la pàgina que diu `cfg lock` —`device_lock` de sèrie,
-  i `none` per a un candau que no tapa res— i no decideix res del bloqueig: els tres moments en què el sistema es tapa sol són
-  de `kernel::lock`, i aquesta clau és la persona demanant-ho ara (docs/30, docs/60).
+  **El candau és la mateixa porta** (0.189.151, `open_a_chosen_app`) i va amb les que paren la placa: obre la pàgina que diu
+  `cfg lock` —`device_lock` de sèrie, i `none` per a un candau que no tapa res— i no decideix res del bloqueig: els tres moments
+  en què el sistema es tapa sol són de `kernel::lock`, i aquesta clau és la persona demanant-ho ara (docs/30, docs/60).
 - **I les marques són dibuixos del disc, fets com al PaperOS** (0.185.1, l'amo: *«fes les icones dels botons del panell
   desplegable de sistema de nou, usa el mateix que feies amb el PaperOS»*). `tools/iconart.py` dibuixa cada marca en una caixa de
   448 unitats —una funció per marca, la paleta de setze tons amb nom, la vora de tinta de 15 unitats que la reducció no

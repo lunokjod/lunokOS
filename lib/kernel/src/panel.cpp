@@ -62,19 +62,22 @@ const uint16_t kLineH = 2;
 // icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*). Una clau del sistema ja no és un quadrat d'una
 // icona: és **una icona amb el seu nom**, i el nom és dins del botó, o sigui que prémer el nom és prémer la clau.
 //
-//   - **les tres de dalt són una mica més petites** (0.189.151, l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica mes
+//   - **les quatre de dalt són una mica més petites** (0.189.151, l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica mes
 //     petits (lleugerament, no tant petits com es ara "Home") a la part de dalt del panell»*): 104 × 88, que és la marca a sobre i
 //     la paraula a sota amb la mida d'abans de la 0.189.139 i una mica menys d'aire;
-//   - **les cinc de baix tenen la mida que tenien les quatre del mig** (*«A baix de tot Home, Close i Settings en el tamany que
+//   - **les quatre de baix tenen la mida que tenien les quatre del mig** (*«A baix de tot Home, Close i Settings en el tamany que
 //     tenen ara PowerOff Sleep i Reboot»*): 96 × 104, i el mateix dibuix per a totes vuit —la marca a sobre, la paraula a sota i
-//     la paraula a dos passos de la cara del sistema, que és el que fa que cinc n'hi càpiguen (0.189.25)—;
-//   - **el candau hi és** (0.189.151, l'amo: *«L'app "Lock" també ha de sortir, a la línia d'icones de Home, Settings, Back i
-//     Close»*): the key of the screen, between the gear and the cross, and it is the page `cfg lock` names (docs/30, docs/40).
-const uint16_t kTopRowY = 20;      // la fila dels tres que paren la placa
+//     la paraula a dos passos de la cara del sistema, que és el que fa que quatre n'hi càpiguen (0.189.25)—;
+//   - **el candau va amb els que paren la placa** (0.189.152, l'amo: *«Posa el lock amb els de poweroff, sleep i reboot: Power off,
+//     Sleep, Reboot, Lock»*): the page of `cfg lock`, the fourth of the top row, perquè una clau que tapa el vidre és una de les
+//     que paren la placa i no una de les que hi naveguen (docs/30, docs/40, docs/60);
+//   - **i la de baix és `Settings`, `Home`, `Back`, `Close`** (l'amo: *«Back al costat de home: Settings, Home, Back, Close»*):
+//     the two that go somewhere in the middle and the two of the way in and the way out on the sides (docs/30, docs/45).
+const uint16_t kTopRowY = 20;      // la fila de les quatre que paren la placa
 const uint16_t kTopW = 104;        // una mica més ampla i més baixa que les de sota
 const uint16_t kTopH = 88;
 const uint16_t kTopGap = 16;       // l'aire entre dues claus d'aquesta fila
-const uint16_t kBottomRowY = 168;  // la fila de les cinc del sistema
+const uint16_t kBottomRowY = 168;  // la fila de les quatre del sistema
 const uint16_t kBottomW = 96;      // la mida que tenien les quatre del mig
 const uint16_t kBottomH = 104;
 const uint16_t kBottomGap = 8;
@@ -83,8 +86,8 @@ const uint16_t kBottomGap = 8;
 // L'escala de tres era de les cantonades amples, i amb elles se'n va anar quan el dibuix de la targeta es va fer de dues files.
 const uint8_t kWordScale = 2;
 
-// **Quin botó és quin** (0.185.0): the eight of the card, in the order the two rows are drawn —the way back, the house, the gear,
-// the padlock and the cross below; the power off, **the deep sleep** and the restart above, with the sleep between the power off
+// **Quin botó és quin** (0.185.0): the eight of the card, in the order the two rows are drawn —the gear, the house, the way back
+// and the cross below; the power off, **the deep sleep**, the restart and the padlock above, with the sleep between the power off
 // and the restart, which is where the owner asked for it: the closer to off a way down is, the closer they sit— (docs/30).
 enum class Key : uint8_t {
   kBack = 0,
@@ -127,38 +130,42 @@ KeyBox key_box(Key which) {
   KeyBox box;
   box.mark = ui::kMarkAbove;
   box.scale = kWordScale;
-  // **La fila de dalt: els tres que paren la placa** (0.189.151), centrades i en l'ordre demanat —el corrent, la son i el reinici,
-  // amb la son al mig— perquè una mica més petites no vol dir en un altre lloc (docs/30, docs/45).
-  if (which == Key::kPowerOff || which == Key::kDeepSleep || which == Key::kReboot) {
-    const int16_t total = static_cast<int16_t>(3 * kTopW + 2 * kTopGap);
+  // **La fila de dalt: les quatre que paren la placa** (0.189.151, i el candau des de la 0.189.152): el corrent, la son, el
+  // reinici i **el bloqueig**, en l'ordre demanat —*«Posa el lock amb els de poweroff, sleep i reboot: Power off, Sleep, Reboot,
+  // Lock»*—, centrades i a la mateixa mida entre elles, que és el que fa que la fila es llegeixi com una fila (docs/30, docs/45).
+  if (which == Key::kPowerOff || which == Key::kDeepSleep || which == Key::kReboot || which == Key::kLock) {
+    const int16_t total = static_cast<int16_t>(4 * kTopW + 3 * kTopGap);
     const int16_t left = static_cast<int16_t>((width - total) / 2);
-    int16_t at = left;
-    if (which == Key::kDeepSleep) at = static_cast<int16_t>(left + kTopW + kTopGap);
-    if (which == Key::kReboot) at = static_cast<int16_t>(left + 2 * (kTopW + kTopGap));
-    box.x = at;
+    uint8_t place = 0;
+    if (which == Key::kDeepSleep) place = 1;
+    if (which == Key::kReboot) place = 2;
+    if (which == Key::kLock) place = 3;
+    box.x = static_cast<int16_t>(left + place * (kTopW + kTopGap));
     box.y = static_cast<int16_t>(kTopRowY);
     box.w = kTopW;
     box.h = kTopH;
-    box.word = (which == Key::kPowerOff) ? "Poweroff" : ((which == Key::kDeepSleep) ? "Sleep" : "Reboot");
+    box.word = (which == Key::kPowerOff) ? "Poweroff"
+               : (which == Key::kDeepSleep) ? "Sleep"
+               : (which == Key::kReboot) ? "Reboot"
+                                         : "Lock";
     return box;
   }
-  // **I la fila de baix: les cinc del sistema** (0.189.151), amb la fletxa a l'esquerra i la creu a la dreta, que és el lloc que
-  // tenien quan eren les cantonades de la targeta: el que mira enfora és el que va a la vora (docs/30, docs/45).
-  const int16_t total = static_cast<int16_t>(5 * kBottomW + 4 * kBottomGap);
+  // **I la fila de baix: les quatre del sistema** (0.189.152, l'amo: *«Back al costat de home: Settings, Home, Back, Close»*):
+  // the gear, the house, the arrow of one page back and the cross of the way out, en aquest ordre, amb la casa i la fletxa al mig
+  // de la fila —les dues que van a un lloc— i les dues que obren i tanquen als costats (docs/30, docs/45).
+  const int16_t total = static_cast<int16_t>(4 * kBottomW + 3 * kBottomGap);
   const int16_t left = static_cast<int16_t>((width - total) / 2);
   uint8_t place = 0;
   if (which == Key::kHome) place = 1;
-  if (which == Key::kSettings) place = 2;
-  if (which == Key::kLock) place = 3;
-  if (which == Key::kClose) place = 4;
+  if (which == Key::kBack) place = 2;
+  if (which == Key::kClose) place = 3;
   box.x = static_cast<int16_t>(left + place * (kBottomW + kBottomGap));
   box.y = static_cast<int16_t>(kBottomRowY);
   box.w = kBottomW;
   box.h = kBottomH;
-  box.word = (which == Key::kBack) ? "Back"
+  box.word = (which == Key::kSettings) ? "Settings"
              : (which == Key::kHome) ? "Home"
-             : (which == Key::kSettings) ? "Settings"
-             : (which == Key::kLock) ? "Lock"
+             : (which == Key::kBack) ? "Back"
                                      : "Close";
   return box;
 }

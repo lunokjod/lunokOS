@@ -9731,7 +9731,13 @@ namespace kernel {
 // `tools/iconart.py`, `data/res/icons/lock.png`, i un candau de línies a `draw_icon` per a una placa sense `/res`— i obre la
 // pàgina de `cfg lock` per la mateixa porta que la roda obre la dels ajustos (`open_a_chosen_app`), amb la mateixa regla: sense
 // app, la clau no es pinta (docs/30, docs/45, docs/60).
-static const char kVersion[] = "0.189.151";
+// **Home al mig de la fila de baix i el candau amb els que paren la placa** (0.189.152, l'amo: *«M'ho he pensat millor: … Posem-los
+// en ordre: "Home" sempre al centre: Settings, Home, Close. Posa el lock amb els de poweroff, sleep i reboot: Power off, Sleep,
+// Reboot, Lock»*, i «Back al costat de home»). La targeta torna a tenir quatre claus a cada fila: **a dalt** `Poweroff`,
+// `Sleep`, `Reboot` i **`Lock`** —el candau marxa amb els que paren la placa, que és on va una clau que tapa el vidre— i **a baix**
+// `Settings`, `Home`, `Back` i `Close`, amb les dues que van a un lloc al mig i les que entren i surten als costats. Les mides no es
+// mouen: 104 x 88 les de dalt i 96 x 104 les de baix, que és el que l'amo va demanar la vegada anterior (docs/30, docs/60).
+static const char kVersion[] = "0.189.152";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -16174,11 +16174,11 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  // **The cross is the last of the five of the bottom row** (0.189.151): the row starts fourteen pixels off the left of the
-  // card, the keys are ninety-six wide with eight of air between them, and the middle of the fifth is that plus four of those
+  // **The cross is the last of the four of the bottom row** (0.189.152): the row starts sixty-six pixels off the left of the
+  // card, the keys are ninety-six wide with eight of air between them, and the middle of the fourth is that plus three of those
   // and half a key; the row starts a hundred and sixty-eight rows under the bar and is a hundred and four tall, so its middle
   // is two hundred and twenty under it —the rows of the view, and the bar taken off (docs/30, docs/85).
-  const uint16_t cross_x = static_cast<uint16_t>(kernel::ui::canvas().width - 14 - 96 / 2);
+  const uint16_t cross_x = static_cast<uint16_t>(66 + 3 * (96 + 8) + 96 / 2);
   const uint16_t cross_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);
   // **The level of one pixel of the glass**, which is where the card is painted.
   auto glass_level = [](uint16_t x, uint16_t y) {
@@ -16333,9 +16333,9 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
                            "{\"title\":\"Pager\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "console.print('pager up')\nwhile true do sys.delay(20):await() end\n"));
 
-  // **The card comes out of the bar and the gear is the third of the five of the bottom row**: the row starts a hundred and
-  // sixty-eight rows under the bar, the keys are ninety-six wide with eight of air, and the card is pulled with a swipe of the bar
-  // (docs/30, docs/85).
+  // **The card comes out of the bar and the gear is the first of the four of the bottom row** —`Settings`, `Home`, `Back`,
+  // `Close`—: the row starts a hundred and sixty-eight rows under the bar, the keys are ninety-six wide with eight of air, and the
+  // card is pulled with a swipe of the bar (docs/30, docs/85).
   auto swipe_down = [&]() {
     TEST_ASSERT_TRUE(panel->finger_down(0, 400, 20));
     pump_turns(20);
@@ -16352,10 +16352,10 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  // **The gear is the third of the five of the bottom row** (0.189.151): fourteen off the left of the card, ninety-six wide
+  // **The gear is the first of the four of the bottom row** (0.189.152): sixty-six off the left of the card, ninety-six wide
   // with eight of air, and a hundred and four tall from a hundred and sixty-eight rows under the bar.
-  const uint16_t gear_x = static_cast<uint16_t>(14 + 2 * (96 + 8) + 96 / 2);  // the middle of the third key
-  const uint16_t gear_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);  // the middle of the row of five
+  const uint16_t gear_x = static_cast<uint16_t>(66 + 96 / 2);  // the middle of the first key
+  const uint16_t gear_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);  // the middle of the row of four
 
   pump_captured(40, g_out, sizeof(g_out), "run pager");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pager up"), g_out);
@@ -16388,10 +16388,12 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card of a gear with no app was put away");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no app of settings is chosen"), g_out);
 
-  // **I el candau obre la pàgina del bloqueig** (0.189.151): the fourth key of the bottom row is `cfg lock`, and the page that
-  // comes up is the one a person chose —the key does not decide what a lock is, `kernel::lock` does, and this asks for the same
-  // page now— (docs/30, docs/60).
-  const uint16_t lock_x = static_cast<uint16_t>(14 + 3 * (96 + 8) + 96 / 2);
+  // **I el candau obre la pàgina del bloqueig** (0.189.152, l'amo: *«Posa el lock amb els de poweroff, sleep i reboot: Power off,
+  // Sleep, Reboot, Lock»*): the padlock is the fourth of the **top** row —a hundred and four wide with sixteen of air, from a hundred
+  // and four rows up— i obre la pàgina que una persona ha triat: la clau no decideix què és un bloqueig, `kernel::lock` ho fa, i
+  // aquesta clau demana la mateixa pàgina ara (docs/30, docs/60).
+  const uint16_t lock_x = static_cast<uint16_t>(38 + 3 * (104 + 16) + 104 / 2);
+  const uint16_t lock_y = static_cast<uint16_t>(kernel::ui::canvas().y + 20 + 44);
   TEST_ASSERT_TRUE(add_app(storage, "locky",
                            "{\"title\":\"Locky\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "console.print('locky up')\nwhile true do sys.delay(20):await() end\n"));
@@ -16403,7 +16405,7 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the page of the app");
   capture_begin();
-  tap(lock_x, gear_y);
+  tap(lock_x, lock_y);
   pump_turns(200);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_EQUAL_STRING_MESSAGE("locky", kernel::shell::app_id(), g_out);
@@ -16419,7 +16421,7 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the page of the app");
   capture_begin();
-  tap(lock_x, gear_y);
+  tap(lock_x, lock_y);
   pump_turns(200);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_EQUAL_STRING_MESSAGE("pager", kernel::shell::app_id(), g_out);
@@ -16516,10 +16518,10 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  // **The arrow is the first of the five of the bottom row** (0.189.151), on the other end from the cross: fourteen off the
-  // left of the card and half a key, in the rows of the view, so the middle of it is that plus forty-eight, on the glass where
-  // the bar has already been taken off (docs/30).
-  const uint16_t arrow_x = static_cast<uint16_t>(14 + 96 / 2);
+  // **The arrow is next to the house** (0.189.152, l'amo: *«Back al costat de home: Settings, Home, Back, Close»*), the third of
+  // the four of the bottom row: sixty-six off the left of the card, two keys and two gaps in, and half a key, in the rows of the
+  // view, on the glass where the bar has already been taken off (docs/30).
+  const uint16_t arrow_x = static_cast<uint16_t>(66 + 2 * (96 + 8) + 96 / 2);
   const uint16_t arrow_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);
   auto glass_level = [](uint16_t x, uint16_t y) {
     emu::MemorySurface* glass = emu::memory_surface();
