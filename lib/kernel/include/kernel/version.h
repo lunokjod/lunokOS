@@ -9737,7 +9737,15 @@ namespace kernel {
 // `Sleep`, `Reboot` i **`Lock`** —el candau marxa amb els que paren la placa, que és on va una clau que tapa el vidre— i **a baix**
 // `Settings`, `Home`, `Back` i `Close`, amb les dues que van a un lloc al mig i les que entren i surten als costats. Les mides no es
 // mouen: 104 x 88 les de dalt i 96 x 104 les de baix, que és el que l'amo va demanar la vegada anterior (docs/30, docs/60).
-static const char kVersion[] = "0.189.152";
+// **La casa no es pinta quan ja ets a casa** (0.189.153, l'amo: *«No, el home si estem a home no ha de sortir, igual que el back no
+// surt si no hi ha back o Close tampoc si estem al home»*). La 0.189.140 va fer el contrari a posta —sobre la pàgina d'inici la
+// clau hi era i la tornava a arrencar— perquè l'emulador arrenca **sobre el llançador** i la casa s'hi amagava; el que s'hi va
+// guanyar va ser una sortida per a un llançador encallat i el que es veia era una clau que no et portava enlloc. Ara `key_is_there`
+// pregunta també si la pàgina del davant és la de `cfg home`, i la targeta del llançador ensenya les claus que hi ha: la roda
+// (si n'hi ha), el candau (si n'hi ha) i les de parar la placa. El camí de tornar a arrencar la pàgina d'inici des de la targeta
+// marxa amb ella; el que queda és la cursa —la targeta pintada amb una altra app al davant i el dit que s'aixeca quan la casa ja
+// hi és—, que `open_the_home` encara atén (docs/30, docs/45).
+static const char kVersion[] = "0.189.153";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

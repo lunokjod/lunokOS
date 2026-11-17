@@ -3987,12 +3987,12 @@ La barra del sistema és la franja de dalt del vidre, i **el dit que hi cau és 
 d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca que ocupa el
 terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —la forma de la
 barra del sistema, que és l'agafador del camí d'anada: els de tornada són un toc fora de la targeta i un
-lliscament cap amunt que hi comenci (0.179.42, 0.179.49)—, i res a dins encara
-—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **dos botons a les cantonades de dalt**:
-una **fletxa a l'esquerra** que torna l'app a la vista de sota i **una creu a la dreta** que tanca l'app del davant
-(0.179.23, 0.179.52). **Les maneres de tancar-lo són totes de la persona: un toc
-fora de la targeta** —a la pàgina de sota o a la barra de la qual penja— **o un lliscament cap amunt que hi comenci**,
-i res més (0.179.42, 0.179.49).
+lliscament cap amunt que hi comenci (0.179.42, 0.179.49)— i, a dins, **vuit claus en dues files**: a dalt les quatre que
+paren la placa —`Poweroff`, `Sleep`, `Reboot` i `Lock`— i a baix les quatre del sistema —`Settings`, `Home`, `Back` i
+`Close`— (0.189.152). Fins a la 0.189.150 la targeta era la creu i la fletxa a les dues cantonades de dalt i una fila de
+quatre al mig, i la forma d'avui és la de les dues files (docs/30 § les claus). **Les maneres de tancar-lo són totes de la
+persona: un toc fora de la targeta** —a la pàgina de sota o a la barra de la qual penja— **o un lliscament cap amunt que hi
+comenci**, i res més (0.179.42, 0.179.49).
 
 - **Què és una estirada i què no**: el dit ha de caure **a la barra** (les 48 files de dalt, que no són de
   cap app) i baixar **60 píxels o més, i més del que s'ha mogut de costat**. Una estirada que comença una
@@ -4026,22 +4026,25 @@ i res més (0.179.42, 0.179.49).
   llançador no es tanca mai (el sistema ho pregunta abans de pintar) i, si la porta no s'obre, la targeta es queda on és. La
   targeta se'n va amb l'app que es tanca: si ja hi ha una pàgina que ha de rentar el vidre, aquella és la que esborra la targeta
   i el tancament no paga dues passades; si no, la pàgina de sota torna sencera.
-- **I la fletxa de l'esquerra torna una vista** (0.179.52). L'amo: *«Afegir botó de "back" al panell lliscant de la
+- **I la fletxa torna una vista** (0.179.52). L'amo: *«Afegir botó de "back" al panell lliscant de la
   barra de sistema. Per tirar l'app a la vista anterior. A la part esquerra del panell, a la dreta el "close" com fins
-  ara. El back ha de ser una icona, com el close»*. És **el mateix botó de seixanta-quatre píxels** que la creu, amb la
-  mateixa distància de la barra i de la vora esquerra (`kBackLeft` i `kCrossRight`, els dos vint-i-quatre), i la seva
-  paraula és una **fletxa `←`** i **un sol byte**: `0x81`, el codi que CP1252 deixa buit i que la cara contesta amb
-  `U+2190` (0.158.0), perquè aquí un text és **un byte per caràcter** i els tres bytes de UTF-8 d'una fletxa serien tres
-  caràcters (`â†↓` al vidre, que és com es va trobar). Va a tres passos i no a quatre: una fletxa és més ampla que una `X` i a
-  quatre el marc del botó la tallaria. **Una icona i no una paraula** perquè
-  «back» és una paraula d'una llengua i una fletxa no. El toc no inventa cap camí: demana `shell::go_back_one_view`, la
+  ara. El back ha de ser una icona, com el close»*. El toc no inventa cap camí: demana `shell::go_back_one_view`, la
   mateixa porta que el pessic de gran a petit, o sigui que l'app rep la vista que va empènyer, sent `on_back(depth)` i
   repinta la de sota. La targeta deixa anar la pàgina **sense pintar** i declara que el sistema deu la pàgina sencera,
   i el `present` que l'app fa dins del seu `on_back` és el que renta el vidre i s'emporta la targeta: una passada i no
   dues.
+  **Com es dibuixa avui** (0.185.1 i 0.189.152): the mark is the chevron `U+F104` of the clipart —`data/res/icons/back.png`,
+  dibuixat per `tools/iconart.py`— i la paraula és `Back`, a dos passos, sota la marca; és la **tercera de les quatre claus
+  de la fila de baix** (96 × 104), al costat de la casa, i no es pinta quan no hi ha cap vista a sota. El que queda de la
+  primera versió és la història: era un quadrat de seixanta-quatre a la cantonada esquerra (`kBackLeft` i `kCrossRight`,
+  els dos vint-i-quatre) i la seva paraula era una **fletxa `←`** d'un sol byte —`0x81`, el codi que CP1252 deixa buit i que
+  la cara contestava amb `U+2190` (0.158.0), perquè aquí un text és **un byte per caràcter** i els tres bytes de UTF-8 d'una
+  fletxa eren tres caràcters (`â†↓` al vidre, que és com es va trobar)—, i el xevró del clipart la va substituir quan les
+  marques del sistema van passar a ser dibuixos del disc.
 - **I amb una sola pàgina la fletxa no hi és**: una app que no ha empès cap vista no té on tornar, i un botó que no pot
-  fer res és pitjor que cap botó —la mateixa regla que la creu sobre un llançador (0.179.25)—. El sistema ho pregunta
-  abans de pintar (`apps::views() > 0`), i la cantonada de la targeta és paper: un toc allà és un toc a la targeta.
+  fer res és pitjor que cap botó —la mateixa regla que la creu sobre un llançador (0.179.25) i que la casa quan ja hi ets
+  (0.189.153)—. El sistema ho pregunta abans de pintar (`apps::views() > 0`), i el lloc de la clau a la targeta és paper: un
+  toc allà és un toc a la targeta.
 - **I les claus són el mateix botó, sense vores** (0.185.0, l'amo: *«afegeix al panell lliscat … l'icona de Reinciar,
   d'Apagar i de Settings … aquests botons no tinguin vores, l'icona és tot el que es veu i com qualsevol botó s'enfonsa al pitjar»*).
   **Les vuit claus de la targeta van en dues files des de la 0.189.151** (l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica
@@ -4086,31 +4089,31 @@ i res més (0.179.42, 0.179.49).
   desa igual: mestre de 448 a `tools/icons/system/` i icona de 64 a `data/res/icons/`. `--only <nom>` refà una sola marca,
   que és com es va afegir la casa sense tocar les sis que l'amo ja havia mirat. **Llicències**: glifs SIL OFL 1.1, icones
   CC BY 4.0, crèdit al `README`.
-- **I les cinc claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
-  icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*, amb `Settings ||| Poweroff | Reboot` al dibuix).
-  **La paraula és dins del botó** i no a fora, o sigui que prémer el nom és prémer la clau: les cantonades són **amples**
-  (`← Back` a 190 × 64 i `Close ✕` a la mateixa mida, amb la marca a la vora de fora, que és el que fa que les dues cantonades
-  mirin enfora) i les tres del mig són **altes** (150 × 104, marca a sobre i paraula a sota). **`Settings` va separada de la
-  parella** amb quaranta-vuit píxels en lloc dels dotze d'entre claus, que és el `|||` del dibuix, i **l'ordre és Settings,
-  Poweroff, Reboot**, que és el que hi ha escrit allà. La paraula va a **tres passos** de la cara del sistema: a un pas fa onze
-  píxels i no es llegeix (mesurat a l'emulador, docs/30, docs/92).
-- **I la casa, al mig de la fila de dalt** (0.189.139, l'amo: *«Afegirem un nou botó al panell de sistema, un icona d'una casa per
-  arrencar HOME APP»*): `Home` és la clau de 112 × 64 que cau exactament a l'aire que deixen les dues cantonades —la marca a
-  sobre i la paraula a sota, com les quatre del mig però amb l'alçada d'una cantonada— i obre **la pàgina de casa**,
-  `cfg home <id>`. Amb una pàgina a sota la demana com la roda (`ask_run` amb `back`); **sense cap pàgina la arrenca**, que és
-  el cas que la fa necessària: una placa que torna d'un son sense res al davant. **La clau hi és sempre que `cfg home` nomena
-  una app** (0.189.140, l'amo: *«la casa es veu sempre, també sobre el llancador»*): la primera versió de la 0.189.139
-  l'amagava quan la pàgina de casa ja era la del davant —la regla de la creu, «un botó que no fa res és pitjor que cap
-  botó»— i l'emulador arrenca **sobre el llancador**, o sigui que la casa s'amagava exactament allà on es mira la targeta
-  el primer cop. Sobre la pàgina de casa la clau **la torna a arrencar**: és el camí al principi i la sortida d'una pàgina de
-  casa que s'ha quedat sense respondre. El que sí que no es pinta és quan `cfg home` no nomena cap app, perquè llavors no hi
-  ha res a obrir (docs/30, docs/40, docs/45).
+- **I les vuit claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
+  icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*). **La paraula és dins del botó** i no a
+  fora, o sigui que prémer el nom és prémer la clau, i des de la 0.189.151 **les vuit són del mateix dibuix** —la marca a sobre i
+  la paraula a sota, dins del mateix rectangle— perquè la targeta és de dues files d'una sola mena: 104 × 88 les de dalt i
+  96 × 104 les de baix. Les cantonades amples de la 0.185.3 —`← Back` i `Close ✕` de 190 × 64, amb la marca a la vora de fora— i
+  la separació de quaranta-vuit píxels que el dibuix de l'amo marcava amb `|||` se'n van anar amb la fila de quatre del mig.
+  La paraula va a **dos passos** de la cara del sistema: a un pas fa onze píxels i no es llegeix (mesurat a l'emulador), i a dos
+  la més ampla, `Poweroff` —noranta-un píxels—, cap en una clau de noranta-sis (docs/30, docs/92).
+- **I la casa, la segona de la fila de baix** (0.189.139, l'amo: *«Afegirem un nou botó al panell de sistema, un icona d'una
+  casa per arrencar HOME APP»*): `Home` obre **la pàgina de casa**, `cfg home <id>`. Amb una pàgina a sota la demana com la roda
+  (`ask_run` amb `back`); **sense cap pàgina la arrenca**, que és el cas que la fa necessària: una placa que torna d'un son sense
+  res al davant.
+  **I la clau no es pinta quan ja ets a casa** (0.189.153, l'amo: *«No, el home si estem a home no ha de sortir, igual que el
+  back no surt si no hi ha back o Close tampoc si estem al home»*): the house of the card is a way **to** the page of the start,
+  and a page that is already in front has nothing to be asked of it —la mateixa regra que la fletxa amb zero vistes i que la creu
+  sobre un llançador—. Entre la 0.189.140 i la 0.189.152 la clau s'hi pintava i la tornava a arrencar, que és com es va respondre
+  a un *«no veig el botó home al panell»* d'una emulador que arrenca **sobre el llançador**: el que es va guanyar amb allò —una
+  sortida per a una pàgina de casa encallada— es perd, i el que es guanya és una targeta que no ensenya claus que no et porten
+  enlloc. Si `cfg home` no nomena cap app la clau tampoc no hi és, perquè no hi ha res a obrir (docs/30, docs/40, docs/45).
 - **I una placa amb pàgina de casa no es queda mai sense pàgina** (0.189.139): tancar l'app —la creu de la targeta, un pessic,
   els tres tocs— quan no hi ha cap app que la demanés deixava **el prompt** al davant, que en una placa sense cable és un
   vidre amb una pàgina que ningú ha pintat: la barra responia, la targeta s'obria i totes les claus deien que no hi havia cap
   app a qui demanar. El camí de sortir acaba ara a `cfg home <id>`, com l'arrencada (docs/30, docs/40, docs/90).
-- **I sobre un llançador el quadrat no hi és** (0.179.25): el llançador és l'única pàgina que no es
-  deixa, i un botó que no pot fer res és pitjor que cap botó. La cantonada de la targeta és paper, i un
+- **I sobre un llançador la creu no hi és** (0.179.25): el llançador és l'única pàgina que no es
+  deixa, i un botó que no pot fer res és pitjor que cap botó. El lloc de la clau a la targeta és paper, i un
   toc allà és un toc a la targeta, que no fa res (0.179.42). El sistema ho pregunta abans de
   pintar (`shell::the_page_in_front_can_be_left`, la mateixa pregunta que fa el camí de sortir) i no ho
   endevina pel nom de l'app: ho diu el `"launcher": true` del manifest (docs/40).

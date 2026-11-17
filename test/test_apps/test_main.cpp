@@ -16254,8 +16254,43 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   tap(270, 400);
   TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap below the card did not put it away");
 
+  // **I la casa no hi és quan ja ets a casa** (0.189.153, l'amo: *«No, el home si estem a home no ha de sortir, igual que el
+  // back no surt si no hi ha back o Close tampoc si estem al home»*): `homey` és el llançador d'aquest cas i és la pàgina del
+  // davant, o sigui que el segon lloc de la fila de baix és paper; amb una altra app al davant la clau hi torna a ser i el toc
+  // obre la pàgina de casa, que és el que la clau diu (docs/30, docs/45).
+  kernel::cfg::set_home_app("homey");
+  const uint16_t house_left = static_cast<uint16_t>(66 + 96 + 8);  // the second of the four of the bottom row
+  const uint16_t house_top = static_cast<uint16_t>(kernel::ui::canvas().y + 168);
+  auto ink_in_the_house = [&]() {
+    int ink = 0;
+    for (uint16_t y = house_top; y < static_cast<uint16_t>(house_top + 104); ++y) {
+      for (uint16_t x = house_left; x < static_cast<uint16_t>(house_left + 96); ++x) {
+        if (glass_level(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
+  };
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the launcher a second time");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_in_the_house(), "the card of the page of the start has the key of the house on it");
+  tap(270, 400);
+
   // **And a tap below the card dismisses it with an app that can be left** (0.179.42), which is the way out the panel has
   // for every page: the page below the card, and not the card's own rows.
+  pump_captured(40, g_out, sizeof(g_out), "run leaver");
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the app");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(200, ink_in_the_house(), "the key of the house is not on the card of an app");
+  // **I el toc hi porta**: the key asks for the page of the start like the gear asks for the page of the settings, and the card
+  // goes with the page it opened (docs/30, docs/40).
+  capture_begin();
+  tap(static_cast<uint16_t>(house_left + 48), static_cast<uint16_t>(house_top + 52));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("homey", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the house key: homey comes up"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "the card stayed out over the page it opened");
+  kernel::cfg::set_home_app("");
   pump_captured(40, g_out, sizeof(g_out), "run leaver");
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the app");

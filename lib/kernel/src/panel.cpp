@@ -209,15 +209,14 @@ const char* key_icon(Key which) {
 // docs/45).
 bool key_is_there(Key which) {
   if (which == Key::kClose) return shell::the_page_in_front_can_be_left();
-  // **La casa hi és quan `cfg home` nomena una app** (0.189.139, i **no s'amaga sobre el llançador**, 0.189.140): the first
-  // version hid the key when the page of the start was already in front —the rule of the cross, a key that does nothing— and
-  // the owner opened the card of the emulator, which comes up **on the launcher**, and asked where his house was. A board with
-  // no page of the start has nothing to open and the key is not there; over the page of the start the key **starts it again**,
-  // which is what a house means: the way to the beginning, and the way out of a page of it that has stopped answering
-  // (docs/30, docs/45).
+  // **I sobre la pàgina d'inici la casa no hi és** (0.189.153, l'amo: *«No, el home si estem a home no ha de sortir, igual que el
+  // back no surt si no hi ha back o Close tampoc si estem al home»*): the key of the house is a way **to** the page of the start,
+  // and a person who is already looking at it has nothing to ask of it —a key that says where you are is a key that does what
+  // the page is doing, que és la regla de la fletxa sense vista i de la creu sobre un llançador (docs/30, docs/45).
   if (which == Key::kHome) {
     const char* home = cfg::home_app();
-    return home != nullptr && home[0] != '\0';
+    if (home == nullptr || home[0] == '\0') return false;
+    return !(shell::app_running() && strcmp(shell::app_id(), home) == 0);
   }
   // **I la roda, quan hi ha una app de settings** (0.189.150, l'amo: *«Si alguna de les opcions es buida, el botó del panell
   // desplegable de sistema no mostrarà la icona corresponent»*): `cfg settings none` is a gear that opens nothing, and a key
@@ -446,7 +445,10 @@ void open_the_lock() { open_a_chosen_app(cfg::lock_app(), "lock", "cfg lock <id>
 //
 // **Amb una altra pàgina a sota es demana; sense cap, o sobre la de casa mateixa, s'arrenca**: the two cases are the two the gear
 // has, and the reason is the same —a name written down for the next turn needs a page to close (`shell::ask_run`), and a board with
-// nothing in front starts the app now— (docs/30, docs/40).
+// nothing in front starts the app now— (docs/30, docs/40). **Sobre la de casa mateixa la clau no es pinta des de la 0.189.153**
+// (`key_is_there`), o sigui que el camí de tornar-la a arrencar només el demana el cas de cursa: la targeta es va pintar amb una
+// altra app al davant i el dit s'aixeca quan la pàgina d'inici ja hi és —i llavors el que la persona vol és el que ha demanat,
+// no un toc que no fa res (docs/30, docs/45).
 void open_the_home() {
   const char* home = cfg::home_app();
   if (home == nullptr || home[0] == '\0') {
@@ -458,9 +460,9 @@ void open_the_home() {
     log_printf(pal::kLogWarn, "PANEL", "the house key: there is no app '%s' on this board", home);
     return;
   }
-  // **Sobre la pàgina que obriria, la torna a arrencar** (0.189.140): the house is the way to the beginning, and a page of the
-  // start that has stopped answering is a page whose house is the way out of it. It is the same road as a board with nothing in
-  // front —close what there is and start it— and it is why the key is painted over the launcher too (docs/30, docs/45).
+  // **Sobre la pàgina que obriria, la torna a arrencar** (0.189.140): the same road as a board with nothing in front —close what
+  // there is and start it—, i des de la 0.189.153 això només ho demana la cursa de la targeta pintada abans que la pàgina canviïs,
+  // perquè sobre la pàgina d'inici la clau no hi és (docs/30, docs/45).
   const bool already = shell::app_running() && strcmp(shell::app_id(), entry.id) == 0;
   if (!shell::app_running() || already) {
     g_open = false;
