@@ -9935,7 +9935,13 @@ namespace kernel {
 // d'hora nova diu `alarm.cancel(id)` i torna a preguntar. I la porta va destapar l'altra meitat: `alarm.cancel` només
 // esborra les pròpies, però la `battery` i el `clock` buidaven la cua sencera i s'emportaven els avisos de l'`agenda` i del
 // `meteo`, que els tornaven a armar a la càrrega següent (docs/30, docs/60).
-static const char kVersion[] = "0.189.172";
+// **La banda del Paper no compilava, i era el format d'un número amb decimals** (0.189.173, i es va saber compilant les sis
+// bandes després de pujar el commit: l'emulador deia que sí i el Paper deia que no). `chart_draw` escrivia el número amb
+// `"%d.%0*d%s"` i l'amplada en una variable, i el compilador de la placa no pot saber quants caràcters en surten: compta
+// entre un i dos-cents cinquanta-cinc i s'atura amb `-Werror=format-truncation` a la línia de la banda. Les dues amplades que
+// es poden demanar són un i dos decimals —el valor ve multiplicat per deu o per cent—, o sigui que ara són dues cadenes
+// escrites (`%01d` i `%02d`) i el compilador torna a saber què hi cap (docs/30, docs/80, docs/90).
+static const char kVersion[] = "0.189.173";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

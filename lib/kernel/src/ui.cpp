@@ -5650,8 +5650,14 @@ bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8
     int32_t whole = value / divisor;
     int32_t part = value % divisor;
     if (part < 0) part = -part;
-    snprintf(out, cap, "%d.%0*d%s", static_cast<int>(whole),
-             static_cast<int>(decimals), static_cast<int>(part), unit);
+    // **La coma i els decimals amb una amplada escrita i no demanada** (0.189.173): `%0*d` amb l'amplada en una variable fa
+    // que el compilador de la placa compti entre 1 i 255 caràcters i s'aturi amb `-Werror=format-truncation`, o sigui que el
+    // Paper no compilava (trobat el 17/11 compilant les sis bandes). Les amplades que es poden demanar són dues.
+    if (decimals == 1) {
+      snprintf(out, cap, "%d.%01d%s", static_cast<int>(whole), static_cast<int>(part), unit);
+    } else {
+      snprintf(out, cap, "%d.%02d%s", static_cast<int>(whole), static_cast<int>(part), unit);
+    }
   };
 
   char widest[24];
