@@ -12,6 +12,7 @@
 
 #include <unity.h>
 
+#include "alarms/alarms.h"
 #include "emu/model.h"
 #include "emu/options.h"
 #include "hal/hal.h"
@@ -1276,6 +1277,33 @@ void test_sys_session_destroy_says_how_much_went(void) {
   luabind::stop();
 }
 
+// **El que la cua ja té, dit a l'app** (0.189.172): `alarm.at` torna l'id i, quan la configuració ja hi és, un `true` al
+// costat —i no afegeix res—, i la que vol una hora nova esborra la vella i torna a preguntar. Una app que només llegeix el
+// primer valor no duplica la seva promesa, que és el que fa que les que ja hi ha no s'hagin de tocar (docs/30, docs/60).
+void test_an_alarm_that_is_already_there_is_named_and_not_added(void) {
+  pal::init();
+  alarms::reset();
+  luabind::Boot boot = test_boot();
+  boot.app_id = "alarmtest";
+  TEST_ASSERT_TRUE(luabind::start(boot, kGenerousLimit));
+  TEST_ASSERT_TRUE(run(
+      "local a = alarm.at{ in_ms = 600000, payload = 's', ['repeat'] = 600, persist = true }\n"
+      "assert(type(a) == 'number' and a > 0, tostring(a))\n"
+      "local b, same = alarm.at{ in_ms = 600000, payload = 's', ['repeat'] = 600, persist = true }\n"
+      "assert(b == a and same == true, tostring(b) .. ' ' .. tostring(same))\n"
+      // A word of its own is another promise, and it is added.
+      "local c, other = alarm.at{ in_ms = 600000, payload = 't', ['repeat'] = 600, persist = true }\n"
+      "assert(c ~= a and other == nil, tostring(c))\n"
+      // And the recipe: cancel the one that is there and ask again.
+      "assert(alarm.cancel(a))\n"
+      "local d, again = alarm.at{ in_ms = 600000, payload = 's', ['repeat'] = 600, persist = true }\n"
+      "assert(d ~= a and again == nil, tostring(d))\n"));
+  TEST_ASSERT_FALSE(luabind::failed());
+  TEST_ASSERT_EQUAL_UINT32(2, alarms::count());
+  luabind::stop();
+  alarms::reset();
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1337,6 +1365,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_sys_settings_answers_what_the_prompt_prints);
   RUN_TEST(test_sys_settings_without_a_door_says_unsupported);
   RUN_TEST(test_sys_session_destroy_says_how_much_went);
+  RUN_TEST(test_an_alarm_that_is_already_there_is_named_and_not_added);
   UNITY_END();
   return 0;
 }

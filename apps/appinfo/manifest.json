@@ -1,7 +1,7 @@
 {
   "title": "Application Info",
   "author": "@lunokjod",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "entry": "appinfo.lua",
   "boards": [
     "esp32"

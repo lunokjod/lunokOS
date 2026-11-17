@@ -574,11 +574,13 @@ paint_page()
 
 -- **Les promeses velles d'aquesta app es donen per acabades abans d'armar-ne una de nova**: the queue of the system survives
 -- a restart and a copy of the board, and an app that comes back with six of its own cannot arm another one (docs/30).
+-- **I només les seves**: fins a la 0.189.172 aquest bucle anul·lava la cua sencera —la del `meteo` i la de l'`agenda` també—
+-- i obrir la `battery` esborrava els avisos de les altres apps, que els tornaven a armar a la càrrega següent (docs/30, docs/60).
 local function forget_old_promises()
   local ok, mine = pcall(alarm.list)
   if not ok or type(mine) ~= 'table' then return end
   for _, one in ipairs(mine) do
-    if type(one) == 'table' and one.id ~= nil then pcall(alarm.cancel, one.id) end
+    if type(one) == 'table' and one.id ~= nil and one.app == app.id then pcall(alarm.cancel, one.id) end
   end
 end
 

@@ -1,0 +1,11 @@
+{
+  "title": "Meteo",
+  "author": "@lunokjod",
+  "version": "0.1.1",
+  "entry": "meteo.lua",
+  "boards": [
+    "esp32"
+  ],
+  "icon": "res/icon.png",
+  "description": "The room, with its memory.\nA thermometer with the temperature now, the humidity as a number with the bars of its history under it, and the chart of the temperature of the last twenty-four hours, of the last week or of the last three months, with the minimum, the middle and the maximum of the window written in the band. The SHT30 is read by the app's alarm and a sample every thirty minutes is kept in a file, so the history of both magnitudes survives the app being closed and the board being off. The glass is repainted only when one of the numbers has changed."
+}

@@ -1514,6 +1514,21 @@ static void test_a_label_cuts_its_text_with_three_dots() {
   // A label with no text is a white box and no line.
   TEST_ASSERT_EQUAL_UINT16(0, ui::label_text(-1, "", 100, 1, shown, sizeof(shown)));
   TEST_ASSERT_EQUAL_STRING("", shown);
+
+  // **I un text que cap a la caixa però no al bloc del pintor també s'acaba amb tres punts** (0.189.164): the block a label
+  // draws from is 256 B (it was 1 024 until the lock of the screen needed the bytes), and a text of three hundred characters
+  // in a box of two thousand pixels used to be copied up to its last byte and shown as a sentence that ended in nothing. El
+  // que es mira és el senyal: la línia s'acaba amb els tres punts, i el que hi ha davant és un prefix del text (docs/30, docs/75).
+  char wide[512];
+  for (size_t i = 0; i < 300; ++i) wide[i] = 'a';
+  wide[300] = '\0';
+  char cut[256];
+  const uint16_t shown_w = ui::label_text(-1, wide, 2000, 1, cut, sizeof(cut));
+  TEST_ASSERT_TRUE_MESSAGE(shown_w > 0 && shown_w <= 2000, "the long line was not drawn at all");
+  const size_t cut_len = strlen(cut);
+  TEST_ASSERT_EQUAL_STRING("...", cut + cut_len - 3);
+  TEST_ASSERT_TRUE_MESSAGE(cut_len < 256, "the block was written past its end");
+  for (size_t i = 0; i + 3 < cut_len; ++i) TEST_ASSERT_EQUAL_CHAR('a', cut[i]);
 }
 
 // **The line sits where the two alignments say** (docs/30, docs/90): the label is a frame of 40 by 20, the
@@ -3266,7 +3281,7 @@ void test_a_calendar_puts_the_first_day_where_the_weekday_says() {
   const char* names[7] = {"M", "T", "W", "T", "F", "S", "S"};
 
   // November of 2026 starts on a Sunday, which is the last column of the first week, and the third is chosen.
-  TEST_ASSERT_TRUE(ui::month_draw(grid, 2026, 11, 3, 5, names, 0, 8, 15, 2, false));
+  TEST_ASSERT_TRUE(ui::month_draw(grid, 2026, 11, 3, 5, names, 0, 0, 8, 15, 2, false));
   // The chosen day: the cell is ink inside and the number is paper.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(42, 82));
   // The day before it is not chosen and its cell is paper.
@@ -3291,8 +3306,34 @@ void test_a_calendar_puts_the_first_day_where_the_weekday_says() {
   // A month of thirty ends before a cell that would be day thirty-one, and a month that does not exist is a paper
   // frame with no days in it and no day under the finger.
   TEST_ASSERT_EQUAL_UINT8(0, ui::month_hit(grid, 2026, 11, 260, 250));
-  TEST_ASSERT_TRUE(ui::month_draw(grid, 2026, 13, 3, 5, names, 0, 8, 15, 2, false));
+  TEST_ASSERT_TRUE(ui::month_draw(grid, 2026, 13, 3, 5, names, 0, 0, 8, 15, 2, false));
   TEST_ASSERT_EQUAL_UINT8(0, ui::month_hit(grid, 2026, 13, 50, 90));
+  ui::release(grid);
+}
+
+// **Els dies que tenen alguna cosa porten un punt** (0.189.171): a three-pixel mark at the foot of the cell, in the ink tone
+// —i **del color del paper quan la cel·la és la triada**, que una marca de tinta sobre tinta és una marca que no hi és—, i un
+// dia sense res no en porta cap (docs/30, docs/45).
+void test_a_day_with_something_wears_a_dot_under_its_number(void) {
+  fresh_view();
+  int16_t grid = -1;
+  TEST_ASSERT_TRUE(ui::create(280, 280, 0, false, grid));
+  TEST_ASSERT_TRUE(ui::place(grid, 0, 0));
+  const char* names[7] = {"M", "T", "W", "T", "F", "S", "S"};
+
+  // November of 2026 starts on a Sunday: day 2 is the first cell of the second row and day 3 is the chosen one, and both of
+  // them have something. The cell is forty pixels on each side, so the dot of a day is at its centre, six rows above the
+  // foot of the cell.
+  const uint32_t marks = (1u << 1) | (1u << 2);
+  TEST_ASSERT_TRUE(ui::month_draw(grid, 2026, 11, 3, 0, names, marks, 0, 8, 15, 2, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 115));   // day 2, not chosen: ink
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(60, 115 - 6));  // the chosen cell is ink from end to end...
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(60, 115));  // ...and its dot is paper, or it would not be seen
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 115)); // day 4 has nothing
+
+  // Without marks the same place is paper, which is the whole of the difference.
+  TEST_ASSERT_TRUE(ui::month_draw(grid, 2026, 11, 3, 0, names, 0, 0, 8, 15, 2, false));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, 115));
   ui::release(grid);
 }
 
@@ -4285,7 +4326,7 @@ void test_a_chart_draws_the_scale_the_line_and_the_last_sample() {
 
   const int16_t values[3] = {90, 95, 100};
   const int32_t times[3] = {600, 630, 660};
-  TEST_ASSERT_TRUE(ui::chart_draw(chart, values, times, 3, 0, 15, 1, "%", 0, 100));
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, values, times, 3, 0, 15, 1, "%", 0, 100, 0, "", "", 60));
 
   // The frame, and the numbers of the band on its left.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(x0 - 4, y0 - 2));
@@ -4307,7 +4348,7 @@ void test_a_chart_draws_the_scale_the_line_and_the_last_sample() {
 
   // **I la finestra buida no té línia però sí escala**: with no samples the same middle row is paper and the frame is still
   // drawn, which is what a page that has just been opened shows.
-  TEST_ASSERT_TRUE(ui::chart_draw(chart, nullptr, nullptr, 0, 0, 15, 1, "%", 0, 100));
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, nullptr, nullptr, 0, 0, 15, 1, "%", 0, 100, 0, "", "", 60));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(static_cast<uint16_t>((x0 + x1) / 2), static_cast<uint16_t>(row_95)));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(x0 - 4, y0 - 2));
 
@@ -4315,10 +4356,10 @@ void test_a_chart_draws_the_scale_the_line_and_the_last_sample() {
   // guide is 100, not 101.
   const int16_t full[2] = {100, 100};
   const int32_t when[2] = {600, 660};
-  TEST_ASSERT_TRUE(ui::chart_draw(chart, full, when, 2, 0, 15, 1, "%", 0, 100));
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, full, when, 2, 0, 15, 1, "%", 0, 100, 0, "", "", 60));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(static_cast<uint16_t>(x0), static_cast<uint16_t>(y0 + 1)));
 
-  TEST_ASSERT_FALSE(ui::chart_draw(chart, values, times, 3, 16, 15, 1, "%", 0, 100));
+  TEST_ASSERT_FALSE(ui::chart_draw(chart, values, times, 3, 16, 15, 1, "%", 0, 100, 0, "", "", 60));
   ui::release(chart);
 }
 
@@ -4651,6 +4692,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_pie_is_two_halves_when_the_slices_are_equal);
   RUN_TEST(test_the_line_height_of_a_face_is_what_centres_a_text);
   RUN_TEST(test_a_calendar_puts_the_first_day_where_the_weekday_says);
+  RUN_TEST(test_a_day_with_something_wears_a_dot_under_its_number);
   RUN_TEST(test_a_menu_hides_the_options_the_app_cannot_do);
   RUN_TEST(test_a_picker_lays_its_values_in_columns);
   RUN_TEST(test_a_bar_of_menus_hangs_the_menu_under_its_word);

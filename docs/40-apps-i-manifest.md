@@ -653,14 +653,57 @@ prompt el sap escriure igual: `run appinfo -d battery`, on un segon mot que come
 resta de la línia és seva**, sense comptar-se com a mots (0.189.163: amb la partició de sempre, tres mots eren «too many words» i
 la comanda no arrencava res) (docs/30, docs/40).
 
+**I la càrrega diu el que ha costat i el que hi ha** (0.189.168, l'amo: *«Application info no diu res al log quan carrega...
+m'agradaria més informació»*): the log of this page is the numbers of the card, perquè una xifra estranya al vidre es pugui
+comprovar sense llegir la pàgina:
+
+```
+[I][LUA] appinfo: 19 apps read in 240 ms, 8.2 MB free of 11.4 MB (lunokOS 0.189.168 on m5stack-paper)
+[I][LUA] appinfo: nope: the manifest cannot be read
+[I][LUA] appinfo: no shape of a page, it starts from the beginning
+[I][LUA] appinfo: the details of battery were asked for (loaded in 12 ms)
+[I][LUA] appinfo: battery: 3 file(s) 4.0 kB, cache 1 block(s) 1.0 kB, data 2 file(s) 100 B, cfg 1 file(s) 4 B, 1 alarm(s)
+```
+
+La durada es mesura amb `sys.time_ms()` —la tirada, no l'hora del món—, which is what makes a page that took a second on a card
+visible in the log, and the line of a manifest this system cannot read is said **once per app** and not only painted (docs/30,
+docs/70).
+
+**I amb `-d` la pàgina llegeix aquella app i prou** (0.189.166, l'amo: *«s'ha de mostrar la vista detalls directament (sense
+escanejar res mes que no sigui aquella app) i el botó "Back" ha de tancar l'aplicació»*): the switch is read **before** anything
+else, the manifest and the folder of that one app are what is read —the file walk, the three grounds the system counts and the
+queue of alarms, for one app— and the list of the disk is never built. **El botó `Back` de la fitxa tanca l'app** i el pessic de
+gran a petit fa el mateix, perquè no hi ha cap coberta a sota on tornar; una esborrada des d'aquesta fitxa també acaba tancant la
+pàgina, que és el que queda quan l'app que s'explicava ja no hi és. Un nom que aquesta placa no té (o que és d'una altra placa)
+no obre cap fitxa: cau a la llista i ho diu al registre, que és el camí de sempre (docs/30, docs/40).
+
+**`agenda`** —*Agenda*— (0.189.171) és el calendari perpetu del paper: **el mes amb un punt sota cada dia que té alguna cosa**,
+el dia amb els seus esdeveniments i el formulari que els escriu, units per un avís que obre la pàgina. Els seus dos fitxers són
+`agenda.lua` (la pàgina) i `events.lua` (les dades, que viatja amb l'app i el manifest no l'ha de nomenar enlloc), i els
+esdeveniments viuen a **`/data/agenda/agenda.txt`**, una línia per event en el format del paper
+—`AAAA-MM-DD|HH:MM[-HH:MM]|R|títol|nota`— perquè el fitxer es pugui llegir i editar amb qualsevol eina. El punt del calendari
+és **`ui.month.marks`**, que va néixer per a aquesta pàgina (docs/30); la data del formulari es tria **amb el mateix calendari**
+—el mes fa de triador i torna al formulari quan el dit tria un dia—, i el formulari es maqueta per a la vista **amb la banda del
+teclat al vidre**, que és el que fa que les nou files hi cabin (docs/45). El recordatori és una alarma del sistema amb
+`raise` i `persist` que es torna a armar a cada desat, i el que sona obre el dia de l'event (docs/30, docs/60).
+
+**`meteo`** —*Meteo*— (0.189.169) és el temps de la casa: el termòmetre i les barres de la humitat **pintats a mà** —aquest
+sistema no té instrument ni control de barres, i un instrument es mira i no es toca—, la temperatura de les últimes hores en un
+**`ui.chart`** i les tres finestres del paper (una hora, sis, un dia) com a botons. Les mostres les pren **una alarma que es
+repeteix cada mitja hora** i es guarden a `/data/meteo/` en **dues cadenes** —quatre bytes per mostra i un de humitat, amb el
+`255` per a «aquesta línia no en tenia»— en lloc d'una taula de milers de números; la finestra triada és una preferència
+(`fs.data`) i el cercle del dial és la forma de la vista (`state`). I el `°` del termòmetre demana **una font que el porti**:
+`dejavusans-bold-latin1.ttf` és la mateixa família del sistema amb el joc Latin-1 a dins, i la pàgina la demana per a si mateixa
+(docs/30, docs/45, docs/75).
+
 **`brokenapp`** —*Broken App Test*— (0.189.162) és una app que existeix per **trencar-se**: set botons, set maneres de petar (un
 `nil` indexat, un global que no és funció, un `error` amb missatge, un `error` amb taula, un bucle sense fi, una recursió sense fi i
 una cadena que no cap a la memòria). És la manera de veure la pàgina d'error del sistema sense haver d'espatllar una app de debò, i
 cada botó deixa el seu nom al registre abans de petar (docs/30).
 
-Les altres apps —`about`, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
-`home_eink`, `life`, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i `rainbow`, amb
-**`brokenapp`**— segueixen la
+Les altres apps —`about`, **`agenda` (0.189.171)**, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
+`home_eink`, `life`, **`meteo` (0.189.169)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i
+`rainbow`, amb **`brokenapp`**— segueixen la
 mateixa convenció,
 amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
 **totes les apps del disc declaren `icon`**: el camp va néixer perquè el manifest el pogués dir el dia que la

@@ -476,6 +476,21 @@ void boot(hal::IPlatform& platform) {
   cfg::boot(platform);
   log_printf(pal::kLogInfo, "VFS", "%u mounts", static_cast<unsigned>(vfs::mount_count()));
 
+  // **La forma de cada pàgina comença de zero a cada arrencada** (0.189.167, l'amo: *«el session state de totes les apps s'ha
+  // d'esborrar al iniciar el sistema»*). The `state` block is the shape of the page a person left, and the board that starts
+  // starts at the beginning: a tab, a page of a list and a ring of yesterday are a view of a run that is over —and of an app
+  // that may not even have that shape any more—. What a run remembers of itself is still remembered: the block goes to the
+  // disk when an app ends and comes back when it starts again **in this run**, que és el que fa que una app torni com la va
+  // deixar la persona; el que no sobreviu és el tall de corrent (docs/30, docs/45, docs/75).
+  //
+  // **I amb les paraules de l'arrencada i no les de la comanda**: `say` és fals perquè una línia de «0 file(s)» a cada
+  // arrencada és un registre que no es pot llegir, i només es diu quan hi havia alguna cosa a oblidar (docs/30).
+  const session::Forgotten old_shapes = session::forget_key("state", /*say=*/false);
+  if (old_shapes.files > 0 || old_shapes.blocks > 0) {
+    log_printf(pal::kLogInfo, "MEMORY", "the pages start from the beginning: %u file(s) of 'state' forgotten",
+               static_cast<unsigned>(old_shapes.files));
+  }
+
   // **The panel and the logo, as early as this system can put them there** (0.115.0): the filesystem is mounted
   // (the picture is a file) and the settings have been read (the picture is the one the person chose), and
   // everything that comes after this —the alarms that survived the power cut, the radio, the sensors, the bar—

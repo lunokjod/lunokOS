@@ -280,6 +280,60 @@ void test_remove_of_moves_the_revision(void) {
   TEST_ASSERT_TRUE(alarms::revision() != before);
 }
 
+// **La mateixa promesa no s'hi pot posar dues vegades** (0.189.172, l'amo: *«les alarmes de les apps es multipliquen»*): una
+// alarma que es repeteix no té hora pròpia —torna a la cua a la seva ocurrència següent—, o sigui que el seu període i el
+// seu payload són tota la configuració, i una altra app amb les mateixes paraules és una altra promesa (docs/30, docs/60).
+void test_the_same_configuration_is_found_and_only_for_its_app(void) {
+  alarms::Spec spec = make("mine", 5000, 600000);
+  spec.payload_kind = alarms::Payload::kText;
+  spec.payload = "sample";
+  spec.persist = true;
+  const uint32_t id = alarms::add(spec);
+  TEST_ASSERT_TRUE(id != 0);
+
+  // Asked again at another minute: the same promise, because a repeating alarm has no hour of its own.
+  alarms::Spec later = spec;
+  later.on_mono_ms = 900000;
+  TEST_ASSERT_EQUAL_UINT32(id, alarms::find_same(later));
+
+  // Another app, another word, another period, another signal: four different promises.
+  alarms::Spec other_app = later;
+  other_app.app = "yours";
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::find_same(other_app));
+  alarms::Spec other_word = later;
+  other_word.payload = "other";
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::find_same(other_word));
+  alarms::Spec other_period = later;
+  other_period.repeat_ms = 1200000;
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::find_same(other_period));
+  alarms::Spec other_keep = later;
+  other_keep.persist = false;
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::find_same(other_keep));
+}
+
+// **Una alarma d'un sol cop és la seva hora, comparada al segon**: two calls that ask for the same instant are one promise
+// and asking for another instant is another one, which is what keeps the next event of an agenda from being doubled by a
+// page that was opened twice (docs/30, docs/60).
+void test_a_one_shot_is_the_same_instant_to_the_second(void) {
+  alarms::Spec once = make("mine", 60000);
+  once.payload_kind = alarms::Payload::kText;
+  once.payload = "q";
+  const uint32_t id = alarms::add(once);
+  TEST_ASSERT_TRUE(id != 0);
+
+  alarms::Spec half_a_second_later = once;
+  half_a_second_later.on_mono_ms = 60000 + alarms::kSameShotMs;
+  TEST_ASSERT_EQUAL_UINT32(id, alarms::find_same(half_a_second_later));
+
+  alarms::Spec another_instant = once;
+  another_instant.on_mono_ms = 60000 + alarms::kSameShotMs + 1;
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::find_same(another_instant));
+
+  // And a cancel makes room for the new one, which is the recipe an app that wants a fresh deadline follows.
+  TEST_ASSERT_TRUE(alarms::cancel("mine", id));
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::find_same(once));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -298,5 +352,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_describe_refuses_what_it_cannot_say);
   RUN_TEST(test_remove_of_takes_the_alarms_of_one_app);
   RUN_TEST(test_remove_of_moves_the_revision);
+  RUN_TEST(test_the_same_configuration_is_found_and_only_for_its_app);
+  RUN_TEST(test_a_one_shot_is_the_same_instant_to_the_second);
   return UNITY_END();
 }

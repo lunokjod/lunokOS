@@ -610,13 +610,15 @@ bool remove(const char* id, Removing& out) {
   // que es desperta per a res i un bloc de sessió que queda és una caché que ningú no tornarà a llegir (docs/30, docs/60, docs/75).
   out.alarms = alarms::remove_of(id);
   const session::Forgotten forgotten = session::forget(id);
-  out.sessions = forgotten.blocks + forgotten.files;
+  out.session_blocks = forgotten.blocks;
+  out.session_files = forgotten.files;
   out.session_bytes = static_cast<uint32_t>(forgotten.bytes);
   note_a_change("remove", id);
-  log_printf(pal::kLogInfo, "APPS", "%s is gone: %u file(s), %u folder(s), %u B, %u alarm(s) and %u session block(s)",
+  log_printf(pal::kLogInfo, "APPS", "%s is gone: %u file(s), %u folder(s), %u B, %u alarm(s), %u session block(s) "
+                              "and %u file(s) of cache",
              id, static_cast<unsigned>(out.gone.files), static_cast<unsigned>(out.gone.folders),
              static_cast<unsigned>(out.gone.bytes), static_cast<unsigned>(out.alarms),
-             static_cast<unsigned>(out.sessions));
+             static_cast<unsigned>(out.session_blocks), static_cast<unsigned>(out.session_files));
   return true;
 }
 

@@ -1305,11 +1305,13 @@ end
 -- **Les promeses velles d'aquesta app es donen per acabades abans d'armar-ne una de nova**: la cua del sistema sobreviu
 -- als reinicis i a les còpies de la placa, i una app que n'arriba amb sis de les seves no en pot armar cap més
 -- (`E_NOMEM`, mesurat a l'emulador). El que compta és una promesa i no dues (docs/30, docs/60).
+-- **I només les seves**: fins a la 0.189.172 aquest bucle buidava la cua sencera i obrir el `Clock` esborrava els avisos de
+-- l'`agenda` i del `meteo`, que els tornaven a armar a la càrrega següent (docs/30, docs/60).
 local function forget_old_promises()
   local ok, mine = pcall(alarm.list)
   if not ok or type(mine) ~= 'table' then return end
   for _, one in ipairs(mine) do
-    if type(one) == 'table' and one.id ~= nil then pcall(alarm.cancel, one.id) end
+    if type(one) == 'table' and one.id ~= nil and one.app == app.id then pcall(alarm.cancel, one.id) end
   end
 end
 

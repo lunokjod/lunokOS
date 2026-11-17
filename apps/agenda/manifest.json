@@ -1,0 +1,11 @@
+{
+  "title": "Agenda",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "agenda.lua",
+  "boards": [
+    "esp32"
+  ],
+  "icon": "res/icon.png",
+  "description": "A perpetual calendar with events.\nAll-day, ranges, quarterly and yearly repeats.\nThe month on one screen with the days that have something marked, and the day of the month on another: the hour, all day or the span, then the note and whether it comes back. A finger turns the month and moves the year, one event is promised to the alarm —the next one, held up in stages when it is too far— and the events live in a text file of the app, one line each, that a person can read and edit."
+}

@@ -2950,10 +2950,15 @@ bool apps_remove(const char* id) {
     out_num(gone.alarms);
     out((gone.alarms == 1) ? " alarm" : " alarms");
   }
-  if (gone.sessions > 0) {
+  if (gone.session_blocks > 0) {
     out(", ");
-    out_num(gone.sessions);
+    out_num(gone.session_blocks);
     out(" session block(s)");
+  }
+  if (gone.session_files > 0) {
+    out(", ");
+    out_num(gone.session_files);
+    out(" file(s) of cache");
   }
   out("\r\n");
   return true;

@@ -18,6 +18,9 @@ const uint32_t kMaxAlarms = 8;
 const size_t kAppBytes = 32;
 const size_t kPayloadBytes = 48;
 const int64_t kDailyMs = 24 * 60 * 60 * 1000;
+// **Dues alarmes d'un sol cop són la mateixa promesa si demanen el mateix instant al segon** (0.189.172): the tolerance of
+// `find_same`, and it is a second because that is the step of a call and the width of what is being compared (docs/60).
+const int64_t kSameShotMs = 1000;
 
 // What an alarm carries besides its deadline. A whole JSON value is promised by
 // docs/30; until there is an encoder, a string or a number is what fits, and
@@ -70,6 +73,17 @@ const Entry* at(uint32_t index);
 // Adds an alarm and gives it an id; 0 when there is no room or the spec cannot
 // be used (no app, no name, a name that does not fit).
 uint32_t add(const Spec& spec);
+
+// **La mateixa promesa, si ja hi és** (0.189.172, l'amo: *«les alarmes de les apps es multipliquen, fes que el sistema pugui
+// avisar a l'app de que ja te una alarma amb aquesta configuració»*): the id of the alarm of this app that is **the same
+// configuration** as `spec`, or 0. `add` does not look at it: who asks for an alarm asks here first and the answer is what
+// the app hears (docs/30, docs/60).
+//
+// The configuration is the payload, the period and the two flags. **Una alarma que es repeteix no té hora pròpia** —torna a la
+// cua a la seva ocurrència següent— i per això el seu període i el seu payload són tota la configuració; una d'un sol cop
+// és la seva hora, i es compara **al segon**: dues crides que demanen el mateix instant amb un segon de diferència són la
+// mateixa promesa i no dues.
+uint32_t find_same(const Spec& spec);
 
 // Only the owner of an alarm may cancel it: an app cannot reach into another.
 bool cancel(const char* app, uint32_t id);

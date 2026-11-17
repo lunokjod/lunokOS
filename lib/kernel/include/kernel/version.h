@@ -9861,7 +9861,81 @@ namespace kernel {
 //     alarmé» enlloc.
 //   - **Els botons de `brokenapp` eren en català** i la resta de pàgines d'aquest sistema parlen anglès al vidre: el codi i els
 //     comentaris són una cosa i el que una persona llegeix, una altra (docs/45).
-static const char kVersion[] = "0.189.163";
+// **El text d'una etiqueta que no cap acaba amb tres punts, i la cau d'una app diu les seves dues meitats** (0.189.164, de la
+// conversa de l'amo *«no entenc bé lo de label_draw. lo de les sessions tampoc»*):
+//   - **`label_text` tallava a l'amplada i prou.** El bloc del pintor fa dos-cents cinquanta-sis bytes i un text de tres-cents
+//     caràcters en una caixa de dos mil píxels hi cap a l'amplada però no al bloc: es copiava fins a l'últim byte i el vidre
+//     ensenyava una frase que s'acabava en res. Ara el tall acaba amb `...` com el del camí del retall, i el tros nou de
+//     `test_a_label_cuts_its_text_with_three_dots` mira el senyal —el prefix i els tres punts— i que el bloc no es passi de llarg
+//     (test_ui, docs/30, docs/75).
+//   - **Una sessió a la memòria i el seu fitxer al disc són una sessió en dos llocs, i el número que es deia era la suma.**
+//     `apps::Removing` i `AdminGone` porten `session_blocks`/`session_files` i `cache_blocks`/`cache_files`, o sigui els dos
+//     comptes que `session::forget` ja torna i que el registre ja escrivia; `apps remove` diu `session block(s)` i
+//     `file(s) of cache` per separat, i la fitxa i l'avís de desinstal·lar de l'`appinfo` diuen els dos números. Una app amb la
+//     cau només al disc deia «1 session» i una amb la cau a les dues bandes deia «6» quan n'hi havia tres (docs/30, docs/75).
+// **El número de la pantalla i l'historial de la calculadora** (0.189.165, l'amo: *«la calculador ha de tenir també session
+// state, per el número de la pantalla i l'historial d'operacions (que per ara no es mostra)»*). La pàgina té ara el bloc `state`
+// de tota app —`kLayout = 'v1'`— amb el que la pantalla ensenya (`acc`, `entry`, `pending`, `fresh` i `failed`), o sigui que una
+// calculadora que es torna a obrir no és un zero, i **una línia `h=` per operació de les últimes dotze**, que és el format d'una
+// llista repetint la clau que docs/30 descriu. El bloc es llegeix **abans de pintar** i es desa a cada tecla i
+// als tres comiats, i aquests tres **abans del `while true`**, que si no no s'enregistren mai (docs/30, docs/45).
+// **`appinfo -d <id>` és una pàgina sense llista a sota, i el seu `Back` tanca l'app** (0.189.166, l'amo: *«si l'app "Application
+// info" s'obre amb el paràmetre -d s'ha de mostrar la vista detalls directament (sense escanejar res mes que no sigui aquella app)
+// i el botó "Back" ha de tancar l'aplicació»*). El commutador es mira **abans de llegir res**: es llegeix el manifest d'aquella app
+// i la seva carpeta amb `apps.info`, i cap altra. `Back` i el pessic de gran a petit tanquen l'app, i l'`app.exit()` no es crida
+// dins del ganxo del botó (la lliçó de la 0.189.101) sinó que deixa el desig a `wanted` per al torn de la pàgina. Desinstal·lar
+// la fitxa que s'havia demanat també tanca l'app, perquè no hi ha cap llista on tornar (docs/30, docs/40).
+// **El `state` de totes les apps s'esborra a l'arrencada** (0.189.167, l'amo: *«el session state de totes les apps s'ha
+// d'esborrar al iniciar el sistema»*). El bloc `state` és la forma de la pàgina que una persona va deixar i la placa que arrenca
+// comença pel principi: una pestanya, una pàgina d'una llista o l'anell d'ahir són la vista d'una encesa que ja s'ha acabat —i
+// d'una app que potser ja no té aquella forma—. `kernel::boot` crida `session::forget_key("state", /*say=*/false)` després de
+// `cfg::boot` i diu una línia al registre només si hi havia alguna cosa a oblidar, i `forget_key` guanya el paràmetre `say`
+// perquè una comanda que no ha demanat ningú no parli amb les paraules del prompt. El que una encesa recorda de si mateixa es
+// continua recordant: les claus pròpies (`apps`, `index`…) i el que l'app té a `fs.data` es queden, i una app torna com la va
+// deixar la persona dins de la mateixa encesa (docs/30, docs/45, docs/75).
+// **La fitxa d'una app diu els seus números al registre quan carrega** (0.189.168, l'amo: *«Application info no diu res al log
+// quan carrega... m'agradaria més informació»*). `numbers_of` escriu **una sola línia** amb els cinc comptes de la fitxa —la
+// carpeta, la cau, les dades, els ajustos i les alarmes—, el recompte diu **quant ha trigat** (`sys.time_ms()`) i **quant queda**
+// al disc, i cada app que no s'ha pogut llegir deixa la seva línia amb el motiu. I la forma recuperada de la sessió `state` també
+// es diu: és el que fa que una xifra estranya al vidre es pugui comprovar al registre sense llegir la pàgina (docs/30, docs/40, docs/85).
+// **`ui.chart` aprèn els decimals, els dos textos de l'eix i el forat que no hi és, i la `Meteo` arriba** (0.189.169, l'amo:
+// *«Migrem l'app Meteo, recorda: L'interficie ha de ser IGUAL, EXACTAMENT IGUAL, l'unica diferencia han de ser els controls UI,
+// que has d'usar els del sistema»*). El gràfic guanya **quatre camps**: `decimals` (0, 1 o 2, i el valor arriba multiplicat per
+// la potència de deu —un termòmetre dona centèsims i la banda escriu `22.5`), `left`/`right` (els dos caps de l'eix són de l'app,
+// perquè una finestra d'un dia diu una hora i la d'un trimestre una data), i `gap` (els minuts de forat, amb **zero = «no n'hi ha
+// cap»** per a una sèrie que l'app ja ha aprimat). Sense dir-ne cap, el dibuix és el de la 0.189.144. **I la `Meteo` és la primera
+// pàgina que en fa servir els quatre alhora**: el termòmetre i les barres de la humitat pintats a mà (aquest sistema no té
+// instrument ni control de barres), el gràfic de la temperatura com a control, i la banda de l'esquerra dels dos gràfics comptada
+// amb el mateix número i la mateixa cara perquè comparteixin el marge i l'eix del temps. Una mostra cada mitja hora presa pel
+// ganxo de l'alarma, un registre de dues cadenes (quatre bytes per mostra i un de humitat, amb el 255 per a «no en tenia») i el
+// vidre repintat només quan alguna dada ha canviat (docs/30, docs/45, docs/50, docs/75).
+// **La cara que porta el grau, i la llegenda que baixa de cara** (0.189.170, l'amo: *«Que vols dir, la font del programa
+// original era una font específica?»* i *«Fes-ho»*). No ho era: el projecte del paper no tenia cap cara pròpia —les seves
+// eren mapes de bits del sistema, i el comentari del tema ho deia, «ASCII + Latin-1 + els accents que falten»—, i per això
+// `%.1f °C` hi sortia sencer. Aquí la cara de la pàgina és `dejavusans-bold.ttf`, retallada a l'ASCII imprimible més els
+// signes d'una tecla, i el grau (el codi **176** de Latin-1) no hi és: el número del termòmetre s'acabava amb un forat.
+// `data/res/fonts/dejavusans-bold-latin1.ttf` és **la mateixa família i el mateix pes** amb el joc Latin-1 a dins —201 codis,
+// 20 312 B, `tools/ttf_latin1.py --set latin1` sobre `DejaVuSans-Bold.ttf`—, i la `Meteo` la demana per a si mateixa amb
+// `ui.font(ui.load_font('/fonts/dejavusans-bold-latin1.ttf'))`: **els controls es queden la cara del sistema** i la cara de
+// la pàgina és la del text que l'app pinta a mà, que és l'únic lloc on surt el grau. Una cara que no hi és torna `nil` i la
+// pàgina funciona amb el forat de sempre. I la línia de la finestra d'aquesta pàgina **baixa de cara abans que perdre cap
+// paraula** («40 min: 2 samples» no entra a la columna amb la cara de 33 px), que és la mateixa llei que el `gauges.lua` de
+// l'original va escriure per al termòmetre (docs/30, docs/45, docs/70).
+// **Els punts del calendari, i l'`Agenda` arriba** (0.189.171, l'amo: *«Porta l'agenda, recorda... tot EXACTALENT IGUAL, però
+// amb els nostres controls UI i es nostres crides a sistema»*). El calendari del paper marcava amb un punt els dies que tenen
+// alguna cosa, i `ui.month` no en sabia res: s'hi afegeix **`marks`**, la llista dels dies que en porten, i el dibuix la
+// converteix en un punt de tres píxels sota el número (en el to del paper quan la cel·la és la triada, que si no el punt
+// desapareixeria a la tinta). L'`Agenda` és la primera pàgina que el fa servir i la tercera del paper que arriba sencera:
+// el mes amb el seu avís, el dia amb els esdeveniments i el formulari amb el seu teclat (docs/30, docs/45, docs/50).
+// **Una promesa que ja hi és no es torna a armar** (0.189.172, l'amo: *«les alarmes de les apps es multipliquen, fes que el
+// sistema pugui avisar a l'app de que ja te una alarma amb aquesta configuració. L'app podrà decidir si esborrar-la i crear
+// una nova o no fer res»*). `alarm.at` mira la cua abans d'afegir (`alarms::find_same`) i, si l'app ja té la mateixa
+// configuració —el payload, el període i els dos senyals, i en una alarma d'un sol cop també l'hora al segon—, torna
+// `id, true` i **no afegeix res**: una app que només llegeix el primer valor no duplica la seva promesa i la que en vol una
+// d'hora nova diu `alarm.cancel(id)` i torna a preguntar. I la porta va destapar l'altra meitat: `alarm.cancel` només
+// esborra les pròpies, però la `battery` i el `clock` buidaven la cua sencera i s'emportaven els avisos de l'`agenda` i del
+// `meteo`, que els tornaven a armar a la càrrega següent (docs/30, docs/60).
+static const char kVersion[] = "0.189.172";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

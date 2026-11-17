@@ -28,11 +28,15 @@
 -- one — the same idea as the original's `-keys`, said the way this system starts an app with a word
 -- (docs/30, docs/85).
 
--- **AQUEST FULL NO TÉ SESSIÓ `state`, I ÉS UNA DECISIÓ I NO UN OBLIT** (0.189.52, docs/30 i docs/45 §5 bis): the page is a
--- screen of numbers and thirty keys painted by hand, with **no focusable control** —there is no ring to remember and no page
--- of a list to come back to—, and the number on the screen is what the person is doing now and not the shape of the view.
--- It is the same reason the tooltip of docs/30 gives for a block that is not asked for: an app that has nothing to remember
--- and asks anyway keeps a kilobyte to say nothing.
+-- **THIS PAGE HAS A `state` SESSION, AND IT IS WHAT BRINGS THE NUMBER AND THE HISTORY BACK** (0.189.165, the owner: *«la
+-- calculador ha de tenir també session state, per el número de la pantalla i l'historial d'operacions (que per ara no es
+-- mostra)»*). The 0.189.52 had decided the opposite —the page carries no control with a ring, and *«el número és el que la
+-- persona fa ara i no la forma de la vista»*—, and what changed is that a calculator opened again on a zero with no last sum
+-- is not the calculator the person left. The block is **the shape of the view and nothing else**: the number on the screen
+-- —the one being typed or the one held—, the operation waiting for its second operand, and **the history of the operations
+-- that were made**, que és el camí que hi ha portat. **A history is not a document** —a document is what has to survive
+-- `sessions destroy`, and that one goes to `fs.data`—, so the last twelve are what the block keeps (docs/30 § la sessió
+-- `state`, docs/45 § 5 bis).
 local caps = sys.caps()
 if not caps.display or not caps.touch then
   console.print('this board needs a glass and a touch panel for this')
@@ -83,6 +87,124 @@ local pending = nil
 local entry = ''      -- exactly what the finger has typed, as it is shown
 local fresh = true
 local failed = false  -- dividing by zero: the next key clears the way
+
+-- **The history of the operations**, one line per `=` in the same words the console gets (`2 + 3 = 5`), which is what the
+-- page will show over the number the day it has the room —the owner asked for it on the 16th: *«Vull que es vegi l'historial
+-- de les operacions amb els valors»*— (docs/30, docs/45).
+local history = {}
+
+-- ------------------------------------------------------------------ the state of the page (docs/30 § state)
+
+-- **The shape that is written** (0.189.165): the first line is the version of the shape and the rest are the fields. A block
+-- of another version is thrown away and not migrated, and a field that is not what it has to be is not used (docs/30,
+-- docs/45).
+local kLayout = 'v1'
+local kStateBytes = 1024
+-- **The last twelve operations**: the block is a kilobyte and the number has to fit in it with them, so the oldest ones are
+-- the first to go (docs/30).
+local kMostHistory = 12
+local state_block = nil
+
+local function the_state()
+  if state_block == nil then
+    -- **A short memory is not a failure**: `sys.session` answers `nil` when the board has no room for the block, and then
+    -- the page is built as if it were the first time (docs/30).
+    local block = sys.session('state', kStateBytes)
+    if block == nil then return nil end
+    state_block = block
+  end
+  return state_block
+end
+
+local function save_state()
+  local block = the_state()
+  if block == nil then return false end
+
+  local lines = { kLayout }
+  -- **A number and not a text**: `%.17g` is the shortest text that reads back as the same number, so a sum of half a
+  -- hundredth does not come back as another number (docs/30).
+  if acc ~= nil then lines[#lines + 1] = string.format('acc=%.17g', acc) end
+  if entry ~= '' then lines[#lines + 1] = 'entry=' .. entry end
+  if pending ~= nil then lines[#lines + 1] = 'pending=' .. pending end
+  lines[#lines + 1] = 'fresh=' .. (fresh and 'yes' or 'no')
+  lines[#lines + 1] = 'failed=' .. (failed and 'yes' or 'no')
+
+  -- **Una llista repetint la clau, i sense escapar res** (0.189.165): the history is one `h=` line per operation and not a
+  -- `text:` value with the newlines escaped, perquè una línia d'aquesta pàgina només pot tenir xifres, els quatre signes, un
+  -- punt, un espai, un `=` i l'`e` d'un exponent —cap salt de línia i cap barra invertida—, o sigui que el que es desa es
+  -- llegeix tal com es va escriure (docs/30 § el bloc i el format).
+  local first = #history - kMostHistory + 1
+  if first < 1 then first = 1 end
+  for i = first, #history do lines[#lines + 1] = 'h=' .. history[i] end
+
+  -- **What does not fit is the oldest**, dropped from the front until the block holds the rest: the number and the operation
+  -- that is waiting are what the person has to find (docs/30).
+  local text = table.concat(lines, '\n')
+  while #text > kStateBytes - 1 do
+    local drop = 0
+    for i = 1, #lines do
+      if lines[i]:sub(1, 2) == 'h=' then
+        drop = i
+        break
+      end
+    end
+    if drop == 0 then break end
+    table.remove(lines, drop)
+    text = table.concat(lines, '\n')
+  end
+
+  block:clear()
+  block:write(0, text)
+  return true
+end
+
+local function load_state()
+  local block = the_state()
+  if block == nil then return nil end
+
+  local body = block:read(0, kStateBytes) or ''
+  -- **The block is a kilobyte and what is written is shorter**: behind it is the zero the kernel filled it with, and a line
+  -- followed by zeros is not a value (docs/30).
+  local zero = body:find('\0', 1, true)
+  if zero ~= nil then body = body:sub(1, zero - 1) end
+
+  local now = { history = {} }
+  local first = true
+  for one in body:gmatch('[^\n]+') do
+    if first then
+      first = false
+      if one ~= kLayout then return nil end
+    else
+      local key, value = one:match('^([%w_]+)=(.*)$')
+      if key == 'h' then
+        if #now.history < kMostHistory then now.history[#now.history + 1] = value end
+      elseif key ~= nil then
+        now[key] = value
+      end
+    end
+  end
+  if first then return nil end
+  return now
+end
+
+-- **What is read is looked at before it is used** (the rule of docs/30 and docs/45 §5 bis): a number that is not one, an
+-- entry with something that is not a figure, an operation that is not one of the four —the page goes on as if it were the
+-- first time instead of trusting a block of another shape.
+local function restore()
+  local was = load_state()
+  if was == nil then return end
+
+  if was.acc ~= nil then acc = was.acc:match('^%-?[%d%.eE+-]+$') ~= nil and tonumber(was.acc) or nil end
+  if was.entry ~= nil and #was.entry <= MaxDigits and was.entry:match('^%-?%d*%.?%d*$') ~= nil then
+    entry = was.entry
+  end
+  if was.pending == '+' or was.pending == '-' or was.pending == '*' or was.pending == '/' then
+    pending = was.pending
+  end
+  fresh = (was.fresh == 'yes')
+  failed = (was.failed == 'yes')
+  history = was.history
+end
 
 -- The view, and the two boxes measured from it.
 local W, H = 0, 0
@@ -280,6 +402,10 @@ local function equals()
   local cur = tonumber(entry)
   if cur == nil then cur = acc or 0 end
 
+  -- **What was open when the key was pressed**: an `=` with no operation waiting only says the number that was already on
+  -- the screen, which is not an operation and does not go to the history (docs/30).
+  local operation = pending
+
   local expr
 
   if pending ~= nil then
@@ -300,7 +426,15 @@ local function equals()
 
   fresh = true
 
-  console.print('Calculator: ' .. expr .. ' = ' .. shown())
+  -- **One line for the log and for the history**: the words are built once, so what the console says and what the page will
+  -- show cannot drift apart (docs/30, docs/45).
+  local line = expr .. ' = ' .. shown()
+  if operation ~= nil then
+    history[#history + 1] = line
+    while #history > kMostHistory do table.remove(history, 1) end
+  end
+
+  console.print('Calculator: ' .. line)
 end
 
 local function is_operator(action)
@@ -327,6 +461,11 @@ local function press(key)
   elseif is_operator(key.action) then
     choose(key.action)
   end
+
+  -- **Every key leaves the view as it is** (the rule of docs/45 §5 bis): the block lives in the memory and is parked on the
+  -- disk when the app ends, so writing it does not touch the flash at every digit and what is kept is what the glass shows
+  -- (docs/30, docs/70).
+  save_state()
 end
 
 -- The key a finger has landed on, or nothing. The rectangles are the painted ones: a key is where it is
@@ -425,6 +564,10 @@ end
 W, H = ui.caps().width, ui.caps().height
 build_layout()
 
+-- **The shape is read before anything is painted** (the rule of docs/30 § la sessió `state`): the number, the operation
+-- that was waiting and the history are what the first `draw_page` below has to show (0.189.165).
+restore()
+
 -- **Where the keys are, said out loud when the app is asked to** (docs/30, docs/85): `run calculator keys`
 -- prints the display box and the centre of every key, so a test presses a key without knowing the layout
 -- and a change of layout cannot move the test's finger onto another key without the numbers saying so.
@@ -458,6 +601,14 @@ ui.present(kPageMode)
 -- The finger is a contact and not a gesture: a key is pressed on the first frame that sees it, and held
 -- means one press (`draw` reads the same frame, for the same reason).
 local held = false
+
+-- **The goodbyes of the page save too, and they go before the loop**: a key has already saved what it changed, and these
+-- three cover what does not come from a key —the system closing the app, a sleep, a page going away—. They are **before**
+-- the `while` perquè un tros que no s'acaba mai no registra res del que vingui després, que és el parany que es menja un
+-- comiat escrit al final del fitxer (docs/30, docs/45).
+function on_pause() save_state() end
+function on_save() save_state() end
+function on_close() save_state() end
 
 while true do
   -- The room of the view is what the layout is measured from: a turn of the page or a keyboard that came
@@ -497,3 +648,4 @@ while true do
 
   sys.delay(20):await()
 end
+

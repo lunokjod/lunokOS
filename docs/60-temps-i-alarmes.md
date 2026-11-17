@@ -61,6 +61,24 @@ sol: el despert serveix quan algú ha demanat `power.sleep`, que és el que M6 h
 Aquesta ordenació és el que fa que el sistema només hagi de gestionar un despertador encara que hi
 hagi desenes d'alarmes.
 
+### Una promesa no s'hi pot posar dues vegades (0.189.172)
+
+La cua és de vuit i una app que torna a armar el que ja tenia la gasta: dues alarmes de deu minuts amb el mateix payload
+sonen dues vegades, i una que es repeteix i que el ganxo torna a armar **es dobla a cada volta** —una fa dues, dues en fan
+quatre—. Per això `alarm.at` **pregunta abans d'afegir** (`alarms::find_same`) i contesta el que ja hi és:
+
+- la configuració és el **payload, el període i els dos senyals** (`raise`, `persist`), i en una alarma d'un sol cop també
+  **l'hora, comparada al segon**;
+- una alarma que es repeteix **no té hora pròpia** —torna a la cua a la seva ocurrència següent— i per tant el període i el
+  payload són tota la seva configuració;
+- el que la crida torna és `id, true` i **no s'ha afegit res**; l'app decideix si això és el que volia o si esborra la vella
+  (`alarm.cancel`) i en demana una de nova (docs/30).
+
+I la lletra petita que aquesta porta va destapar: **`alarm.cancel` només esborra les alarmes de qui la crida**, o sigui que
+una app que buida la cua ho ha de fer mirant el camp `app` de `alarm.list()`. La `battery` i el `clock` no ho miraven i
+obrir-los s'emportava els avisos de l'`agenda` i del `meteo`, que els tornaven a armar a la càrrega següent: el que semblava
+un avís que es multiplicava era mitja dotzena d'apps tornant-se a prometre el que una altra els havia esborrat.
+
 ### I tot el que li passa, al registre (0.189.149)
 
 L'amo ho va demanar amb aquestes paraules: *«El log no informa sobre les alarmes … Quan es programa una alarma també ho

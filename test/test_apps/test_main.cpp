@@ -18878,15 +18878,18 @@ void test_a_page_uninstalls_an_app_with_its_alarms_and_its_cache(void) {
                            "if one == nil then\n"
                            "  console.print('uninstall refused ' .. tostring(why and why.code))\n"
                            "else\n"
-                           "  console.print(string.format('gone %d file(s), %d alarm(s), %d session(s)',\n"
-                           "    one.files, one.alarms, one.sessions))\n"
+                           "  console.print(string.format('gone %d file(s), %d alarm(s), %d block(s) and %d file(s)',\n"
+                           "    one.files, one.alarms, one.cache_blocks, one.cache_files))\n"
                            "end\n"
                            "local two, why2 = admin.uninstall('eraser')\n"
                            "console.print('self ' .. tostring(two) .. ' ' .. tostring(why2 and why2.code))\n"
                            "local three = admin.uninstall('')\n"
                            "console.print('empty ' .. tostring(three))\n"));
   pump_captured(250, g_out, sizeof(g_out), "run eraser");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "gone 2 file(s), 1 alarm(s), 1 session(s)"), g_out);
+  // **La cau, amb les dues meitats i no la suma** (0.189.164): la d'aquesta app és **un fitxer al disc i cap bloc a la
+  // memòria**, o sigui que el número honest és `0 block(s) and 1 file(s)`; el compte de sempre hauria dit 1 i no s'hauria
+  // vist l'error fins que la sessió fos a les dues bandes (docs/30, docs/75).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "gone 2 file(s), 1 alarm(s), 0 block(s) and 1 file(s)"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "self nil E_INVAL"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "empty nil"), g_out);
   close_any_app();

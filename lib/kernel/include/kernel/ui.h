@@ -456,9 +456,13 @@ bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mar
 //
 // `weekdays` is an array of seven short names from the app, because the names of the days are a language and a
 // language is not the kernel's.
+//
+// **`marks` és una marca per dia** (0.189.171): a `uint32_t` with bit `d-1` set for every day of the month that has
+// something in it, que és el punt que un calendari d'una agenda ha de poder posar sota el número —el control sabia dir
+// quin dia és avui i quin està triat, i no quins dies tenen coses— (docs/30, docs/45).
 bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
-                const char* const* weekdays, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
-                bool focused);
+                const char* const* weekdays, uint32_t marks, uint8_t text, uint8_t dim, uint8_t background,
+                uint8_t scale, bool focused);
 
 // **Which day of the month a point of the grid is on**, or zero: the same cells the paint uses, so a finger and a
 // drawing cannot disagree (docs/90).
@@ -486,8 +490,19 @@ const uint8_t kMaxChartSamples = 48;
 // `suffix` is written after the three numbers (`"%"`), and `ink`/`background` are the tones of the drawing.
 // `low`/`high` són el **rang físic** de la sèrie (zero i cent per a una bateria, i el que l'app digui per a qualsevol
 // altra cosa): l'aire d'un punt per sobre i per sota no el pot creuar, o sigui que una bateria plena encara diu 100.
+//
+// **I tres coses que el dibuix no pot saber tot sol** (0.189.169, i és el que va demanar el port de la `Meteo`): `decimals`
+// is how many digits its numbers have after the point —zero for a percentage, one for 22.5 °C, and the value is then the
+// number times ten to that many—, and `axis_left`/`axis_right` are the two ends of the time axis written by the app, because
+// **una hora no és una data**: the window of a day says `16 h` and the window of a quarter says `16/11`, i qui ho sap és
+// l'app que ha triat la finestra. An empty text is the chart's own (the hour of the minute it was given) (docs/30, docs/90).
+//
+// **I `gap_minutes` és el forat** (0.189.169): six samples missed are a hole and a curve does not join its two sides —una
+// recta entre dos punts d'una sala que va estar apagada afirma una cosa que ningú ha mesurat—. Zero vol dir «no hi ha forat
+// possible» i és el que demana una sèrie que l'app ja ha aprimat, on un pas gran és la seva resolució i no un forat.
 bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
-                uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high);
+                uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high,
+                uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes);
 
 // **A pie is four slices at most and its tones are the control's**: the app says the darkest one and the control
 // walks four steps of four from it, so the legend an app draws beside it can say the same numbers and not almost

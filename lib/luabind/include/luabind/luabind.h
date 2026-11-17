@@ -619,7 +619,11 @@ struct AdminGone {
   uint32_t files = 0;
   uint32_t bytes = 0;
   uint32_t alarms = 0;
-  uint32_t sessions = 0;
+  // **La cau en les seves dues meitats** (0.189.164): a session that is in the memory and on the disk is one session in two
+  // places, o sigui que un sol número deia «6» quan n'hi havia tres. Són els mateixos comptes que `forget_cache` torna amb
+  // els noms `blocks` i `files`, i el que la pàgina ensenya deixa de contradir el botó que ho esborra (docs/30, docs/75).
+  uint32_t cache_blocks = 0;
+  uint32_t cache_files = 0;
 };
 
 // **Què ocupa una app, fora de la seva carpeta** (0.189.160): the grounds of an app that a page cannot walk for itself —its data
@@ -942,13 +946,16 @@ struct UIOps {
   // **I el gràfic d'una sèrie en el temps** (0.189.144): la línia, el marc, les tres guies amb els seus números i les
   // dues hores de la finestra. Els valors i els minuts els dona l'app, que és qui sap quina finestra ensenya.
   bool (*chart_draw)(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
-                     uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high);
+                     uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high,
+                     uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes);
   bool (*pie_draw)(int16_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background);
   // **A calendar month** (docs/30, docs/90): seven columns and six weeks, the names of the days from the app —a
   // language is not the kernel's— and which day a point of the grid is on, for the finger.
+  // **I els dies que tenen alguna cosa, en un bit cada un** (0.189.171): the calendar of an agenda says which days are
+  // not empty, and that is a fact the app has and the control did not know how to draw (docs/30, docs/45).
   bool (*month_draw)(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
-                     const char* const* weekdays, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
-                     bool focused);
+                     const char* const* weekdays, uint32_t marks, uint8_t text, uint8_t dim, uint8_t background,
+                     uint8_t scale, bool focused);
   uint8_t (*month_hit)(int16_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y);
   // **The days of a month**, from the one copy of the leap year rule in the system: the dial of a calendar stops at
   // the end of a month and not at the thirty-first of every one (docs/60, docs/90).

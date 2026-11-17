@@ -1365,6 +1365,24 @@ void note_the_queue(const char* why) {
   }
 }
 
+// **El que la cua ja té amb aquesta configuració, si ho té** (0.189.172, l'amo: *«les alarmes de les apps es multipliquen,
+// fes que el sistema pugui avisar a l'app de que ja te una alarma amb aquesta configuració. L'app podrà decidir si
+// esborrar-la i crear una nova o no fer res»*). The call answers **two values**: the id of the alarm that is in the queue
+// with this configuration, and `true` when there was already one and nothing was added. O sigui que una app que només llegeix
+// el primer valor —totes les que hi ha avui— no arma la mateixa promesa dues vegades, i la que vol una hora nova diu
+// `alarm.cancel(id)` i torna a preguntar (docs/30, docs/60).
+//
+// Returns how many values it pushed —0 when there is nothing to say— so the caller has one line to answer with.
+int answer_the_same_alarm(lua_State* L, const alarms::Spec& spec) {
+  const uint32_t same = alarms::find_same(spec);
+  if (same == 0) return 0;
+  hal::logf(pal::kLogInfo, "ALARM", "%s already has #%u with this configuration: nothing added", alarm_owner(),
+            static_cast<unsigned>(same));
+  lua_pushinteger(L, static_cast<lua_Integer>(same));
+  lua_pushboolean(L, 1);
+  return 2;
+}
+
 int l_alarm_at(lua_State* L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   if (alarm_owner()[0] == '\0') {
@@ -1432,6 +1450,10 @@ int l_alarm_at(lua_State* L) {
     return raise_coded(L, "E_INVAL", "the payload of an alarm is a string or a number");
   }
 
+  // **La promesa que ja hi és es diu i no es torna a armar**: the app decides what to do with the answer (docs/30).
+  const int answered = answer_the_same_alarm(L, spec);
+  if (answered > 0) return answered;
+
   const uint32_t id = alarms::add(spec);
   if (id == 0) return raise_coded(L, "E_NOMEM", "no room for another alarm");
   char why[64];
@@ -1458,6 +1480,10 @@ int l_alarm_after(lua_State* L) {
   if (!read_payload(L, 2, spec, store, sizeof(store))) {
     return raise_coded(L, "E_INVAL", "the payload of an alarm is a string or a number");
   }
+
+  // **La promesa que ja hi és es diu i no es torna a armar**: the app decides what to do with the answer (docs/30).
+  const int answered = answer_the_same_alarm(L, spec);
+  if (answered > 0) return answered;
 
   const uint32_t id = alarms::add(spec);
   if (id == 0) return raise_coded(L, "E_NOMEM", "no room for another alarm");
@@ -4878,7 +4904,8 @@ bool spark_field_valid(lua_State* L, const char* key, int value) {
 bool is_chart_field(const char* key) {
   return strcmp(key, "values") == 0 || strcmp(key, "times") == 0 || strcmp(key, "color") == 0 ||
          strcmp(key, "background") == 0 || strcmp(key, "scale") == 0 || strcmp(key, "suffix") == 0 ||
-         strcmp(key, "min") == 0 || strcmp(key, "max") == 0;
+         strcmp(key, "min") == 0 || strcmp(key, "max") == 0 || strcmp(key, "decimals") == 0 ||
+         strcmp(key, "left") == 0 || strcmp(key, "right") == 0 || strcmp(key, "gap") == 0;
 }
 
 bool chart_field_valid(lua_State* L, const char* key, int value) {
@@ -4886,9 +4913,17 @@ bool chart_field_valid(lua_State* L, const char* key, int value) {
     return lua_istable(L, value) || lua_isnil(L, value);
   }
   if (strcmp(key, "suffix") == 0) return lua_isstring(L, value) || lua_isnil(L, value);
+  // **Els dos caps de l'eix són els de l'app** (0.189.169): the window of a day says an hour and the window of a quarter
+  // says a date, i això no ho pot saber un control que només rep minuts (docs/30, docs/90).
+  if (strcmp(key, "left") == 0 || strcmp(key, "right") == 0) return lua_isstring(L, value) || lua_isnil(L, value);
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
   if (strcmp(key, "scale") == 0) return number >= 1 && number <= 8;
+  // **Els decimals del número** (0.189.169): zero (una bateria), un (un termòmetre) o dos, i el valor arriba multiplicat
+  // per la potència de deu que diu aquest camp.
+  if (strcmp(key, "decimals") == 0) return number >= 0 && number <= 2;
+  // **El forat, en minuts** (0.189.169): zero és «no hi ha forat possible», que és el que demana una sèrie ja aprimada.
+  if (strcmp(key, "gap") == 0) return number >= 0 && number <= 255;
   // **Els dos caps de l'escala són números qualssevol**: a chart of temperatures goes under zero and one of a battery goes to
   // a hundred, so the range is not the range of a tone (docs/90).
   if (strcmp(key, "min") == 0 || strcmp(key, "max") == 0) {
@@ -4904,11 +4939,16 @@ bool is_pie_field(const char* key) { return strcmp(key, "slices") == 0 || strcmp
 bool is_month_field(const char* key) {
   return strcmp(key, "year") == 0 || strcmp(key, "month") == 0 || strcmp(key, "selected") == 0 ||
          strcmp(key, "today") == 0 || strcmp(key, "weekdays") == 0 || strcmp(key, "color") == 0 ||
-         strcmp(key, "dim") == 0 || strcmp(key, "scale") == 0;
+         strcmp(key, "dim") == 0 || strcmp(key, "scale") == 0 ||
+         // **Els dies que tenen alguna cosa** (0.189.171): a list of day numbers, which is the dot an agenda's calendar
+         // has under the days that are not empty (docs/30, docs/45).
+         strcmp(key, "marks") == 0;
 }
 
 bool month_field_valid(lua_State* L, const char* key, int value) {
-  if (strcmp(key, "weekdays") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (strcmp(key, "weekdays") == 0 || strcmp(key, "marks") == 0) {
+    return lua_istable(L, value) || lua_isnil(L, value);
+  }
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
   if (strcmp(key, "year") == 0) return number >= 1 && number <= 9999;
@@ -7222,10 +7262,24 @@ int l_month_draw(lua_State* L) {
       lua_pop(L, 1);
     }
   }
+  // **Els dies marcats, en un bit cada un** (0.189.171): the app hands a list of days (`{ 3, 8, 21 }`) and the kernel turns
+  // it into the mask the drawing reads, perquè el control no haja de recórrer una taula de Lua a cada píxel.
+  uint32_t marks = 0;
+  lua_getfield(L, fields, "marks");
+  if (lua_istable(L, -1)) {
+    const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+    for (lua_Integer i = 1; i <= total; ++i) {
+      lua_rawgeti(L, -1, i);
+      const lua_Integer day = lua_isnumber(L, -1) ? lua_tointeger(L, -1) : 0;
+      if (day >= 1 && day <= 31) marks |= (1u << static_cast<uint32_t>(day - 1));
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);
   g_ui_ops.month_draw(canvas->slot, static_cast<uint16_t>((year < 1) ? 1 : year),
                       static_cast<uint8_t>((month < 1 || month > 12) ? 1 : month),
                       static_cast<uint8_t>((selected < 0) ? 0 : selected),
-                      static_cast<uint8_t>((today < 0) ? 0 : today), weekdays,
+                      static_cast<uint8_t>((today < 0) ? 0 : today), weekdays, marks,
                       ink_or_dim(off, text), static_cast<uint8_t>(dim),
                       static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale),
                       focused && !off.on);
@@ -7253,6 +7307,8 @@ int l_ui_month(lua_State* L) {
   lua_setfield(L, -2, "today");
   lua_newtable(L);
   lua_setfield(L, -2, "weekdays");
+  lua_newtable(L);
+  lua_setfield(L, -2, "marks");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "color");
   lua_pushinteger(L, 8);
@@ -7495,8 +7551,27 @@ int l_chart_draw(lua_State* L) {
   // **A sample with no minute is a sample with no clock**: the array of minutes is the values' or it is not there at
   // all, and the second case is the samples one after the other and the axis saying so (docs/90).
   for (uint8_t i = when; i < count; ++i) times[i] = -1;
+  // **Els decimals i els dos textos de l'eix** (0.189.169): unobtrusive defaults —zero decimals and the chart's own hour—
+  // so that an app that does not say anything keeps the drawing of the 0.189.144 (docs/30, docs/90).
+  int decimals = 0;
+  lua_getfield(L, fields, "decimals");
+  decimals = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  char axis_left[16] = {0};
+  char axis_right[16] = {0};
+  lua_getfield(L, fields, "left");
+  if (lua_isstring(L, -1)) snprintf(axis_left, sizeof(axis_left), "%s", lua_tostring(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "right");
+  if (lua_isstring(L, -1)) snprintf(axis_right, sizeof(axis_right), "%s", lua_tostring(L, -1));
+  lua_pop(L, 1);
+  int gap = 60;
+  lua_getfield(L, fields, "gap");
+  if (lua_isnumber(L, -1)) gap = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
   g_ui_ops.chart_draw(canvas->slot, values, times, count, ink_or_dim(off, static_cast<uint8_t>(color)),
-                      static_cast<uint8_t>(background), static_cast<uint8_t>(scale), suffix, low, high);
+                      static_cast<uint8_t>(background), static_cast<uint8_t>(scale), suffix, low, high,
+                      static_cast<uint8_t>(decimals), axis_left, axis_right, static_cast<uint8_t>(gap));
   lua_pop(L, 3);  // the times, the values and the fields table
   return 0;
 }
@@ -7522,6 +7597,15 @@ int l_ui_chart(lua_State* L) {
   lua_setfield(L, -2, "min");
   lua_pushinteger(L, kChartHigh);
   lua_setfield(L, -2, "max");
+  // **I els tres camps que el dibuix llegeix sempre** (0.189.169): zero decimals i cap text d'eix són el dibuix de sempre.
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "decimals");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "left");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "right");
+  lua_pushinteger(L, 60);
+  lua_setfield(L, -2, "gap");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "color");
   lua_pushinteger(L, 15);
@@ -13095,10 +13179,10 @@ int l_admin_triple_tap_close(lua_State* L) {
 
 // **`admin.uninstall(id)`: l'app marxa, i amb ella el que havia deixat al sistema** (0.189.157, l'amo: *«Permet
 // desinstalarla (esborrarla)»* i *«i que passa amb les alarmes que ha deixat l'app al sistema si es desinstala?»*). La
-// carpeta de l'app al seu disc, **les alarmes que havia armat** i els blocs de sessió que havia escrit; els ajustos i la dada
-// de la persona es queden. Torna una taula amb el que ha deixat anar —«files», «bytes», «alarms» i «sessions»—
-// perquè una pàgina pugui dir-ho, i `nil, error` quan no hi ha cap app amb aquell nom o quan és la pàgina mateixa (docs/30,
-// docs/40).
+// carpeta de l'app al seu disc, **les alarmes que havia armat** i la cau de sessions que havia escrit; els ajustos i la dada
+// de la persona es queden. Torna una taula amb el que ha deixat anar —«files», «bytes», «alarms», «cache_blocks» i
+// «cache_files»— perquè una pàgina pugui dir-ho, i `nil, error` quan no hi ha cap app amb aquell nom o quan és la pàgina
+// mateixa (docs/30, docs/40).
 int l_admin_uninstall(lua_State* L) {
   if (g_admin_ops.uninstall == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build cannot remove an app");
@@ -13108,15 +13192,19 @@ int l_admin_uninstall(lua_State* L) {
   if (!g_admin_ops.uninstall(id, gone)) {
     return push_nil_error(L, "E_INVAL", "that is not an app of this board, or it is the one that is running");
   }
-  lua_createtable(L, 0, 4);
+  lua_createtable(L, 0, 5);
   lua_pushinteger(L, static_cast<lua_Integer>(gone.files));
   lua_setfield(L, -2, "files");
   lua_pushinteger(L, static_cast<lua_Integer>(gone.bytes));
   lua_setfield(L, -2, "bytes");
   lua_pushinteger(L, static_cast<lua_Integer>(gone.alarms));
   lua_setfield(L, -2, "alarms");
-  lua_pushinteger(L, static_cast<lua_Integer>(gone.sessions));
-  lua_setfield(L, -2, "sessions");
+  // **Les dues meitats de la cau i no la seva suma** (0.189.164): a block of the memory and its file are one session, o sigui
+  // que el número sol deia el doble del que hi havia (docs/30, docs/75).
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.cache_blocks));
+  lua_setfield(L, -2, "cache_blocks");
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.cache_files));
+  lua_setfield(L, -2, "cache_files");
   return 1;
 }
 
@@ -13134,7 +13222,7 @@ int l_admin_forget_cache(lua_State* L) {
     return push_nil_error(L, "E_INVAL", "that is not an app of this board");
   }
   lua_createtable(L, 0, 3);
-  lua_pushinteger(L, static_cast<lua_Integer>(gone.sessions));
+  lua_pushinteger(L, static_cast<lua_Integer>(gone.cache_blocks));
   lua_setfield(L, -2, "blocks");
   lua_pushinteger(L, static_cast<lua_Integer>(gone.files));
   lua_setfield(L, -2, "files");

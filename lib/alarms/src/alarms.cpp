@@ -90,6 +90,27 @@ const Entry* at(uint32_t index) {
   return &g_entries[index];
 }
 
+// The rule is the header's; here it is only the walk and the comparison (docs/60).
+uint32_t find_same(const Spec& spec) {
+  if (spec.app == nullptr || spec.app[0] == '\0') return 0;
+  const int32_t period = (spec.repeat_ms > 0) ? spec.repeat_ms : 0;
+  const Payload kind = (spec.payload != nullptr) ? spec.payload_kind : Payload::kNone;
+  const char* text = (spec.payload != nullptr) ? spec.payload : "";
+  for (uint32_t i = 0; i < g_count; ++i) {
+    const Entry& entry = g_entries[i];
+    if (strcmp(entry.app, spec.app) != 0) continue;
+    if (entry.repeat_ms != period) continue;
+    if (entry.raise_to_front != spec.raise_to_front) continue;
+    if (entry.persist != spec.persist) continue;
+    if (entry.payload_kind != kind) continue;
+    if (strcmp(entry.payload, text) != 0) continue;
+    if (entry.repeat_ms != 0) return entry.id;
+    const int64_t delta = entry.on_mono_ms - spec.on_mono_ms;
+    if (delta <= kSameShotMs && delta >= -kSameShotMs) return entry.id;
+  }
+  return 0;
+}
+
 uint32_t add(const Spec& spec) {
   if (g_count >= kMaxAlarms) return 0;
   if (spec.app == nullptr || spec.app[0] == '\0') return 0;

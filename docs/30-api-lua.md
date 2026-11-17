@@ -155,7 +155,7 @@ funció.
 | `sys.delay(ms)` ⏳ | promesa | Espera sense tocar la cua d'alarmes ni el port sèrie |
 | `sys.time_ms()` | enter | Rellotge monòton en mil·lisegons. **Mai salta enrere** |
 | `sys.turn()` | enter | **Quantes instruccions val un torn de l'app** (0.174.7): el pressupost que el comptador de l'intèrpret compara, que és un ajust de la placa —`cfg turn <n>`— i no una constant. Una app que raoni sobre torns (`luaperf` en mesura el preu) el pregunta aquí i no se'n copia el número, perquè qui el canvia és una persona al prompt (docs/20, docs/75) |
-| `sys.session(key, bytes)` | **un objecte** o `nil, error` | **Una memòria de sessió, que el nucli guarda per a aquesta app sota aquesta clau** (0.179.0): la demana una vegada i la troba cada cop que l'app torna a arrencar. **I des de la 0.189.8 tampoc no es perd en apagar la placa**: el bloc s'escriu a **`/session/<id>/<key>`** (la targeta, o el flaix si no n'hi ha) quan l'app s'acaba —el bloc es queda a la memòria i només se'l queda l'allocator quan falta— i la petició que ve després d'un arrencada el llegeix del disc: `[I][MEMORY] home_eink asks for 'apps': 32768 B, restored 32768 B from the disk`. **I abans d'apagar o de reiniciar la placa s'escriuen tots els blocs que hi ha a la memòria** (`park_all`, 0.189.11), amb una línia per bloc que diu l'`id`, la `key`, els bytes, la ruta i el motiu: `lua parks 'one': 1024 B to /session/lua/one in 13 ms (the board is going off)`. **I un bloc els bytes del qual ja són al disc no s'escriu** (0.189.53): el nucli en guarda una petjada dels bytes que el disc té i un desament que la troba —i el fitxer hi és, amb la mida del bloc— no toca la flash: `home_eink does not park 'apps': the 32768 B on the disk are the ones it has (the app has ended)`. O sigui que desar la forma dues vegades seguides costa una comparació i no una escriptura, i el resum del desament diu les dues xifres (`0 session block(s) written, 3 already there`, docs/75). **`sessions` al prompt** diu què hi ha ara a la memòria **i què només és un fitxer** —`id`, `key`, bytes, `memory`/`memory+disk`/`disk only` i **la ruta del VFS**—, i **`sessions destroy [<id> [<key>]]`** esborra de la memòria i del disc (0.189.11, i amb una sola paraula des de la 0.189.17): **sense res, tot**; **amb un id, tot el d'una app**; **amb dos, aquella sessió i prou**; les claus són **de l'app i no del sistema** (`"apps"` és un bloc per al llançador i un altre per a l'app que vingui després), el bloc és **a zero** el primer cop (així una app distingeix una caché freda d'una de calenta) i pot ser més petit del que s'ha demanat: `size()` diu el que té de debò. `read(offset, n)`, `write(offset, text)` —que torna els bytes que hi han cabut—, `clear()`, `size()`, **`release()`** (0.179.3, l'app dóna el bloc abans d'acabar) i **`alive()`** (0.179.8, i és la pregunta que fa un bloc quan el sistema se l'ha pogut quedar: `true` mentre sigui el bloc que el nucli va donar, `false` des que el relleu de l'allocator l'ha donat per falta de memòria; les altres crides d'un bloc que se n'ha anat aixequen `the session memory was given back` i no llegeixen res, i una app que pregunti abans d'usar-lo i en demani un altre quan la resposta és `false` no perd la pàgina, docs/75); `nil, E_NOMEM` vol dir que no hi ha lloc i l'app segueix sense caché. **I cada moviment seu surt al registre** (0.179.3): `[I][MEMORY] home_eink asks for 'apps': 32768 B, made`, `… and it has them`, `… grown from 4096`, `[I][MEMORY] hog gives back 'hog': 4096 B` i, quan és el sistema qui el pren, `[I][MEMORY] … the memory is short` amb `[W][MEMORY] the memory is short: 2 block(s), 1081344 B given back for an ask of 1024 B` al darrere —**el sistema només hi va quan una petició ha fallat**, i el bloc que la petició està movent es queda: `[I][MEMORY] home_eink keeps 'apps': 32768 B, it is the block that asked` (0.179.6, docs/75). **I la falta de memòria té un ordre** (0.189.11): primer van al disc les cachés de les apps que **no** són al vidre i només si això no cobreix la petició la de l'app que hi és, que la torna a trobar quan la demana. **I el nombre de sessions d'una app no té sostre** (0.189.36, l'amo: *«Les apps han de poder fer totes les sesions que vulguin. fins que la ram o el disc rebenti!»*): la taula de vuit blocs del nucli va marxar i un bloc és un node de quaranta-vuit bytes que es fa quan es demana i es torna quan es torna, o sigui que l'única resposta que no és un bloc és la de la memòria (`there is no room`), i `sessions` i `mem` diuen el número que hi ha i no el que hi cabia |
+| `sys.session(key, bytes)` | **un objecte** o `nil, error` | **Una memòria de sessió, que el nucli guarda per a aquesta app sota aquesta clau** (0.179.0): la demana una vegada i la troba cada cop que l'app torna a arrencar. **I des de la 0.189.8 tampoc no es perd en apagar la placa**: el bloc s'escriu a **`/session/<id>/<key>`** (la targeta, o el flaix si no n'hi ha) quan l'app s'acaba —el bloc es queda a la memòria i només se'l queda l'allocator quan falta— i la petició que ve després d'un arrencada el llegeix del disc: `[I][MEMORY] home_eink asks for 'apps': 32768 B, restored 32768 B from the disk`. **Amb una excepció, la clau `state`**: el nucli l'esborra a cada arrencada (0.189.167, § la sessió `state`), o sigui que el que una app torna a trobar després d'un reinici és la seva caché (`apps`, `index`…) i no la forma de la vista. **I abans d'apagar o de reiniciar la placa s'escriuen tots els blocs que hi ha a la memòria** (`park_all`, 0.189.11), amb una línia per bloc que diu l'`id`, la `key`, els bytes, la ruta i el motiu: `lua parks 'one': 1024 B to /session/lua/one in 13 ms (the board is going off)`. **I un bloc els bytes del qual ja són al disc no s'escriu** (0.189.53): el nucli en guarda una petjada dels bytes que el disc té i un desament que la troba —i el fitxer hi és, amb la mida del bloc— no toca la flash: `home_eink does not park 'apps': the 32768 B on the disk are the ones it has (the app has ended)`. O sigui que desar la forma dues vegades seguides costa una comparació i no una escriptura, i el resum del desament diu les dues xifres (`0 session block(s) written, 3 already there`, docs/75). **`sessions` al prompt** diu què hi ha ara a la memòria **i què només és un fitxer** —`id`, `key`, bytes, `memory`/`memory+disk`/`disk only` i **la ruta del VFS**—, i **`sessions destroy [<id> [<key>]]`** esborra de la memòria i del disc (0.189.11, i amb una sola paraula des de la 0.189.17): **sense res, tot**; **amb un id, tot el d'una app**; **amb dos, aquella sessió i prou**; les claus són **de l'app i no del sistema** (`"apps"` és un bloc per al llançador i un altre per a l'app que vingui després), el bloc és **a zero** el primer cop (així una app distingeix una caché freda d'una de calenta) i pot ser més petit del que s'ha demanat: `size()` diu el que té de debò. `read(offset, n)`, `write(offset, text)` —que torna els bytes que hi han cabut—, `clear()`, `size()`, **`release()`** (0.179.3, l'app dóna el bloc abans d'acabar) i **`alive()`** (0.179.8, i és la pregunta que fa un bloc quan el sistema se l'ha pogut quedar: `true` mentre sigui el bloc que el nucli va donar, `false` des que el relleu de l'allocator l'ha donat per falta de memòria; les altres crides d'un bloc que se n'ha anat aixequen `the session memory was given back` i no llegeixen res, i una app que pregunti abans d'usar-lo i en demani un altre quan la resposta és `false` no perd la pàgina, docs/75); `nil, E_NOMEM` vol dir que no hi ha lloc i l'app segueix sense caché. **I cada moviment seu surt al registre** (0.179.3): `[I][MEMORY] home_eink asks for 'apps': 32768 B, made`, `… and it has them`, `… grown from 4096`, `[I][MEMORY] hog gives back 'hog': 4096 B` i, quan és el sistema qui el pren, `[I][MEMORY] … the memory is short` amb `[W][MEMORY] the memory is short: 2 block(s), 1081344 B given back for an ask of 1024 B` al darrere —**el sistema només hi va quan una petició ha fallat**, i el bloc que la petició està movent es queda: `[I][MEMORY] home_eink keeps 'apps': 32768 B, it is the block that asked` (0.179.6, docs/75). **I la falta de memòria té un ordre** (0.189.11): primer van al disc les cachés de les apps que **no** són al vidre i només si això no cobreix la petició la de l'app que hi és, que la torna a trobar quan la demana. **I el nombre de sessions d'una app no té sostre** (0.189.36, l'amo: *«Les apps han de poder fer totes les sesions que vulguin. fins que la ram o el disc rebenti!»*): la taula de vuit blocs del nucli va marxar i un bloc és un node de quaranta-vuit bytes que es fa quan es demana i es torna quan es torna, o sigui que l'única resposta que no és un bloc és la de la memòria (`there is no room`), i `sessions` i `mem` diuen el número que hi ha i no el que hi cabia |
 | `sys.session_destroy(key)` | **una taula** o `nil, error` | **Una app llença una sessió seva** (0.189.16): la del `key`, **de la memòria i del disc**, i les altres sessions de l'app no es toquen. És l'única de les tres portes que ho fa de debò: `release()` dóna el bloc **i el desa al disc**, i `clear()` posa els bytes a zero i la propera arrencada torna a llegir el fitxer. Torna `{blocks, files, bytes}` —què hi havia i què s'ha esborrat: `32768` bytes d'una caché, o zeros si no hi era, que no és cap error—, i el rellotge de generacions fa que un objecte de l'app que encara tingui el bloc respongui `alive() == false` i que les seves crides aixequin `the session memory was given back` (docs/30, docs/75). És el que fa servir una pàgina que ha d'esborrar la seva caché quan la persona ho demana, sense passar pel prompt |
 | `sys.reboot([reason])` | no torna | **Reinicia la placa** (0.171.0): la imatge del moment (el dibuix `reboot` del splash) va al vidre, s'espera la tinta i la placa torna a arrencar. `reason` és el que queda al log —`[I][APPS] wipe restarts the board: the NVS was erased`—, i el que fa la feina és el mateix `reboot` del prompt (docs/50). **No torna**: la VM de l'app mor amb la placa, i per això el que calgui desar s'ha de desar abans |
 | `sys.deepsleep([reason])` | no torna, o `nil, error` | **La placa s'adorm amb les tecles vives** (0.189.25): la imatge del `sleep` va al vidre, l'app es tanca amb els seus comiats, les sessions s'escriuen i el xip dorm **mantenint el corrent**, amb la **tecla del dial (GPIO38)** com a despertar. És la lluna de la targeta de la barra i el `deepsleep` del prompt, i les tres coses són el mateix camí (docs/50). **No és `power.sleep('deep')`**, que en aquesta placa és una apagada esperant una hora, ni `sys.reboot`, que torna sol: aquí torna quan una persona prem una tecla, i **l'app torna a començar** —un son profund és un reset— amb la pàgina a la tinta mentrestant. `reason` va al log amb el nom de qui ho demana. Una placa que no té cap tecla en un pin que el xip vigili respon `nil, E_UNSUPPORTED` **sense gastar la imatge** |
@@ -191,6 +191,12 @@ preferència.** Un tema fosc és una preferència encara que canviï la vista; l
 | `marked=<n>` | la fila triada d'una llista, quan la tria és part de la vista |
 | `check:<nom>=0\|1` | una casella |
 | `text:<nom>=<text>` | el contingut d'una caixa, amb `\n` i `\\` escapats |
+
+**I una llista de coses es desa repetint la clau** (0.189.165): la calculadora hi guarda l'historial de les operacions amb una
+línia `h=<el que es va fer>` per operació —`h=2 + 3 = 5`—, de la més vella a la més nova, i la que no hi cap és la primera que
+marxa. És el mateix format d'una cosa per línia, i val per a una llista que no es pot anomenar (`focus`, `page`) perquè cada
+entrada és una cosa diferent i no un valor de la pàgina. **No porta els escapes de `text:`** i no els ha de portar: una línia
+de la calculadora només pot tenir xifres, els quatre signes, un punt, un espai, un `=` i l'`e` d'un exponent.
 
 **El codi que desa i recupera és el mateix a totes les apps** i es copia sencer: no és una cosa que cada app pugui
 inventar-se, perquè una app que ho fa a la seva manera és una app on el format canvia sense que ningú ho vegi.
@@ -288,6 +294,10 @@ end
 - **El focus va pel nom i no pel número**: els noms són de l'app (`'ok'`, `'search'`, `'tab-settings'`) i el número d'un
   control és un forat de la taula de llenços que canvia quan la pàgina es torna a fer.
 - **Un `nil` de `sys.session` no és cap error**: vol dir que no hi ha hagut lloc per al bloc i l'app va sense record.
+- **I el bloc no sobreviu a una arrencada** (0.189.167): the system throws the `state` of every app away as it boots, so a page
+  never comes back to the shape of yesterday —una pestanya, una pàgina d'una llista, un anell—, que és el que fa una app quan
+  canvia de forma i la forma vella ja no vol dir res. **És el `state` i no tot**: les claus propies (`apps`, `index`…) i el que
+  l'app té a `fs.data` es queden.
 
 ### Quan es desa i quan es llegeix
 
@@ -298,6 +308,7 @@ end
 | **Abans de marxar a una sub-vista** | es desa, i la sub-vista que torna el llegeix i deixa la pàgina com era |
 | **`on_pause`, `on_save` i `on_close`** | les tres portes que el shell crida quan l'app s'acaba (docs/40): es desa aquí **també**, perquè una app pot no haver vist venir el tancament |
 | **Apagar o reiniciar la placa** | no és cosa de l'app: el nucli desa tots els blocs abans de plegar (0.189.11, docs/75) |
+| **Arrencar la placa** | **el `state` de totes les apps s'esborra** (0.189.167, l'amo: *«el session state de totes les apps s'ha d'esborrar al iniciar el sistema»*): la forma d'una pàgina és la d'una tirada i una arrencada comença pel principi. El que una app recorda **dins** de la mateixa tirada no es toca —el bloc es desa quan l'app s'acaba i es torna a llegir quan s'obre—, i les altres claus (`apps`, `index`…) tampoc: el nucli oblida aquesta i només aquesta (`session::forget_key("state")`, la mateixa porta que `sessions destroy state`) |
 
 ### Quan la vista canvia de forma
 
@@ -970,7 +981,7 @@ sobrevisquin a un reinici i a la destrucció de la VM.
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `alarm.at(spec)` | enter (id) | `spec` = `{on=època}` o `{in_ms=ms}`, més `payload`, `repeat`, `raise`, `persist` |
+| `alarm.at(spec)` | enter (id) i, **si ja hi era, `true`** | `spec` = `{on=època}` o `{in_ms=ms}`, més `payload`, `repeat`, `raise`, `persist` |
 | `alarm.after(ms[, payload])` | enter (id) | Drecera: alarma d'un sol cop |
 | `alarm.cancel(id)` | booleà | |
 | `alarm.list()` | taula | `{id, on, repeat, persist, raise, app}` de cada alarma — **`app` és de qui és** (0.189.157), que és el que una pàgina d'apps compta abans d'esborrar-ne una |
@@ -1001,6 +1012,33 @@ hora:minut dia/mes/any»*):
 
 `meta` que rep `on_alarm` és `{late_ms, missed}`: quant tard s'ha entregat i quantes repeticions
 s'han perdut mentre el sistema era apagat.
+
+**Una promesa que ja hi és no es torna a armar** (0.189.172, l'amo: *«les alarmes de les apps es multipliquen, fes que el
+sistema pugui avisar a l'app de que ja te una alarma amb aquesta configuració. L'app podrà decidir si esborrar-la i crear-ne
+una de nova o no fer res»*). `alarm.at` torna **dos valors**: l'id de l'alarma que queda a la cua amb aquella configuració i
+`true` quan ja hi era i no s'ha afegit res.
+
+```lua
+local id, same = alarm.at{ in_ms = 600000, payload = 'sample', ["repeat"] = 600, persist = true }
+if same then
+  -- **Dues maneres, i les tria l'app**: la promesa de sis-cents segons que ja compta, o una de nova amb la vella esborrada.
+  if wanted_a_fresh_one then
+    alarm.cancel(id)
+    id = alarm.at{ in_ms = 600000, payload = 'sample', ["repeat"] = 600, persist = true }
+  end
+end
+```
+
+- **Què vol dir «la mateixa configuració»**: el `payload`, el `repeat`, el `raise` i el `persist`. **Una alarma que es
+  repeteix no té hora pròpia** —torna a la cua a la seva ocurrència següent— i per això el seu període i el seu payload són
+  tota la configuració; una d'un sol cop és la seva hora, i es compara **al segon**, perquè dues crides que demanen el mateix
+  instant amb mig segon de diferència són la mateixa promesa i no dues.
+- **Una app que només llegeix el primer valor no ha de fer res**: continua rebent un id vàlid i la seva alarma no es
+  duplica. Les que ja hi ha (la `battery`, el `meteo`, el `clock`, l'`agenda`) funcionen igual que abans.
+- **El sistema deixa la línia al registre**: `[I][ALARM] meteo already has #2 with this configuration: nothing added`.
+- **I `alarm.cancel` només esborra les pròpies**: una app que buidi la cua mirant `alarm.list()` **ha de filtrar per
+  `app`**, o s'emporta els avisos de les altres i les altres els tornen a armar a la càrrega següent —que és la meitat de la
+  multiplicació que aquesta crida ve a aturar—.
 
 **Tot el que passa amb una alarma surt al registre** (0.189.149, l'amo: *«Vull que quan una app afegeixi, tregui o rebi una
 alarma surti al log»*). Són línies del sistema i no de l'app, i per tant una app no ha de fer res per tenir-les —però sí que
@@ -1665,9 +1703,9 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 656 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (una que no sigui `readonly`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0). **Des de 0.107.0 les tecles fan 64 píxels d'alt** i la lletra ocupa l'alçada de la tecla, i el backspace té la icona del seu símbol |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
-| `ui.chart(w, h)` | **un objecte** o `nil, error` | **Una sèrie en el temps, amb escala i hores** (0.189.144): `values` (els números, el més vell primer), `times` (el minut del dia de cada un, **negatiu quan la placa no té rellotge**), `suffix` (el que s'escriu després dels tres números, `'%'`), `scale` (el pas dels números), `min`/`max` (el **rang físic** de la sèrie, zero i cent per defecte) i els dos tons. Dibuixa el marc, tres guies amb el seu número a l'esquerra, la línia pels punts, el quadrat de l'última mostra i les dues hores de la finestra; **quaranta-vuit mostres com a molt** i la línia es talla on el registre té un forat. **No és enfocable** |
+| `ui.chart(w, h)` | **un objecte** o `nil, error` | **Una sèrie en el temps, amb escala i hores** (0.189.144): `values` (els números, el més vell primer), `times` (el minut del dia de cada un, **negatiu quan la placa no té rellotge**), `suffix` (el que s'escriu després dels tres números, `'%'`), `scale` (el pas dels números), `min`/`max` (el **rang físic** de la sèrie, zero i cent per defecte), **`decimals`** (0, 1 o 2: el valor arriba multiplicat per la potència de deu que diu aquest camp, 0.189.169), **`left`/`right`** (els dos textos de l'eix, que són de l'app perquè una hora no és una data) i **`gap`** (els minuts de forat, `60` per defecte —sis mostres d'un registre de deu minuts— i **`0` = no n'hi ha cap**, que és el que demana una sèrie ja aprimada), i els dos tons. Dibuixa el marc, tres guies amb el seu número a l'esquerra, la línia pels punts, el quadrat de l'última mostra i les dues puntes de l'eix; **quaranta-vuit mostres com a molt** i la línia es talla on el registre té un forat. **No és enfocable** |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
-| `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app **i van de dilluns a diumenge**), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0). **Des de la 0.170.0 la primera columna i els noms giren amb `time.week`** i el febrer té els dies que digui `time.leap` |
+| `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app **i van de dilluns a diumenge**), **`marks`** (la llista dels dies que porten un punt, 0.189.171), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0). **Des de la 0.170.0 la primera columna i els noms giren amb `time.week`** i el febrer té els dies que digui `time.leap` |
 | `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` porta **un filet d'un píxel** i la del dial és una **banda de tinta d'extrem a extrem** (0.177.0: era una tecla amb relleu i la primària s'invertia). Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
 | `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc que el sistema fa parpellejar), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |
@@ -1858,10 +1896,11 @@ i el contracte.
   Una app que porta la seva pròpia còpia d'una cara **la veu ella i la resta de la placa no**, i el llistat
   del disc des del prompt no la inclou: la carpeta és de l'app que corre (docs/70).
   El que hi ha avui: `dejavusans.ttf` (9 948 B), `dejavusans-bold.ttf` (**9 416 B**), `dejavusansmono.ttf`
-  (8 084 B), `dejavuserif.ttf` (10 896 B), `dejavusans-latin1.ttf` (21 360 B) i `dejavuserif-latin1.ttf`
-  (23 856 B) —les quatre primeres retallades a l'ASCII imprimible amb `pyftsubset`, i les dues `-latin1` amb
-  `tools/ttf_latin1.py`, la del serif amb `--set latin1` (per als llibres) i la del sans amb `--set signs`
-  (la del sistema, més avall)—, **una de cada format de bits que el nucli llegeix** —`sample-8x8.bdf` (862 B),
+  (8 084 B), `dejavuserif.ttf` (10 896 B), `dejavusans-latin1.ttf` (21 360 B), `dejavuserif-latin1.ttf`
+  (23 856 B) i **`dejavusans-bold-latin1.ttf`** (20 312 B, 0.189.170) —les quatre primeres retallades a l'ASCII
+  imprimible amb `pyftsubset`, i les tres `-latin1` amb `tools/ttf_latin1.py`, les dues del serif i del sans amb
+  `--set latin1` (per als llibres i per a un número que porta el grau) i la del sistema amb `--set signs`
+  (més avall)—, **una de cada format de bits que el nucli llegeix** —`sample-8x8.bdf` (862 B),
   `sample-8x8.pcf` (968 B) i `dejavusansmono-6x12.lfont` (9 017 B, fet amb `tools/ttf_to_lfont.py` a cos de
   deu píxels)—, i la llicència de DejaVu al costat, `/fonts/LICENCE.txt`. El lector i l'editor les fan
   servir i no en guarden cap còpia, i **les tres de bits hi són perquè la placa ensenya els quatre lectors
@@ -1989,6 +2028,14 @@ i el contracte.
   calculadora de `test_apps`, que llegeix l'amplada dels quatre signes i una amplada de zero és un test
   vermell. El que no hi cap segueix sent un forat: la cara del sistema **no** porta les lletres amb accent,
   i una app que les vol carrega `/fonts/dejavusans-latin1.ttf` amb `ui.load_font`.
+
+- **I el mateix passa amb el grau d'un termòmetre** (0.189.170, la `Meteo`): `°` és el codi **176** de Latin-1, la cara del
+  sistema no el porta i el número s'acabava amb un forat. `dejavusans-bold-latin1.ttf` és la **mateixa família i el mateix
+  pes** amb el joc Latin-1 a dins (201 codis, 20 312 B, `tools/ttf_latin1.py --set latin1` sobre `DejaVuSans-Bold.ttf`), i la
+  pàgina la demana per a si mateixa amb `ui.font(ui.load_font('/fonts/dejavusans-bold-latin1.ttf'))`. **Els controls es
+  queden la cara del sistema** —una etiqueta o un botó no dibuixen res que no sigui ASCII en aquest sistema— i la cara de la
+  pàgina és la que fa servir el text que l'app pinta a mà (`ui.text`), que és on surt el grau. Una cara que no hi és no és cap
+  error: `ui.load_font` torna `nil` i la pàgina funciona amb el forat de sempre (docs/30, docs/45).
 
 - **Una cara que ha de viure amb les altres es posa a la línia del sistema** (11/11, 0.178.4):
   `tools/ttf_latin1.py` té `--fit-line`, que escala la tinta de la cara a la línia que el nucli li dona i
@@ -3319,6 +3366,17 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
   i això no ho ha mesurat ningú.
 - **Les tres són de només mirar**: no són enfocables i no tenen estat. Una gràfica no es prem, i el que canvia són les
   dades, que les posa l'app.
+- **I quatre camps més, que la `Meteo` va demanar** (0.189.169): `decimals` (0, 1 o 2; **el valor arriba multiplicat** per la
+  potència de deu, o sigui que un termòmetre dona centèsims amb `decimals = 1` i el número de la banda surt `22.5`), `left` i
+  `right` (**els dos textos de l'eix són de l'app**, perquè una finestra d'un dia diu una hora i la d'un trimestre una data, i
+  això un control que només rep minuts no ho pot saber) i `gap` (els minuts de forat; **`0` vol dir «no hi ha forat
+  possible»**, que és el que demana una sèrie que l'app ja ha aprimat, perquè dos punts separats pel seu propi mostreig no són
+  un forat del registre). Sense dir-ne cap, el dibuix és el de la 0.189.144: zero decimals, l'hora que calcula el control i un
+  forat de seixanta minuts.
+- **Els números de la banda els mesura el control i no el fitxer**: la banda és el número més ample dels tres més el tros de
+  guia que surt del marc, i el número és el de dalt (el `max`), o sigui que una pàgina que vulgui posar un altre dibuix al
+  costat —les barres de la humitat de la `Meteo`— compta la seva banda amb el mateix número i la mateixa cara, i els dos
+  gràfics comparteixen el marge esquerre i l'eix del temps.
 - **Un gràfic no compara la seva taula**: dues taules de Lua no són mai la mateixa, així que assignar `samples` o
   `slices` és sempre un repintat. És el que vol una app que acaba de mesurar una cosa.
 
@@ -3327,6 +3385,7 @@ local chart = ui.chart(500, 300)
 chart.values = { 96, 95, 95, 94 }
 chart.times  = { 540, 570, 600, 630 }   -- el minut del dia; negatiu si la placa no té rellotge
 chart.suffix = '%'
+chart.gap = 180                         -- sis mostres perdudes són un forat; 0 = no n'hi ha cap
 chart:place(20, 140)
 
 local spark = ui.sparkline(300, 60)
@@ -3350,6 +3409,10 @@ ui.present()
   la mateixa funció (docs/60).
 - **Dos senyals**: el dia triat s'**inverteix** i el d'avui porta **marc**; en aquest vidre no hi ha color per a dues
   coses.
+- **Els dies amb alguna cosa porten un punt** (`marks`, 0.189.171): l'app diu quins són i el dibuix els converteix en un
+  punt de tres píxels sota el número, **una fila més avall de la lletra del dia**, que és el que fa el calendari del
+  paper. Va en el to del paper quan la cel·la és la triada, perquè si no el punt desapareixeria sota la tinta. El
+  control no en sap res, de què és «alguna cosa»: això és de l'app (l'`Agenda` hi posa els dies amb esdeveniments).
 - **Les fletxes caminen els dies** i el centre en tria un amb `on_pick(self, day)`; **un dit tria el dia on és**, amb
   les mateixes cel·les que el dibuix.
 
@@ -3360,6 +3423,7 @@ grid.month = 11
 grid.selected = 3
 grid.today = 5
 grid.weekdays = { 'dl', 'dt', 'dc', 'dj', 'dv', 'ds', 'dg' }
+grid.marks = { 3, 18, 24 }
 grid.on_pick = function(self, day) console.print('day ' .. day) end
 ui.present()
 ```
@@ -3656,6 +3720,12 @@ correcte.
 - **La llista no és al control**: el camp és una porta, i el dit o el centre disparen **`on_open(self)`**, on l'app posa un
   **`ui.picker`** (0.189.102, el desplegable d'una tria, més avall), un `ui.menu` o un `ui.list`. El sistema no pot guardar una
   taula que no és seva, i l'app ja la té.
+- **I la targeta s'obre al torn següent, no dins del ganxo** (0.189.171, i és el que fa el `Clock` des de la 0.189.102): el
+  sistema escriu el camp **després** del ganxo —és ell qui hi posa el to de «obert», que és `choosing`— i una targeta posada
+  allà s'hi queda a sota, amb la fila del camp estampada a sobre. El camp deixa el desig i el bucle de l'app l'obre quan el
+  dit ja és fora.
+- **El cercle va a la targeta** (`ui.focus(card)`): mentre és al vidre és l'únic lloc on paren el dial i els dits, i el camp
+  de sota no respon res. Quan la targeta marxa, el cercle torna sol.
 - **El valor buit és un estat de debò**: `index = 0` i el camp dibuixa `empty` —el que l'app digui en la seva llengua— allà on
   aniria el valor. Un camp que sempre té valor menteix sobre què s'ha decidit.
 - **Obert, el camp continua sent paper**: només la columna de la fletxa s'inverteix. Un camp que es torna negre de cap a
@@ -3670,19 +3740,35 @@ hour:place(24, 90)
 hour.label = 'Hour'
 hour.items = { '08', '09', '10' }
 hour.empty = '-'
+
+-- **El desig, i el bucle el fa**: obrir la targeta dins del ganxo és obrir-la dins del toc que la demana.
+local wanted = nil
 hour.on_open = function(self)
-  local card = ui.picker(480, 400)          -- la targeta del sistema, que és el desplegable
-  card.title = self.label
-  card.items = self.items
-  card.index = self.index                   -- 1..n, i 0 = cap triat
-  card.on_pick = function(that, index)
-    self.index = index
-    self.choosing = false
-    card:release()
+  wanted = function()
+    local card = ui.picker(480, 400)        -- la targeta del sistema, que és el desplegable
+    card.title = self.label
+    card.items = self.items
+    card.index = self.index                 -- 1..n, i 0 = cap triat
+    card.on_pick = function(that, index)
+      self.index = index
+      self.choosing = false
+      card:release()
+      ui.present()
+    end
+    card:place(24, 82)
+    ui.focus(card)                          -- el cercle és de la targeta mentre és al vidre
     ui.present()
   end
-  card:place(24, 82)
-  ui.present()
+end
+
+while true do
+  if wanted ~= nil then
+    local doing = wanted
+    wanted = nil
+    sys.delay(300):await()                  -- el sistema acaba d'escriure el camp després del ganxo
+    doing()
+  end
+  sys.delay(120):await()
 end
 ```
 

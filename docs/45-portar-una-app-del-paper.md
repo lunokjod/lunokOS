@@ -183,10 +183,13 @@ llista de què s'hi ha de mapejar en portar una app:
 | **el document obert, la partida, les notes** | **no hi va**: és dada de l'app, i té el seu fitxer |
 
 I queda dit com a norma: **cada cop que es toca el codi d'una app es repassa aquesta sessió** —que desi on toca, que
-llegeixi amb el valor acotat, i que `kLayout` pugi si algun control ha canviat de nom.
+llegeixi amb el valor acotat, i que `kLayout` pugi si algun control ha canviat de nom—. **I el bloc és d'una tirada**: el nucli
+esborra el `state` de totes les apps a cada arrencada (0.189.167), o sigui que una app que torna a la seva forma ho fa dins de la
+mateixa encesa i mai a través d'un reinici (docs/30 § la sessió `state`).
 
-**Quin full hi ha de mapejar què, i quins no hi han de mapejar res** (repàs complet, 0.189.52): la sessió `state` la tenen
-avui **onze de les quinze apps** del disc, i les que no la tenen és una decisió dita al fitxer i no un oblit.
+**Quin full hi ha de mapejar què, i quins no hi han de mapejar res** (repàs complet, 0.189.52, i la calculadora des de la
+0.189.165): la sessió `state` la tenen avui **divuit de les vint-i-tres apps** del disc, i les cinc que no la tenen és una decisió
+dita al fitxer i no un oblit.
 
 | App | Què va a `state` |
 |---|---|
@@ -202,7 +205,10 @@ avui **onze de les quinze apps** del disc, i les que no la tenen és una decisi�
 | `reader` | `focus` = el **camí del llibre** amb el cercle al prestatge; la posició dins del llibre ja és al seu fitxer |
 | `wipe` | `focus` = la porta amb el cercle; **mai la targeta d'una pregunta** |
 | `settings` | `tab` (la pestanya on era) i `focus` (el nom del control amb el cercle); **cap ajust no hi va**, que són de `/cfg` |
-| `calculator`, `luaperf`, `2048`, `rainbow` | **res**: no tenen cap control amb cercle ni cap pàgina que tornar (els números d'una calculadora són el que la persona fa ara, les setze cel·les del 2048 són la partida i `rainbow` no té ni `ui`). Un bloc buit seria un kilobyte per no dir res |
+| `calculator` | `entry`/`acc` (el número que s'està teclejant o l'acumulat), `pending` (l'operació que espera el segon operand), `fresh` i `failed` —el que la pantalla diu, amb la línia de dalt— i **una línia `h=` per operació de l'historial** (0.189.165, l'amo: *«la calculador ha de tenir també session state, per el número de la pantalla i l'historial d'operacions»*). La 0.189.52 havia dit que no hi anava i el que ho va fer canviar és que una calculadora que es torna a obrir amb un zero i sense l'última suma no és la que la persona va deixar; **l'historial no és un document** —un document ha de sobreviure a `sessions destroy` i va a `fs.data`— i se'n guarden les últimes dotze |
+| `agenda` | **la pàgina sencera i el que s'hi està fent** (0.189.171): `page` (el mes, el dia o el formulari), `day`/`y`/`mo` (el dia obert i el mes que el calendari ensenyava), `marked` (l'esdeveniment amb el cercle), `editing` (el número de l'esdeveniment que el formulari escriu, o 0 per a un de nou), i les tries del formulari —`hour`, `min`, `len`, `rep` i `formy`/`formmo`/`formd`— amb **`text:title` i `text:note`** i `check:all_day`, que és el que la persona havia escrit i el que no s'ha de perdre quan la pàgina es reprèn. **Els esdeveniments no hi són**: són dada de l'app i tenen el seu fitxer a `fs.data` |
+| `appinfo`, `battery`, `clock`, `meteo` | **el que la seva pàgina és**: `appinfo` la pestanya i el detall obert (`page`, `focus`, `marked`), `battery` el cercle i prou —**la finestra del gràfic és una preferència i viu a `fs.data`**, que és la línia que separa la forma del gust—, `clock` la pestanya dels quatre fulls, el cercle i la fila triada (`tab`, `focus`, `marked`), i `meteo` el focus dels tres botons de la finestra —**la finestra triada i el registre de mostres són a `fs.data`**, i el registre no és forma sinó història— |
+| `2048`, `brokenapp`, `device_lock`, `luaperf`, `rainbow` | **res**: no tenen cap control amb cercle ni cap pàgina que tornar (les setze cel·les del 2048 són la partida, `rainbow` no té ni `ui`, `brokenapp` és un full de set botons que no recorda res, el pany és una pàgina que es tanca sola i `luaperf` és un instrument de mesura). Un bloc buit seria un kilobyte per no dir res |
 
 **I el que va fer possible que totes aquestes tornessin de debò** (0.189.52): el bloc es llegia amb els zeros del darrere
 —`read(0, 1024)` torna els mil vint-i-quatre bytes i el que s'hi ha escrit és més curt—, o sigui que l'última línia no
@@ -473,7 +479,7 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **deu** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
@@ -487,6 +493,8 @@ Portades i viatjant avui, **deu** (`home_eink` va a part, a sota):
 | `2048` | `2048` | 0.2.0 |
 | `Life` | `life` | 0.1.0 |
 | `Battery` | `battery` | 0.1.2 |
+| `Meteo` | `meteo` | 0.1.1 |
+| `Agenda` | `agenda` | 0.1.0 |
 
 I a part, **dues que no són ports**:
 
@@ -504,8 +512,8 @@ I a part, **dues que no són ports**:
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 
-Les **quinze** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`,
-`FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
+Les **tretze** que falten, i que són la cua d'aquesta feina: `Banner`,
+`FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
 `Snake`, `Tamagotchi` i `Tetris`.
 
 **El que va ensenyar la `Battery`** (0.189.144, i el control que en va sortir): el gràfic del projecte del paper era **un
@@ -529,6 +537,93 @@ carregar els mòduls de la seva carpeta. Les altres tres coses que aquest port v
   no espera res. La segona meitat: **la finestra no ha llegit res**, i per tant llegeix el registre del dia abans d'afegir-hi
   la línia, o el desaria a sobre amb una de sola. L'`on_alarm` del `Clock` ja ho feia així (desa el que ha sonat i torna), i
   aquest port ho havia de fer igual (docs/30, docs/60).
+
+**El que va ensenyar la `Meteo`** (0.189.169, la portada que havia de ser **idèntica** a l'original):
+
+- **L'ordre de l'amo va ser literal** —*«L'interficie ha de ser IGUAL, EXACTAMENT IGUAL, l'unica diferencia han de ser els
+  controls UI, que has d'usar els del sistema»*— i el que va canviar és **qui dibuixa cada cosa**: el termòmetre i les barres
+  de la humitat es pinten a mà (aquest sistema no té instrument ni control de barres, i un instrument es mira i no es toca),
+  el gràfic és `ui.chart` i les etiquetes i els tres botons són del sistema. Les mides de l'original (33, 43, 57 i 82 píxels
+  de línia) es demanen amb `ui.line_height(1)`, perquè les dues cares del sistema no fan la mateixa línia.
+- **El gràfic va créixer perquè la pàgina li demanava coses que no sabia dir** (0.189.169): `decimals` (un termòmetre dona
+  centèsims i la banda ha d'escriure `22.5`), `left`/`right` (una finestra d'un dia diu una hora i la d'un trimestre una
+  data, i això no ho pot saber un control que només rep minuts) i `gap = 0` (una sèrie que l'app ja ha aprimat no té forats
+  que tallar). Cap d'elles no és una preferència d'una app: són les tres coses que qualsevol pàgina de mesures demana.
+- **Dues gràfiques en una pàgina comparteixen el marge esquerre i l'eix del temps, i això es compta i no s'endevina**: la
+  banda és el número més ample més el tros de guia que surt del marc, o sigui que la pàgina mesura la seva amb
+  `ui.text_width` i el **mateix número de dalt** que el control (`125.0`, el sostre físic del SHT30) i la mateixa cara; una
+  banda posada a ull fa que les barres i la corba comencin en dues columnes diferents.
+- **El text del projecte del paper cap a les seves cares i no a les d'aquest sistema** (0.189.170, i va ser el grau qui ho
+  va ensenyar): els mapes de bits de PaperOS portaven ASCII + Latin-1 + accents, o sigui que `%.1f °C` sortia sencer; la cara
+  del disc d'aquí és l'ASCII imprimible més els signes d'una tecla, i el grau quedava en un forat. La cara que hi posa remei
+  és **la mateixa família amb Latin-1** (`dejavusans-bold-latin1.ttf`, `ui.load_font`) i la demana la pàgina, no el sistema.
+  **I una llegenda que no hi cap baixa de cara abans que perdre cap paraula**: «40 min: 2 samples» no entra a la columna amb
+  la cara de 33 px, i el que diu la finestra és el que es llegeix primer (docs/30).
+- **El repartiment vertical de la columna de la dreta no es copia, es recalcula** (i això és el que la 0.189.169 va haver
+  d'aprendre mirant els números): el projecte del paper gasta 82 + 33 + 140 + 33 + 20 = 308 píxels de la fila i en deixa
+  vint-i-set per a la corba, perquè **la seva Meteo és de 540 × 960** (el retall 9:10 de la columna dona dotze píxels en una
+  amplada de cinc-cents, que és com se sap). En aquest sistema el vidre és **960 × 540** i la mateixa pila de coses no hi cap:
+  doncs les barres es queden el **27 %** del que sobra —com a l'original, 140 de 519— amb el mínim que necessiten per dibuixar-se
+  (mig full de lletra per a la guia de dalt, trenta píxels de paper i l'aire del zero) i la corba la resta, i si tot i així no hi
+  arriba **el número de la humitat baixa a la cara del títol**, que és la llei que el `gauges.lua` de l'original ja va escriure.
+  El que no es toca mai és l'ordre ni el que hi ha a cada lloc (docs/30, docs/45).
+- **L'escala del gràfic és la de la finestra i la del termòmetre és fixa**: `chart_draw` pren les dues puntes del paper de
+  les mostres que li donen i només les acota al `min`/`max`, o sigui que dos graus d'una setmana tranquil·la són una corba, i
+  l'instrument es queda a −10…50 perquè un instrument no canvia d'escala perquè la setmana sigui càlida.
+- **El registre són dues cadenes i no una taula** (docs/75): quatre bytes per mostra (dinou de minut i dotze de temperatura en
+  passos de 0,05 °C) i un byte de humitat, amb el **255** per a «aquesta línia no en tenia», perquè quatre mil quatre-cents
+  números en una taula de Lua són una rehash de seixanta-quatre kilobytes. Les cadenes es fan de trossos de dos-cents
+  cinquanta-sis bytes en llegir, el desat normal és **una línia afegida**, i l'escombratge és **una sola reescriptura**
+  (`fs.write`, que és atòmica) cada dos dies i no cada mitja hora.
+- **I el desat del registre no és un `pcall` d'una escriptura**: `fs.write` i `f:write` tornen els bytes, i una escriptura que
+  ha respost `nil, error` amb un `pcall` que només mira si ha petat és un registre que la pàgina diu que hi és i no hi és (la
+  mateixa lliçó de la `Battery`).
+- **El vidre es repinta només si alguna dada ha canviat, i la passada és la de setze nivells**: l'alarma llegeix, el ganxo
+  apunta la mostra, i el bucle compara el que el vidre ensenyaria —la temperatura, la humitat, les línies d'error, el número
+  de mostres i la finestra— amb el que hi ha pintat. L'hora i el nombre de lectures no hi entren, perquè canvien a cada
+  lectura. La passada és `gld16` i no `du`: el mercuri es mou i la corba es fa sencera, i una passada barata deixa el
+  fantasma del valor d'abans (docs/50).
+- **Una pàgina de controls que a més pinta a mà es torna a construir quan el vidre canvia de mida**: el sistema fa una vista
+  nova i **tots els llenços de la pàgina moren**, o sigui que un `resize` no és prou —el camí és `build()` i tornar a llegir
+  el `state` que la mateixa app acaba de desar, com fa la `Battery`— (docs/30).
+
+**El que va ensenyar l'`Agenda`** (0.189.171, la portada que havia de ser *«tot EXACTALENT IGUAL, però amb els nostres
+controls UI i es nostres crides a sistema»*):
+
+- **El calendari del paper marcava els dies que tenen alguna cosa, i el calendari d'aquí no en sabia res**: `ui.month`
+  guanya **`marks`**, la llista dels dies que porten un punt, i el dibuix la converteix en un punt de tres píxels sota el
+  número (en el to del paper quan la cel·la és la triada, que si no desapareixeria sota la tinta). El control **no en sap
+  res, de què és «alguna cosa»**: això és de l'app. És la mateixa llei de la `ui.chart` de la `Meteo` —una cosa que demanaran
+  el calendari d'una app i el d'una altra no s'escriu dins de l'app.
+- **Un mes no és una pàgina: es gira**. El control no té cap `on_month` ni botons de costat, i l'original tampoc no en tenia:
+  el mes i l'any es giren amb el mateix gest del paper —un `drag` del dit, amb quaranta píxels de llindar— que la pàgina llegeix
+  de `touch.gesture()` després que els controls s'hagin quedat els seus (docs/30).
+- **La banda del teclat no és al vidre fins que hi és, i `kb:height()` torna zero mentre no hi és**: el formulari de
+  l'Agenda té nou files i dues línies de peu, i si es maqueta amb els nou-cents dotze píxels de sempre la banda en menja
+  dos-cents cinquanta-sis i l'última fila desapareix. La pàgina **es maqueta per a la vista que tindrà amb la banda**
+  (`kBandHeight`, mesurada quan la vista s'encongeix) i les files es reparteixen el que queda: `(hei − band − peu) // 9`.
+  **I la vista no es torna a fer**: un teclat obert escriu a la caixa que ja té, i refer la pàgina deixa el teclat escrivint
+  en una caixa que ja no és al vidre. El canvi de mida es passa a la pàgina amb **`screen:resize(w, h)`**, que és el mateix
+  camí que fa servir un panel sense píxels propis.
+- **La fila on és el cercle no la pot moure el nucli** (la lliçó de la `ui.list_entry`): una llista del sistema no té
+  `children` ni `remove` a Lua, o sigui que l'app que ha de moure la marca es queda **una taula de les seves files** i
+  apaga i encén el `marked` de cadascuna. És el que fa l'Agenda amb els esdeveniments del dia.
+- **El proper dia d'una repetició es compta en mesos i no caminant dies**: el mòdul `events.lua` del paper ja ho havia après
+  i el port ho conserva —caminar dia a dia seixanta-dos dies buscava una repetició en milers de crides i l'escriptura es va
+  quedar sense pressupost amb mitja pantalla pintada—. Els mesos candidats surten del mes de l'event saltant pel pas de la
+  repetició, i els mesos que no tenen aquell dia es salten sense preguntar cap data.
+- **`require('events')` llegeix el fitxer de la carpeta de l'app** (docs/30): el mòdul de dades viatja amb l'app com un
+  fitxer més i el manifest no l'ha de nomenar enlloc.
+- **L'avís és una alarma del sistema i només se n'anul·len les seves**: `alarm.list()` és la cua sencera —la `Meteo` i la
+  `battery` també hi són— i el camp `app` de cada entrada és qui la va demanar. Una app anul·la les seves i en posa una de
+  nova, i `alarm.caps().max` és **el nombre d'alarmes que hi caben**, no una distància de temps (docs/30).
+- **Una targeta no s'obre dins del ganxo que la demana, i això es veu com una fila del formulari estampada a sobre de la
+  targeta**: el sistema posa `choosing` al camp i l'escriu **després** de cridar `on_open`, o sigui que la targeta creada allà
+  queda amb la fila del camp pintada al mig. El camp deixa el desig (`wanted_ = function() pick_from(...) end`) i el bucle
+  l'obre un torn més tard amb `sys.delay(300)`, que és la mateixa recepta del `Clock` (docs/30, docs/45).
+- **El que canvia de dalt a baix demana el rentat de setze nivells**: girar el mes és tinta nova sobre la de trenta-un números
+  vells, i amb la passada barata el desembre es llegeix amb el novembre a sota. `ui.present('gl16')` al gir i a l'obrir i
+  tancar la targeta; la resta de la pàgina es queda amb el que el sistema triï (docs/50, docs/90).
 
 **El que va ensenyar el `Device Lock`** (0.189.97, i el permís que en va sortir a la 0.189.99):
 

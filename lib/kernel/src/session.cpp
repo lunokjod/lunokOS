@@ -800,7 +800,7 @@ Forgotten forget(const char* app, const char* key) {
 // **Una clau, a totes les apps** (0.189.16): `sessions destroy <clau>` for the word a person reads in the listing when no app
 // is called like that. It is the same pair of halves —the memory and the files— and it names the key so the log cannot be
 // confused with the destroy of an app (docs/30).
-Forgotten forget_key(const char* key) {
+Forgotten forget_key(const char* key, bool say) {
   Forgotten gone;
   if (key == nullptr || key[0] == '\0') return gone;
   char wanted[kNameBytes];
@@ -831,9 +831,12 @@ Forgotten forget_key(const char* key) {
       gone.files += remove_a_file(sink[i].name, wanted);
     }
   }
-  log_printf(pal::kLogInfo, "MEMORY", "sessions destroy '%s' (the session, of every app): %u block(s) and %u file(s), %u B",
-             wanted, static_cast<unsigned>(gone.blocks), static_cast<unsigned>(gone.files),
-             static_cast<unsigned>(gone.bytes));
+  if (say) {
+    log_printf(pal::kLogInfo, "MEMORY",
+               "sessions destroy '%s' (the session, of every app): %u block(s) and %u file(s), %u B", wanted,
+               static_cast<unsigned>(gone.blocks), static_cast<unsigned>(gone.files),
+               static_cast<unsigned>(gone.bytes));
+  }
   return gone;
 }
 

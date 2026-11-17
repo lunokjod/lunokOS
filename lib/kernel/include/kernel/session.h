@@ -153,7 +153,12 @@ Forgotten forget(const char* app, const char* key);
 // session are the app's, but a word like `apps` or `usage` is the name of a thing of the system and a person who types it
 // means that thing —a `destroy` that answers "0 block(s)" to a word that is on the screen of the listing is a command
 // that looks broken— (docs/30).
-Forgotten forget_key(const char* key);
+//
+// **`say` és per a qui no vol les paraules de la comanda** (0.189.167): the boot throws `state` away on its own, and a line
+// that says `sessions destroy 'state' (the session, of every app): 0 block(s) and 0 file(s), 0 B` at every start is a line
+// that reads as if a person had asked for it. False and the work is done in silence; the caller says its own sentence, and
+// only when there was something to forget (docs/30, docs/75).
+Forgotten forget_key(const char* key, bool say = true);
 
 // **A number that only goes up when a block goes back** (0.179.0): an object of an app that holds a block tells with it
 // whether the block is still the one it was given, or the relief of the allocator has taken it (docs/75, docs/90).

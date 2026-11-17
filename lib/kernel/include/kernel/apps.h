@@ -164,8 +164,12 @@ void reset_views();
 struct Removing {
   vfs::Dropped gone;         // the files and the folders of the app
   uint32_t alarms = 0;       // les alarmes que havia armat
-  uint32_t sessions = 0;     // els blocs de sessió, de la memòria i del disc
-  uint32_t session_bytes = 0;
+  // **La cau, amb les dues meitats i no la suma** (0.189.164): a session that is in the memory and on the disk is **one**
+  // session in two places, i sumar-les deia «6» quan n'hi havia tres —el prompt i la fitxa d'una app ho deien així—. Són
+  // els dos números que `session::forget` ja dona i que el registre ja escrivia (docs/30, docs/75).
+  uint32_t session_blocks = 0;  // els blocs de la memòria
+  uint32_t session_files = 0;   // els fitxers de `/session/<id>`
+  uint32_t session_bytes = 0;   // el que hi havia a la memòria (els fitxers del disc no es compten: docs/75)
   char disk[48] = {0};       // on era, amb el nom del disc i no el de la porta
   // **Per què no s'ha pogut, quan no s'ha pogut**: una carpeta que no hi és i una carpeta que hi és però no és cap app són
   // dos errors diferents i el prompt els diu amb dues frases (docs/40). La porta de Lua només en fa un, perquè una pàgina

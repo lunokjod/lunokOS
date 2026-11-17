@@ -23,9 +23,12 @@
 -- **A copy of the manifest is not kept**: the detail reads the file every time it is built, so a version that changed under
 -- the page is the version that is shown (docs/30, docs/45).
 --
--- **`-d <id>` obre la fitxa d'una app de seguida** (0.189.161): the launcher's long press on a cell and the prompt's
--- `run appinfo -d battery` both leave that switch in `app.args.flags`, so the page opens where a person asked for it instead of
--- on the list of every app (docs/30, docs/40).
+-- **`-d <id>` obre la fitxa d'una app, i la pàgina no llegeix res més** (0.189.161, i el 17/11 l'amo ho va precisar: *«s'ha de
+-- mostrar la vista detalls directament (sense escanejar res mes que no sigui aquella app) i el botó "Back" ha de tancar
+-- l'aplicació»*): the launcher's long press on a cell and the prompt's `run appinfo -d battery` both leave that switch in
+-- `app.args.flags`, and the page then reads **that one manifest with its folder** and no other app —there is no list of the disk
+-- behind it—. El botó `Back` d'aquesta fitxa **tanca l'app** (no hi ha cap llista on tornar) i el pessic de gran a petit fa el
+-- mateix, perquè la vista no s'ha empès (docs/30, docs/40).
 
 local caps = sys.caps()
 if not caps.display then
@@ -158,6 +161,16 @@ local function human(bytes)
     return string.format('%d kB', math.floor(kb + 0.5))
   end
   return string.format('%.1f MB', bytes / (1024 * 1024))
+end
+
+-- **Els números d'una fitxa en una línia** (0.189.168, l'amo: *«Application info no diu res al log quan carrega... m'agradaria
+-- més informació»*): the card is made of these numbers —its folder, its cache, its data, its settings and its alarms—, i una
+-- línia que els digui tots és la que fa que una xifra estranya al vidre es pugui comprovar al registre sense llegir la pàgina
+-- (docs/30, docs/85).
+local function numbers_of(one)
+  return string.format('%d file(s) %s, cache %d block(s) %s, data %d file(s) %s, cfg %d file(s) %s, %d alarm(s)',
+                       one.app_files, human(one.app_bytes), one.cache_blocks, human(one.cache_bytes), one.data_files,
+                       human(one.data_bytes), one.cfg_files, human(one.cfg_bytes), one.alarms)
 end
 
 -- **One app, read from its folder and from the door**: the fields of the manifest that the door does not carry —the author,
@@ -309,6 +322,11 @@ end
 
 local screen = nil
 
+-- **La fitxa demanada amb `-d` i res més** (0.189.166): with the switch the page reads **that one app** and no other, so the
+-- list is not there and the way out of the detail is closing the app. It is a local up here and not a value read at the end
+-- of the file porque `back` i `show` el llegeixen i una local declarada més avall no la veurien (docs/30, docs/40).
+local details_only = false
+
 local function give_back()
   if screen ~= nil then
     screen:release()
@@ -325,6 +343,17 @@ local build_cover
 -- The list gave back, the ring is on the row of the app that was open and the page is where it was.
 back = function()
   give_back()
+  -- **El botó que diu «Back» tanca l'app quan no hi ha cap llista a sota** (0.189.166, the owner: *«si l'app "Application info"
+  -- s'obre amb el paràmetre -d s'ha de mostrar la vista detalls directament (sense escanejar res mes que no sigui aquella app)
+  -- i el botó "Back" ha de tancar l'aplicació»*): the page never read a list, so going back to one would be going back to a
+  -- page nobody asked for —and the list would have to be read then, which is the scan the switch exists to avoid— (docs/30,
+  -- docs/40).
+  if details_only then
+    console.print('appinfo: back with no list under it, the app closes')
+    shape.marked = nil
+    save_state(shape)
+    return app.exit()
+  end
   app.view_pop()
   shape.marked = nil
   save_state(shape)
@@ -515,10 +544,12 @@ local function uninstall(id)
     return false
   end
 
-  notice = string.format('%s uninstalled: %d file(s) and %s of folder, %d alarm(s), %d cache file(s)', id, answer.files,
-                         human(answer.bytes), answer.alarms, answer.sessions)
-  console.print(string.format('appinfo: uninstall %s: %d file(s), %d B, %d alarm(s), %d session(s)', id, answer.files,
-                              answer.bytes, answer.alarms, answer.sessions))
+  -- **La cau amb les seves dues meitats** (0.189.164): a block of the memory and its file are one session in two places, o
+  -- sigui que el número que aquesta pàgina deia abans era el doble del que hi havia (docs/30, docs/75).
+  notice = string.format('%s uninstalled: %d file(s) and %s of folder, %d alarm(s), %d cache block(s) and %d file(s)',
+                         id, answer.files, human(answer.bytes), answer.alarms, answer.cache_blocks, answer.cache_files)
+  console.print(string.format('appinfo: uninstall %s: %d file(s), %d B, %d alarm(s), %d cache block(s), %d file(s)', id,
+                              answer.files, answer.bytes, answer.alarms, answer.cache_blocks, answer.cache_files))
   return true
 end
 
@@ -638,7 +669,13 @@ show = function(id)
           function()
             forget_cache(one.id)
             if index_of(one.id) == 0 then
+              if details_only then app.exit() end
               build_cover()
+            elseif details_only then
+              -- **Es torna a llegir aquesta i prou**: in the requested card there is no list to refresh, and a `read_all` here
+              -- seria l'escaneig del disc que el commutador estalvia (0.189.166, docs/30).
+              apps_here = { read_app(one.id) }
+              show(one.id)
             else
               read_all()
               show(one.id)
@@ -652,6 +689,12 @@ show = function(id)
           function()
             if uninstall(one.id) then
               shape.marked = nil
+              -- **I si la fitxa era l'única cosa que hi havia, l'app es tanca** (0.189.166): the app it was about is gone and
+              -- there is no list under the page, o sigui que el que queda és el mateix Back del commutador (docs/30).
+              if details_only then
+                save_state(shape)
+                app.exit()
+              end
               read_all()
               build_cover()
             else
@@ -661,14 +704,26 @@ show = function(id)
     end)
   end
 
-  add_button(page_control, 'Back', function() back() end)
+  -- **El Back d'una fitxa demanada tanca l'app, i això no es pot fer dins del ganxo** (0.189.166, i la lliçó de la 0.189.101):
+  -- `app.exit()` raises the error that ends an app and a hook of the system catches it —l'app quedaria viva amb la fitxa al
+  -- vidre—, o sigui que el desig es deixa aquí i el bucle d'aquesta pàgina el corre al torn següent, que és el camí que ja fa
+  -- servir la targeta d'una pregunta (docs/30, docs/90). Amb una llista a sota el Back és el de sempre i es fa aquí mateix.
+  add_button(page_control, 'Back', function()
+    if details_only then
+      wanted = function() back() end
+      return
+    end
+    back()
+  end)
 
   screen = page_control
   ui.present()
 
   -- The detail is a view on top of the cover: a pinch that comes from big to small gives it back and the app hears
-  -- `on_back`, so the cover is what a finger finds under the detail (docs/30).
-  app.view_push()
+  -- `on_back`, so the cover is what a finger finds under the detail (docs/30). **Amb `-d` no hi ha cap coberta a sota**
+  -- (0.189.166): sense la vista empesa, el pessic de gran a petit fa el que fa amb qualsevol pàgina d'una sola vista —tanca
+  -- l'app— i és el mateix final que el botó Back (docs/30, docs/40).
+  if not details_only then app.view_push() end
 
   shape.marked = one.id
   save_state(shape)
@@ -687,7 +742,43 @@ end
 
 -- ------------------------------------------------------------------ the app
 
-read_all()
+-- **`-d <id>`: la fitxa d'una app, i res més** (0.189.161, i el que l'amo va precisar el 17/11: *«si l'app "Application info"
+-- s'obre amb el paràmetre -d s'ha de mostrar la vista detalls directament (sense escanejar res mes que no sigui aquella app) i
+-- el botó "Back" ha de tancar l'aplicació»*). És el commutador que el llançador deixa a `app.args.flags` i el que el prompt
+-- escriu amb `run appinfo -d battery`, i **es mira abans de llegir res**: el sentit del commutador és no pagar l'escaneig de
+-- tot el disc —una carpeta recorreguda, tres terrenys comptats i la cua d'alarmes per app— per ensenyar una fitxa. Guanya a la
+-- forma que la persona va deixar al bloc `state`, perquè el que demana una ordre és el que ha de passar (docs/30, docs/40).
+local asked = nil
+local flags = app.args and app.args.flags or nil
+if flags ~= nil then
+  asked = flags:match('%-d%s+(%S+)')
+end
+
+-- **El rellotge de la càrrega, que és el que el registre ha de dir** (0.189.168): it is taken before the first read and it is
+-- the monotonic one —`sys.time_ms()`—, que és la durada d'aquesta tirada i no salta quan arriba una hora del món (docs/30).
+local began = sys.time_ms()
+
+-- **Una app que aquesta placa té, i prou**: `apps.info` is the door that answers whether the name is an app that runs here,
+-- o sigui que un nom que no hi és no fa que la pàgina ensenyi una fitxa buida —cau a la llista i ho diu (docs/30, docs/40).
+if asked ~= nil then
+  -- **`works_here` i no només el manifest** (0.189.166): the same rule `app.run` follows —una app d'una altra placa és un nom
+  -- que la porta llista i el nucli refusa—, o sigui que una fitxa d'una app que aquesta placa no pot córrer no s'obre (docs/30,
+  -- docs/40).
+  local what = apps.info(asked)
+  if what ~= nil and what.works_here then
+    details_only = true
+    -- **Quant ha costat llegir-la i què s'hi ha trobat** (0.189.168).
+    apps_here = { read_app(asked) }
+    console.print(string.format('appinfo: the details of %s were asked for (loaded in %d ms)', asked,
+                                sys.time_ms() - began))
+    console.print('appinfo: ' .. asked .. ': ' .. numbers_of(apps_here[1]))
+  else
+    console.print('appinfo: there is no app ' .. asked .. ' on this board')
+  end
+end
+
+-- **La llista de tot el disc només quan no hi ha cap fitxa demanada** (0.189.166).
+if not details_only then read_all() end
 
 -- The shape the person left, read before anything is placed: the page of the list, the row with the ring and the app whose
 -- detail was open. A page that is not a number and an id that is not in the folder are dropped here (docs/30, docs/45).
@@ -697,38 +788,52 @@ if was ~= nil then
   if page ~= nil and page >= 1 then shape.page = math.floor(page) end
   if was.focus ~= nil and was.focus ~= '' then shape.focus = was.focus end
   if was.marked ~= nil and was.marked ~= '' then shape.marked = was.marked end
-end
-
-if reading ~= nil then
-  console.print('appinfo: ' .. reading)
+  -- **I quina forma és la que ha tornat** (0.189.168): the numbers of the block are what says whether the page came back where
+  -- it was, i una línia amb ells és el que fa que una pàgina que torna malament es pugui veure al registre (docs/30, docs/45).
+  console.print(string.format('appinfo: the shape of the page is %s (page %s, ring %s, detail %s)', kLayout,
+                              tostring(shape.page), tostring(shape.focus or 'none'), tostring(shape.marked or 'none')))
 else
-  console.print(string.format('appinfo: %d apps, lunokOS %s on %s', #apps_here, sys.version, sys.board))
+  -- **I el cas normal d'una arrencada** (0.189.167 esborra el `state` de totes les apps): la pàgina comença pel principi i ho diu
+  -- (docs/30, docs/45).
+  console.print('appinfo: no shape of a page, it starts from the beginning')
 end
 
-build_cover()
-
--- **`-d <id>`: la fitxa d'una app, oberta des del primer torn** (0.189.161, l'amo: *«al fer polsació llarga a Home sobre una app:
--- Inicia l'app App Info amb l'app de paràmetre perquè mostri la finestra detalls directament run <id_app_info> -d <id_app>»*). És
--- el commutador que el llançador deixa a `app.args.flags` i el que el prompt escriu amb `run appinfo -d battery`; guanya a la
--- forma que la persona va deixar al bloc `state`, perquè el que demana una ordre és el que ha de passar (docs/30, docs/40).
-local asked = nil
-local flags = app.args and app.args.flags or nil
-if flags ~= nil then
-  asked = flags:match('%-d%s+(%S+)')
-end
-
-if asked ~= nil and index_of(asked) > 0 then
-  console.print('appinfo: the details of ' .. asked .. ' were asked for')
+if details_only then
+  -- **Cap llista que comptar**: «1 apps» seria la fitxa comptada com si fos un disc, i la línia del detall ja s'ha dit
+  -- (0.189.166, docs/30).
   show(asked)
-elseif asked ~= nil then
-  console.print('appinfo: there is no app ' .. asked .. ' on this board')
-end
+else
+  if reading ~= nil then
+    console.print('appinfo: ' .. reading)
+  else
+    -- **Quantes, quant han costat i quant hi cap** (0.189.168): the scan is the whole point of this page —a folder walked and
+    -- three grounds counted for every app—, o sigui que el registre en diu el preu i l'espai que hi ha, que és el que una
+    -- persona mira quan el disc va just (docs/30, docs/70).
+    local space = fs.space('/apps')
+    local left = ''
+    if space ~= nil then
+      left = string.format(', %s free of %s', human(space.free), human(space.total))
+    end
+    console.print(string.format('appinfo: %d apps read in %d ms%s (lunokOS %s on %s)', #apps_here,
+                                sys.time_ms() - began, left, sys.version, sys.board))
+    -- **I les que no s'han pogut llegir, una per línia**: a manifest that this system does not read is a card that would show
+    -- nothing, i el registre és l'únic lloc on es pot veure quina app és (docs/30, docs/40).
+    for i = 1, #apps_here do
+      local one = apps_here[i]
+      if one.reading ~= nil then
+        console.print(string.format('appinfo: %s: %s', one.id, one.reading))
+      end
+    end
+  end
 
--- **I si la persona tenia un detall obert, és el que torna**: the same road a finger takes, and an id that is not in the
--- folder opens nothing at all (docs/30, docs/45 §5 bis).
-if shape.marked ~= nil and asked == nil and index_of(shape.marked) > 0 then
-  console.print('appinfo: came back to ' .. shape.marked)
-  show(shape.marked)
+  build_cover()
+
+  -- **I si la persona tenia un detall obert, és el que torna**: the same road a finger takes, and an id that is not in the
+  -- folder opens nothing at all (docs/30, docs/45 §5 bis).
+  if shape.marked ~= nil and asked == nil and index_of(shape.marked) > 0 then
+    console.print('appinfo: came back to ' .. shape.marked)
+    show(shape.marked)
+  end
 end
 
 function on_pause() save_state(shape) end

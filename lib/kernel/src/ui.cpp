@@ -3159,12 +3159,16 @@ uint16_t label_text(int8_t face, const char* text, uint16_t width, uint8_t scale
   if (text == nullptr || text[0] == '\0' || scale == 0) return 0;
   const font::Face& current = face_of(face);
   const uint16_t whole = font::width(current, text, scale);
-  if (whole <= width) {
-    size_t len = strlen(text);
-    if (len > cap - 1) len = cap - 1;
-    memcpy(out, text, len);
-    out[len] = '\0';
-    return font::width(current, out, scale);
+  const size_t length = strlen(text);
+  // **Un text que hi cap però no al bloc també s'acaba amb tres punts** (0.189.164, i era el forat que va deixar la
+  // 0.189.150): the block a label draws from is 256 B —it was 1 024 until the lock needed the bytes of a build whose `.bss`
+  // was exactly full—, and a text that fit the box and not the block used to be copied up to the last byte: a label that
+  // ended in the middle of its own sentence, with no sign of having been cut, que és pitjor que una pàgina que diu que no hi
+  // cap. Un text és un byte per caràcter (docs/30), o sigui que tallar el bloc no parteix cap marca; es talla com tots els
+  // altres i amb el mateix senyal (docs/30, docs/75, docs/90).
+  if (whole <= width && length <= cap - 1) {
+    memcpy(out, text, length + 1);
+    return whole;
   }
   // **The cut is a prefix and three dots**, and it is the prefix that fits and not three dots that are
   // then cut by the frame: the frame is the last resort, not the way a label ends (docs/30, docs/90).
@@ -3175,7 +3179,7 @@ uint16_t label_text(int8_t face, const char* text, uint16_t width, uint8_t scale
     memcpy(out, kDots, sizeof(kDots));
     return dots;
   }
-  size_t keep = strlen(text);
+  size_t keep = length;
   if (keep > cap - sizeof(kDots)) keep = cap - sizeof(kDots);
   for (;;) {
     memcpy(out, text, keep);
@@ -5386,8 +5390,8 @@ MonthCells cells_of(const Canvas& grid, uint16_t year, uint8_t month) {
 }  // namespace
 
 bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
-                const char* const* weekdays, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
-                bool focused) {
+                const char* const* weekdays, uint32_t marks, uint8_t text, uint8_t dim, uint8_t background,
+                uint8_t scale, bool focused) {
   if (!live(slot) || text > 15 || dim > 15 || background > 15) return false;
   const Canvas& grid = g_canvases[slot];
   const int32_t width = grid.width;
@@ -5450,6 +5454,13 @@ bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, ui
     const int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
     draw_text(*target.canvas, face, x + (cells.cell_w - taken) / 2, y + (cells.row_h - line_h) / 2, shown, scale,
               chosen ? background : text, mode);
+    // **El punt del dia que té alguna cosa** (0.189.171): a three-pixel mark under the number, at the foot of the cell —
+    // above the frame of today, so the two signals do not touch—, i **en el color del paper quan la cel·la és la triada**,
+    // perquè una marca de tinta sobre tinta és una marca que no hi és (docs/30, docs/45).
+    if (day <= 31 && (marks & (1u << static_cast<uint32_t>(day - 1))) != 0 && cells.row_h > line_h + 8) {
+      const uint8_t tone = chosen ? background : text;
+      put_rect(*target.canvas, x + cells.cell_w / 2 - 1, y + cells.row_h - 6, 3, 3, tone);
+    }
   }
   // **The calendar as a whole is the control**: its frame says where the dial is, and the cells say the rest.
   if (focused && width > 8 && height > 8) {
@@ -5600,7 +5611,8 @@ void plot_line(Canvas& canvas, int32_t x0, int32_t y0, int32_t x1, int32_t y1, u
 // **A hole in the log stops the line**: six samples missed is the device off or the alarm not coming, and joining the
 // two sides with a straight line would say the level went smoothly from one value to the other, which nobody measured.
 bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
-                uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high) {
+                uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high,
+                uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes) {
   if (!live(slot) || ink > 15 || background > 15) return false;
   const Canvas& chart = g_canvases[slot];
   const int32_t width = chart.width;
@@ -5625,8 +5637,25 @@ bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8
   // **The band of the numbers is measured and not a number of the file**: what it needs is the widest label of the
   // three ("100%") plus the reach of the guide that leaves the frame to meet it, and a chart of a page with another
   // face would come out with its numbers on the curve (docs/90).
+  // **Un número amb decimals, si l'app en vol** (0.189.169): la banda i les guies escriuen el mateix número, i el divisor
+  // és la potència de deu dels decimals que l'app ha demanat —el valor arriba multiplicat per ella—. Zero decimals és el
+  // que fa una bateria (`100%`) i un és el que fa un termòmetre (`22.5 °C`).
+  if (decimals > 2) decimals = 2;
+  const int32_t divisor = (decimals == 0) ? 1 : ((decimals == 1) ? 10 : 100);
+  const auto number = [&](int32_t value, char* out, size_t cap) {
+    if (decimals == 0) {
+      snprintf(out, cap, "%d%s", static_cast<int>(value), unit);
+      return;
+    }
+    int32_t whole = value / divisor;
+    int32_t part = value % divisor;
+    if (part < 0) part = -part;
+    snprintf(out, cap, "%d.%0*d%s", static_cast<int>(whole),
+             static_cast<int>(decimals), static_cast<int>(part), unit);
+  };
+
   char widest[24];
-  snprintf(widest, sizeof(widest), "%d%s", static_cast<int>((high > low) ? high : 100), unit);
+  number((high > low) ? high : 100, widest, sizeof(widest));
   int32_t band = font::width(face, widest, scale) + 12;
   if (band < 10) band = 10;
   if (band > width / 3) band = width / 3;
@@ -5676,7 +5705,7 @@ bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8
   char label[24];
   const auto guide = [&](int32_t value, bool extreme) {
     const int32_t row = row_of(value);
-    snprintf(label, sizeof(label), "%d%s", static_cast<int>(value), unit);
+    number(value, label, sizeof(label));
     plot_rect(view, x0 - 8, row, plot_w + 9, 1, ink);
     if (extreme) plot_rect(view, x0 - 8, row - 1, 8, 3, ink);
     const int32_t text_w = font::width(face, label, scale);
@@ -5748,11 +5777,11 @@ bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8
   // **Six samples missed is a hole**, and a clock that went backwards is another one: the two sides cannot be joined.
   // Only when the clock is trusted, because with no clock at all the samples are placed by their order and there is no
   // step to measure.
-  const int32_t kGap = 60;
+  const int32_t kGap = (gap_minutes == 0) ? 0 : static_cast<int32_t>(gap_minutes);
   for (uint8_t i = 0; i < count; ++i) {
     if (clock && i > 0) {
       const int32_t step = times[i] - times[i - 1];
-      if (step > kGap || step < 0) close_the_pen();
+      if (step < 0 || (kGap > 0 && step > kGap)) close_the_pen();
     }
     add(column_of(i), row_of(values[i]));
   }
@@ -5776,13 +5805,19 @@ bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8
   if (t0 < 0 || t1 < 0) {
     draw_text(view, face, x0, axis_y, "no clock", scale, ink, mode);
   } else {
+    // **Els dos caps de l'eix són de l'app quan en diu** (0.189.169): una hora no és una data, i qui ha triat la finestra
+    // és l'app. Sense text, el gràfic diu l'hora del minut que li han donat, que és el que sempre ha fet (docs/30, docs/90).
     char first[16];
     char last[16];
-    snprintf(first, sizeof(first), "%02d h", static_cast<int>(t0 / 60));
-    snprintf(last, sizeof(last), "%02d h", static_cast<int>(t1 / 60));
-    draw_text(view, face, x0, axis_y, first, scale, ink, mode);
+    const bool given_left = (axis_left != nullptr && axis_left[0] != '\0');
+    const bool given_right = (axis_right != nullptr && axis_right[0] != '\0');
+    if (!given_left) snprintf(first, sizeof(first), "%02d h", static_cast<int>(t0 / 60));
+    if (!given_right) snprintf(last, sizeof(last), "%02d h", static_cast<int>(t1 / 60));
+    const char* left_text = given_left ? axis_left : first;
+    const char* right_text = given_right ? axis_right : last;
+    draw_text(view, face, x0, axis_y, left_text, scale, ink, mode);
     if (t1 > t0) {
-      draw_text(view, face, x1 - font::width(face, last, scale), axis_y, last, scale, ink, mode);
+      draw_text(view, face, x1 - font::width(face, right_text, scale), axis_y, right_text, scale, ink, mode);
     }
   }
 
@@ -9060,7 +9095,8 @@ bool uninstall_a_page(const char* id, luabind::AdminGone& out) {
   out.files = gone.gone.files;
   out.bytes = gone.gone.bytes;
   out.alarms = gone.alarms;
-  out.sessions = gone.sessions;
+  out.cache_blocks = gone.session_blocks;
+  out.cache_files = gone.session_files;
   return true;
 }
 
@@ -9070,7 +9106,7 @@ bool uninstall_a_page(const char* id, luabind::AdminGone& out) {
 bool forget_the_cache_of_a_page(const char* id, luabind::AdminGone& out) {
   if (id == nullptr || id[0] == '\0') return false;
   const session::Forgotten forgotten = session::forget(id);
-  out.sessions = forgotten.blocks;
+  out.cache_blocks = forgotten.blocks;
   out.files = forgotten.files;
   out.bytes = static_cast<uint32_t>(forgotten.bytes);
   return true;
