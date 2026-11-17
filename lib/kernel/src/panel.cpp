@@ -49,45 +49,54 @@ const uint16_t kHandleGap = 14;
 // The two rows that close the card, which are the same line the bar has under itself.
 const uint16_t kLineH = 2;
 
-// **Els set botons de la targeta** (0.185.0, la sisena des de la 0.189.25 i **la casa** des de la 0.189.139): the arrow of the way
-// back in the left corner, the cross of the way out in the right one, **the house of the page of the start between them**, and
-// **the four of the system in a row in the middle**: the settings, the power off, **the deep sleep** and the restart. All seven are
+// **Les vuit claus de la targeta, en dues files** (0.185.0; la sisena des de la 0.189.25, **la casa** des de la 0.189.139, **el
+// candau** i les dues files des de la 0.189.151). The card carries **eight keys**: the three that stop the board —the power off,
+// **the deep sleep** and the restart— in a row of their own at the top, and the five of the system below —the way back, the house
+// of the page of the start, the gear of the settings, **the padlock of the lock** and the cross of the way out—. All eight are
 // **one key**: a `UIButton` of this system with **no frame and no
 // shadow** (`framed` false), so what a person
 // sees is the mark and nothing else, and it sinks by turning over while the finger is on it, which is the press every button of
 // this glass has (the owner: *«vull que siguin UIButton, però sense vores (afegir propietat al botó si no la te ja) i amb una
 // imatge/icona com a contingut»*) (docs/30, docs/45, docs/92).
-// **Les set claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
+// **Cada clau porta la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
 // icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*). Una clau del sistema ja no és un quadrat d'una
 // icona: és **una icona amb el seu nom**, i el nom és dins del botó, o sigui que prémer el nom és prémer la clau.
 //
-//   - **les cantonades són amples** —`← Back` i `Close ✕`, amb la marca a la vora de fora, que és el que fa que les dues
-//     cantonades mirin enfora— i el repartiment el fa el dibuix del botó (`ui::kMarkLeft` i `ui::kMarkRight`);
-//   - **les quatre del mig són altes**: la marca a sobre i la paraula a sota, dins del mateix rectangle, i la paraula a dos passos
-//     de la cara del sistema, que és el que fa que quatre n'hi càpiguen (0.189.25);
-//   - **la casa és ampla i baixa** (0.189.139): it takes the air the two corners leave, 112 × 64, with the mark above and its
-//     word below —the shape of the four of the middle at the height of a corner—, and it is the way to the page of the start;
-//   - **`Settings` va separada de les altres tres** amb quaranta-vuit píxels en lloc dels dotze d'entre claus, que és el que el dibuix
-//     de l'amo marcava amb `|||` (docs/30, docs/45, docs/92).
-const uint16_t kCornerTop = 20;   // la fila de les dues cantonades
-const uint16_t kCornerW = 190;    // una clau ampla: la marca i la paraula al costat
-const uint16_t kCornerH = 64;
-const uint16_t kKeyMargin = 24;
-const uint16_t kRowTop = 108;     // la fila de les quatre del mig
-const uint16_t kMiddleW = 112;    // una clau alta: la marca a sobre i la paraula sota
-const uint16_t kMiddleH = 104;
-const uint16_t kRowGap = 12;      // l'aire entre dues claus del mig
-const uint16_t kSettingsGap = 48;  // i el doble entre Settings i les altres tres
-// **La paraula, a tres passos a les cantonades i a dos al mig** (0.185.3, 0.189.25): a un pas fa onze píxels i no es llegeix —es va
-// veure a l'emulador—, a tres són trenta-tres, i quatre claus amb paraules de trenta-tres passos no caben en cinc-centes quaranta.
-const uint8_t kWordScale = 3;
-const uint8_t kMiddleWordScale = 2;
+//   - **les tres de dalt són una mica més petites** (0.189.151, l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica mes
+//     petits (lleugerament, no tant petits com es ara "Home") a la part de dalt del panell»*): 104 × 88, que és la marca a sobre i
+//     la paraula a sota amb la mida d'abans de la 0.189.139 i una mica menys d'aire;
+//   - **les cinc de baix tenen la mida que tenien les quatre del mig** (*«A baix de tot Home, Close i Settings en el tamany que
+//     tenen ara PowerOff Sleep i Reboot»*): 96 × 104, i el mateix dibuix per a totes vuit —la marca a sobre, la paraula a sota i
+//     la paraula a dos passos de la cara del sistema, que és el que fa que cinc n'hi càpiguen (0.189.25)—;
+//   - **el candau hi és** (0.189.151, l'amo: *«L'app "Lock" també ha de sortir, a la línia d'icones de Home, Settings, Back i
+//     Close»*): the key of the screen, between the gear and the cross, and it is the page `cfg lock` names (docs/30, docs/40).
+const uint16_t kTopRowY = 20;      // la fila dels tres que paren la placa
+const uint16_t kTopW = 104;        // una mica més ampla i més baixa que les de sota
+const uint16_t kTopH = 88;
+const uint16_t kTopGap = 16;       // l'aire entre dues claus d'aquesta fila
+const uint16_t kBottomRowY = 168;  // la fila de les cinc del sistema
+const uint16_t kBottomW = 96;      // la mida que tenien les quatre del mig
+const uint16_t kBottomH = 104;
+const uint16_t kBottomGap = 8;
+// **Una sola escala per a vuit paraules** (0.185.3, 0.189.25 i 0.189.151): a un pas fa onze píxels i no es llegeix —es va veure a
+// l'emulador—, i a dos la paraula més ampla, `Poweroff`, fa noranta-un píxels, que és el que una clau de noranta-sis aguanta.
+// L'escala de tres era de les cantonades amples, i amb elles se'n va anar quan el dibuix de la targeta es va fer de dues files.
+const uint8_t kWordScale = 2;
 
-// **Quin botó és quin** (0.185.0): the six of the card, in the order the row of four is drawn —the settings first and then the three
-// that stop the board, with **the deep sleep between the power off and the restart**, which is where the owner asked for it: the
-// closer to off a way down is, the closer they sit— (docs/30).
-enum class Key : uint8_t { kBack = 0, kHome = 1, kClose = 2, kSettings = 3, kPowerOff = 4, kDeepSleep = 5, kReboot = 6 };
-const uint8_t kKeyCount = 7;
+// **Quin botó és quin** (0.185.0): the eight of the card, in the order the two rows are drawn —the way back, the house, the gear,
+// the padlock and the cross below; the power off, **the deep sleep** and the restart above, with the sleep between the power off
+// and the restart, which is where the owner asked for it: the closer to off a way down is, the closer they sit— (docs/30).
+enum class Key : uint8_t {
+  kBack = 0,
+  kHome = 1,
+  kClose = 2,
+  kSettings = 3,
+  kPowerOff = 4,
+  kDeepSleep = 5,
+  kReboot = 6,
+  kLock = 7
+};
+const uint8_t kKeyCount = 8;
 
 bool g_open = false;
 // **Quina clau té el dit a sobre** (0.185.2): the card is painted on the glass and not by a page of controls, so a press is a
@@ -116,54 +125,41 @@ struct KeyBox {
 KeyBox key_box(Key which) {
   const int16_t width = static_cast<int16_t>(ui::width());
   KeyBox box;
-  if (which == Key::kBack) {
-    box.x = static_cast<int16_t>(kKeyMargin);
-    box.y = static_cast<int16_t>(kCornerTop);
-    box.w = kCornerW;
-    box.h = kCornerH;
-    box.mark = ui::kMarkLeft;
-    box.word = "Back";
-    return box;
-  }
-  // **La casa, al mig de la fila de dalt** (0.189.139): the two corners of the card are the two ways out and the air between them
-  // is the one place a person looks at first, so the way to the page of the start is there and it is the width of a key of the
-  // middle, which is exactly the room the two corners leave (docs/30, docs/45).
-  if (which == Key::kHome) {
-    box.x = static_cast<int16_t>((width - static_cast<int16_t>(kMiddleW)) / 2);
-    box.y = static_cast<int16_t>(kCornerTop);
-    box.w = kMiddleW;
-    box.h = kCornerH;
-    box.mark = ui::kMarkAbove;
-    box.scale = kMiddleWordScale;
-    box.word = "Home";
-    return box;
-  }
-  if (which == Key::kClose) {
-    box.x = static_cast<int16_t>(width - static_cast<int16_t>(kKeyMargin) - kCornerW);
-    box.y = static_cast<int16_t>(kCornerTop);
-    box.w = kCornerW;
-    box.h = kCornerH;
-    box.mark = ui::kMarkRight;
-    box.word = "Close";
-    return box;
-  }
-  // **Settings, Poweroff, Deepsleep i Reboot**, en aquest ordre i amb la separació de l'amo entre la primera i les altres tres.
-  const int16_t total = static_cast<int16_t>(4 * kMiddleW + kSettingsGap + 2 * kRowGap);
-  const int16_t left = static_cast<int16_t>((width - total) / 2);
-  int16_t at = left;
-  if (which == Key::kPowerOff) at = static_cast<int16_t>(left + kMiddleW + kSettingsGap);
-  if (which == Key::kDeepSleep) at = static_cast<int16_t>(left + 2 * kMiddleW + kSettingsGap + kRowGap);
-  if (which == Key::kReboot) at = static_cast<int16_t>(left + 3 * kMiddleW + kSettingsGap + 2 * kRowGap);
-  box.x = at;
-  box.y = static_cast<int16_t>(kRowTop);
-  box.w = kMiddleW;
-  box.h = kMiddleH;
   box.mark = ui::kMarkAbove;
-  box.scale = kMiddleWordScale;
-  box.word = (which == Key::kSettings) ? "Settings"
-             : (which == Key::kPowerOff) ? "Poweroff"
-             : (which == Key::kDeepSleep) ? "Sleep"
-                                          : "Reboot";
+  box.scale = kWordScale;
+  // **La fila de dalt: els tres que paren la placa** (0.189.151), centrades i en l'ordre demanat —el corrent, la son i el reinici,
+  // amb la son al mig— perquè una mica més petites no vol dir en un altre lloc (docs/30, docs/45).
+  if (which == Key::kPowerOff || which == Key::kDeepSleep || which == Key::kReboot) {
+    const int16_t total = static_cast<int16_t>(3 * kTopW + 2 * kTopGap);
+    const int16_t left = static_cast<int16_t>((width - total) / 2);
+    int16_t at = left;
+    if (which == Key::kDeepSleep) at = static_cast<int16_t>(left + kTopW + kTopGap);
+    if (which == Key::kReboot) at = static_cast<int16_t>(left + 2 * (kTopW + kTopGap));
+    box.x = at;
+    box.y = static_cast<int16_t>(kTopRowY);
+    box.w = kTopW;
+    box.h = kTopH;
+    box.word = (which == Key::kPowerOff) ? "Poweroff" : ((which == Key::kDeepSleep) ? "Sleep" : "Reboot");
+    return box;
+  }
+  // **I la fila de baix: les cinc del sistema** (0.189.151), amb la fletxa a l'esquerra i la creu a la dreta, que és el lloc que
+  // tenien quan eren les cantonades de la targeta: el que mira enfora és el que va a la vora (docs/30, docs/45).
+  const int16_t total = static_cast<int16_t>(5 * kBottomW + 4 * kBottomGap);
+  const int16_t left = static_cast<int16_t>((width - total) / 2);
+  uint8_t place = 0;
+  if (which == Key::kHome) place = 1;
+  if (which == Key::kSettings) place = 2;
+  if (which == Key::kLock) place = 3;
+  if (which == Key::kClose) place = 4;
+  box.x = static_cast<int16_t>(left + place * (kBottomW + kBottomGap));
+  box.y = static_cast<int16_t>(kBottomRowY);
+  box.w = kBottomW;
+  box.h = kBottomH;
+  box.word = (which == Key::kBack) ? "Back"
+             : (which == Key::kHome) ? "Home"
+             : (which == Key::kSettings) ? "Settings"
+             : (which == Key::kLock) ? "Lock"
+                                     : "Close";
   return box;
 }
 
@@ -179,6 +175,11 @@ const char* key_icon(Key which) {
       return "home";
     case Key::kSettings:
       return "settings";
+    case Key::kLock:
+      // **El candau** (0.189.150): `U+F023` of the clipart, drawn by `tools/iconart.py` into `data/res/icons/lock.png` —and a
+      // padlock of lines in `draw_icon` for a board whose disk has no `/res`—, perquè una clau del sistema que no es veu és una
+      // clau que no hi és (docs/45, docs/50).
+      return "lock";
     case Key::kDeepSleep:
       // **La lluna** (0.189.25): the system's marks are glyphs of the clipart it already carries, and the one of a board that
       // sleeps with its keys awake is the moon of `tools/iconart.py` (`data/res/icons/deepsleep.png`) (docs/45, docs/50).
@@ -217,6 +218,13 @@ bool key_is_there(Key which) {
   if (which == Key::kSettings) {
     const char* settings = cfg::settings_app();
     return settings != nullptr && settings[0] != '\0';
+  }
+  // **I el candau, quan hi ha una app de bloqueig** (0.189.151): the same rule as the gear —`cfg lock none` is a padlock that
+  // covers nothing, and the key is not painted— i la clau no mira el commutador: el commutador decideix els tres moments en què el
+  // sistema es tapa sol, i aquesta clau és la persona demanant-ho ara (docs/30, docs/45, docs/60).
+  if (which == Key::kLock) {
+    const char* page = cfg::lock_app();
+    return page != nullptr && page[0] != '\0';
   }
   if (which == Key::kBack) return apps::views() > 0;
   // **I el son amb les tecles vives, només si la placa en té una** (0.189.25): the same rule as the cross —a key that does
@@ -377,15 +385,18 @@ void sleep_with_the_keys() {
 // not on the disk would leave the board at the prompt —the app that asked gone and nothing in its place—. The door of the apps is
 // the one that knows whether the name is an app of this board, and a gear that finds nothing does nothing and says it in the log
 // (docs/30, docs/40).
-void open_the_settings() {
-  const char* id = cfg::settings_app();
+// **Una clau que obre una app que una persona ha triat** (0.189.109, compartida des de la 0.189.151): the gear of the settings
+// and the padlock of the lock take the same road —the name is `cfg`'s, the app is looked up on the disk **before** it is asked
+// for, and a board with nothing in front starts it instead of asking a page that is not there— and only the words of the log
+// are their own (docs/30, docs/40, docs/90).
+void open_a_chosen_app(const char* id, const char* name, const char* command) {
   if (id == nullptr || id[0] == '\0') {
-    log_printf(pal::kLogInfo, "PANEL", "the settings key: no app of settings is chosen (`cfg settings <id>`)");
+    log_printf(pal::kLogInfo, "PANEL", "the %s key: no app of %s is chosen (`%s`)", name, name, command);
     return;
   }
   apps::Entry entry;
   if (!apps::read(id, entry)) {
-    log_printf(pal::kLogWarn, "PANEL", "the settings key: there is no app '%s' on this board", id);
+    log_printf(pal::kLogWarn, "PANEL", "the %s key: there is no app '%s' on this board", name, id);
     return;
   }
   char why[96] = {0};
@@ -398,21 +409,28 @@ void open_the_settings() {
     g_open = false;
     ui::forget_the_page_hold();
     if (!shell::start_app(entry.id, /*splash=*/true)) {
-      log_printf(pal::kLogWarn, "PANEL", "the settings key: '%s' did not come up", entry.id);
+      log_printf(pal::kLogWarn, "PANEL", "the %s key: '%s' did not come up", name, entry.id);
       return;
     }
-    log_printf(pal::kLogInfo, "PANEL", "the settings key: %s comes up with no page under it", entry.id);
+    log_printf(pal::kLogInfo, "PANEL", "the %s key: %s comes up with no page under it", name, entry.id);
     return;
   }
   // **I la pàgina que la demana queda darrere** (`back`): closing the page of settings comes back to where the person was, which is
   // what a card that opens an app from the bar owes the page under it (docs/30, docs/40).
   if (!shell::ask_run(entry.id, /*back=*/true, why, sizeof(why))) {
-    log_printf(pal::kLogWarn, "PANEL", "the settings app is not there: %s", why);
+    log_printf(pal::kLogWarn, "PANEL", "the %s app is not there: %s", name, why);
     return;
   }
   put_it_away();
-  log_printf(pal::kLogInfo, "PANEL", "the settings key: %s comes up", entry.id);
+  log_printf(pal::kLogInfo, "PANEL", "the %s key: %s comes up", name, entry.id);
 }
+
+void open_the_settings() { open_a_chosen_app(cfg::settings_app(), "settings", "cfg settings <id>"); }
+
+// **El candau: la pàgina que tapa el vidre** (0.189.151, l'amo: *«L'app "Lock" també ha de sortir, a la línia d'icones de Home,
+// Settings, Back i Close»*). It is the page `cfg lock` names and not a second idea of what a lock is: the three moments the
+// system covers the glass by itself are `kernel::lock`'s, and this key is the person asking for the same page now (docs/30, docs/60).
+void open_the_lock() { open_a_chosen_app(cfg::lock_app(), "lock", "cfg lock <id>"); }
 
 // **La casa: la pàgina de casa, i cap altra cosa** (0.189.139, l'amo: *«Afegirem un nou botó al panell de sistema, un icona d'una
 // casa per arrencar HOME APP»*). It is the same door the system takes when the app in front goes and nobody asked for another one
@@ -457,7 +475,7 @@ void open_the_home() {
   log_printf(pal::kLogInfo, "PANEL", "the house key: %s comes up", entry.id);
 }
 
-// **Un botó és la seva acció**: the seven of the card, one switch, so the paint, the hit test and the press cannot disagree about what
+// **Un botó és la seva acció**: the eight of the card, one switch, so the paint, the hit test and the press cannot disagree about what
 // a key does (docs/30, docs/45).
 void run_the_key(Key which) {
   switch (which) {
@@ -472,6 +490,9 @@ void run_the_key(Key which) {
       return;
     case Key::kSettings:
       open_the_settings();
+      return;
+    case Key::kLock:
+      open_the_lock();
       return;
     case Key::kReboot:
       restart_the_board();

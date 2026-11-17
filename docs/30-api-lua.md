@@ -2115,13 +2115,14 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 | `button.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil poden aturar-s'hi. Un botó amb `false` continua pintant-se i pot rebre clics de l'app, però no entra al recorregut del sistema |
 | `button.framed` | `true` o `false` (cert per defecte) | **Sense vores i sense ombra** (0.185.0): el paper de la seva pàgina és la cara del botó i la tinta és només el contingut. **S'enfonsa girant-se**: amb el dit a sobre la cara va a la tinta i la marca al paper, que és el mateix senyal que ja gastava un botó seleccionat |
 | `button.icon` | un mot o `nil` | **Una marca del sistema en lloc de la paraula** (0.185.0): `back` (el xevró que torna, 0.189.33), `close` (creu), `settings`
-(roda dentada), `reboot` (fletxa circular), `poweroff` (el símbol d'apagar) o `deepsleep` (la lluna, 0.189.25). La dibuixa el nucli, en dos nivells i de la
-mida de la cara, i **un mot que no és del joc no en dibuixa cap** |
+(roda dentada), `home` (la casa, 0.189.139), `reboot` (fletxa circular), `poweroff` (el símbol d'apagar), `deepsleep` (la
+lluna, 0.189.25) o **`lock`** (el candau, 0.189.150). La dibuixa el nucli, en dos nivells i de la mida de la cara, i **un mot que no
+és del joc no en dibuixa cap** |
 | `button.icon_side` | `'above'`, `'left'` o `'right'` | **On va la marca quan el botó també porta paraula** (0.185.3): a sobre (`'above'`, per defecte), a l'esquerra del títol o a la dreta. La marca es queda un quadrat de l'alçada de la cara i la paraula es centra a la resta, o sigui que en un botó més ample que alt les dues coses van de costat. **Un botó sense títol té la marca al mig** i aquest camp no es llegeix |
 
 - **Un botó sense vores és la seva marca** (0.185.0, l'amo: *«vull que siguin UIButton, però sense vores (afegir propietat al botó
   si no la te ja) i amb una imatge/icona com a contingut»*): `framed = false` treu la vora i l'ombra, i `icon` hi posa una de les
-  cinc marques que el sistema sap dibuixar, de manera que una clau de la targeta de la barra i un botó d'una app són **el mateix
+  vuit marques que el sistema sap dibuixar, de manera que una clau de la targeta de la barra i un botó d'una app són **el mateix
   control** amb la mateixa marca. Al vidre, quiet, es veu només el dibuix; amb el dit a sobre, la cara es gira —tinta de fons i
   marca de paper—, que és el senyal que aquest sistema ja fa servir per a un botó seleccionat.
 
@@ -4043,21 +4044,29 @@ i res més (0.179.42, 0.179.49).
   abans de pintar (`apps::views() > 0`), i la cantonada de la targeta és paper: un toc allà és un toc a la targeta.
 - **I les claus són el mateix botó, sense vores** (0.185.0, l'amo: *«afegeix al panell lliscat … l'icona de Reinciar,
   d'Apagar i de Settings … aquests botons no tinguin vores, l'icona és tot el que es veu i com qualsevol botó s'enfonsa al pitjar»*).
-  La targeta porta **set claus de seixanta-quatre píxels** —**i la casa al mig de dalt des de la 0.189.139**—: la fletxa a la
-  cantonada esquerra i la creu a la dreta, com fins ara,
-  i **una fila de quatre al mig** centrada —`settings` (roda dentada), `poweroff` (el símbol d'apagar), **`deepsleep` (la lluna,
-  0.189.25)** i `reboot` (fletxa circular), en aquest ordre, que és el que va demanar l'amo: *«l'afegeixes al panell desplegable
-  del sistema entre el botó de poweroff i el de reboot»*—,
-  totes amb `framed = false` i `icon` a la mateixa clau del sistema: el paper de la targeta és la seva cara, la marca és tota la
+  **Les vuit claus de la targeta van en dues files des de la 0.189.150** (l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica
+  mes petits (lleugerament, no tant petits com es ara "Home") a la part de dalt del panell. A baix de tot Home, Close i Settings en
+  el tamany que tenen ara PowerOff Sleep i Reboot»* i *«L'app "Lock" també ha de sortir, a la línia d'icones de Home, Settings,
+  Back i Close»*):
+  **a dalt, els tres que paren la placa** —`poweroff`, **`deepsleep` (la lluna, 0.189.25)** i `reboot`, en aquest ordre, que és el
+  que va demanar l'amo: *«l'afegeixes al panell desplegable del sistema entre el botó de poweroff i el de reboot»*—, de
+  **104 × 88** (la marca a sobre i la paraula a sota, una mica més petits que els d'abaix);
+  **a baix, les cinc del sistema** —`back` (fletxa), `home` (**la casa**, 0.189.139), `settings` (roda dentada), **`lock` (el
+  candau, 0.189.150)** i `close` (la creu), amb la fletxa a l'esquerra i la creu a la dreta, que és el lloc que tenien quan eren les
+  cantonades—, de **96 × 104**, la mida que tenien les quatre del mig.
+  Totes amb `framed = false` i `icon` a la mateixa clau del sistema: el paper de la targeta és la seva cara, la marca és tota la
   tinta que hi ha, i **el botó s'enfonsa girant-se** quan el dit hi és a sobre (una passada `du` de la clau i després l'acció).
-  Totes set es calculen en una sola taula (`key_is_there`, `key_box`, `key_icon`, `run_the_key`) i la que no pot fer res no es pinta ni
-  es pot prémer. El reinici i l'apagat passen pel **mateix camí que la consola** (`shell::reboot` i `shell::power_off`), i
+  Totes vuit es calculen en una sola taula (`key_is_there`, `key_box`, `key_icon`, `run_the_key`) i la que no pot fer res no es pinta ni
+  es pot prémer —la casa sense `cfg home`, la roda sense `cfg settings` i **el candau sense `cfg lock`** (0.189.150)—. El reinici i l'apagat passen pel **mateix camí que la consola** (`shell::reboot` i `shell::power_off`), i
   **`settings` obre l'app dels ajustos, i quina és la diu `cfg`** (0.189.109, l'amo: *«Enllaça el botó de Settings del panell
   desplegable de sistema amb l'app <id: settings> Si no està l'app no passsa res»*): la clau llegeix `cfg settings <id>` —`settings`
   de sèrie, i `none` per a una roda que no fa res— i **la mira abans de demanar-la**, perquè el shell tanca la pàgina del davant
   abans d'arrencar la que li demanen i un nom que no és al disc deixaria la placa al prompt amb la pàgina que la va demanar a la
   memòria de ningú. Una roda que no troba l'app **no fa res** i ho diu al registre (`there is no app 'x' on this board`), i quan
   la troba la demana amb la pàgina del darrere (`back`), perquè tancar els ajustos torni on era (docs/30, docs/40, docs/45).
+  **El candau és la mateixa porta** (0.189.150, `open_a_chosen_app`): obre la pàgina que diu `cfg lock` —`device_lock` de sèrie,
+  i `none` per a un candau que no tapa res— i no decideix res del bloqueig: els tres moments en què el sistema es tapa sol són
+  de `kernel::lock`, i aquesta clau és la persona demanant-ho ara (docs/30, docs/60).
 - **I les marques són dibuixos del disc, fets com al PaperOS** (0.185.1, l'amo: *«fes les icones dels botons del panell
   desplegable de sistema de nou, usa el mateix que feies amb el PaperOS»*). `tools/iconart.py` dibuixa cada marca en una caixa de
   448 unitats —una funció per marca, la paleta de setze tons amb nom, la vora de tinta de 15 unitats que la reducció no

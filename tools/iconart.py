@@ -95,6 +95,11 @@ MARKS = {
     # of this family since the fifth version and it is still the same address in the seventh, so the mark of the card does not
     # move the day the font does (docs/45, docs/50).
     "home": (0xF015, "house: the page of the start"),
+    # **El candau** (0.189.150, l'amo: *«L'app "Lock" també ha de sortir, a la línia d'icones de Home, Settings, Back i Close»*):
+    # the key of the card that covers the glass, and the same address in the fifth family and in the seventh. The app
+    # `device_lock` draws its own padlock with the primitives of a page (`tools/make_lock_icon.py`), which is the picture of an
+    # icon of the launcher; a key of the card carries a mark of the clipart like the other seven (docs/45, docs/50).
+    "lock": (0xF023, "lock: the screen is covered"),
 }
 
 

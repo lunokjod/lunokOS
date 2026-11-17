@@ -7819,13 +7819,14 @@ void test_an_app_that_names_a_splash_carries_it(void) {
   TEST_ASSERT_LESS_THAN_MESSAGE(20000, launcher_bytes, launcher_path);
 }
 
-// **Les set marques de la targeta viuen al disc i són dibuixos** (0.185.1, la sisena des de la 0.189.25 i **la casa des de la
-// 0.189.139**): the keys of the card of the bar carry the marks of `tools/iconart.py` —the arrow, the cross, **the house**, the
-// wheel, the switch, **the moon** and the circle that starts again— and the kernel reads them from `/res/icons`, so the seven of them
-// have to be in the repository and be a PNG with something in it (a key of the card that finds no file falls back to the lines of
-// `draw_icon`, which is a mark and not a drawing, and this case keeps the day from passing without anybody noticing) (docs/30, docs/45).
-void test_the_card_of_the_bar_carries_the_seven_marks(void) {
-  static const char* const kMarks[] = {"back", "close", "home", "settings", "reboot", "poweroff", "deepsleep"};
+// **Les vuit marques de la targeta viuen al disc i són dibuixos** (0.185.1, la sisena des de la 0.189.25, **la casa des de la
+// 0.189.139** i **el candau des de la 0.189.151**): the keys of the card of the bar carry the marks of `tools/iconart.py` —the
+// arrow, the cross, **the house**, the wheel, **the padlock**, the switch, **the moon** and the circle that starts again— and the kernel
+// reads them from `/res/icons`, so the eight of them have to be in the repository and be a PNG with something in it (a key of the
+// card that finds no file falls back to the lines of `draw_icon`, which is a mark and not a drawing, and this case keeps the day
+// from passing without anybody noticing) (docs/30, docs/45).
+void test_the_card_of_the_bar_carries_the_eight_marks(void) {
+  static const char* const kMarks[] = {"back", "close", "home", "settings", "lock", "reboot", "poweroff", "deepsleep"};
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
   size_t found = 0;
   for (size_t m = 0; m < sizeof(kMarks) / sizeof(kMarks[0]); ++m) {
@@ -7849,7 +7850,7 @@ void test_the_card_of_the_bar_carries_the_seven_marks(void) {
     TEST_ASSERT_TRUE_MESSAGE(there, kMarks[m]);
     ++found;
   }
-  TEST_ASSERT_EQUAL_UINT32(7, static_cast<uint32_t>(found));
+  TEST_ASSERT_EQUAL_UINT32(8, static_cast<uint32_t>(found));
 }
 
 // The store answers how full it is in **entries**, which is the number that says whether the
@@ -16173,8 +16174,12 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  const uint16_t cross_x = static_cast<uint16_t>(kernel::ui::canvas().width - 24 - 32);
-  const uint16_t cross_y = static_cast<uint16_t>(48 + 24 + 32);
+  // **The cross is the last of the five of the bottom row** (0.189.151): the row starts fourteen pixels off the left of the
+  // card, the keys are ninety-six wide with eight of air between them, and the middle of the fifth is that plus four of those
+  // and half a key; the row starts a hundred and sixty-eight rows under the bar and is a hundred and four tall, so its middle
+  // is two hundred and twenty under it —the rows of the view, and the bar taken off (docs/30, docs/85).
+  const uint16_t cross_x = static_cast<uint16_t>(kernel::ui::canvas().width - 14 - 96 / 2);
+  const uint16_t cross_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);
   // **The level of one pixel of the glass**, which is where the card is painted.
   auto glass_level = [](uint16_t x, uint16_t y) {
     emu::MemorySurface* glass = emu::memory_surface();
@@ -16185,16 +16190,28 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   // face is paper with the word in it. The three readings below are that drawing and not a shape of the panel: the shadow,
   // a point of the face away from the word and the frame, and the ink the word puts in the middle. A card with no button
   // is paper in all three —the counts tell the two apart without knowing a pixel of the face— (docs/30, docs/92).
-  const uint16_t box_left = static_cast<uint16_t>(cross_x - 32);
-  const uint16_t box_top = static_cast<uint16_t>(cross_y - 32);
-  const uint16_t shadow_x = static_cast<uint16_t>(box_left + 30);
-  const uint16_t shadow_y = static_cast<uint16_t>(box_top + 61);   // the middle of the four rows of shadow
-  const uint16_t face_x = static_cast<uint16_t>(cross_x + 12);     // inside the face, off the word
-  const uint16_t face_y = static_cast<uint16_t>(cross_y - 18);
+  const uint16_t box_left = static_cast<uint16_t>(cross_x - 96 / 2);
+  const uint16_t box_top = static_cast<uint16_t>(cross_y - 52);
+  // **A key of the card is paper except its mark and its word** (0.189.151): the mark is a square of eighty-two centred on the
+  // top of the key and the word is the twenty-two rows under it, so a corner of the box and the air between the two rows are
+  // the two places a key that is there and a key that is not can be told apart (docs/30, docs/92).
+  const uint16_t shadow_x = static_cast<uint16_t>(box_left + 8);
+  const uint16_t shadow_y = static_cast<uint16_t>(box_top + 8);
+  const uint16_t face_x = static_cast<uint16_t>(box_left + 3);   // inside the box, off the square of the mark
+  const uint16_t face_y = static_cast<uint16_t>(box_top + 12);
+  auto ink_in_the_mark = [&]() {
+    int ink = 0;
+    for (uint16_t y = box_top; y < static_cast<uint16_t>(box_top + 82); ++y) {
+      for (uint16_t x = box_left; x < static_cast<uint16_t>(box_left + 96); ++x) {
+        if (glass_level(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
+  };
   auto ink_in_the_word = [&]() {
     int ink = 0;
-    for (uint16_t y = static_cast<uint16_t>(cross_y - 12); y < static_cast<uint16_t>(cross_y + 12); ++y) {
-      for (uint16_t x = static_cast<uint16_t>(cross_x - 12); x < static_cast<uint16_t>(cross_x + 12); ++x) {
+    for (uint16_t y = static_cast<uint16_t>(box_top + 82); y < static_cast<uint16_t>(box_top + 104); ++y) {
+      for (uint16_t x = box_left; x < static_cast<uint16_t>(box_left + 96); ++x) {
         if (glass_level(x, y) == 0) ++ink;
       }
     }
@@ -16226,6 +16243,7 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   // **The button is not there**: the corner of the card where a button would be painted is paper from edge to edge —no
   // shadow under a face, no word in the middle— and a tap there is a tap on the card (docs/30).
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(shadow_x, shadow_y), "the card of a launcher has the shadow of a button on it");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_in_the_mark(), "the card of a launcher has a cross on it");
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_in_the_word(), "the card of a launcher has a word on it");
   tap(cross_x, cross_y);
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a launcher was closed by a tap on paper");
@@ -16247,10 +16265,11 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   // take the ink, which is the other case of this card (`if (!framed) lift = 0` in `ui.cpp`, docs/30, docs/92).
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(shadow_x, shadow_y), "a key of the card has the shadow of a framed button on it");
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(face_x, face_y), "the face of the button is not paper");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(200, ink_in_the_mark(), "the key of the cross has no cross on it");
   TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in_the_word(), "the button has no word in it");
-  // **And nothing outside its box**, which is the twenty-four of margin the card gives the corner.
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(static_cast<uint16_t>(box_left - 6), shadow_y),
-                                  "the button is bigger than its box or the margin is not twenty-four");
+  // **And nothing outside its box**: four rows above the key is the air between the two rows of the card (0.189.151).
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(cross_x, static_cast<uint16_t>(box_top - 4)),
+                                  "the button is bigger than its box");
   // **And a tap on the page below the card dismisses it, with the app still there** (0.179.42): the card's own rows are
   // the card's, and the page under them —four hundred is below the three hundred and fifty-two the card ends at— is the
   // person's way out.
@@ -16279,6 +16298,11 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
 // the same selector as the app of the start— and **a gear that finds no app does nothing at all**: the page in front stays where it
 // is and the card stays out, which is the difference between a key that does nothing and a key that closes the board's page to
 // leave a prompt nobody asked for (docs/30, docs/40).
+//
+// **I el candau del costat és el mateix camí** (0.189.151, l'amo: *«L'app "Lock" també ha de sortir, a la línia d'icones de
+// Home, Settings, Back i Close»*): the padlock opens the page `cfg lock` names, with the same rule of a key that finds no app
+// —`cfg lock none` is a padlock that covers nothing and it is not painted at all—, i les dues claus comparteixen la porta
+// («open_a_chosen_app») perquè no hi hagi dues maneres d'obrir l'app d'una persona (docs/30, docs/40, docs/60).
 void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -16309,9 +16333,9 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
                            "{\"title\":\"Pager\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "console.print('pager up')\nwhile true do sys.delay(20):await() end\n"));
 
-  // **The card comes out of the bar and the gear is the first of the four of the middle**: the row starts a hundred and eight
-  // rows under the bar, the keys are a hundred and twelve wide with forty-eight of air after the first, and the card is pulled
-  // with a swipe of the bar (docs/30, docs/85).
+  // **The card comes out of the bar and the gear is the third of the five of the bottom row**: the row starts a hundred and
+  // sixty-eight rows under the bar, the keys are ninety-six wide with eight of air, and the card is pulled with a swipe of the bar
+  // (docs/30, docs/85).
   auto swipe_down = [&]() {
     TEST_ASSERT_TRUE(panel->finger_down(0, 400, 20));
     pump_turns(20);
@@ -16328,8 +16352,10 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  const uint16_t gear_x = 66;                                              // the middle of the first key
-  const uint16_t gear_y = static_cast<uint16_t>(kernel::ui::canvas().y + 160);  // the middle of the row of four
+  // **The gear is the third of the five of the bottom row** (0.189.151): fourteen off the left of the card, ninety-six wide
+  // with eight of air, and a hundred and four tall from a hundred and sixty-eight rows under the bar.
+  const uint16_t gear_x = static_cast<uint16_t>(14 + 2 * (96 + 8) + 96 / 2);  // the middle of the third key
+  const uint16_t gear_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);  // the middle of the row of five
 
   pump_captured(40, g_out, sizeof(g_out), "run pager");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pager up"), g_out);
@@ -16362,10 +16388,52 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card of a gear with no app was put away");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no app of settings is chosen"), g_out);
 
+  // **I el candau obre la pàgina del bloqueig** (0.189.151): the fourth key of the bottom row is `cfg lock`, and the page that
+  // comes up is the one a person chose —the key does not decide what a lock is, `kernel::lock` does, and this asks for the same
+  // page now— (docs/30, docs/60).
+  const uint16_t lock_x = static_cast<uint16_t>(14 + 3 * (96 + 8) + 96 / 2);
+  TEST_ASSERT_TRUE(add_app(storage, "locky",
+                           "{\"title\":\"Locky\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('locky up')\nwhile true do sys.delay(20):await() end\n"));
+  kernel::cfg::set_settings_app("settings");
+  pump_captured(40, g_out, sizeof(g_out), "cfg lock locky");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the screen locks with locky"), g_out);
+  pump_captured(40, g_out, sizeof(g_out), "run pager");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pager up"), g_out);
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the page of the app");
+  capture_begin();
+  tap(lock_x, gear_y);
+  pump_turns(200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("locky", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the lock key: locky comes up"), g_out);
+
+  // **I sense pàgina de bloqueig la clau no hi és**: `cfg lock none` is a padlock that covers nothing, and the card answers a tap
+  // there with nothing at all —the page in front stays where it is and the card stays out— (docs/30, docs/45).
+  close_any_app();
+  pump_captured(40, g_out, sizeof(g_out), "cfg lock none");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no lock page"), g_out);
+  pump_captured(40, g_out, sizeof(g_out), "run pager");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pager up"), g_out);
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the page of the app");
+  capture_begin();
+  tap(lock_x, gear_y);
+  pump_turns(200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("pager", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card of a padlock with no app was put away");
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "the lock key"), g_out);
+
   // the board is the board of the next case again
+  kernel::cfg::set_lock_app("device_lock");
   kernel::cfg::set_settings_app("settings");
   close_any_app();
   kernel::panel::boot();
+  storage->remove("/apps/locky/app.lua");
+  storage->remove("/apps/locky/manifest.json");
+  storage->remove("/apps/locky");
   storage->remove("/apps/pager/app.lua");
   storage->remove("/apps/pager/manifest.json");
   storage->remove("/apps/pager");
@@ -16448,47 +16516,68 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  // **The arrow is the same square as the cross, on the other corner**: twenty-four off the left of the card and the same
-  // twenty-four from its top, in the rows of the view, so the middle of it is that plus half a side, on the glass where the
-  // bar has already been taken off (docs/30).
-  const uint16_t arrow_x = static_cast<uint16_t>(24 + 32);
-  const uint16_t arrow_y = static_cast<uint16_t>(48 + 24 + 32);
+  // **The arrow is the first of the five of the bottom row** (0.189.151), on the other end from the cross: fourteen off the
+  // left of the card and half a key, in the rows of the view, so the middle of it is that plus forty-eight, on the glass where
+  // the bar has already been taken off (docs/30).
+  const uint16_t arrow_x = static_cast<uint16_t>(14 + 96 / 2);
+  const uint16_t arrow_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);
   auto glass_level = [](uint16_t x, uint16_t y) {
     emu::MemorySurface* glass = emu::memory_surface();
     return (glass == nullptr) ? static_cast<uint8_t>(0xFF) : glass->level_at(x, y);
   };
-  const uint16_t box_left = static_cast<uint16_t>(arrow_x - 32);
-  const uint16_t box_top = static_cast<uint16_t>(arrow_y - 32);
-  const uint16_t shadow_x = static_cast<uint16_t>(box_left + 30);
-  const uint16_t shadow_y = static_cast<uint16_t>(box_top + 61);   // the middle of the four rows of shadow
-  const uint16_t face_x = static_cast<uint16_t>(arrow_x - 12);     // inside the face, off the word
-  const uint16_t face_y = static_cast<uint16_t>(arrow_y - 18);
+  const uint16_t box_left = static_cast<uint16_t>(arrow_x - 96 / 2);
+  const uint16_t box_top = static_cast<uint16_t>(arrow_y - 52);
+  const uint16_t shadow_x = static_cast<uint16_t>(box_left + 8);
+  const uint16_t shadow_y = static_cast<uint16_t>(box_top + 8);
+  const uint16_t face_x = static_cast<uint16_t>(box_left + 3);   // inside the box, off the square of the mark
+  const uint16_t face_y = static_cast<uint16_t>(box_top + 12);
+  // **El que hi ha a la marca**: the number of pixels of ink of the square on the top of the key, and its box. The square is
+  // eighty-two and the word is the twenty-two rows under it, so the reading is the mark alone (0.189.151).
+  auto ink_in_the_mark = [&]() {
+    int ink = 0;
+    for (uint16_t y = box_top; y < static_cast<uint16_t>(box_top + 82); ++y) {
+      for (uint16_t x = box_left; x < static_cast<uint16_t>(box_left + 96); ++x) {
+        if (glass_level(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
+  };
   auto ink_in_the_word = [&]() {
     int ink = 0;
-    int widest = 0;
-    int tallest = 0;
-    for (uint16_t y = static_cast<uint16_t>(arrow_y - 12); y < static_cast<uint16_t>(arrow_y + 12); ++y) {
-      int in_the_row = 0;
-      for (uint16_t x = static_cast<uint16_t>(arrow_x - 12); x < static_cast<uint16_t>(arrow_x + 12); ++x) {
-        if (glass_level(x, y) != 0) continue;
-        ++ink;
-        ++in_the_row;
+    for (uint16_t y = static_cast<uint16_t>(box_top + 82); y < static_cast<uint16_t>(box_top + 104); ++y) {
+      for (uint16_t x = box_left; x < static_cast<uint16_t>(box_left + 96); ++x) {
+        if (glass_level(x, y) == 0) ++ink;
       }
-      if (in_the_row > widest) widest = in_the_row;
     }
-    for (uint16_t x = static_cast<uint16_t>(arrow_x - 12); x < static_cast<uint16_t>(arrow_x + 12); ++x) {
-      int in_the_column = 0;
-      for (uint16_t y = static_cast<uint16_t>(arrow_y - 12); y < static_cast<uint16_t>(arrow_y + 12); ++y) {
-        if (glass_level(x, y) == 0) ++in_the_column;
-      }
-      if (in_the_column > tallest) tallest = in_the_column;
-    }
-    // **I la fletxa és més ampla que alta**: the shaft of `←` is a long row and the head of a `↓` is a tall column, so the two
-    // numbers swap over. It is the one reading that tells a sideways arrow from a down one on a box of ink, and it is here
-    // because the first drawing of this button was three bytes of UTF-8 read as three characters —`â†↓` on the glass— and the
-    // count of ink alone was happy with the down arrow at the end of them (0.179.52, docs/30).
-    if (widest <= tallest) return -ink;
     return ink;
+  };
+  // **I la fletxa mira cap a l'esquerra**: the box of the ink of the mark is taller than it is wide and its vertex is on the
+  // left, which is the one reading that tells a chevron of `‹` from the down arrow a broken UTF-8 put there once —`â†↓` on
+  // the glass— (0.179.52, docs/30). A pressed key or a key that is not there answers zero and the box reads as it is.
+  auto the_arrow_points_left = [&]() {
+    int32_t first_x = -1;
+    int32_t last_x = -1;
+    int32_t first_y = -1;
+    int32_t last_y = -1;
+    int left_column = 0;
+    int right_column = 0;
+    for (uint16_t y = box_top; y < static_cast<uint16_t>(box_top + 82); ++y) {
+      for (uint16_t x = box_left; x < static_cast<uint16_t>(box_left + 96); ++x) {
+        if (glass_level(x, y) != 0) continue;
+        if (first_x < 0 || static_cast<int32_t>(x) < first_x) first_x = x;
+        if (static_cast<int32_t>(x) > last_x) last_x = x;
+        if (first_y < 0 || static_cast<int32_t>(y) < first_y) first_y = y;
+        if (static_cast<int32_t>(y) > last_y) last_y = y;
+      }
+    }
+    if (first_x < 0) return false;
+    for (uint16_t y = box_top; y < static_cast<uint16_t>(box_top + 82); ++y) {
+      if (glass_level(static_cast<uint16_t>(first_x), y) == 0) ++left_column;
+      if (glass_level(static_cast<uint16_t>(last_x), y) == 0) ++right_column;
+    }
+    const int32_t tall = last_y - first_y;
+    const int32_t wide = last_x - first_x;
+    return tall > wide && left_column > right_column;
   };
 
   pump_captured(40, g_out, sizeof(g_out), "run stacky");
@@ -16502,7 +16591,9 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe down from the bar did not pull the card out");
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(shadow_x, shadow_y), "the arrow of the card has the shadow of a framed button on it");
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(face_x, face_y), "the face of the arrow is not paper");
-  TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in_the_word(), "the arrow of the card has no arrow in it");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(200, ink_in_the_mark(), "the arrow of the card has no arrow in it");
+  TEST_ASSERT_TRUE_MESSAGE(the_arrow_points_left(), "the mark of the way back is not a chevron that points left");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in_the_word(), "the key of the arrow has no word in it");
 
   // **I el dit, al mig de la fletxa, torna una vista i no tanca l'app** (docs/30, docs/45): the app is still the page in front,
   // the view it pushed is given back, and the hook it wrote heard the depth that is left.
@@ -16523,7 +16614,8 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the app");
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(shadow_x, shadow_y), "the card of a single page has the shadow of a key on it");
-  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_in_the_word(), "the card of a single page has an arrow on it");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_in_the_mark(), "the card of a single page has an arrow on it");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_in_the_word(), "the card of a single page has a word on it");
   tap(arrow_x, arrow_y);
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a tap on paper closed the app");
   TEST_ASSERT_EQUAL_UINT8(0, kernel::apps::views());
@@ -18683,7 +18775,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_every_app_of_the_repository_carries_an_icon);
   RUN_TEST(test_an_app_that_names_a_splash_carries_it);
-  RUN_TEST(test_the_card_of_the_bar_carries_the_seven_marks);
+  RUN_TEST(test_the_card_of_the_bar_carries_the_eight_marks);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);

@@ -379,6 +379,10 @@ ni una línia del que hi surt: obre la pàgina que `cfg lock` nomena i prou (`li
   consola és tot el que tenen (docs/50).
 - **I si el commutador és cert sense cap pàgina triada, ho diu una vegada** —`the screen is set to lock and no lock app is
   chosen`— i prou: una línia per torn és un registre que no es pot llegir.
+- **I el candau de la targeta del sistema també la obre** (0.189.151, l'amo: *«L'app "Lock" també ha de sortir, a la línia
+  d'icones de Home, Settings, Back i Close»*): és la quarta de les cinc claus de baix, i obre la mateixa pàgina de `cfg lock`
+  —la clau no mira el commutador, perquè el commutador decideix els tres moments automàtics i la clau és la persona demanant-ho
+  ara—; amb `cfg lock none` la clau no es pinta, com la casa i la roda quan no tenen app (docs/30, docs/45).
 
 **El que el bloqueig no fa**: no hi ha PIN (el pany del vidre és el de `device_lock`, que és una app), no compta els minuts
 durant un son profund —en tornar, el rellotge monòton no ha corregut i el despert ja bloqueja igualment— i no impedeix que una

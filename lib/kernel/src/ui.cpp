@@ -3247,7 +3247,7 @@ struct Icon {
 };
 
 const Icon kIcons[] = {
-    {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"}, {"home"},
+    {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"}, {"home"}, {"lock"},
 };
 const uint8_t kIconCount = static_cast<uint8_t>(sizeof(kIcons) / sizeof(kIcons[0]));
 
@@ -3421,6 +3421,16 @@ bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t wid
     icon_line(view, cx - eave + stroke / 2, shoulder, cx - eave + stroke / 2, ground - stroke / 2, stroke, level, mode);
     icon_line(view, cx + eave - stroke / 2, shoulder, cx + eave - stroke / 2, ground - stroke / 2, stroke, level, mode);
     icon_line(view, cx - eave + stroke, ground - stroke / 2, cx + eave - stroke, ground - stroke / 2, stroke, level, mode);
+  } else if (strcmp(name, "lock") == 0) {
+    // **Un candau** (0.189.150): the shackle is a ring and the body is drawn over its lower half, so what is left of the
+    // ring is the handle of a padlock —the same trick of one shape on another the other marks play— and the key of the
+    // screen is read at sixty pixels as the thing that covers the glass (docs/30, docs/45).
+    const int32_t body_h = (reach * 72) / 100;
+    const int32_t body_w = (reach * 84) / 100;
+    const int32_t top = cy + reach - body_h;
+    icon_ring(view, cx, top - (reach * 30) / 100, (reach * 42) / 100, RingGap::kWhole, level, mode);
+    draw_round_fill(view, cx - body_w / 2, top, static_cast<uint16_t>(body_w), static_cast<uint16_t>(body_h),
+                    (reach * 12) / 100, level, mode);
   } else {
     // **El símbol d'apagar**: the ring with a gap at the top and the stem through it, which is the one mark the world
     // already agrees on.

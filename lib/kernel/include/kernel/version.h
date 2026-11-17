@@ -9719,7 +9719,19 @@ namespace kernel {
 // sentit (el commutador escriu `cfg.lockon` i la fila nova «Lock after» els minuts), la pestanya System reanomena les seves
 // dues files a `Home` i `Settings` i en guanya una tercera, `Lock`, i el botó del panell que no té app deixa de pintar-se
 // (`key_is_there` pregunta `cfg`). Una placa sense vidre no bloqueja res i no diu res (docs/30, docs/40, docs/45, docs/50, docs/60).
-static const char kVersion[] = "0.189.150";
+// **La targeta del sistema és de dues files, i el candau hi és** (0.189.151, l'amo: *«El panell desplegable de la barra de sistema
+// mostra les icones Home i Settings de tamany diferent... Fem uns canvis: A dalt de tot Poweroff, Sleep, Reboot una mica mes
+// petits (lleugerament, no tant petits com es ara "Home") a la part de dalt del panell. A baix de tot Home, Close i Settings en
+// el tamany que tenen ara PowerOff Sleep i Reboot. L'app "Lock" també ha de sortir, a la línia d'icones de Home, Settings, Back
+// i Close»*). The card had two kinds of key —the wide corners of `Back` and `Close` and the tall four of the middle, with the
+// house squeezed between the corners at a third size— and now it has **two rows of one kind**: the three that stop the board
+// (`Poweroff`, `Sleep`, `Reboot`) at 104 x 88 above, and the five of the system (`Back`, `Home`, `Settings`, **`Lock`**, `Close`) at
+// 96 x 104 below, which is the size the four of the middle had. The word of every one of them is two steps of the face, which is
+// what fits ninety-six pixels and what makes eight keys read as one card. **El candau és una clau nova** —`U+F023` de
+// `tools/iconart.py`, `data/res/icons/lock.png`, i un candau de línies a `draw_icon` per a una placa sense `/res`— i obre la
+// pàgina de `cfg lock` per la mateixa porta que la roda obre la dels ajustos (`open_a_chosen_app`), amb la mateixa regla: sense
+// app, la clau no es pinta (docs/30, docs/45, docs/60).
+static const char kVersion[] = "0.189.151";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
