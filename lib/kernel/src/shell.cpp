@@ -22,6 +22,7 @@
 
 #include "hal/hal.h"
 #include "json/json.h"
+#include "kernel/app_error.h"
 #include "kernel/apps.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
@@ -1821,11 +1822,28 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
     log_printf(pal::kLogInfo, "APPS", "%s goes to the background: its console is the log", id);
   }
   if (!luabind::poll()) {  // it never waited: it is already over
+    // **Una app que es mor al primer torn també té el seu perquè** (0.189.162): an app whose first line is an error —which is what a
+    // page that was never tested looks like— ended here and not in `poll_app`, so the page of the error had to be asked for in this
+    // path too, or the owner's example app would have died in silence (docs/30, docs/50).
+    char who[40];
+    char why[520];
+    const bool died = luabind::failed();
+    who[0] = '\0';
+    why[0] = '\0';
+    if (died) {
+      snprintf(who, sizeof(who), "%s", id);
+      snprintf(why, sizeof(why), "%s", luabind::last_error_text());
+    }
     g_app_alive = false;
     g_app_detached = false;
     luabind::set_console_attached(true);
     const int code = luabind::exit_code();
     luabind::stop();
+    if (died && why[0] != '\0') {
+      ui::give_back_the_glass();
+      bar::title("");
+      app_error::show(who, why);
+    }
     // **I la pàgina que el va demanar torna a agafar el vidre** (0.179.48): an app that ends in its first turn is an app
     // that ended, and the promise of `app.run` is the same one for both halves —the ended path of `poll_app` is the other
     // half—: the page that asked for this one comes back, with the card its manifest names. Without this the wish stayed
@@ -4373,6 +4391,17 @@ bool poll_app() {
   }
   const int code = luabind::exit_code();
   const bool died = luabind::failed();
+  // **El perquè, copiat abans que la màquina desaparegui** (0.189.162): the interpreter that said the error is destroyed two lines
+  // below, so the words and the traceback are taken here —and the name of the app with them, because `app_id()` answers nothing
+  // once the app is no longer in front— (docs/30, docs/50).
+  char who[40];
+  char why[520];  // the size of the text the interpreter keeps (kErrorTextCap and the traceback)
+  who[0] = '\0';
+  why[0] = '\0';
+  if (died) {
+    snprintf(who, sizeof(who), "%s", app_id());
+    snprintf(why, sizeof(why), "%s", luabind::last_error_text());
+  }
   // **A detached app that ends says so** (0.160.0): the prompt was the shell's the whole time, so a line is the only
   // sign that the app in the background is over, and without it a person keeps waiting for a page that is gone
   // (docs/30).
@@ -4384,6 +4413,14 @@ bool poll_app() {
   }
   luabind::stop();
   g_app_alive = false;
+  // **I el perquè al vidre, que és el que una persona té davant** (0.189.162, l'amo: *«Si peta una app, que menys que saber el
+  // perqué amb la pantalla i els dits»*): a board with a glass paints the page of the error —the app, the message and the
+  // traceback— and waits for a finger or a key; a board with no glass says the line and goes on, which is all it ever had
+  // (docs/30, docs/50).
+  if (died && why[0] != '\0') {
+    ui::give_back_the_glass();
+    app_error::show(who, why);
+  }
   // **The console is the shell's again** (0.160.0): the detachment goes with the app that asked for it.
   g_app_detached = false;
   luabind::set_console_attached(true);

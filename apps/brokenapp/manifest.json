@@ -1,0 +1,11 @@
+{
+  "title": "Broken App Test",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "brokenapp.lua",
+  "boards": [
+    "esp32"
+  ],
+  "icon": "res/icon.png",
+  "description": "Seven ways of breaking on purpose: a nil that is indexed, a global that is not a function, an error with a message of the app's own, one thrown as a table, a loop that never ends, a recursion with no end and a string that does not fit in the memory. Each button is a different why, and what the system paints is the page of the error \u2014the message, the traceback and the way on\u2014, which is what this app exists to show."
+}

@@ -670,6 +670,11 @@ struct AdminOps {
 
 void set_admin_ops(const AdminOps& ops);
 
+// **L'últim error que el intèrpret ha dit, amb el seu rastre** (0.189.162): the message of a hook or of a task that died, in the
+// words the console got, plus the traceback of where —which is what a page of the system puts on the glass when an app stops—.
+// It is a copy: the machine that said it is gone by the time the kernel asks (docs/30, docs/50).
+const char* last_error_text();
+
 // **What a call into the system costs.** Every call the app makes to the API —`fs.read`, `ui.rect`,
 // `sys.delay`, all of them— is counted and timed by the interpreter's own hook, and the total is handed
 // here so the kernel can keep it in its meters: this library does not know the kernel and must not

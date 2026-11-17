@@ -12952,6 +12952,30 @@ void seal_globals(lua_State* L) {
   lua_setglobal(L, "apps");
 }
 
+// **L'últim error, copiat** (0.189.162): the text the console gets, kept for the page the system paints when an app stops. The
+// buffer is one and the errors are one at a time —the machine that said it is destroyed right after—, and it is cleared at every
+// start so a page of an error never shows the mistake of the app before (docs/30, docs/50).
+//
+// **Són 512 B i no més perquè el Paper va dir que no**: `dram0_0_seg overflowed by 128 bytes` with the 640 that it was born with,
+// and a message and a traceback that do not fit are said by the page with its three dots (docs/30, docs/75).
+char g_last_error[512] = {0};
+size_t g_last_error_len = 0;
+
+void note_the_error(const char* text, size_t len) {
+  if (text == nullptr || len == 0) return;
+  if (g_last_error_len > 0 && g_last_error[g_last_error_len - 1] != '\n' &&
+      g_last_error_len + 1 < sizeof(g_last_error)) {
+    g_last_error[g_last_error_len++] = '\n';
+    g_last_error[g_last_error_len] = '\0';
+  }
+  const size_t room = sizeof(g_last_error) - 1 - g_last_error_len;
+  if (room == 0) return;
+  if (len > room) len = room;
+  memcpy(g_last_error + g_last_error_len, text, len);
+  g_last_error_len += len;
+  g_last_error[g_last_error_len] = '\0';
+}
+
 // Prints whatever an app threw: a string, or a {code, message} table.
 void print_error_value(lua_State* L, int idx) {
   idx = lua_absindex(L, idx);
@@ -12959,6 +12983,7 @@ void print_error_value(lua_State* L, int idx) {
     size_t len = 0;
     const char* text = lua_tolstring(L, idx, &len);
     if (len > kErrorTextCap) len = kErrorTextCap;
+    note_the_error(text, len);
     con_text("lua: ");
     con_write(text, len);
     con_text("\r\n");
@@ -12969,12 +12994,12 @@ void print_error_value(lua_State* L, int idx) {
     lua_getfield(L, idx, "message");
     const char* code = lua_tostring(L, -2);
     const char* message = lua_tostring(L, -1);
+    char said[192];
+    snprintf(said, sizeof(said), "%s%s%s", (code != nullptr) ? code : "",
+             (code != nullptr) ? ": " : "", (message != nullptr) ? message : "(no message)");
+    note_the_error(said, strlen(said));
     con_text("lua: ");
-    if (code != nullptr) {
-      con_text(code);
-      con_text(": ");
-    }
-    con_text((message != nullptr) ? message : "(no message)");
+    con_text(said);
     con_text("\r\n");
     lua_pop(L, 2);
     return;
@@ -13007,6 +13032,7 @@ void report_task_error() {
   if (lua_pcall(g_task, 1, 1, 0) == LUA_OK) {
     const char* trace = lua_tostring(g_task, -1);
     if (trace != nullptr) {
+      note_the_error(trace, strlen(trace));
       con_text(trace);
       con_text("\r\n");
     }
@@ -13391,6 +13417,11 @@ void stop() {
 }
 
 bool running() { return g_state != nullptr; }
+
+// **L'últim error que el intèrpret ha dit** (0.189.162): the message and the traceback, kept for the page the system puts on the
+// glass when an app stops. The buffer is filled where the console gets the words (`print_error_value` and the traceback of a
+// task) so the page and the log never say two different things (docs/30, docs/50).
+const char* last_error_text() { return g_last_error; }
 
 namespace {
 
@@ -16226,11 +16257,23 @@ bool run_source(const char* name, const char* source, size_t len) {
   if (g_state == nullptr) return false;
   if (g_task != nullptr) return false;  // one app at a time, always
 
+  // **El nom amb què el tros es presenta, que és el que surt a la pàgina d'un error** (0.189.162): `/apps/brokenapp/brokenapp.lua`
+  // is a path a person has to read twice, and the page of the error already says which app it is: the chunk is named after the file
+  // alone, which is what the person wrote and what the line of the error has to point at (docs/30, docs/50).
+  const char* chunk = name;
+  if (name != nullptr) {
+    const char* slash = strrchr(name, '/');
+    if (slash != nullptr && slash[1] != '\0') chunk = slash + 1;
+  }
+
   g_failed = false;  // how this app ends is what failed() will answer
+  // **I el perquè de l'app d'abans no és el d'aquesta** (0.189.162).
+  g_last_error[0] = '\0';
+  g_last_error_len = 0;
   g_exit_code = 0;
   g_exited_by_app = false;
 
-  if (luaL_loadbuffer(g_state, source, len, name) != LUA_OK) {
+  if (luaL_loadbuffer(g_state, source, len, chunk) != LUA_OK) {
     report_error();
     lua_pop(g_state, 1);
     g_failed = true;

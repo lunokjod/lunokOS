@@ -25,6 +25,7 @@
 #include "hal/hal.h"
 #include "img/img.h"
 #include "json/json.h"
+#include "kernel/app_error.h"
 #include "kernel/apps.h"
 #include "kernel/bar.h"
 #include "kernel/button.h"
@@ -19271,6 +19272,81 @@ void test_a_long_press_opens_the_app_that_was_asked_for_with_its_switches(void) 
   kernel::boot(hal::platform());
 }
 
+// **Una app que es mor deixa el perquè al vidre** (0.189.162, l'amo: *«Si peta una app, que menys que saber el perqué amb la pantalla
+// i els dits. Un modal amb el missatge d'error? vull detalls del perqué una app peta»*). The page of the error is the system's: the
+// app's name, the message the interpreter said, the traceback of where and a line that says how to go on, and it waits for a finger
+// or a key before giving the glass back. What the case proves is that the page is **painted at all** and that the why the interpreter
+// keeps is the one the console got, with the file named and not a path (docs/30, docs/50).
+void test_an_app_that_dies_says_why_on_the_glass(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  storage->remove("/apps/dier/app.lua");
+  storage->remove("/apps/dier/manifest.json");
+  storage->remove("/apps/dier");
+  TEST_ASSERT_TRUE(add_app(storage, "dier",
+                           "{\"title\":\"Dier\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local nothing = nil\n"
+                           "nothing.field = 42\n"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app("home_eink"));
+  close_any_app();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  close_any_app();
+
+  // **La pàgina no espera ningú en un cas de prova** (docs/80): the wait of a page nobody is going to touch is the system's, and the
+  // suite asks for a short one or it would sit here for half a minute.
+  kernel::app_error::set_wait_ms(40);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint16_t width = glass->width();
+  pump_captured(200, g_out, sizeof(g_out), "run dier");
+  kernel::app_error::set_wait_ms(0);
+
+  // **El perquè és el que el intèrpret ha dit**, amb el fitxer sol i el rastre de la línia.
+  const char* why = luabind::last_error_text();
+  TEST_ASSERT_NOT_NULL(why);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(why, "attempt to index a nil value"), why);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(why, "[string \"app.lua\"]:2"), why);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(why, "stack traceback"), why);
+
+  // **I la pàgina és al vidre amb les seves paraules**: the title at the top and the line of the way out at the bottom, que és el
+  // que una persona ve en lloc de la pàgina que s'ha mort (docs/50).
+  int title_ink = 0;
+  for (uint16_t y = 24; y < 70; ++y) {
+    for (uint16_t x = 28; x < width - 28; ++x) {
+      if (glass->level_at(x, y) == 0) ++title_ink;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(500, title_ink, "the page of the error has no title");
+  int foot_ink = 0;
+  for (uint16_t y = static_cast<uint16_t>(glass->height() - 70); y < static_cast<uint16_t>(glass->height() - 24); ++y) {
+    for (uint16_t x = 28; x < width - 28; ++x) {
+      if (glass->level_at(x, y) == 0) ++foot_ink;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(300, foot_ink, "the page of the error does not say how to go on");
+
+  storage->remove("/apps/dier/app.lua");
+  storage->remove("/apps/dier/manifest.json");
+  storage->remove("/apps/dier");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   g_from = getenv("LUNOK_FROM");
@@ -19543,6 +19619,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_page_uninstalls_an_app_with_its_alarms_and_its_cache);
   RUN_TEST(test_a_page_asks_the_system_how_much_an_app_takes);
   RUN_TEST(test_a_long_press_opens_the_app_that_was_asked_for_with_its_switches);
+  RUN_TEST(test_an_app_that_dies_says_why_on_the_glass);
   RUN_TEST(test_a_page_clears_the_cache_of_an_app_and_nothing_else);
   RUN_TEST(test_the_page_of_the_apps_reads_the_manifests_of_the_folder);
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);

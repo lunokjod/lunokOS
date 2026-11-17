@@ -15,10 +15,13 @@
 
 #if !LUNOK_GLASS
 
+#include "kernel/app_error.h"
+#include "kernel/log.h"
 #include "kernel/bar.h"
 #include "kernel/splash.h"
 #include "kernel/touch.h"
 #include "kernel/ui.h"
+#include "pal/pal.h"
 
 namespace kernel {
 
@@ -160,6 +163,20 @@ uint32_t bus_mhz() { return 0; }
 bool set_bus_mhz(uint32_t) { return false; }
 
 }  // namespace display
+
+// **La pàgina d'una app que s'ha mort no té on pintar-se** (0.189.162): the page of `app_error.cpp` is inside `LUNOK_GLASS` with the
+// rest of the page of this system, so a board with no glass answers here —and says where the why is, which is the log and the
+// console, because that is the whole of what such a board has— instead of a build that does not link (docs/30, docs/50).
+namespace app_error {
+
+void show(const char* id, const char* text) {
+  (void)text;
+  log_printf(pal::kLogError, "ERROR", "the app %s has stopped; the why is on the console", (id != nullptr) ? id : "(no app)");
+}
+
+void set_wait_ms(int64_t) {}
+
+}  // namespace app_error
 
 }  // namespace kernel
 

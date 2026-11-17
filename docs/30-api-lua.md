@@ -939,6 +939,29 @@ while true do
 end
 ```
 
+## La pàgina d'una app que s'ha mort (0.189.162)
+
+**Un error d'una app acaba al vidre i no només al registre.** L'amo: *«Si peta una app, que menys que saber el perqué amb la
+pantalla i els dits. Un modal amb el missatge d'error? vull detalls del perqué una app peta»*. Quan una app s'acaba amb un error
+—una línia que peta al primer torn, o un error entre dos torns— el sistema pinta el vidre sencer amb:
+
+- **el nom de l'app**, amb el títol del manifest;
+- **el missatge que el intèrpret ha dit**, amb el fitxer i la línia (`[string "app.lua"]:2: attempt to index a nil value (local
+  'nothing')`) —el tros es diu pel nom del fitxer i no pel camí del disc, que és una cosa que una persona ha de llegir dues
+  vegades—;
+- **el rastre de les crides** (`stack traceback`), que és el que diu **des d'on** s'ha cridat el que ha petat;
+- i una línia a baix que diu **com continuar**.
+
+**I espera**: un dit al vidre, una tecla, o els trenta segons que la pàgina espera sola —una placa que ningú mira no s'ha de quedar
+penjada en un error—. El text és el mateix que el registre i la consola han rebut (`luabind::last_error_text`), o sigui que la
+pàgina i el log no es poden contradir. Una placa sense vidre no pinta res i segueix com sempre (docs/50, docs/85).
+
+**I es pot provocar**: l'app `brokenapp` —*Broken App Test*— té set botons i cada un peta d'una manera diferent (indexar un `nil`,
+cridar un global que no és funció, un `error` amb missatge, un `error` amb taula, un bucle sense fi que talla el pressupost del
+torn, una recursió sense fi i una cadena que no cap a la memòria). **El botó no peta**: un error dins d'un `on_click` el recull el
+ganxo del sistema i l'app seguiria com si res —la mateixa carretera que va fer que `app.exit()` dins d'un ganxo no tanqui l'app
+(0.189.101)—, o sigui que el botó deixa un desig i **el torn de la pàgina** és el que es trenca (docs/30, docs/40, docs/90).
+
 ## `alarm`
 
 Les alarmes **no guarden funcions de Lua**. Guarden un identificador i un payload, i quan vencen el

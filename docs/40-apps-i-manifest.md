@@ -652,8 +652,14 @@ seguida en lloc de la llista. El commutador viatja com qualsevol altre (`app.arg
 prompt el sap escriure igual: `run appinfo -d battery`, on un segon mot que comença per `-` és un commutador i no un camí
 (docs/30, docs/40).
 
+**`brokenapp`** —*Broken App Test*— (0.189.162) és una app que existeix per **trencar-se**: set botons, set maneres de petar (un
+`nil` indexat, un global que no és funció, un `error` amb missatge, un `error` amb taula, un bucle sense fi, una recursió sense fi i
+una cadena que no cap a la memòria). És la manera de veure la pàgina d'error del sistema sense haver d'espatllar una app de debò, i
+cada botó deixa el seu nom al registre abans de petar (docs/30).
+
 Les altres apps —`about`, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
-`home_eink`, `life`, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i `rainbow`— segueixen la
+`home_eink`, `life`, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i `rainbow`, amb
+**`brokenapp`**— segueixen la
 mateixa convenció,
 amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
 **totes les apps del disc declaren `icon`**: el camp va néixer perquè el manifest el pogués dir el dia que la

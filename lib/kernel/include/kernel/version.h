@@ -9830,7 +9830,18 @@ namespace kernel {
 // al buffer del desig, que es buida abans que l'app el llegeixi, i la pàgina s'obria a la llista amb el commutador ben viu al registre
 // —ara es copia a un buffer de l'arrencada—. Mirat a l'emulador: el dit llarg sobre la cel·la `2048` deixa `home: the details of 2048`,
 // `appinfo: the details of 2048 were asked for` i la fitxa de 2048 al vidre (docs/30, docs/40, docs/45).
-static const char kVersion[] = "0.189.161";
+// **El perquè d'una app que peta, al vidre** (0.189.162, l'amo: *«Si peta una app, que menys que saber el perqué amb la pantalla i els
+// dits. Un modal amb el missatge d'error? vull detalls del perqué una app peta. Fes una app d'exemple que peti de diferents maneres al
+// polsar uns botons. Diga-li "Broken App Test"»*). Fins ara una app que es trencava deixava el seu error al registre i a la consola, i
+// el que tenia el vidre a davant veia la pàgina de sota com si no hagués passat res. Ara el sistema pinta **la pàgina de l'error**
+// (`kernel::app_error`): el vidre rentat, el nom de l'app, el missatge amb el fitxer i la línia, **el rastre de les crides** i una
+// línia que diu com continuar, i s'espera el dit, una tecla o els trenta segons de la pàgina. El text és el mateix que el registre ha
+// rebut (`luabind::last_error_text`, copiat abans que la màquina mori) i el tros es diu pel nom del fitxer i no pel camí del disc
+// (`[string "app.lua"]:2` i no `[string "/apps/boom/app.lua"]:2`). **El perquè hi és pels dos camins**: l'app que peta al primer torn
+// (dins de `start_app`) i la que peta entre dos torns (`poll_app`) —el primer no tenia cap pàgina i és el que l'exemple de l'amo va
+// trobar—. I l'app **`brokenapp`** —*Broken App Test*— té set botons amb set maneres de petar, per mirar-ho sense espatllar res de
+// debò; el botó no peta, deixa un desig i el torn de la pàgina és el que es trenca (docs/30, docs/40, docs/50).
+static const char kVersion[] = "0.189.162";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
