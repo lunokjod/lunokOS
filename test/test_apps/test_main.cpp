@@ -13897,6 +13897,95 @@ void test_a_grid_walks_its_cells_and_pages_itself(void) {
   storage->remove("/apps/launcher");
 }
 
+// **La part blanca d'una graella també gira la pàgina** (0.189.155, l'amo: *«el control UI Grid ha de respondre al swipe també a
+// la part blanca sense icones»*): a grid whose cells are the app's own controls **is not a stop of the dial** —its cells are,
+// one by one, and the box of the grid is not walked—, so a swipe that landed on the paper between them found no control at all
+// and the page never turned. The box of the grid is where its page has been turned from since the 0.187.0; el que faltava era
+// preguntar quina graella hi ha sota el punt on el dit va caure (docs/30, docs/90).
+void test_a_grid_turns_its_page_from_the_paper_between_its_cells(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **Vuit cel·les en una graella de tres columnes**: three cells a page, so the second page is the cells 4 to 6 and the third
+  // one is the last two —la resta de la caixa és paper, que és on ha de caure el dit—. The number is the grid's
+  // (`icon_grid_cells`) i no d'aquest cas: el que el cas demana és que el gest arribi a la graella.
+  TEST_ASSERT_TRUE(add_app(storage, "shelf",
+                           "{\"title\":\"Shelf\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local grid = ui.icon_grid(300, 300)\n"
+                           "grid:place(20, 60)\n"
+                           "grid.columns = 3\n"
+                           "for i = 1, 8 do\n"
+                           "  local cell = ui.button(90, 90)\n"
+                           "  cell.title = 'c' .. i\n"
+                           "  grid:add(cell)\n"
+                           "end\n"
+                           "grid.index = 7\n"
+                           "ui.present('gc16')\n"
+                           "local shown = grid.index\n"
+                           "console.print('grid at ' .. shown)\n"
+                           "while true do\n"
+                           "  sys.delay(10):await()\n"
+                           "  if grid.index ~= shown then\n"
+                           "    shown = grid.index\n"
+                           "    console.print('grid at ' .. shown)\n"
+                           "  end\n"
+                           "end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run shelf");
+  capture_begin();
+  pump_turns(20);
+  // **El dit cau al paper** (the second page has two cells at the top left and the rest of the box is paper) **i camina cap a la
+  // dreta**, que és la pàgina d'abans (0.189.1): the grid is at 20,60 of the view and the bar is forty-eight rows of the glass.
+  TEST_ASSERT_TRUE(panel->finger_down(0, 270, 358));
+  pump_turns(10);
+  for (int dx = 40; dx <= 160; dx += 40) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(270 + dx), 358));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid at 7"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid at 4"), g_out);
+  // **I el mateix dit cap a l'altra banda torna a la pàgina que hi havia**: a finger to the left asks for the page after this one,
+  // i el paper de la segona també és seu (docs/30, docs/90).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 270, 358));
+  pump_turns(10);
+  for (int dx = 40; dx <= 160; dx += 40) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(270 - dx), 358));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid at 7"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/shelf/app.lua");
+  storage->remove("/apps/shelf/manifest.json");
+  storage->remove("/apps/shelf");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // Where the keys are is part of the answer: an app gives a function to a position,
 // and the board says it in the same words on every board (docs/30, docs/50).
 void test_the_board_says_where_its_keys_are(void) {
@@ -18898,6 +18987,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_selector_opens_the_list_the_app_puts_up);
   RUN_TEST(test_the_cross_of_a_notice_dismisses_the_newest);
   RUN_TEST(test_a_grid_walks_its_cells_and_pages_itself);
+  RUN_TEST(test_a_grid_turns_its_page_from_the_paper_between_its_cells);
   RUN_TEST(test_the_lock_covers_the_glass_at_the_start_and_after_a_sleep);
   RUN_TEST(test_only_an_administrator_gets_the_admin_table_and_a_lock);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);

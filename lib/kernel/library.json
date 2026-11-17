@@ -1,6 +1,6 @@
 {
   "name": "kernel",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "lunokOS kernel: boot, event loop, shell, log ring.",
   "dependencies": {
     "alarms": "*",

@@ -14688,23 +14688,97 @@ int ui_stop_of_slot(lua_State* L, int objects, int count, int16_t slot) {
 //
 // False when the finger is not on a grid, when that page does not exist —the first one back, the last one forward— or
 // when it is already the page the grid is on, and then the finger goes on being whatever it was.
-bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, int objects, int index, int8_t delta) {
+// **La graella que hi ha sota un punt de la pàgina** (0.189.155, l'amo: *«el control UI Grid ha de respondre al swipe també a la
+// part blanca sense icones»*): the walk of the stops knows the cells of a grid and not the paper between them, and a finger that
+// lands on the paper of a grid is a finger **on the grid** —its whole box is where its page turns since the 0.187.0—. The deepest
+// grid whose box holds the point is the answer, and a card over the page still wins: nothing of the page behind it is asked
+// for anything (docs/30, docs/90).
+void ui_walk_for_a_grid(lua_State* L, int object, int32_t base_x, int32_t base_y, int32_t x, int32_t y, int depth,
+                        int16_t& best_slot, int& best_depth) {
+  object = lua_absindex(L, object);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (!ui_control_alive(canvas)) return;
+  if (!ui_in_the_card(canvas->slot) && !ui_leads_to_the_card(canvas->slot)) return;
+  const int base = lua_gettop(L);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return;
+  }
+  lua_getfield(L, -1, "children");
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return;
+  }
+  const lua_Integer children = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  for (lua_Integer i = 1; i <= children; ++i) {
+    lua_rawgeti(L, -1, i);
+    LuaCanvas* child = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+    if (child == nullptr || child->slot < 0 || g_ui_ops.canvas_parent == nullptr ||
+        g_ui_ops.canvas_parent(child->slot) != canvas->slot) {
+      lua_pop(L, 1);
+      continue;
+    }
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint16_t local_x = 0;
+    uint16_t local_y = 0;
+    if (g_ui_ops.canvas_caps == nullptr ||
+        !g_ui_ops.canvas_caps(child->slot, width, height, local_x, local_y)) {
+      lua_pop(L, 1);
+      continue;
+    }
+    const int32_t cx = base_x + local_x;
+    const int32_t cy = base_y + local_y;
+    const bool inside = (x >= cx) && (y >= cy) && (x < cx + static_cast<int32_t>(width)) &&
+                        (y < cy + static_cast<int32_t>(height));
+    if (inside && depth > best_depth && ui_field_bool(L, -1, "__icon_grid", false)) {
+      best_slot = child->slot;
+      best_depth = depth;
+    }
+    ui_walk_for_a_grid(L, -1, cx, cy, x, y, depth + 1, best_slot, best_depth);
+    lua_pop(L, 1);
+  }
+  lua_settop(L, base);
+}
+
+int16_t ui_grid_under(lua_State* L, int32_t x, int32_t y) {
+  const int top = lua_gettop(L);
+  int16_t best = -1;
+  if (x < 0 || y < 0 || l_ui_root(L) != 1) {
+    lua_settop(L, top);
+    return best;
+  }
+  int best_depth = -1;
+  ui_walk_for_a_grid(L, lua_gettop(L), 0, 0, x, y, 0, best, best_depth);
+  lua_settop(L, top);
+  return best;
+}
+
+bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, int objects, int index, int8_t delta,
+                          int32_t x, int32_t y) {
   if (g_ui_ops.icon_grid_page_cell == nullptr || g_ui_ops.canvas_parent == nullptr) return false;
-  if (index < 0 || index >= count || delta == 0) return false;
+  if (delta == 0) return false;
+  // **I si el dit va caure al paper, la graella d'aquell punt** (0.189.155): a grid whose cells are the app's controls is not a
+  // stop of the dial, o sigui que una estona damunt del paper no trobava cap control i la pàgina no girava mai (docs/30, docs/90).
+  const int16_t under = (index >= 0 && index < count) ? -1 : ui_grid_under(L, x, y);
   const int base = lua_gettop(L);
 
   // **The grid, whether the finger is on it or on one of its cells**: a cell's grid is its father, and the grid is asked of
   // the tree by its slot and not of the walk, because **a grid with cells of the app is not a stop of the dial** —its cells
   // are, one by one, and the box of the grid is not walked— (docs/30, docs/90).
-  lua_rawgeti(L, objects, index + 1);
-  const int touched = lua_gettop(L);
-  int16_t grid_slot = -1;
-  if (ui_field_bool(L, touched, "__icon_grid", false)) {
-    LuaCanvas* grid = static_cast<LuaCanvas*>(luaL_testudata(L, touched, kCanvasMeta));
-    if (grid != nullptr) grid_slot = grid->slot;
-  } else if (LuaCanvas* cell = static_cast<LuaCanvas*>(luaL_testudata(L, touched, kCanvasMeta))) {
-    const int16_t father = g_ui_ops.canvas_parent(cell->slot);
-    if (father >= 0) grid_slot = father;
+  int16_t grid_slot = under;
+  if (index >= 0 && index < count) {
+    lua_rawgeti(L, objects, index + 1);
+    const int touched = lua_gettop(L);
+    if (ui_field_bool(L, touched, "__icon_grid", false)) {
+      LuaCanvas* grid = static_cast<LuaCanvas*>(luaL_testudata(L, touched, kCanvasMeta));
+      if (grid != nullptr) grid_slot = grid->slot;
+    } else if (LuaCanvas* cell = static_cast<LuaCanvas*>(luaL_testudata(L, touched, kCanvasMeta))) {
+      const int16_t father = g_ui_ops.canvas_parent(cell->slot);
+      if (father >= 0) grid_slot = father;
+    }
+    lua_pop(L, 1);
   }
   if (grid_slot < 0) {
     lua_settop(L, base);
@@ -14825,7 +14899,7 @@ bool ui_step_the_picker(lua_State* L, int object, int16_t slot, int8_t delta) {
 }
 
 bool ui_turn_the_page_of_a_travel(int objects, FocusTarget* targets, int capacity, int count, int index, int dx,
-                                  int dy, int top) {
+                                  int dy, int top, int32_t x, int32_t y) {
   // **Només els costats passen pàgina** (0.188.5, l'amo: *«per passar pàgina vull dreta/esquerra no amunt/avall… recorda
   // que la pantalla està girada, el touch està llegint verticals on són horizontals»*). A page of a list turns with the
   // hand going **left or right** —right is the page before this one, left the page after, since the 0.189.1— and a finger
@@ -14868,7 +14942,7 @@ bool ui_turn_the_page_of_a_travel(int objects, FocusTarget* targets, int capacit
     }
   }
   int16_t list_slot = -1;
-  bool turned = ui_grid_turn_the_page(g_state, targets, count, objects, index, delta);
+  bool turned = ui_grid_turn_the_page(g_state, targets, count, objects, index, delta, x, y);
   if (!turned) {
     // **La llista és la del lloc on el gest va començar** (0.183.2): `index` is the control under the finger in this frame
     // and a swipe of a hand leaves the row it began on, so the list the gesture belongs to is the one the landing found
@@ -14929,7 +15003,7 @@ void ui_gesture(uint16_t x, uint16_t y, int16_t dx, int16_t dy) {
   const int index = ui_hit(targets, count, x, y);
   // **La pàgina és la primera pregunta**: a list and a grid answer for themselves and the page turn takes the whole gesture
   // when it happens, the same road the frames used to take (docs/30, docs/90).
-  if (ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, dx, dy, top)) {
+  if (ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, dx, dy, top, x, y)) {
     lua_settop(g_state, top);
     return;
   }
@@ -15104,7 +15178,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       // is the other half —a flick the panel reported as one jump arrives with its whole travel and no frame in between—. A
       // page that cannot be turned (the first one, going back) turns nothing and spends the contact all the same.
       if (walked && !g_ui_swipe_page && (index >= 0 || g_ui_swipe_list >= 0)) {
-        ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, walked_x, walked_y, top);
+        ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, walked_x, walked_y, top, -1, -1);
       }
       // **I el focus, si el gest no va girar cap pàgina** (0.186.1): the ring goes back where it was when the finger landed —or
       // nowhere, if it was nowhere, which is what a page used with a finger looks like— and the row the swipe stopped over is
@@ -15177,7 +15251,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     if ((index >= 0 || g_ui_swipe_list >= 0) && !g_ui_swipe_page) {
       const int dx = static_cast<int>(x) - static_cast<int>(g_ui_swipe_x0);
       const int dy = static_cast<int>(y) - static_cast<int>(g_ui_swipe_y0);
-      if (ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, dx, dy, top)) {
+      if (ui_turn_the_page_of_a_travel(objects, targets, list.capacity, count, index, dx, dy, top, -1, -1)) {
         lua_settop(g_state, top);
         return;
       }

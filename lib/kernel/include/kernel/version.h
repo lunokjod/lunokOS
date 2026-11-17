@@ -9752,7 +9752,15 @@ namespace kernel {
 // que les separa ja és a la cua: `raise_to_front`, que és el que l'app demana quan vol que la seva alarma obri la pàgina. Les
 // dues preguntes de la barra —el despertador i el rellotge de sorra— compten ara només les alarmes que vindran al vidre, i la
 // mostra de la bateria no encén res; la del rellotge de cada dia i el compte enrere sí (docs/30, docs/50, docs/60).
-static const char kVersion[] = "0.189.154";
+// **La part blanca d'una graella també gira la pàgina** (0.189.155, l'amo: *«el control UI Grid ha de respondre al swipe també a la part
+// blanca sense icones»*). El gest d'una graella es decidia pel control que hi havia **sota el dit**, i una graella amb cel·les de
+// l'app no és un stop del dial —les cel·les són, una per una, i la caixa de la graella no es recorre—: un dit que queia al paper
+// entre dues cel·les no trobava res i la pàgina es quedava on era, tot i que el 0.187.0 ja deia que la caixa sencera és el lloc del
+// gest. Ara, quan el dit no té cap control a sota, es pregunta **quina graella hi ha en aquell punt** (`ui_grid_under`: el mateix
+// recorregut de l'arbre que fa el dial, mirant `__icon_grid` i la caixa de cada fill) i la pàgina gira igual que si el dit hagués
+// caigut damunt d'una cel·la (docs/30, docs/90). Mirat a l'emulador amb una graella de vuit cel·les i tres columnes: un dit al paper
+// de la tercera pàgina la porta a la segona (`grid at 4` al registre) i un altre cap a l'altra banda el torna a la tercera.
+static const char kVersion[] = "0.189.155";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

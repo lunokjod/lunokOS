@@ -3946,6 +3946,12 @@ vidre i es poden provar al PC (docs/85).
   gest i no un toc** (des de 0.186.1, els vint píxels de `kTapSlop`): un lliscament damunt d'una fila no la tria ni
   l'obre, i per tant la llista no té res a protegir. **Un toc quiet continua sent un toc** i obre la fila de sota el
   dit, i un toc damunt dels punts salta a aquella pàgina (docs/30, docs/90).
+  **I la part blanca d'una graella també, que és la que faltava** (0.189.155, l'amo: *«el control UI Grid ha de respondre al
+  swipe també a la part blanca sense icones»*): una graella amb cel·les de l'app **no és un stop del dial** —ho són les
+  cel·les, una per una, i la caixa de la graella no es recorre—, o sigui que un dit que anava a parar entre dues cel·les no
+  trobava cap control i la pàgina no girava. El gest pregunta ara **quina graella hi ha sota el punt on el dit va caure**
+  (`ui_grid_under`, el mateix recorregut de l'arbre que fa el dial però mirant `__icon_grid`), i el que cau fora de tota caixa
+  no és de ningú.
 - **I el gest que no canvia res no repinta la llista** (0.186.4, l'amo: *«la llista es redibuixa tot i no haver-se
   embrutat?»*): el focus que el dit havia pres en caure es torna a qui el tenia, però **només es pinta si era un
   altre**; un lliscament que no troba pàgina i que no mou el cercle deixa el vidre com era (docs/30, docs/90).
