@@ -9666,7 +9666,18 @@ namespace kernel {
 // docs/40 la `battery` a la llista de les apps amb icona, i docs/45 que ja són **deu** les portades. I la icona de la
 // `Battery` es torna a fer del mestre de 448 px del projecte del paper amb `tools/make_icon.py`, com la de tota app, en
 // lloc de la conversió del `.icn` de 94 px: el dibuix és el mateix i la recepta és la mateixa que la de les altres (docs/40).
-static const char kVersion[] = "0.189.146";
+// **Un gràfic sense `max` es dibuixava amb un rang de zero a zero** (0.189.147). `ui.chart` és el control de la `Battery`, i
+// el seu rang físic és el que docs/30 promet com a defecte: **zero i cent**. La fàbrica del control no hi posava `min` ni
+// `max`, i `l_chart_draw` els llegia amb `lua_getfield` + `lua_tointeger`, que sobre el `nil` d'un camp absent respon **0**: el
+// control rebia `low = 0, high = 0`, la guarda `if (high <= low) high = low + 1` el convertia en 0..1 i una sèrie de 90, 95 i
+// 100 sortia com una ratlla plana sota la guia de dalt amb l'escala dient 90 % i 89 % —un dibuix que sembla una dada i no un
+// error, que és el pitjor que pot fer un control—. La `Battery` no ho patia perquè els posa sempre; qualsevol altra app que
+// fes cas del document, sí. Ara els dos números són **una sola constant** que la fàbrica sembra i el dibuix torna a posar
+// quan el camp no és un número (`lua_tointegerx` i no `lua_tointeger`), i `chart.max` es pot llegir des de l'app (docs/30,
+// docs/90). El cas `test_a_chart_is_born_with_the_range_the_document_promises` és el que ho vigila: sense l'arranjament
+// llegeix `min nil max nil`, i el 17/11 el mateix gràfic dibuixat sense `max` i amb `max = 100` va sortir **pixel a pixel
+// igual** a l'emulador, que és la prova que el defecte de dalt era el rang i no el dibuix.
+static const char kVersion[] = "0.189.147";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

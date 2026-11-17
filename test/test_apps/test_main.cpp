@@ -17012,6 +17012,42 @@ void test_the_battery_takes_its_sample_from_a_window(void) {
   storage->remove("/apps/battery/res/icon.png");
 }
 
+// **Un gràfic neix amb el rang que el document promet** (0.189.148): `ui.chart` sense `min` ni `max` arribava al control amb
+// un rang físic de **zero a zero** —`lua_tointeger` sobre el `nil` d'un camp que la fàbrica no hi posava és 0— i `chart_draw`
+// el convertia en zero a u per no dividir per zero: una sèrie de 90, 95 i 100 es dibuixava com una ratlla plana sota la guia de
+// dalt, amb l'escala dient 90 % i 89 %. docs/30 diu que el defecte és **zero i cent**, i aquest cas és la porta que ho ha de
+// dir: el camp hi és abans que l'app l'escrigui, i el que l'app hi escriu és el que el control llegeix (docs/30, docs/90).
+void test_a_chart_is_born_with_the_range_the_document_promises(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  TEST_ASSERT_TRUE(add_app(storage, "chartrange",
+                           "{\"title\":\"Chart range\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"]}",
+                           // El camp es llegeix **abans** d'escriure-hi res, que és el que una app fa per pintar l'escala.
+                           "local c, why = ui.chart(200, 120)\n"
+                           "if c == nil then console.print('range: no chart ' .. tostring(why and why.code)) return end\n"
+                           "console.print(string.format('range: min %s max %s', tostring(c.min), tostring(c.max)))\n"
+                           "c.min = 10\n"
+                           "c.max = 20\n"
+                           "console.print(string.format('range: min %s max %s', tostring(c.min), tostring(c.max)))\n"
+                           "sys.delay(2000):await()\n"));
+
+  pump_captured(300, g_out, sizeof(g_out), "run chartrange");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "range: min 0 max 100"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "range: min 10 max 20"), g_out);
+
+  storage->remove("/apps/chartrange/app.lua");
+  storage->remove("/apps/chartrange/manifest.json");
+  storage->remove("/apps/chartrange");
+}
+
 // **El cronòmetre i el compte enrere del Clock són al disc i l'ancora és l'hora de la placa** (0.189.103, l'amo: *«Clock ->
 // Chronomether, no manté l'hora ni continua comptant rera tancar l'app o el reinici … se suposa que aquestes apps usaven el
 // disc i els rellotges que puguin haver»*). The run file says when the run started and what it already counted, so a
@@ -18582,6 +18618,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
   RUN_TEST(test_the_battery_app_takes_a_sample_and_changes_its_window);
   RUN_TEST(test_the_battery_takes_its_sample_from_a_window);
+  RUN_TEST(test_a_chart_is_born_with_the_range_the_document_promises);
   RUN_TEST(test_the_clock_keeps_its_run_across_a_restart);
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);

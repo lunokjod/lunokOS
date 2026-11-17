@@ -7323,6 +7323,13 @@ int l_ui_sparkline(lua_State* L) {
   return 1;
 }
 
+// **El rang físic amb què neix un gràfic** (0.189.148): the two numbers docs/30 promises as a default —zero and a hundred,
+// which is what a percentage is—, **in one place**, perquè la fàbrica que sembra els camps i el dibuix que els llegeix no
+// poden dir-ne dos de diferents: quan ho van fer, el gràfic va néixer amb un rang de zero a zero i la sèrie es va dibuixar
+// com una ratlla plana sota la guia de dalt (docs/30, docs/90).
+const int kChartLow = 0;
+const int kChartHigh = 100;
+
 // **A table of Lua numbers as the values of a chart**, which may be negative —a temperature is— and is cut at what the
 // control holds instead of being an error (docs/90).
 uint8_t chart_values(lua_State* L, int index, int16_t* out, uint8_t most) {
@@ -7373,15 +7380,23 @@ int l_chart_draw(lua_State* L) {
   int color = 0;
   int background = 15;
   int scale = 1;
-  int low = 0;
-  int high = 100;
+  int low = kChartLow;
+  int high = kChartHigh;
   const char* suffix = "";
   char unit[8] = {0};
+  // **Un camp que no és un número no és un zero** (0.189.148): `lua_tointeger` answers 0 for a `nil` —a field the factory
+  // never seeded, or one an app set to nil— and that is how the range of a chart became 0..1: `chart_draw` saw `high` at
+  // zero, turned it into one so as not to divide by zero, and a series of ninety, ninety-five and a hundred came out as a
+  // flat line under the top guide with the scale saying 90 % and 89 %. The default the document promises is kept instead,
+  // and the two numbers are the same ones the factory seeds (docs/30, docs/90).
+  int is_a_number = 0;
   lua_getfield(L, fields, "min");
-  low = static_cast<int>(lua_tointeger(L, -1));
+  low = static_cast<int>(lua_tointegerx(L, -1, &is_a_number));
+  if (!is_a_number) low = kChartLow;
   lua_pop(L, 1);
   lua_getfield(L, fields, "max");
-  high = static_cast<int>(lua_tointeger(L, -1));
+  high = static_cast<int>(lua_tointegerx(L, -1, &is_a_number));
+  if (!is_a_number) high = kChartHigh;
   lua_pop(L, 1);
   lua_getfield(L, fields, "color");
   color = static_cast<int>(lua_tointeger(L, -1));
@@ -7435,6 +7450,13 @@ int l_ui_chart(lua_State* L) {
   lua_setfield(L, -2, "values");
   lua_pushnil(L);
   lua_setfield(L, -2, "times");
+  // **I el rang físic hi és des del primer dia** (0.189.148): the fields are seeded the way `color`, `background` and `scale`
+  // already were, so an app that reads `chart.max` before setting it reads the hundred the document promises instead of a
+  // `nil` the control was quietly drawing with (docs/30, docs/90).
+  lua_pushinteger(L, kChartLow);
+  lua_setfield(L, -2, "min");
+  lua_pushinteger(L, kChartHigh);
+  lua_setfield(L, -2, "max");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "color");
   lua_pushinteger(L, 15);
