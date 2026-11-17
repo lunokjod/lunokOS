@@ -238,7 +238,8 @@ dades es queden),
 `mounts`, `run <id> [path] [&]` (l'ampersand al final **deixa l'app en segon pla**: el prompt torna de
 seguida, el `stdin`, el `stdout` i el `stderr` de l'app queden desenganxats d'aquesta consola i el que l'app
 imprimeix va al `log`; no hi ha cap fil ni cap segona tasca, l'app es segueix atenent al mateix torn que
-sempre),
+sempre —i un segon mot que comenci per guió són els **commutadors** de l'app, que arriben a `app.args.flags`:
+`run appinfo -d battery` obre la fitxa de la bateria—),
 `lua` (el prompt es torna l'intèrpret, amb tota l'API, i `exit` en surt), `ls`, `cat <fitxer>`,
 `hexdump <fitxer>` (els bytes en hex i en visible), `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
 `ntp`, `http <url>`, `repo [owner/repo] [dir]` i `repo info <app>` (les carpetes d'un directori del repositori i el manifest d'una app, de GitHub), `repo install <app>` (el directori sencer d'una app, al disc que `cfg` diu), `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power

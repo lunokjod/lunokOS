@@ -46,36 +46,37 @@ local function label(text, scale, y)
 end
 
 -- **Les set maneres de petar**, amb el nom de la que és en el registre de l'app: una línia que digui què s'ha demanat és el que fa
--- que una pàgina d'error es pugui reproduir.
+-- que una pàgina d'error es pugui reproduir. **I el que es veu al vidre va en anglès**, com els botons i les files de tota
+-- pàgina d'aquest sistema —el codi i els comentaris són una altra cosa— (docs/45).
 local crashes = {
   { id = 'nil-index', text = 'Index a nil',
     run = function()
       local nothing = nil
       return nothing.field
     end },
-  { id = 'nil-call', text = 'Cridar el que no hi és',
+  { id = 'nil-call', text = 'Call what is not there',
     run = function()
       no_such_function_here()
     end },
-  { id = 'message', text = 'Error amb missatge',
+  { id = 'message', text = 'An error with a message',
     run = function()
       error('the message this app wrote on purpose')
     end },
-  { id = 'table', text = 'Error amb taula',
+  { id = 'table', text = 'An error with a table',
     run = function()
       error({ code = 'E_BROKEN', message = 'an error thrown as a table' })
     end },
-  { id = 'budget', text = 'Bucle sense fi',
+  { id = 'budget', text = 'A loop with no end',
     run = function()
       local n = 0
       while true do n = n + 1 end
     end },
-  { id = 'recursion', text = 'Recursió sense fi',
+  { id = 'recursion', text = 'A recursion with no end',
     run = function()
       local function down(n) return down(n + 1) + 1 end
       return down(1)
     end },
-  { id = 'memory', text = 'No hi cap a la memòria',
+  { id = 'memory', text = 'A string that does not fit',
     run = function()
       local big = string.rep('x', 64 * 1024 * 1024)
       return #big

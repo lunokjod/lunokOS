@@ -649,8 +649,9 @@ and a board left at the prompt when the lock opens (docs/30, docs/60).
 sobre una app: Inicia l'app App Info amb l'app de paràmetre perquè mostri la finestra detalls directament run <id_app_info> -d
 <id_app>»*): `home_eink` penja `on_long` de cada cel·la i fa `app.run('appinfo', '-d <id>')`, i `appinfo` obre aquella fitxa de
 seguida en lloc de la llista. El commutador viatja com qualsevol altre (`app.args.flags`, com els `opensArgs` d'un manifest) i el
-prompt el sap escriure igual: `run appinfo -d battery`, on un segon mot que comença per `-` és un commutador i no un camí
-(docs/30, docs/40).
+prompt el sap escriure igual: `run appinfo -d battery`, on un segon mot que comença per `-` és un commutador i no un camí i **la
+resta de la línia és seva**, sense comptar-se com a mots (0.189.163: amb la partició de sempre, tres mots eren «too many words» i
+la comanda no arrencava res) (docs/30, docs/40).
 
 **`brokenapp`** —*Broken App Test*— (0.189.162) és una app que existeix per **trencar-se**: set botons, set maneres de petar (un
 `nil` indexat, un global que no és funció, un `error` amb missatge, un `error` amb taula, un bucle sense fi, una recursió sense fi i

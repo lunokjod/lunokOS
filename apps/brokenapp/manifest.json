@@ -1,7 +1,7 @@
 {
   "title": "Broken App Test",
   "author": "@lunokjod",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "entry": "brokenapp.lua",
   "boards": [
     "esp32"

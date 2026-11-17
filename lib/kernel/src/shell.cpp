@@ -1615,6 +1615,13 @@ char g_run_back[40] = {0};
 // Whether the app that asked wants the glass back when the other one ends.
 bool g_run_wanted_back = false;
 
+// **Els commutadors d'aquest arrencada, copiats d'una vegada** (0.189.163, i el parany trobat en el repàs del 17/11): the
+// string of a wish or of a `run` is taken here and the global is cleared **before anything can go wrong**, perquè un
+// arrencada que falla —una app que no és al disc— deixava els commutadors posats i el següent app, triada d'on fos, els
+// rebia (vist amb `run appinfo -d battery` en una placa sense `appinfo`). It is a static and not the stack because the
+// machine is built further down and the text has to be there when it is (docs/30, docs/40).
+static char g_switches_of_this_start[48] = {0};
+
 bool run_app(const char* id, const char* open_path, bool restore = false, bool splash = true) {
   // **A start needs the interpreter, and the one in front still has it** (0.166.3): `luabind::start` answers no while a
   // state is alive —`if (g_state != nullptr) return false`—, so `run <id>` asked for while an app was in front said
@@ -1629,6 +1636,13 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   // and for the interpreter. Only the lookup happens here —a walk of the listing
   // and a string copy— and it is also what refuses an app of another board.
   if (!find_app(id, target)) return false;
+
+  // **Els commutadors es prenen aquí i es gasten amb l'arrencada**: the wish's own string, or the manifest's `opensArgs`
+  // when there is none; a switch of a wish is not a switch of the app, and the next start of it —from the launcher, from the
+  // prompt— is a start without them (docs/30, docs/40).
+  snprintf(g_switches_of_this_start, sizeof(g_switches_of_this_start), "%s",
+           (g_start_flags[0] != '\0') ? g_start_flags : target.opens_arg);
+  g_start_flags[0] = '\0';
 
   // **Una app que arrenca demana el topall una estona** (0.179.38): reading its source, building an interpreter and laying
   // its first page out is the heaviest thing this system does on purpose and it is foreseeable, so the processor is at
@@ -1734,16 +1748,9 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   boot.app_opens = target.opens;
   // **The app's own switches, never the system's** (0.120.0): `opensArgs` of the manifest goes to the app as
   // `app.args.flags` and nowhere else —the system does not read it, does not split it and does not act on it— (docs/30).
-  // **Els commutadors es copien a un buffer de l'arrencada** (0.189.161): the wish's own string is cleared before the app
-  // reads it, so a `boot.args_flags` pointing at it was an empty string by the time the machine was built —the page opened on
-  // the list with the switch right there in the log— (vist a l'emulador, 17/11).
-  static char flags_of_this_start[sizeof(g_start_flags)] = {0};
-  snprintf(flags_of_this_start, sizeof(flags_of_this_start), "%s",
-           (g_start_flags[0] != '\0') ? g_start_flags : target.opens_arg);
-  boot.args_flags = flags_of_this_start;
-  // **I es gasten amb l'arrencada**: a switch of a wish is not a switch of the app, and the next start of it —from the
-  // launcher, from the prompt— is a start without them (docs/30, docs/40).
-  g_start_flags[0] = '\0';
+  // **Els commutadors són els que es van copiar en entrar** (0.189.163): a start that is not a wish has the manifest's own,
+  // and the start that asked for them took them away already (docs/30, docs/40).
+  boot.args_flags = g_switches_of_this_start;
   // True when the app is being brought back from a sleep: it is how an app knows
   // to read what it saved instead of starting from nothing (docs/90).
   boot.args_restore = restore;
@@ -3441,8 +3448,8 @@ bool command_alarm(const char* argument) {
       out("\r\n");
     }
   }
-  // **On és el despertar, que és el que la cua no pot dir de si mateixa**: la cua sàp quina alarma és la propera i no
-  // sàp en quin xip s'ha quedat, perquè aò és del rellotge de la placa (docs/50, docs/60).
+  // **On és el despertar, que és el que la cua no pot dir de si mateixa**: la cua sap quina alarma és la propera i no
+  // sap en quin xip s'ha quedat, perquè allò és del rellotge de la placa (docs/50, docs/60).
   if (clock == nullptr) {
     out("wake: this board has no clock to arm\r\n");
     return true;
@@ -5341,20 +5348,40 @@ bool execute(char* line) {
     // `app.args.path` and nothing else changes (docs/30, docs/40).
     char words[2][kWordCap];
     size_t count = 0;
-    if (!read_words(line + 3, words, 2, count)) return false;
+    // **Els commutadors no són mots que es comptin** (0.189.163, trobat en el repàs del 17/11): `read_words` amb dos mots
+    // refusava `run appinfo -d battery` —tres mots— amb «too many words», o sigui que la comanda que docs/40 ensenya no
+    // arrencava res. El primer mot es llegeix sol i, si el segon comença per guió, **la resta de la línia és el que l'app
+    // rep** i no es parteix (docs/30, docs/40).
+    const char* rest = line + 3;
+    while (*rest == ' ') ++rest;
+    const char* after_id = rest;
+    while (*after_id != '\0' && *after_id != ' ') ++after_id;
+    const char* tail = after_id;
+    while (*tail == ' ') ++tail;
+    // **Un segon mot que comença per `-` són commutadors i no un camí** (0.189.161, l'amo: *«run <id_app_info> -d <id_app>»*): el
+    // que es passa a l'app és `app.args.flags`, que és on va l'`opensArgs` d'un manifest, i un camí que comenci per guió curt
+    // no existeix en aquest sistema.
+    const bool switches_here = (*tail == '-');
+    if (switches_here) {
+      const size_t id_len = static_cast<size_t>(after_id - rest);
+      if (id_len == 0 || id_len >= kWordCap) {
+        usage_out("usage: run <id> [path | -switch ...]\r\n");
+        return false;
+      }
+      memcpy(words[0], rest, id_len);
+      words[0][id_len] = '\0';
+      count = 1;
+    } else if (!read_words(rest, words, 2, count)) {
+      return false;
+    }
     if (count == 0) {
       usage_out("usage: run <id> [path | -switch ...]\r\n");
       return false;
     }
-    // **Un segon mot que comença per `-` són commutadors i no un camí** (0.189.161, l'amo: *«run <id_app_info> -d <id_app>»*): the
-    // rest of the line goes to the app as `app.args.flags`, which is where the manifest's `opensArgs` goes, i un camí que comenci
-    // per guió curt no existeix en aquest sistema (docs/30, docs/40).
+    // **Els commutadors d'un arrencada no són els de la següent**: the string is set on every `run`, empty when the command
+    // has none, so a start that fails half way cannot leave the switches of another one behind (docs/30).
+    snprintf(g_start_flags, sizeof(g_start_flags), "%s", switches_here ? tail : "");
     const char* open_path = (count > 1) ? words[1] : nullptr;
-    if (open_path != nullptr && open_path[0] == '-') {
-      const char* switches = strstr(line, open_path);
-      if (switches != nullptr) snprintf(g_start_flags, sizeof(g_start_flags), "%s", switches);
-      open_path = nullptr;
-    }
     // **`&` is read by `run_app` and not here** (0.160.0): the flag lives for one start, so an app that asks for
     // another one from its own turns is not detached by accident.
     g_start_detached = background;

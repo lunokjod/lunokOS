@@ -78,7 +78,7 @@ aquestes línies, totes amb l'etiqueta `ALARM`:
 | Sona | `#2 fired for zzalarm, 0 ms late, 1 left in the queue`, i després com s'ha lliurat |
 | Arrenca amb alarmes desades | `1 restored from nvs`, i la cua sencera |
 
-**`armed on` és la resposta al «quin métode»**: `the clock chip` és la BM8563 de la Paper —el seu alarmé arriba al circuit
+**`armed on` és la resposta al «quin métode»**: `the clock chip` és la BM8563 de la Paper —la seva alarma arriba al circuit
 d'alimentació i el seu quars compta, o sigui que és l'únic que torna una placa amb el corrent tallat—, `the RTC timer of the
 SoC` és el comptador del xip quan no hi ha rellotge amb pila, i **`the turn of the loop`** és el cas que no s'escrivia i el
 que més importa: en una placa sense despert possible una alarma només sona amb la placa desperta.
@@ -368,11 +368,16 @@ ni una línia del que hi surt: obre la pàgina que `cfg lock` nomena i prou (`li
 
 | Moment | Què passa |
 |---|---|
-| **Arrencar la placa** | Després de l'app de l'inici, `lock::boot()` obre la pàgina si el commutador és cert |
+| **Arrencar la placa** | `lock::boot()` obre la pàgina si el commutador és cert i **la casa no s'arrenca darrere seu**: la demana el pany quan s'obre (`device_lock` llegeix `cfg home`), perquè una casa que s'arrenca darrere la cortina no hi és quan la cortina s'aixeca (0.189.159) |
 | **Tornar d'un son lleuger** | `power.cpp` avisa amb `lock::note_a_wake()`; el primer torn que ve després obre la pàgina |
 | **Els minuts sense màns** | Cada tecla, cada dit i cada byte de consola tornen a començar el comptador; quan s'acaba, la pàgina puja al davant |
 | **El commutador apagat** | Cap dels tres: la placa es queda on era |
 
+- **La pàgina del pany és la primera i la casa ve darrere seu** (0.189.159, l'amo: *«A l'arrencada fes: està habilitat el lock?
+  existeix lock? → Arrencar lock → En acabar arrencar Home (si existeix)»*): `lock::boot()` arrenca el pany **abans** que el nucli
+  miri `cfg home` i respon el nom de la pàgina que ha posat al davant; el nucli només arrenca la casa si la resposta és buida, i
+  qui la demana, quan el pany s'obre, és la mateixa app del pany. Una app que torna d'una sessió no es trepitja: el pany hi va a
+  sobre amb `raise_app` i la pàgina torna quan s'obre (docs/30, docs/40).
 - **El comptador és una durada i no una hora**: surt de `pal::system().millis()`, el monòton, i no de l'`epoch`, perquè posar
   l'hora endavant no ha de bloquejar la placa i posar-la enrere no ha de deixar-la sense bloquejar mai. És el mateix rellotge
   que compten les alarmes.

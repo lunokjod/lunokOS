@@ -737,6 +737,38 @@ void test_the_options_of_the_emulator_start_empty(void) {
   TEST_ASSERT_EQUAL_FLOAT(50.0f, one.env_humidity);
 }
 
+// **Els commutadors de `run` comencen on comença el seu mot** (0.189.163, trobat en el repàs del 17/11): la cerca era un
+// `strstr` del mot solt dins de l'ordre sencera, i una app el nom de la qual contingui el text del commutador —`x-d` amb
+// `-d`— rebia els commutadors començats **dins del seu propi nom** (`-d -d battery` en lloc de `-d battery`). El que es
+// prova és la comanda sencera, que és el camí d'una persona i el que `app.run` no passa (docs/30, docs/40).
+void test_the_switches_of_run_begin_at_the_word_that_is_one(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "x-d",
+                           "{\"title\":\"Dash\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('flags [' .. (app.args and app.args.flags or '') .. ']')\n"));
+
+  // **Un nom amb el commutador a dins, i el commutador de debò després**: the first `-d` of the line is inside the id.
+  TEST_ASSERT_TRUE(run_captured("run x-d -d battery", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "flags [-d battery]"), g_out);
+  // I la comanda sense commutadors no en dona cap, que és el que fa el camí de sempre.
+  TEST_ASSERT_TRUE(run_captured("run x-d", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "flags []"), g_out);
+
+  // **I els d'un arrencada que no ha arrencat no els rep la següent** (0.189.163): the switches were taken after the source
+  // was read, o sigui que `run` d'una app que no és al disc els deixava posats i la pàgina que vingués després els rebia
+  // (docs/30, docs/40).
+  TEST_ASSERT_TRUE(run_captured("run nope -d battery", g_out, sizeof(g_out)));  // nothing starts, so nothing stays up
+  TEST_ASSERT_TRUE(run_captured("run x-d", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "flags []"), g_out);
+
+  storage->remove("/apps/x-d/app.lua");
+  storage->remove("/apps/x-d/manifest.json");
+  storage->remove("/apps/x-d");
+}
+
 // The plainest app there is: it starts, it writes, it ends, and the shell is back.
 void test_an_app_runs_and_writes(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -19352,6 +19384,7 @@ int main(int argc, char** argv) {  (void)argc;
   g_from = getenv("LUNOK_FROM");
   UNITY_BEGIN();
   RUN_TEST(test_the_options_of_the_emulator_start_empty);
+  RUN_TEST(test_the_switches_of_run_begin_at_the_word_that_is_one);
   RUN_TEST(test_an_app_runs_and_writes);
   RUN_TEST(test_the_commands_of_the_prompt_reach_an_app);
   RUN_TEST(test_a_failing_app_says_why_and_the_shell_survives);

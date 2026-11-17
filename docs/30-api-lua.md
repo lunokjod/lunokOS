@@ -4112,8 +4112,8 @@ d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una t
 terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —la forma de la
 barra del sistema, que és l'agafador del camí d'anada: els de tornada són un toc fora de la targeta i un
 lliscament cap amunt que hi comenci (0.179.42, 0.179.49)— i, a dins, **vuit claus en dues files**: a dalt les quatre que
-paren la placa —`Poweroff`, `Sleep`, `Reboot` i `Lock`— i a baix les quatre del sistema —`Settings`, `Home`, `Back` i
-`Close`— (0.189.152). Fins a la 0.189.150 la targeta era la creu i la fletxa a les dues cantonades de dalt i una fila de
+paren la placa —`Poweroff`, `Sleep`, `Reboot` i `Lock`— i a baix les quatre del sistema —`Settings`, `Home`, `Close` i
+`Back`, l'ordre de la 0.189.158: les dues que van a un lloc a l'esquerra i les dues que tanquen a la dreta— (0.189.152). Fins a la 0.189.150 la targeta era la creu i la fletxa a les dues cantonades de dalt i una fila de
 quatre al mig, i la forma d'avui és la de les dues files (docs/30 § les claus). **Les maneres de tancar-lo són totes de la
 persona: un toc fora de la targeta** —a la pàgina de sota o a la barra de la qual penja— **o un lliscament cap amunt que hi
 comenci**, i res més (0.179.42, 0.179.49).

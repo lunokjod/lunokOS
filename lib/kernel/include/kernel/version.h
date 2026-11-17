@@ -9841,7 +9841,27 @@ namespace kernel {
 // (dins de `start_app`) i la que peta entre dos torns (`poll_app`) —el primer no tenia cap pàgina i és el que l'exemple de l'amo va
 // trobar—. I l'app **`brokenapp`** —*Broken App Test*— té set botons amb set maneres de petar, per mirar-ho sense espatllar res de
 // debò; el botó no peta, deixa un desig i el torn de la pàgina és el que es trenca (docs/30, docs/40, docs/50).
-static const char kVersion[] = "0.189.162";
+// **El repàs dels setze commits del 17/11, i el que hi va trobar** (0.189.163):
+//   - **`run <id> -switch ...` no arrencava res** (0.189.161 el va documentar i ningú el va provar pel prompt): la comanda partia
+//     la línia amb `read_words` i un màxim de **dos mots**, i `run appinfo -d battery` en són tres —o sigui que el que l'amo va
+//     escriure al document responia `bad line: … too many words` i no arrencava l'app—. Ara el primer mot es llegeix sol i, si el
+//     segon comença per guió, **la resta de la línia és dels commutadors** i no es compta com a mots. I la cerca del començament
+//     dels commutadors era un `strstr` del mot solt: una app que es digui `x-d` rebia `-d -d battery`, perquè el primer `-d` de la
+//     línia era dins del seu nom; es mira el començament del mot. **I els commutadors es prenen en entrar a `run_app` i s'esborren
+//     allà mateix**: es prenien després de llegir el codi de l'app, o sigui que un `run` d'una app que no és al disc els deixava
+//     posats i **la pàgina següent, triada d'on fos, els rebia**. El cas `test_the_switches_of_run_begin_at_the_word_that_is_one`
+//     és el que vigila les tres coses (`test_apps`, i és vermell amb el codi de la 0.189.161).
+//   - **`docs/60` deia que el pany s'arrencava després de la casa**, que és el que feia la 0.189.150 i el que la 0.189.159 va
+//     canviar a posta: ara la fila de la taula diu que el pany és la primera pàgina i que la casa la demana ell quan s'obre, com ja
+//     deia docs/30 i com fa el codi.
+//   - **`docs/30` donava l'ordre de la fila de baix de la targeta com era a la 0.189.152** (`Settings`, `Home`, `Back`, `Close`) i
+//     no com la va deixar la 0.189.158 (`Settings`, `Home`, `Close`, `Back`): una pàgina que ho llegís per pintar les claus les
+//     posaria al revés de com les pinta el sistema.
+//   - **`docs/80` comptava 715 proves i n'hi ha 727** (mesurades avui: 6 min 30 s), i el rellotge de la Paper no és «el seu
+//     alarmé» enlloc.
+//   - **Els botons de `brokenapp` eren en català** i la resta de pàgines d'aquest sistema parlen anglès al vidre: el codi i els
+//     comentaris són una cosa i el que una persona llegeix, una altra (docs/45).
+static const char kVersion[] = "0.189.163";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

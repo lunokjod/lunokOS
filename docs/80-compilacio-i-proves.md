@@ -213,7 +213,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   havia passat amb els directoris. El que es deixa fora és la regla del `lib_ignore` de l'emulador —les
   identitats de placa i les meitats d'ESP32, que no són cosa de l'amfitrió— i **Lua, perquè és C**: el pas fa
   `clang++` i l'intèrpret com a C++ no és el mateix programa;
-- les **715 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, i el 16/11 en 6 min 9 s): les dotze de la 0.169.0 eren quatre
+- les **727 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, i el 16/11 en 6 min 9 s): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
@@ -250,7 +250,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   llegit de la consola, un dit que tremola que no mou res, un lliscament que mou el tauler i fa créixer la suma, i la
   partida que torna quan l'app es tanca i s'obre —**la tecla New no la toca**, perquè el dit que aquesta suite sap fer
   no arriba al gest `tap` de l'app— (`test_apps`). **Mesurades l'11/11: 591 casos verds en 3 min 17 s** (106 de
-  `test_ui` i 211 de `test_apps`). **Mesurades el 16/11: 710 en 6 min 9 s, i el 17/11 en son 715 amb les cinc de les alarmes al registre**, amb els casos que van sortir del repàs dels
+  `test_ui` i 211 de `test_apps`). **Mesurades el 16/11: 710 en 6 min 9 s, i el 17/11 en són 727 en 6 min 30 s**, amb els casos que van sortir del repàs dels
   vint-i-set commits —les dues proves que havien envellit, que escriuen al disc de la suite i el deixaven brut per a la
   de després (docs/45)— i els de la `Battery`: el gràfic del sistema a `test_ui` i dues d'app a `test_apps`, una mostra
   presa per la pàgina i una altra per una **finestra d'alarma**, amb l'app tancada (0.189.144 i 0.189.145);
