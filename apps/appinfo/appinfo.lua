@@ -7,10 +7,11 @@
 -- is removed cannot be listed: the owner asked for a page that «parseja el manifest de les apps de /apps inclòs l'espai en
 -- disc», and a list written into this file would start lying the day an app is added (docs/40, docs/45).
 --
--- **The disk is walked and not asked**: `fs.list` of a folder gives every entry with its size, so `walk()` adds them up —
--- the folder of the app, its cache under `/session/<id>`, what it wrote under `/data/<id>` and its settings under
--- `/cfg/<id>`. The volume itself is `fs.space('/apps')`, which is the same answer the `fs` command of the prompt gives
--- (docs/30, docs/70).
+-- **The folder of the app is walked and the rest is asked**: `fs.list` gives every entry of `/apps/<id>` with its size and
+-- `walk()` adds them up, while its cache, its data and its settings —`/session/<id>`, `/data/<id>` and `/cfg/<id>`— are of that
+-- app and the file ground refuses them to everybody else, so they are counted by the system with `admin.space_of(id, ground)`
+-- (0.189.160, the owner: *«A l'app Aplication Info no surt mai el tamany de caché, sempre diu 0B 0 files»*). The volume itself
+-- is `fs.space('/apps')`, which is the same answer the `fs` command of the prompt gives (docs/30, docs/70).
 --
 -- **The two buttons are doors of the system** (0.189.157): `admin.forget_cache(id)` and `admin.uninstall(id)`, because an
 -- app may not write outside its own ground (docs/70 §5) — a page of apps that erases another app has to ask the kernel, and
@@ -187,10 +188,25 @@ local function read_app(id)
   if one.title == nil or one.title == '' then one.title = id end
   if one.version == nil or one.version == '' then one.version = '?' end
 
+  -- **La carpeta de l'app la llegeix la pàgina; els altres tres terrenys els compta el sistema** (0.189.160, l'amo: *«A l'app
+  -- Aplication Info no surt mai el tamany de caché, sempre diu 0B 0 files»*): `/data/<id>`, `/cfg/<id>` i `/session/<id>` són de
+  -- l'app i el terreny dels fitxers no deixa que cap altra app els recorri, o sigui que `walk` hi tornava sempre zero. La porta
+  -- `admin.space_of` dona els mateixos números que l'esborrada, que és el que fa que la fitxa i el botó no es contradiguin
+  -- (docs/30, docs/70).
   one.app_files, one.app_folders, one.app_bytes = walk('/apps/' .. id, 0)
-  one.cache_files, _, one.cache_bytes = walk('/session/' .. id, 0)
-  one.data_files, _, one.data_bytes = walk('/data/' .. id, 0)
-  one.cfg_files, _, one.cfg_bytes = walk('/cfg/' .. id, 0)
+
+  local cache = admin.space_of(id, 'cache')
+  one.cache_files = (cache ~= nil) and cache.files or 0
+  one.cache_blocks = (cache ~= nil) and cache.blocks or 0
+  one.cache_bytes = (cache ~= nil) and cache.bytes or 0
+
+  local data = admin.space_of(id, 'data')
+  one.data_files = (data ~= nil) and data.files or 0
+  one.data_bytes = (data ~= nil) and data.bytes or 0
+
+  local cfg = admin.space_of(id, 'cfg')
+  one.cfg_files = (cfg ~= nil) and cfg.files or 0
+  one.cfg_bytes = (cfg ~= nil) and cfg.bytes or 0
 
   -- **The alarms the app left in the queue of the system**, counted by name: they are what an uninstall takes with it, and a
   -- person about to press the button has to know how many there are (docs/30, docs/60).
@@ -591,6 +607,10 @@ show = function(id)
     add_fact(the_list, 'On the card', yn(one.card))
     add_fact(the_list, 'Folder', string.format('%s, %d file(s)', human(one.app_bytes), one.app_files))
     add_fact(the_list, 'Cache', string.format('%s, %d file(s)', human(one.cache_bytes), one.cache_files))
+    -- **I quants blocs en té la memòria** (0.189.160): una sessió que el sistema té a la memòria i el seu fitxer al disc són la
+    -- mateixa cosa, i la fila de dalt ja compta el fitxer: el bloc es diu a part perquè és el que la cau té de viu i el que
+    -- `Clear the cache` deixa anar primer (docs/30, docs/75).
+    add_fact(the_list, 'In the memory', string.format('%d block(s)', one.cache_blocks))
     add_fact(the_list, 'Data', string.format('%s, %d file(s)', human(one.data_bytes), one.data_files))
     add_fact(the_list, 'Settings', string.format('%s, %d file(s)', human(one.cfg_bytes), one.cfg_files))
     add_fact(the_list, 'Alarms', string.format('%d', one.alarms))

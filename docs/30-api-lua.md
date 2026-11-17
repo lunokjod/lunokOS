@@ -865,6 +865,7 @@ l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
 | `admin.triple_tap_close([on])` | booleà o `nil, error` | **Els tres tocs del vidre, cedits a la pàgina** (0.189.101): sense argument diu si els tres tocs tanquen l'app; amb `true` el sistema se'ls queda i amb `false` queden per a la pàgina, que els llegeix amb `touch.gesture()` com un `triple`. Sempre torna el que hi ha ara |
 | `admin.uninstall(id)` | `{files, bytes, alarms, sessions}` o `nil, error` | **Esborra una app de `/apps`** (0.189.157): la carpeta amb tot el que hi ha a dins, les alarmes que hagi deixat a la cua del sistema i la seva memòria cau de sessions. **No toca `/data/<id>` ni `/cfg/<id>`** —les dades i els ajustos són de la persona i no de l'app— i refusa l'app que ho demana (una app no s'esborra a si mateixa mentre corre) i un `id` buit |
 | `admin.forget_cache(id)` | `{blocks, files, bytes}` o `nil, error` | **La memòria cau d'una app, fora** (0.189.157): els blocs de sessió de la memòria i els fitxers de `/session/<id>`, que és el que fa `sessions destroy <id>` des del prompt. Ni la carpeta, ni les dades, ni els ajustos no es toquen |
+| `admin.space_of(id, ground)` | `{files, folders, bytes, blocks}` o `nil, error` | **El que una app ocupa fora de la seva carpeta** (0.189.160): `ground` és `"data"` (`/data/<id>`), `"cfg"` (`/cfg/<id>`) o `"cache"` (els blocs i els fitxers de `/session/<id>`). La carpeta de l'app la llegeix qualsevol app —`/apps/<id>` és públic (docs/70)—, i aquests tres terrenys són d'ella i de ningú més: el terreny dels fitxers els refusa, i una pàgina que els recorregués a mà llegiria zero. Un terreny que no existeix és `nil`; una carpeta que l'app no ha escrit mai és zero i no un error |
 
 - **I la pàgina del pany és la primera de la placa** (0.189.159, l'amo: *«El Lock del arranc falla al acabar amb el device_lock no
   arrenca home… Es veu com s'arrenca home i després lock i al acabar lock no torna a home. A l'arrencada fes: està habilitat el
@@ -893,6 +894,11 @@ l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
   la pàgina dibuixi**. Les tres premudes de la tecla del mig **no** es toquen: són una altra carretera i són la vàlvula que
   deixa una placa amb una pàgina que no s'obre bé a l'abast d'una persona.
 - **I la pàgina nova no els hereta**: com el pany, els tres tocs tornen al sistema quan l'app s'acaba (docs/50).
+- **I quant ocupa, dit pel sistema** (0.189.160, l'amo: *«A l'app Aplication Info no surt mai el tamany de caché, sempre diu 0B 0
+  files»*): `admin.space_of` és la germana de `admin.forget_cache` per a una pàgina de fitxes —els comptes surten del mateix
+  recorregut (`session::each` i `vfs::measure`) i per això el que la fitxa diu i el que el botó se n'emporta no es poden
+  contradir—, i existeix perquè `/data/<id>`, `/cfg/<id>` i `/session/<id>` són d'una app i el terreny dels fitxers no deixa que
+  cap altra els llegeixi (docs/70).
 - **Què se'n va amb una app esborrada, i què es queda** (0.189.157): `admin.uninstall(id)` esborra **la carpeta, les
   alarmes i la memòria cau**; `/data/<id>` i `/cfg/<id>` es queden. La raó és qui és l'amo de cada cosa: la carpeta és de
   l'app i marxa amb ella, l'alarma d'una app que ja no hi és només serviria per despertar la placa per a una pàgina que no

@@ -667,7 +667,56 @@ class TreeSink : public hal::ListSink {
   uint8_t depth_;
   Dropped& gone_;
 };
+
+// **El mateix recorregut sense el `remove`** (0.189.160): a page that says how much of the disk an app takes asks this, and a
+// ground that was never written —a folder that is not there— is zeros and not an error (docs/70).
+class MeasureSink : public hal::ListSink {
+ public:
+  MeasureSink(hal::IStorage* storage, const char* rel, uint8_t depth, Dropped& size)
+      : storage_(storage), depth_(depth), size_(size) {
+    snprintf(rel_, sizeof(rel_), "%s", rel);
+  }
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.name == nullptr) return true;
+    char child[128];
+    const int made = snprintf(child, sizeof(child), "%s/%s", rel_, entry.name);
+    if (made <= 0 || static_cast<size_t>(made) >= sizeof(child)) return true;
+    if (entry.type == hal::NodeType::kDir) {
+      ++size_.folders;
+      if (depth_ < 6) {
+        MeasureSink deeper(storage_, child, static_cast<uint8_t>(depth_ + 1), size_);
+        storage_->list(child, deeper);
+      }
+    } else {
+      ++size_.files;
+      size_.bytes += entry.size;
+    }
+    return true;
+  }
+
+ private:
+  hal::IStorage* storage_;
+  char rel_[128];
+  uint8_t depth_;
+  Dropped& size_;
+};
 }  // namespace
+
+bool measure(const char* path, Dropped& size) {
+  size = Dropped();
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  hal::Stat info;
+  // **A ground that nobody has written is nothing and not a failure**: the folder of an app's data exists only after the app
+  // writes in it, and a page that answered "cannot be read" for the data of an app that has none would be a page that lies
+  // about a disk that is empty (docs/40, docs/70).
+  if (!storage->stat(rel, info) || info.type != hal::NodeType::kDir) return true;
+  MeasureSink sink(storage, rel, 0, size);
+  storage->list(rel, sink);
+  return true;
+}
 
 bool drop_tree(const char* path, Dropped& gone) {
   hal::IStorage* storage = nullptr;

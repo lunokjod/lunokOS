@@ -19112,6 +19112,78 @@ void test_the_lock_starts_the_page_of_the_start_when_it_opens(void) {
   kernel::boot(hal::platform());
 }
 
+// **El que una app ocupa en els seus terrenys, preguntat al sistema** (0.189.160, l'amo: *«A l'app Aplication Info no surt mai el
+// tamany de caché, sempre diu 0B 0 files»*). The folder of an app is `/apps/<id>`, which any app may read; its data, its settings
+// and its cache are **of that app** and the file ground refuses them to everybody else, so a page that walked them read zeros —
+// which is what the page showed. `admin.space_of(id, ground)` is the door: the numbers of the data, the settings and the cache
+// of an app, contats amb el mateix recorregut que l'esborrada, i un terreny que no existeix és un error i no un disc buit
+// (docs/30, docs/70).
+void test_a_page_asks_the_system_how_much_an_app_takes(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The app that is measured, and the ground of each of the three things: a hundred bytes of data, a settings file and two
+  // sessions —one of them with a file of its own on the disk—.
+  storage->remove("/apps/measured/app.lua");
+  storage->remove("/apps/measured/manifest.json");
+  storage->remove("/apps/measured");
+  TEST_ASSERT_TRUE(add_app(storage, "measured",
+                           "{\"title\":\"Measured\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('measured here')\n"));
+  storage->remove("/data/measured/notes.txt");
+  storage->mkdir("/data");
+  storage->mkdir("/data/measured");
+  TEST_ASSERT_TRUE(write_text(storage, "/data/measured/notes.txt", "0123456789"));
+  storage->remove("/session/measured/state");
+  storage->remove("/session/measured/cache");
+  storage->mkdir("/session");
+  storage->mkdir("/session/measured");
+  TEST_ASSERT_TRUE(write_text(storage, "/session/measured/state", "0123456789"));
+  TEST_ASSERT_TRUE(write_text(storage, "/session/measured/cache", "0123456789"));
+
+  // The page that asks: an administrator, because the door is the system's and not every app's.
+  storage->remove("/apps/sizes/app.lua");
+  storage->remove("/apps/sizes/manifest.json");
+  storage->remove("/apps/sizes");
+  TEST_ASSERT_TRUE(add_app(storage, "sizes",
+                           "{\"title\":\"Sizes\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"],\"admin\":true}",
+                           "local d = admin.space_of('measured', 'data')\n"
+                           "local c = admin.space_of('measured', 'cache')\n"
+                           "local s = admin.space_of('measured', 'nope')\n"
+                           "console.print(string.format('data %d file(s) %d B', d.files, d.bytes))\n"
+                           "console.print(string.format('cache %d file(s) %d B %d block(s)', c.files, c.bytes, c.blocks))\n"
+                           "console.print('nope ' .. tostring(s))\n"));
+  pump_captured(250, g_out, sizeof(g_out), "run sizes");
+  close_any_app();
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "data 1 file(s) 10 B"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cache 2 file(s) 20 B 0 block(s)"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "nope nil"), g_out);
+
+  // **I una carpeta que no hi és és zero i no un error**: a ground that the app has never written is the normal case of a new
+  // app, and the page has to say nothing of it instead of a failure.
+  {
+    kernel::vfs::Dropped empty;
+    TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::measure("/data/measured/never", empty), "a ground that is not there is an error");
+    TEST_ASSERT_EQUAL_UINT32(0, empty.files);
+    TEST_ASSERT_EQUAL_UINT32(0, empty.bytes);
+  }
+
+  storage->remove("/data/measured/notes.txt");
+  storage->remove("/data/measured");
+  storage->remove("/session/measured/state");
+  storage->remove("/session/measured/cache");
+  storage->remove("/session/measured");
+  storage->remove("/apps/measured/app.lua");
+  storage->remove("/apps/measured/manifest.json");
+  storage->remove("/apps/measured");
+  storage->remove("/apps/sizes/app.lua");
+  storage->remove("/apps/sizes/manifest.json");
+  storage->remove("/apps/sizes");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   g_from = getenv("LUNOK_FROM");
@@ -19382,6 +19454,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_chart_is_born_with_the_range_the_document_promises);
   RUN_TEST(test_the_clock_keeps_its_run_across_a_restart);
   RUN_TEST(test_a_page_uninstalls_an_app_with_its_alarms_and_its_cache);
+  RUN_TEST(test_a_page_asks_the_system_how_much_an_app_takes);
   RUN_TEST(test_a_page_clears_the_cache_of_an_app_and_nothing_else);
   RUN_TEST(test_the_page_of_the_apps_reads_the_manifests_of_the_folder);
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);

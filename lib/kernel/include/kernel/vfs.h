@@ -58,6 +58,11 @@ struct Dropped {
 // when the disk would not take it away —a read-only mount, or one that was pulled out says the same as a success— (docs/70).
 bool drop_tree(const char* path, Dropped& gone);
 
+// **Què ocupa una carpeta, sense tocar-la** (0.189.160): the same walk as `drop_tree` with the removal taken out —the files,
+// the folders and the bytes of everything inside—, que és el que una pàgina que diu quant disc gasta una app necessita. A path
+// that is not there answers zeros and true: a ground nobody has written is empty and not an error (docs/40, docs/70).
+bool measure(const char* path, Dropped& size);
+
 // True when the mount the path lives on was mounted writable (docs/70).
 bool is_writable(const char* path);
 

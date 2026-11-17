@@ -620,6 +620,16 @@ struct AdminGone {
   uint32_t sessions = 0;
 };
 
+// **Què ocupa una app, fora de la seva carpeta** (0.189.160): the grounds of an app that a page cannot walk for itself —its data
+// in `/data/<id>`, its settings in `/cfg/<id>` and its cache in `/session/<id>`, que són les tres coses que el terreny dels
+// fitxers no deixa llegir a ningú més (docs/70)—. `blocks` is the memory part of a cache and is zero for the other two.
+struct AdminSpace {
+  uint32_t files = 0;
+  uint32_t folders = 0;
+  uint32_t bytes = 0;
+  uint32_t blocks = 0;
+};
+
 struct AdminOps {
   // **La barra del sistema i la targeta que en penja, fora** (0.189.99): with the screen locked the strip of the system is
   // not on the glass and the view of the app is the whole panel, which is what makes the card of the system —the one with
@@ -647,6 +657,11 @@ struct AdminOps {
   // that stays is the very cache a person asked to forget— and nothing else of it. A block of zero and no file is not an
   // error: there was nothing to forget (docs/30, docs/75).
   bool (*forget_cache)(const char* id, AdminGone& out);
+  // **I el que una app ocupa en els seus tres terrenys** (0.189.160, l'amo: *«A l'app Aplication Info no surt mai el tamany de
+  // caché, sempre diu 0B 0 files»*): `ground` is `"data"`, `"cfg"` or `"cache"` —the folder of the app itself is `/apps/<id>`,
+  // which every app can read— and the answer is the files, the folders, the bytes and the blocks of the memory that a cache
+  // holds. False is a ground this system does not have, which is the caller's mistake and not an empty disk (docs/30, docs/70).
+  bool (*space_of)(const char* id, const char* ground, AdminSpace& out);
 };
 
 

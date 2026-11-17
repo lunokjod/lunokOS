@@ -13103,6 +13103,32 @@ int l_admin_forget_cache(lua_State* L) {
   return 1;
 }
 
+// **`admin.space_of(id, ground)`: el que una app ocupa fora de la seva carpeta** (0.189.160, l'amo: *«A l'app Aplication Info no
+// surt mai el tamany de caché, sempre diu 0B 0 files»*). `ground` és `"data"`, `"cfg"` o `"cache"` i la resposta és la mateixa
+// forma que la del prompt: fitxers, carpetes, bytes i blocs de memòria. Les carpetes de les apps les llegeix qualsevol app; les
+// dades, els ajustos i la cau són d'una app i el terreny dels fitxers les refusa a tothom més (docs/30, docs/70).
+int l_admin_space_of(lua_State* L) {
+  if (g_admin_ops.space_of == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build cannot measure an app");
+  }
+  const char* id = luaL_checkstring(L, 1);
+  const char* ground = luaL_optstring(L, 2, "data");
+  AdminSpace space;
+  if (!g_admin_ops.space_of(id, ground, space)) {
+    return push_nil_error(L, "E_INVAL", "that is not a ground of an app of this board");
+  }
+  lua_createtable(L, 0, 4);
+  lua_pushinteger(L, static_cast<lua_Integer>(space.files));
+  lua_setfield(L, -2, "files");
+  lua_pushinteger(L, static_cast<lua_Integer>(space.folders));
+  lua_setfield(L, -2, "folders");
+  lua_pushinteger(L, static_cast<lua_Integer>(space.bytes));
+  lua_setfield(L, -2, "bytes");
+  lua_pushinteger(L, static_cast<lua_Integer>(space.blocks));
+  lua_setfield(L, -2, "blocks");
+  return 1;
+}
+
 // **The table is made only for a machine whose manifest asked for it** (0.189.99): an app without the key does not get a
 // table that refuses its calls, it gets nothing at all, so `admin ~= nil` is a question a page can ask and a `nil` is the
 // whole answer. The pack is registered here and not with `ui` because it is not a control and it is not a page's business
@@ -13114,6 +13140,7 @@ void open_admin(lua_State* L) {
   set_function(L, "triple_tap_close", l_admin_triple_tap_close);
   set_function(L, "uninstall", l_admin_uninstall);
   set_function(L, "forget_cache", l_admin_forget_cache);
+  set_function(L, "space_of", l_admin_space_of);
   lua_setglobal(L, "admin");
 }
 

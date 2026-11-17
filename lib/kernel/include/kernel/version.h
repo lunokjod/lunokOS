@@ -9810,7 +9810,16 @@ namespace kernel {
 // pàgina torna quan s'obre. Mirat a l'emulador amb `lock device_lock`, `lockon on` i `home home_eink`: el registre diu
 // `the board has just started: device_lock is the page of this boot`, cap línia de `HOME`, els tres tocs del candau obren la pàgina
 // i `home_eink` arrenca amb la seva llista d'apps al vidre.
-static const char kVersion[] = "0.189.159";
+// **La fitxa d'una app pot comptar la seva cau** (0.189.160, l'amo: *«A l'app Aplication Info no surt mai el tamany de caché, sempre
+// diu 0B 0 files»*). La pàgina comptava els quatre terrenys amb `fs.list`, i només `/apps/<id>` li contestava: `/session/<id>`,
+// `/data/<id>` i `/cfg/<id>` són de l'app i el terreny dels fitxers les refusa a qualsevol altra (docs/70), o sigui que la cau,
+// les dades i els ajustos sortien sempre a zero. Ara hi ha **`vfs::measure`** (el mateix recorregut que `drop_tree` sense el
+// `remove`, i una carpeta que no hi és és zero i no un error) i la porta **`admin.space_of(id, ground)`**, que compta `"data"`,
+// `"cfg"` i `"cache"` amb els mateixos números que l'esborrada —`session::each` per a la cau, que separa els blocs de la memòria
+// dels fitxers del disc—. La fitxa diu la cau i, a part, quants blocs en té la memòria: una sessió és un bloc i el seu fitxer, i
+// comptar-los junts seria dir dues vegades el que l'app té. Mirat a l'emulador: `cache 3/34816 B, data 1/100 B, cfg 1/4 B` i un
+// terreny que no existeix respon `nil` (docs/30, docs/40, docs/70).
+static const char kVersion[] = "0.189.160";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

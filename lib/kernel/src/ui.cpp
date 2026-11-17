@@ -55,6 +55,7 @@ namespace ui {
 // **Les dues portes d'administrador que esborren** (0.189.157): the definitions live with the rest of the admin calls, at the bottom of the file, and the table is installed near the top, so the two are said here first (docs/30, docs/40).
 bool uninstall_a_page(const char* id, luabind::AdminGone& out);
 bool forget_the_cache_of_a_page(const char* id, luabind::AdminGone& out);
+bool space_of_an_app(const char* id, const char* ground, luabind::AdminSpace& out);
 
 namespace {
 
@@ -2278,7 +2279,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   // **El paquet d'un administrador** (0.189.99): the two calls the `admin` table of an administrator's machine answers. The
   // table is built by the interpreter only for an app whose manifest says so, and this is the system's half of it (docs/30).
   luabind::set_admin_ops(luabind::AdminOps{lock_the_screen, screen_locked, three_taps_close, set_three_taps_close,
-                                           uninstall_a_page, forget_the_cache_of_a_page});
+                                           uninstall_a_page, forget_the_cache_of_a_page, space_of_an_app});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -9072,6 +9073,60 @@ bool forget_the_cache_of_a_page(const char* id, luabind::AdminGone& out) {
   out.sessions = forgotten.blocks;
   out.files = forgotten.files;
   out.bytes = static_cast<uint32_t>(forgotten.bytes);
+  return true;
+}
+
+// **El que una app ocupa en els seus altres terrenys** (0.189.160, l'amo: *«A l'app Aplication Info no surt mai el tamany de caché,
+// sempre diu 0B 0 files»*). La carpeta de l'app la llegeix qualsevol app (`/apps/<id>` és públic, docs/70), però `/data/<id>`,
+// `/cfg/<id>` i `/session/<id>` són de l'app i de ningú més: una pàgina que les vol comptar les demana aquí en lloc de recórrer
+// un camí que el terreny dels fitxers li refusa. **Els comptes són els mateixos que dona l'esborrada** (`session::each` per a la
+// cau, `vfs::measure` per a les dades i els ajustos), o sigui que el que la pàgina ensenya i el que la porta se n'emporta no es
+// poden contradir (docs/30, docs/40, docs/70).
+namespace {
+
+struct CacheCount {
+  const char* app = nullptr;
+  luabind::AdminSpace* out = nullptr;
+};
+
+bool count_a_row_of_the_cache(const session::Entry& row, void* user) {
+  CacheCount& count = *static_cast<CacheCount*>(user);
+  if (count.app == nullptr || strcmp(row.app, count.app) != 0) return true;
+  if (row.on_disk) ++count.out->files;
+  if (row.in_memory) ++count.out->blocks;
+  count.out->bytes += static_cast<uint32_t>(row.size);
+  return true;
+}
+
+}  // namespace
+
+bool space_of_an_app(const char* id, const char* ground, luabind::AdminSpace& out) {
+  out = luabind::AdminSpace();
+  if (id == nullptr || id[0] == '\0' || ground == nullptr || ground[0] == '\0') return false;
+  // **La cau és de la memòria i del disc alhora**: a block that is in the memory and its file are one session, and a page that
+  // counted both as two would say twice what an app has (docs/30, docs/75).
+  if (strcmp(ground, "cache") == 0 || strcmp(ground, "session") == 0) {
+    CacheCount count;
+    count.app = id;
+    count.out = &out;
+    session::each(count_a_row_of_the_cache, &count);
+    return true;
+  }
+  const char* root = nullptr;
+  if (strcmp(ground, "data") == 0) {
+    root = "/data";
+  } else if (strcmp(ground, "cfg") == 0) {
+    root = "/cfg";
+  }
+  if (root == nullptr) return false;
+  char path[64];
+  const int made = snprintf(path, sizeof(path), "%s/%s", root, id);
+  if (made <= 0 || static_cast<size_t>(made) >= sizeof(path)) return false;
+  vfs::Dropped size;
+  if (!vfs::measure(path, size)) return false;
+  out.files = size.files;
+  out.folders = size.folders;
+  out.bytes = size.bytes;
   return true;
 }
 
