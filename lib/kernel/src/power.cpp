@@ -595,7 +595,16 @@ bool deep_sleep_with_the_keys() {
 
 void note_activity() { g_last_activity_ms = mono_now(); }
 
-int64_t idle_quiet_ms() { return g_idle_quiet_ms; }
+// **Quanta quietud mana** (0.190.9): the setting a person chose in Settings -> Battery —ten seconds, a minute or five—, i una
+// suite que hagués d'esperar els deu segons seria una suite deu segons més lenta, o sigui que on hi ha algú que mogui el número
+// de la prova mana el de la prova (docs/60, docs/80).
+int64_t idle_quiet_ms() {
+#if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
+  return g_idle_quiet_ms;
+#else
+  return cfg::idle_quiet_ms();
+#endif
+}
 
 void set_idle_quiet_ms(int64_t ms) {
 #if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
@@ -662,7 +671,7 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
     // it, and every second awake here is a second of the wait wasted. **And a return for an alarm is the same case** (0.189.182):
     // the hook has already run in its window and there is nobody in front of the glass (docs/60).
     if (!staging && !g_for_an_alarm) return;
-  } else if (mono - g_last_activity_ms < g_idle_quiet_ms) {
+  } else if (mono - g_last_activity_ms < idle_quiet_ms()) {
     return;
   }
 

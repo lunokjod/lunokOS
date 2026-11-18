@@ -18228,9 +18228,13 @@ void test_the_panel_of_settings_writes_through_the_doors_of_the_system(void) {
   TEST_ASSERT_EQUAL_UINT16_MESSAGE(bar, kernel::ui::canvas().y, g_out);
 
   // ---- the disk: a format asks first, and the yes is the door of the card
+  //
+  // **I «Format the store» és la tercera fila des de la 0.190.8** (índex dos, i abans era la segona): la pestanya Disk té ara
+  // *Preferred disk* (`fs.cfg`), la fila que només es llegeix **Apps data** —on ha quedat `/data`, que segueix aquell disc— i
+  // després els tres botons de format (docs/30, docs/45, docs/70).
   capture_begin();
   press_finger(panel, 442, static_cast<uint16_t>(bar + 38));
-  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + kRowStep + 28));
+  press_finger(panel, 270, static_cast<uint16_t>(bar + kRowOne + 2 * kRowStep + 28));
   pump_turns(600);
   press_finger(panel, 400, static_cast<uint16_t>(bar + 739));
   pump_turns(600);

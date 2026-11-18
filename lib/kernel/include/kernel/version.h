@@ -10115,7 +10115,14 @@ namespace kernel {
 // `region dram0_0_seg overflowed by 24 bytes` amb el `cfg data` que hi havia abans). `mounts` diu la unitat de la fila `/data`,
 // `cfg` sense arguments ho diu amb paraules, i el que ja hi ha al flaix no es mou: passar a la targeta estrena les apps buides i
 // una còpia és cosa d'una persona (la decisió de l'amo del 18/11) (docs/30, docs/70, docs/80).
-static const char kVersion[] = "0.190.8";
+// **I el temps de quietud és un desplegable de tres** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per fer
+// el DeepSleep)»*): el commutador *Sleep when idle* de la pestanya Battery ja hi era i el que faltava era **quant de temps** vol dir
+// «inactiu». La fila **Sleep after** obre la targeta de tria del sistema amb tres temps —10 seconds (el de sèrie), 1 minute i 5
+// minutes— i desa el número a la memòria de claus (`cfg.idle`, `cfg idle [10|60|300]`), o sigui que el boot el torna a llegir; la
+// política de `power` el llegeix d'aquí en lloc de la constant de deu segons. **El terra de deu segons no es mou**: és una altra
+// pregunta —si val la pena un cicle d'apagada quan l'alarma és a tocar— i barrejar-les faria que triar cinc minuts canviés quan la
+// placa deixa de despertar-se per una alarma propera (docs/30, docs/45, docs/60).
+static const char kVersion[] = "0.190.9";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

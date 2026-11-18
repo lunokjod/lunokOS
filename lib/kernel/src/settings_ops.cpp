@@ -153,6 +153,9 @@ void install_settings_ops() {
   // **El son sol de la placa** (0.190.5): the switch of the System tab, kept where the policy is.
   doors.sleep_on = &cfg::sleep_on;
   doors.set_sleep_on = &cfg::set_sleep_on;
+  // **I quanta quietud abans de dormir** (0.190.9): the three times of the row under the switch, kept where the policy reads them.
+  doors.idle_seconds = &cfg::idle_seconds;
+  doors.set_idle_seconds = &cfg::set_idle_seconds;
   luabind::set_cfg_ops(doors);
 }
 

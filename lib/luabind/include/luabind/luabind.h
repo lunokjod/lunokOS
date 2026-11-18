@@ -268,6 +268,10 @@ struct CfgOps {
   // a setting a person keeps. Off, the board stays awake whatever the clock says (docs/30, docs/60).
   bool (*sleep_on)();
   bool (*set_sleep_on)(bool on);
+  // **Quanta quietud abans del son** (0.190.9): the seconds of the three the page offers —ten, sixty and three hundred—, which is
+  // the number the policy reads before it powers the board off (docs/30, docs/60).
+  uint16_t (*idle_seconds)();
+  bool (*set_idle_seconds)(uint16_t seconds);
 };
 
 void set_cfg_ops(const CfgOps& ops);

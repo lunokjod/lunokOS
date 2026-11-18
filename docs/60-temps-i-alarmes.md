@@ -449,9 +449,9 @@ Com està avui:
    (docs/50): el compte enrere del xip va **al segon** fins a 4 h 15 min, l'alarma de rellotge va al
    minut per a més enllà, i una espera de més d'un dia s'arma **en tandes** —la placa es desperta
    abans d'hora, no hi troba res i torna a armar—, o sigui que el quars compta **totes** les esperes.
-   Els números de la política, que són decisions i no mesures: deu segons de consola en silenci, una
-   espera mínima de deu segons i cap app ni `keep_awake` enmig. `power idle off` la desactiva mentre
-   una persona treballa al prompt.
+   Els números de la política, que són decisions i no mesures: **deu segons de quietud** —que des de la 0.190.9
+   els tria la persona—, una espera mínima de deu segons i cap app ni `keep_awake` enmig. `power idle off` la
+   desactiva mentre una persona treballa al prompt.
 
    **I "ningú l'està fent servir" era només la consola** (0.190.5, l'amo: *«sembla que s'adorm sola quasi
    d'inmediat... perqué?»*). El comptador del silenci el movien les tecles del terminal i prou: un dit al
@@ -468,6 +468,13 @@ Com està avui:
    una sessió de mesura, una app que escriu un registre—, la resposta es desa i el boot la torna a llegir; `power idle off` continua
    sent l'interruptor del run. **I el comptador de la quietud arrenca a zero a cada boot** i el mouen les tres coses que són una mà a la
    placa: un byte de consola, un marc amb un dit a sobre i una tecla del dial que baixa (docs/30, docs/90).
+
+   **I quants segons és «quietud» també es tria** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per
+   fer el DeepSleep)»*): la fila **Sleep after** de la mateixa pestanya Battery és un desplegable del sistema amb **tres temps** —**10
+   seconds** (el de sèrie, el que hi havia), **1 minute** i **5 minutes**—, que és `cfg.idle` des de Lua i `cfg idle [10|60|300]` al
+   prompt. El número es desa, o sigui que el boot el torna a llegir, i la política el llegeix d'allà en lloc de la constant. **El
+   terra de deu segons no es mou**: és una altra pregunta —si val la pena un cicle d'apagada quan l'alarma és a tocar— i barrejar-les
+   faria que triar cinc minuts canviés quan la placa deixa de despertar-se per una alarma propera (docs/30, docs/50).
 3. **Rearmar-lo a cada despert**: el xip dispara una vegada. A l'arrencada es llegeix el bit `AF` —per
    saber si va ser l'alarma o el botó `PWR`— i es desarma (`RtcClock::adopt`).
 4. **Un sol despertador, i el té el xip.** La cua està ordenada i només s'arma la seva entrada més

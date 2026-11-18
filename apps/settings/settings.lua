@@ -84,6 +84,10 @@ local SPEEDS, SPEED_MHZ = { '80 MHz', '160 MHz', '240 MHz' }, { 80, 160, 240 }
 local TURNS, TURN_VALUE = { 'Slow', 'Normal', 'Fast' }, { 5000, 20000, 50000 }
 local CURSORS, CURSOR_MS = { '600 ms', '850 ms', '1 100 ms' }, { 600, 850, 1100 }
 local UNITS = { 'auto', 'sd', 'littlefs' }
+-- **Els tres temps de quietud abans del son profund** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery
+-- (per fer el DeepSleep)»*): the seconds are the setting (`cfg.idle`) and the words are the app's, com les hores del rellotge.
+local IDLE_SECONDS = { 10, 60, 300 }
+local IDLE_WORDS = { '10 seconds', '1 minute', '5 minutes' }
 local WEEKS = { 'Monday', 'Sunday' }
 
 -- ---------------------------------------------------------------- la sessió `state`
@@ -865,6 +869,12 @@ function build()
     say(on and 'The board sleeps until its next alarm' or 'The board stays awake')
     console.print(string.format('settings: the idle sleep is %s', on and 'on' or 'off'))
   end)
+  -- **I quanta quietud és «inactiu»** (0.190.9, l'amo: *«un selector desplegable … per seleccionar quan es posa en DeepSleep»*):
+  -- the same door the minutes of the lock use —a `ui.selector` that opens the card of the system with the three times— i
+  -- `cfg.idle` el número que la política llegeix abans d'apagar la placa. Tres i no més: deu segons (el de sèrie), un minut i cinc
+  -- minuts, i el que la fila ensenya és el que el sistema ha acceptat (docs/30, docs/45, docs/60).
+  choice_row(6, 'idle', 'Sleep after', IDLE_WORDS, function() return index_of(IDLE_SECONDS, cfg.idle()) end,
+             function(index) cfg.idle(IDLE_SECONDS[index]) end)
 
   -- ---- Privacy: **el bloqueig de la pantalla, que és una app i no una barra que desapareix** (0.189.150, l'amo: *«El Toggle
   -- de la pestanya "Privacy" activa que es llenci l'app escollida com lock al inici del sistema i al despertar d'un sleep.

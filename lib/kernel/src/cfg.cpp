@@ -85,9 +85,14 @@ const size_t kFreqCap = 12;  // "80,160,240" and the null
 const char kLockKey[] = "lock";
 const char kLockOnKey[] = "lockon";
 const char kSleepKey[] = "sleep";
+const char kIdleKey[] = "idle";
 const char kLockAfterKey[] = "lockafter";
 const size_t kLockCap = 40;
 const uint8_t kLockAfterDefault = 10;
+// **Els tres temps de quietud que una persona pot triar** (0.190.9): ten seconds, a minute and five, i res més —la llista de la
+// pàgina és aquesta i un número que no hi sigui seria un ajust que la pàgina no sap ensenyar ni desfer (docs/30, docs/60).
+const uint16_t kIdleSeconds[] = {10, 60, 300};
+const uint16_t kIdleDefault = 10;
 const char kOn[] = "on";
 const char kOff[] = "off";
 const char kMonday[] = "monday";
@@ -117,6 +122,9 @@ bool g_lock_on = false;
 // remembers the answer (docs/60).
 bool g_sleep_on = true;
 uint8_t g_lock_after = kLockAfterDefault;
+// **Quant de quietud abans del son profund** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per fer el
+// DeepSleep)»*): segons, i la política de `power` el llegeix d'aquí en lloc de la constant de deu (docs/30, docs/60).
+uint16_t g_idle_seconds = kIdleDefault;
 // The minutes the local hour is ahead of UTC, which is zero until somebody says otherwise (0.125.0).
 int16_t g_tz_minutes = 0;
 // What the store said, which is also what the calendar is using: the two are written together.
@@ -231,6 +239,14 @@ bool remember_sleep_on() {
   return g_nvs->set(kNamespace, kSleepKey, word, strlen(word));
 }
 
+bool remember_idle() {
+  if (g_nvs == nullptr) return false;
+  char text[8];
+  snprintf(text, sizeof(text), "%u", static_cast<unsigned>(g_idle_seconds));
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kIdleKey, text, strlen(text));
+}
+
 bool remember_lock_on() {
   if (g_nvs == nullptr) return false;
   const char* word = g_lock_on ? kOn : kOff;
@@ -311,6 +327,7 @@ void boot(hal::IPlatform& platform) {
   snprintf(g_home, sizeof(g_home), "%s", LUNOK_HOME_APP);
   // The hour starts at UTC for the same reason: an emulator that boots twice must not inherit the offset of the run before.
   g_tz_minutes = 0;
+  g_idle_seconds = kIdleDefault;
   // **And the calendar starts as this system was born**: the leap day on and the week from Monday, put in the calendar
   // before the store is read so that a second boot of the same object —the tests— does not inherit the run before
   // (docs/60).
@@ -561,6 +578,24 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
+  // **I quanta quietud vol la persona abans del son** (0.190.9), amb la mateixa forma que els minuts del pany: un número que no
+  // és cap dels tres es queda on era i ho diu (docs/30, docs/60).
+  {
+    char raw_idle[8] = {0};
+    size_t idle_len = 0;
+    if (g_nvs != nullptr &&
+        g_nvs->get(kNamespace, kIdleKey, raw_idle, sizeof(raw_idle) - 1, idle_len) && idle_len > 0 &&
+        idle_len < sizeof(raw_idle)) {
+      raw_idle[idle_len] = '\0';
+      const int seconds = atoi(raw_idle);
+      if (seconds == 10 || seconds == 60 || seconds == 300) {
+        g_idle_seconds = static_cast<uint16_t>(seconds);
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "idle '%s' is not 10, 60 or 300 seconds; %u stays", raw_idle,
+                   static_cast<unsigned>(g_idle_seconds));
+      }
+    }
+  }
   // **Les velocitats permeses, llegides abans d'aplicar res**: the mask is what the governor may use, so it has to be in
   // `power` before the first paint of the boot asks for the top step (0.189.107, docs/50, docs/60).
   power::set_allowed_steps(kFreqAll);
@@ -723,6 +758,20 @@ bool set_lock_after_minutes(uint8_t minutes) {
   if (minutes != 5 && minutes != 10 && minutes != 15) return false;
   g_lock_after = minutes;
   return remember_lock_after();
+}
+
+// **Quanta quietud abans del son profund** (0.190.9): the three times of the page and nothing else, which is the same rule the
+// minutes of the lock follow —a setting a page cannot show is a setting a person cannot undo (docs/30, docs/60).
+uint16_t idle_seconds() { return g_idle_seconds; }
+
+uint16_t idle_default() { return kIdleDefault; }
+
+int64_t idle_quiet_ms() { return static_cast<int64_t>(g_idle_seconds) * 1000; }
+
+bool set_idle_seconds(uint16_t seconds) {
+  if (seconds != kIdleSeconds[0] && seconds != kIdleSeconds[1] && seconds != kIdleSeconds[2]) return false;
+  g_idle_seconds = seconds;
+  return remember_idle();
 }
 
 uint32_t freq_step_of(uint8_t bit) {

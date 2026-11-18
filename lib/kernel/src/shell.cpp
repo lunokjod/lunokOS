@@ -581,6 +581,8 @@ void print_help(const char* only) {
   help_line("  apps info <id>    the manifest of an app of this disk, key by key", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
+  help_line("  cfg idle [10|60|300]  how much quiet before the board powers itself off until its next alarm,", only);
+  help_continuation("                    in seconds: ten (default), a minute or five", only);
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot,", only);
   help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
   help_line("  panel [edge|box]  where a partial paint starts: the edge of the image or the change", only);
@@ -5022,10 +5024,26 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
+    // **El temps de quietud, triat** (0.190.9): the row of Settings -> Battery writes `cfg.idle` and so does this line, with the
+    // same three numbers and the same refusal —a number that is not one of them is a setting the page cannot show— (docs/30, docs/60).
+    if (strcmp(words[0], "idle") == 0) {
+      const int asked = atoi(words[1]);
+      if (asked != 10 && asked != 60 && asked != 300) {
+        out("cfg: the board sleeps after 10, 60 or 300 seconds of quiet\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_idle_seconds(static_cast<uint16_t>(asked));
+      out("settings: idle sleep after ");
+      out_num(cfg::idle_seconds());
+      out(" s\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
                 "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-                "settings [<id>|none]|lock [<id>|none]|lockon [on|off]|lockafter [5|10|15]|cursor delay [<ms>]]\r\n");
+                "settings [<id>|none]|lock [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [10|60|300]|"
+              "cursor delay [<ms>]]\r\n");
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
@@ -5097,6 +5115,17 @@ bool command_cfg(const char* argument) {
       out((cfg::settings_app()[0] != '\0') ? cfg::settings_app() : "none");
       out(" (this board's default is ");
       out(cfg::settings_default());
+      out(")\r\n");
+      return true;
+    }
+    // **Quanta quietud abans del son** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per fer el
+    // DeepSleep)»*): the seconds of the three the page offers, with the one that stands marked, i el número que la política llegeix
+    // abans d'apagar la placa (docs/30, docs/60).
+    if (strcmp(words[0], "idle") == 0) {
+      out("settings: idle sleep after ");
+      out_num(cfg::idle_seconds());
+      out(" s (this build's default is ");
+      out_num(cfg::idle_default());
       out(")\r\n");
       return true;
     }
@@ -5188,7 +5217,10 @@ bool command_cfg(const char* argument) {
     out("  keyboard: ");
     out(ui::keyboard_current());
     newline();
-    out("  cursor delay: ");
+    out("  idle sleep after: ");
+  out_num(cfg::idle_seconds());
+  out(" s\r\n");
+  out("  cursor delay: ");
     out_num(cfg::cursor_delay());
     out(" ms\r\n");
     out("  home: ");

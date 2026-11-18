@@ -333,7 +333,9 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
   commutador **Sleep when idle** és `cfg.sleep` i el que fa és la política de la llei 9 —la placa s'apaga fins a la propera alarma
   quan ningú no l'ha tocada deu segons—, que és un ajust i no una llei perquè hi ha tardes en què una persona vol la placa
   desperta. El que la fila ensenya és el que la política té, i la resposta es desa perquè el pròxim boot no la desfaci (docs/30,
-  docs/60).
+  docs/60). **I el temps de quietud és un desplegable** (0.190.9, l'amo: *«un selector desplegable … per seleccionar quan es posa en
+  DeepSleep»*): la fila **Sleep after** obre la targeta de tria del sistema amb tres temps —10 seconds, 1 minute i 5 minutes—, que és
+  `cfg.idle`, el mateix camí que la fila *Lock after* de Privacy (el desplegable i no una casella, perquè són tres valors i no dos).
 - **La pestanya Privacy és el bloqueig** (0.189.150): el commutador **Lock the screen** escriu `cfg.lockon` —la barra no
   desapareix, perquè el que tapa el vidre és una app i no una barra que s'amaga— i la fila **Lock after** escull **5, 10 o 15
   minutes** amb deu de sèrie, que és `cfg.lockafter`. Amb el commutador cert i cap pàgina triada, la línia de sota les files ho
@@ -496,7 +498,7 @@ Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
-| `About` | `about` | 0.5.148 |
+| `About` | `about` | 0.5.149 |
 | `Calculator` | `calculator` | 0.2.2 |
 | `Clock` | `clock` | 0.1.5 |
 | `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.3 |

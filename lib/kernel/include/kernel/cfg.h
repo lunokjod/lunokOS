@@ -79,6 +79,14 @@ bool set_lock_on(bool on);
 uint8_t lock_after_minutes();
 bool set_lock_after_minutes(uint8_t minutes);
 
+// **Quant de quietud abans del son profund** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per fer
+// el DeepSleep)»*): the minutes of the lock were the first question of "how long without a hand" and this is the second —ten
+// seconds, a minute or five, and nothing else—, and the policy of `power` reads it instead of its own constant (docs/30, docs/60).
+uint16_t idle_seconds();
+uint16_t idle_default();
+int64_t idle_quiet_ms();
+bool set_idle_seconds(uint16_t seconds);
+
 // **Si la placa s'adorm sola** (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?»*): the idle policy of law 9 —the board
 // powers itself off until its next alarm when nobody has touched it for ten seconds— is a setting and not a law of physics, because
 // there are afternoons when a person wants the board awake (a demo, a measuring session, an app that logs). It is on by default, which

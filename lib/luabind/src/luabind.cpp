@@ -12574,6 +12574,24 @@ int l_cfg_sleep(lua_State* L) {
   return 1;
 }
 
+// **`cfg.idle([<seconds>])`: quanta quietud abans del son profund** (0.190.9, l'amo: *«afegir selector de temps per l'idle de
+// settings->battery (per fer el DeepSleep)»*). With no argument it answers the seconds a person chose; with one it writes it and
+// answers what stands, exactly like the minutes of the lock: **ten, sixty or three hundred and nothing else**, perquè un número
+// que no és a la llista és un ajust que la pàgina no sap ensenyar ni desfer (docs/30, docs/60).
+int l_cfg_idle(lua_State* L) {
+  if (g_cfg_ops.idle_seconds == nullptr || g_cfg_ops.set_idle_seconds == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no idle sleep");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const lua_Integer asked = luaL_checkinteger(L, 1);
+    if (asked < 0 || asked > 65535 || !g_cfg_ops.set_idle_seconds(static_cast<uint16_t>(asked))) {
+      return push_nil_error(L, "E_INVAL", "the board sleeps after 10, 60 or 300 seconds of quiet");
+    }
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_cfg_ops.idle_seconds()));
+  return 1;
+}
+
 int l_cfg_lock_after(lua_State* L) {
   if (g_cfg_ops.lock_after_minutes == nullptr || g_cfg_ops.set_lock_after_minutes == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no lock of the screen");
@@ -12733,6 +12751,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "lock_on", l_cfg_lock_on);
   set_function(L, "lock_after", l_cfg_lock_after);
   set_function(L, "sleep", l_cfg_sleep);
+  set_function(L, "idle", l_cfg_idle);
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);
   lua_setglobal(L, "cfg");
