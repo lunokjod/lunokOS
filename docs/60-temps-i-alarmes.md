@@ -482,12 +482,26 @@ Com està avui:
    xifres diferents, i ara hi ha `power::quiet_ms()`, que és el que llegeixen tots dos —i el que una app llegeix amb
    `sys.idle_ms()`—. Les tres regles són les de l'amo i són al mateix lloc: **una arrencada reinicia el comptador**, **una tecla
    física el reinicia** i **un dit al vidre el reinicia**, i **la placa només s'apaga quan la quietud arriba al temps triat al
-   desplegable**: amb cinc minuts, cinc minuts, i no els deu segons que hi havia. L'única cosa que no espera el comptador és una
+   desplegable**: amb cinc minuts, cinc minuts, i no els deu segons que hi havia. **Els tres temps són 5, 10 i 15 minuts**
+   (0.190.13, l'amo: *«Rectifica els temps del DeepSleep, posa de 5,10,15 minuts»*), els mateixos del pany, o sigui que una persona
+   pot triar que el pany arribi abans que el son —5 de pany i 15 de son—, que és l'ordre que té sentit. L'única cosa que no espera el comptador és una
    represa per una alarma, que ha fet la seva feina i torna a baixar de seguida (0.189.182).
 
+   **I quan la política decideix no dormir, ho diu** (0.190.12, l'amo: *«No aconsegueixo que saltin. Revisa el codi que fa
+   l'activació i com es suma temps al user_idle»*): una línia, una vegada per motiu i com a molt un cop al minut, amb el número de
+   quietud que hi ha i el que demana la política —`idle: 300 s of quiet (the policy asks 300) and the board stays awake: an app is
+   in front…`—. Els motius són els cinc de la llista de sobre, amb el seu nom: una app al davant o que ha demanat quedar-se despert,
+   la targeta del sistema fora, la llum amb un quadre per pintar, la placa sense hora i l'alarma massa a prop perquè valgui un
+   arrencada. Sense aquesta línia, un comptador que creix i una condició que falla es veuen exactament igual (docs/30, docs/95).
+
+   **I sense cap alarma la porta és la tecla** (0.190.12): la política no feia res quan la cua era buida —un `return` sense línia—,
+   o sigui que una placa sense alarma no s'adormia mai i el commutador de Battery no feia res. Ara baixa **fins a la tecla**
+   (`deep_sleep_with_the_keys`, el mateix camí que la targeta del sistema): la sessió es desa, la imatge del son es pinta i la placa
+   torna on era quan algú prem el dial. **Amb una alarma, les dues portes**: l'hora del xip i la tecla (docs/50, docs/90).
+
    **I quants segons és «quietud» també es tria** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per
-   fer el DeepSleep)»*): la fila **Sleep after** de la mateixa pestanya Battery és un desplegable del sistema amb **tres temps** —**10
-   seconds** (el de sèrie, el que hi havia), **1 minute** i **5 minutes**—, que és `cfg.idle` des de Lua i `cfg idle [10|60|300]` al
+   fer el DeepSleep)»*): la fila **Sleep after** de la mateixa pestanya Battery és un desplegable del sistema amb **tres temps** —**5
+   minutes** (el de sèrie), **10 minutes** i **15 minutes**—, que és `cfg.idle` des de Lua i `cfg idle [300|600|900]` al
    prompt. El número es desa, o sigui que el boot el torna a llegir, i la política el llegeix d'allà en lloc de la constant. **El
    terra de deu segons no es mou**: és una altra pregunta —si val la pena un cicle d'apagada quan l'alarma és a tocar— i barrejar-les
    faria que triar cinc minuts canviés quan la placa deixa de despertar-se per una alarma propera (docs/30, docs/50).

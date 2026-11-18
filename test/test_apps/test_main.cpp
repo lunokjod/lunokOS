@@ -14953,8 +14953,12 @@ void test_the_home_page_does_not_keep_the_board_awake(void) {
   TEST_ASSERT_EQUAL_STRING("sleeper", kernel::shell::app_id());
   const int64_t was_quiet = kernel::power::idle_quiet_ms();
   kernel::power::set_idle_quiet_ms(0);
-  pump_captured(6, g_out, sizeof(g_out));
+  // **Un torn per al son i prou** (0.190.12): with the quiet at zero the board sleeps on the turn it is asked to, and the turns
+  // after it are the wake the emulator hands back —a board that comes back with an empty queue and a quiet of zero would sleep
+  // again on the next turn and write over the page it had just parked, which is not what this case is measuring— (docs/60, docs/90).
+  pump_captured(1, g_out, sizeof(g_out));
   kernel::power::set_idle_quiet_ms(was_quiet);
+  pump_captured(5, nullptr, 0);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "power: nothing to do for"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::app_running(), "the board slept with the house still open");
 

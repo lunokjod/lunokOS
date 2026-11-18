@@ -10135,7 +10135,19 @@ namespace kernel {
 // per l'hora. Ara aquesta placa construeix la potència amb el GPIO38 —la tecla PWR del dial— i `Esp32Power::sleep` en fa les dues:
 // `ext0` sobre la tecla i l'alarma del xip. Amb la bateria el corrent se'n va abans i la tecla PWR és la del xip de potència (docs/50,
 // docs/60).
-static const char kVersion[] = "0.190.11";
+// **La política diu per què no dorm, i sense alarma s'adorm fins a la tecla** (0.190.12, l'amo: *«No aconsegueixo que saltin. Revisa
+// el codi que fa l'activació i com es suma temps al user_idle»*). Dues coses: **quan el temps ha passat i la placa no s'adorm, la
+// línia ho diu** amb el número de quietud i el motiu (una app al davant, la targeta del sistema, la llum, la placa sense hora, una
+// alarma massa a prop) —una vegada per motiu i com a molt al minut—; i **una placa sense cap alarma ja no es queda desperta per
+// sempre**: baixa fins a la tecla, amb la sessió desada i la imatge del son, i torna on era quan algú prem el dial. Amb una alarma,
+// les dues portes: l'hora del xip i la tecla (docs/50, docs/60).
+// **Els temps del son són 5, 10 i 15 minuts** (0.190.13, l'amo: *«Rectifica els temps del DeepSleep, posa de 5,10,15 minuts»*): els tres
+// del desplegable eren deu segons, un minut i cinc —una tardor de proves— i amb ells el pany, que va de cinc a quinze, no podia arribar
+// mai abans que el son. Ara són els **mateixos tres del pany**, i *Sleep after* hereta el que tingui el desplegable del costat. **I les
+// quatre plaques sense vidre tornaven a enllaçar**: `panel::open()` és d'un fitxer que sencer és `#if LUNOK_GLASS` i la política el
+// cridava sense guarda des de la 0.190.5, o sigui que l'ATOM, l'ATOM Matrix, el devkit i el T-Koala no compilaven (trobat compilant les
+// sis bandes del CI, 18/11) (docs/50, docs/60, docs/80).
+static const char kVersion[] = "0.190.13";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

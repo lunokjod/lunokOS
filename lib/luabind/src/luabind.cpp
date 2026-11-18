@@ -12597,7 +12597,7 @@ int l_cfg_idle(lua_State* L) {
   if (!lua_isnoneornil(L, 1)) {
     const lua_Integer asked = luaL_checkinteger(L, 1);
     if (asked < 0 || asked > 65535 || !g_cfg_ops.set_idle_seconds(static_cast<uint16_t>(asked))) {
-      return push_nil_error(L, "E_INVAL", "the board sleeps after 10, 60 or 300 seconds of quiet");
+      return push_nil_error(L, "E_INVAL", "the board sleeps after 5, 10 or 15 minutes of quiet");
     }
   }
   lua_pushinteger(L, static_cast<lua_Integer>(g_cfg_ops.idle_seconds()));

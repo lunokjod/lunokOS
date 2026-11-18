@@ -1,5 +1,6 @@
 // The energy policy: the board can stop its clocks, and this is the one place that
 // says when, what is said to the app first and what is read afterwards (docs/90).
+#include "board/identity.h"
 #include "kernel/meter.h"
 #include "kernel/panel.h"
 #include "kernel/power.h"
@@ -654,6 +655,22 @@ void set_idle_sleep_allowed(bool on) {
 //     painted every turn, and a board that powers off in the middle of a breath is a light
 //     that lies (docs/30);
 //   - the wait is long enough that a boot is cheaper than staying awake.
+// **La línia que diu per què no** (0.190.12, l'amo: *«No aconsegueixo que saltin. Revisa el codi que fa l'activació i com es suma
+// temps al user_idle»*). Una política que calla quan el temps ja ha passat és una política que no es pot depurar: el comptador pot
+// estar creixent i el que falla ser una altra condició, i sense la línia les dues coses es veuen igual. Es diu **una vegada per
+// motiu** i es torna a dir al minut, perquè un registre que es repeteix a cada torn no el llegeix ningú (docs/30, docs/60).
+const char* g_idle_said = nullptr;
+int64_t g_idle_said_ms = 0;
+
+void say_the_verdict(int64_t quiet, const char* why) {
+  const int64_t now = mono_now();
+  if (why == g_idle_said && (now - g_idle_said_ms) < 60000) return;
+  g_idle_said = why;
+  g_idle_said_ms = now;
+  log_printf(pal::kLogInfo, "POWER", "idle: %lld s of quiet (the policy asks %lld) and the board stays awake: %s",
+             static_cast<long long>(quiet / 1000), static_cast<long long>(idle_quiet_ms() / 1000), why);
+}
+
 void idle_sleep(int64_t next_alarm_epoch_ms) {
   if (!g_idle_allowed || g_power == nullptr || g_clock == nullptr) return;
   if (!g_power->deep_powers_off()) return;
@@ -661,38 +678,80 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // it is the one that counts (docs/60).
   const bool staging = g_coming_back_at > 0;
   const int64_t deadline = staging ? g_coming_back_at : next_alarm_epoch_ms;
-  if (deadline <= 0) return;
+  // **Una represa per una alarma no espera el comptador** (0.189.182): the hook has already run in the window and there is nobody
+  // in front of the glass, o sigui que cada segon despert és un segon de l'espera llençat. **Per a tota la resta mana el comptador**,
+  // que és l'únic que hi ha (0.190.9), i la placa només s'apaga quan la quietud **arriba** al temps que la persona va triar: amb cinc
+  // minuts al desplegable, cinc minuts i no deu segons (docs/30, docs/60).
+  // **I només quan hi ha una alarma a la qual tornar** (0.190.12): a wake for an alarm has its hour in the queue and goes back down
+  // because there is nobody in front of the glass. **Un despert sense res a la cua no és això**: la placa ha de quedar-se desperta i
+  // ensenyar la seva pàgina, o el camí de «sense alarma» la tornaria a adormir al mateix torn i el que es veuria al vidre seria la
+  // imatge del son —l'amo: *«quan salta no torna a activar la pantalla i no es veu res»*— (docs/30, docs/60).
+  const bool straight_back_down = (!staging && g_for_an_alarm && deadline > 0);
+  const int64_t quiet = quiet_ms();
+  if (!straight_back_down && quiet < idle_quiet_ms()) return;
+
+  // **I ara, pot anar-se'n?** Each of these is a board that would sleep through something, and each one says its name.
+  const int64_t now_epoch = g_clock->epoch_ms();
   // **Una pàgina que és la de casa no és ningú treballant** (0.189.182): the idle policy refused to sleep while any app was in
   // front, and the board of this system has the launcher there always —o sigui que una placa amb `cfg home` no dormia mai i la
   // seva alarma es quedava esperant una son que no arribava—. La casa es tanca amb els seus comiats i la seva sessió, com qualsevol
   // altra pàgina (docs/60, docs/90).
   const bool the_home_page =
       shell::app_running() && cfg::home_app()[0] != '\0' && strcmp(shell::app_id(), cfg::home_app()) == 0;
-  if ((shell::app_running() && !the_home_page) || keeping_awake()) return;
-  // **I la targeta del sistema, que és el sistema en ús** (0.190.5): while the card of the panel is out the app does not run
-  // (`kernel.cpp` skips its turn), so the board is the system's and a person is reading it —powering off here takes the card with
-  // it and paints the picture of a sleep over the page the person had just pulled (docs/30, docs/60, docs/90).
-  if (panel::open()) return;
-  // An effect of the light is the board saying something right now, and it is painted once a
-  // turn: powering off would cut it in the middle (docs/30).
-  if (led::animating()) return;
-  const int64_t now_epoch = g_clock->epoch_ms();
-  if (now_epoch <= 0) return;
-  const int64_t wait = deadline - now_epoch;
-  if (wait < kMinIdleSleepMs) return;
-  // **Una represa per una alarma no espera el comptador** (0.189.182): the hook has already run in the window and there is nobody
-  // in front of the glass, o sigui que cada segon despert és un segon de l'espera llençat. **Per a tota la resta mana el comptador**,
-  // que és l'únic que hi ha (0.190.9), i la placa només s'apaga quan la quietud **arriba** al temps que la persona va triar: amb cinc
-  // minuts al desplegable, cinc minuts i no deu segons (docs/30, docs/60).
-  const bool straight_back_down = (!staging && g_for_an_alarm);
-  const int64_t quiet = quiet_ms();
-  if (!straight_back_down && quiet < idle_quiet_ms()) return;
+  // **La targeta del sistema només existeix on hi ha vidre** (0.190.13): `panel.cpp` sencer és `#if LUNOK_GLASS`, o sigui que les
+  // quatre plaques sense pantalla —els dos ATOM, el devkit i el T-Koala— no tenen ni el símbol `panel::open()`, i la crida sense
+  // guarda deixava aquelles quatre **sense enllaçar** des de la 0.190.5 (trobat compilant les sis bandes del CI el 18/11). És la
+  // mateixa guarda que fa servir `kernel.cpp` per a la targeta (docs/50, docs/75).
+  bool the_card_is_out = false;
+#if LUNOK_GLASS
+  the_card_is_out = panel::open();
+#endif
+  const char* why = nullptr;
+  if ((shell::app_running() && !the_home_page) || keeping_awake()) {
+    why = "an app is in front, or an app asked to stay awake";
+  } else if (the_card_is_out) {
+    // **I la targeta del sistema, que és el sistema en ús** (0.190.5): while the card of the panel is out the app does not run
+    // (`kernel.cpp` skips its turn), so the board is the system's and a person is reading it (docs/30, docs/60, docs/90).
+    why = "the card of the system is out";
+  } else if (led::animating()) {
+    // An effect of the light is the board saying something right now, and it is painted once a turn: powering off would cut it.
+    why = "the light has a frame to paint";
+  } else if (deadline > 0 && now_epoch <= 0) {
+    why = "the board has no hour to wake at";
+  } else if (deadline > 0 && (deadline - now_epoch) < kMinIdleSleepMs) {
+    why = "the alarm is closer than the ten seconds a boot is worth";
+  } else if (deadline <= 0 && !can_deep_sleep_with_the_keys()) {
+    why = "there is no alarm, and no key wakes this board";
+  }
+  if (why != nullptr) {
+    say_the_verdict(quiet, why);
+    return;
+  }
 
   g_coming_back_at = 0;
+  // **Sense cap alarma, la porta és la tecla** (0.190.12, l'amo: *«el Toggle per activar el DeepSleep i un selector desplegable del
+  // temps»*): the policy did nothing at all when the queue was empty —a `return` with no line—, o sigui que una placa sense alarma no
+  // s'adormia mai i el commutador de Battery no feia res. Ara baixa **fins a la tecla**: la sessió es desa, la imatge del son es pinta
+  // i la placa torna on era quan algú prem el dial, que és el que aquest commutador vol dir (docs/50, docs/60, docs/90).
+  // **I un despert per una alarma no torna a baixar sense res a la cua** (0.190.12): the board came back to show what had
+  // sounded, the alarm is spent and nobody has touched it yet —going down here is a board that wiped the page of the person
+  // and left the picture of a sleep on the glass (*«quan salta no torna a activar la pantalla i no es veu res»*). It stays awake
+  // and the quiet counter decides later, like any other boot (docs/30, docs/60).
+  if (deadline <= 0 && !g_for_an_alarm) {
+    sayf("power: nothing to do for %lld s, sleeping until a key\r\n", static_cast<long long>(quiet / 1000));
+    log_printf(pal::kLogInfo, "POWER",
+               "idle deep sleep: no alarm to come back for, %lld s of quiet (the policy asks %lld), a key wakes the board",
+               static_cast<long long>(quiet / 1000), static_cast<long long>(idle_quiet_ms() / 1000));
+    note_activity();
+    (void)deep_sleep_with_the_keys();
+    return;
+  }
+  g_idle_said = nullptr;
   // **La línia del per què** (0.190.5, l'amo: *«posa log quan hagi de saltar el deepsleep automátic»*). A sleep that comes from the policy
   // and not from a person is a line a board should be able to explain, o sigui que la línia diu **les tres xifres de la decisió**: quant
   // falta per a la propera alarma, quanta estona fa que la placa està quieta i quants segons de quietud li demana la política —i si és una
   // represa d'una alarma ho diu, perquè aquesta és l'única decisió que no espera el comptador— (docs/60, docs/90).
+  const int64_t wait = deadline - now_epoch;
   sayf("power: nothing to do for %lld s, sleeping until the next alarm\r\n",
        static_cast<long long>(wait / 1000));
   log_printf(pal::kLogInfo, "POWER",

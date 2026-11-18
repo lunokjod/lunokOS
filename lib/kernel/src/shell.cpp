@@ -581,8 +581,8 @@ void print_help(const char* only) {
   help_line("  apps info <id>    the manifest of an app of this disk, key by key", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
-  help_line("  cfg idle [10|60|300]  how much quiet before the board powers itself off until its next alarm,", only);
-  help_continuation("                    in seconds: ten (default), a minute or five", only);
+  help_line("  cfg idle [300|600|900]  how much quiet before the board powers itself off until its next alarm,", only);
+  help_continuation("                    in seconds: five minutes (default), ten or fifteen", only);
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot,", only);
   help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
   help_line("  panel [edge|box]  where a partial paint starts: the edge of the image or the change", only);
@@ -5028,8 +5028,8 @@ bool command_cfg(const char* argument) {
     // same three numbers and the same refusal —a number that is not one of them is a setting the page cannot show— (docs/30, docs/60).
     if (strcmp(words[0], "idle") == 0) {
       const int asked = atoi(words[1]);
-      if (asked != 10 && asked != 60 && asked != 300) {
-        out("cfg: the board sleeps after 10, 60 or 300 seconds of quiet\r\n");
+      if (asked != 300 && asked != 600 && asked != 900) {
+        out("cfg: the board sleeps after 5, 10 or 15 minutes of quiet\r\n");
         return false;
       }
       const bool kept = cfg::set_idle_seconds(static_cast<uint16_t>(asked));
@@ -5042,7 +5042,7 @@ bool command_cfg(const char* argument) {
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
                 "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-                "settings [<id>|none]|lock [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [10|60|300]|"
+                "settings [<id>|none]|lock [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [300|600|900]|"
               "cursor delay [<ms>]]\r\n");
       return false;
     }

@@ -89,10 +89,12 @@ const char kIdleKey[] = "idle";
 const char kLockAfterKey[] = "lockafter";
 const size_t kLockCap = 40;
 const uint8_t kLockAfterDefault = 10;
-// **Els tres temps de quietud que una persona pot triar** (0.190.9): ten seconds, a minute and five, i res més —la llista de la
-// pàgina és aquesta i un número que no hi sigui seria un ajust que la pàgina no sap ensenyar ni desfer (docs/30, docs/60).
-const uint16_t kIdleSeconds[] = {10, 60, 300};
-const uint16_t kIdleDefault = 10;
+// **Els tres temps de quietud que una persona pot triar** (0.190.13, l'amo: *«Rectifica els temps del DeepSleep, posa de 5,10,15
+// minuts»*): five minutes, ten and fifteen —la llista de la pàgina és aquesta i un número que no hi sigui seria un ajust que la
+// pàgina no sap ensenyar ni desfer—. I són els mateixos tres del pany, o sigui que una persona pot triar que el pany arribi
+// abans que el son (5 de pany i 15 de son), que és l'ordre que té sentit (docs/30, docs/60).
+const uint16_t kIdleSeconds[] = {300, 600, 900};
+const uint16_t kIdleDefault = 300;
 const char kOn[] = "on";
 const char kOff[] = "off";
 const char kMonday[] = "monday";
@@ -588,10 +590,10 @@ void boot(hal::IPlatform& platform) {
         idle_len < sizeof(raw_idle)) {
       raw_idle[idle_len] = '\0';
       const int seconds = atoi(raw_idle);
-      if (seconds == 10 || seconds == 60 || seconds == 300) {
+      if (seconds == 300 || seconds == 600 || seconds == 900) {
         g_idle_seconds = static_cast<uint16_t>(seconds);
       } else {
-        log_printf(pal::kLogWarn, "CFG", "idle '%s' is not 10, 60 or 300 seconds; %u stays", raw_idle,
+        log_printf(pal::kLogWarn, "CFG", "idle '%s' is not 5, 10 or 15 minutes; %u s stays", raw_idle,
                    static_cast<unsigned>(g_idle_seconds));
       }
     }
