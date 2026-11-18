@@ -207,6 +207,14 @@ void paint(hal::ISurface& surface, const char* id, const char* title, const char
   font::draw(surface, word_x, word_y, word, scale, 0);
 }
 
+// **Qui mira el host mentre la pàgina espera** (0.190.3): the turn of the kernel is stopped here —the app that died was
+// inside it— and on a PC the window of the emulator is looked at by that turn, so a page that waits for ever was a window that
+// stopped answering its window manager and a mouse that never reached the glass (*«es veu l'error al log i després l'emulator
+// es penja»*, docs/85). The host is asked once per turn of this page, and the answer that matters is the last one: **a person
+// who closes the window is asking the run to end**, and a page waiting for a button on a screen that is no longer there is a run
+// nobody can stop (docs/30).
+bool the_host_is_alive() { return pal::pump(); }
+
 bool any_key_down() {
   const uint32_t keys = button::count();
   for (uint32_t i = 0; i < keys; ++i) {
@@ -228,6 +236,7 @@ void wait_for_the_person(uint16_t width, uint16_t height) {
     const int64_t settle = (g_wait_ms > 0 && g_wait_ms < 3000) ? g_wait_ms : 3000;
     const int64_t began = static_cast<int64_t>(pal::system().millis());
     while (touch::points(nullptr, 0) > 0 && since(began) < settle) {
+      if (the_host_is_alive()) return;
       pal::Event event;
       pal::system().queue()->pop(event, 20);
     }
@@ -238,6 +247,9 @@ void wait_for_the_person(uint16_t width, uint16_t height) {
   for (;;) {
     // **Zero vol dir sempre**: the page of an error is the person's, and a page that closes itself hides the reason (docs/30).
     if (g_wait_ms > 0 && since(began) >= g_wait_ms) return;
+    // **I el host es manté viu mentre s'espera** (0.190.3): the window of a run is looked at here, because the turn that
+    // would look at it is the one this page has stopped. Closing that window is leaving the page (docs/85).
+    if (the_host_is_alive()) return;
     if (has_a_finger) {
       touch::poll();
       touch::Gesture gesture;

@@ -1,6 +1,6 @@
 {
   "name": "pal",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Platform abstraction layer: queues, console, log sink, clock, reboot.",
   "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
 }

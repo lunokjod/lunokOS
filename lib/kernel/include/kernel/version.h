@@ -10059,7 +10059,14 @@ namespace kernel {
 // que sí que és un error, i un cas de la suite **polsa els set botons** i mira que cada un aturi l'app i deixi la pàgina al vidre
 // (`test_every_button_of_the_broken_app_ends_with_the_page_of_the_error`): una app d'exemple que deixa de petar és una ment a la
 // documentació, i aquesta és la que ensenya què és la pàgina de l'error (docs/30, docs/40, docs/80).
-static const char kVersion[] = "0.190.2";
+// **La pàgina d'un error deixava l'emulador penjat** (0.190.3, l'amo: *«es veu l'error al log i després l'emulator es penja
+// "program" is not responding»*). El torn del nucli és el que mira la finestra de l'emulador —el seu `gui_pump`, el dit sobre el
+// vidre i els quadres d'una pintada— i la pàgina d'una app que s'ha mort **atura aquell torn** tant com espera: la finestra va
+// deixar de respondre al gestor de finestres i el ratolí no arribava al `Dismiss`, que és l'única porta de la pàgina. Ara hi ha
+// `pal::set_pump`/`pal::pump`: el host registra el que vol que es miri mentre el nucli espera, una `pop` que s'acaba sense res el
+// mira, la pàgina el demana a cada volta de la seva espera, i **la resposta és la segona porta** —una persona que tanca la
+// finestra vol que el run s'acabi, i la pàgina el deixa anar en lloc d'esperar un botó que ja no és enlloc— (docs/30, docs/85).
+static const char kVersion[] = "0.190.3";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

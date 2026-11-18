@@ -744,6 +744,16 @@ una lectura per escombrat i no una per torn. El comptador segueix tenint sentit:
   —sis-cents mil·lisegons en una app que espera—, i la finestra només es mira entre esperes, o sigui que
   dos clics podien entrar plegats al panell i sortir-ne com un de sol. La retallada és el doble del període
   d'escombrat del xip i no toca ni el model ni les proves, que la deixen a zero.
+- **Una espera que s'acaba sense res és una mirada a la finestra** (0.190.3, `pal::set_pump`): la retallada de dalt fa que
+  el nucli torni al seu torn i el seu torn és qui mira la finestra, però n'hi ha esperes que **no tornen al nucli** —la tinta
+  d'una pintada, que té el seu propi `set_wait_pump`, i la **pàgina d'una app que s'ha mort**, que espera el seu `Dismiss`
+  sense cap temps límit (docs/30)—. Amb la finestra mirant-se només des del torn, aquella pàgina deixava la finestra sense
+  respondre al gestor de finestres i el ratolí no arribava mai al vidre: *«es veu l'error al log i després l'emulator es
+  penja "program" is not responding»* (l'amo, 18/11). Ara la `pop` d'una cua buida del host fa **una mirada** al que el run
+  hagi registrat (`--gui` hi posa la finestra; un run sense finestra i tota la suite no hi posen res), i la pàgina també la
+  demana a cada volta. La resposta de la mirada és la segona porta de la pàgina: **qui tanca la finestra vol que el run
+  s'acabi**, i el run s'acaba també quan la pàgina espera —el guió d'un `--script` deixa de llegir línies i el bucle d'un
+  run sense guió surt—, que si no era un run que només es podia matar.
 - **La finestra és del primer moment** (0.174.6): `set_ink`, `gui_open` i el `set_wait_pump` van **abans** de la corba del
   boot i de `kernel::boot`, i per això el panell de la finestra és blanc abans que cap línia del sistema surti, l'splash del
   boot s'hi veu arribar amb el seu parany i la pàgina del launcher ve darrere. El que es va veure durant un temps és el

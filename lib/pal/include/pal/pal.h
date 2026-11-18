@@ -149,6 +149,21 @@ void set_dispatch_us(uint32_t us);
 // default, and what every test wants— is a wait that lasts as long as it was told (docs/85).
 void set_wait_slice_ms(uint32_t ms);
 
+// **Keep the host alive while the kernel waits for a person** (0.190.3). The turn of the kernel is what looks at the window of
+// the emulator and at the finger on its glass, and a page that waits for a person —the page of an app that has died, which waits
+// for its `Dismiss` with no end (docs/30)— stops that turn: the window stops answering the window manager, the mouse stops
+// reaching the panel and the button nobody can press is a run that never ends (found on the window: *«es veu l'error al log i
+// després l'emulator es penja»*, docs/85). A host that has something to look at while it waits registers it here, and the second
+// rule is the important one: **a wait of the queue that expires with nothing to read is a look at the window too**, so a wait
+// inside a paint or a page is kept alive by the same function as a wait in a turn.
+//
+// The function answers **true when the person has asked the run to end** —the corner of the window of the emulator—, and the
+// page lets go of a run that is ending instead of waiting for a Dismiss that is no longer on any screen. A board registers
+// nothing: its glass is the panel and there is no window to pump (docs/50).
+void set_pump(bool (*fn)(void*), void* ctx);
+// Looks at the host once. False when there is nothing to look at, which is every board.
+bool pump();
+
 // **A seed for the numbers of the band, when the run wants to be told which ones** (0.174.8): zero —the default— is
 // "seed me from this machine", which on a PC is the clock and the process and on a board is the hardware RNG; any other
 // number makes `ISystem::random()` repeat the same sequence, which is what `--seed` of the emulator is for and what a

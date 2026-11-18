@@ -19852,6 +19852,97 @@ void test_an_app_that_dies_says_why_on_the_glass(void) {
   kernel::boot(hal::platform());
 }
 
+// **La finestra d'una pàgina que espera** (0.190.3, l'amo: *«es veu l'error al log i després l'emulator es penja "program" is not
+// responding»*): the turn of the kernel is what looks at the window of a run —its events, the finger on its glass, the frames of
+// a paint— and the page of an app that has died **stops that turn** for as long as it waits, so the window stopped answering the
+// window manager and the mouse never reached the glass of a page whose only way out is that mouse. The page looks at its host once
+// per turn of its wait, and it lets go when the host says the run is ending —a person who closes the window is not a person who
+// wants to keep a run alive with a page nobody can press— (docs/30, docs/85).
+static int g_pumps = 0;
+static bool g_host_says_end = false;
+
+static bool count_a_pump(void*) {
+  ++g_pumps;
+  return g_host_says_end;
+}
+
+void test_the_page_of_a_dead_app_looks_at_its_host_while_it_waits(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  storage->remove("/apps/dier/app.lua");
+  storage->remove("/apps/dier/manifest.json");
+  storage->remove("/apps/dier");
+  TEST_ASSERT_TRUE(add_app(storage, "dier",
+                           "{\"title\":\"Dier\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local nothing = nil\n"
+                           "nothing.field = 42\n"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app("home_eink"));
+  close_any_app();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  close_any_app();
+
+  // **El host es mira mentre la pàgina espera**: the page has nobody to touch it in a case, so the wait is the short one of the
+  // suite, and what the case counts is that the look happened at all (docs/80).
+  g_pumps = 0;
+  g_host_says_end = false;
+  pal::set_pump(&count_a_pump, nullptr);
+  kernel::app_error::set_wait_ms(60);
+  pump_captured(200, g_out, sizeof(g_out), "run dier");
+  kernel::app_error::set_wait_ms(0);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, g_pumps, "the page waited without looking at its host");
+
+  // **I quan el host diu que el run s'acaba, la pàgina el deixa anar**: the wait is a long one and the answer of the pump arrives
+  // on the first look, so a page that does not ask its host spends the whole of it —which is the red this case is for— (docs/30).
+  // The app of this half says a message of its own, so the case can tell that the page of **this** death is the one it timed.
+  storage->remove("/apps/mor/app.lua");
+  storage->remove("/apps/mor/manifest.json");
+  storage->remove("/apps/mor");
+  TEST_ASSERT_TRUE(add_app(storage, "mor",
+                           "{\"title\":\"Mor\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "error(\"mor says why\")\n"));
+  g_pumps = 0;
+  g_host_says_end = true;
+  kernel::app_error::set_wait_ms(3000);
+  const uint32_t began = pal::system().millis();
+  pump_captured(200, g_out, sizeof(g_out), "run mor");
+  const uint32_t waited = pal::system().millis() - began;
+  kernel::app_error::set_wait_ms(0);
+  pal::set_pump(nullptr, nullptr);
+  g_host_says_end = false;
+  const char* said = luabind::last_error_text();
+  TEST_ASSERT_NOT_NULL(said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "mor says why"), said);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, g_pumps, "the page never asked its host");
+  TEST_ASSERT_LESS_THAN_UINT32_MESSAGE(1500, waited,
+                                       "the page waited for its time with a host that said the run was over");
+
+  storage->remove("/apps/mor/app.lua");
+  storage->remove("/apps/mor/manifest.json");
+  storage->remove("/apps/mor");
+
+  storage->remove("/apps/dier/app.lua");
+  storage->remove("/apps/dier/manifest.json");
+  storage->remove("/apps/dier");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   g_from = getenv("LUNOK_FROM");
@@ -20132,6 +20223,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_page_asks_the_system_how_much_an_app_takes);
   RUN_TEST(test_a_long_press_opens_the_app_that_was_asked_for_with_its_switches);
   RUN_TEST(test_an_app_that_dies_says_why_on_the_glass);
+  RUN_TEST(test_the_page_of_a_dead_app_looks_at_its_host_while_it_waits);
   RUN_TEST(test_every_button_of_the_broken_app_ends_with_the_page_of_the_error);
   RUN_TEST(test_a_page_clears_the_cache_of_an_app_and_nothing_else);
   RUN_TEST(test_the_page_of_the_apps_reads_the_manifests_of_the_folder);

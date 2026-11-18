@@ -982,12 +982,20 @@ no es lliuren fins que es polsa el botó. És el que l'amo va demanar —una pà
 pàgina només existeix per a l'app **del vidre**: una finestra d'alarma que peta no la pinta mai, perquè `run_window` diu el seu motiu
 i segueix (docs/50, docs/60).
 
+**I el host es mira mentre s'espera** (0.190.3, l'amo: *«es veu l'error al log i després l'emulator es penja "program" is not
+responding»*). El torn del nucli és **el que mira la finestra de l'emulador** —els seus esdeveniments, el dit sobre el vidre, els
+quadres d'una pintada— i aquesta pàgina atura aquell torn: la finestra va deixar de respondre al gestor de finestres, el ratolí ja no
+arribava al vidre i el `Dismiss` que és l'única porta de la pàgina no es podia polsar mai. Ara la pàgina demana **una mirada al host**
+a cada volta de la seva espera (`pal::pump`, docs/85), i la resposta d'aquella mirada és la segona porta: **una persona que tanca la
+finestra és una persona que vol que el run s'acabi**, i la pàgina el deixa anar en lloc d'esperar un botó que ja no és enlloc. En una
+placa no hi ha res a mirar i el ganxo no fa res (docs/50).
+
 El text és el mateix que el registre i la consola han rebut (`luabind::last_error_text`), o sigui que la pàgina i el log no es poden
 contradir. Una placa sense vidre no pinta res i segueix com sempre (docs/50, docs/85).
 
 **I es pot provocar**: l'app `brokenapp` —*Broken App Test*— té set botons i cada un peta d'una manera diferent (indexar un `nil`,
-cridar un global que no és funció, un `error` amb missatge, un `error` amb taula, un bucle sense fi que talla el pressupost del
-torn, una recursió sense fi i una cadena que no cap a la memòria). **El botó no peta**: un error dins d'un `on_click` el recull el
+cridar un global que no és funció, un `error` amb missatge, un `error` amb taula, dues taules comparades, una recursió sense fi i una
+cadena que no cap a la memòria). **El botó no peta**: un error dins d'un `on_click` el recull el
 ganxo del sistema i l'app seguiria com si res —la mateixa carretera que va fer que `app.exit()` dins d'un ganxo no tanqui l'app
 (0.189.101)—, o sigui que el botó deixa un desig i **el torn de la pàgina** és el que es trenca (docs/30, docs/40, docs/90).
 

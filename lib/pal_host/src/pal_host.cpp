@@ -62,6 +62,10 @@ uint32_t g_bytes_per_us = 0;
 uint32_t g_dispatch_us = 0;
 // The longest a wait of the queue may block: zero is a wait that lasts as long as it was told (docs/85).
 uint32_t g_wait_slice_ms = 0;
+// **What the host looks at while the kernel waits for a person** (0.190.3): the emulator's window and the finger on its
+// glass, and null on a run with no window and in every test (docs/85).
+bool (*g_pump)(void*) = nullptr;
+void* g_pump_ctx = nullptr;
 uint32_t g_walk_ns = 0;  // what the walks have run up but not yet paid
 
 // **The two homes of the board's memory, each one a heap of its own** (docs/75, docs/85). The PC has
@@ -322,6 +326,11 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
 
   bool pop(Event& out, int32_t timeout_ms) override {
     if (count_ == 0) wait_for_input(timeout_ms);
+    // **Un wait que s'ha acabat sense res és una mirada a la finestra** (0.190.3): the turn of the kernel is not the only
+    // place a host may be looked at, because a page that waits for a person —or a paint that waits for its ink— is inside
+    // the kernel and not coming back to it. Without this a window that is waiting for a `Dismiss` stops answering the
+    // window manager and the mouse never reaches its glass (found on the window, docs/85).
+    if (count_ == 0 && g_pump != nullptr) g_pump(g_pump_ctx);
     if (count_ == 0) return false;
     out = ring_[head_];
     head_ = static_cast<uint16_t>((head_ + 1) % kQueueLength);
@@ -912,6 +921,15 @@ bool virtual_terminal() { return g_virtual_terminal; }
 void set_dispatch_us(uint32_t us) { g_dispatch_us = us; }
 
 void set_wait_slice_ms(uint32_t ms) { g_wait_slice_ms = ms; }
+
+// **El que el host mira mentre el nucli espera una persona** (0.190.3): `main_host` puts the window of the emulator here, and a
+// run with no window —and every case of the suite— leaves it empty, which is a `pump` that looks at nothing.
+void set_pump(bool (*fn)(void*), void* ctx) {
+  g_pump = fn;
+  g_pump_ctx = ctx;
+}
+
+bool pump() { return (g_pump != nullptr) ? g_pump(g_pump_ctx) : false; }
 
 // **The seed of this machine's numbers** (0.174.8): zero is "from the clock and the process", and any other number makes
 // the whole run repeat —the same page, the same shuffle, the same seed of the interpreter— which is what `--seed` of the

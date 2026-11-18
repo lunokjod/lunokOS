@@ -768,6 +768,17 @@ void wait_pump(void*) {
   if (g_shown_frames != nullptr) pump_gui(*g_shown_frames);
 }
 
+// **El host que mira una pàgina mentre espera una persona** (0.190.3): the page of an app that has died waits for its `Dismiss`
+// with no end, and the turn that looks at the window of a run is the turn that page has stopped —so the window stopped
+// answering the window manager and the mouse never reached the glass of the emulator (*«es veu l'error al log i després
+// l'emulator es penja»*). This is the same pump of the window, with the answer the page needs: **a person who closes the
+// window is asking the run to end**, and a page waiting for a button on a screen that is not there is a run nobody can stop
+// (docs/30, docs/85).
+bool host_pump(void*) {
+  if (g_shown_frames != nullptr) pump_gui(*g_shown_frames);
+  return emu::gui_close_requested();
+}
+
 // **One turn of the system, and what a turn costs on the board**: FreeRTOS switches, the drivers get
 // their look-in and the loop comes back a millisecond later, where this emulator comes back in a tenth of
 // one. The difference is paid here —after the turn, because a turn that has painted has already spent
@@ -795,8 +806,9 @@ int run_script(const char* path, uint32_t& shown_frames) {
     if (len == 0 || line[0] == '#') continue;
     if (!kernel::execute(line)) rc = 1;
     // A board that is off does not read the next line: `poweroff` ends the kernel, and a script that
-    // went on would be a script running on a board that is not there (docs/85).
-    if (!kernel::running()) break;
+    // went on would be a script running on a board that is not there (docs/85). **And a person who closed the window of the
+    // run is a run that ends**, which is the same answer the loop of a run with no script gives (0.190.3).
+    if (!kernel::running() || emu::gui_close_requested()) break;
     // An app may be waiting for a promise, and a command may be waiting for the
     // radio: both have to finish before the next line, or the script would read
     // as if nothing had happened (`wifi add` followed by `http` found the radio
@@ -984,6 +996,9 @@ int main(int argc, char** argv) {
     g_shown_frames = &shown_frames;
     glass->set_wait_pump(&wait_pump, nullptr);
   }
+  // **I la finestra es mira també quan el nucli no torna al seu torn** (0.190.3): a page that waits for a person keeps the
+  // kernel inside it, so the wait itself is what looks at the window (docs/85).
+  pal::set_pump(&host_pump, nullptr);
 
   // **The boot of the board and not of this process** (docs/75, docs/85): the banner is not the first
   // thing a board says, it is the first thing it says after the image has come out of the flash and the

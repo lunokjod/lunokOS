@@ -400,6 +400,16 @@ bool init() {
 
 void shutdown() {}
 
+// **Una placa no té finestra que mirar** (0.190.3): the page of an error waits on the panel itself —the finger on the glass
+// and the dial of a board with no glass— and the turn of the kernel is not what keeps it alive, so the hook exists here and
+// does nothing. It is defined and not only declared because the page calls it on every board (docs/30, docs/50).
+void set_pump(bool (*fn)(void*), void* ctx) {
+  (void)fn;
+  (void)ctx;
+}
+
+bool pump() { return false; }
+
 ISystem& system() { return g_system; }
 
 IExtraMemory& extra_memory() { return g_extra; }

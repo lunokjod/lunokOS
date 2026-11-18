@@ -277,6 +277,39 @@ void test_the_books_say_which_block_is_whose(void) {
   for (uint32_t i = 0; i < asks; ++i) pal::extra_memory().release(many[i]);
 }
 
+// **El host que es mira mentre el nucli espera una persona** (0.190.3): the page of an app that has died stops the turn of the
+// kernel, and that turn is what looks at the window of the emulator —so the page asks the host for a look itself, and the answer
+// of the look is the second thing: a person who closes the window is a run that ends (docs/30, docs/85).
+static int g_pump_calls = 0;
+
+static bool count_the_pump(void* ctx) {
+  ++g_pump_calls;
+  return (ctx != nullptr) ? *static_cast<bool*>(ctx) : false;
+}
+
+void test_a_host_is_looked_at_with_the_answer_that_ends_a_page(void) {
+  // **De sèrie no hi ha res a mirar**: a build with no window —and every case of this suite— registers nothing, and a page that
+  // asks gets the answer of a board, which is that there is nothing to look at (docs/50).
+  pal::set_pump(nullptr, nullptr);
+  TEST_ASSERT_FALSE(pal::pump());
+
+  // **El host és el que s'ha registrat, amb el seu context i amb la seva resposta**: the context is how a pump knows where to keep
+  // what it has seen, and it is passed through unchanged.
+  g_pump_calls = 0;
+  bool the_run_is_over = false;
+  pal::set_pump(&count_the_pump, &the_run_is_over);
+  TEST_ASSERT_FALSE(pal::pump());
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_pump_calls, "the host was not looked at");
+  the_run_is_over = true;
+  TEST_ASSERT_TRUE(pal::pump());
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_pump_calls, "the host was not looked at twice");
+
+  // **I treure'l és una build que torna a no mirar res**, which is what a case that registered one leaves behind it (docs/80).
+  pal::set_pump(nullptr, nullptr);
+  TEST_ASSERT_FALSE(pal::pump());
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_pump_calls, "a host that was taken out was looked at");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -289,5 +322,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_relief_is_a_failed_ask_and_not_a_heap_that_looks_full);
   RUN_TEST(test_a_block_that_is_being_moved_is_not_one_the_relief_may_take);
   RUN_TEST(test_the_books_say_which_block_is_whose);
+  RUN_TEST(test_a_host_is_looked_at_with_the_answer_that_ends_a_page);
   return UNITY_END();
 }
