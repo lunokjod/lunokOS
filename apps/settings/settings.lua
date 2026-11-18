@@ -23,8 +23,9 @@
 --                  que hi ha de Lua a dins (0.189.108, docs/75 i docs/95).
 --
 -- **El que aquesta app encara no fa, i per què** (docs/45): la política de miniatures, les sessions al disc, el NTP a
--- l'arrencada, el paper pintat de fons, el splash propi, el PIN i els temps de son demanen un subsistema que el nucli no té;
--- les files no hi són per no ensenyar una porta que no obre res.
+-- l'arrencada, el paper pintat de fons, el splash propi i el PIN demanen un subsistema que el nucli no té; les files no hi són
+-- per no ensenyar una porta que no obre res. **Els temps de son ja no són d'aquesta llista** (0.190.5): el nucli té la política
+-- d'adormir-se fins a la propera alarma i la fila `Sleep when idle` de la pestanya System l'apaga i la desa (docs/60).
 --
 -- **I el que és de l'app i no del sistema**: la pestanya on era i el control amb el cercle, al bloc `state` de sempre.
 
@@ -825,6 +826,17 @@ function build()
     return index_of(locks, id)
   end, function(index)
     cfg.lock((index == 1) and 'none' or locks[index])
+  end)
+
+  -- ---- **El son sol de la placa** (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?» i «perqué va tant ràpid?»*): the board
+  -- powers itself off until its next alarm when nobody has touched it for ten seconds —no consola, no dit al vidre i cap tecla del
+  -- dial— i això és la llei 9 i el que fa que l'hora la compti el quars. **Una persona que vol la placa desperta** —una demo, una
+  -- sessió de mesura, una app que escriu un registre— ho apaga aquí, i la resposta es queda (`cfg.sleep`) perquè el pròxim boot no
+  -- torni a la política del sistema. El que la fila ensenya és el que la política té, no el que l'app ha demanat (docs/30, docs/45).
+  check_row(5, 'sleep', 'Sleep when idle', function() return cfg.sleep() == true end, function(on)
+    cfg.sleep(on)
+    say(on and 'The board sleeps until its next alarm' or 'The board stays awake')
+    console.print(string.format('settings: the idle sleep is %s', on and 'on' or 'off'))
   end)
 
   -- ---- Battery: **el que la placa sap de la seva pila**, que és un número i no un ajust d'aquesta pàgina (docs/30). Les

@@ -10076,7 +10076,19 @@ namespace kernel {
 // i els dits arriben en el marc de la **vista** de l'app, que `turn_frame` deixa sense el desplaçament de la barra del sistema, o
 // sigui que el `Dismiss` era a un lloc i el seu dit a un altre. `touch::on_the_glass` és el camí de tornada i la pàgina el passa per
 // cada gest i per cada punt abans de preguntar res (docs/30, docs/50, docs/90).
-static const char kVersion[] = "0.190.4";
+// **La placa s'adormia sola en deu segons i el comptador no veia el dit** (0.190.5, l'amo: *«sembla que s'adorm sola quasi
+// d'inmediat... perqué?»*). La política de la llei 9 compta el silenci des de l'última cosa que ha tocat la placa, i només comptava
+// els bytes de la **consola**: un dit al vidre —la targeta del sistema, una pàgina del launcher, la banda del teclat— i una tecla
+// del dial eren invisibles, i, des de la 0.189.182 (la casa ja no bloqueja la son), una placa amb `cfg home` s'apagava deu segons
+// després d'arrencar encara que se l'estigués fent servir. Ara **un marc amb un dit a sobre i una tecla que baixa són la placa en
+// ús** (el mateix avís que ja rebia el pany, `power::note_activity`), **la targeta del sistema la manté desperta mentre és fora**
+// (allà l'app ni tan sols corre) i el comptador arrenca de zero a cada boot (`power::boot`). **I la línia del son diu les tres
+// xifres de la decisió** —el que falta per a la propera alarma, el silenci mesurat i el que la política demana—, que és el que una
+// placa que s'adorm quan no toca ha de poder explicar (docs/30, docs/60, docs/90).
+//
+// **I el son és un ajust i no una llei** (el mateix dia): **Settings → System → *Sleep when idle*** (`cfg.sleep`, `cfg sleep
+// on|off` al prompt) l'apaga, i la resposta es desa, o sigui que el boot la torna a llegir i no desfà la tria d'una persona.
+static const char kVersion[] = "0.190.5";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

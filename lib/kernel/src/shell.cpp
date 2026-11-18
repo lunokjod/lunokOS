@@ -609,6 +609,7 @@ void print_help(const char* only) {
   help_line("  repo install <app>  the whole folder of an app, onto the disk `cfg` names", only);
   help_line("  alarm [list]      the queue of alarms, the nearest first, and where the wake is armed", only);
   help_line("  cfg lock [<id>|none]  the page that covers the screen, and `cfg lockon on|off` with `cfg lockafter 5|10|15`", only);
+  help_line("  cfg sleep on|off      whether the board sleeps until its next alarm when nobody uses it", only);
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
   help_line("  power last        how far the last sleep was from the hour it was given", only);
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
@@ -4768,6 +4769,25 @@ bool command_cfg(const char* argument) {
       }
       const bool kept = cfg::set_lock_on(on);
       out("settings: lock ");
+      out(on ? "on" : "off");
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg sleep on|off`**: the switch of the System tab, which is whether the board powers itself off until its next alarm when
+    // nobody has touched it (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?»*). It is kept, or the answer would not
+    // survive the boot that the same policy is about, and `power idle` (a switch of the run) is the other door: this one is what a
+    // board remembers (docs/30, docs/60).
+    if (strcmp(words[0], "sleep") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the sleep of the board is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_sleep_on(on);
+      out("settings: sleep ");
       out(on ? "on" : "off");
       newline();
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");

@@ -1,6 +1,7 @@
 // The energy policy: the board can stop its clocks, and this is the one place that
 // says when, what is said to the app first and what is read afterwards (docs/90).
 #include "kernel/meter.h"
+#include "kernel/panel.h"
 #include "kernel/power.h"
 
 #include "kernel/cfg.h"
@@ -401,7 +402,9 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   g_nvs = platform.nvs();
   g_caps = platform.caps().bits;
   g_keep_awake = false;
-  g_idle_allowed = true;
+  // **La política és una ajust i no una llei** (0.190.5): a person who turned the sleep off in the System tab gets a board that stays awake,
+  // and the answer is read here so that a boot does not undo it (docs/30, docs/60).
+  g_idle_allowed = cfg::sleep_on();
   // **Un boot torna a la seva política** (0.179.38): the resting step is the system's again and no window of the boot
   // before is owed, or a board that reboots would carry the two hundred and forty of the last app it ran.
   g_cpu_rest_mhz = kRestingMhz;
@@ -641,6 +644,10 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   const bool the_home_page =
       shell::app_running() && cfg::home_app()[0] != '\0' && strcmp(shell::app_id(), cfg::home_app()) == 0;
   if ((shell::app_running() && !the_home_page) || keeping_awake()) return;
+  // **I la targeta del sistema, que és el sistema en ús** (0.190.5): while the card of the panel is out the app does not run
+  // (`kernel.cpp` skips its turn), so the board is the system's and a person is reading it —powering off here takes the card with
+  // it and paints the picture of a sleep over the page the person had just pulled (docs/30, docs/60, docs/90).
+  if (panel::open()) return;
   // An effect of the light is the board saying something right now, and it is painted once a
   // turn: powering off would cut it in the middle (docs/30).
   if (led::animating()) return;
@@ -660,10 +667,18 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   }
 
   g_coming_back_at = 0;
+  // **La línia del per què** (0.190.5, l'amo: *«posa log quan hagi de saltar el deepsleep automátic»*). A sleep that comes from the policy
+  // and not from a person is a line a board should be able to explain, o sigui que la línia diu **les tres xifres de la decisió**: quant
+  // falta per a la propera alarma, quanta estona fa que la placa està quieta i quants segons de quietud li demana la política —i si és una
+  // represa d'una alarma ho diu, perquè aquesta és l'única decisió que no espera el comptador— (docs/60, docs/90).
+  const int64_t quiet = (mono - g_last_activity_ms > 0) ? (mono - g_last_activity_ms) : 0;
   sayf("power: nothing to do for %lld s, sleeping until the next alarm\r\n",
        static_cast<long long>(wait / 1000));
-  log_printf(pal::kLogInfo, "POWER", "idle sleep, %lld ms to the next alarm",
-             static_cast<long long>(wait));
+  log_printf(pal::kLogInfo, "POWER",
+             "idle deep sleep: %lld s to the next alarm, %lld s of quiet (the policy asks %lld), %s",
+             static_cast<long long>(wait / 1000), static_cast<long long>(quiet / 1000),
+             static_cast<long long>(g_idle_quiet_ms / 1000),
+             (!staging && g_for_an_alarm) ? "a wake for an alarm goes straight back down" : "nobody has used the board");
   // Does not come back: on this board the power goes and the clock chip brings it back.
   // If it does come back (a cable in the slot), the board is being used again.
   sleep(hal::SleepMode::kDeep, deadline);

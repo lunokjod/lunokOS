@@ -79,6 +79,15 @@ bool set_lock_on(bool on);
 uint8_t lock_after_minutes();
 bool set_lock_after_minutes(uint8_t minutes);
 
+// **Si la placa s'adorm sola** (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?»*): the idle policy of law 9 —the board
+// powers itself off until its next alarm when nobody has touched it for ten seconds— is a setting and not a law of physics, because
+// there are afternoons when a person wants the board awake (a demo, a measuring session, an app that logs). It is on by default, which
+// is the board's own rule; off, `power::idle_sleep` does nothing at all and the board stays up until somebody says otherwise.
+// **The state is the policy's** (`power::set_idle_sleep_allowed`) and this door is only what remembers it, so the switch of the page
+// and the prompt of a person cannot disagree about what the board is doing (docs/30, docs/60).
+bool sleep_on();
+bool set_sleep_on(bool on);
+
 // Asks for a unit and persists it. `auto` prefers the card and falls back to the flash.
 // False when the name is not one of the three, or when that unit is not mounted.
 bool set_unit(const char* name);

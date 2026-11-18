@@ -14964,6 +14964,84 @@ void test_the_home_page_does_not_keep_the_board_awake(void) {
   storage->remove("/apps/sleeper");
 }
 
+// **L'adormida mira el vidre i la targeta del sistema** (0.190.5, l'amo: *«sembla que s'adorm sola quasi d'inmediat... perqué?»*).
+// The idle policy measured "nobody is using it" by the **console** alone, so a finger on the glass —the card of the system, a page
+// of the launcher, the band of the keyboard— and a key of the dial were a person the board could not see, and it powered off under
+// the hand that was using it. **And the card of the panel out is the system being used**: the app does not even run while it is out
+// (`kernel.cpp`), so a board that sleeps there takes the card with it and paints the picture of a sleep over what a person had just
+// pulled (docs/30, docs/60).
+void test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  // **La placa amb el panell tàctil**, que és la que té un dit que comptar (docs/85).
+  use_board_with_fingers("m5stack-paper");
+  TEST_ASSERT_TRUE(hal::platform().power()->deep_powers_off());
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  TEST_ASSERT_TRUE(add_app(storage, "sleeper",
+                           "{\"title\":\"Sleeper\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('sleeper is home')\n"
+                           "if console.is_foreground() then\n"
+                           "  alarm.at{in_ms = 120000, payload = 'tick', persist = true}\n"
+                           "end\n"
+                           "while true do sys.delay(200):await() end\n"));
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app("sleeper"));
+  TEST_ASSERT_TRUE(kernel::touch::available());
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  // **Els dos-cents mil·lisegons de silenci d'aquest cas** i no els deu segons de la placa, que farien la suite lenta per una línia
+  // de registre (docs/60, docs/80).
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  kernel::power::set_idle_quiet_ms(200);
+
+  // **Un dit a sobre i la placa no se'n va**: 350 ms de rellotge amb el dit al vidre, que és molt més que el silenci que la placa
+  // accepta, i la casa segueix engegada.
+  pump_captured(30, g_out, sizeof(g_out), "run sleeper");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::app_running(), "the house is not in front");
+  TEST_ASSERT_TRUE(panel->finger_down(0, 270, 500));
+  const int64_t on_the_glass = pal::system().millis();
+  while (pal::system().millis() - on_the_glass < 350) pump_turns(1);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::app_running(), "the board slept under the finger that was using it");
+
+  // **I el dit que se'n va deixa el compte on toca**: l'última mà és l'últim marc amb el dit a sobre, i els 200 ms de silenci que
+  // li segueixen són la son —el dit era l'única raó per la qual la placa era desperta—.
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  const int64_t left = pal::system().millis();
+  while (pal::system().millis() - left < 300 && kernel::shell::app_running()) pump_turns(1);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::app_running(), "the board stayed awake with nobody in front of it");
+
+  // **I la targeta del sistema**: the pull of the bar leaves the card out, the app does not run under it, and the board waits for
+  // the person instead of powering off with the card on the glass.
+  pump_captured(30, g_out, sizeof(g_out), "run sleeper");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::app_running(), "the house is not in front again");
+  TEST_ASSERT_TRUE(panel->finger_down(0, 200, 20));
+  pump_turns(10);
+  for (int y = 60; y <= 200; y += 35) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, 200, static_cast<uint16_t>(y)));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a pull from the bar did not leave the card of the system out");
+  const int64_t the_card = pal::system().millis();
+  while (pal::system().millis() - the_card < 350) pump_turns(1);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::app_running(), "the board slept with the card of the system out");
+
+  kernel::power::set_idle_quiet_ms(was_quiet);
+  kernel::panel::boot();
+  close_any_app();
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  kernel::cfg::set_home_app("");
+  use_board("m5stack-atom");
+  storage->remove("/apps/sleeper/app.lua");
+  storage->remove("/apps/sleeper/manifest.json");
+  storage->remove("/apps/sleeper");
+}
+
 // Off is not a sleep: on a board that holds its own supply the command ends the system, and on a
 // board that does not the board says so instead of looking like it worked (docs/50, docs/85). The
 // ATOM has no hold on its supply; the Paper has one, and the model of the emulator says so.
@@ -20099,6 +20177,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_wake_for_an_alarm_comes_up_with_nobody_in_front);
   RUN_TEST(test_the_idle_sleep_is_a_switch);
   RUN_TEST(test_the_home_page_does_not_keep_the_board_awake);
+  RUN_TEST(test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake);
   RUN_TEST(test_poweroff_cuts_the_power_of_the_board_that_can);
   RUN_TEST(test_the_board_counts_what_it_wrote_and_rests_before_the_current_goes);
   RUN_TEST(test_the_boot_holds_the_power_before_anything_else);

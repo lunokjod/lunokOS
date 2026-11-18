@@ -264,6 +264,10 @@ struct CfgOps {
   bool (*set_lock_on)(bool on);
   uint8_t (*lock_after_minutes)();
   bool (*set_lock_after_minutes)(uint8_t minutes);
+  // **Si la placa s'adorm sola** (0.190.5): the idle policy of the board until its next alarm, which is a switch of the System tab and
+  // a setting a person keeps. Off, the board stays awake whatever the clock says (docs/30, docs/60).
+  bool (*sleep_on)();
+  bool (*set_sleep_on)(bool on);
 };
 
 void set_cfg_ops(const CfgOps& ops);

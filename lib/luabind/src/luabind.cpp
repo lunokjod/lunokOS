@@ -12546,6 +12546,23 @@ int l_cfg_lock_on(lua_State* L) {
   return 1;
 }
 
+// **Si la placa s'adorm sola** (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?»*): the switch of the System tab asks the
+// board whether it powers itself off until its next alarm, and a person turns it off from there. The value answered is the one the
+// policy holds, so the page shows what the board is doing and not what the page asked (docs/30, docs/60).
+int l_cfg_sleep(lua_State* L) {
+  if (g_cfg_ops.sleep_on == nullptr || g_cfg_ops.set_sleep_on == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no idle sleep");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (!cfg_switch(L, 1, on) || !g_cfg_ops.set_sleep_on(on)) {
+      return push_nil_error(L, "E_INVAL", "the sleep of the board is on or off");
+    }
+  }
+  lua_pushboolean(L, g_cfg_ops.sleep_on() ? 1 : 0);
+  return 1;
+}
+
 int l_cfg_lock_after(lua_State* L) {
   if (g_cfg_ops.lock_after_minutes == nullptr || g_cfg_ops.set_lock_after_minutes == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no lock of the screen");
@@ -12704,6 +12721,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "lock", l_cfg_lock);
   set_function(L, "lock_on", l_cfg_lock_on);
   set_function(L, "lock_after", l_cfg_lock_after);
+  set_function(L, "sleep", l_cfg_sleep);
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);
   lua_setglobal(L, "cfg");

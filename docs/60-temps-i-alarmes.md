@@ -427,6 +427,22 @@ Com està avui:
    Els números de la política, que són decisions i no mesures: deu segons de consola en silenci, una
    espera mínima de deu segons i cap app ni `keep_awake` enmig. `power idle off` la desactiva mentre
    una persona treballa al prompt.
+
+   **I "ningú l'està fent servir" era només la consola** (0.190.5, l'amo: *«sembla que s'adorm sola quasi
+   d'inmediat... perqué?»*). El comptador del silenci el movien les tecles del terminal i prou: un dit al
+   vidre —la targeta del sistema, una pàgina del launcher, la banda del teclat— i una tecla del dial no
+   comptaven, o sigui que la placa s'apagava sota la mà que la feia servir. Ara **un marc amb un dit a
+   sobre i una tecla que baixa són la placa en ús** (`power::note_activity`, el mateix avís que ja rebia
+   el pany, 0.189.150), i **la targeta del sistema desperta la placa mentre és fora**: mentre és oberta
+   l'app ni tan sols corre (`kernel.cpp`), o sigui que allà la placa és del sistema i una persona l'està
+   llegint; apagar-s'hi s'endú la targeta i pinta la imatge del son damunt del que la persona acabava
+   d'obrir (docs/30, docs/50, docs/90).
+
+   **I es pot apagar des de Settings** (0.190.5): *Sleep when idle*, a la pestanya **System** del panell d'ajustos (`cfg.sleep`, o
+   `cfg sleep on|off` al prompt). És un ajust i no una llei perquè hi ha tardes en què una persona vol la placa desperta —una demo,
+   una sessió de mesura, una app que escriu un registre—, la resposta es desa i el boot la torna a llegir; `power idle off` continua
+   sent l'interruptor del run. **I el comptador de la quietud arrenca a zero a cada boot** i el mouen les tres coses que són una mà a la
+   placa: un byte de consola, un marc amb un dit a sobre i una tecla del dial que baixa (docs/30, docs/90).
 3. **Rearmar-lo a cada despert**: el xip dispara una vegada. A l'arrencada es llegeix el bit `AF` —per
    saber si va ser l'alarma o el botó `PWR`— i es desarma (`RtcClock::adopt`).
 4. **Un sol despertador, i el té el xip.** La cua està ordenada i només s'arma la seva entrada més

@@ -150,6 +150,9 @@ void install_settings_ops() {
   doors.set_lock_on = &cfg::set_lock_on;
   doors.lock_after_minutes = &cfg::lock_after_minutes;
   doors.set_lock_after_minutes = &cfg::set_lock_after_minutes;
+  // **El son sol de la placa** (0.190.5): the switch of the System tab, kept where the policy is.
+  doors.sleep_on = &cfg::sleep_on;
+  doors.set_sleep_on = &cfg::set_sleep_on;
   luabind::set_cfg_ops(doors);
 }
 

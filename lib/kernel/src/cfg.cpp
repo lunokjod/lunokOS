@@ -84,6 +84,7 @@ const size_t kFreqCap = 12;  // "80,160,240" and the null
 // docs/70).
 const char kLockKey[] = "lock";
 const char kLockOnKey[] = "lockon";
+const char kSleepKey[] = "sleep";
 const char kLockAfterKey[] = "lockafter";
 const size_t kLockCap = 40;
 const uint8_t kLockAfterDefault = 10;
@@ -112,6 +113,9 @@ char g_settings[kNameCap] = "settings";
 // this system carries for exactly this—, the switch off, and ten minutes, which is the middle of the three a person can pick.
 char g_lock[kLockCap] = "device_lock";
 bool g_lock_on = false;
+// **El son sol de la placa** (0.190.5): on by default, which is the rule of law 9; the page of the settings turns it off and this is what
+// remembers the answer (docs/60).
+bool g_sleep_on = true;
 uint8_t g_lock_after = kLockAfterDefault;
 // The minutes the local hour is ahead of UTC, which is zero until somebody says otherwise (0.125.0).
 int16_t g_tz_minutes = 0;
@@ -218,6 +222,13 @@ bool remember_lock() {
   const char* value = (g_lock[0] != '\0') ? g_lock : "none";
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kLockKey, value, strlen(value));
+}
+
+bool remember_sleep_on() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_sleep_on ? kOn : kOff;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kSleepKey, word, strlen(word));
 }
 
 bool remember_lock_on() {
@@ -498,6 +509,17 @@ void boot(hal::IPlatform& platform) {
           snprintf(g_lock, sizeof(g_lock), "%s", raw_lock);
         }
       }
+      char raw_sleep[8] = {0};
+      size_t sleep_len = 0;
+      if (g_nvs->get(kNamespace, kSleepKey, raw_sleep, sizeof(raw_sleep) - 1, sleep_len) && sleep_len > 0 &&
+          sleep_len < sizeof(raw_sleep)) {
+        raw_sleep[sleep_len] = '\0';
+        if (same(raw_sleep, kOn) || same(raw_sleep, kOff)) {
+          g_sleep_on = same(raw_sleep, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "sleep '%s' is not on or off; the board keeps its own policy", raw_sleep);
+        }
+      }
       char raw_on[8] = {0};
       size_t on_len = 0;
       if (g_nvs->get(kNamespace, kLockOnKey, raw_on, sizeof(raw_on) - 1, on_len) && on_len > 0 &&
@@ -591,6 +613,16 @@ uint32_t turn_instructions() { return luabind::turn_budget(); }
 // **The launcher's switch** (0.189.13): off until the store says `on`, and it is a word and not a bit for the same reason
 // the calendar's is —a person reads the store with `nvs` (docs/30, docs/70).
 bool sort_by_usage() { return g_sort_by_usage; }
+
+// **I el son sol** (0.190.5): the value of the page is the policy's (`power`), so writing it here turns the board's rule off in the same
+// moment a person moves the switch instead of on the next boot (docs/60).
+bool sleep_on() { return g_sleep_on; }
+
+bool set_sleep_on(bool on) {
+  g_sleep_on = on;
+  power::set_idle_sleep_allowed(on);
+  return remember_sleep_on();
+}
 
 bool set_sort_by_usage(bool on) {
   g_sort_by_usage = on;
