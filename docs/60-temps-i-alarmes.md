@@ -438,7 +438,7 @@ Com està avui:
    llegint; apagar-s'hi s'endú la targeta i pinta la imatge del son damunt del que la persona acabava
    d'obrir (docs/30, docs/50, docs/90).
 
-   **I es pot apagar des de Settings** (0.190.5): *Sleep when idle*, a la pestanya **System** del panell d'ajustos (`cfg.sleep`, o
+   **I es pot apagar des de Settings** (0.190.5): *Sleep when idle*, a la pestanya **Battery** del panell d'ajustos (`cfg.sleep`, o
    `cfg sleep on|off` al prompt). És un ajust i no una llei perquè hi ha tardes en què una persona vol la placa desperta —una demo,
    una sessió de mesura, una app que escriu un registre—, la resposta es desa i el boot la torna a llegir; `power idle off` continua
    sent l'interruptor del run. **I el comptador de la quietud arrenca a zero a cada boot** i el mouen les tres coses que són una mà a la

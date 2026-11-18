@@ -39,7 +39,9 @@ end
 -- the ring, and the two rows that the CPU tab gained are `read_row`s —`ui.row` is born `focusable = false`, so a read row
 -- never takes the dial and its name never reaches the block—. A `kLayout` that went up here would throw away the tab a
 -- person left for nothing, which is the one cosa que el bloc existeix per a recordar (docs/30, docs/45 §5 bis).
-local kLayout = 'v1'   -- puja quan un control AMB FOCUS canvia de nom, o quan la forma del bloc canvia
+-- **v2** (0.190.5): el commutador `sleep` va passar de la pestanya System a la de Battery, i un bloc que diu «pestanya 5 i cercle a
+-- `sleep`» és una parella que ja no existeix; el que una persona havia deixat es torna a triar una vegada i prou (docs/30).
+local kLayout = 'v2'   -- puja quan un control AMB FOCUS canvia de nom, o quan la forma del bloc canvia
 local kCheapMode = 'du'
 -- **Quant s'espera una hora d'un servidor** (0.189.143): the same deadline the page of the time zone asks with, because the two
 -- buttons are the same request and a person should not wait longer on one page than on the other (docs/30, docs/60).
@@ -828,17 +830,6 @@ function build()
     cfg.lock((index == 1) and 'none' or locks[index])
   end)
 
-  -- ---- **El son sol de la placa** (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?» i «perqué va tant ràpid?»*): the board
-  -- powers itself off until its next alarm when nobody has touched it for ten seconds —no consola, no dit al vidre i cap tecla del
-  -- dial— i això és la llei 9 i el que fa que l'hora la compti el quars. **Una persona que vol la placa desperta** —una demo, una
-  -- sessió de mesura, una app que escriu un registre— ho apaga aquí, i la resposta es queda (`cfg.sleep`) perquè el pròxim boot no
-  -- torni a la política del sistema. El que la fila ensenya és el que la política té, no el que l'app ha demanat (docs/30, docs/45).
-  check_row(5, 'sleep', 'Sleep when idle', function() return cfg.sleep() == true end, function(on)
-    cfg.sleep(on)
-    say(on and 'The board sleeps until its next alarm' or 'The board stays awake')
-    console.print(string.format('settings: the idle sleep is %s', on and 'on' or 'off'))
-  end)
-
   -- ---- Battery: **el que la placa sap de la seva pila**, que és un número i no un ajust d'aquesta pàgina (docs/30). Les
   -- files són del sistema i es tornen a llegir cada cop que la pestanya es col·loca.
   read_row(6, 'battery', 'Battery', function()
@@ -849,6 +840,18 @@ function build()
     return 'this board does not know'
   end)
   read_row(6, 'board', 'Board', function() return string.format('%s, %d MHz', sys.board, power.cpu()) end)
+  -- ---- **I el son de la placa, aquí** (0.190.5, l'amo: *«has posat l'opció a Settings->Battery ?»*): the switch of the board's power
+  -- lives with what the battery knows —a person who opens Battery is asking what the board does with its charge— and not with the three
+  -- apps the system opens on System. The board powers itself off until its next alarm when nobody has touched it for ten seconds —no
+  -- consola, no dit al vidre i cap tecla del dial—, which is law 9 and what makes the quartz count the hour. **Una persona que vol la
+  -- placa desperta** —una demo, una sessió de mesura, una app que escriu un registre— ho apaga aquí, i la resposta es queda
+  -- (`cfg.sleep`) perquè el pròxim boot no torni a la política del sistema. El que la fila ensenya és el que la política té, no el que
+  -- l'app ha demanat (docs/30, docs/45).
+  check_row(6, 'sleep', 'Sleep when idle', function() return cfg.sleep() == true end, function(on)
+    cfg.sleep(on)
+    say(on and 'The board sleeps until its next alarm' or 'The board stays awake')
+    console.print(string.format('settings: the idle sleep is %s', on and 'on' or 'off'))
+  end)
 
   -- ---- Privacy: **el bloqueig de la pantalla, que és una app i no una barra que desapareix** (0.189.150, l'amo: *«El Toggle
   -- de la pestanya "Privacy" activa que es llenci l'app escollida com lock al inici del sistema i al despertar d'un sleep.

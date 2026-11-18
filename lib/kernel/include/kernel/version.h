@@ -10086,9 +10086,12 @@ namespace kernel {
 // xifres de la decisió** —el que falta per a la propera alarma, el silenci mesurat i el que la política demana—, que és el que una
 // placa que s'adorm quan no toca ha de poder explicar (docs/30, docs/60, docs/90).
 //
-// **I el son és un ajust i no una llei** (el mateix dia): **Settings → System → *Sleep when idle*** (`cfg.sleep`, `cfg sleep
+// **I el son és un ajust i no una llei** (el mateix dia): **Settings → Battery → *Sleep when idle*** (`cfg.sleep`, `cfg sleep
 // on|off` al prompt) l'apaga, i la resposta es desa, o sigui que el boot la torna a llegir i no desfà la tria d'una persona.
-static const char kVersion[] = "0.190.5";
+// **I el commutador és a la pestanya Battery i no a System** (0.190.6, l'amo: *«has posat l'opció a Settings->Battery ?»*): a switch of
+// the board's power lives with what the battery knows, que és on una persona mira què fa la placa amb la seva càrrega, i no amb les tres
+// apps que el sistema obre. El bloc de la pàgina puja a `v2` perquè la parella que hi havia desada —pestanya i cercle— ja no existeix.
+static const char kVersion[] = "0.190.6";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
