@@ -14657,6 +14657,63 @@ void test_the_last_wake_is_measured_and_kept(void) {
   nvs->erase("power", "cause");
 }
 
+// **Un son profund no és una arrencada** (0.189.176, l'amo: *«Al tornar d'un deep sleep no has d'esborrar les sessions
+// state»*): the board goes down with the page of a person and comes back to it, o sigui que el `state` que el son va deixar al
+// disc és el que fa que `restore_session` torni on era —i si el nucli l'esborra a l'arrencada, la pàgina torna de zero—. La
+// marca que el son deixa al magatzem és el que distingeix les dues arrencades, i es consumeix amb la que la llegeix (docs/60).
+void test_a_deep_sleep_wake_keeps_the_state_of_the_pages(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "keeper",
+                           "{\"title\":\"Keeper\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local block = sys.session('state', 64)\n"
+                           "local was = (block ~= nil) and (block:read(0, 8) or '') or ''\n"
+                           "if was:sub(1, 4) == 'here' then console.print('keeper back')\n"
+                           "else console.print('keeper fresh') end\n"
+                           "function on_close()\n"
+                           "  local b = sys.session('state', 64)\n"
+                           "  if b ~= nil then b:clear() b:write(0, 'here') end\n"
+                           "end\n"
+                           "while true do sys.delay(50):await() end\n"));
+  // La forma de la pàgina, al disc: la deixa el comiat de l'app quan es tanca.
+  pump_captured(40, g_out, sizeof(g_out), "run keeper");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "keeper fresh"), g_out);
+  kernel::shell::close_app();
+  hal::Stat info;
+  TEST_ASSERT_TRUE_MESSAGE(storage->stat("/session/keeper/state", info), "the shape of the page was never parked");
+
+  // **El son profund, i la tornada**: la marca que el son ha deixat és el que fa que aquesta arrencada no esborri res. L'hora
+  // s'ha de saber, o el sistema no pot prometre cap despertar.
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  pump_captured(20, g_out, sizeof(g_out), "sleep deep 60000");
+  // **I el son ha deixat la seva marca**, que és el que aquesta arrencada ha de llegir.
+  hal::IKeyValue* nvs = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(nvs);
+  char note[8];
+  size_t note_len = 0;
+  TEST_ASSERT_TRUE_MESSAGE(nvs->get("power", "slept", note, sizeof(note) - 1, note_len),
+                           "the deep sleep left no note in the store");
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE_MESSAGE(storage->stat("/session/keeper/state", info),
+                           "the boot that came back from a deep sleep erased the 'state' of a page");
+  pump_captured(40, g_out, sizeof(g_out), "run keeper");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "keeper back"), g_out);
+
+  // **I la marca s'ha consumit**: una arrencada que no és una tornada torna a començar les pàgines de zero.
+  kernel::shell::close_app();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_FALSE_MESSAGE(storage->stat("/session/keeper/state", info),
+                            "a boot that is not a return from a sleep kept the shape of a page");
+
+  storage->remove("/apps/keeper/app.lua");
+  storage->remove("/apps/keeper/manifest.json");
+  storage->remove("/apps/keeper");
+}
+
 // The idle policy: a board that keeps the hour in a chip puts itself to sleep until the next
 // alarm, and a person can turn that off while working at the prompt. This emulator has no chip,
 // so what is proved here is the switch and that the emulator is honest about not sleeping by
@@ -19503,6 +19560,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_battery_reaches_the_app_as_a_measurement);
   RUN_TEST(test_the_rtc_memory_is_one_file_of_its_size);
   RUN_TEST(test_the_last_wake_is_measured_and_kept);
+  RUN_TEST(test_a_deep_sleep_wake_keeps_the_state_of_the_pages);
   RUN_TEST(test_the_idle_sleep_is_a_switch);
   RUN_TEST(test_poweroff_cuts_the_power_of_the_board_that_can);
   RUN_TEST(test_the_board_counts_what_it_wrote_and_rests_before_the_current_goes);

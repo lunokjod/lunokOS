@@ -184,8 +184,9 @@ llista de què s'hi ha de mapejar en portar una app:
 
 I queda dit com a norma: **cada cop que es toca el codi d'una app es repassa aquesta sessió** —que desi on toca, que
 llegeixi amb el valor acotat, i que `kLayout` pugi si algun control ha canviat de nom—. **I el bloc és d'una tirada**: el nucli
-esborra el `state` de totes les apps a cada arrencada (0.189.167), o sigui que una app que torna a la seva forma ho fa dins de la
-mateixa encesa i mai a través d'un reinici (docs/30 § la sessió `state`).
+esborra el `state` de totes les apps a cada arrencada de debò (0.189.167), o sigui que una app que torna a la seva forma ho fa
+dins de la mateixa encesa i mai a través d'un reinici; **l'excepció és la tornada d'un son profund** (0.189.176), on la pàgina
+ha de ser la que la persona va deixar i el `state` és el que la fa (docs/30 § la sessió `state`, docs/60).
 
 **Quin full hi ha de mapejar què, i quins no hi han de mapejar res** (repàs complet, 0.189.52, i la calculadora des de la
 0.189.165): la sessió `state` la tenen avui **divuit de les vint-i-tres apps** del disc, i les cinc que no la tenen és una decisió

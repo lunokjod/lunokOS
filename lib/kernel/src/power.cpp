@@ -54,6 +54,10 @@ const size_t kPathCap = 128;
 const char kPowerNs[] = "power";
 const char kDriftKey[] = "drift";
 const char kCauseKey[] = "cause";
+// **La marca d'un son profund que aquesta arrencada encara no ha consumit** (0.189.176): the `state` of the pages has to survive
+// the boot that comes back from a sleep and not the next one, and this is what tells the two apart. It is written on the way
+// down and read —and erased— by `coming_back_from_a_sleep` (docs/60, docs/75).
+const char kSleptKey[] = "slept";
 
 // The idle policy. Two numbers, and both are a decision rather than a measurement:
 //
@@ -476,6 +480,9 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
     // interpreter and forgets which app it was (docs/90).
     save_session();
     if (shell::app_running()) shell::close_app();
+    // **I la marca del son** (0.189.176): the hour is written after this one and it is not there at all when the board comes
+    // back on a key, o sigui que el que diu que aquesta arrencada és una tornada és la marca i no l'hora (docs/60, docs/75).
+    write_in(kPowerNs, kSleptKey, "1");
   }
   const int64_t until = (mode == hal::SleepMode::kLight) ? light_sleep_until(at_epoch_ms)
                                                         : at_epoch_ms;
@@ -535,6 +542,9 @@ bool deep_sleep_with_the_keys() {
   // **Cap hora**: the board comes back when a person presses a key, so there is no deadline to be late for (docs/60).
   save_deadline(0);
 
+  // **La marca del son, com la de `sleep deep`** (0.189.176): a board that comes back on a key is a board that did not end its
+  // run either (docs/60).
+  write_in(kPowerNs, kSleptKey, "1");
   // **La imatge del son, que és la d'un son i no la d'una apagada** (0.189.25): a person who finds the board dark has to know
   // that it comes back —with a key— and the picture is the one the system already has for a sleep (docs/30, docs/50, docs/92).
   splash::show(going_down_picture(/*deep=*/true));
@@ -968,6 +978,15 @@ void forget_session() {
   write_text(kAppKey, nullptr);
   write_text(kPathKey, nullptr);
   write_text(kWakeKey, nullptr);
+}
+
+// The rule is the header's; here it is the note and its erasure (docs/60).
+bool coming_back_from_a_sleep(hal::IKeyValue& nvs) {
+  char text[8];
+  size_t len = 0;
+  const bool slept = nvs.get(kPowerNs, kSleptKey, text, sizeof(text) - 1, len);
+  if (slept) nvs.erase(kPowerNs, kSleptKey);
+  return slept;
 }
 
 // **El repòs abans de tallar el corrent** (0.189.18): the number is one and it starts at the two seconds the owner asked

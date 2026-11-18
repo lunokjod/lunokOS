@@ -212,11 +212,14 @@ Si el sistema estava apagat quan tocava:
 | Mode | Qui ho decideix | Què es desa |
 |---|---|---|
 | `light` | L'app (`power.sleep`) | Res: la RAM es manté |
-| `deep` | L'app (`power.sleep`) o **el nucli** (la política d'oci, §«Qui arma el despert») | La nota de sessió (quina app hi ha al davant, amb quin fitxer i a quina hora s'ha de despertar) a la NVS, i les alarmes persistents |
+| `deep` | L'app (`power.sleep`) o **el nucli** (la política d'oci, §«Qui arma el despert») | La nota de sessió (quina app hi ha al davant, amb quin fitxer i a quina hora s'ha de despertar) a la NVS, les alarmes persistents, **la marca del son** (`power/slept`) i **el `state` de les apps, que aquesta arrencada no esborra** (0.189.176) |
 
 Abans de dormir, el nucli passa per `on_pause()` i `on_save()` de l'app oberta, i després programa el
 despertador amb la primera alarma de la cua. Quan desperta, mira el motiu (`last_wake`) i segueix des
-de l'arrencada normal: **la VM no sobreviu a un son profund**, es reconstrueix.
+de l'arrencada normal: **la VM no sobreviu a un son profund**, es reconstrueix —i **la forma de la pàgina sí**: la marca que el
+son ha deixat al magatzem fa que l'arrencada no esborri el `state` de les apps (0.189.176, l'amo: *«Al tornar d'un deep sleep no
+has d'esborrar les sessions state»*), que és el que fa que `restore_session` torni la pàgina tal com era i no de zero. La marca
+es consumeix amb aquesta arrencada: la següent, si no ve d'un son, torna a començar les pàgines (docs/30, docs/75).
 
 **Un son lleuger el pot tallar un botó o la propera alarma.** El botó ja hi era; l'alarma és nova:
 com que l'alarma és del sistema i no ha de fer cua darrere d'una app que dorm, `kernel::power` baixa

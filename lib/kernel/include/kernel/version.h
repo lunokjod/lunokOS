@@ -9967,7 +9967,16 @@ namespace kernel {
 // tornar l'app del son: una placa que desperta per una mostra la pren amb el vidre buit i la pàgina de la persona arriba
 // després (abans la casa arrencava primer i la finestra es refusava, o sigui que la nit sencera es perdia). `restore_session`
 // no arrenca res a sobre d'una app que un `raise` acaba de pujar (docs/30, docs/60, docs/75).
-static const char kVersion[] = "0.189.175";
+// **La tornada d'un son no és una arrencada** (0.189.176, l'amo: *«Al tornar d'un deep sleep no has d'esborrar les sessions
+// state»*). La 0.189.167 va fer que el nucli esborrés el `state` de totes les apps a cada arrencada, i tenia una víctima que no
+// es va veure: **el son profund**, que no és el final d'una tirada sinó una pausa —la placa baixa amb la pàgina d'una persona i
+// hi ha de tornar, i `restore_session` compta amb el `state` per a fer-ho—. O sigui que cada despert d'un son profund tornava
+// l'app al davant amb la pàgina començada de zero. Ara el son deixa **una marca al magatzem** (`power/slept`, escrita per
+// `sleep deep` i pel son amb les tecles, que no té hora i no es pot reconèixer per l'hora), l'arrencada la llegeix **i la
+// consumeix**: si hi és, les pàgines tornen amb la placa (`the pages come back with the board`) i si no hi és, comencen de zero
+// com sempre. Una marca que no es consumís faria que la següent arrencada comencés amb la forma d'una pàgina que ningú no ha
+// deixat, i per això la resposta és d'una sola arrencada (docs/30, docs/45, docs/60, docs/75).
+static const char kVersion[] = "0.189.176";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

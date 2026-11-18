@@ -5,9 +5,11 @@ applyTo: "apps/**/*.lua"
 
 # La sessió `state` de les apps (norma, 0.189.12)
 
-**I és d'una tirada** (0.189.167): el nucli **esborra el `state` de totes les apps a cada arrencada**, o sigui que una app que
-torna a la seva forma ho fa dins de la mateixa encesa i mai a través d'un reinici. No hi posis res que hagis de trobar després
-d'un apagat: això és `fs.data`, no `state`.
+**I és d'una tirada, amb el son com a excepció** (0.189.167 i 0.189.176): el nucli **esborra el `state` de totes les apps a
+cada arrencada de debò**, però **no quan la placa torna d'un son profund** —allà la pàgina ha de ser exactament la que la persona
+va deixar, i el `state` és el que la fa tornar—. O sigui que una app que torna a la seva forma ho fa dins de la mateixa encesa o
+després d'un son, i mai a través d'un reinici. No hi posis res que hagis de trobar després d'un apagat: això és `fs.data`, no
+`state`.
 
 **Tota app amb pàgina té `sys.session('state', 1024)` i és el que fa que la vista torni exactament com la va deixar la
 persona**: el control que tenia el cercle, la pàgina d'una llista o d'una graella, la pestanya triada, les caselles

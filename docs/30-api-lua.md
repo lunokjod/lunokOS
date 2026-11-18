@@ -294,10 +294,12 @@ end
 - **El focus va pel nom i no pel número**: els noms són de l'app (`'ok'`, `'search'`, `'tab-settings'`) i el número d'un
   control és un forat de la taula de llenços que canvia quan la pàgina es torna a fer.
 - **Un `nil` de `sys.session` no és cap error**: vol dir que no hi ha hagut lloc per al bloc i l'app va sense record.
-- **I el bloc no sobreviu a una arrencada** (0.189.167): the system throws the `state` of every app away as it boots, so a page
-  never comes back to the shape of yesterday —una pestanya, una pàgina d'una llista, un anell—, que és el que fa una app quan
-  canvia de forma i la forma vella ja no vol dir res. **És el `state` i no tot**: les claus propies (`apps`, `index`…) i el que
-  l'app té a `fs.data` es queden.
+- **I el bloc no sobreviu a una arrencada de debò** (0.189.167): the system throws the `state` of every app away as it boots, so
+  a page never comes back to the shape of yesterday —una pestanya, una pàgina d'una llista, un anell—, que és el que fa una app
+  quan canvia de forma i la forma vella ja no vol dir res. **És el `state` i no tot**: les claus propies (`apps`, `index`…) i el
+  que l'app té a `fs.data` es queden. **I la tornada d'un son profund no és una arrencada de debò** (0.189.176, l'amo: *«Al
+  tornar d'un deep sleep no has d'esborrar les sessions state»*): allà el `state` es queda, perquè la placa torna a la pàgina
+  que tenia i `restore_session` la reconstrueix amb el que hi havia al disc.
 
 ### Quan es desa i quan es llegeix
 
@@ -309,6 +311,7 @@ end
 | **`on_pause`, `on_save` i `on_close`** | les tres portes que el shell crida quan l'app s'acaba (docs/40): es desa aquí **també**, perquè una app pot no haver vist venir el tancament |
 | **Apagar o reiniciar la placa** | no és cosa de l'app: el nucli desa tots els blocs abans de plegar (0.189.11, docs/75) |
 | **Arrencar la placa** | **el `state` de totes les apps s'esborra** (0.189.167, l'amo: *«el session state de totes les apps s'ha d'esborrar al iniciar el sistema»*): la forma d'una pàgina és la d'una tirada i una arrencada comença pel principi. El que una app recorda **dins** de la mateixa tirada no es toca —el bloc es desa quan l'app s'acaba i es torna a llegir quan s'obre—, i les altres claus (`apps`, `index`…) tampoc: el nucli oblida aquesta i només aquesta (`session::forget_key("state")`, la mateixa porta que `sessions destroy state`) |
+| **Tornar d'un son profund** | **no s'esborra res** (0.189.176, l'amo: *«Al tornar d'un deep sleep no has d'esborrar les sessions state»*): a deep sleep is not a run that ends —the board goes down with the page of a person and comes back to it, i el `state` del disc és el que fa que `restore_session` la torni a fer tal com era—. El que distingeix les dues arrencades és la marca que el son deixa al magatzem (`power::coming_back_from_a_sleep`), i es consumeix amb la que la llegeix: la següent arrencada sí que comença pel principi |
 
 ### Quan la vista canvia de forma
 

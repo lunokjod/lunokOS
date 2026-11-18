@@ -199,6 +199,13 @@ void restore_session();
 // here".
 void forget_session();
 
+// **Si aquesta arrencada és la tornada d'un son profund** (0.189.176, l'amo: *«Al tornar d'un deep sleep no has d'esborrar les
+// sessions state»*): the deep sleep leaves a note in the store —the hour alone is not enough, because a sleep with the keys has
+// none— and the boot is the one that asks, before anything else has read it. **The note is consumed here**, perquè és la
+// resposta a una arrencada i prou: una nota que es quedés faria que la següent comencés amb la forma d'una pàgina que ningú no
+// ha deixat (docs/60, docs/75, docs/90).
+bool coming_back_from_a_sleep(hal::IKeyValue& nvs);
+
 // **Tot el que pot quedar a mig fer, acabat, i un repòs abans que el corrent es talli** (0.189.18, l'amo: *«Haurà donat
 // temps a gravar-ho tot al SD?? s'ha apagat tot molt ràpid. Fes flush a tots els dispositius que es puguin abans d'iniciar
 // el procés d'apagada. I fes flush, tant de l'sd, com la flash, com l'nvs com el serial. I preferiblement dona un parell de

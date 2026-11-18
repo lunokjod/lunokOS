@@ -213,7 +213,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   havia passat amb els directoris. El que es deixa fora és la regla del `lib_ignore` de l'emulador —les
   identitats de placa i les meitats d'ESP32, que no són cosa de l'amfitrió— i **Lua, perquè és C**: el pas fa
   `clang++` i l'intèrpret com a C++ no és el mateix programa;
-- les **732 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, el 16/11 en 6 min 9 s, el 17/11 en 6 min 25 s i el 18/11 en 5 min 49 s): les dotze de la 0.169.0 eren quatre
+- les **733 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, el 16/11 en 6 min 9 s, el 17/11 en 6 min 25 s i el 18/11 en 5 min 49 s): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
@@ -258,8 +258,9 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   la 0.189.172 són **el punt d'un dia que té alguna cosa al calendari**, en tinta i en paper quan la cel·la és la triada
   (`test_ui`), **la mateixa promesa trobada a la cua** —el període i el payload en una que es repeteix, l'instant al segon en
   una d'un sol cop— (`test_alarms`) i **la resposta de dues puntes d'`alarm.at`** amb la recepta d'esborrar i tornar a
-  demanar (`test_luabind`); i la del 18/11 és **la finestra d'alarma que aparta la pàgina del davant i la torna amb el seu
-  `state`** (`test_apps`, verda només des de la 0.189.175: abans la finestra es refusava amb una pàgina al vidre);
+  demanar (`test_luabind`); i les dues del 18/11 són **la finestra d'alarma que aparta la pàgina del davant i la torna amb el
+  seu `state`** (`test_apps`, verda només des de la 0.189.175: abans la finestra es refusava amb una pàgina al vidre) i **la
+  tornada d'un son profund, que no esborra el `state` de les pàgines** (`test_apps`, verda només des de la 0.189.176);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
   `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques**, amb
   guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`. **Les sis les compila el CI**

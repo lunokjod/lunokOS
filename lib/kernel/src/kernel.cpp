@@ -500,19 +500,26 @@ void boot(hal::IPlatform& platform) {
   cfg::boot(platform);
   log_printf(pal::kLogInfo, "VFS", "%u mounts", static_cast<unsigned>(vfs::mount_count()));
 
-  // **La forma de cada pàgina comença de zero a cada arrencada** (0.189.167, l'amo: *«el session state de totes les apps s'ha
-  // d'esborrar al iniciar el sistema»*). The `state` block is the shape of the page a person left, and the board that starts
-  // starts at the beginning: a tab, a page of a list and a ring of yesterday are a view of a run that is over —and of an app
-  // that may not even have that shape any more—. What a run remembers of itself is still remembered: the block goes to the
-  // disk when an app ends and comes back when it starts again **in this run**, que és el que fa que una app torni com la va
-  // deixar la persona; el que no sobreviu és el tall de corrent (docs/30, docs/45, docs/75).
-  //
-  // **I amb les paraules de l'arrencada i no les de la comanda**: `say` és fals perquè una línia de «0 file(s)» a cada
-  // arrencada és un registre que no es pot llegir, i només es diu quan hi havia alguna cosa a oblidar (docs/30).
-  const session::Forgotten old_shapes = session::forget_key("state", /*say=*/false);
-  if (old_shapes.files > 0 || old_shapes.blocks > 0) {
-    log_printf(pal::kLogInfo, "MEMORY", "the pages start from the beginning: %u file(s) of 'state' forgotten",
-               static_cast<unsigned>(old_shapes.files));
+  // **La forma de cada pàgina comença de zero a cada arrencada de debò** (0.189.167, l'amo: *«el session state de totes les
+  // apps s'ha d'esborrar al iniciar el sistema»*), **i no quan la placa torna d'un son profund** (0.189.176, el mateix amo:
+  // *«Al tornar d'un deep sleep no has d'esborrar les sessions state»*). The `state` block is the shape of the page a person
+  // left, and a board that starts starts at the beginning: a tab, a page of a list and a ring of yesterday are a view of a run
+  // that is over —and of an app that may not even have that shape any more—. But a deep sleep is **not** the end of a run: the
+  // board goes down with the page of a person and comes back to it, o sigui que el que hi havia al disc és exactament el que
+  // `restore_session` ha de trobar. La marca que el son deixa al magatzem és la que diu quin dels dos és aquesta arrencada, i es
+  // llegeix —i es consumeix— aquí (docs/30, docs/45, docs/60, docs/75).
+  hal::IKeyValue* boot_nvs = platform.nvs();
+  const bool coming_back = (boot_nvs != nullptr) && power::coming_back_from_a_sleep(*boot_nvs);
+  if (coming_back) {
+    log_printf(pal::kLogInfo, "MEMORY", "the pages come back with the board: the 'state' of the apps stays");
+  } else {
+    // **I amb les paraules de l'arrencada i no les de la comanda**: `say` és fals perquè una línia de «0 file(s)» a cada
+    // arrencada és un registre que no es pot llegir, i només es diu quan hi havia alguna cosa a oblidar (docs/30).
+    const session::Forgotten old_shapes = session::forget_key("state", /*say=*/false);
+    if (old_shapes.files > 0 || old_shapes.blocks > 0) {
+      log_printf(pal::kLogInfo, "MEMORY", "the pages start from the beginning: %u file(s) of 'state' forgotten",
+                 static_cast<unsigned>(old_shapes.files));
+    }
   }
 
   // **The panel and the logo, as early as this system can put them there** (0.115.0): the filesystem is mounted
