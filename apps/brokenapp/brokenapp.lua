@@ -49,7 +49,7 @@ end
 -- que una pàgina d'error es pugui reproduir. **I el que es veu al vidre va en anglès**, com els botons i les files de tota
 -- pàgina d'aquest sistema —el codi i els comentaris són una altra cosa— (docs/45).
 local crashes = {
-  { id = 'nil-index', text = 'Index a nil',
+  { id = 'nil-index', text = 'An index into a nil',
     run = function()
       local nothing = nil
       return nothing.field

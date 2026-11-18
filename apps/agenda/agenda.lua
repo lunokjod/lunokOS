@@ -221,7 +221,6 @@ local events_ = {}
 local bad_ = 0
 local problem_ = ''
 local armed_ = 0
-local staged_ = false
 local why_ = ''
 local reminded_ = 0
 local dayRows_ = {}
@@ -356,7 +355,6 @@ local function remind_text()
     end
   end
 
-  if staged_ then return 'Reminder: coming, held up in stages' end
   if why_ ~= '' then return 'No reminder: ' .. why_ end
   return 'No reminder armed'
 end
@@ -464,10 +462,9 @@ end
 local function arm_next()
   cancel_mine()
 
-  armed_, staged_, why_ = 0, false, ''
+  armed_, why_ = 0, ''
 
   local best, ms, far = agenda.soonest(events_, time.date())
-  staged_ = false
 
   if best ~= nil and ms ~= nil then
     -- **`raise` perquè l'avís arribi**: una promesa que obre la pàgina és l'única manera que aquest sistema té d'ensenyar una
@@ -1161,7 +1158,7 @@ end
 --- **Una promesa crida aquest ganxo hi hagi pàgina o no** (0.189.145): it cannot wait and it cannot paint a page that may not
 -- exist. It says which event rang and arms the next one, and the turn of the page opens that day.
 function on_alarm(id, payload, meta)
-  local mine = (payload == 'remind') or (payload == 'stage') or (meta ~= nil and meta.missed ~= nil)
+  local mine = (payload == 'remind') or (meta ~= nil and meta.missed ~= nil)
   if not mine then return end
 
   if payload == 'remind' then reminded_ = armed_ end

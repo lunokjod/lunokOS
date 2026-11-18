@@ -9941,7 +9941,19 @@ namespace kernel {
 // entre un i dos-cents cinquanta-cinc i s'atura amb `-Werror=format-truncation` a la línia de la banda. Les dues amplades que
 // es poden demanar són un i dos decimals —el valor ve multiplicat per deu o per cent—, o sigui que ara són dues cadenes
 // escrites (`%01d` i `%02d`) i el compilador torna a saber què hi cap (docs/30, docs/80, docs/90).
-static const char kVersion[] = "0.189.173";
+// **El número que travessa el zero, la casella buida del calendari i dues frases que deien el que el codi no fa** (0.189.174,
+// el repàs del 18/11 dels tres commits d'ahir). Tres coses que no es veuen fins que es miren de prop: **`ui.chart` amb
+// `decimals` escrivia `0.5` on el valor era `-0.5`** —la divisió entera d'un número entre −1 i 0 dona un zero sense signe, i
+// la guia d'un gràfic de temperatures que travessa el zero deia mitja veritat—; **el punt d'un dia del calendari preguntava
+// pel bit `day - 1` d'una casella buida**, que és un desplaçament de quatre mil milions de llocs (comportament indefinit que
+// la màscara de la placa convertia en el bit 31: avui ningú no el pot encendre i el dia que algú pugui seria un punt a la
+// casella buida); i **l'`agenda` prometia a la seva fitxa un avís «held up in stages»** que no existeix —`M.MaxMs` és zero
+// perquè `in_ms` és un enter de seixanta-quatre bits i el rellotge accepta una hora a mesos de distància, o sigui que el
+// `staged_`, el payload `'stage'` i la línia «Reminder: coming, held up in stages» eren camí mort i ara no hi són—. I dues
+// frases més del mateix repàs: **les finestres de la `Meteo` són un dia, set dies i tres mesos** (docs/40 deia una hora, sis
+// i un dia) i el primer botó de la `brokenapp` s'havia quedat mig en català (`Index a nil`, ara `An index into a nil`), que
+// és l'única cosa que la 0.189.163 es va deixar d'aquella pàgina (docs/30, docs/40, docs/45).
+static const char kVersion[] = "0.189.174";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

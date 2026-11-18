@@ -3372,7 +3372,9 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
   això un control que només rep minuts no ho pot saber) i `gap` (els minuts de forat; **`0` vol dir «no hi ha forat
   possible»**, que és el que demana una sèrie que l'app ja ha aprimat, perquè dos punts separats pel seu propi mostreig no són
   un forat del registre). Sense dir-ne cap, el dibuix és el de la 0.189.144: zero decimals, l'hora que calcula el control i un
-  forat de seixanta minuts.
+  forat de seixanta minuts. **I el signe d'un número que no arriba a la unitat es conserva** (0.189.174): la divisió entera
+  d'un valor entre −1 i 0 dona un zero sense signe, o sigui que una guia de `-0.5` s'escrivia `0.5` —el color de la guia no
+  és el número, i un gràfic de temperatures que travessa el zero deia mitja veritat—.
 - **Els números de la banda els mesura el control i no el fitxer**: la banda és el número més ample dels tres més el tros de
   guia que surt del marc, i el número és el de dalt (el `max`), o sigui que una pàgina que vulgui posar un altre dibuix al
   costat —les barres de la humitat de la `Meteo`— compta la seva banda amb el mateix número i la mateixa cara, i els dos

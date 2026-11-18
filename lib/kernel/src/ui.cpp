@@ -5457,7 +5457,11 @@ bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, ui
     // **El punt del dia que té alguna cosa** (0.189.171): a three-pixel mark under the number, at the foot of the cell —
     // above the frame of today, so the two signals do not touch—, i **en el color del paper quan la cel·la és la triada**,
     // perquè una marca de tinta sobre tinta és una marca que no hi és (docs/30, docs/45).
-    if (day <= 31 && (marks & (1u << static_cast<uint32_t>(day - 1))) != 0 && cells.row_h > line_h + 8) {
+    // **I el dia zero no és cap dia**: the cells before the first of the month have no number, and asking for the bit of
+    // `day - 1` there was a shift of four thousand million places —undefined behaviour that the board's mask happened to
+    // turn into bit 31, que avui ningú no pot encendre i que el dia que algú pugui seria un punt a la casella buida—
+    // (0.189.174, docs/30, docs/90).
+    if (day >= 1 && day <= 31 && (marks & (1u << static_cast<uint32_t>(day - 1))) != 0 && cells.row_h > line_h + 8) {
       const uint8_t tone = chosen ? background : text;
       put_rect(*target.canvas, x + cells.cell_w / 2 - 1, y + cells.row_h - 6, 3, 3, tone);
     }
@@ -5650,13 +5654,17 @@ bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8
     int32_t whole = value / divisor;
     int32_t part = value % divisor;
     if (part < 0) part = -part;
+    // **El signe d'un número que no arriba a la unitat** (0.189.174): `-0.5` is not `0.5`, and the whole of an integer
+    // division of a value between -1 and 0 is a zero with no sign in it —una guia d'un gràfic que travessa el zero
+    // escrivia el signe del revés— (docs/30, docs/90).
+    const char* minus = (value < 0 && whole == 0) ? "-" : "";
     // **La coma i els decimals amb una amplada escrita i no demanada** (0.189.173): `%0*d` amb l'amplada en una variable fa
     // que el compilador de la placa compti entre 1 i 255 caràcters i s'aturi amb `-Werror=format-truncation`, o sigui que el
     // Paper no compilava (trobat el 17/11 compilant les sis bandes). Les amplades que es poden demanar són dues.
     if (decimals == 1) {
-      snprintf(out, cap, "%d.%01d%s", static_cast<int>(whole), static_cast<int>(part), unit);
+      snprintf(out, cap, "%s%d.%01d%s", minus, static_cast<int>(whole), static_cast<int>(part), unit);
     } else {
-      snprintf(out, cap, "%d.%02d%s", static_cast<int>(whole), static_cast<int>(part), unit);
+      snprintf(out, cap, "%s%d.%02d%s", minus, static_cast<int>(whole), static_cast<int>(part), unit);
     }
   };
 

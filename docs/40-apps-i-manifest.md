@@ -689,7 +689,7 @@ teclat al vidre**, que és el que fa que les nou files hi cabin (docs/45). El re
 
 **`meteo`** —*Meteo*— (0.189.169) és el temps de la casa: el termòmetre i les barres de la humitat **pintats a mà** —aquest
 sistema no té instrument ni control de barres, i un instrument es mira i no es toca—, la temperatura de les últimes hores en un
-**`ui.chart`** i les tres finestres del paper (una hora, sis, un dia) com a botons. Les mostres les pren **una alarma que es
+**`ui.chart`** i les tres finestres del paper (**un dia, set dies i tres mesos**, 0.189.174) com a botons. Les mostres les pren **una alarma que es
 repeteix cada mitja hora** i es guarden a `/data/meteo/` en **dues cadenes** —quatre bytes per mostra i un de humitat, amb el
 `255` per a «aquesta línia no en tenia»— en lloc d'una taula de milers de números; la finestra triada és una preferència
 (`fs.data`) i el cercle del dial és la forma de la vista (`state`). I el `°` del termòmetre demana **una font que el porti**:
