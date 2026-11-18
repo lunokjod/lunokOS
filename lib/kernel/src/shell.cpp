@@ -794,6 +794,69 @@ void print_mem() {
   out("  log ring (bytes)   ");
   out_num(static_cast<uint32_t>(log_bytes()));
   newline();
+  // **I els llibres, en una línia** (0.190.0): `mem blocks` els ensenya un a un; aquí n'hi ha prou de saber que hi són i **què no
+  // hi és**, perquè una llista que no és tota ho ha de dir on es mira (docs/75).
+  if (pal::memory_slots() == 0) {
+    out("  memory books       none on this build\r\n");
+  } else {
+    out("  memory books       ");
+    out_num(pal::memory_live());
+    out(" block(s) of ");
+    out_num(pal::memory_slots());
+    out(" rows, ");
+    out_num(pal::memory_lost());
+    out(" ask(s) not written down\r\n");
+  }
+}
+
+// **Els llibres de la memòria** (0.190.0, l'amo: *«podríem fer una llista de punter, tamany i qui l'ha demanat?»*): the blocks of the
+// books, **the biggest first**, with the module and the app that asked for each one and the sum per owner —perquè una fuita és un
+// nom i un número i no una xifra sola— (docs/75). The two arrays are of the call and not of the system: the shell runs at the prompt,
+// where the stack is the only thing that is free, and a person who wants more runs the command again after freeing something.
+const uint32_t kShownBlocks = 12;
+const uint32_t kShownOwners = 8;
+
+void print_mem_blocks() {
+  if (pal::memory_slots() == 0) {
+    out("  the books are off on this build: no block is written down\r\n");
+    return;
+  }
+  pal::MemoryBlock rows[kShownBlocks] = {};
+  const uint32_t total = pal::memory_blocks(rows, kShownBlocks);
+  char line[96];
+  snprintf(line, sizeof(line), "  %u block(s) written down in %u rows, %u ask(s) did not fit\r\n", static_cast<unsigned>(total),
+           static_cast<unsigned>(pal::memory_slots()), static_cast<unsigned>(pal::memory_lost()));
+  out(line);
+  pal::MemoryBill bills[kShownOwners] = {};
+  const uint32_t owners = pal::memory_bills(bills, kShownOwners);
+  if (owners > 0) out("  who                 blocks        bytes\r\n");
+  for (uint32_t i = 0; i < owners; ++i) {
+    char who[32];
+    if (bills[i].app[0] != '\0') {
+      snprintf(who, sizeof(who), "%s (%s)", pal::memory_owner_word(static_cast<pal::MemoryOwner>(bills[i].owner)), bills[i].app);
+    } else {
+      snprintf(who, sizeof(who), "%s", pal::memory_owner_word(static_cast<pal::MemoryOwner>(bills[i].owner)));
+    }
+    snprintf(line, sizeof(line), "  %-18s %6u  %11u B\r\n", who, static_cast<unsigned>(bills[i].blocks),
+             static_cast<unsigned>(bills[i].bytes));
+    out(line);
+  }
+  if (total > 0) out("  the blocks, the biggest first:\r\n");
+  for (uint32_t i = 0; i < total && i < kShownBlocks; ++i) {
+    char who[32];
+    if (rows[i].app[0] != '\0') {
+      snprintf(who, sizeof(who), "%s (%s)", pal::memory_owner_word(static_cast<pal::MemoryOwner>(rows[i].owner)), rows[i].app);
+    } else {
+      snprintf(who, sizeof(who), "%s", pal::memory_owner_word(static_cast<pal::MemoryOwner>(rows[i].owner)));
+    }
+    snprintf(line, sizeof(line), "  %11u B  %p  %s\r\n", static_cast<unsigned>(rows[i].bytes), rows[i].block, who);
+    out(line);
+  }
+  if (total > kShownBlocks) {
+    snprintf(line, sizeof(line), "  ... and %u more; the smallest is %u B\r\n", static_cast<unsigned>(total - kShownBlocks),
+             static_cast<unsigned>(rows[kShownBlocks - 1].bytes));
+    out(line);
+  }
 }
 
 // The app list is not stored anywhere: it is walked and printed as it is found,
@@ -5256,6 +5319,12 @@ bool execute(char* line) {
   }
   if (strcmp(line, "mem") == 0) {
     print_mem();
+    return true;
+  }
+  // **I els blocs, un a un** (0.190.0): `mem` diu els totals de cada casa i qui té quant; `mem blocks` baixa a la llista de
+  // punters, tamanys i amos, que és la pregunta que es fa quan una xifra no quadra (docs/30, docs/75).
+  if (strncmp(line, "mem blocks", 10) == 0 && (line[10] == '\0' || line[10] == ' ')) {
+    print_mem_blocks();
     return true;
   }
   if (strncmp(line, "sessions", 8) == 0 && (line[8] == '\0' || line[8] == ' ')) {

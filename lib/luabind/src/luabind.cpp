@@ -215,6 +215,9 @@ int64_t now_ms() { return static_cast<int64_t>(pal::system().millis()); }
 constexpr size_t kErrorReserve = 256;
 
 void* counting_alloc(void* ud, void* ptr, size_t osize, size_t nsize) {
+  // **Qui demana, per als llibres de la memòria**: every block of the interpreter is filed under `lua` and under the app in front
+  // (0.190.0, docs/75).
+  pal::MemoryTag who_asks(pal::kMemoryLua, app_id());
   Allocator* alloc = static_cast<Allocator*>(ud);
   pal::IExtraMemory& memory = pal::extra_memory();
 
@@ -3255,6 +3258,7 @@ int l_json_get_int(lua_State* L) {
 // packed stream of a cache is the size of the cache, and a block asked for and given back in the same call is not a
 // leak of a megabyte; the interpreter's heap would keep it until the collector decided (docs/30, docs/75).
 int l_rle_pack(lua_State* L) {
+  pal::MemoryTag who_asks(pal::kMemoryLua, app_id());
   size_t len = 0;
   const char* in = luaL_checklstring(L, 1, &len);
   if (len == 0) {
@@ -3281,6 +3285,7 @@ int l_rle_pack(lua_State* L) {
 // **And back**: the length is the header's, so the block is asked for before anything is unpacked, and a stream that
 // is not one of ours says so with a word instead of a picture made of rubbish (docs/30).
 int l_rle_unpack(lua_State* L) {
+  pal::MemoryTag who_asks(pal::kMemoryLua, app_id());
   size_t len = 0;
   const char* in = luaL_checklstring(L, 1, &len);
   if (len < rle::kHeader) return push_nil_error(L, "E_INVAL", "not a stream of runs");
@@ -6626,6 +6631,7 @@ int l_ui_row(lua_State* L) {
 // it is placed: a page that is resized or turned has to be arranged again without the app saying so
 // (docs/30, docs/90).
 int l_panel_draw(lua_State* L) {
+  pal::MemoryTag who_asks(pal::kMemoryLua, app_id());
   if (!canvas_ready(L, 1)) return 0;
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
@@ -10226,6 +10232,7 @@ void ui_stops_more_room(int capacity) {
 // rather than none** when the memory is nearly full — the ladder is the whole of what a page can do about it, and every
 // refusal remembers that the next event has to ask again (docs/75, docs/90).
 FocusTarget* ui_stops_block(int& capacity) {
+  pal::MemoryTag who_asks(pal::kMemoryLua, app_id());
   const int ceiling = ui_stops_ceiling();
   int want = (g_stops_wanted > kStopsFloor) ? g_stops_wanted : kStopsFloor;
   if (want > ceiling) want = ceiling;

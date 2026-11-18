@@ -361,6 +361,8 @@ uint32_t remove_a_file(const char* app, const char* key) {
 }  // namespace
 
 void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
+  // **L'amo d'un bloc de sessió és l'app que el demana**, que és el primer argument i no el que hi ha al vidre (docs/30, docs/75).
+  pal::MemoryTag who_asks(pal::kMemorySession, app);
   got = 0;
   if (app == nullptr || key == nullptr || app[0] == '\0' || key[0] == '\0') return nullptr;
   char wanted_app[kNameBytes];

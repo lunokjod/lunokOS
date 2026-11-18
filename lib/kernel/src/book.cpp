@@ -1,5 +1,6 @@
 // **A book open** (docs/46, A5) — the file, the table of its entries, the chapter in memory and the page.
 #include "kernel/book.h"
+#include "kernel/shell.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -307,6 +308,8 @@ const char* zip_status_word(zip::Status status) {
 // **Room for a chapter** (0.152.2), the same way the picture file gets its own: the block grows to what the chapter needs
 // and is kept for the next one, and `kChapterBytes` is the most this reader will hold for a chapter.
 bool chapter_room(uint32_t bytes) {
+  // **Qui demana, per als llibres de la memòria**: the mark names the module and the app in front (0.190.0, docs/75).
+  pal::MemoryTag who_asks(pal::kMemoryBook, shell::app_id());
   if (g.chapter != nullptr && g.chapter_alloc >= bytes) return true;
   if (bytes > kChapterBytes) return false;
   const uint32_t want = (bytes + 1023u) & ~1023u;
@@ -319,6 +322,7 @@ bool chapter_room(uint32_t bytes) {
 }
 
 bool packed_room(uint32_t bytes) {
+  pal::MemoryTag who_asks(pal::kMemoryBook, shell::app_id());
   if (g.packed != nullptr && g.packed_bytes >= bytes) return true;
   if (bytes > kPictureFileMax) return false;
   const uint32_t want = (bytes + 1023u) & ~1023u;
@@ -340,6 +344,7 @@ void picture_failed(const char* why) {
 }
 
 bool load_picture_named(const char* name, int32_t max_w, int32_t max_h, int32_t& out_w, int32_t& out_h) {
+  pal::MemoryTag who_asks(pal::kMemoryBook, shell::app_id());
   out_w = 0;
   out_h = 0;
   if (!g.open) {
@@ -553,6 +558,7 @@ bool measure_picture(void* ctx, const char* href, int32_t max_w, int32_t max_h, 
 }  // namespace
 
 int32_t books() {
+  pal::MemoryTag who_asks(pal::kMemoryBook, shell::app_id());
   // The two folders of a book, and a mount that is not there says nothing instead of failing the whole shelf: a
   // board with no card still has the flash (docs/46, C1).
   if (!g_shelf_filled) {
@@ -604,6 +610,7 @@ void close() {
 }
 
 const char* open(const char* path) {
+  pal::MemoryTag who_asks(pal::kMemoryBook, shell::app_id());
   close();
 
   if (path == nullptr || path[0] != '/') return "the path of a book has to be absolute";
@@ -748,6 +755,7 @@ const char* chapter(const char* name, int32_t& bytes) {
 // into the block of the compressed stream, which is scratch and belongs to nobody between two chapters, and what comes
 // out is the `meta` block. The chapter that is open is not touched —that is the whole reason this block exists—.
 bool read(const char* name, const char** data, uint32_t& size) {
+  pal::MemoryTag who_asks(pal::kMemoryBook, shell::app_id());
   size = 0;
   if (data != nullptr) *data = nullptr;
   if (!g.open || name == nullptr || g.packed == nullptr || data == nullptr) return false;
@@ -883,6 +891,7 @@ bool thumbnail(const char* name, int32_t max) {
 // two: the compressions of a font are between a third and a half. A face that does not fit is refused with its own
 // sentence, because an app has to be able to tell that from a book that carries no font at all.
 bool font(const char* name, const uint8_t** data, uint32_t& size, const char*& why) {
+  pal::MemoryTag who_asks(pal::kMemoryBook, shell::app_id());
   size = 0;
   why = nullptr;
   if (data == nullptr) {

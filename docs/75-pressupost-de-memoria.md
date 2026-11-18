@@ -1041,10 +1041,78 @@ mirar quan una app no cap.
 ## Com es mesura
 
 1. `mem` al prompt: dona lliure, usat, pic i límit de cada app viva.
-2. `sys.heap()` des de dins de l'app, en els moments que interessin.
-3. `pio run -e m5-atom -t size` per al consum de flash i l'ús de RAM estàtica.
-4. A l'emulador, `--mem-cap=<KB>` per reproduir el sostre de la placa al PC i veure-hi el pic sense
+2. `mem blocks` al prompt: **la llista de blocs** —punter, bytes i qui l'ha demanat— i el resum per amo (§«Els llibres de la memòria»).
+3. `sys.heap()` des de dins de l'app, en els moments que interessin.
+4. `pio run -e m5-atom -t size` per al consum de flash i l'ús de RAM estàtica.
+5. A l'emulador, `--mem-cap=<KB>` per reproduir el sostre de la placa al PC i veure-hi el pic sense
    haver de flashejar.
+
+## Els llibres de la memòria (0.190.0)
+
+**La pregunta de l'amo** —*«El sistema fa un seguiment de memoria que es demana i s'allibera? podríem fer una llista de punter,
+tamany i qui l'ha demanat?»*— no tenia resposta fins avui. El que hi havia era tot el que és el bloc i res del de qui és:
+
+| Què se sabia | Fins a quin nivell |
+|---|---|
+| `mem`: lliure, mínim i bloc més gran de cada casa | **totals**, cap bloc |
+| `luabind`: pic i sostre de l'app del vidre | **per app**, cap bloc |
+| `sessions`: amo, clau, bytes i on viu | **només** els blocs que una app demana amb `sys.session` |
+| `meter`: els comptadors de la porta | **temps** de cada crida, no bytes ni amo |
+
+Ara **cada bloc que travessa la porta de `pal::extra_memory()` s'apunta** en una taula amb el punter, els bytes i dues paraules: el
+**mòdul** que l'ha demanat i **l'app que hi havia al vidre** en aquell moment. La marca és un objecte d'àmbit, com els comptadors del
+port:
+
+```cpp
+pal::MemoryTag the_books(pal::kMemoryUi, shell::app_id());
+```
+
+i el que hi ha a sota —`ui` demanant un canvas, el llibre demanant el seu capítol, l'intèrpret demanant la seva taula— queda apuntat
+amb el nom del de dalt, perquè el nom més interior és el que mana. Els amos d'avui: `kernel`, `shell`, `ui`, `session`, `book`,
+`splash`, `lua`, `meter`, `net`, `board` i `other`; les paraules al *flash*, com les dels comptadors.
+
+**On viu la taula i quant costa.** És **un bloc de vuit kilobytes de la memòria extra** (la PSRAM del Paper) i, en una placa que no
+en té, de la RAM que li queda; **no és cap variable estàtica**, i això no és un detall: el Paper té la DRAM plena fins a l'últim
+byte i la primera versió d'aquesta feina no hi va cabre (l'enllaçador va dir *«region `dram0_0_seg' overflowed by 24 bytes»*).
+Qui la dona és la PAL, que és l'única que sap quines cases té la placa, i la taula li torna a preguntar a cada petició a través de
+`IExtraMemory::books()`; els llibres no tenen ni un punter propi. La taula s'obre amb **la primera marca** —o sigui amb la primera
+funció del sistema que diu qui és— i no amb el primer bloc: així el que un run té lliure abans d'això és el que la placa té.
+
+**Un quart de la taula és dels blocs grans.** Una màquina de Lua té milers de blocs petits vius i uns quants de grans, i una taula
+que es dona a qui arriba primer s'omple de petits i perd exactament el que una persona ha vingut a veure. Un bloc de **4 KB o més**
+pot fer servir les files reservades encara que la resta sigui plena; els petits no les toquen mai. **I el que no hi cap es compta**:
+`mem` diu `198 block(s) of 255 rows, 3256 ask(s) not written down`, o sigui que una llista que no és tota ho diu on es mira.
+
+**La llista, tal com surt a l'emulador** (Paper, el llançador al davant, després d'`mem blocks`):
+
+```
+  198 block(s) written down in 255 rows, 3256 ask(s) did not fit
+  who                 blocks        bytes
+  ui                      3       779873 B
+  session (home_eink)      1        32768 B
+  lua (home_eink)       194        28764 B
+  the blocks, the biggest first:
+       524216 B  0x7702b2404510  ui
+       246240 B  0x7702b24844d8  ui
+        32768 B  0x7702b24c75b8  session (home_eink)
+         9417 B  0x7702b2402030  ui
+         8192 B  0x7702b2e42548  lua (home_eink)
+  ... and 186 more; the smallest is 192 B
+```
+
+Les tres files del davant són la pàgina del llançador sencera: **el canvas de 540×912 (524 216 B), la vista (246 240 B) i la caché
+d'`apps` (32 768 B)**, i totes tres amb `ui` i `session` com a amo. És la resposta que es volia: qui té els megabytes.
+
+**El preu, mesurat abans d'escriure'l** (emulador, `--run about`, dotze segons): **24 070 peticions de menys de 256 B, 478 de
+256 B a 4 KB i 28 de 4 KB o més**. O sigui que el que importa són centenars de blocs i no desenes de milers, i la cerca d'una fila
+per petició no es nota. El que sí que es nota és el que la taula **no** pot tenir: els blocs petits de Lua són milers i la taula en
+guarda el que hi cap —i ho diu.
+
+**Un bloc que es mou no canvia d'amo**: un `resize` actualitza el punter i els bytes de la seva fila i deixa el nom com era, perquè
+un `resize` no és una petició nova sinó el mateix bloc que ha canviat de mida. **I un `resize` d'un bloc que no hi era és un bloc
+nou**: `realloc(NULL, n)` és com l'intèrpret demana un bloc que no ha tingut mai, i buscar una fila amb un punter nul trobava **la
+primera fila lliure** —que és de ningú— i deixava el bloc sense amo per sempre. Es va veure a l'emulador amb dues-centes quaranta-nou
+files `nobody` i totes les de Lua amb amo; ara hi ha un cas a `test_pal` que ho guarda.
 
 ## Quan no hi cap
 

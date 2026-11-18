@@ -7,6 +7,7 @@
 // its centre and one that fits is left as it came. The wash is `gc16` over the whole panel and it is the
 // same paint as the picture: one flush, and the glass is clean and says what this moment is.
 #include "kernel/splash.h"
+#include "kernel/shell.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -385,6 +386,8 @@ bool is_a_plane(const char* path) {
 // image is the only other copy of it. What it does not do is centre a picture or cut one: a plane is the glass, and a
 // plane of another size is refused with the reason instead of painted in a corner (docs/30, docs/50).
 bool show_plane(const char* path, hal::ISurface* glass, const hal::Stat& info) {
+  // **Qui demana, per als llibres de la memòria**: the mark names the module and the app in front (0.190.0, docs/75).
+  pal::MemoryTag who_asks(pal::kMemorySplash, shell::app_id());
   const uint16_t width = glass->width();
   const uint16_t height = glass->height();
   const uint16_t stride = static_cast<uint16_t>((width + 1u) / 2u);
@@ -432,6 +435,7 @@ bool show_plane(const char* path, hal::ISurface* glass, const hal::Stat& info) {
 }
 
 bool show(const char* path) {
+  pal::MemoryTag who_asks(pal::kMemorySplash, shell::app_id());
   g_error = "";
   g_showing = kNone;
   hal::ISurface* glass = display::surface();

@@ -431,6 +431,9 @@ HttpError http_error_for(esp_err_t err) {
 // a PC. The policy is the one of the interpreter: a big block goes where there is room and the small ones stay home
 // (docs/75, docs/85).
 char* page_block(uint32_t bytes) {
+  // **Qui demana, per als llibres de la memòria**: a page of the network is the module's and not an app's —it is read by a door of
+  // the kernel and given back before the fetch ends— (0.190.0, docs/75).
+  pal::MemoryTag who_asks(pal::kMemoryNet);
   if (bytes == 0) return nullptr;
   return static_cast<char*>(pal::extra_memory().allocate(bytes, true));
 }

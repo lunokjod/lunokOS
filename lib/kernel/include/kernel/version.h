@@ -10033,7 +10033,17 @@ namespace kernel {
 // (el botó, un `reboot`, el cable). El preu és un `sayf` i cap repintat: `power::boot(platform, for_an_alarm)` és l'única porta,
 // i l'emulador d'una placa amb xip de rellotge ja contesta `deep_powers_off()` que sí, o sigui que el camí sencer
 // —`idle sleep`, el salt del rellotge, la finestra i una altra baixada— s'hi pot veure (docs/50, docs/60, docs/85, docs/90).
-static const char kVersion[] = "0.189.182";
+// **Els llibres de la memòria** (0.190.0, l'amo: *«El sistema fa un seguiment de memoria que es demana i s'allibera? podríem fer una
+// llista de punter, tamany i qui l'ha demanat?»*). La resposta era que no: `mem` deia els totals de cada casa i el pic de l'app del
+// vidre, i **cap bloc sabia de qui era** —les memòries de sessió eren l'única llista que portava un nom (0.179.0)—. Ara cada bloc que
+// travessa la porta de `pal::extra_memory()` s'apunta amb el punter, els bytes, el **mòdul** que l'ha demanat i **l'app que hi havia
+// al vidre**, i `mem blocks` els ensenya els grossos primer amb un resum per amo (`ui` 3 blocs de 779 873 B i `lua (home_eink)` 194 de
+// 28 764 B en un llançador acabat d'arrencar, que és la pàgina sencera). La marca és un objecte d'àmbit (`pal::MemoryTag`) com els
+// comptadors del port; la taula —vuit kilobytes, i **un quart reservat als blocs de 4 KB o més**— és de la **PSRAM** i no una
+// variable del binari, perquè el Paper no té ni un byte de DRAM per donar-li (l'enllaçador ho va dir: *overflowed by 24 bytes*) i qui
+// la deixa és la PAL, de manera que els llibres no tenen ni un punter propi. **I el que no hi cap es compta**: `mem` diu els blocs que
+// hi ha, les files que té i les peticions que no s'hi van poder escriure (docs/30, docs/75, docs/85).
+static const char kVersion[] = "0.190.0";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

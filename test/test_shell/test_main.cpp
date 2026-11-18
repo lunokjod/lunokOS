@@ -242,6 +242,28 @@ void test_caps_command_is_known(void) {
   TEST_ASSERT_TRUE(kernel::execute("caps"));
 }
 
+// **`mem blocks` i els llibres de la memòria** (0.190.0, l'amo: *«podríem fer una llista de punter, tamany i qui l'ha demanat?»*): the
+// command is a person's door to the table —the rows of the boot are already there, because the system asks for its canvases and its
+// caches before the prompt— i el que contesta ha de portar les tres coses que es van demanar: el punter, el tamany i l'amo (docs/30,
+// docs/75).
+void test_mem_blocks_lists_the_pointers_the_sizes_and_the_owners(void) {
+  ensure_booted();
+  static char said[4096];
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("mem blocks"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "block(s) written down in"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "who                 blocks        bytes"), said);
+  // **Les tres coses**: a row is a number of bytes, a pointer and a word of an owner (docs/75).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the blocks, the biggest first:"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, " B  0x"), said);
+  // **I `mem` diu que hi són**, o una persona no sabria que la porta existeix.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("mem"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "memory books"), said);
+}
+
 void test_mem_command_is_known(void) {  ensure_booted();
   TEST_ASSERT_TRUE(kernel::execute("mem"));
 }
@@ -2010,6 +2032,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_help_command_is_known);
   RUN_TEST(test_help_with_a_command_is_the_lines_of_that_command);
   RUN_TEST(test_caps_command_is_known);
+  RUN_TEST(test_mem_blocks_lists_the_pointers_the_sizes_and_the_owners);
   RUN_TEST(test_mem_command_is_known);
   RUN_TEST(test_a_block_that_does_not_fit_the_ceilings_is_refused);
   RUN_TEST(test_the_heap_gives_every_byte_back_when_the_blocks_go);

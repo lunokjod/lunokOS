@@ -78,6 +78,9 @@ bool g_splash_took_the_strip = false;
 // until the allocator says yes, so a board with little extra memory gets fewer slots instead of no display, and a
 // board without extra memory at all still gets `kMinSlots` from the heap (docs/75).
 bool boot_table() {
+  // **Qui demana, per als llibres de la memòria**: the mark names the module and the app in front, and `mem blocks` is what reads it
+  // (0.190.0, docs/75).
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   if (g_canvases != nullptr) return true;
   size_t count = kSlotTableBytes / sizeof(Canvas);
   if (count > 32767u) count = 32767u;  // a slot is an `int16_t`
@@ -644,6 +647,7 @@ bool attach_to(int16_t slot, int16_t parent) {
 // The view of the app: a fresh, white canvas at the place the system gives it, and **no canvases inside
 // it**, because the app that had them is gone (docs/30, docs/90).
 bool make_root(uint16_t width, uint16_t height) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   // An odd width would leave a byte holding the last pixel of one line and the first of the next,
   // which no present can copy in one go: a canvas is a whole number of bytes wide (docs/50).
   width = static_cast<uint16_t>(width & ~1u);
@@ -1669,6 +1673,7 @@ void icon_row(void* context, uint16_t source_y, const uint8_t* packed) {
 // had, and not a key with a hole in it— (docs/30, docs/45).
 bool picture_of_a_mark(Canvas& view, const char* name, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t paper,
                        uint8_t ink, hal::UpdateMode mode) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   if (name == nullptr || name[0] == '\0' || w <= 0 || h <= 0) return false;
   // **La marca és quadrada i no s'estira** (0.185.3): the five pictures are a square of 64 and the box they are given is not
   // always one —the top of a key with a word under it is as wide as the key—, so what is drawn is the **biggest square that
@@ -1884,6 +1889,7 @@ bool canvas_caps_for_lua(int16_t slot, uint16_t& width, uint16_t& height, uint16
 // into the enum, so `luabind` keeps no knowledge of the layout of the kernel (docs/10, docs/90).
 uint16_t panel_layout_for_lua(int16_t slot, uint8_t flow, uint16_t padding, uint16_t gap,
                               const luabind::UIOps::UIPanelChild* children, uint16_t count) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   if (children == nullptr || count == 0) return 0;
   // **The list of a panel is copied into a block of its own and not into sixteen places on the stack** (0.102.0):
   // a panel of forty rows is a page, and the sixteen was the stack talking (docs/75, docs/90).
@@ -2482,6 +2488,7 @@ const Damage& damage(uint8_t index) {
 const Canvas* at(int16_t slot) { return find(slot); }
 
 bool create(uint16_t width, uint16_t height, int16_t parent, bool with_view, int16_t& slot) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   slot = kNoSlot;
   const int16_t holder = (parent < 0) ? 0 : parent;
   // **A control with no room in its father is not made**: it would hold a frame that no composition would
@@ -2798,6 +2805,7 @@ bool canvas_fill_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t
 // and both go back before this returns: a picture is on the page, not in the heap (docs/75).
 bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
                   bool mask, const char*& code, const char*& reason) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   code = "E_INVAL";
   reason = nullptr;
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
@@ -2920,6 +2928,7 @@ bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
 // lays a page out before it paints it (docs/30).
 bool image_info(const char* path, char* format, size_t format_cap, uint16_t& width, uint16_t& height,
                 const char*& code, const char*& reason) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   code = "E_INVAL";
   reason = nullptr;
   char full[128];
@@ -3674,6 +3683,7 @@ bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t wid
                     uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
                     const char* title, uint8_t color, uint8_t scale, bool framed,
                     const char* icon, uint8_t mark_side) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   // **A nibble a pixel, so a width that is not even is refused**: half a byte is a pixel and an odd width would shift
   // every row of the control.
   if (width == 0 || height == 0 || (width & 1u) != 0 || scale == 0 || scale > 16) return false;
@@ -4089,6 +4099,7 @@ bool canvas_resize(int16_t slot, uint16_t width, uint16_t height) {
 
 uint16_t panel_layout(int16_t slot, PanelFlow flow, uint16_t padding, uint16_t gap,
                       const PanelChild* children, uint16_t count) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   if (!live(slot) || children == nullptr || count == 0) return 0;
   const Canvas& panel = g_canvases[slot];
   const int32_t inner_w = static_cast<int32_t>(panel.width) - 2 * static_cast<int32_t>(padding);
@@ -7720,6 +7731,7 @@ void release_keyboard_face() {
 }
 
 const font::Face& keyboard_face() {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   if (!g_kbd_face_tried) {
     g_kbd_face_tried = true;
     hal::Stat info;
@@ -9287,6 +9299,7 @@ const uint32_t kFontFileBytes = 131072;
 // terminator, and the face keeps it when it is a face of outlines —its glyphs are contours inside those bytes, so the
 // block *is* the face (docs/30)— and gives it back when it is a table of bits.
 int8_t face_from_text(char* text, uint32_t length, const char*& reason) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   reason = nullptr;
   // A free slot first: a face that cannot be kept is not worth reading the text for.
   int16_t slot = -1;
@@ -9334,6 +9347,7 @@ int8_t face_from_text(char* text, uint32_t length, const char*& reason) {
 }
 
 int8_t font_load(const char* path, const char*& reason) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   reason = nullptr;
   if (path == nullptr) {
     reason = "no path";
@@ -9385,6 +9399,7 @@ int8_t font_load(const char* path, const char*& reason) {
 const uint32_t kFaceFromBytes = 512u * 1024u;
 
 int8_t font_load_bytes(const uint8_t* data, uint32_t length, const char*& reason) {
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   reason = nullptr;
   if (data == nullptr || length == 0) {
     reason = "there is no face to read";

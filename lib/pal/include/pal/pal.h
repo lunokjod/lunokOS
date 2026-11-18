@@ -217,11 +217,110 @@ class IExtraMemory {
   // it is when it does not. On failure the block is untouched and nullptr is returned.
   virtual void* resize(void* block, size_t bytes, bool prefer_extra) = 0;
   virtual void release(void* block) = 0;
+  // **La taula dels llibres d'aquesta plataforma** (0.190.0): nullptr until the first block has been asked for —the table is the
+  // PAL's to give and it is given once— and nullptr for ever on a platform whose books are off. The books of `lib/pal` find their
+  // way back here instead of keeping a pointer of their own (docs/75).
+  virtual void* books() const { return nullptr; }
+  // **I és la marca qui la demana primer** (0.190.0): a tag that arrives before the table exists would write its owner into nothing and
+  // the first hundreds of blocks of the run —the VM of the launcher, which is the first thing that asks— would have no owner at all.
+  // El constructor de `MemoryTag` crida aquesta porta i la taula hi és abans que la primera petició (docs/75).
+  virtual void open_the_books() {}
 };
 
 // Valid before and after init(): the object is a static of the platform, because the interpreter may
 // allocate before anybody brought the layer up.
 IExtraMemory& extra_memory();
+
+// **ELS LLIBRES DE LA MEMÒRIA** (0.190.0, l'amo: *«El sistema fa un seguiment de memoria que es demana i s'allibera? podríem fer una
+// llista de punter, tamany i qui l'ha demanat?»*): every block that leaves the door of `IExtraMemory` is written down —the pointer,
+// the bytes and **who asked**—, and `mem blocks` lists them and adds them up per owner. La pregunta no tenia resposta: `mem` deia
+// els totals de cada casa i el pic de l'app del vidre, i **cap bloc sabia de qui era** (docs/75).
+//
+// **The books are of the system and not of the app**: a Lua machine asks for tens of thousands of blocks in a second, and what a
+// person needs to know is which module is eating the memory and not which string of a table it was (mesurat a l'emulador: 24 000
+// peticions de menys de 256 B en dotze segons, 478 de mitjanes i 28 de grans).
+//
+// **The table is small on purpose and says what it has lost**, and the big blocks have a part of it for themselves: a block of
+// four kilobytes or more can always be written down while the small ones fill the rest, perquè el que s'ha de veure primer és el
+// bloc que no hi cap i no la cadena que hi sobra (docs/75).
+
+// **Who is asking.** The word is the module —the app in front is the second half of the answer and it comes from `set_app_now`—,
+// and the words live in the flash like the names of the counters of the port (docs/75, docs/95).
+enum MemoryOwner : uint8_t {
+  kMemoryNobody = 0,
+  kMemoryKernel,
+  kMemoryShell,
+  kMemoryUi,
+  kMemorySession,
+  kMemoryBook,
+  kMemorySplash,
+  kMemoryLua,
+  kMemoryMeter,
+  kMemoryNet,
+  kMemoryBoard,
+  kMemoryOther,
+};
+const char* memory_owner_word(MemoryOwner who);
+
+// **The mark of what is being asked now**: a stack, so a module that calls another one and the other one that asks for memory ends
+// with the block under the innermost mark —`pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());` at the top of the function
+// that asks— (docs/75). An object and not a call to remember and another to forget, because the way out of a function has to be the
+// way out of the mark. **L'app és la del moment de la marca** i no la de cada petició: una funció que demana vint blocs ja sap de qui
+// són, i preguntar-ho a cada bloc seria un `strncpy` per bloc per a la mateixa resposta.
+//
+// **Zero bytes estàtics**: the mark lives in the table of the books, which is the platform's —the PAL object is already in RAM—, o
+// sigui que aquesta capçalera no afegeix ni un byte al Paper, que no en té ni un de lliure (docs/75).
+class MemoryTag {
+ public:
+  MemoryTag(MemoryOwner who, const char* app = nullptr);
+  ~MemoryTag();
+  MemoryTag(const MemoryTag&) = delete;
+  MemoryTag& operator=(const MemoryTag&) = delete;
+
+ private:
+  void* books_;
+  uint8_t was_owner_;
+  char was_app_[16];
+};
+
+// **One row of the listing**: the pointer the caller has, the bytes it asked for, who asked, and the app that was in front when
+// it asked. The name is copied here —a row outlives the app that asked it— with the sixteen bytes a session name takes (docs/75).
+struct MemoryBlock {
+  const void* block = nullptr;
+  uint32_t bytes = 0;
+  uint8_t owner = kMemoryNobody;
+  char app[16] = {};
+};
+
+// **The live blocks, the biggest first**: `cap` is the room of the caller's array and the answer is how many blocks the books
+// hold, which is not how many fitted in it (docs/75).
+uint32_t memory_blocks(MemoryBlock* out, uint32_t cap);
+
+// **What each owner holds**, the biggest first: a row per module and app, because a leak is a name and a number (docs/75).
+struct MemoryBill {
+  uint8_t owner = kMemoryNobody;
+  char app[16] = {};
+  uint32_t blocks = 0;
+  uint32_t bytes = 0;
+};
+uint32_t memory_bills(MemoryBill* out, uint32_t cap);
+
+// **A list that is not the whole list says so**: how many asks did not fit in the table and how many rows it has, and **how many
+// blocks it is holding** —the number of rows is the room and not the answer— (docs/75).
+uint32_t memory_lost();
+uint32_t memory_slots();
+uint32_t memory_live();
+
+// **The doors of the books, for a PAL**: `allocate`/`resize`/`release` of `IExtraMemory` call them, and nothing else does —the
+// books cannot see the heap and the heap cannot book itself—. `memory_books_begin` is the table, which the PAL gives from the
+// extra memory when the board has one and from home when it does not; a table of zero bytes is a build with no books, and then
+// every ask is lost and `mem` says it (docs/75, docs/85). The table stays the PAL's and `IExtraMemory::books()` is how the books
+// find it again, que és el que fa que `lib/pal` no tingui ni un punter estàtic.
+constexpr uint32_t kMemoryBookBytes = 8 * 1024;
+void memory_books_begin(void* table, size_t bytes);
+void memory_book_taken(void* block, size_t bytes);
+void memory_book_moved(void* was, void* block, size_t bytes);
+void memory_book_released(void* block);
 
 // **What to give up when an allocation fails** (0.179.0, and the rule said by the owner in 0.179.6: *«Només s'ha de fer
 // si falla una alocació de memoria d'una app o sistema. (s'esborra i es reintenta de forma transparent per l'app)»*): the

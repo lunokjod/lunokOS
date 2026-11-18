@@ -273,7 +273,46 @@ void relieve(void* keep, size_t bytes) {
 
 class EspExtraMemory : public IExtraMemory {
  public:
+  // **Els llibres de la memòria** (0.190.0): the table is a block of the **extra memory** and not a static of the binary —the Paper
+  // has no sixteen bytes of its own RAM to give—, i si la placa no en té, de la RAM que li queda; una placa que no pot donar vuit
+  // kilobytes es queda sense llibres i `mem` ho diu en comptes de mentir (docs/75).
+  void begin_the_books_once() {
+    if (books_ != nullptr) return;
+    void* table = heap_caps_malloc(pal::kMemoryBookBytes, kExtraCaps);
+    if (table == nullptr) table = heap_caps_malloc(pal::kMemoryBookBytes, kHomeCaps);
+    if (table == nullptr) return;
+    pal::memory_books_begin(table, pal::kMemoryBookBytes);
+    books_ = table;
+  }
+
+  void* books() const override { return books_; }
+
+  void open_the_books() override { begin_the_books_once(); }
+
   void* allocate(size_t bytes, bool prefer_extra) override {
+    void* block = allocate_raw(bytes, prefer_extra);
+    if (block != nullptr) pal::memory_book_taken(block, bytes);
+    return block;
+  }
+
+  void* resize(void* block, size_t bytes, bool prefer_extra) override {
+    void* moved = resize_raw(block, bytes, prefer_extra);
+    if (moved != nullptr) {
+      pal::memory_book_moved(block, moved, bytes);
+    } else if (block != nullptr && bytes == 0) {
+      pal::memory_book_released(block);
+    }
+    return moved;
+  }
+
+  void release(void* block) override {
+    if (block == nullptr) return;
+    release_raw(block);
+    pal::memory_book_released(block);
+  }
+
+ private:
+  void* allocate_raw(size_t bytes, bool prefer_extra) {
     if (bytes == 0) return nullptr;
     // A block that asked for the extra memory goes there first and the board's RAM is the fallback; a
     // small one goes home only while the home keeps its floor, and to the PSRAM when it would lose it.
@@ -294,10 +333,10 @@ class EspExtraMemory : public IExtraMemory {
     return heap_caps_malloc(bytes, kExtraCaps);
   }
 
-  void* resize(void* block, size_t bytes, bool prefer_extra) override {
-    if (block == nullptr) return allocate(bytes, prefer_extra);
+  void* resize_raw(void* block, size_t bytes, bool prefer_extra) {
+    if (block == nullptr) return allocate_raw(bytes, prefer_extra);
     if (bytes == 0) {
-      release(block);
+      release_raw(block);
       return nullptr;
     }
     const bool to_extra = take_from_the_extra(room_at_home(), bytes, prefer_extra);
@@ -315,21 +354,27 @@ class EspExtraMemory : public IExtraMemory {
     return heap_caps_realloc(block, bytes, to_extra ? kHomeCaps : kExtraCaps);
   }
 
-  void release(void* block) override { heap_caps_free(block); }
+  void release_raw(void* block) { heap_caps_free(block); }
 
  private:
   // **The free bytes of the board's RAM are read every so many asks and not at every one**: the walk
   // of the heap for each of the thousands of blocks a Lua machine takes would cost more than the block
   // itself, and a floor that is read two hundred and fifty-six blocks late is still a floor.
   size_t room_at_home() {
-    if ((++asked_ & 0xFFu) == 0u) home_free_ = heap_caps_get_free_size(kHomeCaps);
+    if (++asked_ == 0u) home_free_ = heap_caps_get_free_size(kHomeCaps);
     return home_free_;
   }
 
-  size_t asked_ = 0;
+  // **Un comptador que només mira el byte de sota, i prou** (0.190.0): it reads the home heap once every 256 asks, so a byte is all
+  // it needs —and those four bytes are the four of the pointer below, or sigui que els llibres no fan créixer l'objecte d'aquesta
+  // plataforma (docs/75).
+  uint8_t asked_ = 0;
   // Nothing has been read yet: the first blocks go to the extra memory, which is the safe answer when
   // the board has one and the only answer when it does not.
   size_t home_free_ = 0;
+  // **La taula dels llibres, que és d'aquesta plataforma** (0.190.0): given once, on the first block, and it lives as long as the
+  // board is up (docs/75).
+  void* books_ = nullptr;
 };
 
 EspExtraMemory g_extra;

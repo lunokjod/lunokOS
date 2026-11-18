@@ -549,7 +549,58 @@ void relieve(void* keep, size_t bytes) {
 
 class HostExtraMemory : public IExtraMemory {
  public:
+  // **Els llibres, i la taula que els és seva** (0.190.0): the emulator's books live in a block of this machine's heap —and not in
+  // one of the two homes it simulates—, so a run that measures the memory of a board is not measuring its own list, i la taula no
+  // s'apunta a si mateixa perquè no passa per cap de les portes (docs/75, docs/85).
+  void begin_the_books_once() {
+    if (books_ != nullptr) return;
+    // **La taula surt de la memòria que aquesta plataforma simula** i no de la del PC (0.190.0): the eight kilobytes of the books are
+    // part of what the board has, o sigui que `mem` els compta on toca i un run amb `--mem-cap` no veu una placa amb vuit kilobytes
+    // de més (docs/75, docs/85). I no passen per la porta, que és el que fa que els llibres no es comptin a si mateixos.
+    void* table = take(kExtra, pal::kMemoryBookBytes);
+    if (table == nullptr) table = take(kHome, pal::kMemoryBookBytes);
+    if (table == nullptr) return;
+    pal::memory_books_begin(table, pal::kMemoryBookBytes);
+    books_ = table;
+  }
+
+  void* books() const override { return books_; }
+
+  void open_the_books() override { begin_the_books_once(); }
+
+  // **Les mides han canviat i la taula era d'aquestes** (0.190.0): `set_memory_bytes` gives the two homes back and makes them again with
+  // the new ceilings, so the books of the old ones are books of nothing —and a table that is still pointed at is a table that is read
+  // after it was freed (found by the suite, 18/11: a SIGSEGV on the second case of this file)— (docs/75, docs/85).
+  void forget_the_books() { books_ = nullptr; }
+
   void* allocate(size_t bytes, bool prefer_extra) override {
+    void* block = allocate_raw(bytes, prefer_extra);
+    if (block != nullptr) pal::memory_book_taken(block, bytes);
+    return block;
+  }
+
+  void* resize(void* block, size_t bytes, bool prefer_extra) override {
+    void* moved = resize_raw(block, bytes, prefer_extra);
+    if (moved != nullptr) {
+      pal::memory_book_moved(block, moved, bytes);
+    } else if (block != nullptr && bytes == 0) {
+      pal::memory_book_released(block);
+    }
+    return moved;
+  }
+
+  void release(void* block) override {
+    if (block == nullptr) return;
+    release_raw(block);
+    pal::memory_book_released(block);
+  }
+
+ private:
+  // **La taula dels llibres es demana una vegada i no es torna** (0.190.0): it is the list of every block of the run, so it lives as
+  // long as the run does and it is never given back (docs/85).
+  void* books_ = nullptr;
+
+  void* allocate_raw(size_t bytes, bool prefer_extra) {
     if (bytes == 0) return nullptr;
     // **The same rule as the board** (0.151.20, `pal::take_from_the_extra`): a small block goes home while the
     // home keeps its floor and to the extra memory when it would lose it. An emulator that did otherwise would let a
@@ -568,10 +619,10 @@ class HostExtraMemory : public IExtraMemory {
     return take((first == kExtra) ? kHome : kExtra, bytes);
   }
 
-  void* resize(void* block, size_t bytes, bool prefer_extra) override {
-    if (block == nullptr) return allocate(bytes, prefer_extra);
+  void* resize_raw(void* block, size_t bytes, bool prefer_extra) {
+    if (block == nullptr) return allocate_raw(bytes, prefer_extra);
     if (bytes == 0) {
-      release(block);
+      release_raw(block);
       return nullptr;
     }
     Chunk* chunk = head_of(block);
@@ -600,7 +651,7 @@ class HostExtraMemory : public IExtraMemory {
     return move_into(block, bytes, chunk->home);
   }
 
-  void release(void* block) override {
+  void release_raw(void* block) {
     if (block == nullptr) return;
     Chunk* chunk = head_of(block);
     if (chunk->home == kPlain) {
@@ -839,6 +890,11 @@ void set_memory_bytes(uint32_t home_bytes, uint32_t extra_bytes) {
     first->used = 0;
   }
   g_walk_ns = 0;
+  // **La taula dels llibres era d'aquestes cases i ja no hi són** (0.190.0): the homes are made again with the new ceilings, so the
+  // table of the old ones is a table of nothing. **I no es torna a demanar aquí**: es demana quan arriba la primera marca —la primera
+  // funció del sistema que diu qui és—, o sigui que el que un run té lliure abans d'això és el que la placa té, i una prova que posa
+  // sostres i demana blocs sense amo no es troba vuit kilobytes que no ha demanat (docs/75, docs/85).
+  g_extra.forget_the_books();
 }
 
 void set_console_baud(uint32_t baud) {
@@ -868,6 +924,11 @@ void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
   g_step_ns = step_ns;
   g_bytes_per_us = bytes_per_us;
   g_walk_ns = 0;
+  // **La taula dels llibres era d'aquestes cases i ja no hi són** (0.190.0): the homes are made again with the new ceilings, so the
+  // table of the old ones is a table of nothing. **I no es torna a demanar aquí**: es demana quan arriba la primera marca —la primera
+  // funció del sistema que diu qui és—, o sigui que el que un run té lliure abans d'això és el que la placa té, i una prova que posa
+  // sostres i demana blocs sense amo no es troba vuit kilobytes que no ha demanat (docs/75, docs/85).
+  g_extra.forget_the_books();
 }
 
 void delay_us(uint32_t us) {

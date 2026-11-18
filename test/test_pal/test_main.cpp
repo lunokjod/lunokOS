@@ -11,6 +11,7 @@
 // the flash could not be read again until the board was rebooted (docs/75).
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <unity.h>
 
@@ -177,6 +178,105 @@ void test_a_block_that_is_being_moved_is_not_one_the_relief_may_take(void) {
   pal::set_memory_relief(nullptr);
 }
 
+// **Els llibres de la memòria** (0.190.0, l'amo: *«podríem fer una llista de punter, tamany i qui l'ha demanat?»*): every block that
+// leaves the door is written down with its owner and the app that was in front, a `resize` keeps the owner of the block it moves, i
+// alliberar-lo el treu de la llista, i el que no hi cap **es compta** en comptes de desaparèixer (docs/75).
+void test_the_books_say_which_block_is_whose(void) {
+  pal::set_memory_bytes(kHomeBytes, kExtraBytes);
+  // **La taula la demana la primera marca** i no el fet de posar els sostres (0.190.0): a system that has never said who it is has no
+  // books, and the table is taken from the memory the board has at that moment (docs/75).
+  TEST_ASSERT_EQUAL_UINT32(0, pal::memory_slots());
+  const uint32_t lost_before = pal::memory_lost();
+
+  // **Una pàgina que demana el seu tros**: the mark is the module and the app, and both are copied into the row because the app that
+  // asked will be gone when the list is read (docs/75).
+  void* view = nullptr;
+  {
+    pal::MemoryTag tag(pal::kMemoryUi, "home_eink");
+    view = pal::extra_memory().allocate(64000, true);
+  }
+  TEST_ASSERT_NOT_NULL(view);
+  TEST_ASSERT_GREATER_THAN_UINT32(0, pal::memory_slots());
+  pal::MemoryBlock rows[16] = {};
+  uint32_t count = pal::memory_blocks(rows, 16);
+  TEST_ASSERT_GREATER_THAN_UINT32(0, count);
+  // **El més gran és el primer**, que és com es llegeix la llista.
+  TEST_ASSERT_EQUAL_PTR(view, rows[0].block);
+  TEST_ASSERT_EQUAL_UINT32(64000, rows[0].bytes);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(pal::kMemoryUi), rows[0].owner);
+  TEST_ASSERT_EQUAL_STRING("home_eink", rows[0].app);
+  TEST_ASSERT_EQUAL_STRING("ui", pal::memory_owner_word(static_cast<pal::MemoryOwner>(rows[0].owner)));
+
+  // **I el resum per amo diu el que el mòdul té**, que és la primera pregunta d'una fuita (docs/75).
+  pal::MemoryBill bills[8] = {};
+  const uint32_t owners = pal::memory_bills(bills, 8);
+  TEST_ASSERT_GREATER_THAN_UINT32(0, owners);
+  bool found = false;
+  for (uint32_t i = 0; i < owners; ++i) {
+    if (bills[i].owner != static_cast<uint8_t>(pal::kMemoryUi)) continue;
+    if (strcmp(bills[i].app, "home_eink") != 0) continue;
+    found = true;
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(64000, bills[i].bytes);
+  }
+  TEST_ASSERT_TRUE_MESSAGE(found, "the summary has no row for the module that asked");
+
+  // **I créixer no canvia d'amo**: a `resize` is the same block with another size, i el que es llegeix és la mida nova (docs/75).
+  {
+    pal::MemoryTag tag(pal::kMemoryLua, "about");
+    void* grown = pal::extra_memory().resize(view, 96000, true);
+    TEST_ASSERT_NOT_NULL(grown);
+    view = grown;
+  }
+  count = pal::memory_blocks(rows, 16);
+  TEST_ASSERT_GREATER_THAN_UINT32(0, count);
+  TEST_ASSERT_EQUAL_PTR(view, rows[0].block);
+  TEST_ASSERT_EQUAL_UINT32(96000, rows[0].bytes);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(static_cast<uint8_t>(pal::kMemoryUi), rows[0].owner,
+                                  "a block that grew was filed under whoever grew it");
+
+  // **I un `resize` d'un bloc que no hi era és un bloc nou** (0.190.0): `realloc(NULL, n)` is how the interpreter asks for a block it
+  // has never had, and looking for a row with a null pointer used to find the first free one —which is nobody's— and leave the block
+  // with no owner at all. Es va veure a l'emulador: dues-centes quaranta-nou files sense amo.
+  void* fresh = nullptr;
+  {
+    pal::MemoryTag tag(pal::kMemoryBook, "reader");
+    fresh = pal::extra_memory().resize(nullptr, 5000, false);
+  }
+  TEST_ASSERT_NOT_NULL(fresh);
+  count = pal::memory_blocks(rows, 16);
+  found = false;
+  for (uint32_t i = 0; i < count && i < 16; ++i) {
+    if (rows[i].block != fresh) continue;
+    found = true;
+    TEST_ASSERT_EQUAL_UINT32(5000, rows[i].bytes);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(pal::kMemoryBook), rows[i].owner);
+    TEST_ASSERT_EQUAL_STRING("reader", rows[i].app);
+  }
+  TEST_ASSERT_TRUE_MESSAGE(found, "a block asked for with a null resize is not in the list");
+  pal::extra_memory().release(fresh);
+
+  // **I alliberar-lo el treu de la llista**, que és el que fa que la llista sigui de blocs vius i no d'història (docs/75).
+  pal::extra_memory().release(view);
+  count = pal::memory_blocks(rows, 16);
+  for (uint32_t i = 0; i < count && i < 16; ++i) {
+    TEST_ASSERT_TRUE_MESSAGE(rows[i].block != view, "a block that was given back is still in the list");
+  }
+
+  // **I el que no hi cap es compta**: more asks than rows, and the difference is the number the books say they lost —a list that is
+  // not the whole list has to say so (docs/75).
+  const uint32_t slots = pal::memory_slots();
+  void* many[420];
+  const uint32_t asks = (slots + 40 > 420) ? 420 : slots + 40;
+  for (uint32_t i = 0; i < asks; ++i) {
+    pal::MemoryTag tag(pal::kMemoryLua, "filler");
+    many[i] = pal::extra_memory().allocate(16, false);
+    TEST_ASSERT_NOT_NULL(many[i]);
+  }
+  TEST_ASSERT_GREATER_THAN_UINT32_MESSAGE(lost_before, pal::memory_lost(),
+                                          "the table did not count the asks that did not fit");
+  for (uint32_t i = 0; i < asks; ++i) pal::extra_memory().release(many[i]);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -188,5 +288,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_big_block_asks_for_the_extra_memory_first);
   RUN_TEST(test_the_relief_is_a_failed_ask_and_not_a_heap_that_looks_full);
   RUN_TEST(test_a_block_that_is_being_moved_is_not_one_the_relief_may_take);
+  RUN_TEST(test_the_books_say_which_block_is_whose);
   return UNITY_END();
 }
