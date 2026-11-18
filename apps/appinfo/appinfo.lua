@@ -57,13 +57,14 @@ end
 local kSmall = scale_for(33)
 local kBody = scale_for(43)
 local kBig = scale_for(82)
--- **I la de la llista, mig pas més petita que el cos** (0.189.177, l'amo: *«l'app "Applications Info" no necesita un títol
--- enorme que posa "Applications" no trobes? pots aprofitar millor l'espai. Usa un tipus de lletra mes petit per la llista
--- d'aplicacions»*): the 33 px of the paper project and the 43 of its body are three and four steps of this face, and the list
--- was at four —as big as a sentence—, o sigui que vint-i-tres apps demanaven tres pàgines. Two steps is half: the list is read
--- looking for a name and not by reading it, the rows are still a finger high, i les vint-i-tres apps del disc hi caben en una
--- pàgina (docs/30, docs/45, docs/90).
-local kList = scale_for(22)
+-- **I la de la llista, un pas menys que el cos** (0.189.178, i la 0.189.177 se'n va passar: l'amo, *«T'has passat, ara la
+-- lletra de la llista es massa petita!»*): the 33 px of the paper project are three steps of this face and the body is four, so
+-- the list is the 33 of the paper's own listing —the step its cards used for a name— and not the two that made a page of
+-- twenty-three names a page nobody could read (docs/30, docs/45, docs/90).
+local kList = scale_for(33)
+-- **I la línia del compte, una passa més avall** (0.189.178): the count of the apps and the room left is a note over the list
+-- and not a row of it —at the size of the rows it took two lines of the glass and pushed two apps to the page after— (docs/30).
+local kNote = scale_for(22)
 
 local function line(scale)
   return scale * ui.line_height(1)
@@ -73,9 +74,13 @@ local kMargin = 20
 local kListGap = 8
 local kDetailGap = 10
 -- **El pas de la fila és el de la lletra que hi ha a dins** (0.189.177): the row of a list is the finger's box, and this one
--- keeps the air of a row that a finger hits without looking —twelve pixels over the line— i prou perquè les vint-i-tres apps
--- del disc capiguen en una pàgina (docs/30, docs/90).
-local kRow = line(kList) + 12
+-- keeps the air of a row that a finger hits without looking (docs/30, docs/90).
+local kRow = line(kList) + 14
+-- **I els botons tenen el seu propi**: a button's label is the body of the page, and a button the height of a list's row —twelve
+-- pixels of air over a line of the list— leaves the label of the one below painted over it, que és el que l'amo va veure el
+-- 18/11 amb els tres botons de la fitxa («queden solapades»). El número és el que tenia la fila abans de la 0.189.177, quan la
+-- llista i el botó compartien el mateix i el botó encara anava bé (docs/30, docs/90).
+local kButton = line(kBody) + 20
 
 -- ------------------------------------------------------------------ the state of the page (docs/30 § state)
 
@@ -376,7 +381,7 @@ local function add_entry(the_list, one)
   local entry = ui.list_entry(view.width - 2 * kMargin, kRow)
   if entry == nil then return nil end
 
-  local version_w = 110
+  local version_w = 150
   local name = make_label(view.width - 2 * kMargin - version_w - 36, one.title, kList, 'left', 'middle')
   if name ~= nil then
     name:place(12, 2)
@@ -418,7 +423,7 @@ build_cover = function()
   else
     summary = string.format('%d apps in /apps', #apps_here)
   end
-  add_lines(page_control, view.width - 2 * kMargin, summary, kList)
+  add_lines(page_control, view.width - 2 * kMargin, summary, kNote)
 
   -- **El que la darrera porta ha contestat** (docs/30): a person who pressed Uninstall reads here what went, and the line
   -- stays until another door answers or the app is closed — it is the app's line and not the system's.
@@ -511,7 +516,7 @@ local function add_plain(the_list, text)
 end
 
 local function add_button(parent, text, on_click)
-  local button = ui.button(view.width - 2 * kMargin, kRow)
+  local button = ui.button(view.width - 2 * kMargin, kButton)
   if button == nil then return nil end
 
   button.background = 15

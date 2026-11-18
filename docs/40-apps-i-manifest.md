@@ -672,10 +672,17 @@ docs/70).
 **I la llista no porta títol i va en la lletra petita** (0.189.177, l'amo: *«l'app "Applications Info" no necesita un títol
 enorme que posa "Applications" no trobes? pots aprofitar millor l'espai. Usa un tipus de lletra mes petit per la llista
 d'aplicacions»*): la barra del sistema ja diu *Application Info*, i un títol de setanta-sis píxels sobre una llista de noms era
-un cinquè del vidre dient el que ja es veia —la primera línia és el compte d'apps i el lloc que queda—. Les files van a **la
-meitat del cos**: els 33 i els 43 píxels del projecte del paper són tres i quatre passos d'aquesta cara, i la llista era al
-quatre —tan gran com una frase—, o sigui que vint-i-tres apps demanaven tres pàgines; amb dos passos i la fila de trenta-quatre
-píxels, **les vint-i-tres caben en una pàgina i el paginador no hi és** (docs/30, docs/45, docs/90).
+un cinquè del vidre dient el que ja es veia —la primera línia és el compte d'apps i el lloc que queda, en un pas més petit
+encara—. Les files van **un pas per sota del cos**: els 33 i els 43 píxels del projecte del paper són tres i quatre passos
+d'aquesta cara, i la llista era al quatre —tan gran com una frase—; el dos de la 0.189.177 va ser mitja pàgina de noms que no es
+podien llegir (l'amo: *«T'has passat, ara la lletra de la llista es massa petita!»*), i amb el tres **setze apps per pàgina en
+comptes de nou**. **I els botons de la fitxa tenen la seva alçada i no la de la fila** (0.189.178): amb la fila de trenta-huit,
+l'etiqueta d'un botó —que és del cos— no hi cap i els tres botons de sota es pinten un sobre l'altre (docs/30, docs/45, docs/90).
+
+**I porta una targeta d'arrencada** (0.189.178, l'amo: *«Application info ha de tenir un splash, va molt lent carregant»*):
+`res/splash.png`, fet amb `tools/app_splash.py` a partir de la seva icona —la icona, el nom i el peu del sistema, com les de
+`home_eink`, `fonts` i el `reader`—. El sistema el pinta mentre la pàgina llegeix vint-i-tres manifests i els seus terrenys, i
+també quan l'obren amb `-d`: el que el commutador estalvia és el disc, no la targeta.
 
 **I amb `-d` la pàgina llegeix aquella app i prou** (0.189.166, l'amo: *«s'ha de mostrar la vista detalls directament (sense
 escanejar res mes que no sigui aquella app) i el botó "Back" ha de tancar l'aplicació»*): the switch is read **before** anything

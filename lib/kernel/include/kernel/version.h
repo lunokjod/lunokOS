@@ -9983,7 +9983,16 @@ namespace kernel {
 // el quatre—: la llista era tan gran com les frases i vint-i-tres apps demanaven tres pàgines. Ara el títol no hi és, la primera
 // línia és el compte i el lloc que queda, i les files van a **la meitat del cos** (dos passos, trenta-quatre píxels de fila):
 // **les vint-i-tres caben en una pàgina i el paginador no es veu** (docs/30, docs/40, docs/45).
-static const char kVersion[] = "0.189.177";
+// **La llista de la fitxa, un pas per sota i dels botons que no s'han de tocar** (0.189.178, i les tres coses són de l'amo sobre
+// la 0.189.177): *«T'has passat, ara la lletra de la llista es massa petita!»* —els dos passos de la 0.189.177 eren mitja pàgina
+// de noms que no es podien llegir, i el pas del projecte del paper (33) és el tres d'aquesta cara, o sigui setze apps per pàgina
+// en comptes de nou—; *«a la vista detall els botons "Clear the cache" "Uninstall" i "Back" queden solapades»* —els tres botons
+// prenien l'alçada de la fila de la llista, que la 0.189.177 va deixar en trenta-huit píxels, i l'etiqueta d'un botó és del cos:
+// ara el botó té la seva (`line(kBody) + 20`), que és la que tenia la fila abans—; i *«Application info ha de tenir un splash, va
+// molt lent carregant»* —`res/splash.png` del seu icona amb `tools/app_splash.py`, com les altres tres apps que en tenen, i el
+// sistema el pinta mentre la pàgina llegeix vint-i-tres manifests; el commutador `-d` segueix llegint-ne **un** i el mateix,
+// perquè el que estalvia és el disc i no la targeta (docs/30, docs/40, docs/45)—.
+static const char kVersion[] = "0.189.178";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
