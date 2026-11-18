@@ -54,8 +54,9 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
   **`power`** (les dues menes de son, la velocitat del processador i la bateria), **`led`** (el llum),
   **`imu`** (el sensor del Matrix) i **`button`** (el botó, i el hook `on_button`).
 - **`cfg`** (0.189.106): els ajustos del sistema que una app pot **escriure**, amb la mateixa porta que la
-  comanda `cfg` del prompt —teclat, imatge de l'arrencada, app de l'inici, l'ordre per usos, les instruccions d'un torn i
-  el parpelleig del cursor, més les dues llistes que un desplegable necessita.
+  comanda `cfg` del prompt —teclat, imatge de l'arrencada, app de l'inici, l'ordre per usos, les instruccions d'un torn,
+  el parpelleig del cursor, més les dues llistes que un desplegable necessita. **I el disc preferit és també el terra de
+  `/data`** (0.190.8): una app no necessita cap porta nova per saber-ho — `fs.mounts()` li diu el `type` de la fila.
 - **`admin`** (0.189.99): el paquet d'una app que el manifest marca `"admin": true`.
 
 **Encara no hi és**, i una app que ho cridi peta amb «attempt to call a nil value»:
@@ -1026,8 +1027,8 @@ sobrevisquin a un reinici i a la destrucció de la VM.
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `alarm.at(spec)` | enter (id) i, **si ja hi era, `true`** | `spec` = `{on=època}` o `{in_ms=ms}`, més `payload`, `repeat`, `raise`, `persist` |
-| `alarm.after(ms[, payload])` | enter (id) | Drecera: alarma d'un sol cop |
+| `alarm.at(spec)` | enter (id) i, **si ja hi era, `true`** | `spec` = `{on=època}` o `{in_ms=ms}`, més **`payload`** (obligatori), `repeat`, `raise`, `persist` |
+| `alarm.after(ms, payload)` | enter (id) | Drecera: alarma d'un sol cop, i **el payload també hi és obligatori** |
 | `alarm.cancel(id)` | booleà | |
 | `alarm.list()` | taula | `{id, on, repeat, persist, raise, app}` de cada alarma — **`app` és de qui és** (0.189.157), que és el que una pàgina d'apps compta abans d'esborrar-ne una |
 | `alarm.caps()` | `{max, min_period_ms, wake, keeper}` | `max` alarmes simultànies; `wake` diu si la placa pot despertar-se sola (`"yes"`/`"no"`); **`keeper` diu on ha quedat el despertar** (0.189.149): `"chip"` és el rellotge amb pila de la placa (la BM8563 de la Paper), `"timer"` és el comptador del SoC i `"none"` és que no hi ha res armat |
@@ -1038,7 +1039,11 @@ Camps de `spec`:
   relativa. N'hi ha prou amb un dels dos, i `in_ms` té un terra de cent mil·lisegons. **Una data del calendari es demana amb
   `time.epoch(year, month, day, hour, minute)`**, que porta la zona i l'hora d'estiu de la placa, i una hora relativa amb
   `in_ms` o la drecera `alarm.after(ms)`.
-- `payload`: qualsevol valor que es pugui desar com a JSON (petit).
+- **`payload`: el que l'app rebrà quan l'alarma soni, i no és opcional** (0.190.7, l'amo: *«tota alarma porta un payload que
+  se li dona a l'app quan reb l'alarma»*). Una cadena o un número fins que hi hagi un codificador JSON; una alarma sense
+  payload es refusa amb `E_INVAL`, perquè el payload és **l'única cosa que l'app sabrà del que ha sonat**: quan el ganxo corre
+  la pàgina pot ser una finestra o un `raise` que l'ha oberta de zero, i allà no hi ha cap variable de l'app que ho recordi
+  (docs/60).
 - `repeat`: `nil` (un cop), un número (segons) o `"daily"`.
 - `raise`: si és `true`, quan venç l'app passa a primer pla.
 - `persist`: si és `true`, sobreviu a un reinici. Per defecte `true` si `repeat` hi és.
@@ -1121,8 +1126,10 @@ rellotge de la placa i no de la cua (0.189.149, docs/50, docs/60).
   `{["in"] = 1000}` encara funciona, però el nom bo és `in_ms`, com a `power.sleep`.
 - **I `a.repeat` tampoc no es pot escriure**: el camp que torna `alarm.list()` s'anomena `repeat` i
   és una paraula reservada, o sigui que es llegeix `a["repeat"]`.
-- **El payload és una cadena o un número.** Una taula dona `E_INVAL` fins que hi hagi un codificador
-  JSON; dir-ho és millor que tornar una cosa diferent de la que es va desar.
+- **El payload és una cadena o un número, i sempre n'hi ha d'haver un.** Una taula dona `E_INVAL` fins que hi hagi un
+  codificador JSON; dir-ho és millor que tornar una cosa diferent de la que es va desar. I una alarma sense payload també és
+  `E_INVAL` (0.190.7): és l'única cosa que el ganxo sabrà del que ha sonat, i una alarma que no diu res és un despertar
+  sense feina.
 - **`on_alarm` no pot esperar**: es crida entre dos torns de l'app, quan la coroutine de l'app està
   suspesa, i no des de dins. Una crida a `await` allà dona error.
 - Dins d'una **finestra** (l'app no estava carregada), el que l'app escriu va al prompt del primer

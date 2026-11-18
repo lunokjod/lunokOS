@@ -772,6 +772,19 @@ function build()
   end
   choice_row(3, 'unit', 'Preferred disk', UNITS, function() return index_of(UNITS, (fs.cfg() or {}).unit or '') end,
              function(index) fs.cfg(UNITS[index]) end)
+  -- **On viuen les dades de les apps, que és el disc preferit de dalt** (0.190.8, l'amo: *«perqué es perden les dades d'historic
+  -- de Battery i TimeClock al pujar un firmware nou? … i tinc SD»*): `/data/<id>/` era el flaix sempre i `-t uploadfs` reescriu
+  -- la partició sencera, i ara segueix la mateixa tria que `/cfg` — una sola preferència, perquè dues podrien dir coses
+  -- diferents i perquè la Paper no té DRAM per a dues respostes. Aquesta fila **llegeix el muntatge** i no una porta de `cfg`:
+  -- el que ensenya és on ha quedat de debò, que és el que una persona vol saber abans de flashejar (docs/30, docs/70, docs/80).
+  read_row(3, 'ground', 'Apps data', function()
+    for _, one in ipairs(fs.mounts() or {}) do
+      if one.path == '/data' then
+        return nil, (one.type == 'sd') and 'the card' or 'the flash'
+      end
+    end
+    return nil, 'nowhere'
+  end)
   button_row(3, 'format-nvs', 'Format the store', function() format_volume('/nvs', 'the store') end)
   button_row(3, 'format-flash', 'Format the flash', function() format_volume('/littlefs', 'the flash') end)
   button_row(3, 'format-sd', 'Format the card', function() format_volume('/sd', 'the card') end)

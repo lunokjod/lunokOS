@@ -39,10 +39,10 @@ deixar un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb 
 
 | Muntatge | Backend | Què hi ha |
 |---|---|---|
-| `/littlefs` | partició de dades de la flash | `apps/`, `res/`, `cfg/`, `data/` |
+| `/littlefs` | partició de dades de la flash | `apps/`, `res/`, `fonts/`, `cfg/` i `data/` (**aquest només quan els àlies no apunten a la targeta**: 0.190.8) |
 | `/nvs` | emmagatzematge clau-valor | claus exposades com a fitxers |
 | `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `hexdump /rtc` l'ensenya en hex i en visible, que és el que cal per a un binari. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1: una escriptura atòmica necessita un reanomenament que una memòria no té, i el que fa és escriure al lloc —els bytes al començament i la resta a zero—. **La banda també hi guarda setze bytes seus** (0.178.8): l'última paraula del generador aleatori, en una variable `RTC_NOINIT_ATTR` que no és al fitxer i que cap app no pot llegir ni escriure (docs/50). **I el nucli, quatre** (0.189.180): `LUNK` al començament, que és el que fa que l'arrencada sàpiga si ve d'un reinici o d'una placa que s'ha endollat —aquesta memòria sobreviu a un reinici i mor amb el corrent, i és l'única cosa del sistema que ho pot dir— (docs/60) |
-| `/data` | àlies | escrivible per app: `/data/<id>/` |
+| `/data` | **àlies, i segueix el disc preferit** (0.190.8) | escrivible per app: `/data/<id>/`. **`/data` era el flaix sempre** fins a la 0.190.8, i això volia dir que `pio run -e m5-paper -t uploadfs` —que reescriu la partició littlefs sencera— s'enduia el registre de la bateria, les marques del rellotge, els events de l'agenda i les mostres del temps amb cada firmware. Ara la fila **segueix la mateixa tria que `/cfg`** —`cfg auto\|sd\|littlefs`, la fila *Preferred disk* de la pestanya Disk— on `auto` és **la targeta quan n'hi ha** (`sd/data`) i el flaix quan no (`littlefs/data`), que és el que un flaix no toca. **No és cap preferència nova**: és la que ja hi havia i que només decidia `/cfg`, perquè dues respostes a la mateixa pregunta poden dir coses diferents (i la Paper no té DRAM per a dues: 18/11, `dram0_0_seg` overflowed by 24 bytes). La carpeta es crea al muntatge, com la de `/apps`, `mounts` diu la unitat que ha quedat i `cfg` sense arguments ho diu amb paraules. **El que ja hi ha al flaix no es mou**: passar a la targeta estrena les apps buides i una còpia és cosa d'una persona (la decisió de l'amo del 18/11) |
 | `/session` | **la targeta primer i el flaix quan no n'hi ha** (0.189.8) | **`sd/session`** quan hi ha targeta i **`littlefs/session`** quan no, amb la carpeta creada al muntatge. És on el nucli desa la memòria d'una sessió (`sys.session`) quan l'app que la va demanar s'acaba o quan l'allocator se la queda per falta de memòria: **un fitxer per bloc**, `/session/<id>/<key>`, amb els bytes tal com eren. El nom de la clau es neteja (el que no és lletra, xifra, punt, guió o guió baix passa a `_`, i `.` i `..` es refusen): una clau d'app amb una barra dins seria una carpeta i escriuria sobre el que no toca. Un sol camí i no dos: dues files del mateix prefix són una taula que ningú no pot llegir. `sessions` al prompt diu què hi ha a la memòria (id, clau,
 bytes i si el fitxer hi és). **I el llistat d'una carpeta creix amb ella** (0.189.36): els noms es copien a la pila mentre
 hi caben —vuit— i passat aquest número a la memòria de casa, perquè una carpeta amb vint-i-una sessions es llegeix sencera
@@ -487,7 +487,7 @@ li queda**. Les files d'avui, en l'ordre en què surten:
 | `/littlefs` | **sí** | bytes: el disc de la persona |
 | `/apps` | no | els mateixos bytes, és el mateix disc |
 | `/res` | no | els mateixos bytes |
-| `/data` | **sí** | els mateixos bytes |
+| `/data` | **sí** | els bytes de la unitat on és oberta la porta —la targeta o el flaix—, i el tipus diu quina és (0.190.8) |
 | `/sd` | **sí** | bytes de la targeta: al Paper amb targeta al slot, a l'emulador amb `--sd` i un model amb ranura |
 | `/rtc` | **sí** | bytes: **un sol fitxer** de 7 168 B, la memòria del RTC del xip (docs/50). No té entrades |
 | `/fram` | **sí** | bytes: **un sol fitxer** de 256 B, la FM24C02 del Paper; només hi és si el xip contesta (docs/50) |
@@ -533,9 +533,11 @@ surten **sense cap línia `[E]` de l'IDF**.
 
 L'app pot veure què hi ha muntat, però **l'espai és una pregunta a part**:
 
-- `fs.mounts()` torna `{path, type, writable}` de cada muntatge, sense tocar cap backend. `/apps`,
-  `/res` i `/data` són la **mateixa partició** que `/littlefs` i ho diuen així: tres noms, un disc.
-  `/cfg` és l'única fila que no és un disc sinó una porta, i el `type` diu on és oberta.
+- `fs.mounts()` torna `{path, type, writable}` de cada muntatge, sense tocar cap backend. `/apps` i
+  `/res` són la **mateixa partició** que `/littlefs` i ho diuen així: dos noms, un disc. **`/data` ho
+  és quan no hi ha targeta** (0.190.8): amb una targeta al slot és `sd/data`, i la fila diu `sd`. `/cfg`
+  i `/data` segueixen el disc preferit, i el `type` de la fila diu on han quedat (`cfg` sense arguments ho diu
+  amb paraules, i `mounts` és la resposta de la VFS).
 - `fs.space(path)` pregunta l'espai i **camina pel sistema de fitxers**: és la que costa (la mesura
   que va fer baixar l'escriptura de 247 a 83 ms va ser treure-la del camí feliç). No informa de res
   quan el backend no ho sap: `nil` i `E_UNSUPPORTED`, que no és el mateix que «no queda espai».

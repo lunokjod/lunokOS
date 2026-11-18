@@ -20,6 +20,13 @@ uint32_t init(hal::IPlatform& platform);
 // (docs/70). A null storage takes the row away.
 void set_cfg_storage(hal::IStorage* storage, const char* kind);
 
+// **I `/data`, que és el terra de les apps, es mou de la mateixa manera** (0.190.8, l'amo: *«perqué es perden les dades
+// d'historic de Battery i TimeClock al pujar un firmware nou? … se suposa que a settings i cfg es pot escollir la unitat per
+// defecte i tinc SD»*): `/data/<id>/` era el flaix sempre, i `-t uploadfs` reescriu la partició sencera, o sigui que cada
+// firmwar nou s'enduia el registre de la bateria i les marques del rellotge. Amb això la fila es pot moure a la targeta, que
+// un flaix no toca. Igual que `/cfg`: la porta i no el disc, i `nullptr` la treu (docs/30, docs/70).
+void set_data_storage(hal::IStorage* storage, const char* kind);
+
 uint32_t mount_count();
 const char* mount_path(uint32_t index);
 // **The prefix inside the backend** ("" or "apps"): `/littlefs` is a whole volume and `/apps` is a folder of it, and the

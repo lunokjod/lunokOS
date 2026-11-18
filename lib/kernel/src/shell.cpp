@@ -107,6 +107,10 @@ const size_t kSourceCap = 98304;
 // still 39 % of it and the system keeps 208 KB. The Paper is untouched: it says its own ceiling (4 MB of
 // PSRAM) and never reaches this line (docs/75, docs/85).
 const size_t kDefaultHeapBytes = 128 * 1024;  // used until the board ceiling is measured
+// **Els torns que es donen a una pàgina pujada per una alarma abans de dir-li què ha sonat** (0.190.7): they are turns
+// until the app waits on a timer —one or two for every page of this tree— and the ceiling is for a page that never
+// settles, which must not stop a start (docs/30, docs/60).
+const uint8_t kSettlingTurns = 12;
 // A word of a command line is 127 bytes at most, and a path with spaces goes between quotes:
 // `cat "res/el meu fitxer.txt"`. There is no escaping, because a quote is a quote and nothing in a file
 // system of this size needs more.
@@ -582,7 +586,8 @@ void print_help(const char* only) {
   help_line("  panel [edge|box]  where a partial paint starts: the edge of the image or the change", only);
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
   help_continuation(
-      "                    lives, the keyboard, the picture of the boot and the app that comes up with the board;", only);
+      "                    lives (and `/data`, which a flash does not keep), the keyboard, the picture of the boot and", only);
+  help_continuation("                    the app that comes up with the board;", only);
   help_continuation(
       "                    `cfg tz [<offset>]`, `cfg leap [on|off]`, `cfg dst [on|off]`, `cfg week [monday|sunday]` and", only);
   help_continuation("                    `cfg sort [on|off]`, whether the launcher draws the apps by how many times they",
@@ -1686,7 +1691,8 @@ bool g_run_wanted_back = false;
 // machine is built further down and the text has to be there when it is (docs/30, docs/40).
 static char g_switches_of_this_start[48] = {0};
 
-bool run_app(const char* id, const char* open_path, bool restore = false, bool splash = true) {
+bool run_app(const char* id, const char* open_path, bool restore = false, bool splash = true,
+             const alarms::Entry* alarm = nullptr, int64_t late_ms = 0) {
   // **A start needs the interpreter, and the one in front still has it** (0.166.3): `luabind::start` answers no while a
   // state is alive —`if (g_state != nullptr) return false`—, so `run <id>` asked for while an app was in front said
   // `cannot start the interpreter` **for every app of the disk**, which a person reads as a name that does not resolve
@@ -1940,6 +1946,31 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   }
   // The light says nothing about an app being in front: it is on the console, and a
   // light that is on costs milliamps (docs/30, docs/75).
+  //
+  // **I el que ha fet pujar l'app se li diu quan la pàgina és dempeus** (0.190.7): a raise is a window that stays —the same
+  // entry, the same hook, the same `meta`— and the only difference is that the machine is not thrown away when the hook
+  // returns.
+  //
+  // **Però no al primer torn**: el primer torn corre el bloc fins al primer `await`, que pot ser al mig del `build()`
+  // —l'`Agenda` i el `Clock` en tenen—, i un ganxo que hi arriba escriu en una pàgina que encara no ha acabat de fer-se i
+  // després el propi bloc li esborra la bandera: vist a l'emulador el 18/11, el rellotge pujat per una alarma ensenyava
+  // l'esfera. El que s'espera és el que el sistema ja sap d'una app que és al davant: **que esperi un temporitzador**, o
+  // sigui que el seu bucle ha demanat el torn següent. `until_next_ms() > 0` és exactament això; el sostre de torns és per
+  // a una pàgina que no s'atura mai, que no ha de penjar l'arrencada (docs/30, docs/60).
+  if (alarm != nullptr && g_app_alive) {
+    for (uint8_t turn = 0; turn < kSettlingTurns; ++turn) {
+      const int32_t wait = luabind::until_next_ms();
+      if (wait > 0) break;
+      if (!luabind::poll()) break;
+    }
+    if (!g_app_alive) return true;
+    if (!luabind::call_alarm(*alarm, late_ms)) {
+      log_printf(pal::kLogWarn, "ALARM", "%u for %s: the app has no on_alarm", static_cast<unsigned>(alarm->id), id);
+    } else {
+      log_printf(pal::kLogInfo, "ALARM", "%u told to %s in the page it raised (%lld ms late)",
+                 static_cast<unsigned>(alarm->id), id, static_cast<long long>(late_ms));
+    }
+  }
   return true;
 }
 
@@ -4165,9 +4196,9 @@ bool restore_app(const char* id, const char* path) { return run_app(id, path, tr
 
 bool start_app(const char* id, bool splash) { return run_app(id, nullptr, false, splash); }
 
-bool raise_app(const char* id) {
+bool raise_app(const char* id, const alarms::Entry* alarm, int64_t late_ms) {
   close_app();
-  return run_app(id, nullptr, false, true);
+  return run_app(id, nullptr, false, true, alarm, late_ms);
 }
 
 // A window of an alarm (docs/60): the app is loaded for one call and thrown
@@ -5170,6 +5201,11 @@ bool command_cfg(const char* argument) {
   out(" (asked for ");
   out(cfg::preference());
   out(")\r\n");
+  // **I el terra de les apps, que és aquesta mateixa tria** (0.190.8): one setting and one line, because two rows for the same
+  // question are two answers that can disagree —and a flash is where the data of the apps is lost— (docs/30, docs/70).
+  out("  the data of the apps: ");
+  out((cfg::unit()[0] != '\0') ? (strcmp(cfg::unit(), "sd") == 0 ? "the card (/sd/data)\r\n" : "the flash (/littlefs/data)\r\n")
+                                : "nowhere\r\n");
   out("  keyboard: ");
   out(ui::keyboard_current());
   newline();

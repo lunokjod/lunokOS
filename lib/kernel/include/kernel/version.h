@@ -10091,7 +10091,31 @@ namespace kernel {
 // **I el commutador és a la pestanya Battery i no a System** (0.190.6, l'amo: *«has posat l'opció a Settings->Battery ?»*): a switch of
 // the board's power lives with what the battery knows, que és on una persona mira què fa la placa amb la seva càrrega, i no amb les tres
 // apps que el sistema obre. El bloc de la pàgina puja a `v2` perquè la parella que hi havia desada —pestanya i cercle— ja no existeix.
-static const char kVersion[] = "0.190.6";
+// **Una alarma amb `raise` diu a l'app què ha sonat, i tota alarma porta un payload** (0.190.7, l'amo: *«tota alarma porta un
+// payload que se li dona a l'app quan reb l'alarma»*). El camí de `raise` cridava `raise_app` i prou: l'app arrencava com una
+// pàgina nova i el seu `on_alarm` no corria mai, o sigui que les dues alarmes d'aquest arbre que demanen `raise` —la diària del
+// `Clock` i l'avís de l'`Agenda`— no podien dir que havien sonat. Ara l'entrada viatja amb l'arrencada i el ganxo es crida
+// amb el mateix `payload` i el mateix `meta` que en una finestra, i **quan la pàgina és dempeus**: al primer torn no, perquè
+// el bloc encara és al mig del `build()` i el rellotge pujat per una alarma ensenyava l'esfera en comptes de l'hora que
+// sonava —el que s'espera és que l'app esperi el seu temporitzador, o sigui que el seu bucle hagi demanat el torn següent—.
+// El registre ho diu (`4 told to zzraise in the page it raised`) i el `Clock` i l'`Agenda` llegeixen el payload per saber
+// què ha sonat, perquè una pàgina pujada no té cap variable seva que ho recordi.
+// Per això **el payload deixa de ser opcional**: `alarm.at` i `alarm.after` el refusen amb `E_INVAL` si no hi és. El que
+// docs/60 deia de l'apartada —«l'app de l'alarma es queda amb la VM de la finestra»— era el disseny del projecte del paper i el
+// codi no l'ha fet mai: ara el text diu el que passa (docs/30, docs/45, docs/60).
+//
+// **I les dades de les apps viuen amb el disc preferit** (0.190.8, l'amo: *«perqué es perden les dades d'historic de Battery i
+// TimeClock al pujar un firmware nou? les dades no es guarden a l'SD ? … He perdut totes les dades d'avui»*). `/data/<id>/` era
+// **el flaix sempre** —`vfs::init` el muntava sobre littlefs i prou—, o sigui que `pio run -t uploadfs`, que reescriu la partició
+// littlefs sencera des de `build/disk/<entorn>`, s'enduia amb cada firmware el registre de la bateria, les marques del rellotge,
+// els events de l'agenda i les mostres del temps: el `data/` d'aquella imatge és el del sistema i no el de la placa. Ara `/data`
+// **segueix la tria que ja hi era** —`cfg auto|sd|littlefs`, el «disc preferit» de la pestanya Disk— i amb `auto`, que és el de
+// sèrie, la targeta mana quan n'hi ha, o sigui que el registre sobreviu a un flaix. **No és cap preferència nova**: dues respostes
+// a la mateixa pregunta poden dir coses diferents, i la Paper no té DRAM per a dues (l'enllaç ho va dir amb un número:
+// `region dram0_0_seg overflowed by 24 bytes` amb el `cfg data` que hi havia abans). `mounts` diu la unitat de la fila `/data`,
+// `cfg` sense arguments ho diu amb paraules, i el que ja hi ha al flaix no es mou: passar a la targeta estrena les apps buides i
+// una còpia és cosa d'una persona (la decisió de l'amo del 18/11) (docs/30, docs/70, docs/80).
+static const char kVersion[] = "0.190.8";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

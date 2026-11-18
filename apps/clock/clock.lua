@@ -1262,6 +1262,27 @@ function on_alarm(id, payload, meta)
     end
     fired = { when = (when_text ~= '') and when_text or 'Alarm', note = note }
     out_of_place = true
+    return
+  end
+  -- **I el que ve d'un `raise` no té cap id amb qui comparar-se** (0.190.7): a page that was raised is a fresh start, o sigui
+  -- que `armed` i `armedTimer` són zero i l'única cosa que diu què ha sonat és el payload —el text de la fila tal com es va
+  -- armar, o `timer`—. Sense això un despertador que sona amb el rellotge tancat obre el rellotge i no diu que ha sonat, que és
+  -- el que passava des que el `raise` existeix (docs/30, docs/60).
+  if fired == nil and type(payload) == 'string' and payload ~= '' then
+    if payload == 'timer' then
+      fired = { when = 'Time is up', note = 'The countdown has finished.' }
+    else
+      local note = 'It is time.'
+      for _, one in ipairs(alarms) do
+        local text, said = row_text(one)
+        if text == payload then
+          note = (said ~= '') and said or 'It is time.'
+          break
+        end
+      end
+      fired = { when = payload, note = note }
+    end
+    out_of_place = true
   end
 end
 
@@ -1330,7 +1351,10 @@ arm_next()
 if shape.focus ~= nil and named[shape.focus] ~= nil then ui.focus(named[shape.focus]) end
 
 -- **Una alarma és del sistema i la seva crida és entre dos torns**: el que ha sonat es deixa dit i el bucle fa la feina.
-out_of_place = false
+-- **I no s'esborra el que el ganxo pot haver deixat** (0.190.7): una pàgina pujada per una alarma rep el ganxo just després
+-- d'aquestes línies i, si aquí es posés la bandera a fals, la pantalla de l'alarma no es pintaria mai. Es neteja només quan no
+-- hi ha res a ensenyar.
+if fired == nil then out_of_place = false end
 
 while true do
   -- **El desig d'un control**, que és el que ha demanat el dit o el dial al torn anterior.

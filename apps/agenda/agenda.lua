@@ -221,8 +221,9 @@ local events_ = {}
 local bad_ = 0
 local problem_ = ''
 local armed_ = 0
+local armedAt_ = nil    -- the occurrence the alarm will ring at, `{ y, mo, d }`, and not the event's first day
 local why_ = ''
-local reminded_ = 0
+local remindAt_ = nil   -- the occurrence that rang, while the turn that opens it has not come
 local dayRows_ = {}
 
 -- The controls of the screen that is on the glass, so `paint()` can say their words again.
@@ -345,13 +346,16 @@ end
 local function remind_text()
   if armed_ > 0 then
     local e = events_[armed_]
-    if e ~= nil and e.h ~= nil then
-      local text = string.format('Reminder: %s %02d:%02d', date_text(e.y, e.mo, e.d, kSmall, false), e.h, e.m)
+    -- **I la data que es diu és la de l'ocurrència i no la de la primera vegada**: un event que es repeteix cada setmana sona
+    -- el dia que toca, i la línia ha de dir aquest dia (0.190.7, docs/30).
+    local at = armedAt_ or e
+    if e ~= nil and e.h ~= nil and at ~= nil then
+      local text = string.format('Reminder: %s %02d:%02d', date_text(at.y, at.mo, at.d, kSmall, false), e.h, e.m)
       if ui.text_width(text, kSmall) <= wid - 2 * MARGIN then return text end
       -- **El nom del dia es queda i el mes es fa curt** si cal: what a reminder needs is the day, and the month is the one a
       -- person is looking at.
-      return string.format('Reminder: %s %d %s %02d:%02d', DAY_SHORT[(agenda.weekdayOf(e.y, e.mo, e.d) or 0) + 1] or '?',
-                           e.d, MONTH_SHORT[e.mo] or '?', e.h, e.m)
+      return string.format('Reminder: %s %d %s %02d:%02d', DAY_SHORT[(agenda.weekdayOf(at.y, at.mo, at.d) or 0) + 1] or '?',
+                           at.d, MONTH_SHORT[at.mo] or '?', e.h, e.m)
     end
   end
 
@@ -462,16 +466,31 @@ end
 local function arm_next()
   cancel_mine()
 
-  armed_, why_ = 0, ''
+  armed_, armedAt_, why_ = 0, nil, ''
 
   local best, ms, far = agenda.soonest(events_, time.date())
 
   if best ~= nil and ms ~= nil then
+    -- **El payload diu QUINA ocurrència i no el mot «remind»** (0.190.7): un `raise` obre la pàgina de zero, o sigui que el
+    -- ganxo es troba `armed_` a zero i l'única cosa que sap del que ha sonat és el que l'alarma porta a dins. Amb la data, el
+    -- ganxo obre el dia que ha sonat encara que la pàgina s'hagi construït fa un moment (docs/30, docs/60).
+    -- **`time.date` diu els noms de la seva taula** (`year`, `month`, `day`) i l'event diu els seus (`y`, `mo`, `d`): es
+    -- normalitzen aquí perquè la resta del fitxer només en conegui un, i un `day.y` sobre la taula del rellotge és un `nil`
+    -- que peta al `format` (trobat a l'emulador, 18/11).
+    local at = nil
+    local now = time.now()
+    if now ~= nil and now > 0 then
+      local t = time.date(now + math.floor(ms / 1000))
+      if t ~= nil and t.year ~= nil and t.year > 0 then at = { y = t.year, mo = t.month, d = t.day } end
+    end
+    local day = at or events_[best]
+    local payload = string.format('%04d-%02d-%02d', day.y, day.mo, day.d)
+
     -- **`raise` perquè l'avís arribi**: una promesa que obre la pàgina és l'única manera que aquest sistema té d'ensenyar una
     -- cosa a l'hora dita; sense això l'avís només passaria per una finestra que ningú veu (docs/30, docs/60).
-    local ok = pcall(alarm.at, { in_ms = math.floor(ms), payload = 'remind', raise = true, persist = true })
+    local ok = pcall(alarm.at, { in_ms = math.floor(ms), payload = payload, raise = true, persist = true })
     if ok then
-      armed_ = best
+      armed_, armedAt_ = best, { y = day.y, mo = day.mo, d = day.d }
     else
       why_ = 'the system did not take the alarm'
     end
@@ -1157,11 +1176,22 @@ end
 
 --- **Una promesa crida aquest ganxo hi hagi pàgina o no** (0.189.145): it cannot wait and it cannot paint a page that may not
 -- exist. It says which event rang and arms the next one, and the turn of the page opens that day.
+--
+-- **I el que ha sonat es llegeix del payload i no de `armed_`** (0.190.7): una alarma amb `raise` obre la pàgina de zero —el
+-- bloc d'adalt només corre fins al guarda— i quan el ganxo arriba `armed_` és el pròxim event i no el que ha sonat. El payload
+-- porta el dia de l'ocurrència, que és l'única cosa que sobreviu al fet de néixer la pàgina fa un moment (docs/30, docs/60).
 function on_alarm(id, payload, meta)
-  local mine = (payload == 'remind') or (meta ~= nil and meta.missed ~= nil)
-  if not mine then return end
+  local text = tostring(payload or '')
+  local y, mo, d = text:match('^(%d%d%d%d)-(%d%d)-(%d%d)$')
+  if y == nil and text ~= 'remind' and (meta == nil or meta.missed == nil) then return end
 
-  if payload == 'remind' then reminded_ = armed_ end
+  if y ~= nil then
+    remindAt_ = { y = tonumber(y), mo = tonumber(mo), d = tonumber(d) }
+  else
+    -- **L'alarma d'una versió anterior porta el mot i no la data**: es queda amb el que l'app sap, que és el pròxim event.
+    local e = events_[armed_]
+    if e ~= nil then remindAt_ = { y = e.y, mo = e.mo, d = e.d } end
+  end
   reload_all()
   arm_next()
 end
@@ -1262,14 +1292,14 @@ else
   open_month(seenY_, seenMo_)
 end
 
--- **El dia que ha sonat s'obre sol**: the hook has left the line of the event and the turn of the page does the rest.
+-- **El dia que ha sonat s'obre sol**: the hook has left the day and the turn of the page does the rest. **I és el dia de
+-- l'ocurrència, no el de la primera vegada**: un event que torna cada setmana sona el dia que toca (0.190.7, docs/30).
 local function open_reminded()
-  if reminded_ <= 0 then return end
-  local e = events_[reminded_]
-  reminded_ = 0
-  if e == nil then return end
-  seenY_, seenMo_ = e.y, e.mo
-  open_day(e.d)
+  if remindAt_ == nil then return end
+  local at = remindAt_
+  remindAt_ = nil
+  seenY_, seenMo_, day_ = at.y, at.mo, at.d
+  open_day(at.d)
 end
 
 local was_wid, was_hei = wid, hei

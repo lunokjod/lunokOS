@@ -130,7 +130,13 @@ bool deep_sleep(const char* reason);
 
 // The app of the alarm goes to the front: what was in front is closed and this
 // app is started in its place (docs/60).
-bool raise_app(const char* id);
+//
+// **I el que l'ha fet pujar li és dit** (0.190.7, l'amo: *«les alarmes de les apps es multipliquen»* va destapar que un
+// `raise` no deia res a l'app). A raise is a window that stays, so the entry the alarm carried reaches the app's `on_alarm`
+// exactly as it does in a window: the page is a fresh start and the hook is called after its first turn (docs/30, docs/60).
+// Without it the two alarms of this tree that ask for `raise` —the clock's and the agenda's— could never say that they had
+// rung, because the hook is the only door an alarm has and it never ran (docs/60).
+bool raise_app(const char* id, const alarms::Entry* alarm = nullptr, int64_t late_ms = 0);
 
 // **An app asks for another one** (0.153.0): what `app.run` does from Lua, and the switch happens after the turn —the app
 // in front goes away with its goodbye hooks and the one asked for comes up in its place—, because the app that asked is

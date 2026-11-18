@@ -367,10 +367,11 @@ void deliver_alarms() {
                  static_cast<unsigned>(entry.id), entry.app);
     } else if (!owner_running && entry.raise_to_front) {
       // raise: the app of the alarm takes the foreground, and whatever was in
-      // front of it is closed first (docs/60).
+      // front of it is closed first (docs/60). **I se li diu què ha sonat**: the entry goes with the start, so the app's
+      // `on_alarm` runs with the payload and the `meta` the window would have given it (0.190.7, docs/30, docs/60).
       log_printf(pal::kLogInfo, "ALARM", "%u raises %s", static_cast<unsigned>(entry.id),
                  entry.app);
-      shell::raise_app(entry.app);
+      shell::raise_app(entry.app, &entry, late);
       // **I el que s'havia apartat no torna**: el vidre és de l'app que ha pujat (docs/60).
       parked[0] = '\0';
     } else if (!owner_running) {

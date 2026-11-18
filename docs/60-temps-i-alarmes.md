@@ -110,13 +110,14 @@ quan una persona la vol mirar, amb una línia que només el prompt pot donar per
 
 ```json
 { "id": 7, "app": "epub", "on": 1767225600, "repeat": "daily",
-  "raise": false, "persist": true, "payload": {"page": 12}, "missed": 0 }
+  "raise": false, "persist": true, "payload": "page 12", "missed": 0 }
 ```
 
 Es desa a NVS (espai `alarms`) quan `persist` és cert. Les alarmes **no porten codi**: ni funcions,
 ni noms de funcions. Quan venç una alarma de l'app X, el sistema carrega X i crida
-`on_alarm(id, payload, meta)`. Això és el que permet que una alarma sobrevisqui a un reinici i a la
-mort de la VM.
+`on_alarm(id, payload, meta)`. **El `payload` no és opcional**: és el que l'app rep del que ha sonat, i una alarma sense
+cap és una que desvetlla la placa sense dir res (0.190.7, docs/30). Això és el que permet que una alarma sobrevisqui a un
+reinici i a la mort de la VM.
 
 Límit: `alarm.caps().max` alarmes vives alhora (valor a fixar quan es mesuri l'espai de NVS).
 
@@ -161,6 +162,13 @@ El preu és **un desament de `state` (1 kB) i un repintat de la pàgina** per ca
 escriure perquè no ha canviat (`does not park: the bytes on the disk are the ones it has`). Una app que no és un llançador
 també s'aparta —l'`agenda` torna al mes amb la seva forma—, perquè «quan toca» és quan toca per a totes.
 
+**I aquest preu es paga per finestra, o sigui que la freqüència és la meitat del número** (0.190.7, comptat): les dues alarmes
+de fons d'aquest arbre repeteixen cada deu minuts cadascuna —la `battery` i la `meteo`, 600 s les dues— i no estan alineades,
+o sigui que **una pàgina que no és de l'amo de l'alarma es repinta unes dotze vegades l'hora** mentre la persona la fa servir
+(llegint, per exemple). Amb la placa adormida no es paga res: el despert lliura la cua amb el vidre buit i no aparta ningú. Si
+un dia el repintat fa nosa, el que s'ha de moure és el pas d'aquestes alarmes de fons o el fet d'apartar una pàgina que algú
+està mirant; el que no s'ha de fer és treure l'apartada, que és el que va fer que les mostres existissin.
+
 Dins de la finestra: `console.is_foreground()` és `false` i escriure a la consola no fa res (queda al
 log). **Cap crida no dona `E_NOTFOREGROUND`**: el codi no el produeix enlloc i la taula d'errors de
 `docs/30` el té marcat com a reservat.
@@ -183,11 +191,28 @@ El bucle només repinta el que el ganxo ha escrit, i el ganxo no hi és per pint
 
 ### Pujar al davant
 
-Si l'alarma porta `raise = true`, llavors, en comptes de tancar-se:
+Si l'alarma porta `raise = true`, llavors, en comptes d'una finestra que es tanca:
 
-1. L'app de primer pla es tanca net: `on_pause()`, `on_save()`, `on_close()`.
-2. L'app de l'alarma **es queda** com la de primer pla, amb la VM que s'estava fent servir a la
-   finestra.
+1. L'app de primer pla es tanca net: `on_pause()`, `on_save()`, `on_close()`, i la seva sessió al disc.
+2. L'app de l'alarma arrenca **com una pàgina de debò** (`raise_app` → `run_app`), o sigui amb el seu `state` —el d'una
+   pàgina que ve d'un son, perquè el bloc és al disc— i sense cap relació amb la VM de cap finestra: **la finestra no hi
+   intervé**.
+3. I **se li diu què ha sonat**: després del primer torn de la pàgina, `on_alarm(id, payload, meta)` es crida amb la mateixa
+   entrada i el mateix `meta.late_ms` que hauria rebut en una finestra (0.190.7).
+
+**El punt 3 és el que faltava, i el text que hi havia aquí deia una cosa que el codi no ha fet mai** (l'havia escrit el
+projecte del paper: *«amb la VM que s'estava fent servir a la finestra»*, i la finestra destrueix la seva VM tot seguit). Sense
+aquest fil, una alarma amb `raise` és una alarma que **no diu res a l'app**: el ganxo no corria, la pàgina arrencava de zero i
+`armed`/`reminded_`/`fired` —el que el ganxo hauria escrit— no hi era. El registre ho diu ara amb una línia:
+
+```
+[I][ALARM] 4 raises zzraise
+[I][ALARM] 4 told to zzraise in the page it raised (1 ms late)
+```
+
+I per això **el payload és obligatori** (0.190.7, l'amo: *«tota alarma porta un payload que se li dona a l'app quan reb
+l'alarma»*): en una finestra i en un `raise` l'app no té cap estat propi que recordi què passava, i el payload és l'única
+cosa que li arriba. Un `alarm.at` sense `payload` es refusa amb `E_INVAL` (docs/30).
 
 ## Alarmes perdudes
 

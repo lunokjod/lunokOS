@@ -417,6 +417,27 @@ const char* mount_sub(uint32_t index) {
   return (g_mounts[index].rel != nullptr) ? g_mounts[index].rel : "";
 }
 
+// **La fila de `/data`, que es mou com la de `/cfg`** (0.190.8): the ground of every app is `/data/<id>/`, and where that
+// folder lives is a choice of the person —the flash, which a `-t uploadfs` rewrites whole, or the card, which it does not
+// touch—. It is the same shape as `set_cfg_storage` on purpose: a door of the mount table and not a second table.
+void set_data_storage(hal::IStorage* storage, const char* kind) {
+  static const char kPath[] = "/data";
+  for (uint32_t i = 0; i < g_count; ++i) {
+    if (strcmp(g_mounts[i].path, kPath) != 0) continue;
+    if (storage == nullptr) {
+      for (uint32_t j = i + 1; j < g_count; ++j) g_mounts[j - 1] = g_mounts[j];
+      --g_count;
+      if (i < g_count) g_mounts[g_count] = Mount();
+      return;
+    }
+    g_mounts[i].kind = (kind != nullptr) ? kind : "";
+    g_mounts[i].storage = storage;
+    g_mounts[i].writable = true;
+    return;
+  }
+  if (storage != nullptr) add(kPath, "data", (kind != nullptr) ? kind : "", storage, true);
+}
+
 void set_cfg_storage(hal::IStorage* storage, const char* kind) {
   static const char kPath[] = "/cfg";
   for (uint32_t i = 0; i < g_count; ++i) {

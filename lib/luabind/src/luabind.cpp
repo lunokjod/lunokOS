@@ -1316,6 +1316,11 @@ int64_t alarm_mono_now() {
 const char* alarm_owner() { return g_app_id; }
 
 // A payload is a string or a number until there is a JSON encoder (docs/30).
+//
+// **I tota alarma en porta un** (0.190.7, l'amo: *«tota alarma porta un payload que se li dona a l'app quan reb l'alarma»*):
+// el payload és l'única cosa que l'app sabrà del que ha sonat quan el ganxo corri —una finestra i un `raise` obren la pàgina de
+// zero i no hi ha cap estat propi que ho recordi—, o sigui que una alarma que no en porta no és una alarma sinó un despertar
+// sense res a dir, i es refusa aquí amb una frase que diu què hi falta (docs/30, docs/60).
 bool read_payload(lua_State* L, int idx, alarms::Spec& spec, char* store, size_t cap) {
   idx = lua_absindex(L, idx);
   if (lua_isnoneornil(L, idx)) {
@@ -1452,6 +1457,9 @@ int l_alarm_at(lua_State* L) {
   if (!payload_ok) {
     return raise_coded(L, "E_INVAL", "the payload of an alarm is a string or a number");
   }
+  if (spec.payload_kind == alarms::Payload::kNone) {
+    return raise_coded(L, "E_INVAL", "an alarm carries a payload: it is what the app is told when it rings");
+  }
 
   // **La promesa que ja hi és es diu i no es torna a armar**: the app decides what to do with the answer (docs/30).
   const int answered = answer_the_same_alarm(L, spec);
@@ -1482,6 +1490,9 @@ int l_alarm_after(lua_State* L) {
   char store[alarms::kPayloadBytes];
   if (!read_payload(L, 2, spec, store, sizeof(store))) {
     return raise_coded(L, "E_INVAL", "the payload of an alarm is a string or a number");
+  }
+  if (spec.payload_kind == alarms::Payload::kNone) {
+    return raise_coded(L, "E_INVAL", "an alarm carries a payload: it is what the app is told when it rings");
   }
 
   // **La promesa que ja hi és es diu i no es torna a armar**: the app decides what to do with the answer (docs/30).
@@ -13070,27 +13081,63 @@ void seal_globals(lua_State* L) {
 }
 
 // **L'últim error, copiat** (0.189.162): the text the console gets, kept for the page the system paints when an app stops. The
-// buffer is one and the errors are one at a time —the machine that said it is destroyed right after—, and it is cleared at every
+// text is one and the errors are one at a time —the machine that said it is destroyed right after—, and it is cleared at every
 // start so a page of an error never shows the mistake of the app before (docs/30, docs/50).
 //
-// **Són 512 B i no més perquè el Paper va dir que no**: `dram0_0_seg overflowed by 128 bytes` with the 640 that it was born with,
-// and a message and a traceback that do not fit are said by the page with its three dots (docs/30, docs/75).
-char g_last_error[512] = {0};
+// **I el text és demanat, no estàtic** (0.190.8, l'amo: *«has fet moltes parts estàtiques, llistes i limitacions enlloc d'usar
+// psram… VULL QUE LA MEMORIA SIGUI EL MÉS DINÀMICA POSSIBLE A TOT ARREU»*): the 512 bytes this was born with were 512 bytes of
+// `dram0_0_seg` —the Paper said so with `overflowed by 128 bytes` when it was 640— and the buffer is now a block that is asked
+// for **the first time an app fails** and grows while a message and a traceback do not fit, in the extra memory when the board
+// has one and in the heap when it does not (`IExtraMemory::allocate`, docs/75). Between two errors the block is given back, o
+// sigui que una placa que no ha fallat no paga res (docs/30, docs/75).
+char* g_last_error = nullptr;
 size_t g_last_error_len = 0;
+size_t g_last_error_cap = 0;
+
+// **El sostre d'un traceback** (0.190.8): a page of an error shows a dozen lines and the ones that matter are the first; a
+// message that asks for more than this is cut, which is what a fixed buffer did to every message (docs/30, docs/50).
+const size_t kLastErrorCap = 2048;
+
+bool room_for_the_error(size_t need) {
+  if (need + 1 <= g_last_error_cap) return true;
+  size_t cap = (g_last_error_cap == 0) ? 128 : g_last_error_cap;
+  while (cap < need + 1 && cap < kLastErrorCap) cap *= 2;
+  if (cap > kLastErrorCap) cap = kLastErrorCap;
+  void* block = (g_last_error == nullptr) ? pal::extra_memory().allocate(cap, /*prefer_extra=*/true)
+                                          : pal::extra_memory().resize(g_last_error, cap, /*prefer_extra=*/true);
+  if (block == nullptr) return false;  // a board with no room keeps what fits, and says so with its three dots
+  g_last_error = static_cast<char*>(block);
+  g_last_error_cap = cap;
+  return need + 1 <= g_last_error_cap;
+}
 
 void note_the_error(const char* text, size_t len) {
   if (text == nullptr || len == 0) return;
-  if (g_last_error_len > 0 && g_last_error[g_last_error_len - 1] != '\n' &&
-      g_last_error_len + 1 < sizeof(g_last_error)) {
-    g_last_error[g_last_error_len++] = '\n';
-    g_last_error[g_last_error_len] = '\0';
+  const bool needs_a_break = g_last_error_len > 0 && g_last_error[g_last_error_len - 1] != '\n';
+  const size_t asked = g_last_error_len + (needs_a_break ? 1 : 0) + len;
+  if (!room_for_the_error(asked)) {
+    // The block is smaller than what the error wants: the message is cut where the memory ends.
+    if (g_last_error_cap == 0) return;
+    const size_t fits = g_last_error_cap - 1 - g_last_error_len - (needs_a_break ? 1 : 0);
+    if (fits == 0) return;
+    len = (len > fits) ? fits : len;
+  } else if (g_last_error_len == 0 && g_last_error != nullptr) {
+    g_last_error[0] = '\0';
   }
-  const size_t room = sizeof(g_last_error) - 1 - g_last_error_len;
-  if (room == 0) return;
-  if (len > room) len = room;
+  if (needs_a_break) g_last_error[g_last_error_len++] = '\n';
   memcpy(g_last_error + g_last_error_len, text, len);
   g_last_error_len += len;
   g_last_error[g_last_error_len] = '\0';
+}
+
+// **I el bloc es torna quan l'app comença** (0.190.8): the page of an error asks for the text once, and a board that has not
+// failed keeps no bytes for a buffer that says nothing (docs/30, docs/75).
+void forget_the_error() {
+  g_last_error_len = 0;
+  if (g_last_error == nullptr) return;
+  pal::extra_memory().release(g_last_error);
+  g_last_error = nullptr;
+  g_last_error_cap = 0;
 }
 
 // Prints whatever an app threw: a string, or a {code, message} table.
@@ -13542,7 +13589,7 @@ bool running() { return g_state != nullptr; }
 // **L'últim error que el intèrpret ha dit** (0.189.162): the message and the traceback, kept for the page the system puts on the
 // glass when an app stops. The buffer is filled where the console gets the words (`print_error_value` and the traceback of a
 // task) so the page and the log never say two different things (docs/30, docs/50).
-const char* last_error_text() { return g_last_error; }
+const char* last_error_text() { return (g_last_error != nullptr) ? g_last_error : ""; }
 
 namespace {
 
@@ -16388,9 +16435,9 @@ bool run_source(const char* name, const char* source, size_t len) {
   }
 
   g_failed = false;  // how this app ends is what failed() will answer
-  // **I el perquè de l'app d'abans no és el d'aquesta** (0.189.162).
-  g_last_error[0] = '\0';
-  g_last_error_len = 0;
+  // **I el perquè de l'app d'abans no és el d'aquesta** (0.189.162), i el bloc del text torna quan l'app comença (0.190.8):
+  // una placa que no ha fallat no paga els bytes d'una pàgina d'error (docs/30, docs/75).
+  forget_the_error();
   g_exit_code = 0;
   g_exited_by_app = false;
 

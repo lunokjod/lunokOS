@@ -282,6 +282,22 @@ void apply() {
   }
   hal::IStorage* storage = same(g_unit, "sd") ? g_card : g_flash;
   vfs::set_cfg_storage((g_unit[0] != '\0') ? storage : nullptr, g_unit);
+  // **I el terra de les apps, que és la mateixa tria** (0.190.8, l'amo: *«perqué es perden les dades d'historic de Battery i
+  // TimeClock al pujar un firmware nou? les dades no es guarden a l'SD ? … He perdut totes les dades d'avui»*): `/data/<id>/`
+  // era el flaix sempre —`vfs::init` el muntava sobre littlefs i prou—, o sigui que `pio run -t uploadfs`, que reescriu la
+  // partició littlefs sencera des de `build/disk/<entorn>`, s'enduia amb cada firmware el registre de la bateria, les marques
+  // del rellotge, els events de l'agenda i les mostres del temps. Amb la targeta triada —o amb `auto`, que és la targeta quan
+  // n'hi ha— `/data` és a la targeta, i això un flaix no ho toca (docs/30, docs/70, docs/80).
+  //
+  // **No és un ajust nou**: és el «disc preferit» que ja hi era (`cfg auto|sd|littlefs`, la fila *Preferred disk* de la
+  // pestanya Disk) i que decidia només `/cfg`. Una segona preferència per a la mateixa pregunta seria dues portes que poden
+  // dir coses diferents i vint bytes de DRAM que la Paper no té (mesurat el 18/11: `dram0_0_seg` overflowed by 24 bytes).
+  if (g_unit[0] != '\0' && storage != nullptr) {
+    storage->mkdir("data");
+    vfs::set_data_storage(storage, g_unit);
+    log_printf(pal::kLogInfo, "CFG", "the ground of the apps is the %s (/data is %s/data)",
+               same(g_unit, "sd") ? "card" : "flash", same(g_unit, "sd") ? "/sd" : "/littlefs");
+  }
 }
 
 }  // namespace
@@ -319,7 +335,6 @@ void boot(hal::IPlatform& platform) {
       snprintf(g_preference, sizeof(g_preference), "%s", raw);
     }
   }
-
   char raw_keyboard[kNameCap] = {0};
   size_t keyboard_len = 0;
   if (g_nvs != nullptr) {

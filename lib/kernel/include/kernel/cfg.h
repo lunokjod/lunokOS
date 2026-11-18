@@ -92,6 +92,13 @@ bool set_sleep_on(bool on);
 // False when the name is not one of the three, or when that unit is not mounted.
 bool set_unit(const char* name);
 
+// **I la unitat dels ajustos és també el terra de les apps** (0.190.8, l'amo: *«perqué es perden les dades d'historic de Battery
+// i TimeClock al pujar un firmware nou? … i tinc SD»*): `/data/<id>/` era el flaix sempre i `-t uploadfs` reescriu la partició
+// sencera, i ara segueix aquesta mateixa tria —`auto` és la targeta quan n'hi ha, que és el que un flaix no toca (docs/30,
+// docs/70). No hi ha cap preferència nova: la pregunta és la mateixa i la Paper no té DRAM per a dues respostes.
+//
+// **I el que ja hi ha al flaix no es mou**: passar a la targeta estrena les apps buides (la decisió de l'amo del 18/11), o sigui
+// que la fila nova no hereta res i una còpia és cosa d'una persona (docs/70).
 // **The clock of the chip is UTC and a person reads their own hour** (0.125.0): the system keeps the one number that
 // joins them —how many minutes the local hour is ahead of UTC— and `time.local()` applies it, so an app that says
 // "07:00 to 19:00" is saying it in the hour the person is living in and not in the one the quartz counts (docs/30,

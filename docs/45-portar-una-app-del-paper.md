@@ -339,10 +339,17 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
   minutes** amb deu de sèrie, que és `cfg.lockafter`. Amb el commutador cert i cap pàgina triada, la línia de sota les files ho
   diu («No lock app: choose one in System») i el registre hi posa la comanda, en comptes d'engegar una pàgina que no existeix
   (docs/30, docs/60).
+- **La pestanya Disk diu on viuen les dades de les apps** (0.190.8, l'amo: *«perqué es perden les dades d'historic de Battery
+  i TimeClock al pujar un firmware nou? … i tinc SD»*): `/data/<id>/` era el flaix sempre i `-t uploadfs` reescriu la partició
+  sencera, i ara **segueix el disc preferit** —la fila **Preferred disk** de dalt mateix, que és `fs.cfg` des de sempre—, o sigui
+  que no hi ha cap ajust nou ni cap porta nova: la fila **Apps data** només es llegeix i treu la resposta de `fs.mounts()` (el
+  `type` de la fila `/data`), perquè el que una persona vol saber abans de flashejar és **on ha quedat de debò**. Una segona
+  preferència per a la mateixa pregunta serien dues files que poden dir coses diferents i vint bytes de DRAM que la Paper no té
+  (18/11: `dram0_0_seg` overflowed by 24 bytes) (docs/70, docs/80).
 - **El que la pàgina escriu és de `cfg` i el que la persona va deixar a mitges és de `state`**: les hores i la data es
   desen amb `time.set`, la zona amb `time.tz`, el calendari amb `time.leap`/`time.week`/`time.dst`, el disc amb `fs.cfg`,
-  el processador amb `power.cpu`, i el teclat, l'arrencada, l'inici, l'ordre, el torn i el cursor amb `cfg.*` (docs/30
-  § «`cfg`»). **La pestanya i el cercle són de la pàgina.**
+  el processador amb `power.cpu`, i el teclat, l'arrencada, l'inici, l'ordre, el torn, el cursor i el terra de les dades amb
+  `cfg.*` (docs/30 § «`cfg`»). **La pestanya i el cercle són de la pàgina.**
 
 **L'hora local d'una persona la converteix el sistema** (0.189.130): `time.set` compta en UTC i **`time.epoch(y, m, d, h, min)`**
 és la seva inversa —porta l'offset efectiu, el del mapa més l'hora d'estiu—, o sigui que la pàgina no té cap aritmètica pròpia.
@@ -489,18 +496,21 @@ Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
-| `About` | `about` | 0.1.0 |
-| `Calculator` | `calculator` | 0.1.0 |
-| `Clock` | `clock` | 0.1.0 |
-| `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.1 |
-| `Editor` | `editor` | 0.1.0 |
-| `EPUB` | `reader` | 0.1.0 |
-| `Timeclock` | `timeclock` | 0.1.0 |
-| `2048` | `2048` | 0.2.0 |
-| `Life` | `life` | 0.1.0 |
-| `Battery` | `battery` | 0.1.2 |
+| `About` | `about` | 0.5.148 |
+| `Calculator` | `calculator` | 0.2.2 |
+| `Clock` | `clock` | 0.1.5 |
+| `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.3 |
+| `Editor` | `editor` | 0.1.1 |
+| `EPUB` | `reader` | 0.1.1 |
+| `Timeclock` | `timeclock` | 0.2.2 |
+| `2048` | `2048` | 0.2.2 |
+| `Life` | `life` | 0.1.5 |
+| `Battery` | `battery` | 0.1.3 |
 | `Meteo` | `meteo` | 0.1.1 |
-| `Agenda` | `agenda` | 0.1.0 |
+| `Agenda` | `agenda` | 0.1.2 |
+
+**La columna «Versió» és la del `manifest.json` d'avui i no la del dia que es va portar** (0.190.7): un commit que toca una app
+en puja el número i **toca aquesta fila al mateix commit**, o la taula es queda dient el que ja no és (docs/40, docs/80).
 
 I a part, **dues que no són ports**:
 
@@ -630,6 +640,12 @@ controls UI i es nostres crides a sistema»*):
 - **El que canvia de dalt a baix demana el rentat de setze nivells**: girar el mes és tinta nova sobre la de trenta-un números
   vells, i amb la passada barata el desembre es llegeix amb el novembre a sota. `ui.present('gl16')` al gir i a l'obrir i
   tancar la targeta; la resta de la pàgina es queda amb el que el sistema triï (docs/50, docs/90).
+- **Un avís amb `raise` obre la pàgina de zero, i el que ha sonat no és cap variable de l'app** (0.190.7): el ganxo d'una
+  alarma amb `raise` arriba amb la pàgina acabada de construir, o sigui que `armed_` és *el pròxim* event i no el que ha sonat.
+  El que sobreviu és **el payload**, i per això l'`agenda` hi posa el dia de l'ocurrència (`2026-11-20`) i no el mot `remind`:
+  el ganxo el llegeix, i el dia que s'obre és el de l'ocurrència i no el de la primera vegada que l'event passa. El `Clock` fa
+  el mateix amb el text de la fila, i per això un despertador que sona amb el rellotge tancat ensenya «It's time» i no
+  l'esfera (docs/30, docs/60).
 
 **El que va ensenyar el `Device Lock`** (0.189.97, i el permís que en va sortir a la 0.189.99):
 
