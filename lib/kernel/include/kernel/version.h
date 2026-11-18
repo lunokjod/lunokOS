@@ -10010,7 +10010,16 @@ namespace kernel {
 // nova fan el mateix que ja feien. **El que els distingeix és la memòria que només se n'emporta el corrent**: quatre bytes al
 // començament de `/rtc` que el nucli deixa a cada arrencada i que un reinici conserva —i que l'emulador ara esborra a cada run que
 // no és `--persist`, perquè la pila de darrere el rellotge guarda l'hora i no aquesta memòria— (docs/50, docs/60, docs/70, docs/85).
-static const char kVersion[] = "0.189.180";
+// **Un cursor i no dos** (0.189.181, l'amo: *«En una vista no pot haver dos cursors... Al afegir un event a l'agenda veig que com
+// hi ha 2 controls textbox, tots dos tenen cursor. això no te sentit. De fet, no entenc perquè el TextBox te cursor mentre no te
+// focus! El cursor ha d'apareixer quan el control te el focus i el teclat està disponible»*). La caixa de text naixia amb el bloc
+// encès (`caret = true` al constructor), i el sistema només apaga el bloc de la caixa que deixa de ser el destí del teclat: la
+// segona caixa d'un formulari —la que ningú no ha tocat mai— es quedava amb un cursor que no es podia escriure. Ara **la caixa neix
+// apagada** i el bloc és el del focus, que és el contracte que el codi ja deia («el bloc d'una caixa és del focus i no del
+// teclat», 0.116.0): `caret_start` l'encén quan la caixa pren el focus, el dit o la banda, i `caret_stop` l'apaga quan el perd. Una
+// app que vol el bloc fora del focus —una pàgina que es llegeix— el demana ella (`caret = true`, com fa `fonts`), i el formulari de
+// l'agenda en té un de cursor i no dos (docs/30, docs/90).
+static const char kVersion[] = "0.189.181";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

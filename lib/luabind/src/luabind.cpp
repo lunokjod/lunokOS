@@ -8170,7 +8170,7 @@ int l_textbox_multiline_draw(lua_State* L) {
   const bool framed = ui_field_bool(L, 1, "framed", true);
   const lua_Integer border = framed ? ui_field_number(L, 1, "border", 0) : background;
   const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
-  const bool caret = ui_field_bool(L, 1, "caret", true);
+  const bool caret = ui_field_bool(L, 1, "caret", false);
   const bool wrap = ui_field_bool(L, 1, "wrap", false);
   const lua_Integer top = ui_field_number(L, 1, "top", -1);
   g_ui_ops.textbox_multiline_draw(canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), caret, wrap,
@@ -8199,7 +8199,9 @@ int l_ui_textbox_multiline(lua_State* L) {
   lua_setfield(L, -2, "text");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "cursor");
-  lua_pushboolean(L, 1);
+  // **I la de diverses línies tampoc** (0.189.181): the same rule as the box of one line, i la caixa que una app vol amb
+  // bloc perquè és una pàgina que es llegeix ho diu ella (`caret = true`, com fa `fonts`) (docs/30, docs/90).
+  lua_pushboolean(L, 0);
   lua_setfield(L, -2, "caret");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "wrap");
@@ -8767,7 +8769,13 @@ int l_ui_textbox(lua_State* L) {
   lua_setfield(L, -2, "text");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "cursor");
-  lua_pushboolean(L, 1);
+  // **Una caixa neix sense bloc** (0.189.181, l'amo: *«En una vista no pot haver dos cursors... Al afegir un event a
+  // l'agenda veig que com hi ha 2 controls textbox, tots dos tenen cursor. això no te sentit. De fet, no entenc perquè el
+  // TextBox te cursor mentre no te focus! El cursor ha d'apareixer quan el control te el focus»*): the block is the focused
+  // box's and the system gives it —`caret_start` when a box takes the focus, a finger or a band, and `caret_stop` when it
+  // loses it—, o sigui que una caixa que ningú no ha tocat no en té cap. Born with it, the second box of a form drew a
+  // cursor nobody could type into (docs/30, docs/90).
+  lua_pushboolean(L, 0);
   lua_setfield(L, -2, "caret");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "mask");

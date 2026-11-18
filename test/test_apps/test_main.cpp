@@ -11297,6 +11297,44 @@ void test_the_glass_is_one_surface_however_often_it_is_asked(void) {
   kernel::boot(hal::platform());
 }
 
+// **Una vista i un cursor** (0.189.181, l'amo: *«En una vista no pot haver dos cursors... Al afegir un event a l'agenda veig
+// que com hi ha 2 controls textbox, tots dos tenen cursor. això no te sentit. De fet, no entenc perquè el TextBox te cursor
+// mentre no te focus! El cursor ha d'apareixer quan el control te el focus»*): a box is born with no block and the block is
+// the focus's —`caret_start` when a box takes the focus—, o sigui que el segon camp d'un formulari no en pot tenir un.
+void test_only_the_box_with_the_focus_has_a_caret(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "formtwo",
+                           "{\"title\":\"Form two\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local title = ui.textbox(400, 48)\n"
+                           "title:place(10, 10)\n"
+                           "title.text = 'title'\n"
+                           "local note = ui.textbox(400, 48)\n"
+                           "note:place(10, 80)\n"
+                           "note.text = 'note'\n"
+                           "console.print('born ' .. tostring(title.caret) .. ' ' .. tostring(note.caret))\n"
+                           "ui.focus(note)\n"
+                           "console.print('focused ' .. tostring(title.caret) .. ' ' .. tostring(note.caret))\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run formtwo");
+  // **Cap dels dos neix amb bloc**, que era el cursor que no es podia escriure.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "born false false"), g_out);
+  // **I el focus en dona un i només un.**
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focused false true"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/formtwo/app.lua");
+  storage->remove("/apps/formtwo/manifest.json");
+  storage->remove("/apps/formtwo");
+}
+
 // **A box that is read and not written keeps the caret and never brings a band** (0.116.0): `readonly` is the field of
 // the control the system asks before it puts the keyboard up, and the block is the focus's —a page nobody types into is
 // still a place a person is at—. Both kinds of box carry it, and entering one with the centre is the caret without the
@@ -19764,6 +19802,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_caret_blinks_without_the_app);
   RUN_TEST(test_the_caret_keeps_blinking_while_the_box_has_the_focus);
   RUN_TEST(test_the_dial_stops_on_a_text_box_and_the_centre_enters_it);
+  RUN_TEST(test_only_the_box_with_the_focus_has_a_caret);
   RUN_TEST(test_a_read_only_box_has_a_caret_and_never_a_band);
   RUN_TEST(test_the_keys_walk_the_rows_of_a_box_the_centre_entered);
   RUN_TEST(test_the_keys_walk_the_letters_of_a_line);
