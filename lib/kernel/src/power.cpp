@@ -980,13 +980,79 @@ void forget_session() {
   write_text(kWakeKey, nullptr);
 }
 
-// The rule is the header's; here it is the note and its erasure (docs/60).
+// **La marca que la RAM del RTC es queda** (0.189.180): four bytes at the front of `/rtc`, which is the one memory the power takes
+// away and a reset does not. Nothing else in this system writes that file (docs/70).
+const uint8_t kBootMagic[4] = {'L', 'U', 'N', 'K'};
+BootKind g_boot_kind = BootKind::kNew;
+
+// The note a deep sleep leaves, read and consumed (docs/60).
 bool coming_back_from_a_sleep(hal::IKeyValue& nvs) {
   char text[8];
   size_t len = 0;
   const bool slept = nvs.get(kPowerNs, kSleptKey, text, sizeof(text) - 1, len);
   if (slept) nvs.erase(kPowerNs, kSleptKey);
   return slept;
+}
+
+// **El que la RAM del RTC recorda**: the mark is four bytes and it is not a filesystem, so a file that does not open is a memory
+// that is not there and a memory that is not there is the power coming back (docs/70).
+bool the_rtc_remembers(hal::IStorage* rtc) {
+  if (rtc == nullptr) return false;
+  hal::FileSlot slot;
+  if (!rtc->open("", hal::OpenMode::kRead, slot)) return false;
+  uint8_t head[sizeof(kBootMagic)] = {0, 0, 0, 0};
+  const int32_t got = rtc->read(slot, head, sizeof(head));
+  rtc->close(slot);
+  if (got != static_cast<int32_t>(sizeof(head))) return false;
+  return memcmp(head, kBootMagic, sizeof(head)) == 0;
+}
+
+void leave_the_mark(hal::IStorage* rtc) {
+  if (rtc == nullptr) return;
+  hal::FileSlot slot;
+  if (!rtc->open("", hal::OpenMode::kReadWrite, slot)) return;
+  rtc->write(slot, kBootMagic, sizeof(kBootMagic));
+  rtc->close(slot);
+}
+
+BootKind boot_kind() { return g_boot_kind; }
+
+const char* boot_kind_word(BootKind kind) {
+  switch (kind) {
+    case BootKind::kRestart:
+      return "restart";
+    case BootKind::kSleep:
+      return "sleep";
+    default:
+      return "new";
+  }
+}
+
+BootKind note_the_boot(hal::IPlatform& platform) {
+  hal::IKeyValue* nvs = platform.nvs();
+  hal::IStorage* rtc = platform.storage("/rtc");
+  if (nvs != nullptr && coming_back_from_a_sleep(*nvs)) {
+    g_boot_kind = BootKind::kSleep;
+  } else if (the_rtc_remembers(rtc)) {
+    g_boot_kind = BootKind::kRestart;
+  } else {
+    g_boot_kind = BootKind::kNew;
+  }
+  // **I la marca es deixa per a la propera arrencada**, sigui quina sigui aquesta: una RAM que ja la té vol dir que el corrent no
+  // ha marxat, i una de buida que la pila s'ha desconnectat (docs/50, docs/70).
+  leave_the_mark(rtc);
+  switch (g_boot_kind) {
+    case BootKind::kSleep:
+      log_printf(pal::kLogInfo, "BOOT", "the board comes back from a deep sleep: the run goes on");
+      break;
+    case BootKind::kRestart:
+      log_printf(pal::kLogInfo, "BOOT", "the chip restarted and the power never went away");
+      break;
+    default:
+      log_printf(pal::kLogInfo, "BOOT", "a new run: the power came back");
+      break;
+  }
+  return g_boot_kind;
 }
 
 // **El repòs abans de tallar el corrent** (0.189.18): the number is one and it starts at the two seconds the owner asked

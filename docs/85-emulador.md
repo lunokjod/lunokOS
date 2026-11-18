@@ -218,7 +218,7 @@ execucions com la memòria d'un aparell (`emu/memories.h`):
 
 | Fitxer | Mida | De qui és | Quan es perd |
 |---|---|---|---|
-| `rtc.bin` | **7 168 B** | la memòria RTC lenta del SoC (docs/50) | amb el corrent — **excepte** al Paper, que el model conserva perquè té pila darrere el rellotge; els ATOM i el Matrix l'esborren, i `--persist` la conserva a tots tres perquè un reinici no és un cicle d'alimentació (docs/50) |
+| `rtc.bin` | **7 168 B** | la memòria RTC lenta del SoC (docs/50) | amb el corrent: `--persist` la conserva (un reinici no apaga el domini del RTC) i sense l'opció s'esborra a tots quatre models, perquè una execució de l'emulador és una placa desendollada — la pila de darrere el rellotge guarda l'hora de `clock.bin` i no aquesta memòria (0.189.180) |
 | `fram.bin` | **256 B** | la FM24C02 del Paper (docs/50) | **mai**: una memòria ferroeléctrica no és volàtil |
 | `clock.bin` | **16 B** | l'hora que el xip o la pila recorden (docs/60) | quan la placa no té pila darrere el rellotge i el run no diu `--persist`: llavors no es llegeix i l'època val 0 |
 
@@ -233,17 +233,21 @@ Paper té `rtc.bin`, `fram.bin`, `clock.bin` i la targeta. Un model sense FRAM n
 `emu::fram()` torna `nullptr` — el mateix que una placa sense aquest xip.
 
 O sigui que una execució de l'emulador és un **cicle d'alimentació**: `emu::power_cycle()` esborra la
-RTC si la placa no té pila darrere el rellotge (ATOM i Matrix) i la conserva si en té (Paper). Amb
-`--persist` el cicle és un **reinici** i no un cicle d'alimentació —el domini del RTC no s'apaga— i la
-RTC es conserva a tots quatre models; la NVS i la FRAM no canvien mai, perquè són flash i ferrita.
+RTC del xip. Amb `--persist` el cicle és un **reinici** i no un cicle d'alimentació —el domini del RTC
+no s'apaga— i la RTC es conserva a tots quatre models; la NVS i la FRAM no canvien mai, perquè són
+flash i ferrita. **I la pila de darrere el rellotge no hi té res a veure** (0.189.180): el que la
+BM8563 recorda és **l'hora**, que va a `clock.bin`, i la RAM del RTC és del xip i mor quan la placa es
+desendolla; o sigui que el Paper tampoc no la conserva entre dues execucions. És el que fa que
+l'arrencada pugui dir d'on ve (`[I][BOOT] a new run` / `the chip restarted` / `comes back from a deep
+sleep`), amb els quatre bytes que el nucli deixa al començament de `/rtc` (docs/60, docs/70).
 
 **La memòria i el rellotge són dues coses diferents**, però totes dues tenen el mateix patró: l'emulador
 no té la BM8563 i el que fa és el que fa el xip que sí que hi és. L'època surt de `--now` quan el run
 la diu; si no, surt de `clock.bin` quan la placa té pila (el Paper, amb `source` = `"rtc"`) o quan el
 run diu `--persist` (a l'ATOM, amb `source` = `"soc"`, que és el comptador del SoC que sobreviu a un
 reinici); i si no hi ha cap de les dues, val **0** i `source` és `"none"`, que és una placa que ningú
-no ha posat (docs/60). El que es conserva al Paper és també el contingut de `/rtc`, que una app pot
-llegir i escriure.
+no ha posat (docs/60). El contingut de `/rtc`, que una app pot llegir i escriure, és memòria del xip i no de la pila: només
+sobreviu amb `--persist` (0.189.180).
 
 **I el servidor de l'hora de l'emulador diu l'hora d'aquest PC** (0.189.142): `net.ntp` i `ntp` del prompt acaben en un
 `ntp_synced` de mentida, i fins aquí responia **una època fixa** —1 700 000 000, el catorze de novembre de 2023, l'àncora del

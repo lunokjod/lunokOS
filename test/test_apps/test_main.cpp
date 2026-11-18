@@ -14703,7 +14703,7 @@ void test_a_deep_sleep_wake_keeps_the_state_of_the_pages(void) {
   pump_captured(40, g_out, sizeof(g_out), "run keeper");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "keeper back"), g_out);
 
-  // **I la marca s'ha consumit**: una arrencada que no és una tornada torna a començar les pàgines de zero.
+  // **I la marca s'ha consumit**: un reinici torna a començar les pàgines de zero.
   kernel::shell::close_app();
   kernel::boot(hal::platform());
   TEST_ASSERT_FALSE_MESSAGE(storage->stat("/session/keeper/state", info),
@@ -14712,6 +14712,51 @@ void test_a_deep_sleep_wake_keeps_the_state_of_the_pages(void) {
   storage->remove("/apps/keeper/app.lua");
   storage->remove("/apps/keeper/manifest.json");
   storage->remove("/apps/keeper");
+}
+
+// **Tres arrencades i no una** (0.189.180, l'amo: *«Abans de tocar la pantalla. s'ha de saber si es ve d'un deepsleep, una
+// arrencada nova o un reinici. Segons d'on es vé es farà un arranc d'una manera o unaltre»*): the chip says nothing about a
+// power-on against a reset —both answer «no sleep»—, and what tells them apart is **the memory that only the power takes away**:
+// the four bytes the boot leaves at the front of `/rtc`. El son profund té la seva nota al magatzem i mana sobre tot el demés
+// (docs/50, docs/60, docs/70).
+void test_the_boot_knows_where_it_comes_from(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* rtc = hal::platform().storage("/rtc");
+  TEST_ASSERT_NOT_NULL(rtc);
+  hal::IKeyValue* nvs = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(nvs);
+
+  const auto wipe_the_memory = [rtc]() {
+    hal::FileSlot slot;
+    if (!rtc->open("", hal::OpenMode::kReadWrite, slot)) return false;
+    const uint8_t zeroes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    const bool ok = rtc->write(slot, zeroes, sizeof(zeroes)) == static_cast<int32_t>(sizeof(zeroes));
+    rtc->close(slot);
+    return ok;
+  };
+
+  // **El corrent que ha marxat**: a memory with nothing in it is a run that starts, and the boot leaves its mark behind.
+  TEST_ASSERT_TRUE(wipe_the_memory());
+  nvs->erase("power", "slept");
+  kernel::boot(hal::platform());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(kernel::power::BootKind::kNew),
+                        static_cast<int>(kernel::power::boot_kind()));
+
+  // **I un reinici**: the mark the boot has just left means the power never went away.
+  kernel::boot(hal::platform());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(kernel::power::BootKind::kRestart),
+                        static_cast<int>(kernel::power::boot_kind()));
+
+  // **I un son profund**, que mana sobre la memòria perquè és el que el sistema sap de si mateix.
+  TEST_ASSERT_TRUE(nvs->set("power", "slept", "1", 2));
+  kernel::boot(hal::platform());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(kernel::power::BootKind::kSleep),
+                        static_cast<int>(kernel::power::boot_kind()));
+
+  // **I la nota es consumeix**: the boot after a return is a restart again and not a run that goes on for ever.
+  kernel::boot(hal::platform());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(kernel::power::BootKind::kRestart),
+                        static_cast<int>(kernel::power::boot_kind()));
 }
 
 // The idle policy: a board that keeps the hour in a chip puts itself to sleep until the next
@@ -19561,6 +19606,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_rtc_memory_is_one_file_of_its_size);
   RUN_TEST(test_the_last_wake_is_measured_and_kept);
   RUN_TEST(test_a_deep_sleep_wake_keeps_the_state_of_the_pages);
+  RUN_TEST(test_the_boot_knows_where_it_comes_from);
   RUN_TEST(test_the_idle_sleep_is_a_switch);
   RUN_TEST(test_poweroff_cuts_the_power_of_the_board_that_can);
   RUN_TEST(test_the_board_counts_what_it_wrote_and_rests_before_the_current_goes);

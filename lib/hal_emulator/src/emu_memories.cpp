@@ -17,7 +17,6 @@ const size_t kPathCap = 320;
 uint8_t g_rtc[kRtcRamBytes];
 uint8_t g_fram[kFramBytes];
 bool g_loaded = false;
-bool g_rtc_kept = false;  // whether this run started from a memory that was already there
 
 // Creates the **directory** a memory lives in. The last part of the path is the file itself, so it
 // is not made: a `mkdir` of `rtc.bin` gives a directory that is not a memory, which is what the first
@@ -79,15 +78,6 @@ void load_once() {
   g_loaded = true;
   read_memory("rtc.bin", g_rtc, sizeof(g_rtc));
   read_memory("fram.bin", g_fram, sizeof(g_fram));
-  // Anything but a full run of zeros is a memory that came from the run before, and that is only
-  // true if the file was there. `read_memory` cannot tell; this can.
-  char path[kPathCap];
-  memory_path("rtc.bin", path, sizeof(path));
-  FILE* file = fopen(path, "rb");
-  if (file != nullptr) {
-    g_rtc_kept = true;
-    fclose(file);
-  }
 }
 
 }  // namespace
@@ -118,8 +108,11 @@ void power_cycle() {
   // The FRAM is left alone because it is not volatile, which is the whole point of it, and a model
   // that has none never gets the file. **`--persist` is a board that was not unplugged**: a reset
   // leaves the RTC domain powered, so the memory is there whatever the model has behind it (docs/85).
-  const bool kept = options().persist || model().keeps_the_hour;
-  if (!kept || !g_rtc_kept) memset(g_rtc, 0, sizeof(g_rtc));
+  //
+  // **I el corrent és el que se n'emporta la RAM del RTC, no el rellotge** (0.189.180): the coin cell behind the BM8563 keeps the
+  // hour, and that hour is a file of its own; la RAM del RTC és del xip i mor quan la placa es desendolla, o sigui que un run que
+  // no és `--persist` comença amb la memòria a zero —que és el que fa que l'arrencada sàpiga que el corrent ha marxat— (docs/85).
+  if (!options().persist) memset(g_rtc, 0, sizeof(g_rtc));
   flush_memories();
 }
 

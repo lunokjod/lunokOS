@@ -207,6 +207,32 @@ Si el sistema estava apagat quan tocava:
 - Després de disparar-se, es reprograma a la següent ocurrència **encara que l'app hagi fallat**.
 - Si `app.raise()` puja l'app, la repetició continua programada.
 
+## Com arrenca la placa
+
+**Abans de tocar el vidre, el sistema sap d'on ve** (0.189.180, l'amo: *«Abans de tocar la pantalla. s'ha de saber si es ve d'un
+deepsleep, una arrencada nova o un reinici. Segons d'on es vé es farà un arranc d'una manera o unaltre»*). Són tres i no dues, i el
+xip no les sap dir totes: `esp_sleep_get_wakeup_cause()` contesta el mateix —«no he dormit»— a una placa que s'endolla i a una que
+s'ha reiniciat. El que les distingeix és **la memòria que només se n'emporta el corrent**: la RAM del RTC, on el nucli deixa quatre
+bytes al començament (`LUNK`, docs/70).
+
+| D'on ve | Com ho sap | Què fa l'arrencada |
+|---|---|---|
+| **Una arrencada nova** (`new`) | la RAM del RTC és buida: la pila ha marxat | les pàgines comencen de zero, la targeta dels moments i la casa |
+| **Un reinici** (`restart`) | la RAM del RTC té la marca: el corrent no ha marxat (el botó, un pànic, `reboot`, una pujada de codi) | el mateix que una arrencada nova: és una tirada que comença |
+| **Tornar d'un son profund** (`sleep`) | la nota que el son va deixar al magatzem (`power/slept`), que es consumeix amb aquesta arrencada | **el `state` de les pàgines es queda** (§ la sessió `state` de docs/30), **no es torna a pintar la targeta del començament** —el vidre té la imatge del son i el que ve és la pàgina de la persona— i `restore_session` torna l'app on era |
+
+El registre ho diu amb la seva paraula abans de qualsevol pintada:
+
+```
+[I][BOOT] a new run: the power came back
+[I][BOOT] the chip restarted and the power never went away
+[I][BOOT] the board comes back from a deep sleep: the run goes on
+```
+
+**I una bateria baixa és l'excepció de la targeta**: una placa que torna d'un son amb la pila sota la marca sí que ensenya el
+dibuix, perquè és una cosa que la persona ha de saber i no una targeta de cortesia (docs/30, docs/50). El cicle de l'emulador i
+`--persist` són aquestes tres arrencades de mentida en un run de debò (docs/85).
+
 ## Son
 
 | Mode | Qui ho decideix | Què es desa |

@@ -500,17 +500,21 @@ void boot(hal::IPlatform& platform) {
   cfg::boot(platform);
   log_printf(pal::kLogInfo, "VFS", "%u mounts", static_cast<unsigned>(vfs::mount_count()));
 
+  // **D'on ve aquesta arrencada, decidit abans que res no pinti** (0.189.180, l'amo: *«Abans de tocar la pantalla. s'ha de saber
+  // si es ve d'un deepsleep, una arrencada nova o un reinici. Segons d'on es vé es farà un arranc d'una manera o unaltre»*): the
+  // power, a restart of a chip that never lost it, or a deep sleep that goes on. La resposta es diu al registre amb la seva
+  // paraula i la resta de l'arrencada la llegeix —el `state` de les pàgines, la targeta del començament i el que vingui— en lloc
+  // de desfer el camí cadascú pel seu compte (docs/50, docs/60, docs/75).
+  const power::BootKind booted = power::note_the_boot(platform);
+
   // **La forma de cada pàgina comença de zero a cada arrencada de debò** (0.189.167, l'amo: *«el session state de totes les
   // apps s'ha d'esborrar al iniciar el sistema»*), **i no quan la placa torna d'un son profund** (0.189.176, el mateix amo:
   // *«Al tornar d'un deep sleep no has d'esborrar les sessions state»*). The `state` block is the shape of the page a person
   // left, and a board that starts starts at the beginning: a tab, a page of a list and a ring of yesterday are a view of a run
   // that is over —and of an app that may not even have that shape any more—. But a deep sleep is **not** the end of a run: the
   // board goes down with the page of a person and comes back to it, o sigui que el que hi havia al disc és exactament el que
-  // `restore_session` ha de trobar. La marca que el son deixa al magatzem és la que diu quin dels dos és aquesta arrencada, i es
-  // llegeix —i es consumeix— aquí (docs/30, docs/45, docs/60, docs/75).
-  hal::IKeyValue* boot_nvs = platform.nvs();
-  const bool coming_back = (boot_nvs != nullptr) && power::coming_back_from_a_sleep(*boot_nvs);
-  if (coming_back) {
+  // `restore_session` ha de trobar (docs/30, docs/45, docs/60, docs/75).
+  if (booted == power::BootKind::kSleep) {
     log_printf(pal::kLogInfo, "MEMORY", "the pages come back with the board: the 'state' of the apps stays");
   } else {
     // **I amb les paraules de l'arrencada i no les de la comanda**: `say` és fals perquè una línia de «0 file(s)» a cada
@@ -548,7 +552,14 @@ void boot(hal::IPlatform& platform) {
     log_printf(pal::kLogWarn, "POWER", "the battery is at %d %% and there is no cable: the picture says so",
                boot_pct);
   }
-  if (!splash::show(boot_moment)) {
+  // **I la placa que torna d'un son no torna a ensenyar la seva targeta** (0.189.180): el vidre té la imatge del son i el que ve
+  // després és la pàgina de la persona —el camí de tornada el sap `restore_session`—; una targeta de més són dos parpelleigs per
+  // res. La pàgina que arriba sí que deu el rentat, perquè el que hi ha al vidre és una altra cosa. Una bateria baixa és
+  // l'excepció: és una cosa que la persona ha de saber i no una targeta de cortesia (docs/30, docs/50, docs/60).
+  const bool show_it = (booted != power::BootKind::kSleep) || (boot_moment == splash::kLowBattery);
+  if (!show_it) {
+    ui::owe_the_page();
+  } else if (!splash::show(boot_moment)) {
     log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
   } else {
     // **The first page of the system washes the picture away** (0.179.5): the splash paints the panel whole and none of its

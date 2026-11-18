@@ -9999,7 +9999,18 @@ namespace kernel {
 // noms—. Una fila és un nom i una versió, o sigui que la llista és `apps.info` i prou, i **la carpeta, els terrenys i les alarmes
 // es demanen en obrir la fitxa**: qui els ensenya és la fitxa i no la llista. Amb `-d` no canvia res —l'app que s'obre és la que
 // es llegeix— i la targeta del manifest cobreix el que queda (docs/30, docs/40, docs/70, docs/75).
-static const char kVersion[] = "0.189.179";
+// **Les tres arrencades: nova, reinici o tornada d'un son** (0.189.180, l'amo: *«Abans de tocar la pantalla. s'ha de saber si es
+// ve d'un deepsleep, una arrencada nova o un reinici. Segons d'on es vé es farà un arranc d'una manera o unaltre»*). La 0.189.176
+// va fer que la tornada d'un son no esborrés el `state`, però la decisió era un booleà cosit dins de l'arrencada i el xip no sap
+// dir les dues meitats de «no he dormit»: `esp_sleep_get_wakeup_cause()` contesta el mateix a una placa que s'endolla i a una que
+// s'ha reiniciat. Ara hi ha **`power::BootKind`** (`kNew`, `kRestart`, `kSleep`) decidit per `power::note_the_boot` **abans que res
+// no pinti** i dit al registre (`[I][BOOT] a new run: the power came back`), i la resta de l'arrencada el llegeix en lloc de desfer
+// el camí cadascú: el `state` de les pàgines es queda només en un son, **la targeta del començament no es torna a pintar en un son**
+// (el vidre té la imatge del son i el que ve és la pàgina de la persona; una bateria baixa és l'excepció) i el reinici i l'arrencada
+// nova fan el mateix que ja feien. **El que els distingeix és la memòria que només se n'emporta el corrent**: quatre bytes al
+// començament de `/rtc` que el nucli deixa a cada arrencada i que un reinici conserva —i que l'emulador ara esborra a cada run que
+// no és `--persist`, perquè la pila de darrere el rellotge guarda l'hora i no aquesta memòria— (docs/50, docs/60, docs/70, docs/85).
+static const char kVersion[] = "0.189.180";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

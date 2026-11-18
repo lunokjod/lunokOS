@@ -199,12 +199,28 @@ void restore_session();
 // here".
 void forget_session();
 
-// **Si aquesta arrencada és la tornada d'un son profund** (0.189.176, l'amo: *«Al tornar d'un deep sleep no has d'esborrar les
-// sessions state»*): the deep sleep leaves a note in the store —the hour alone is not enough, because a sleep with the keys has
-// none— and the boot is the one that asks, before anything else has read it. **The note is consumed here**, perquè és la
-// resposta a una arrencada i prou: una nota que es quedés faria que la següent comencés amb la forma d'una pàgina que ningú no
-// ha deixat (docs/60, docs/75, docs/90).
-bool coming_back_from_a_sleep(hal::IKeyValue& nvs);
+// **D'on ve aquesta arrencada** (0.189.180, l'amo: *«Abans de tocar la pantalla. s'ha de saber si es ve d'un deepsleep, una
+// arrencada nova o un reinici. Segons d'on es vé es farà un arranc d'una manera o unaltre»*): three kinds, and each one boots its
+// own way. The chip cannot tell a power-on from a reset —both answer `ESP_SLEEP_WAKEUP_UNDEFINED`—, i el que els distingeix és
+// **la memòria que només se n'emporta el corrent**: la RAM del RTC (`/rtc`) sobreviu a un reinici i mor amb la pila. El son
+// profund té la seva pròpia marca al magatzem, que és l'única que diu que la tirada continua (docs/50, docs/60, docs/70).
+enum class BootKind : uint8_t {
+  kNew = 0,  // the power came back: a run that starts
+  kRestart,  // the chip restarted with the power on: the button, a panic, a `reboot`
+  kSleep,    // it came back from a deep sleep: the run goes on
+};
+
+// What this boot is; `note_the_boot` decides it and the rest of the boot reads it.
+BootKind boot_kind();
+
+// The word the log and a person use: `new`, `restart` or `sleep`.
+const char* boot_kind_word(BootKind kind);
+
+// **Es decideix una vegada, abans que res no pinti** (0.189.180): it reads the note of a deep sleep —and consumes it— and the
+// mark of the RTC RAM —and leaves it for the next boot—, o sigui que la següent arrencada sabrà si el corrent ha marxat. The
+// answer goes to the log with its own word, que és la primera cosa que una persona que llegeix un registre vol saber
+// (docs/50, docs/60, docs/75).
+BootKind note_the_boot(hal::IPlatform& platform);
 
 // **Tot el que pot quedar a mig fer, acabat, i un repòs abans que el corrent es talli** (0.189.18, l'amo: *«Haurà donat
 // temps a gravar-ho tot al SD?? s'ha apagat tot molt ràpid. Fes flush a tots els dispositius que es puguin abans d'iniciar
