@@ -18,7 +18,11 @@ namespace power {
 
 // Remembers the board's power, reports what the last sleep cost and brings back
 // the app that was in front when the board went down. Runs at boot.
-void boot(hal::IPlatform& platform);
+//
+// **`for_an_alarm` és la tornada que no és per a ningú** (0.189.182): the page of the session record **is not started** —the glass
+// keeps the picture of the sleep and the record waits for the person— and `idle_sleep` takes the board back down at the first
+// turn. El que ha vingut a fer-ho és el ganxo de l'alarma, que ja ha corregut a la finestra (docs/60, docs/90).
+void boot(hal::IPlatform& platform, bool for_an_alarm = false);
 
 // True when this board has a power interface and can sleep at all.
 bool available();
@@ -75,6 +79,12 @@ void note_activity();
 // `power idle off` keeps the board on the whole time (docs/30).
 bool idle_sleep_allowed();
 void set_idle_sleep_allowed(bool on);
+
+// **Quant de silenci vol la política** (0.189.182): ten seconds without a byte on the console are what tells the board that
+// nobody is using it. It is a number a case can move —one that had to wait the ten seconds would be a suite ten seconds slower
+// for one line of a log— and it goes back to where it was (docs/60, docs/80).
+int64_t idle_quiet_ms();
+void set_idle_quiet_ms(int64_t ms);
 
 // "Do not sleep on your own while this is set." The idle policy reads it before it puts the
 // board down, and an app that is doing something that must not be interrupted says it here
@@ -212,6 +222,18 @@ enum class BootKind : uint8_t {
 
 // What this boot is; `note_the_boot` decides it and the rest of the boot reads it.
 BootKind boot_kind();
+
+// **Si el que ha despertat la placa és una alarma i no una persona** (0.189.182): the chip says what brought it back, and the two
+// answers that are an alarm are its timer and the clock chip's quartz —a button, the console or the power are a person—. El que
+// contesta és el que `note_the_boot` va llegir, que és la primera cosa d'una arrencada que té la plataforma a mà (docs/50, docs/60).
+bool woken_by_an_alarm();
+
+// **La placa ha vingut per una alarma i prou** (0.189.182, l'amo: *«un gestor que permeti arrencar sense canviar res de la
+// pantalla, executar l'app amb les dades de l'alarma, esperar a que acabi i tornar al deepsleep»*): the boot of a return that was
+// the chip's timer, with nothing in front after the alarms have been delivered. El vidre no es toca —no hi ha pàgina, ni pany, ni
+// casa—, el registre de sessió **no es consumeix** (la persona que vingui després ha de trobar la seva pàgina) i el bucle torna a
+// dormir al primer torn (docs/60, docs/90).
+bool came_back_for_an_alarm();
 
 // The word the log and a person use: `new`, `restart` or `sleep`.
 const char* boot_kind_word(BootKind kind);

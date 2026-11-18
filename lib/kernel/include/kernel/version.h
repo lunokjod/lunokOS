@@ -10019,7 +10019,21 @@ namespace kernel {
 // teclat», 0.116.0): `caret_start` l'encén quan la caixa pren el focus, el dit o la banda, i `caret_stop` l'apaga quan el perd. Una
 // app que vol el bloc fora del focus —una pàgina que es llegeix— el demana ella (`caret = true`, com fa `fonts`), i el formulari de
 // l'agenda en té un de cursor i no dos (docs/30, docs/90).
-static const char kVersion[] = "0.189.181";
+// **La placa no dormia i la seva alarma no podia despertar-la** (0.189.182, l'amo: *«Perqué no ha despertat la placa? estava en
+// deep sleep i ho hauría d'haver fet. Clar que per això hauriem de tenir un gestor que permeti arrencar sense canviar res de la
+// pantalla, executar l'app amb les dades de l'alarma, esperar a que acabi i tornar al deepsleep, no?»*). Dues meitats d'un mateix
+// forat. **La primera**: la política d'oci es negava a dormir mentre hi hagués qualsevol app al davant, i la placa d'aquest
+// sistema en té una sempre que `cfg home` nomena una app —el llançador—, o sigui que una placa amb casa no dormia mai i la cua
+// d'alarmes s'esperava una son que no arribava; ara **la pàgina de casa és com el prompt** (es tanca amb els seus comiats i la
+// seva sessió) i qualsevol altra app continua aturant la política. **La segona, el gestor que l'amo va demanar**: una arrencada
+// que ve d'un son **per una alarma** (`power::woken_by_an_alarm`, o sigui `clock` o `timer`) lliura la cua amb el vidre buit, **no
+// torna la pàgina** —`restore_session` no corre i el registre de la sessió es queda sense consumir—, no pregunta pel pany ni
+// arrenca la casa, i al primer torn **torna a baixar** sense tornar a pintar la imatge del son: el vidre es queda amb el que la
+// finestra hi hagi deixat, que és l'avís que la persona trobarà. La pàgina torna amb la propera arrencada que sí que és d'algú
+// (el botó, un `reboot`, el cable). El preu és un `sayf` i cap repintat: `power::boot(platform, for_an_alarm)` és l'única porta,
+// i l'emulador d'una placa amb xip de rellotge ja contesta `deep_powers_off()` que sí, o sigui que el camí sencer
+// —`idle sleep`, el salt del rellotge, la finestra i una altra baixada— s'hi pot veure (docs/50, docs/60, docs/85, docs/90).
+static const char kVersion[] = "0.189.182";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

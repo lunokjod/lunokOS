@@ -691,10 +691,20 @@ void boot(hal::IPlatform& platform) {
   // que la finestra de la mostra es refusava i la nit sencera es perdia. Amb el vidre buit la finestra és la de sempre, i
   // l'app que la persona hi tenia torna després (docs/60, docs/90).
   deliver_alarms();
+  // **I un despert per una alarma no és un despert per a una persona** (0.189.182, l'amo: *«un gestor que permeti arrencar sense
+  // canviar res de la pantalla, executar l'app amb les dades de l'alarma, esperar a que acabi i tornar al deepsleep»*): si el que
+  // ha despertat la placa és el rellotge del xip —i l'alarma no ha demanat ningú amb `raise`—, el que ha vingut a fer-ho ja està
+  // fet (les finestres de dalt), el vidre té la imatge del son i la pàgina de la persona espera. El pany i la casa no s'obren, i
+  // el bucle la torna a dormir al primer torn (docs/60, docs/90).
+  const bool for_an_alarm = (power::boot_kind() == power::BootKind::kSleep) && power::woken_by_an_alarm() &&
+                            !shell::app_running();
+  if (for_an_alarm) {
+    log_printf(pal::kLogInfo, "POWER", "nothing to paint: the board came back for an alarm and goes down again");
+  }
   // Last, because it speaks to the console and may bring an app back: a board that wakes from a deep
   // sleep is a board that boots, and the session record is what makes the app come back where it was
   // (docs/90).
-  power::boot(platform);
+  power::boot(platform, for_an_alarm);
 
   // **L'ARRENÇADA DEMANA EL TOPALL I EL SISTEMA CARREGAT EL DEIXA ANAR** (0.179.38): the mount, the panel, the settings,
   // the picture of the boot and the shell are the heaviest second of this system, and nothing of it is worth a processor
@@ -713,10 +723,10 @@ void boot(hal::IPlatform& platform) {
   // sí, **la targeta del pany és la del començament** i la casa no s'arrenca aquí —la demana la mateixa pàgina del pany quan
   // s'obre (`device_lock` llegeix `cfg home`)—, perquè una casa que s'arrenca darrere la cortina és una casa que no hi és quan
   // la cortina s'aixeca (docs/30, docs/40, docs/60).
-  const char* lock_page = lock::boot();
+  const char* lock_page = (for_an_alarm) ? nullptr : lock::boot();
 
   const char* home = cfg::home_app();
-  if (lock_page == nullptr && home[0] != '\0' && !app_running()) {
+  if (lock_page == nullptr && home[0] != '\0' && !for_an_alarm && !app_running()) {
     // **I ARRENCA SENSE LA SEVA TARGETA** (0.179.33, l'amo: *«en launcher no ha de mostrar l'splash rera el boot, tenim
     // l'splash del sistema»*): the board has just painted the picture of its boot on that glass, so the home app comes up
     // with the page and nothing else. Its card is for the way back —a Lua app ends and the launcher arrives with it—

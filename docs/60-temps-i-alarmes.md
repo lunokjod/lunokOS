@@ -233,6 +233,22 @@ El registre ho diu amb la seva paraula abans de qualsevol pintada:
 dibuix, perquè és una cosa que la persona ha de saber i no una targeta de cortesia (docs/30, docs/50). El cicle de l'emulador i
 `--persist` són aquestes tres arrencades de mentida en un run de debò (docs/85).
 
+**I despertar-se per una alarma no és despertar-se per a una persona** (0.189.182). La placa que torna d'un son perquè el xip
+l'ha cridada —`last_wake` contesta `clock` o `timer`— es troba el vidre sense ningú al davant: la pàgina que hi havia espera. Per
+aquesta arrencada el sistema, en aquest ordre:
+
+1. lliura la cua d'alarmes (§«Alarmes perdudes»), amb el vidre buit i sense apartar cap pàgina, que és el que fa que una mostra
+   es prengui sense haver de repintar res;
+2. **no torna la pàgina**: `restore_session` no corre i el registre de la sessió es queda a la NVS, sense consumir;
+3. **no pregunta pel pany ni arrenca la casa**: la targeta del `device_lock` i el llançador són per a una persona, i el que ha
+   vingut a fer la placa no és atendre-la;
+4. i al primer torn, quan el ganxo ja ha corregut, **torna a baixar** sense pintar la imatge del son: el vidre es queda amb el
+   que la finestra hi hagi deixat, que és l'avís que una persona trobarà quan vingui.
+
+La pàgina torna amb la propera arrencada que sí que és d'algú: la del botó, la d'un `reboot`, la del cable. És la mateixa nota
+del son que fa que el `state` no s'esborri (0.189.176), o sigui que les dues coses són una: *una placa que baixa amb la casa
+oberta i torna per una alarma no ha perdut la casa, només l'ha deixada esperant*.
+
 ## Son
 
 | Mode | Qui ho decideix | Què es desa |
@@ -252,9 +268,18 @@ com que l'alarma és del sistema i no ha de fer cua darrere d'una app que dorm, 
 el termini del son fins a l'alarma més propera. La promesa es tanca igual (`true`), i l'app que
 necessiti el descans sencer l'ha de tornar a demanar.
 
+**I la casa no és ningú treballant** (0.189.182, l'amo: *«Perqué no ha despertat la placa? estava en deep sleep i ho hauría
+d'haver fet»*). La política d'oci es negava a dormir mentre hi hagués **qualsevol** app al davant, i la placa d'aquest sistema
+en té una sempre que `cfg home` nomena una app: o sigui que una placa amb llançador no dormia mai, la seva alarma no trobava cap
+son que esperar i la mostra de les deu minuts no es prenia. Ara la pàgina de casa —i **només** la de casa, la que respon a
+`cfg home`— és com el prompt: es tanca amb els seus comiats i la seva sessió, com qualsevol altra pàgina, i la placa se'n va. Una
+app que no és la casa continua aturant la política, que és el que vol dir «algú hi és».
+
 **Un son profund no el talla res.** Si una app en demana un de més llarg que la propera alarma, la
-placa dorm fins al seu termini i l'alarma s'entrega tard (`late_ms` ho diu). Fer-ho bé vol decidir
-qui mana —l'app que dorm o l'alarma del sistema— i no s'ha decidit encara (docs/90).
+placa dorm fins al seu termini i l'alarma s'entrega tard (`late_ms` ho diu): el son que ha demanat una app és una decisió que
+la placa respecta, i no una promesa que el sistema pugui trencar pel seu compte. El que el sistema sí que fa des de la
+0.189.182 és el camí propi —baixar sol fins a la propera alarma i tornar només per a la finestra—, que és el que passa quan no
+hi ha ningú a la placa.
 
 **Les dues fondàries hi són a les dues bandes**, i la placa ho diu: `power.caps().sleep_light` i
 `power.caps().sleep_deep` són certs, i `power.caps().wake` diu de què es pot despertar (`"timer,

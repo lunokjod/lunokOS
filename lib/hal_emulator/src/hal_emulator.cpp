@@ -597,6 +597,12 @@ class FakePower : public IPower {
   // is not; the ATOMs have no chip and only know the timer (docs/50).
   const char* wakes() override { return emu::model().keeps_the_hour ? "timer, clock" : "timer"; }
 
+  // **I la son fonda d'aquesta placa és el corrent que se'n va** (0.189.182): the emulator of a board with a clock chip jumps the
+  // hour to the alarm and the board comes back on the chip, which is a full power off and not a timer of the chip —so the idle
+  // policy is allowed to take this board down to its next alarm, and a run can show the board sleeping and coming back for it—
+  // (docs/50, docs/85). The ATOMs keep no hour and keep their own timer, which is not a power off (docs/50).
+  bool deep_powers_off() const override { return emu::model().keeps_the_hour; }
+
   // A board whose supply is cut stops being a board, and an emulator whose supply is cut stops being a
   // process: the answer is yes, the kernel leaves its loop, and the memories that are not a volume
   // go to their files on the way out, the same as they do after a deep sleep (docs/85). It is said

@@ -3,6 +3,7 @@
 #include "kernel/meter.h"
 #include "kernel/power.h"
 
+#include "kernel/cfg.h"
 #include "kernel/lock.h"
 #include "kernel/splash.h"
 #include "kernel/vfs.h"
@@ -68,6 +69,14 @@ const char kSleptKey[] = "slept";
 //     the clock chip's **countdown** counts seconds (docs/50).
 const int64_t kIdleQuietMs = 10000;
 const int64_t kMinIdleSleepMs = 10000;
+// **I el número de la quietud és una constant a la placa i una variable a la suite** (0.189.182): the DRAM of a Paper is full to
+// sixteen bytes and a case that had to wait the ten seconds would be a suite ten seconds slower, o sigui que el que es pot moure
+// només existeix on hi ha algú que el mogui (docs/60, docs/80).
+#if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
+int64_t g_idle_quiet_ms = kIdleQuietMs;
+#else
+constexpr int64_t g_idle_quiet_ms = kIdleQuietMs;
+#endif
 
 bool g_idle_allowed = true;
 int64_t g_last_activity_ms = 0;
@@ -120,6 +129,15 @@ uint32_t g_trend_ms = 0;
 // armed in stages, and a stage is **not** the wake: the app must not come back until its hour
 // (docs/60).
 int64_t g_coming_back_at = 0;
+
+// **La tornada que era per a una alarma** (0.189.182): set by the boot and read by the two places that would otherwise paint the
+// glass or keep the board awake, i per `sleep` quan torna a baixar (docs/60).
+bool g_for_an_alarm = false;
+
+// **Què ha despertat la placa, llegit una vegada** (0.189.182): the chip's answer belongs to the boot that reads it —and it is read
+// in `note_the_boot`, which is the first thing a boot does and the only one that has the platform before anything paints—,
+// perquè `power::boot` arriba després i la pregunta és de l'arrencada i no de la porta (docs/50, docs/60).
+bool g_woke_by_an_alarm = false;
 
 int64_t mono_now() {
   // The RTC chip, read once a turn (docs/30, docs/50).
@@ -377,7 +395,7 @@ uint32_t allowed_step(uint32_t want) {
   return (biggest != 0) ? biggest : want;
 }
 
-void boot(hal::IPlatform& platform) {
+void boot(hal::IPlatform& platform, bool for_an_alarm) {
   g_power = platform.power();
   g_clock = platform.clock();
   g_nvs = platform.nvs();
@@ -393,6 +411,7 @@ void boot(hal::IPlatform& platform) {
   // A stage of a longer wait belongs to one boot: `report_wake()` is what sets it again
   // (docs/60).
   g_coming_back_at = 0;
+  g_for_an_alarm = for_an_alarm;
 
   // What an app may ask for. Without a power interface the operations stay
   // absent, and power.* answers E_UNSUPPORTED instead of pretending (docs/30).
@@ -424,7 +443,10 @@ void boot(hal::IPlatform& platform) {
       g_coming_back_at - g_clock->epoch_ms() < kMinIdleSleepMs) {
     g_coming_back_at = 0;
   }
-  if (g_coming_back_at <= 0) restore_session();
+  // **I la pàgina de la persona espera** (0.189.182): a board that came back for an alarm has nobody in front of it, o sigui que el
+  // registre de sessió no es consumeix i l'app que hi havia torna quan hi hagi algú —el despert d'una tecla, la propera encesa—
+  // (docs/60, docs/90).
+  if (g_coming_back_at <= 0 && !g_for_an_alarm) restore_session();
 }
 
 bool available() { return g_power != nullptr; }
@@ -478,7 +500,10 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   if (mode == hal::SleepMode::kDeep) {
     // What was in front is written down **before** it is closed: closing stops the
     // interpreter and forgets which app it was (docs/90).
-    save_session();
+    // **I una placa que torna a dormir perquè ha vingut per una alarma no té res a escriure**: no hi ha cap app al davant i el
+    // registre que hi ha és el de la persona que espera, o sigui que s'hi queda (0.189.182, docs/60).
+    const bool keep_the_record = g_for_an_alarm && !shell::app_running();
+    if (!keep_the_record) save_session();
     if (shell::app_running()) shell::close_app();
     // **I la marca del son** (0.189.176): the hour is written after this one and it is not there at all when the board comes
     // back on a key, o sigui que el que diu que aquesta arrencada és una tornada és la marca i no l'hora (docs/60, docs/75).
@@ -502,7 +527,8 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // **I el motiu és el que diu la imatge** (0.183.0): a deep sleep is `sleep`, and a board whose battery is under the mark
   // says `lowbatt` —the reason it is going down is the one a person has to know—, which is one function and not a branch
   // here (docs/50).
-  if (mode == hal::SleepMode::kDeep) splash::show(going_down_picture(/*deep=*/true));
+  // **I la imatge del son ja hi és**: a board that comes back for an alarm and goes down again does not paint it twice (0.189.182).
+  if (mode == hal::SleepMode::kDeep && !g_for_an_alarm) splash::show(going_down_picture(/*deep=*/true));
   // **And the ink of the picture is over before the chip stops** (0.165.1): the deep sleep cuts the clocks where the call
   // found them, so a picture asked for and not waited on is a picture that nobody sees (docs/50).
   if (mode == hal::SleepMode::kDeep) splash::wait();
@@ -566,6 +592,16 @@ bool deep_sleep_with_the_keys() {
 
 void note_activity() { g_last_activity_ms = mono_now(); }
 
+int64_t idle_quiet_ms() { return g_idle_quiet_ms; }
+
+void set_idle_quiet_ms(int64_t ms) {
+#if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
+  g_idle_quiet_ms = (ms < 0) ? 0 : ms;
+#else
+  (void)ms;  // a board does not move the number of its own policy: it is ten seconds (docs/60).
+#endif
+}
+
 bool idle_sleep_allowed() { return g_idle_allowed; }
 
 void set_idle_sleep_allowed(bool on) {
@@ -598,7 +634,13 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   const bool staging = g_coming_back_at > 0;
   const int64_t deadline = staging ? g_coming_back_at : next_alarm_epoch_ms;
   if (deadline <= 0) return;
-  if (shell::app_running() || keeping_awake()) return;
+  // **Una pàgina que és la de casa no és ningú treballant** (0.189.182): the idle policy refused to sleep while any app was in
+  // front, and the board of this system has the launcher there always —o sigui que una placa amb `cfg home` no dormia mai i la
+  // seva alarma es quedava esperant una son que no arribava—. La casa es tanca amb els seus comiats i la seva sessió, com qualsevol
+  // altra pàgina (docs/60, docs/90).
+  const bool the_home_page =
+      shell::app_running() && cfg::home_app()[0] != '\0' && strcmp(shell::app_id(), cfg::home_app()) == 0;
+  if ((shell::app_running() && !the_home_page) || keeping_awake()) return;
   // An effect of the light is the board saying something right now, and it is painted once a
   // turn: powering off would cut it in the middle (docs/30).
   if (led::animating()) return;
@@ -610,9 +652,10 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   if (g_last_activity_ms == 0) {
     g_last_activity_ms = mono;
     // A stage goes straight back to sleep: nobody has touched the board since it came back for
-    // it, and every second awake here is a second of the wait wasted.
-    if (!staging) return;
-  } else if (mono - g_last_activity_ms < kIdleQuietMs) {
+    // it, and every second awake here is a second of the wait wasted. **And a return for an alarm is the same case** (0.189.182):
+    // the hook has already run in its window and there is nobody in front of the glass (docs/60).
+    if (!staging && !g_for_an_alarm) return;
+  } else if (mono - g_last_activity_ms < g_idle_quiet_ms) {
     return;
   }
 
@@ -1017,6 +1060,10 @@ void leave_the_mark(hal::IStorage* rtc) {
 
 BootKind boot_kind() { return g_boot_kind; }
 
+bool came_back_for_an_alarm() { return g_for_an_alarm; }
+
+bool woken_by_an_alarm() { return g_woke_by_an_alarm; }
+
 const char* boot_kind_word(BootKind kind) {
   switch (kind) {
     case BootKind::kRestart:
@@ -1031,6 +1078,12 @@ const char* boot_kind_word(BootKind kind) {
 BootKind note_the_boot(hal::IPlatform& platform) {
   hal::IKeyValue* nvs = platform.nvs();
   hal::IStorage* rtc = platform.storage("/rtc");
+  // **I què l'ha despertada, aquí i no a `power::boot`** (0.189.182): the clock is a door of the platform and this is the one call
+  // of the boot that has it before anything else has been touched; the two answers of a chip that came back are its own timer and
+  // the clock chip's quartz, and a button, the console or the power are a person (docs/50, docs/60).
+  hal::IClock* clock = platform.clock();
+  const hal::WakeCause woke = (clock != nullptr) ? clock->last_wake() : hal::WakeCause::kOther;
+  g_woke_by_an_alarm = (woke == hal::WakeCause::kTimer || woke == hal::WakeCause::kClock);
   if (nvs != nullptr && coming_back_from_a_sleep(*nvs)) {
     g_boot_kind = BootKind::kSleep;
   } else if (the_rtc_remembers(rtc)) {

@@ -14797,6 +14797,87 @@ void test_the_boot_knows_where_it_comes_from(void) {
                         static_cast<int>(kernel::power::boot_kind()));
 }
 
+// **Un despertar per una alarma no posa ningú al vidre** (0.189.182, l'amo: *«Perqué no ha despertat la placa? … un gestor que
+// permeti arrencar sense canviar res de la pantalla, executar l'app amb les dades de l'alarma, esperar a que acabi i tornar al
+// deepsleep»*): the board comes up because of an alarm and not because of a person, so **the page of the person waits** —the
+// register of the session is neither consumed nor written over, no lock is asked and no home starts— and the first turn after
+// the windows takes the board back down (docs/60, docs/90). The two halves of the case are the two boots: the one that comes
+// back for the alarm, and the one that comes back for a person, which does bring the page.
+void test_a_wake_for_an_alarm_comes_up_with_nobody_in_front(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  hal::IKeyValue* nvs = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(nvs);
+  TEST_ASSERT_TRUE(add_app(storage, "waiter",
+                           "{\"title\":\"Waiter\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('waiter in front')\n"
+                           "while true do sys.delay(50):await() end\n"));
+  // A page in front, and the sleep the board does to wait for its alarm: **the sleep is what writes the page down**, and it
+  // closes it on the way (docs/90).
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  pump_captured(40, g_out, sizeof(g_out), "run waiter");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "waiter in front"), g_out);
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  pump_captured(20, g_out, sizeof(g_out), "sleep deep 60000");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::app_running(), "the deep sleep left the page open");
+  char record[32];
+  size_t record_len = 0;
+  TEST_ASSERT_TRUE_MESSAGE(nvs->get("session", "app", record, sizeof(record) - 1, record_len),
+                           "the deep sleep left no register of the page it closed");
+  TEST_ASSERT_EQUAL_STRING("waiter", record);
+
+  // **La tornada per l'alarma**: the chip brought it back on its own, so nobody is in front of the glass and the register
+  // has not been read.
+  kernel::boot(hal::platform());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(kernel::power::BootKind::kSleep),
+                        static_cast<int>(kernel::power::boot_kind()));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::woken_by_an_alarm(), "this board woke on its own timer and not by hand");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::came_back_for_an_alarm(),
+                           "a wake for an alarm came up as a wake for a person");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::app_running(), "the page of the person came up over an alarm");
+  TEST_ASSERT_TRUE_MESSAGE(nvs->get("session", "app", record, sizeof(record) - 1, record_len),
+                           "the wake for an alarm consumed the register of the page that waits");
+  TEST_ASSERT_EQUAL_STRING("waiter", record);
+
+  // **I la segona baixada, la de la tornada**: a board that has come back for an alarm and goes down again has nothing to write
+  // down, and the `save_session` of a sleep with nobody in front would erase the page of the person with the same call that
+  // parks a page (docs/60).
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225700000LL));
+  pump_captured(20, g_out, sizeof(g_out), "sleep deep 60000");
+  TEST_ASSERT_TRUE_MESSAGE(nvs->get("session", "app", record, sizeof(record) - 1, record_len),
+                           "the sleep of a wake for an alarm erased the page that waits");
+
+  // **I el despert d'una persona sí que la porta**: that boot is not a return from a sleep at all, and the register is
+  // consumed by the page coming back (docs/90).
+  nvs->erase("power", "slept");
+  hal::IStorage* rtc = hal::platform().storage("/rtc");
+  TEST_ASSERT_NOT_NULL(rtc);
+  hal::FileSlot slot;
+  TEST_ASSERT_TRUE(rtc->open("", hal::OpenMode::kReadWrite, slot));
+  {
+    const uint8_t zeroes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(sizeof(zeroes)), rtc->write(slot, zeroes, sizeof(zeroes)));
+  }
+  TEST_ASSERT_TRUE(rtc->close(slot));
+  kernel::boot(hal::platform());
+  TEST_ASSERT_FALSE_MESSAGE(kernel::power::came_back_for_an_alarm(),
+                            "a boot for a person was taken for a wake for an alarm");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::app_running(), "the page of the person did not come back with its boot");
+  TEST_ASSERT_EQUAL_STRING("waiter", kernel::shell::app_id());
+  TEST_ASSERT_FALSE_MESSAGE(nvs->get("session", "app", record, sizeof(record) - 1, record_len),
+                            "the register of the session survived the page coming back");
+
+  kernel::shell::close_app();
+  nvs->erase("session", "app");
+  storage->remove("/apps/waiter/app.lua");
+  storage->remove("/apps/waiter/manifest.json");
+  storage->remove("/apps/waiter");
+}
+
 // The idle policy: a board that keeps the hour in a chip puts itself to sleep until the next
 // alarm, and a person can turn that off while working at the prompt. This emulator has no chip,
 // so what is proved here is the switch and that the emulator is honest about not sleeping by
@@ -14822,6 +14903,65 @@ void test_the_idle_sleep_is_a_switch(void) {
   // The policy reads the board before it reads a clock: this one does not stop being
   // powered when it sleeps, so it never sleeps on its own, whatever the switch says.
   TEST_ASSERT_FALSE(hal::platform().power()->deep_powers_off());
+}
+
+// **La pàgina de casa no és ningú treballant** (0.189.182, l'amo: *«Perqué no ha despertat la placa? estava en deep sleep i ho
+// hauría d'haver fet»*): the idle policy refused to put the board down while *any* app was in front, and the board of this system
+// has its launcher there always —o sigui que una placa amb `cfg home` no dormia mai, i l'alarma que havia de despertar-la
+// s'esperava una son que no arribava—. La casa és la pàgina d'algú que no hi és: es tanca amb els seus comiats i la seva sessió
+// com qualsevol altra, i la placa se'n va a esperar la seva alarma (docs/60, docs/90).
+void test_the_home_page_does_not_keep_the_board_awake(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  // El Paper, que és la placa on el son profund és el corrent que se'n va (docs/50).
+  use_board("m5stack-paper");
+  TEST_ASSERT_TRUE(hal::platform().power()->deep_powers_off());
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  TEST_ASSERT_TRUE(add_app(storage, "sleeper",
+                           "{\"title\":\"Sleeper\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('sleeper is home')\n"
+                           // **Una app que arma al seu tros principal ha de saber si és una finestra**, or every window it
+                           // gets in arms another alarm and the system calls itself for ever (docs/30, docs/60).
+                           "if console.is_foreground() then\n"
+                           "  alarm.at{in_ms = 120000, payload = 'tick', persist = true}\n"
+                           "end\n"
+                           "while true do sys.delay(200):await() end\n"));
+  // **La pàgina de casa d'aquesta placa**: the launcher is what is in front, and it is what the policy has to be able to tell
+  // apart from somebody working.
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app("sleeper"));
+  pump_captured(30, g_out, sizeof(g_out), "run sleeper");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sleeper is home"), g_out);
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+
+  // **Els deu segons de silenci, a zero**: a case that waited them would be a suite ten seconds slower for a line of a log
+  // (docs/60, docs/80). La línia que ho diu és la del mateix torn que la placa aprofita.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::app_running(), "the house is not in front");
+  TEST_ASSERT_EQUAL_STRING("sleeper", kernel::shell::app_id());
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  kernel::power::set_idle_quiet_ms(0);
+  pump_captured(6, g_out, sizeof(g_out));
+  kernel::power::set_idle_quiet_ms(was_quiet);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "power: nothing to do for"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::app_running(), "the board slept with the house still open");
+
+  // I la casa que ha quedat escrita és la que la persona trobarà: el son la va escriure abans de tancar-la (docs/90).
+  char record[32];
+  size_t record_len = 0;
+  TEST_ASSERT_TRUE_MESSAGE(hal::platform().nvs()->get("session", "app", record, sizeof(record) - 1, record_len),
+                           "the sleep did not write the page down");
+  TEST_ASSERT_EQUAL_STRING("sleeper", record);
+
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  kernel::cfg::set_home_app("");
+  use_board("m5stack-atom");
+  storage->remove("/apps/sleeper/app.lua");
+  storage->remove("/apps/sleeper/manifest.json");
+  storage->remove("/apps/sleeper");
 }
 
 // Off is not a sleep: on a board that holds its own supply the command ends the system, and on a
@@ -19645,7 +19785,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_last_wake_is_measured_and_kept);
   RUN_TEST(test_a_deep_sleep_wake_keeps_the_state_of_the_pages);
   RUN_TEST(test_the_boot_knows_where_it_comes_from);
+  RUN_TEST(test_a_wake_for_an_alarm_comes_up_with_nobody_in_front);
   RUN_TEST(test_the_idle_sleep_is_a_switch);
+  RUN_TEST(test_the_home_page_does_not_keep_the_board_awake);
   RUN_TEST(test_poweroff_cuts_the_power_of_the_board_that_can);
   RUN_TEST(test_the_board_counts_what_it_wrote_and_rests_before_the_current_goes);
   RUN_TEST(test_the_boot_holds_the_power_before_anything_else);

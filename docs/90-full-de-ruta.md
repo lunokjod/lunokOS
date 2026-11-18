@@ -268,6 +268,11 @@ peça, és a `docs/50` §«Què en fa el sistema, avui»):
    guanya i l'alarma s'entrega tard (`late_ms` ho diu); un son lleuger, en canvi, ja es talla a
    l'alarma. Per fer-ho bé al son profund cal decidir si el sistema ha de despertar la placa per
    entregar l'alarma i **tornar-la a dormir** després, o si la data de l'app és la que val.
+   **Decidit el 18/11 (0.189.182)**: el son que demana una app es respecta —és la seva data i la
+   placa no la trenca—, i el que fa el sistema és el camí propi: quan la placa no té ningú al davant
+   baixa fins a la propera alarma, torna **només** per a la finestra (sense pintar la targeta del
+   començament, sense tornar la pàgina, sense pany ni casa) i torna a baixar al primer torn (docs/60
+   §«Com arrenca la placa» i §«Son»). El que falta mesurar és el cost d'un cicle sencer a la placa.
 
 **Una cosa que s'havia vist a la placa (31/10, abans de donar la ràdio per bona)**: el provisioning
 **per Bluetooth** arribava a `CRED_SUCCESS`, l'aparell rebia adreça… i en parar el gestor peta:
