@@ -335,6 +335,17 @@ void deliver_alarms() {
   if (g_platform == nullptr) return;
   alarms::Entry entry;
   int64_t now = clock_mono();
+  // **La pàgina del davant s'aparta per la finestra i torna quan les finestres han acabat** (0.189.175, l'amo: *«la gràcia de
+  // les alarmes és avisar a les apps quan toca»*). Amb un sol intèrpret, una app que no és al davant no es pot despertar si n'hi
+  // ha una altra de viva, i la placa d'aquest sistema té una pàgina al vidre sempre (el llançador de `cfg home`): el registre de
+  // l'amo del 18/11 deia `no window (app gone or no on_alarm)` a cada deu minuts, o sigui que la `battery` i el `meteo` no
+  // prenien cap mostra de fons. La pàgina es tanca com la tanca un `raise` —comiats i sessió al disc— i torna amb `restore`
+  // quan l'última finestra s'ha tancat, o sigui que la persona la troba com la va deixar (docs/30, docs/60, docs/75).
+  //
+  // **Una pàgina i no un munt**: s'aparta una vegada i les alarmes que vencen al mateix torn comparteixen l'apartada. Un `raise`
+  // que caigui entremig es queda amb el vidre i la pàgina apartada no torna, que és el que ha demanat (docs/60).
+  char parked[40];
+  parked[0] = '\0';
   while (alarms::take_due(now, entry)) {
     // A light says an alarm went off even when the app's answer is a line on a console
     // nobody is looking at. It runs for its own cycles and then the light goes back to
@@ -360,19 +371,32 @@ void deliver_alarms() {
       log_printf(pal::kLogInfo, "ALARM", "%u raises %s", static_cast<unsigned>(entry.id),
                  entry.app);
       shell::raise_app(entry.app);
+      // **I el que s'havia apartat no torna**: el vidre és de l'app que ha pujat (docs/60).
+      parked[0] = '\0';
     } else if (!owner_running) {
-      // Nobody has the app loaded: it gets a window, and the foreground does not
-      // notice anything but a line in the log.
-      if (!shell::run_window(entry.app, entry, late)) {
-        log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (app gone or no on_alarm)",
-                   static_cast<unsigned>(entry.id), entry.app);
-      } else {
+      // Nobody has the app loaded: it gets a window, and the page in front steps
+      // aside for it and comes back when the windows are done (docs/30, docs/60).
+      if (parked[0] == '\0' && shell::app_running()) {
+        snprintf(parked, sizeof(parked), "%s", shell::app_id());
+        shell::close_app(/*say=*/false);
+        log_printf(pal::kLogInfo, "ALARM", "the page of %s steps aside for the window", parked);
+      }
+      if (shell::run_window(entry.app, entry, late)) {
         log_printf(pal::kLogInfo, "ALARM", "%u delivered to %s in a window (%lld ms late)",
                    static_cast<unsigned>(entry.id), entry.app,
                    static_cast<long long>(late));
       }
     }
     now = clock_mono();
+  }
+  // **I la pàgina torna com la va deixar la persona**: the app is started the way a wake starts it, with `restore`, so it
+  // reads the `state` it parked a moment ago and its page is the one that was on the glass (docs/30, docs/60).
+  if (parked[0] != '\0' && !shell::app_running()) {
+    if (shell::restore_app(parked, nullptr)) {
+      log_printf(pal::kLogInfo, "ALARM", "the page of %s is back", parked);
+    } else {
+      log_printf(pal::kLogWarn, "ALARM", "the page of %s did not come back", parked);
+    }
   }
 }
 
@@ -644,6 +668,11 @@ void boot(hal::IPlatform& platform) {
   // something the person has not typed (measured on the board and on the emulator, 1/11: `ui: view ...`
   // came out after `lunok> `).
   shell::start();
+  // **Les alarmes que van tocar mentre la placa no hi era es fan abans que cap pàgina torni** (0.189.175): a board that wakes
+  // from a deep sleep is a board that boots, and the session app used to come back *before* the queue was looked at, o sigui
+  // que la finestra de la mostra es refusava i la nit sencera es perdia. Amb el vidre buit la finestra és la de sempre, i
+  // l'app que la persona hi tenia torna després (docs/60, docs/90).
+  deliver_alarms();
   // Last, because it speaks to the console and may bring an app back: a board that wakes from a deep
   // sleep is a board that boots, and the session record is what makes the app come back where it was
   // (docs/90).

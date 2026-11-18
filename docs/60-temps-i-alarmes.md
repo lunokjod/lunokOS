@@ -144,6 +144,23 @@ només ha canviat de versió no es toquen**: la cua és de qui la va omplir i no
 3. Pressupost **més curt** que el d'una app de primer pla: és una finestra, no una sessió.
 4. Es destrueix la VM. El primer pla continua exactament on era.
 
+**I la pàgina del davant s'aparta per la finestra i torna quan ha acabat** (0.189.175, l'amo: *«la gràcia de les alarmes és
+avisar a les apps quan toca»*). Amb un sol intèrpret una finestra no pot córrer a sobre d'una app viva, i la placa d'aquest
+sistema en té una sempre que `cfg home` nomena una app —el llançador—; fins avui el sistema ho refusava i l'alarma d'una app de
+segon pla es perdia sencera (`no window (app gone or no on_alarm)` a cada deu minuts, amb l'app ben present al disc: el registre
+de l'amo del 18/11). El que fa ara:
+
+- la pàgina es tanca **com la tanca un `raise`** —`on_pause`, `on_save`, `on_close` i la seva sessió al disc— i la línia del
+  prompt no es diu, perquè no se n'ha anat;
+- les alarmes que vencen al mateix torn comparteixen **una sola apartada**, i la finestra no toca el vidre: la vista és la de
+  darrere d'una imatge (`ui.attach_under_a_picture`), perquè la pàgina que s'ha apartat encara hi és;
+- la pàgina torna amb `restore_app`, o sigui amb el `state` que va desar fa un moment i no de zero. Un `raise` que caigui
+  entremig es queda amb el vidre i la pàgina apartada no torna.
+
+El preu és **un desament de `state` (1 kB) i un repintat de la pàgina** per cada finestra; l'`apps` d'un llançador no es torna a
+escriure perquè no ha canviat (`does not park: the bytes on the disk are the ones it has`). Una app que no és un llançador
+també s'aparta —l'`agenda` torna al mes amb la seva forma—, perquè «quan toca» és quan toca per a totes.
+
 Dins de la finestra: `console.is_foreground()` és `false` i escriure a la consola no fa res (queda al
 log). **Cap crida no dona `E_NOTFOREGROUND`**: el codi no el produeix enlloc i la taula d'errors de
 `docs/30` el té marcat com a reservat.
@@ -177,7 +194,10 @@ Si l'alarma porta `raise = true`, llavors, en comptes de tancar-se:
 Si el sistema estava apagat quan tocava:
 
 - En arrencar, totes les alarmes vençudes es reprodueixen **en ordre**, amb `meta.late_ms` dient quant
-  s'han endarrerit i `meta.missed` quantes repeticions s'han perdut.
+  s'han endarrerit i `meta.missed` quantes repeticions s'han perdut. **I es reprodueixen abans que cap pàgina torni**
+  (0.189.175): el nucli lliura la cua entre el prompt i el `power::boot` que fa tornar l'app del son, o sigui que una placa que
+  desperta per una mostra la pren amb el vidre buit —sense apartar res i sense repintar-lo— i l'app on la persona era hi és
+  després.
 - Una repetició `"daily"` que s'ha perdut tres dies arriba **una vegada**, no tres.
 - Les alarmes que es reprodueixen es tracten com una finestra d'alarma normal, una darrere l'altra.
 

@@ -79,7 +79,11 @@ const char* app_id();
 
 // Closes the app that is alive, if there is one. What `raise` does to whatever
 // was in front before the alarm takes over.
-void close_app();
+//
+// **`say` és la línia del prompt** (0.189.175): `app closed` is the answer to a page that is gone for good, and a page that
+// steps aside for an alarm window and comes back has not been closed by anybody —the caller that parks it says its own line
+// and leaves this one out— (docs/30, docs/60).
+void close_app(bool say = true);
 
 // **Going back one view, which is what every way out asks for first** (0.163.1): the app gives the page on top back
 // and hears `on_back(depth)`; true means the app is still in front and the caller does not close it. It is here and
@@ -156,6 +160,10 @@ bool start_app(const char* id, bool splash = true);
 
 // The window of an alarm: the app is loaded, turned once and its on_alarm is
 // called, and then the VM goes away. Never runs on top of another app.
+//
+// **I qui la demana aparta la pàgina del davant** (0.189.175): `deliver_alarms` closes the page that is in front (silently,
+// with its goodbye hooks and its session) and brings it back with `restore_app` when the windows are done, perquè amb un sol
+// intèrpret no hi ha cap altra manera d'avisar una app quan toca. When it refuses, it says why in the log (docs/30, docs/60).
 bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms);
 
 }  // namespace shell

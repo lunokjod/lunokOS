@@ -176,6 +176,10 @@ void attach();
 // panel anyway —one whole `gc16` and its 290 to 450 ms less per start—. Nothing is lost: the page the app gets is white, a
 // `ui.clear(15)` of it costs nothing, and the page it draws is owed **whole and clean** by `owe_the_page()`, which is the
 // pass that takes the picture away and the ghost of the app before with it (docs/30, docs/50).
+//
+// **I és la vista d'una finestra d'alarma** (0.189.175): the page of the app that stepped aside for the window is on the glass
+// and nobody is going to paint over it, so a window that asked for the clean page paid a whole wash to draw nothing; the
+// picture it was written for and the window are the same case, o sigui que és la mateixa porta (docs/30, docs/60).
 void attach_under_a_picture();
 
 // Drawing. `mode` is the quality the app wants for this region; the default is `du`, the one a menu or

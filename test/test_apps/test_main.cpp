@@ -1164,6 +1164,72 @@ void test_an_alarm_for_an_app_that_is_not_loaded_runs_in_a_window(void) {
   storage->remove("/apps/inback");
 }
 
+// **La pàgina del davant s'aparta per la finestra i torna com la va deixar** (0.189.175, l'amo: *«la gràcia de les alarmes és
+// avisar a les apps quan toca»*). Amb un sol intèrpret una finestra no es pot obrir a sobre d'una pàgina, i la placa d'aquest
+// sistema en té una sempre que `cfg home` nomena una app —el llançador—: o sigui que l'alarma d'una app de segon pla venia,
+// la seva feina no es feia, i el registre deia `app gone or no on_alarm` d'una app que era al disc (el de l'amo, 18/11). La
+// pàgina es tanca amb els seus comiats, la finestra corre amb el vidre buit, i la pàgina torna amb `restore` o sigui amb el
+// `state` que havia desat (docs/30, docs/60).
+void test_a_window_moves_the_page_in_front_aside_and_brings_it_back(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // La pàgina del davant: una app que deixa la seva forma al `state` quan es tanca, que és el que distingeix una pàgina que
+  // ha tornat d'una que comença de zero.
+  TEST_ASSERT_TRUE(add_app(storage, "holder",
+                           "{\"title\":\"Holder\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local block = sys.session('state', 64)\n"
+                           "local was = (block ~= nil) and (block:read(0, 8) or '') or ''\n"
+                           "if was:sub(1, 4) == 'here' then console.print('holder back') end\n"
+                           "function on_close()\n"
+                           "  local b = sys.session('state', 64)\n"
+                           "  if b ~= nil then b:clear() b:write(0, 'here') end\n"
+                           "end\n"
+                           "console.print('holder up')\n"
+                           "while true do sys.delay(50):await() end\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "inback2",
+                           "{\"title\":\"In back too\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "function on_alarm(id, payload, meta)\n"
+                           "  console.print('window ' .. payload .. ' fg '\n"
+                           "    .. tostring(console.is_foreground()))\n"
+                           "end\n"
+                           "sys.delay(5000):await()\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run holder");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "holder up"), g_out);
+  TEST_ASSERT_TRUE(kernel::app_running());
+  TEST_ASSERT_EQUAL_STRING("holder", kernel::shell::app_id());
+
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  alarms::Spec spec;
+  spec.app = "inback2";
+  spec.on_mono_ms = clock->monotonic_ms() + 120;
+  spec.payload_kind = alarms::Payload::kText;
+  spec.payload = "ring";
+  TEST_ASSERT_TRUE(alarms::add(spec) != 0);
+
+  pump_captured(600, g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "window ring fg false"), g_out);
+  // **I la pàgina ha tornat amb el que havia desat**, no de zero.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "holder back"), g_out);
+  TEST_ASSERT_TRUE(kernel::app_running());
+  TEST_ASSERT_EQUAL_STRING("holder", kernel::shell::app_id());
+
+  // Leave the shell with no app, as every other test expects to find it.
+  kernel::shell::close_app();
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/holder/app.lua");
+  storage->remove("/apps/holder/manifest.json");
+  storage->remove("/apps/holder");
+  storage->remove("/apps/inback2/app.lua");
+  storage->remove("/apps/inback2/manifest.json");
+  storage->remove("/apps/inback2");
+}
+
 // raise: an alarm for an app that is not loaded puts that app in front, and the
 // console is its own from then on (docs/60).
 void test_an_alarm_with_raise_puts_the_app_in_front(void) {
@@ -19410,6 +19476,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_cancelled_alarm_never_fires);
   RUN_TEST(test_alarm_caps_and_a_payload_that_cannot_be_kept);
   RUN_TEST(test_an_alarm_for_an_app_that_is_not_loaded_runs_in_a_window);
+  RUN_TEST(test_a_window_moves_the_page_in_front_aside_and_brings_it_back);
   RUN_TEST(test_an_alarm_with_raise_puts_the_app_in_front);
   RUN_TEST(test_the_key_value_store_keeps_bytes);
   RUN_TEST(test_a_persistent_alarm_comes_back_after_a_reboot);

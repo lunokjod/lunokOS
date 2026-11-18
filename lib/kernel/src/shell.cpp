@@ -4032,7 +4032,7 @@ bool go_back_one_view() {
   return true;
 }
 
-void close_app() {
+void close_app(bool say) {
   if (!g_app_alive) return;
   // **I el port sèrie que l'app tenia torna al sistema** (0.189.20, la mateixa regla que el llum): a wire ceded to an app that
   // is not there any more is a port a person cannot get back, and giving it back here —before anything is written— is what
@@ -4092,7 +4092,9 @@ void close_app() {
   ui::give_back_the_glass();
   // The bar goes back to nobody's title: the app that was in front is not any more (docs/30).
   bar::title("");
-  out("app closed\r\n");
+  // **I la línia del prompt és només per a la pàgina que se'n va de debò** (0.189.175): a page that steps aside for an alarm
+  // window is not gone, and the window's line is the one the log gets (docs/30, docs/60).
+  if (say) out("app closed\r\n");
 }
 
 bool restore_app(const char* id, const char* path) { return run_app(id, path, true); }
@@ -4108,10 +4110,22 @@ bool raise_app(const char* id) {
 // away. It never runs on top of another app, and its console writes are at the
 // foreground prompt because there is no separate log console yet.
 bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
-  if (g_app_alive) return false;
+  // **El perquè no s'ha pogut, dit de veritat** (0.189.175): the single sentence `no window (app gone or no on_alarm)` said two
+  // things and neither of them was the one that happened —the owner's log of the 18th had the page of the launcher in front
+  // and the app well and truly on the disk—, o sigui que cada porta diu la seva i el qui la demana no hi afegeix res
+  // (docs/30, docs/60).
+  if (g_app_alive) {
+    log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (the page of %s is in front)",
+               static_cast<unsigned>(entry.id), id, app_id());
+    return false;
+  }
   RunTarget target;
   size_t len = 0;
-  if (!load_source(id, target, len)) return false;
+  if (!load_source(id, target, len)) {
+    log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (the app is not on the disk)",
+               static_cast<unsigned>(entry.id), id);
+    return false;
+  }
 
   luabind::Boot boot;
   boot.board = platform().id();
@@ -4131,10 +4145,15 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
   if (!luabind::start(boot, limit)) {
     drop_source();  // the text was read and nobody is going to compile it
+    log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (no room for another interpreter)",
+               static_cast<unsigned>(entry.id), id);
     return false;
   }
   meter::note_app_start(boot.app_id);
-  ui::attach();  // a fresh view for the app that is coming back (docs/30)
+  // **Una finestra no renta el vidre** (0.189.175): the page of the app that stepped aside is still on the glass, and a window
+  // that asks for a clean page pays a whole wash —the `a2` the emulator showed— to paint nothing on it. The view is the same
+  // and the glass is not touched, which is the rule the window already has: what the hook does not do is draw (docs/30, docs/60).
+  ui::attach_under_a_picture();
   // **I la finestra no hereta el tàctil de la pàgina de sota** (0.189.100): the same rule as a start —a finger that is down
   // and the tap the queue still owed are the page's that is being covered, not this one's (docs/30, docs/50).
   touch::forget_the_page_before();
@@ -4155,7 +4174,9 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   }
   luabind::stop();
   // **A window is an app too, for the glass** (0.136.0, docs/46 D1): whatever it asked for is given back when it goes,
-  // because the page of a window is not a page anybody asked for and the bar is not its (docs/30, docs/60).
+  // because the page of a window is not a page anybody asked for and the bar is not its (docs/30, docs/60). **I el vidre no
+  // es toca**: the page under it is the one of the app that stepped aside, and `give_back` frees the view without painting
+  // (0.189.175).
   ui::give_back_the_glass();
   return ok;
 }

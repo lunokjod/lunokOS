@@ -9953,7 +9953,21 @@ namespace kernel {
 // frases més del mateix repàs: **les finestres de la `Meteo` són un dia, set dies i tres mesos** (docs/40 deia una hora, sis
 // i un dia) i el primer botó de la `brokenapp` s'havia quedat mig en català (`Index a nil`, ara `An index into a nil`), que
 // és l'única cosa que la 0.189.163 es va deixar d'aquella pàgina (docs/30, docs/40, docs/45).
-static const char kVersion[] = "0.189.174";
+// **La finestra d'alarma amb una pàgina al vidre, o sigui sempre** (0.189.175, l'amo, mirant el seu registre: *«la gràcia de
+// les alarmes és avisar a les apps quan toca, no trobes?»*). `[W][ALARM] 2 for battery: no window (app gone or no on_alarm)` a
+// cada deu minuts, amb la `battery` ben present al disc: la finestra no s'obria perquè **hi havia una pàgina al davant** —el
+// `home_eink` de `cfg home`, que n'hi té una sempre— i amb un sol intèrpret no se'n pot obrir una segona. O sigui que cap app
+// de segon pla no prenia cap mostra mentre la placa tenia el llançador al vidre, i les històries de la `battery` i del `meteo`
+// només creixien amb la seva pàgina oberta. Ara la pàgina **s'aparta** (els comiats i la sessió, com un `raise`, sense dir
+// «app closed»), les alarmes que vencen al mateix torn comparteixen una sola apartada, la finestra **no renta el vidre**
+// (`ui.attach_under_a_picture`: la pàgina és a sota i no s'hi pinta res) i la pàgina torna amb `restore_app`, amb el `state`
+// que va desar. **I el perquè de debò**: `run_window` deia una frase per a dos mals i el que passava no era cap dels dos, o
+// sigui que ara diu la seva —`the page of X is in front`, `the app is not on the disk`, `no room for another interpreter`— i el
+// qui la demana no hi afegeix res. **I a l'arrencada del son**, la cua es lliura entre el prompt i el `power::boot` que fa
+// tornar l'app del son: una placa que desperta per una mostra la pren amb el vidre buit i la pàgina de la persona arriba
+// després (abans la casa arrencava primer i la finestra es refusava, o sigui que la nit sencera es perdia). `restore_session`
+// no arrenca res a sobre d'una app que un `raise` acaba de pujar (docs/30, docs/60, docs/75).
+static const char kVersion[] = "0.189.175";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

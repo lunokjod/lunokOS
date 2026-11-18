@@ -952,6 +952,13 @@ void restore_session() {
   write_text(kPathKey, nullptr);
 
   sayf("power: %s comes back where it was\r\n", id);
+  // **Una app que ha pujat al davant es queda amb el vidre** (0.189.175): a `raise` alarm delivered at boot has already put
+  // its app in front, and a second `run_app` on top of it is refused by the interpreter —so the line said «could not come
+  // back» of an app that is there and of a glass that is not free— (docs/60, docs/90).
+  if (shell::app_running()) {
+    sayf("power: %s does not come back: %s is in front\r\n", id, shell::app_id());
+    return;
+  }
   if (!shell::restore_app(id, has_path ? path : nullptr)) {
     sayf("power: %s could not come back (is it still there?)\r\n", id);
   }
