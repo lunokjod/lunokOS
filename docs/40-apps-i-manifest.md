@@ -669,6 +669,14 @@ La durada es mesura amb `sys.time_ms()` —la tirada, no l'hora del món—, whi
 visible in the log, and the line of a manifest this system cannot read is said **once per app** and not only painted (docs/30,
 docs/70).
 
+**I la llista no porta títol i va en la lletra petita** (0.189.177, l'amo: *«l'app "Applications Info" no necesita un títol
+enorme que posa "Applications" no trobes? pots aprofitar millor l'espai. Usa un tipus de lletra mes petit per la llista
+d'aplicacions»*): la barra del sistema ja diu *Application Info*, i un títol de setanta-sis píxels sobre una llista de noms era
+un cinquè del vidre dient el que ja es veia —la primera línia és el compte d'apps i el lloc que queda—. Les files van a **la
+meitat del cos**: els 33 i els 43 píxels del projecte del paper són tres i quatre passos d'aquesta cara, i la llista era al
+quatre —tan gran com una frase—, o sigui que vint-i-tres apps demanaven tres pàgines; amb dos passos i la fila de trenta-quatre
+píxels, **les vint-i-tres caben en una pàgina i el paginador no hi és** (docs/30, docs/45, docs/90).
+
 **I amb `-d` la pàgina llegeix aquella app i prou** (0.189.166, l'amo: *«s'ha de mostrar la vista detalls directament (sense
 escanejar res mes que no sigui aquella app) i el botó "Back" ha de tancar l'aplicació»*): the switch is read **before** anything
 else, the manifest and the folder of that one app are what is read —the file walk, the three grounds the system counts and the

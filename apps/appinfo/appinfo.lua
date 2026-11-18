@@ -57,15 +57,25 @@ end
 local kSmall = scale_for(33)
 local kBody = scale_for(43)
 local kBig = scale_for(82)
+-- **I la de la llista, mig pas més petita que el cos** (0.189.177, l'amo: *«l'app "Applications Info" no necesita un títol
+-- enorme que posa "Applications" no trobes? pots aprofitar millor l'espai. Usa un tipus de lletra mes petit per la llista
+-- d'aplicacions»*): the 33 px of the paper project and the 43 of its body are three and four steps of this face, and the list
+-- was at four —as big as a sentence—, o sigui que vint-i-tres apps demanaven tres pàgines. Two steps is half: the list is read
+-- looking for a name and not by reading it, the rows are still a finger high, i les vint-i-tres apps del disc hi caben en una
+-- pàgina (docs/30, docs/45, docs/90).
+local kList = scale_for(22)
 
 local function line(scale)
   return scale * ui.line_height(1)
 end
 
 local kMargin = 20
-local kListGap = 12
+local kListGap = 8
 local kDetailGap = 10
-local kRow = line(kBody) + 20
+-- **El pas de la fila és el de la lletra que hi ha a dins** (0.189.177): the row of a list is the finger's box, and this one
+-- keeps the air of a row that a finger hits without looking —twelve pixels over the line— i prou perquè les vint-i-tres apps
+-- del disc capiguen en una pàgina (docs/30, docs/90).
+local kRow = line(kList) + 12
 
 -- ------------------------------------------------------------------ the state of the page (docs/30 § state)
 
@@ -366,14 +376,14 @@ local function add_entry(the_list, one)
   local entry = ui.list_entry(view.width - 2 * kMargin, kRow)
   if entry == nil then return nil end
 
-  local version_w = 140
-  local name = make_label(view.width - 2 * kMargin - version_w - 36, one.title, kBody, 'left', 'middle')
+  local version_w = 110
+  local name = make_label(view.width - 2 * kMargin - version_w - 36, one.title, kList, 'left', 'middle')
   if name ~= nil then
     name:place(12, 2)
     entry:add(name)
   end
 
-  local version = make_label(version_w, one.version, kSmall, 'right', 'middle')
+  local version = make_label(version_w, one.version, kList, 'right', 'middle')
   if version ~= nil then
     version:place(view.width - 2 * kMargin - version_w - 12, 2)
     entry:add(version)
@@ -398,8 +408,9 @@ build_cover = function()
   page_control.gap = kListGap
   page_control:place(0, 0)
 
-  add_lines(page_control, view.width - 2 * kMargin, 'Applications', kBig, 'center')
-
+  -- **La pàgina no porta el nom de si mateixa** (0.189.177): the bar of the system already says *Application Info*, and a
+  -- heading of eighty pixels over a list of twenty-three names is a fifth of the glass saying what the glass is already
+  -- saying. The first line is the count and the room left, which is what a person came for (docs/30, docs/40).
   local space = fs.space('/apps')
   local summary
   if space ~= nil then
@@ -407,7 +418,7 @@ build_cover = function()
   else
     summary = string.format('%d apps in /apps', #apps_here)
   end
-  add_lines(page_control, view.width - 2 * kMargin, summary, kSmall)
+  add_lines(page_control, view.width - 2 * kMargin, summary, kList)
 
   -- **El que la darrera porta ha contestat** (docs/30): a person who pressed Uninstall reads here what went, and the line
   -- stays until another door answers or the app is closed — it is the app's line and not the system's.

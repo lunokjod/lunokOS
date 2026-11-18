@@ -9976,7 +9976,14 @@ namespace kernel {
 // consumeix**: si hi és, les pàgines tornen amb la placa (`the pages come back with the board`) i si no hi és, comencen de zero
 // com sempre. Una marca que no es consumís faria que la següent arrencada comencés amb la forma d'una pàgina que ningú no ha
 // deixat, i per això la resposta és d'una sola arrencada (docs/30, docs/45, docs/60, docs/75).
-static const char kVersion[] = "0.189.176";
+// **La llista de la fitxa de les apps, sense títol i en la lletra petita** (0.189.177, l'amo: *«l'app "Applications Info" no
+// necesita un títol enorme que posa "Applications" no trobes? pots aprofitar millor l'espai. Usa un tipus de lletra mes petit
+// per la llista d'aplicacions»*). La pàgina portava un `Applications` de setanta-sis píxels —un cinquè del vidre— dient el que
+// la barra ja diu, i les files amb el pas de 33 del projecte del paper —que en la cara d'aquest sistema és el tres, i el cos és
+// el quatre—: la llista era tan gran com les frases i vint-i-tres apps demanaven tres pàgines. Ara el títol no hi és, la primera
+// línia és el compte i el lloc que queda, i les files van a **la meitat del cos** (dos passos, trenta-quatre píxels de fila):
+// **les vint-i-tres caben en una pàgina i el paginador no es veu** (docs/30, docs/40, docs/45).
+static const char kVersion[] = "0.189.177";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
