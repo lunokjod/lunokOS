@@ -409,8 +409,9 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   // before is owed, or a board that reboots would carry the two hundred and forty of the last app it ran.
   g_cpu_rest_mhz = kRestingMhz;
   g_cpu_busy_until_ms = 0;
-  // The quiet count starts with this boot: nothing has been typed at it yet.
-  g_last_activity_ms = 0;
+  // **El comptador de la quietud arrenca amb aquesta arrencada** (0.190.9): nothing has been typed at it yet, and the person
+  // who chose five minutes gets five minutes from the boot and not from the first turn that happened to look.
+  g_last_activity_ms = mono_now();
   // A stage of a longer wait belongs to one boot: `report_wake()` is what sets it again
   // (docs/60).
   g_coming_back_at = 0;
@@ -435,6 +436,8 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
     // the three ways down of this system are one and not three (docs/30, docs/50).
     ops.sleep_with_the_keys = &shell::deep_sleep;
   }
+  // **I el comptador de la quietud, que és d'aquesta casa i no de cada pàgina** (0.190.9).
+  ops.idle_ms = &quiet_ms;
   luabind::set_power_ops(ops);
 
   if (g_power == nullptr) return;
@@ -598,6 +601,19 @@ void note_activity() { g_last_activity_ms = mono_now(); }
 // **Quanta quietud mana** (0.190.9): the setting a person chose in Settings -> Battery —ten seconds, a minute or five—, i una
 // suite que hagués d'esperar els deu segons seria una suite deu segons més lenta, o sigui que on hi ha algú que mogui el número
 // de la prova mana el de la prova (docs/60, docs/80).
+// **L'única pregunta de la quietud** (0.190.9): seconds-ish of mono time since a person last did anything, and zero for the
+// first turn of a boot that has not stamped itself (which is a board that has just come up and not a board that has been quiet
+// for ever).
+int64_t quiet_ms() {
+  const int64_t now = mono_now();
+  if (g_last_activity_ms <= 0) {
+    g_last_activity_ms = now;
+    return 0;
+  }
+  const int64_t quiet = now - g_last_activity_ms;
+  return (quiet > 0) ? quiet : 0;
+}
+
 int64_t idle_quiet_ms() {
 #if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
   return g_idle_quiet_ms;
@@ -664,29 +680,25 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   if (now_epoch <= 0) return;
   const int64_t wait = deadline - now_epoch;
   if (wait < kMinIdleSleepMs) return;
-  const int64_t mono = mono_now();
-  if (g_last_activity_ms == 0) {
-    g_last_activity_ms = mono;
-    // A stage goes straight back to sleep: nobody has touched the board since it came back for
-    // it, and every second awake here is a second of the wait wasted. **And a return for an alarm is the same case** (0.189.182):
-    // the hook has already run in its window and there is nobody in front of the glass (docs/60).
-    if (!staging && !g_for_an_alarm) return;
-  } else if (mono - g_last_activity_ms < idle_quiet_ms()) {
-    return;
-  }
+  // **Una represa per una alarma no espera el comptador** (0.189.182): the hook has already run in the window and there is nobody
+  // in front of the glass, o sigui que cada segon despert és un segon de l'espera llençat. **Per a tota la resta mana el comptador**,
+  // que és l'únic que hi ha (0.190.9), i la placa només s'apaga quan la quietud **arriba** al temps que la persona va triar: amb cinc
+  // minuts al desplegable, cinc minuts i no deu segons (docs/30, docs/60).
+  const bool straight_back_down = (!staging && g_for_an_alarm);
+  const int64_t quiet = quiet_ms();
+  if (!straight_back_down && quiet < idle_quiet_ms()) return;
 
   g_coming_back_at = 0;
   // **La línia del per què** (0.190.5, l'amo: *«posa log quan hagi de saltar el deepsleep automátic»*). A sleep that comes from the policy
   // and not from a person is a line a board should be able to explain, o sigui que la línia diu **les tres xifres de la decisió**: quant
   // falta per a la propera alarma, quanta estona fa que la placa està quieta i quants segons de quietud li demana la política —i si és una
   // represa d'una alarma ho diu, perquè aquesta és l'única decisió que no espera el comptador— (docs/60, docs/90).
-  const int64_t quiet = (mono - g_last_activity_ms > 0) ? (mono - g_last_activity_ms) : 0;
   sayf("power: nothing to do for %lld s, sleeping until the next alarm\r\n",
        static_cast<long long>(wait / 1000));
   log_printf(pal::kLogInfo, "POWER",
              "idle deep sleep: %lld s to the next alarm, %lld s of quiet (the policy asks %lld), %s",
              static_cast<long long>(wait / 1000), static_cast<long long>(quiet / 1000),
-             static_cast<long long>(g_idle_quiet_ms / 1000),
+             static_cast<long long>(idle_quiet_ms() / 1000),
              (!staging && g_for_an_alarm) ? "a wake for an alarm goes straight back down" : "nobody has used the board");
   // Does not come back: on this board the power goes and the clock chip brings it back.
   // If it does come back (a cable in the slot), the board is being used again.

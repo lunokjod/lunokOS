@@ -19,6 +19,7 @@
 #include "kernel/cfg.h"
 #include "kernel/display.h"
 #include "kernel/log.h"
+#include "kernel/power.h"
 #include "kernel/shell.h"
 #include "pal/pal.h"
 
@@ -28,17 +29,13 @@ namespace {
 
 // When a hand was last on the board, on the monotonic clock; zero is "nobody has touched it since this boot", which is the
 // boot itself and not 1970 (docs/60).
-int64_t g_last_ms = 0;
+// **El comptador de la quietud NO és d'aquest fitxer** (0.190.9, l'amo: *«el comptador d'idle es el mateix que per el que fa
+// saltar el device lock… No malgastis temps i memoria en varis comptadors»*): the minutes without a hand are the board's quiet,
+// which `power` counts once for the deep sleep and for this page, and here there is only the question (docs/30, docs/60).
 // A sleep has come back and the page is owed at the next turn.
 bool g_a_wake_is_owed = false;
 // What was said about a page that cannot be used, so the line is said once and not once a turn.
 const char* g_complained = nullptr;
-
-int64_t now_ms() {
-  // **El rellotge del sistema i no el de l'hora**: the minutes of a lock are a duration, and a duration is the monotonic
-  // counter \u2014the one that does not jump when the hour is set\u2014 (docs/30, docs/60).
-  return static_cast<int64_t>(pal::system().millis());
-}
 
 // The page the switch asks for, or nullptr when there is nothing to run, and the reason said once.
 const char* the_page() {
@@ -76,7 +73,7 @@ void bring_it_up(const char* why) {
 }  // namespace
 
 const char* boot() {
-  g_last_ms = now_ms();
+  power::note_activity();
   g_a_wake_is_owed = false;
   g_complained = nullptr;
   // **Un tauler sense vidre no tapa res**: the four boards of this build with no screen keep their prompt, which is all they
@@ -110,7 +107,7 @@ const char* boot() {
 }
 
 void note_activity() {
-  g_last_ms = now_ms();
+  power::note_activity();
   // A hand on the board also says that the wake has been seen: a person who is already pressing keys does not want the page
   // of the lock coming up under the finger a turn later (docs/30).
   g_a_wake_is_owed = false;
@@ -129,13 +126,13 @@ void poll() {
   }
   const uint8_t minutes = cfg::lock_after_minutes();
   if (minutes == 0) return;
-  const int64_t quiet_from = (g_last_ms == 0) ? now_ms() : g_last_ms;
-  if (g_last_ms == 0) g_last_ms = quiet_from;
-  if (now_ms() - quiet_from < static_cast<int64_t>(minutes) * 60000LL) return;
+  // **Els minuts d'aquesta pàgina són la quietud de la placa** (0.190.9): the same counter the deep sleep reads, so a board cannot
+  // be "idle" for one of the two and "in use" for the other (docs/30, docs/60).
+  if (power::quiet_ms() < static_cast<int64_t>(minutes) * 60000LL) return;
   bring_it_up("nobody has touched the board for the minutes of the setting");
   // **I el comptador torna a comen\u00e7ar**: a page that is already up is not asked for twice and the minutes of the setting are
   // counted again from now, or the next turn would ask for it again (docs/60).
-  g_last_ms = now_ms();
+  power::note_activity();
 }
 
 bool locked() {

@@ -10122,7 +10122,14 @@ namespace kernel {
 // política de `power` el llegeix d'aquí en lloc de la constant de deu segons. **El terra de deu segons no es mou**: és una altra
 // pregunta —si val la pena un cicle d'apagada quan l'alarma és a tocar— i barrejar-les faria que triar cinc minuts canviés quan la
 // placa deixa de despertar-se per una alarma propera (docs/30, docs/45, docs/60).
-static const char kVersion[] = "0.190.9";
+// **Un sol comptador d'inactivitat, i exposat a les apps** (0.190.9, l'amo: *«el comptador d'idle es el mateix que per el que fa
+// saltar el device lock… No malgastis temps i memoria en varis comptadors»* i *«el sistema exposa aquest valor a les apps lua que
+// el vulguin saber»*). El son profund i el pany de la pantalla comptaven la quietud per separat, i el desplegable de cinc minuts
+// podia acabar en un son als pocs segons perquè la xifra que decidia no era la que la persona havia triat. Ara hi ha **un**
+// comptador (`power::quiet_ms`): el mouen les tres coses que són una mà a la placa —un byte de consola, un dit al vidre i una tecla
+// del dial—, **una arrencada el posa a zero**, i la placa només s'apaga quan la quietud **arriba** al temps triat. El pany hi
+// pregunta els seus minuts i les apps el llegeixen amb **`sys.idle_ms()`** (docs/30, docs/45, docs/60).
+static const char kVersion[] = "0.190.10";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

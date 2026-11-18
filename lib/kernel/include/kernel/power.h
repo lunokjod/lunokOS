@@ -83,6 +83,13 @@ void set_idle_sleep_allowed(bool on);
 // **Quant de silenci vol la política** (0.189.182): ten seconds without a byte on the console are what tells the board that
 // nobody is using it. It is a number a case can move —one that had to wait the ten seconds would be a suite ten seconds slower
 // for one line of a log— and it goes back to where it was (docs/60, docs/80).
+// **Quanta estona fa que ningú no toca la placa** (0.190.9, l'amo: *«el comptador d'idle es el mateix que per el que fa saltar el
+// device lock… No malgastis temps i memoria en varis comptadors»*): **un sol comptador**, el d'aquesta casa, i el llegeixen les
+// dues coses que esperen una mà: el son profund (aquest fitxer) i la pàgina del bloqueig (`lock::poll`, que ja no en té cap de
+// seu). El mouen les tres coses que són una persona a la placa —un byte de consola, un dit al vidre i una tecla del dial— i una
+// arrencada el posa a zero (docs/30, docs/60).
+int64_t quiet_ms();
+
 int64_t idle_quiet_ms();
 void set_idle_quiet_ms(int64_t ms);
 

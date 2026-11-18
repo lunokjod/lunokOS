@@ -11619,6 +11619,18 @@ int l_button_wait(lua_State* L) {
 // bit is only true when the board really has it, and `wake` says where it comes
 // back from so an app does not promise a person an alarm on a board that cannot
 // wake (docs/30).
+// **`sys.idle_ms()`** (0.190.9, l'amo: *«el sistema exposa aquest valor a les apps lua que ho vulguin saber. es el comptador d'idle
+// del usuari»*): how many milliseconds since a person last did anything on the board. It is **the same counter** the deep sleep
+// and the lock of the screen read —one counter and not three—, and the three things that move it are a byte of console, a finger
+// on the glass and a key of the dial. Zero is a boot that has just stamped itself (docs/30, docs/60).
+int l_sys_idle_ms(lua_State* L) {
+  if (g_power_ops.idle_ms == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no counter of the hand");
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_power_ops.idle_ms()));
+  return 1;
+}
+
 int l_power_caps(lua_State* L) {
   lua_createtable(L, 0, 5);
   lua_pushboolean(L, (g_power_ops.can_sleep != nullptr && g_power_ops.can_sleep(0)) ? 1 : 0);
@@ -12722,6 +12734,7 @@ void seal_globals(lua_State* L) {
   lua_setfield(L, -2, "lua");
   set_function(L, "heap", l_sys_heap);
   set_function(L, "time_ms", l_sys_time_ms);
+  set_function(L, "idle_ms", l_sys_idle_ms);
   set_function(L, "turn", l_sys_turn);
   set_function(L, "gc", l_sys_gc);
   set_function(L, "caps", l_sys_caps);

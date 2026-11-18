@@ -464,6 +464,11 @@ struct PowerOps {
   // (`power auto on|off`, docs/30, docs/50).
   bool (*cpu_auto)();
   void (*set_cpu_auto)(bool on);
+  // **El comptador d'inactivitat de la persona** (0.190.9, l'amo: *«el sistema exposa aquest valor a les apps lua que ho vulguin
+  // saber. es el comptador d'idle del usuari»*): the milliseconds since a hand was last on the board —a byte of console, a finger
+  // on the glass, a key of the dial—, which is the **one** counter the deep sleep and the lock read. An app that dims a page, that
+  // stops a game or that says "you have been reading for an hour" asks here, and no app keeps a copy (docs/30, docs/60).
+  int64_t (*idle_ms)();
 };
 
 void set_power_ops(const PowerOps& ops);

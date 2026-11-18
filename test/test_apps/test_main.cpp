@@ -14217,6 +14217,15 @@ void test_a_sleep_cut_short_is_not_a_measurement(void) {
   TEST_ASSERT_NOT_NULL(nvs);
   nvs->erase("power", "drift");
   nvs->erase("power", "cause");
+  // **The world of this case is its own** (0.190.9): the hour it needs —a supply that blinks 243 s before the hour only means
+  // anything while the sleep is longer than those 243 s— and the queue empty, because an alarm left by the case before is a
+  // sleep that ends **on the alarm** and not on the power, which is exactly the two things this case is here to tell apart
+  // (it failed for months against a `sleeper` alarm of a case that ran before it, with the message `#1 fired for sleeper`).
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  alarms::reset();
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::count());
 
   // The emulator comes back 243 s before the hour it was given, which is what a board whose supply
   // blinks does: the sleep is over and the hour was never reached.

@@ -469,6 +469,14 @@ Com està avui:
    sent l'interruptor del run. **I el comptador de la quietud arrenca a zero a cada boot** i el mouen les tres coses que són una mà a la
    placa: un byte de consola, un marc amb un dit a sobre i una tecla del dial que baixa (docs/30, docs/90).
 
+   **I el comptador és UN** (0.190.9, l'amo: *«el comptador d'idle es el mateix que per el que fa saltar el device lock… No
+   malgastis temps i memoria en varis comptadors»*): el son profund i el pany de la pantalla preguntaven la mateixa cosa amb dues
+   xifres diferents, i ara hi ha `power::quiet_ms()`, que és el que llegeixen tots dos —i el que una app llegeix amb
+   `sys.idle_ms()`—. Les tres regles són les de l'amo i són al mateix lloc: **una arrencada reinicia el comptador**, **una tecla
+   física el reinicia** i **un dit al vidre el reinicia**, i **la placa només s'apaga quan la quietud arriba al temps triat al
+   desplegable**: amb cinc minuts, cinc minuts, i no els deu segons que hi havia. L'única cosa que no espera el comptador és una
+   represa per una alarma, que ha fet la seva feina i torna a baixar de seguida (0.189.182).
+
    **I quants segons és «quietud» també es tria** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per
    fer el DeepSleep)»*): la fila **Sleep after** de la mateixa pestanya Battery és un desplegable del sistema amb **tres temps** —**10
    seconds** (el de sèrie, el que hi havia), **1 minute** i **5 minutes**—, que és `cfg.idle` des de Lua i `cfg idle [10|60|300]` al
