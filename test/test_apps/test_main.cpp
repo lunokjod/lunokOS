@@ -19717,6 +19717,52 @@ void test_an_app_that_dies_says_why_on_the_glass(void) {
   }
   TEST_ASSERT_GREATER_THAN_MESSAGE(300, foot_ink, "the page of the error does not say how to go on");
 
+  // **El botó hi és, i la seva paraula també** (0.190.1): the frame alone would pass the ink of the foot, so the word is looked for
+  // inside the frame and not at its edge (docs/30, docs/80).
+  const uint16_t height = glass->height();
+  const kernel::app_error::Button button = kernel::app_error::dismiss_button(width, height);
+  TEST_ASSERT_GREATER_THAN_UINT16(0, button.w);
+  TEST_ASSERT_GREATER_THAN_UINT16(0, button.h);
+  int word_ink = 0;
+  for (uint16_t y = static_cast<uint16_t>(button.y + 7); y < static_cast<uint16_t>(button.y + button.h - 7); ++y) {
+    for (uint16_t x = static_cast<uint16_t>(button.x + 7); x < static_cast<uint16_t>(button.x + button.w - 7); ++x) {
+      if (glass->level_at(x, y) == 0) ++word_ink;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(120, word_ink, "the button of the page says no word");
+
+  // **I el botó és l'única porta** (0.190.1): a tap or a long press on it is the answer, and a tap on the message, a drag, a tap on
+  // the bar of the system or any other gesture are not —the page has been read by then or it has not— (docs/30, docs/80).
+  const int32_t middle_x = button.x + button.w / 2;
+  const int32_t middle_y = button.y + button.h / 2;
+  TEST_ASSERT_TRUE(kernel::app_error::it_is_an_answer(width, height, "tap", middle_x, middle_y));
+  TEST_ASSERT_TRUE(kernel::app_error::it_is_an_answer(width, height, "long", middle_x, middle_y));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_error::it_is_an_answer(width, height, "tap", 40, 300),
+                            "a tap in the middle of the message is the answer");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_error::it_is_an_answer(width, height, "tap", width / 2, 6),
+                            "a tap on the bar of the system is the answer");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_error::it_is_an_answer(width, height, "drag", middle_x, middle_y),
+                            "a drag on the button is the answer");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_error::it_is_an_answer(width, height, nullptr, middle_x, middle_y),
+                            "a gesture that is nothing is the answer");
+
+  // **I la pàgina no marxa ni amb un dit que no és al botó ni abans del seu temps** (0.190.1, l'amo: *«Ara per algun motiu no dona
+  // temps a llegir el missatge, ja que Home torna a arrencar-se de poc»*): a tap anywhere else is not an answer, and a page that
+  // closes itself in half a minute is a page that hides the reason. El número el posa el cas i el sistema el té a zero, que vol dir
+  // esperar tant com calgui (docs/30, docs/80).
+  kernel::app_error::set_wait_ms(400);
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  TEST_ASSERT_TRUE(panel->finger_down(0, 40, 300));  // un toc al mig del missatge, abans que la pàgina hi sigui
+  pump_turns(6);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(6);
+  const uint32_t began = pal::system().millis();
+  pump_captured(200, g_out, sizeof(g_out), "run dier");
+  const uint32_t waited = pal::system().millis() - began;
+  kernel::app_error::set_wait_ms(0);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32_MESSAGE(400, waited, "the page went away before its time, or with a finger that was not on it");
+
   storage->remove("/apps/dier/app.lua");
   storage->remove("/apps/dier/manifest.json");
   storage->remove("/apps/dier");

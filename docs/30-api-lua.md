@@ -953,7 +953,7 @@ while true do
 end
 ```
 
-## La pàgina d'una app que s'ha mort (0.189.162)
+## La pàgina d'una app que s'ha mort (0.189.162, el botó des de la 0.190.1)
 
 **Un error d'una app acaba al vidre i no només al registre.** L'amo: *«Si peta una app, que menys que saber el perqué amb la
 pantalla i els dits. Un modal amb el missatge d'error? vull detalls del perqué una app peta»*. Quan una app s'acaba amb un error
@@ -964,11 +964,26 @@ pantalla i els dits. Un modal amb el missatge d'error? vull detalls del perqué 
   'nothing')`) —el tros es diu pel nom del fitxer i no pel camí del disc, que és una cosa que una persona ha de llegir dues
   vegades—;
 - **el rastre de les crides** (`stack traceback`), que és el que diu **des d'on** s'ha cridat el que ha petat;
-- i una línia a baix que diu **com continuar**.
+- i **un botó `Dismiss`** a baix, que és l'única cosa que treu la pàgina del vidre (0.190.1).
 
-**I espera**: un dit al vidre, una tecla, o els trenta segons que la pàgina espera sola —una placa que ningú mira no s'ha de quedar
-penjada en un error—. El text és el mateix que el registre i la consola han rebut (`luabind::last_error_text`), o sigui que la
-pàgina i el log no es poden contradir. Una placa sense vidre no pinta res i segueix com sempre (docs/50, docs/85).
+**I espera el botó i prou** (0.190.1, l'amo: *«el modal ... ha de tenir un botó "Dismiss" i fins que no es polsi no se surt de l'app.
+Ara per algun motiu no dona temps a llegir el missatge, ja que Home torna a arrencar-se de cop»*). Abans qualsevol toc al vidre la
+treia —i el dit que havia fet petar l'app encara era a la cua quan la pàgina es pintava, o sigui que la pàgina podia marxar amb la mà
+que l'havia causada— i a més es tancava sola al cap de **trenta segons**, que és menys del que costa llegir un rastre. Ara:
+
+- **un toc o una premsa llarga dins del botó** és la resposta; un toc al mig del missatge, un arrossegament o un toc a la barra del
+  sistema **no** ho són (`app_error::it_is_an_answer`, que és la mateixa porta que fa servir l'espera);
+- **no hi ha temps límit**: el número de la pàgina és **zero**, que vol dir esperar tant com calgui, i només un cas de la suite li
+  posa un número curt perquè una suite amb una pàgina que no marxa no s'acaba mai (docs/80);
+- **una tecla** treu la pàgina només en una placa que no té dit, que si no es quedaria sense cap porta (docs/50).
+
+**I això té un preu, que és el de tota pàgina que espera**: mentre és al vidre, el torn del nucli és **seu**, o sigui que les alarmes
+no es lliuren fins que es polsa el botó. És el que l'amo va demanar —una pàgina d'error que s'ha de llegir— i és el motiu pel qual la
+pàgina només existeix per a l'app **del vidre**: una finestra d'alarma que peta no la pinta mai, perquè `run_window` diu el seu motiu
+i segueix (docs/50, docs/60).
+
+El text és el mateix que el registre i la consola han rebut (`luabind::last_error_text`), o sigui que la pàgina i el log no es poden
+contradir. Una placa sense vidre no pinta res i segueix com sempre (docs/50, docs/85).
 
 **I es pot provocar**: l'app `brokenapp` —*Broken App Test*— té set botons i cada un peta d'una manera diferent (indexar un `nil`,
 cridar un global que no és funció, un `error` amb missatge, un `error` amb taula, un bucle sense fi que talla el pressupost del

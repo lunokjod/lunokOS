@@ -7,9 +7,11 @@
 // on. **The drawing is the system's own**: whatever `hal::ISurface` and the face of the system give, the same two things the bar
 // and the splash use, so a board with no disk still shows its error (docs/30, docs/50).
 //
-// **I el que la pàgina espera**: a finger on the glass, a key, or the seconds she waits alone —a board with nobody in front of it
-// must not stay on the error forever—, and while she waits the touch panel and the queue keep being read, or the finger would
-// arrive to a system that is not looking (docs/30, docs/50, docs/90).
+// **I el que la pàgina espera** (0.190.1, l'amo: *«ha de tenir un botó "Dismiss" i fins que no es polsi no se surt de l'app. Ara per
+// algun motiu no dona temps a llegir el missatge, ja que Home torna a arrencar-se de cop»*): **el botó i prou**. Abans qualsevol toc
+// al vidre la treia —i el dit que havia fet petar l'app encara era a la cua quan la pàgina es pintava, o sigui que la pàgina marxava
+// amb la mà que l'havia causada— i a més es tancava sola al cap de mig minut. Ara un toc fora del botó no és res, una tecla només
+// compta en una placa sense dit, i el número de segons és **zero**, que vol dir esperar tant com calgui (docs/30, docs/50, docs/90).
 #include "board/identity.h"
 
 #if LUNOK_GLASS
@@ -35,10 +37,15 @@ namespace {
 // The air between the frame and the words, and the rows the frame is thick.
 const uint16_t kMargin = 16;
 const uint16_t kFrame = 2;
-// **Els segons que la pàgina espera sola**: a person reading a traceback needs more than a glance, and a board with nobody in
-// front of it —a shelf, a test— must go on by itself. A case of the suite asks for a shorter one (docs/80).
-const int64_t kWaitMs = 30000;
+// **Quant espera la pàgina: tot el que calgui** (0.190.1): zero is no limit —the page is the person's and it goes when the button
+// goes— and it is the system's number. A case of the suite that runs a page nobody is going to touch sets a short one, perquè una
+// suite amb una pàgina que no marxa no acaba mai (docs/80).
+const int64_t kWaitMs = 0;
 int64_t g_wait_ms = kWaitMs;
+// **El botó**: the one door of the page. A word of the system's own —`Dismiss`— inside its frame, at the bottom and in the middle,
+// where a thumb reaches it (docs/30, docs/50).
+const uint16_t kButtonW = 176;
+const uint16_t kButtonH = 52;
 // What one line of the message may say before it is cut: a line of a traceback is long, and a page that runs off the glass says
 // nothing at all (docs/30).
 const uint16_t kLineBytes = 96;
@@ -178,7 +185,7 @@ void paint(hal::ISurface& surface, const char* id, const char* title, const char
 
   // **I les línies del perquè**, tallades a la caixa i amb el que no hi cap dit: a page that ends in a full stop nobody asked for
   // is a page that hides the end of the traceback (docs/30, docs/90).
-  const uint8_t room = static_cast<uint8_t>((height - kMargin - 12 - y - 2 * line_h) / (line_h + 2));
+  const uint8_t room = static_cast<uint8_t>((height - kMargin - kButtonH - 24 - y) / (line_h + 2));
   Count counter(kLines);
   walk_text(text, static_cast<uint16_t>(width - 2 * (kMargin + 12)), scale, counter);
   const uint8_t take = (counter.lines < room) ? counter.lines : room;
@@ -187,11 +194,17 @@ void paint(hal::ISurface& surface, const char* id, const char* title, const char
     walk_text(text, static_cast<uint16_t>(width - 2 * (kMargin + 12)), scale, painter);
   }
 
-  // **Com continuar**: the one thing a page of an error owes the person in front of it.
-  const char* how = "Tap the glass or press a key";
-  const uint16_t how_w = font::width(how, scale);
-  font::draw(surface, static_cast<uint16_t>((width - how_w) / 2),
-             static_cast<uint16_t>(height - kMargin - 10 - line_h), how, scale, 0);
+  // **El botó, que és l'única cosa que treu la pàgina del vidre** (0.190.1): a frame and the word, where a thumb reaches it and where
+  // the case of `test_apps` looks for ink (docs/30, docs/50, docs/80).
+  const Button button = dismiss_button(width, height);
+  surface.fill_rect(button.x, button.y, button.w, button.h, 0);
+  surface.fill_rect(static_cast<uint16_t>(button.x + kFrame), static_cast<uint16_t>(button.y + kFrame),
+                    static_cast<uint16_t>(button.w - 2 * kFrame), static_cast<uint16_t>(button.h - 2 * kFrame), 15);
+  const char* word = "Dismiss";
+  const uint16_t word_w = font::width(word, scale);
+  const uint16_t word_x = static_cast<uint16_t>(button.x + (button.w - word_w) / 2);
+  const uint16_t word_y = static_cast<uint16_t>(button.y + (button.h - line_h) / 2);
+  font::draw(surface, word_x, word_y, word, scale, 0);
 }
 
 bool any_key_down() {
@@ -202,27 +215,40 @@ bool any_key_down() {
   return false;
 }
 
-// **El que s'espera**: a finger, a key, or the seconds of the page. The panel and the queue are read here because the kernel's
-// turn is the one that is stopped —the app that died was inside it— so nobody else is going to read them (docs/30, docs/50).
-void wait_for_the_person() {
-  const int64_t began = static_cast<int64_t>(pal::system().millis());
-  // **A finger that is already on the glass is not the answer**: the tap that pressed the button that died is still there on a
-  // board that reads the panel slowly, and dismissing the page with the hand that caused it is a page nobody reads.
-  const int64_t settle = (g_wait_ms < 3000) ? g_wait_ms : 3000;
-  while (touch::points(nullptr, 0) > 0 && since(began) < settle) {
-    pal::Event event;
-    pal::system().queue()->pop(event, 20);
+// **El que s'espera: el botó** (0.190.1). The panel and the queue are read here because the kernel's turn is the one that is stopped
+// —the app that died was inside it— so nobody else is going to read them (docs/30, docs/50).
+void wait_for_the_person(uint16_t width, uint16_t height) {
+  const bool has_a_finger = touch::available();
+  // **El dit que va fer petar l'app no és la resposta**: the tap that pressed the button that died is still in the queue of a board
+  // that reads the glass slowly, and a page that goes away with the hand that caused it is a page nobody reads. Everything the finger
+  // did before the page is thrown away, and **a finger that is still down is waited out**: the gesture of it comes when it lifts, and
+  // by then this page is the one that is on the glass (docs/30, docs/50).
+  if (has_a_finger) {
+    touch::forget_gestures();
+    const int64_t settle = (g_wait_ms > 0 && g_wait_ms < 3000) ? g_wait_ms : 3000;
+    const int64_t began = static_cast<int64_t>(pal::system().millis());
+    while (touch::points(nullptr, 0) > 0 && since(began) < settle) {
+      pal::Event event;
+      pal::system().queue()->pop(event, 20);
+    }
+    touch::forget_gestures();
   }
   bool was_down = any_key_down();
-  while (since(began) < g_wait_ms) {
-    touch::poll();
-    touch::Gesture gesture;
-    // The gestures of the contact are taken and thrown: a finger on this page is the whole of what it says (docs/30).
-    while (touch::take_gesture(gesture)) {
-      if (gesture.kind != nullptr && (strcmp(gesture.kind, "tap") == 0 || strcmp(gesture.kind, "long") == 0)) return;
+  const int64_t began = static_cast<int64_t>(pal::system().millis());
+  for (;;) {
+    // **Zero vol dir sempre**: the page of an error is the person's, and a page that closes itself hides the reason (docs/30).
+    if (g_wait_ms > 0 && since(began) >= g_wait_ms) return;
+    if (has_a_finger) {
+      touch::poll();
+      touch::Gesture gesture;
+      while (touch::take_gesture(gesture)) {
+        if (it_is_an_answer(width, height, gesture.kind, gesture.x, gesture.y)) return;
+      }
     }
+    // **Una tecla, només en una placa que no té dit**: a board with no glass a person can touch —the ATOMs— would have no way out of
+    // this page at all, and the dial is what it has (docs/30, docs/50).
     const bool down = any_key_down();
-    if (down && !was_down) return;
+    if (down && !was_down && !has_a_finger) return;
     was_down = down;
     pal::Event event;
     pal::system().queue()->pop(event, 20);
@@ -232,6 +258,30 @@ void wait_for_the_person() {
 }  // namespace
 
 void set_wait_ms(int64_t ms) { g_wait_ms = (ms > 0) ? ms : kWaitMs; }
+
+// **On és el botó d'una pàgina d'aquesta mida** (0.190.1): centred at the bottom, with the frame above it and the air of the page
+// around it, and cut to the glass when the glass is narrower than the word (docs/30).
+Button dismiss_button(uint16_t width, uint16_t height) {
+  Button button;
+  const uint16_t widest = static_cast<uint16_t>(width - 2 * kMargin);
+  button.w = (kButtonW < widest) ? kButtonW : widest;
+  button.h = kButtonH;
+  button.x = static_cast<uint16_t>((width - button.w) / 2);
+  button.y = static_cast<uint16_t>(height - kMargin - kFrame - 12 - kButtonH);
+  return button;
+}
+
+// **I què és la resposta** (0.190.1): a tap or a long press **on the button**, and nothing else. The wait asks this of every gesture of
+// the glass —a tap in the middle of the message, a drag out of it or a tap on the bar of the system are gestures that have not read
+// the page— and a case asks it of the ones that matter without touching anything (docs/30, docs/80).
+bool it_is_an_answer(uint16_t width, uint16_t height, const char* kind, int32_t x, int32_t y) {
+  if (kind == nullptr) return false;
+  if (strcmp(kind, "tap") != 0 && strcmp(kind, "long") != 0) return false;
+  if (x < 0 || y < 0) return false;
+  const Button button = dismiss_button(width, height);
+  return x >= button.x && x < static_cast<int32_t>(button.x) + button.w && y >= button.y &&
+         y < static_cast<int32_t>(button.y) + button.h;
+}
 
 void show(const char* id, const char* text) {
   hal::ISurface* surface = display::surface();
@@ -253,7 +303,7 @@ void show(const char* id, const char* text) {
   paint(*surface, (id != nullptr) ? id : "(no app)", title, text, scale, title_scale);
   log_printf(pal::kLogInfo, "ERROR", "the page of %s is on the glass", (id != nullptr) ? id : "(no app)");
   surface->flush(hal::UpdateMode::kGc16);
-  wait_for_the_person();
+  wait_for_the_person(width, surface->height());
 }
 
 }  // namespace app_error

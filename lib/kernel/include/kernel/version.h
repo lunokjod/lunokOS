@@ -10043,7 +10043,16 @@ namespace kernel {
 // variable del binari, perquè el Paper no té ni un byte de DRAM per donar-li (l'enllaçador ho va dir: *overflowed by 24 bytes*) i qui
 // la deixa és la PAL, de manera que els llibres no tenen ni un punter propi. **I el que no hi cap es compta**: `mem` diu els blocs que
 // hi ha, les files que té i les peticions que no s'hi van poder escriure (docs/30, docs/75, docs/85).
-static const char kVersion[] = "0.190.0";
+// **El botó de la pàgina de l'error** (0.190.1, l'amo: *«el modal que mostra la petada d'una app lua ha de tenir un botó "Dismiss" i
+// fins que no es polsi no se surt de l'app. Ara per algun motiu no dona temps a llegir el missatge, ja que Home torna a
+// arrencar-se de cop»*). La pàgina de la 0.189.162 marxava amb **qualsevol** toc al vidre i, si no, tota sola al cap de trenta
+// segons —i el dit que havia fet petar l'app encara era a la cua quan la pàgina es pintava, o sigui que podia marxar amb la mà que
+// l'havia causada, i el llançador tornava a pintar-se a sobre—. Ara hi ha **un botó `Dismiss`** dibuixat al peu de la pàgina, i és
+// l'única resposta: un toc o una premsa llarga **dins del botó** (una tecla només en una placa sense dit), cap temps límit —zero vol
+// dir esperar tant com calgui— i el que queda fora del botó no compta. El preu és el d'una pàgina que espera: mentre és al vidre el
+// torn és seu i les alarmes no es lliuren fins que es polsa; i per això la pàgina només és la de l'app **del vidre**, mai la d'una
+// finestra d'alarma (docs/30, docs/50, docs/60).
+static const char kVersion[] = "0.190.1";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
