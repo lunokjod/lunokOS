@@ -4574,7 +4574,7 @@ altra, la teva app una, i la resta és marge per a un diàleg sobre una pàgina 
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `power.caps()` | `{sleep_light, sleep_deep, battery, charging, wake}` | Un bit només és cert si la placa ho té de debò; `wake` diu de **què** es pot despertar (`"timer, button"`, `"timer"`, `"timer, clock"` o `"none"`) |
+| `power.caps()` | `{sleep_light, sleep_deep, battery, charging, wake}` | Un bit només és cert si la placa ho té de debò; `wake` diu de **què** es pot despertar (`"timer, button"`, `"timer"`, `"timer, clock, button"` al Paper —l'hora del xip i la tecla PWR del dial— o `"none"`) |
 | `power.battery()` | `{mv, pct, charging}` o `nil` | `nil` és **"aquesta placa no ho sap"**, i no és el mateix que zero volts. `mv` és una mesura i `pct` una **corba** (una cel·la de liti no és una línia recta, `hal/battery.h`); `charging` només és cert si la placa ho pot preguntar, i al Paper i a l'emulador és sempre fals. **De mà**: `lua` amb `power.battery()` ensenya els dos camins |
 | `power.sleep(opts)` | **promesa** | `{mode="light" o "deep", in_ms=<ms> o until=<època en segons>}`; es resol `true` quan la placa torna |
 | `power.keep_awake(b)` | booleà | L'app diu que està fent una cosa que no s'ha d'interrompre |

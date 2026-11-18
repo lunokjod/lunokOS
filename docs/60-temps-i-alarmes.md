@@ -308,9 +308,17 @@ hi ha ningú a la placa.
 
 **Les dues fondàries hi són a les dues bandes**, i la placa ho diu: `power.caps().sleep_light` i
 `power.caps().sleep_deep` són certs, i `power.caps().wake` diu de què es pot despertar (`"timer,
-button"` a l'ATOM, `"timer, clock"` al Paper). I el sistema **sí que es dorm sol** al Paper, quan hi
-ha una alarma pendent i ningú no fa servir la placa (§«Qui arma el despert»); a les plaques sense xip
-de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha pantalla per dir-ho.
+button"` a l'ATOM, `"timer, clock, button"` al Paper —l'hora del xip i la tecla PWR del dial—). I el sistema
+**sí que es dorm sol** al Paper, quan hi ha una alarma pendent i ningú no fa servir la placa (§«Qui arma el
+despert»); a les plaques sense xip de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha
+pantalla per dir-ho.
+
+**I el son del Paper té les dues portes** (0.190.11, l'amo: *«posa el deep sleep amb alarma… Molt bé, però has
+tret l'int dels botons físics!!! Vull ambdues opcions»*): el son profund amb hora armava el rellotge del xip i
+**no** la tecla, perquè aquesta placa construïa el seu objecte de potència sense cap pin de despertar (`Esp32Power(-1)`
+des de la 0.7.0). Ara arma les dues coses —`ext0` sobre el GPIO38, que és la tecla PWR del dial, i l'alarma de la
+BM8563—, o sigui que la placa torna a l'hora que li van demanar **i** a la tecla d'una persona. Amb la bateria el
+corrent se'n va abans i la tecla PWR és la del xip de potència, que és com aquesta placa s'ha encès sempre (docs/50).
 
 ## La velocitat del processador: 160 de repòs i dues finestres (0.179.38)
 

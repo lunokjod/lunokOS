@@ -196,7 +196,14 @@ IClock* paper_clock() {
 // says nothing, and docs/30 says so instead of letting an app read it as "on the battery".
 class PaperPower : public Esp32Power {
  public:
-  PaperPower() : Esp32Power(-1) {}
+  // **La tecla PWR del dial, que és el GPIO38, va amb tots els sons d'aquesta placa** (0.190.11, l'amo: *«posa el deep sleep amb
+  // alarma… Molt bé, però has tret l'int dels botons físics!!! Vull ambdues opcions»*). Aquest objecte naixia amb `-1` des de la
+  // 0.7.0, o sigui que el camí del son profund **amb hora** armava el temporitzador i el rellotge i la tecla no la tocava ningú:
+  // amb el cable al slot (on la placa no es pot apagar, docs/50) la placa només tornava per l'hora. `Esp32Power::sleep` ja fa
+  // les dues coses quan sap quina tecla és —`ext0` sobre el pin i el temporitzador—, i amb això el son de la placa torna a tenir
+  // les dues portes: **l'hora que li van demanar i la tecla d'una persona**. Amb la bateria el corrent se'n va abans i l'arma
+  // d'`ext0` no vol dir res; la tecla PWR és la del xip de potència i la placa torna com ha tornat sempre (docs/50, docs/60).
+  PaperPower() : Esp32Power(kPowerKeyPin) {}
 
   bool battery(int& mv, int& pct, bool& charging) override {
     int read_mv = 0;
@@ -326,7 +333,7 @@ class PaperPower : public Esp32Power {
 
   // The chip's timer while the board is powered, and the clock chip's alarm when it is not:
   // the two ways this board comes back (docs/50).
-  const char* wakes() override { return "timer, clock"; }
+  const char* wakes() override { return "timer, clock, button"; }
 
  private:
   // The glass, for the way down to put to sleep first (0.183.0).

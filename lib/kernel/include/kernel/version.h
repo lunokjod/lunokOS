@@ -10129,7 +10129,13 @@ namespace kernel {
 // comptador (`power::quiet_ms`): el mouen les tres coses que són una mà a la placa —un byte de consola, un dit al vidre i una tecla
 // del dial—, **una arrencada el posa a zero**, i la placa només s'apaga quan la quietud **arriba** al temps triat. El pany hi
 // pregunta els seus minuts i les apps el llegeixen amb **`sys.idle_ms()`** (docs/30, docs/45, docs/60).
-static const char kVersion[] = "0.190.10";
+// **I el son del Paper arma les dues portes** (0.190.11, l'amo: *«posa el deep sleep amb alarma… Molt bé, però has tret l'int dels
+// botons físics!!! Vull ambdues opcions»*). El son profund amb hora passava per `PaperPower`, que naixia amb `Esp32Power(-1)`: armava
+// el temporitzador i l'alarma del rellotge i **la tecla no la tocava ningú**, o sigui que amb el cable al slot la placa només tornava
+// per l'hora. Ara aquesta placa construeix la potència amb el GPIO38 —la tecla PWR del dial— i `Esp32Power::sleep` en fa les dues:
+// `ext0` sobre la tecla i l'alarma del xip. Amb la bateria el corrent se'n va abans i la tecla PWR és la del xip de potència (docs/50,
+// docs/60).
+static const char kVersion[] = "0.190.11";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
