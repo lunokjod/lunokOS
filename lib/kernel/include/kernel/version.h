@@ -9992,7 +9992,14 @@ namespace kernel {
 // molt lent carregant»* —`res/splash.png` del seu icona amb `tools/app_splash.py`, com les altres tres apps que en tenen, i el
 // sistema el pinta mentre la pàgina llegeix vint-i-tres manifests; el commutador `-d` segueix llegint-ne **un** i el mateix,
 // perquè el que estalvia és el disc i no la targeta (docs/30, docs/40, docs/45)—.
-static const char kVersion[] = "0.189.178";
+// **La llista de la fitxa llegeix el que una fila necessita i res més** (0.189.179, l'amo: *«Application info ha de tenir un splash,
+// va molt lent carregant»*, amb la targeta ja feta a la 0.189.178). `read_all` cridava `read_app` per a cada app del disc, i
+// `read_app` fa el manifest dues vegades (la porta i el fitxer, per l'autor i la frase), recorre la carpeta, pregunta al sistema
+// pels tres terrenys de l'app i recorre la cua d'alarmes —unes nou operacions de flaix per app, unes dues-centes per a vint-i-tres
+// noms—. Una fila és un nom i una versió, o sigui que la llista és `apps.info` i prou, i **la carpeta, els terrenys i les alarmes
+// es demanen en obrir la fitxa**: qui els ensenya és la fitxa i no la llista. Amb `-d` no canvia res —l'app que s'obre és la que
+// es llegeix— i la targeta del manifest cobreix el que queda (docs/30, docs/40, docs/70, docs/75).
+static const char kVersion[] = "0.189.179";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

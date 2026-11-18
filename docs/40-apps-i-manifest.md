@@ -681,8 +681,15 @@ l'etiqueta d'un botó —que és del cos— no hi cap i els tres botons de sota 
 
 **I porta una targeta d'arrencada** (0.189.178, l'amo: *«Application info ha de tenir un splash, va molt lent carregant»*):
 `res/splash.png`, fet amb `tools/app_splash.py` a partir de la seva icona —la icona, el nom i el peu del sistema, com les de
-`home_eink`, `fonts` i el `reader`—. El sistema el pinta mentre la pàgina llegeix vint-i-tres manifests i els seus terrenys, i
-també quan l'obren amb `-d`: el que el commutador estalvia és el disc, no la targeta.
+`home_eink`, `fonts` i el `reader`—. El sistema el pinta mentre la pàgina llegeix els manifests, i també quan l'obren amb `-d`:
+el que el commutador estalvia és el disc, no la targeta.
+
+**I la llista llegeix el que una fila necessita i res més** (0.189.179): a row is a name and a version, i això és `apps.info`
+—el manifest que la porta de les apps ja llegeix—. Fins aquí `read_all` cridava `read_app` per a cada app, que llegeix el
+manifest **una segona vegada** per a l'autor, l'entrada i la frase, recorre la carpeta de l'app, pregunta al sistema pels seus
+tres terrenys i recorre la cua d'alarmes: unes nou operacions de flaix per app, o sigui unes dues-centes per pintar vint-i-tres
+noms en una placa. **La carpeta, els terrenys i les alarmes es demanen en obrir la fitxa**, que és qui els ensenya, i amb `-d`
+l'app que arriba ja és la que es llegeix (docs/30, docs/70, docs/75).
 
 **I amb `-d` la pàgina llegeix aquella app i prou** (0.189.166, l'amo: *«s'ha de mostrar la vista detalls directament (sense
 escanejar res mes que no sigui aquella app) i el botó "Back" ha de tancar l'aplicació»*): the switch is read **before** anything

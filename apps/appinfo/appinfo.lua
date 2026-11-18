@@ -253,6 +253,23 @@ local function read_app(id)
   return one
 end
 
+-- **El que la llista necessita i no tot el que una fitxa sap** (0.189.179, l'amo: *«va molt lent carregant»*): a row of the list
+-- is a name and a version, i això és el que la porta de les apps ja té. `read_app` llegeix el manifest **una segona vegada**, recorre
+-- la carpeta de l'app, pregunta al sistema pels seus tres terrenys i recorre la cua d'alarmes —per a cada app—, o sigui unes cent
+-- cinquanta operacions de flaix per pintar vint-i-tres noms; la carpeta i els terrenys es demanen **en obrir la fitxa**, que és
+-- qui els ensenya (docs/30, docs/70, docs/75).
+local function read_entry(id)
+  local one = { id = id }
+  local what = apps.info(id)
+  if what ~= nil then
+    one.title = what.title
+    one.version = what.version
+  end
+  if one.title == nil or one.title == '' then one.title = id end
+  if one.version == nil or one.version == '' then one.version = '?' end
+  return one
+end
+
 -- Every app of the folder, in the order of the door, which is the order the launcher draws them in.
 local apps_here = {}
 local reading = nil
@@ -268,7 +285,7 @@ local function read_all()
   end
 
   for _, id in ipairs(ids) do
-    apps_here[#apps_here + 1] = read_app(id)
+    apps_here[#apps_here + 1] = read_entry(id)
   end
 
   if #apps_here == 0 then reading = 'there is no app in /apps' end
@@ -620,7 +637,10 @@ show = function(id)
     return
   end
 
-  local one = apps_here[index]
+  -- **I la fitxa sí que llegeix l'app sencera** (0.189.179): the numbers of its folder, its three grounds and its alarms are
+  -- what the page is for, and they are one app's work and not twenty-three (docs/30, docs/70).
+  local one = read_app(id)
+  apps_here[index] = one
 
   give_back()
   ui.clear(15)
@@ -689,8 +709,8 @@ show = function(id)
               build_cover()
             elseif details_only then
               -- **Es torna a llegir aquesta i prou**: in the requested card there is no list to refresh, and a `read_all` here
-              -- seria l'escaneig del disc que el commutador estalvia (0.189.166, docs/30).
-              apps_here = { read_app(one.id) }
+              -- seria l'escaneig del disc que el commutador estalvia (0.189.166, docs/30). The detail reads the app whole by
+              -- itself (0.189.179).
               show(one.id)
             else
               read_all()
