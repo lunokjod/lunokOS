@@ -645,6 +645,17 @@ void poll() {
   }
 }
 
+// **El camí de tornada de `turn_frame`** (0.190.4): the offsets it takes out of the chip's frame are the view's and they go back on
+// the point of a caller that draws on the glass. The bar is the one place where the subtraction had a branch and a finger that
+// lands on it keeps its y, so the point of a finger on the bar comes back low by the bar's height —and the bar is not a control of
+// any page, o sigui que cap botó no es pot polsar 48 píxels més avall del que es veu— (docs/30, docs/50).
+void on_the_glass(uint16_t& x, uint16_t& y) {
+  const uint16_t off_x = ui::canvas().x;
+  const uint16_t off_y = ui::canvas().y;
+  if (off_x > 0) x = static_cast<uint16_t>(x + off_x);
+  if (off_y > 0) y = static_cast<uint16_t>(y + off_y);
+}
+
 uint8_t points(hal::TouchPoint* out, uint8_t capacity) {
   if (out == nullptr) return 0;
   const uint8_t count = (g_count < capacity) ? g_count : capacity;

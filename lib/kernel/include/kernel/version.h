@@ -10066,7 +10066,17 @@ namespace kernel {
 // `pal::set_pump`/`pal::pump`: el host registra el que vol que es miri mentre el nucli espera, una `pop` que s'acaba sense res el
 // mira, la pàgina el demana a cada volta de la seva espera, i **la resposta és la segona porta** —una persona que tanca la
 // finestra vol que el run s'acabi, i la pàgina el deixa anar en lloc d'esperar un botó que ja no és enlloc— (docs/30, docs/85).
-static const char kVersion[] = "0.190.3";
+// **El botó de la pàgina d'error era un dibuix** (0.190.4, l'amo: *«El botó dismiss no es un botó, es un dibuix, PERQUE?»*). Un
+// `ui.button` d'aquest sistema és un control **d'una app** —ranura del canvas de l'app, `ui.present` de l'app, `on_click` dins del
+// torn de l'app— i aquesta pàgina existeix perquè l'app ja no hi és, o sigui que el botó el pinta el sistema (docs/30). El que havia
+// de deixar de ser és un *dibuix*: ara és una tecla del sistema —caixa d'ombra, cara aixecada quatre píxels amb marc d'un píxel— i
+// **el dit la gira sencera mentre hi és a sobre** (cara de tinta, paraula de paper, una `a2` del requadre del botó i no de la pàgina).
+//
+// **I responia quaranta-vuit píxels per sota d'on es veu** (el mateix dia, trobat fent això): la pàgina es pinta sobre el vidre sencer
+// i els dits arriben en el marc de la **vista** de l'app, que `turn_frame` deixa sense el desplaçament de la barra del sistema, o
+// sigui que el `Dismiss` era a un lloc i el seu dit a un altre. `touch::on_the_glass` és el camí de tornada i la pàgina el passa per
+// cada gest i per cada punt abans de preguntar res (docs/30, docs/50, docs/90).
+static const char kVersion[] = "0.190.4";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

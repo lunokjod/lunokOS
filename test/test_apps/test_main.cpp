@@ -19943,6 +19943,102 @@ void test_the_page_of_a_dead_app_looks_at_its_host_while_it_waits(void) {
   kernel::boot(hal::platform());
 }
 
+// **El botó de la pàgina és un botó** (0.190.4, l'amo: *«El botó dismiss no es un botó, es un dibuix, PERQUE?»*): a `ui.button` is a
+// control of an **app** —it lives in a slot of the app's canvas, its `ui.present` draws it and its `on_click` answers—, and this page
+// exists because the app is not there any more, so the system paints its own (docs/30, docs/90). What it must not be is a *drawing* of
+// a button: a key of this panel is a box of ink with the face lifted off the bottom of it —the four pixels left in sight under the face
+// are the shadow it sinks into—, the face wears a frame of one pixel, and **the finger turns it over**: ink face and paper word, which
+// is what every key of this system does when it is pressed (docs/50, docs/90).
+void test_the_button_of_a_dead_app_is_a_key_and_not_a_drawing(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  storage->remove("/apps/dier/app.lua");
+  storage->remove("/apps/dier/manifest.json");
+  storage->remove("/apps/dier");
+  TEST_ASSERT_TRUE(add_app(storage, "dier",
+                           "{\"title\":\"Dier\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local nothing = nil\n"
+                           "nothing.field = 42\n"));
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app("home_eink"));
+  close_any_app();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  close_any_app();
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+
+  // **I el botó és un botó** (0.190.4, l'amo: *«El botó dismiss no es un botó, es un dibuix, PERQUE?»*): a key of this system is a box
+  // of ink with the face lifted off the bottom of it —the four pixels that stay in sight are the shadow it sinks into—, the face
+  // wears a frame of one pixel, and **a finger on it sinks it and turns it over**: ink face and paper word (docs/30, docs/50, docs/90).
+  // The two looks are painted here on the glass of the case, one after the other, and what is looked at is the ink of the face and of
+  // the strip under it —a page of paper with a frame round it is exactly the drawing the owner complained about— (docs/80).
+  const uint16_t glass_w = glass->width();
+  const uint16_t glass_h = glass->height();
+  const kernel::app_error::Button key = kernel::app_error::dismiss_button(glass_w, glass_h);
+  TEST_ASSERT_GREATER_THAN_UINT16(8, key.h);
+  const uint16_t face_x = static_cast<uint16_t>(key.x + 4);              // dins de la cara i fora del marc
+  const uint16_t face_y = static_cast<uint16_t>(key.y + key.h / 2 - 10);  // una fila del mig, lluny de la paraula
+  const uint16_t shadow_x = static_cast<uint16_t>(key.x + key.w / 2);
+
+  glass->clear(15);
+  kernel::app_error::paint_the_button(*glass, key, false, 2);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(face_x, face_y),
+                                  "the face of the button is not the paper of the page");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(key.x, static_cast<uint16_t>(key.y + key.h / 2)),
+                                  "the face of the button wears no frame");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(shadow_x, static_cast<uint16_t>(key.y + key.h - 1)),
+                                  "the button has no shadow under its face");
+  int word_ink_pressed = 0;
+
+  glass->clear(15);
+  kernel::app_error::paint_the_button(*glass, key, true, 2);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(face_x, face_y),
+                                  "a finger on the button does not turn its face over");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(shadow_x, key.y),
+                                  "a pressed button does not sink");
+  for (uint16_t y = static_cast<uint16_t>(key.y + 10); y < static_cast<uint16_t>(key.y + key.h - 6); ++y) {
+    for (uint16_t x = static_cast<uint16_t>(key.x + 10); x < static_cast<uint16_t>(key.x + key.w - 10); ++x) {
+      if (glass->level_at(x, y) == 15) ++word_ink_pressed;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(60, word_ink_pressed, "the word of a pressed button is not the paper of the page");
+
+  // **I la pàgina respon al dit abans de deixar-lo anar**: a finger that lands on the key and stays there has to sink it —a button
+  // that says nothing until the lift is the drawing again—, which is what the wait of the page does on every turn of its glass
+  // (docs/30, docs/85).
+  glass->clear(15);
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(key.x + key.w / 2),
+                                      static_cast<uint16_t>(key.y + key.h / 2)));
+  kernel::app_error::set_wait_ms(300);
+  pump_captured(200, g_out, sizeof(g_out), "run dier");
+  kernel::app_error::set_wait_ms(0);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(6);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(face_x, face_y),
+                                  "a finger on the key of the page did not sink it while it was down");
+
+  storage->remove("/apps/dier/app.lua");
+  storage->remove("/apps/dier/manifest.json");
+  storage->remove("/apps/dier");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   g_from = getenv("LUNOK_FROM");
@@ -20224,6 +20320,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_long_press_opens_the_app_that_was_asked_for_with_its_switches);
   RUN_TEST(test_an_app_that_dies_says_why_on_the_glass);
   RUN_TEST(test_the_page_of_a_dead_app_looks_at_its_host_while_it_waits);
+  RUN_TEST(test_the_button_of_a_dead_app_is_a_key_and_not_a_drawing);
   RUN_TEST(test_every_button_of_the_broken_app_ends_with_the_page_of_the_error);
   RUN_TEST(test_a_page_clears_the_cache_of_an_app_and_nothing_else);
   RUN_TEST(test_the_page_of_the_apps_reads_the_manifests_of_the_folder);

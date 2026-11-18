@@ -46,6 +46,11 @@ int64_t g_wait_ms = kWaitMs;
 // where a thumb reaches it (docs/30, docs/50).
 const uint16_t kButtonW = 176;
 const uint16_t kButtonH = 52;
+// **Les mides d'una tecla d'aquest sistema** (0.190.4): the fourteen pixels of corner of `ui`'s buttons —never more than a third of
+// the smaller side— and the four of face that stay off the bottom of the box, which is the shadow the button sinks into (docs/90).
+const int32_t kCorner = 14;
+const int32_t kLift = 4;
+
 // What one line of the message may say before it is cut: a line of a traceback is long, and a page that runs off the glass says
 // nothing at all (docs/30).
 const uint16_t kLineBytes = 96;
@@ -194,17 +199,9 @@ void paint(hal::ISurface& surface, const char* id, const char* title, const char
     walk_text(text, static_cast<uint16_t>(width - 2 * (kMargin + 12)), scale, painter);
   }
 
-  // **El botó, que és l'única cosa que treu la pàgina del vidre** (0.190.1): a frame and the word, where a thumb reaches it and where
-  // the case of `test_apps` looks for ink (docs/30, docs/50, docs/80).
-  const Button button = dismiss_button(width, height);
-  surface.fill_rect(button.x, button.y, button.w, button.h, 0);
-  surface.fill_rect(static_cast<uint16_t>(button.x + kFrame), static_cast<uint16_t>(button.y + kFrame),
-                    static_cast<uint16_t>(button.w - 2 * kFrame), static_cast<uint16_t>(button.h - 2 * kFrame), 15);
-  const char* word = "Dismiss";
-  const uint16_t word_w = font::width(word, scale);
-  const uint16_t word_x = static_cast<uint16_t>(button.x + (button.w - word_w) / 2);
-  const uint16_t word_y = static_cast<uint16_t>(button.y + (button.h - line_h) / 2);
-  font::draw(surface, word_x, word_y, word, scale, 0);
+  // **El botó, que és l'única cosa que treu la pàgina del vidre** (0.190.1), pintat com el botó que és (0.190.4): una tecla amb la
+  // cara aixecada damunt de la seva ombra, on arriba el polze i on el cas de `test_apps` busca la tinta (docs/30, docs/50, docs/80).
+  paint_the_button(surface, dismiss_button(width, height), false, scale);
 }
 
 // **Qui mira el host mentre la pàgina espera** (0.190.3): the turn of the kernel is stopped here —the app that died was
@@ -214,6 +211,43 @@ void paint(hal::ISurface& surface, const char* id, const char* title, const char
 // who closes the window is asking the run to end**, and a page waiting for a button on a screen that is no longer there is a run
 // nobody can stop (docs/30).
 bool the_host_is_alive() { return pal::pump(); }
+
+// **How far a corner pushes the ink in on a row** (0.190.4): a quarter of a circle, which is a square root of integers — no floating
+// point, no table, the same rule `ui` uses for the buttons of a page (docs/90).
+int32_t corner_inset(int32_t radius, int32_t down) {
+  if (radius <= 0 || down >= radius) return 0;
+  const int32_t left = radius * radius - down * down;
+  int32_t root = 0;
+  while ((root + 1) * (root + 1) <= left) ++root;
+  return radius - root;
+}
+
+// **A box with the corners rounded off, row by row**: a surface has four rectangles and nothing else, so a rounded corner is a row at
+// a time and the button of a page is fifty-two of them (docs/50, docs/90).
+void round_fill(hal::ISurface& surface, int32_t x, int32_t y, int32_t w, int32_t h, int32_t radius, uint8_t level) {
+  if (w <= 0 || h <= 0) return;
+  const int32_t most = ((w < h) ? w : h) / 2;
+  if (radius > most) radius = most;
+  if (radius < 0) radius = 0;
+  for (int32_t row = 0; row < h; ++row) {
+    int32_t down = radius;
+    if (row < radius) {
+      down = radius - row - 1;
+    } else if (row >= h - radius) {
+      down = row - (h - radius);
+    }
+    const int32_t inset = corner_inset(radius, down);
+    if (w - 2 * inset <= 0) continue;
+    surface.fill_rect(static_cast<uint16_t>(x + inset), static_cast<uint16_t>(y + row),
+                      static_cast<uint16_t>(w - 2 * inset), 1, level);
+  }
+}
+
+// **Si un punt és dins del botó**, which is the question of the wait and of every gesture of the glass (0.190.1).
+bool inside_the_button(const Button& button, int32_t x, int32_t y) {
+  return x >= button.x && x < static_cast<int32_t>(button.x) + button.w && y >= button.y &&
+         y < static_cast<int32_t>(button.y) + button.h;
+}
 
 bool any_key_down() {
   const uint32_t keys = button::count();
@@ -225,7 +259,7 @@ bool any_key_down() {
 
 // **El que s'espera: el botó** (0.190.1). The panel and the queue are read here because the kernel's turn is the one that is stopped
 // —the app that died was inside it— so nobody else is going to read them (docs/30, docs/50).
-void wait_for_the_person(uint16_t width, uint16_t height) {
+void wait_for_the_person(hal::ISurface& surface, uint16_t width, uint16_t height, uint8_t scale) {
   const bool has_a_finger = touch::available();
   // **El dit que va fer petar l'app no és la resposta**: the tap that pressed the button that died is still in the queue of a board
   // that reads the glass slowly, and a page that goes away with the hand that caused it is a page nobody reads. Everything the finger
@@ -243,6 +277,11 @@ void wait_for_the_person(uint16_t width, uint16_t height) {
     touch::forget_gestures();
   }
   bool was_down = any_key_down();
+  // **El botó respon mentre el dit hi és a sobre** (0.190.4): a key of this panel sinks and turns over the moment a finger lands on it,
+  // and a button that says nothing until the finger is lifted is a *drawing* of a button (*«El botó dismiss no es un botó, es un
+  // dibuix, PERQUE?»*, l'amo). The button is painted again only when the answer changes —a finger that stays is one paint— and the paint
+  // is the box of the button and nothing else, which is a `kA2` of a key and not a page (docs/30, docs/50).
+  bool showing_the_press = false;
   const int64_t began = static_cast<int64_t>(pal::system().millis());
   for (;;) {
     // **Zero vol dir sempre**: the page of an error is the person's, and a page that closes itself hides the reason (docs/30).
@@ -253,8 +292,30 @@ void wait_for_the_person(uint16_t width, uint16_t height) {
     if (has_a_finger) {
       touch::poll();
       touch::Gesture gesture;
+      // **El gest arriba en el marc de la vista i la pàgina és el vidre** (0.190.4): the fingers and the gestures of the kernel are
+      // the view's —the bar of the system is not part of any app— and this page paints the whole glass, so the point of the answer
+      // is the glass's. Without this the button answered a finger forty-eight pixels below the one it draws (docs/30, docs/50).
       while (touch::take_gesture(gesture)) {
-        if (it_is_an_answer(width, height, gesture.kind, gesture.x, gesture.y)) return;
+        uint16_t gx = static_cast<uint16_t>(gesture.x);
+        uint16_t gy = static_cast<uint16_t>(gesture.y);
+        touch::on_the_glass(gx, gy);
+        if (it_is_an_answer(width, height, gesture.kind, gx, gy)) return;
+      }
+      // Whichever finger is on the glass right now, and whether it is on the button.
+      hal::TouchPoint fingers[2];
+      const uint8_t down_now = touch::points(fingers, 2);
+      bool is_on_it = false;
+      const Button where = dismiss_button(width, height);
+      for (uint8_t i = 0; i < down_now; ++i) {
+        uint16_t fx = fingers[i].x;
+        uint16_t fy = fingers[i].y;
+        touch::on_the_glass(fx, fy);
+        if (inside_the_button(where, fx, fy)) is_on_it = true;
+      }
+      if (is_on_it != showing_the_press) {
+        showing_the_press = is_on_it;
+        paint_the_button(surface, where, showing_the_press, scale);
+        surface.flush(hal::UpdateMode::kA2);
       }
     }
     // **Una tecla, només en una placa que no té dit**: a board with no glass a person can touch —the ATOMs— would have no way out of
@@ -283,6 +344,42 @@ Button dismiss_button(uint16_t width, uint16_t height) {
   return button;
 }
 
+// **El botó, pintat com una tecla del sistema** (0.190.4). The box is the shadow —ink under the face while the button is up— and the face
+// is lifted off the bottom of it, so those four pixels are what a finger sees the button sink into. **Amb el dit a sobre la cara baixa
+// fins al fons i es gira sencera** —cara de tinta i paraula de paper—, que és el que fa tota tecla d'aquest sistema i el que fa que
+// sembli que la premsa ha arribat (docs/30, docs/50, docs/90). The face wears a one-pixel frame when it is the paper one: on a washed
+// page that line is what says that this is a thing to press, and it is drawn **on the face** and not on the box, or it would stay
+// where it was while the button goes down.
+void paint_the_button(hal::ISurface& surface, Button button, bool pressed, uint8_t scale) {
+  if (button.w == 0 || button.h == 0) return;
+  const int32_t x = button.x;
+  const int32_t y = button.y;
+  const int32_t w = button.w;
+  const int32_t h = button.h;
+  int32_t radius = kCorner;
+  const int32_t most = ((w < h) ? w : h) / 3;
+  if (radius > most) radius = most;
+  if (radius < 1) radius = 1;
+  int32_t lift = kLift;
+  const int32_t lift_cap = h / 3;
+  if (lift > lift_cap) lift = lift_cap;
+  const uint8_t paper = 15;
+  const uint8_t ink = 0;
+  const int32_t face_y = y + (pressed ? lift : 0);
+  const int32_t face_h = h - lift;
+  round_fill(surface, x, y, w, h, radius, pressed ? paper : ink);
+  // **La cara, amb el seu marc d'un píxel**: the face is filled in ink and its inside is the paper, so what is left is a frame of one
+  // pixel —the rule of every button of this system—, and a pressed face stays in ink and is the frame that goes away with it (docs/92).
+  round_fill(surface, x, face_y, w, face_h, radius, ink);
+  if (!pressed) round_fill(surface, x + 1, face_y + 1, w - 2, face_h - 2, radius - 1, paper);
+  const char* word = "Dismiss";
+  const uint16_t word_w = font::width(word, scale);
+  const uint16_t word_h = static_cast<uint16_t>(font::system_face().height * scale);
+  font::draw(surface, static_cast<uint16_t>(x + (w - static_cast<int32_t>(word_w)) / 2),
+             static_cast<uint16_t>(face_y + (face_h - static_cast<int32_t>(word_h)) / 2), word, scale,
+             pressed ? paper : ink);
+}
+
 // **I què és la resposta** (0.190.1): a tap or a long press **on the button**, and nothing else. The wait asks this of every gesture of
 // the glass —a tap in the middle of the message, a drag out of it or a tap on the bar of the system are gestures that have not read
 // the page— and a case asks it of the ones that matter without touching anything (docs/30, docs/80).
@@ -290,9 +387,7 @@ bool it_is_an_answer(uint16_t width, uint16_t height, const char* kind, int32_t 
   if (kind == nullptr) return false;
   if (strcmp(kind, "tap") != 0 && strcmp(kind, "long") != 0) return false;
   if (x < 0 || y < 0) return false;
-  const Button button = dismiss_button(width, height);
-  return x >= button.x && x < static_cast<int32_t>(button.x) + button.w && y >= button.y &&
-         y < static_cast<int32_t>(button.y) + button.h;
+  return inside_the_button(dismiss_button(width, height), x, y);
 }
 
 void show(const char* id, const char* text) {
@@ -315,7 +410,7 @@ void show(const char* id, const char* text) {
   paint(*surface, (id != nullptr) ? id : "(no app)", title, text, scale, title_scale);
   log_printf(pal::kLogInfo, "ERROR", "the page of %s is on the glass", (id != nullptr) ? id : "(no app)");
   surface->flush(hal::UpdateMode::kGc16);
-  wait_for_the_person(width, surface->height());
+  wait_for_the_person(*surface, width, surface->height(), scale);
 }
 
 }  // namespace app_error

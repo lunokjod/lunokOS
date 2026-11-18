@@ -39,6 +39,17 @@ void counters(uint32_t& asks, uint32_t& frames, uint32_t& false_warnings);
 // The points that were down in the last turn, up to `capacity`.
 uint8_t points(hal::TouchPoint* out, uint8_t capacity);
 
+// **On cau un punt de la vista sobre el vidre** (0.190.4). Everything this layer hands over —the frames of `points` and the
+// points of every gesture— is in the frame of the **view**: an app draws in the page left over the bar of the system, and
+// `turn_frame` takes the offset of the view out of what the chip measured. A page of the system —the page of an app that has
+// died, which paints the whole glass— lays itself out on the **glass**, so the two frames are one offset apart and this is the
+// way back: x and y, given in the view's frame, are left in the glass's.
+//
+// It is exact for every finger that is on the page, which is every finger that can press something of it. A finger that landed
+// on the bar of the system keeps its own y (`turn_frame` says why), so the point it gives is the bar's and the one this returns
+// is off by the bar's height — the bar is not a control of any page and 48 pixels are not a button (docs/30, docs/50, docs/90).
+void on_the_glass(uint16_t& x, uint16_t& y);
+
 // **El que la pàgina ha sentit de l'últim contacte** (0.189.0, l'amo: *«fes un mètode per retardar els events que
 // s'envien als UIControl. Si es decideix que és un gest no s'envien mai els events i s'envia el gest»*): the page is told
 // **nothing** while a finger is down —the kernel decides first— and it hears exactly one thing when the finger leaves: the

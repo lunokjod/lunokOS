@@ -1008,6 +1008,38 @@ static void test_a_swipe_up_from_outside_the_card_puts_it_away() {
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe of thirty rows put the card away");
 }
 
+// **El camí de tornada al vidre** (0.190.4): the fingers and the gestures of this module are the **view's** —an app draws in the page
+// left over the bar of the system and `turn_frame` takes that offset out— and a page of the system, the page of an app that has died,
+// draws on the whole glass. The two frames are one offset apart and this is the way back, which is what makes the `Dismiss` of that
+// page answer the finger that is on it instead of one forty-eight pixels below (docs/30, docs/50, docs/90).
+void test_a_point_of_the_view_comes_back_to_the_glass(void) {
+  boot_with_a_touch_panel();
+  const uint16_t bar = kernel::bar::height();
+  TEST_ASSERT_GREATER_THAN_UINT16(0, bar);
+  uint16_t x = 270;
+  uint16_t y = static_cast<uint16_t>(912 - bar);
+  kernel::touch::on_the_glass(x, y);
+  TEST_ASSERT_EQUAL_UINT16(270, x);
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(912, y, "a point of the view did not come back to the glass");
+  // **Un punt del mig de la vista també**, which is the one a finger of a button is: the bar's height and no more.
+  x = 40;
+  y = 300;
+  kernel::touch::on_the_glass(x, y);
+  TEST_ASSERT_EQUAL_UINT16(40, x);
+  TEST_ASSERT_EQUAL_UINT16(static_cast<uint16_t>(300 + bar), y);
+  // **I una vista que és el vidre sencer no mou res**: a full-screen page has nothing taken out, so the point is already the glass's.
+  kernel::ui::place(0, 0);
+  kernel::ui::attach();
+  x = 270;
+  y = 904;
+  kernel::touch::on_the_glass(x, y);
+  TEST_ASSERT_EQUAL_UINT16(270, x);
+  TEST_ASSERT_EQUAL_UINT16(904, y);
+  // The view of the cases that come after is the one they booted with, and this case puts it back.
+  kernel::ui::place(0, bar);
+  kernel::ui::attach();
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1023,6 +1055,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_still_contact_is_told_as_a_press_and_a_walk_as_one_gesture);
   RUN_TEST(test_a_glass_that_warns_hands_the_frame_on_the_turn_it_lands);
   RUN_TEST(test_the_waits_are_one_switch);
+  RUN_TEST(test_a_point_of_the_view_comes_back_to_the_glass);
   RUN_TEST(test_the_kernel_turns_a_finger_into_a_long_press);
   RUN_TEST(test_a_slow_still_press_is_a_tap_and_a_long_is_not);
   RUN_TEST(test_a_gesture_between_two_taps_is_not_a_double);

@@ -11,6 +11,10 @@
 
 #include <stdint.h>
 
+namespace hal {
+class ISurface;
+}  // namespace hal
+
 namespace kernel {
 namespace app_error {
 
@@ -20,8 +24,10 @@ namespace app_error {
 // qualsevol altre lloc del vidre no compten, i una placa sense dit surt amb una tecla, que és l'única porta que li queda (docs/30).
 void show(const char* id, const char* text);
 
-// **El botó de la pàgina**: where it is on a glass of this size, and **if a gesture is the answer** —a tap or a long press on the
-// button, and nothing else: not a tap on the message, not a drag, not a tap on the bar of the system—. Són les dues preguntes que fa
+// **El botó de la pàgina**: where it is **on the glass** of this size, and **if a gesture is the answer** —a tap or a long press on
+// the button, and nothing else: not a tap on the message, not a drag, not a tap on the bar of the system—. The point it is asked
+// about is a point of the **glass**: the fingers of the kernel come in the frame of the view and the page turns them with
+// `touch::on_the_glass` before asking (0.190.4, docs/30). Són les dues preguntes que fa
 // l'espera i les dues que un cas pot fer sense tocar res (docs/30, docs/80).
 struct Button {
   uint16_t x = 0;
@@ -31,6 +37,18 @@ struct Button {
 };
 Button dismiss_button(uint16_t width, uint16_t height);
 bool it_is_an_answer(uint16_t width, uint16_t height, const char* kind, int32_t x, int32_t y);
+
+// **El botó, pintat com el botó que és** (0.190.4, l'amo: *«El botó dismiss no es un botó, es un dibuix, PERQUE?»*). The page paints its
+// button with the system's own rule and not with a rectangle: the box is the shadow, the face is lifted off the bottom of it, and a
+// finger on the face sinks it and **turns it over** —ink face, paper word—, which is what every key of this panel does (docs/30,
+// docs/50, docs/90). **No és un `ui.button`** perquè un control d'aquells és d'una app: viu en una ranura del canvas de l'app, el
+// dibuixa el seu `ui.present` i respon amb el seu `on_click`, i aquesta pàgina existeix justament perquè l'app ja no hi és (docs/30,
+// docs/90). El que es pot demanar, i és el que fa aquesta funció, és que **sembli i es comporti** com un botó del sistema.
+//
+// Pinta **només dins del requadre del botó**, o sigui que el que canvia és la seva caixa i prou: així una premsa costa una `flush`
+// de la mida de la tecla i no una pàgina sencera. El cas de la suite la crida dues vegades —aixecat i premut— i mira la tinta de la
+// cara, que és el que una persona ve (docs/80).
+void paint_the_button(hal::ISurface& surface, Button button, bool pressed, uint8_t scale);
 
 // **Quant temps espera la pàgina, i zero vol dir sempre** (0.190.1): the page of an error is for the person in front of it and it
 // waits as long as it takes to read it —a crash page that closes itself is a page that hides the reason—, so the system's own number

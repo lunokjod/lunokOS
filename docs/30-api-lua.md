@@ -982,6 +982,24 @@ no es lliuren fins que es polsa el botó. És el que l'amo va demanar —una pà
 pàgina només existeix per a l'app **del vidre**: una finestra d'alarma que peta no la pinta mai, perquè `run_window` diu el seu motiu
 i segueix (docs/50, docs/60).
 
+**I el botó és un botó, no un dibuix** (0.190.4, l'amo: *«El botó dismiss no es un botó, es un dibuix, PERQUE?»*). Un `ui.button`
+d'aquest sistema és **un control d'una app**: viu en una ranura del canvas de l'app, el dibuixa el seu `ui.present` i respon amb el seu
+`on_click` dins del torn de l'app — i aquesta pàgina existeix justament perquè l'app ja no hi és (la vista de l'app que se'n va es
+buida sencera, controls inclosos, `ui::give_back_the_glass`). El que sí que ha de ser és **una tecla del sistema**, amb el dibuix de
+totes: la caixa és l'ombra, la cara va aixecada quatre píxels del fons de la caixa —els quatre que queden a la vista són l'ombra on
+s'enfonsa—, la cara porta un marc d'un píxel i **el dit la gira sencera**: cara de tinta i paraula de paper (`paint_the_button`, la
+regla de `ui`'s de sempre, docs/90). I **respon abans que el dit s'aixequi**: la pàgina mira el dit a cada volta de la seva espera i
+pinta la tecla premuda mentre hi és a sobre, amb una `a2` del requadre del botó i no de la pàgina —un botó que no diu res fins que el
+dit marxa és el dibuix d'un botó— (docs/50, docs/80).
+
+**I el dit anava quaranta-vuit píxels per sota del botó** (0.190.4, trobat fent això mateix). La pàgina es pinta **sobre el vidre
+sencer** (`display::surface`, 540x960 a la Paper) i els dits que el nucli lliura —els punts de `touch::points` i el punt de cada
+gest— vénen en el marc de la **vista** de l'app, que és la pàgina que queda per sota de la barra del sistema (540x912 a 0,48):
+`turn_frame` els treu el desplaçament de la vista. Comparar-los era comparar dues mides diferents, o sigui que el `Dismiss` responia a
+un dit que queia a la barra de baix i no al que es veu —el cas de la suite que hi posa el dit va ser el que ho va dir—. Ara la pàgina
+demana `touch::on_the_glass` abans de preguntar res: el camí de tornada de `turn_frame`, que és el desplaçament de la vista sumat al
+punt (docs/50, docs/90).
+
 **I el host es mira mentre s'espera** (0.190.3, l'amo: *«es veu l'error al log i després l'emulator es penja "program" is not
 responding»*). El torn del nucli és **el que mira la finestra de l'emulador** —els seus esdeveniments, el dit sobre el vidre, els
 quadres d'una pintada— i aquesta pàgina atura aquell torn: la finestra va deixar de respondre al gestor de finestres, el ratolí ja no
