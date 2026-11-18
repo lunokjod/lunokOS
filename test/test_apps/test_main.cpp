@@ -19653,6 +19653,84 @@ void test_a_long_press_opens_the_app_that_was_asked_for_with_its_switches(void) 
   kernel::boot(hal::platform());
 }
 
+// **Els set botons de l'app de prova peten tots** (0.190.2, l'amo: *«Perqué l'app de test no peta?»*): the seventh way of breaking
+// was «a loop with no end», and in this system a loop with no end is **not** a way to break —the turn budget is a slice and not a
+// kill (docs/20: an app that never yields keeps running and the board keeps turning)—, o sigui que el botó deixava l'app viva i
+// penjada i la pàgina de l'error no arribava mai. Ara les set són errors de debò, i aquest cas **polsa cada botó** i mira que
+// l'app s'aturi i que la pàgina sigui al vidre (docs/30, docs/40, docs/80).
+void test_every_button_of_the_broken_app_ends_with_the_page_of_the_error(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->remove("/apps/brokenapp/brokenapp.lua");
+  storage->remove("/apps/brokenapp/manifest.json");
+  storage->remove("/apps/brokenapp");
+  // **L'app del repositori i no una còpia** (0.189.62): una app d'exemple que deixa de funcionar és una ment a la documentació, i
+  // aquesta és la que ensenya què és la pàgina de l'error (docs/40, docs/80).
+  TEST_ASSERT_TRUE(add_app_file(storage, "brokenapp",
+                                "{\"title\":\"Broken App Test\",\"version\":\"0.1.3\","
+                                "\"entry\":\"brokenapp.lua\",\"boards\":[\"esp32\"]}",
+                                "x", "brokenapp.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/brokenapp/brokenapp.lua", "/apps/brokenapp/brokenapp.lua"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app(""));
+  close_any_app();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  close_any_app();
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **On són els botons no es calcula: es troben amb el dit** (0.190.2): the page of an app is the app's, and the heights of its
+  // lines are the face's and not the case's —a suite that copied the arithmetic of `brokenapp` was measuring its own copy of the
+  // layout and not the page—. Es passa el dit per tota l'alçada de la pàgina i el que contesta cada toc és el botó que hi era.
+  static const char* const kIds[] = {"nil-index", "nil-call", "message", "table", "compare", "recursion", "memory"};
+  static char all[512];
+  all[0] = '\0';
+  uint8_t seen = 0;
+  // **La pàgina espera vint mil·lisegons mentre duri el cas** (docs/80): a page that waits for ever in a suite is a suite that does
+  // not end, and the number goes back to the system's own at the end.
+  kernel::app_error::set_wait_ms(20);
+  for (uint16_t y = 60; y < 560; y = static_cast<uint16_t>(y + 24)) {
+    close_any_app();
+    pump_captured(30, g_out, sizeof(g_out), "run brokenapp");
+    if (!kernel::app_running()) continue;
+    TEST_ASSERT_TRUE(panel->finger_down(0, 270, y));
+    pump_turns(5);
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_captured(400, g_out, sizeof(g_out));
+    for (uint8_t i = 0; i < 7; ++i) {
+      char want[32];
+      snprintf(want, sizeof(want), "brokenapp: %s", kIds[i]);
+      if (strstr(g_out, want) == nullptr) continue;
+      // **Un botó que s'ha premut és una app que s'ha aturat i una pàgina al vidre**: the two halves of what this app exists for
+      // (docs/30, docs/50).
+      TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), kIds[i]);
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the page of brokenapp is on the glass"), kIds[i]);
+      seen = static_cast<uint8_t>(seen | (1u << i));
+      snprintf(all + strlen(all), sizeof(all) - strlen(all), "%s ", kIds[i]);
+    }
+  }
+  kernel::app_error::set_wait_ms(0);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x7F, seen, all);
+
+  storage->remove("/apps/brokenapp/brokenapp.lua");
+  storage->remove("/apps/brokenapp/manifest.json");
+  storage->remove("/apps/brokenapp");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **Una app que es mor deixa el perquè al vidre** (0.189.162, l'amo: *«Si peta una app, que menys que saber el perqué amb la pantalla
 // i els dits. Un modal amb el missatge d'error? vull detalls del perqué una app peta»*). The page of the error is the system's: the
 // app's name, the message the interpreter said, the traceback of where and a line that says how to go on, and it waits for a finger
@@ -20054,6 +20132,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_page_asks_the_system_how_much_an_app_takes);
   RUN_TEST(test_a_long_press_opens_the_app_that_was_asked_for_with_its_switches);
   RUN_TEST(test_an_app_that_dies_says_why_on_the_glass);
+  RUN_TEST(test_every_button_of_the_broken_app_ends_with_the_page_of_the_error);
   RUN_TEST(test_a_page_clears_the_cache_of_an_app_and_nothing_else);
   RUN_TEST(test_the_page_of_the_apps_reads_the_manifests_of_the_folder);
   RUN_TEST(test_the_panel_of_settings_writes_through_the_doors_of_the_system);

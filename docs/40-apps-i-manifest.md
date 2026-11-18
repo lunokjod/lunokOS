@@ -719,9 +719,16 @@ repeteix cada mitja hora** i es guarden a `/data/meteo/` en **dues cadenes** —
 (docs/30, docs/45, docs/75).
 
 **`brokenapp`** —*Broken App Test*— (0.189.162) és una app que existeix per **trencar-se**: set botons, set maneres de petar (un
-`nil` indexat, un global que no és funció, un `error` amb missatge, un `error` amb taula, un bucle sense fi, una recursió sense fi i
-una cadena que no cap a la memòria). És la manera de veure la pàgina d'error del sistema sense haver d'espatllar una app de debò, i
-cada botó deixa el seu nom al registre abans de petar (docs/30).
+`nil` indexat, un global que no és funció, un `error` amb missatge, un `error` amb taula, dues taules comparades, una recursió sense
+fi i una cadena que no cap a la memòria). És la manera de veure la pàgina d'error del sistema sense haver d'espatllar una app de
+debò, i cada botó deixa el seu nom al registre abans de petar (docs/30).
+
+**I el setè botó era una ment** (0.190.2, l'amo: *«Perqué l'app de test no peta?»*): era «un bucle sense fi», i en aquest sistema un
+bucle sense fi **no és una manera de petar** —el pressupost del torn és un tall i no una mort (docs/20: una app que no cedeix el
+torn segueix corrent i el sistema recupera el seu entre dues porcions)—, o sigui que el botó deixava l'app viva i penjada i la
+pàgina de l'error no arribava mai. Ara compara dues taules, que sí que és un error, i **un cas de la suite polsa els set botons**
+(`test_every_button_of_the_broken_app_ends_with_the_page_of_the_error`) perquè una app d'exemple que deixa de petar no torni a
+passar desapercebuda (docs/30, docs/80).
 
 Les altres apps —`about`, **`agenda` (0.189.171)**, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
 `home_eink`, `life`, **`meteo` (0.189.169)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i

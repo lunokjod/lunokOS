@@ -10052,7 +10052,14 @@ namespace kernel {
 // dir esperar tant com calgui— i el que queda fora del botó no compta. El preu és el d'una pàgina que espera: mentre és al vidre el
 // torn és seu i les alarmes no es lliuren fins que es polsa; i per això la pàgina només és la de l'app **del vidre**, mai la d'una
 // finestra d'alarma (docs/30, docs/50, docs/60).
-static const char kVersion[] = "0.190.1";
+// **El setè botó de l'app de prova no podia petar** (0.190.2, l'amo: *«Perqué l'app de test no peta?»*). *Broken App Test* tenia set
+// maneres de trencar-se i la setena era **un bucle sense fi**, que en aquest sistema no és una manera de trencar-se: el pressupost
+// del torn és **un tall i no una mort** —`lua_yield`, la placa recupera el seu entre dues porcions i l'app segueix dins del bucle
+// (docs/20)—, o sigui que el botó deixava l'app **viva i penjada** i la pàgina de l'error no arribava mai. Ara compara dues taules,
+// que sí que és un error, i un cas de la suite **polsa els set botons** i mira que cada un aturi l'app i deixi la pàgina al vidre
+// (`test_every_button_of_the_broken_app_ends_with_the_page_of_the_error`): una app d'exemple que deixa de petar és una ment a la
+// documentació, i aquesta és la que ensenya què és la pàgina de l'error (docs/30, docs/40, docs/80).
+static const char kVersion[] = "0.190.2";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

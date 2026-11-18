@@ -5,10 +5,16 @@
 -- Test"»*.
 --
 -- **Cada botó és una manera de trencar-se i el perquè és diferent**: a nil that is indexed, a global that is not a function, a
--- message of the app's own, an error thrown as a table, a loop that never ends and is cut by the budget of the turn, a recursion
--- with no end and a string that does not fit in the memory. The system paints the page of the error with what it said and the
--- traceback of where, and it waits for a finger —the page is `kernel::app_error` and this app is only the way to call it— (docs/30,
--- docs/50).
+-- message of the app's own, an error thrown as a table, two tables compared, a recursion with no end and a string that does not fit
+-- in the memory. The system paints the page of the error with what it said and the traceback of where, and it waits for its button
+-- —the page is `kernel::app_error` and this app is only the way to call it— (docs/30, docs/50).
+--
+-- **I un bucle sense fi no és una d'aquestes set maneres** (0.190.2, l'amo: *«Perqué l'app de test no peta?»*): the turn budget of
+-- the interpreter is **a slice and not a kill** (`docs/20`: «an app that never yields keeps running, but the console, the alarms, the
+-- button, the glass and the radio get a turn between slices»), o sigui que una app dins d'un `while true` **no es mor**: el sistema
+-- recupera el torn, la pàgina segueix congelada i la pàgina de l'error no arriba mai. Hi era com a setena manera de petar des de la
+-- 0.189.162 i no podia petar; ara el setè botó compara dues taules, que sí que és un error, i el pressupost del torn queda explicat
+-- on toca.
 --
 -- **El botó no peta, i això és la lliçó**: an error thrown inside `on_click` is a hook of the system and it is called in a protected
 -- call of its own, so the app would go on as if nothing had happened (the same road that made `app.exit()` inside a hook not close
@@ -66,10 +72,11 @@ local crashes = {
     run = function()
       error({ code = 'E_BROKEN', message = 'an error thrown as a table' })
     end },
-  { id = 'budget', text = 'A loop with no end',
+  { id = 'compare', text = 'Two tables compared',
     run = function()
-      local n = 0
-      while true do n = n + 1 end
+      local first = {}
+      local second = {}
+      return first < second
     end },
   { id = 'recursion', text = 'A recursion with no end',
     run = function()
