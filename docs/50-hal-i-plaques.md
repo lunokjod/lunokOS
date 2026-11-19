@@ -865,6 +865,26 @@ queda en tres colors. Amb la porta comptada, els tretze microsegons i mig del ca
 **quinze empentes de nou-cents nanosegons** i en surten setze esglaons. `panel gate <us>` (amb coma) mou la
 finor; el sostre és el camí sencer.
 
+**I el driver propi, fora: aquest vidre el porta epdiy** (0.190.59). Després de set versions perseguint setze
+grisos amb un bucle de software, l'amo ho va tallar: *«integra la llibreria i abandona el driver propi»*. I té
+raó, perquè el que faltava no era un número sinó una peça sencera: el seu `lib/epdiy` 2.0.0 és el driver que
+el firmware de fàbrica fa servir, i porta coses que un bucle no pot donar —
+
+- el **bus LCD** enviant el fotograma i el **`CKV` generat per RMT**, amb la línia de dotze microsegons i la
+  porta oberta sis (la meitat), que és el que la tinta espera;
+- la forma d'ona com a **matriu de transició 16×16** triada per **temperatura**, no una taula de destí;
+- la **neteja** (`MODE_GC16` renta) i la diferència (`MODE_GL16` no renta), que és el que fa que una pàgina
+  cremada i una hora que canvia no costin el mateix.
+
+El que queda del nostre costat és **la pàgina i prou**: el mapa entre la pàgina de 540 × 960 i el vidre de
+960 × 540, el nivell d'un píxel, el rectangle que ha canviat, i la traducció de les quatre qualitats del nucli
+als seus modes (`kGc16`/`kInit` → `MODE_GC16`, `kGl16`/`kGlr16`/`kGld16` → `MODE_GL16`, `kDu`/`kDu4`/`kA2` →
+`MODE_DU`). Les palanques `panel gate` i `panel bus` ja no existeixen: el rellotge i la porta són del seu
+`epd_board_v7` i el prompt ho diu.
+
+**I la llicència, dita clar**: epdiy és **LGPL-3** i viatja amb el seu `LICENSE` a `lib/epdiy/`, sense una
+línia tocada. No és codi d'aquest projecte i no s'ha de presentar com a tal.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

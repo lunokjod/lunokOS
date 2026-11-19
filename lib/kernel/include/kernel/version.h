@@ -10489,7 +10489,14 @@ namespace kernel {
 // la porta oberta tota la transferència satura a la segona passada i queden tres colors. Amb la porta comptada, els tretze
 // microsegons i mig del camí es reparteixen en **quinze empentes de nou-cents nanosegons** i surten setze esglaons: neteja, compte,
 // i `panel gate` per moure-ho (docs/50, docs/95).
-static const char kVersion[] = "0.190.57";
+// **I el driver propi, fora: el vidre el porta epdiy** (0.190.59). L'amo ho va decidir així —*«integra la llibreria i abandona el
+// driver propi»*— després de set versions perseguint setze grisos amb un bucle de software. `lib/epdiy` 2.0.0 és la còpia que el
+// repositori de la placa porta a `lib/epdiy` i la que fa anar el seu firmware de fàbrica: el bus LCD, el `CKV` per RMT, la línia de
+// dotze microsegons, la matriu de transició de setze per setze i la temperatura. El nostre `epd47.cpp` queda reduït a la **pàgina**:
+// el mapa entre la pàgina de 540 × 960 i el vidre de 960 × 540, el nivell d'un píxel, el rectangle que ha canviat i la traducció de
+// les quatre qualitats del nucli als modes d'epdiy. **És LGPL-3** i viatja amb la seva llicència a `lib/epdiy/LICENSE`, sense una
+// línia tocada (docs/50, docs/95).
+static const char kVersion[] = "0.190.59";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

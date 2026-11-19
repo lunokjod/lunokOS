@@ -1,0 +1,31 @@
+{
+  "name": "epdiy",
+  "version": "2.0.0",
+  "description": "epdiy 2.0.0, the e-paper driver the board ships with (LGPL-3), copied from lib/epdiy of Xinyuan-LilyGO/T5S3-4.7-e-paper-PRO",
+  "keywords": "epd, driver, e-ink",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vroland/epdiy.git"
+  },
+  "authors": [
+    {
+      "name": "Valentin Roland",
+      "email": "github@vroland.de",
+      "maintainer": true
+    }
+  ],
+  "license": "LGPL-3.0",
+  "frameworks": [
+    "arduino",
+    "espidf"
+  ],
+  "platforms": "espressif32",
+  "export": {
+    "exclude": [
+      "hardware"
+    ]
+  },
+  "build": {
+    "srcDir": "src"
+  }
+}
