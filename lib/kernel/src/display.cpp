@@ -140,7 +140,18 @@ bool set_bus_mhz(uint32_t mhz) { return (g_surface != nullptr) && g_surface->set
 // `gather`**: les files que es llegeixen de la imatge són feina de debò i a 80 costen unes tres vegades més (99 ms contra ~300 en
 // una pàgina); el que mana és que el panell triga 783 ms igualment, i per això el que es guanya en corrent no es perd en temps
 // (docs/50, docs/60, docs/95).
-void hold_for_a_paint() { power::wait_cpu("a paint"); }
+//
+// **I la placa és qui ho diu** (0.190.39): el paràgraf de dalt és cert en una placa amb controlador, i aquest sistema ja en té una
+// sense —`a_paint_is_work` és la pregunta i la T5 E-Paper S3 Pro és la que contesta que sí—. **No ho decideix el driver del
+// vidre**: dues plaques poden portar el mateix panell i el mateix driver i no costar el mateix, o sigui que el que mana la
+// velocitat és la placa, i aquí només s'obre la porta que ella diu (docs/50, docs/95).
+void hold_for_a_paint() {
+  if (hal::platform().a_paint_is_work()) {
+    power::work_cpu("a paint that computes");
+    return;
+  }
+  power::wait_cpu("a paint");
+}
 
 // **El vidre que no s'ha de tocar** (0.190.19): the switch and its two doors. A paint that arrives while the glass is asleep is written into
 // the buffer and **not sent**: the damage stays marked, o sigui que el primer `present` després de despertar-lo hi posa el que hi hagi

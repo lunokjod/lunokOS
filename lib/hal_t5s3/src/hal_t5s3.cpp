@@ -124,6 +124,12 @@ class T5Power : public Esp32Power {
 
 class T5Platform : public IPlatform {
  public:
+  // **I en aquesta placa una pintada és feina** (0.190.39, l'amo: *«el driver no ha de tocar la velocitat, cada dispositiu
+  // decideix»*): l'ED047TC1 no té controlador, o sigui que el xip **és** el driver —converteix el quadre en els codis del
+  // panell fila a fila i alimenta el i80 a cada fila— i la mateixa pàgina sencera mesurada aquí costa **2,67 s a 80 MHz i
+  // 1,2 s a 240**. La resposta és de la placa i no del vidre ni del driver: dues plaques poden portar el mateix panell i el
+  // mateix driver i no costar el mateix, perquè el xip, el bus i el perifèric són d'ella (docs/50, docs/95).
+  bool a_paint_is_work() const override { return true; }
   const char* id() const override { return board::id(); }
   const char* family() const override { return board::family(); }
   bool emulator() const override { return board::emulator(); }

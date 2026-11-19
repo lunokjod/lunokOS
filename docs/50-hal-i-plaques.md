@@ -744,6 +744,14 @@ sola:
 3. **La mesura**: cada pintada diu files, fases, mil·lisegons de cable, mil·lisegons de la resta i els
    megahertz, i amb això se sap quina de les tres ha guanyat.
 
+**I la quarta, que és la que més ha valgut** (0.190.39): la mateixa pàgina sencera costa **2,67 s amb el
+processador a 80 MHz i 1,2 s a 240**, perquè aquí el xip no espera res —converteix el quadre en els codis
+del panell fila a fila i alimenta el i80 a cada fila— i el cable només són dotze microsegons d'una fila
+de setanta-vuit. Aquell «en enviar dades al eink, 80 MHz» era cert en una placa **amb** controlador, que
+pinta de la seva pròpia memòria. **Qui ho decideix és la placa i no el driver**: dues plaques poden portar
+el mateix panell i el mateix driver i no costar el mateix, o sigui que la pregunta és `IPlatform::a_paint_is_work()`
+—falsa per defecte, certa aquí— i la resta de plaques no canvien de comportament.
+
 Aquesta placa continua sense animar res: el que hi ha és una actualització curta, no un vídeo.
 
 **La trampa de debò d'aquesta placa, i és com la del Paper però al revés**: no té cap latch

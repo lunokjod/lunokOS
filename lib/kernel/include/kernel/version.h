@@ -10357,7 +10357,16 @@ namespace kernel {
 // quadre i el panell es queden on són, perquè la velocitat del cable és l'única cosa que val la pena mesurar a la placa i no a
 // cop de flash. (3) **I la mesura, a la línia de debò**: cada pintada diu quantes files, quantes fases, quants mil·lisegons de
 // cable i quants de la resta, i a quants megahertz, que és el que diu quina de les tres ha guanyat (docs/50, docs/95).
-static const char kVersion[] = "0.190.38";
+// **I una pintada pot ser feina** (0.190.39). El 0.190.26 es va decidir que enviar píxels al vidre és una espera i que el processador
+// hi baixa a 80 MHz —i és veritat en una placa amb controlador, que pinta de la seva pròpia memòria i no vol res del xip—. La T5 E-Paper
+// S3 Pro no en té: el xip **és** el driver, converteix el quadre en els codis del panell fila a fila i alimenta el perifèric, i la
+// mateixa pàgina mesurada a la placa costa **2,67 s a 80 MHz i 1,2 s a 240**. O sigui que la pregunta passa a ser del vidre
+// (`IPlatform::a_paint_is_work`, fals per defecte i cert en aquesta) i el nucli només obre la porta que li diuen: la resta de
+// plaques no canvien de comportament. **I la pregunta és de la placa i no del vidre** (l'amo: *«el driver no ha de tocar la
+// velocitat, cada dispositiu decideix; vàries plaques poden compartir hardware i per unes és espera i per altres és feina»*):
+// el mateix panell i el mateix driver poden costar una cosa en una placa i una altra en una altra, o sigui que qui mana la
+// velocitat és qui la paga (docs/50, docs/95).
+static const char kVersion[] = "0.190.39";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

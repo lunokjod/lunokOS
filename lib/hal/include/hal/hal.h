@@ -742,6 +742,15 @@ class IPlatform {
   // takes longer than that to reach the platform, and a cable hides it because the cable is what is feeding it. The kernel
   // calls this **before anything else**, and a board whose power does not depend on a pin does nothing (docs/50).
   virtual void hold_the_power() {}
+  // **Si una pintada és feina o és espera, i ho diu la placa** (0.190.39). A glass with a controller paints from its own
+  // memory: the chip hands the rectangle over and waits for ink it cannot hurry, o sigui que el pas de baix del processador és
+  // el que li toca. A glass **without** a controller is the opposite: the chip is the driver —it turns the frame into the
+  // panel's codes row by row and feeds the peripheral— and the same full page measured on the T5 E-Paper S3 Pro costs **2,67 s
+  // at 80 MHz and 1,2 s at 240**. **La pregunta és de la placa i no del vidre ni del driver**: dues plaques poden portar el
+  // mateix panell i el mateix driver i no costar el mateix —el xip, el bus, el perifèric i la memòria són de la placa—, i per
+  // això el que decideix la velocitat és qui la paga (docs/50, docs/95). False by default: totes les plaques anteriors tenen
+  // controlador i no canvien de comportament.
+  virtual bool a_paint_is_work() const { return false; }
   virtual const Caps& caps() const = 0;
   virtual uint32_t heap_limit_kb() const = 0;
   // The extra memory of the board, as the board sees it (docs/75). The interpreter puts its big
