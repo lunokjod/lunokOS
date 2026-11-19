@@ -10342,7 +10342,22 @@ namespace kernel {
 // codi** i ni un parpelleig a la tinta. **I la segona meitat del mateix forat**: el rellotge vertical (`CKV`) ha de pujar
 // **abans de cada transferència** —així ho fa `bbepWriteRow` del fabricant— perquè és el que avança la porta una línia; el
 // bucle antic el deixava baix i les cinc-centes quaranta files queien totes damunt de la primera (docs/50, docs/95).
-static const char kVersion[] = "0.190.36";
+// **I el vidre aprèn a pintar només el que ha canviat** (0.190.37). El contracte de `ISurface` ja ho deia —«every write marks the
+// rectangle it touched, i el `flush` envia aquest rectangle i l'oblida»— i el driver de la T5S3 pintava sempre les cinc-centes
+// quaranta files perquè encara no hi havia marques enlloc: ara `clear`, `fill_rect`, `pixel` i `blit` deixen el rectangle, i una
+// pintada escaneja **fins a l'última fila marcada** —la porta del panell s'ha de recórrer des de la primera línia, però les de
+// sobre surten amb el codi que no fa res i les de sota no surten— i res marcada és una pintada que no es gasta. Amb això una
+// actualització d'una banda estreta baixa d'un factor tres o més, i una pàgina sencera queda com estava (docs/50, docs/95).
+// **I les tres palanques de la velocitat, totes tres alhora** (0.190.38). Una pintada de pàgina sencera eren 2,5 s i el que hi
+// ha dins és: 38 passades × 540 files × 125 µs, amb 96 µs de cable i 29 de perifèric per fila. (1) **La forma d'ona curta**:
+// `du`, `du4` i `a2` són de dues tintes i no necessiten les trenta-vuit fases del panell —`kFastPhases` en té sis, i és d'aquest
+// projecte i no del panell, dit a `epd47_waveform.h`—, o sigui que la UI passa a 6 passades i el `gc16` del nucli, que sí que fa
+// servir la taula del panell, neteja el fantasma que les curtes deixen. (2) **El rellotge del bus es canvia en calent**
+// (`set_bus_mhz`, que és el que esperava la comanda `panel bus <mhz>` del prompt): el perifèric es torna a obrir amb el nou i el
+// quadre i el panell es queden on són, perquè la velocitat del cable és l'única cosa que val la pena mesurar a la placa i no a
+// cop de flash. (3) **I la mesura, a la línia de debò**: cada pintada diu quantes files, quantes fases, quants mil·lisegons de
+// cable i quants de la resta, i a quants megahertz, que és el que diu quina de les tres ha guanyat (docs/50, docs/95).
+static const char kVersion[] = "0.190.38";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

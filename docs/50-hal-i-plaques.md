@@ -682,15 +682,76 @@ no hi ha l'`HSPI` del D0WDQ6) i el seu propi joc de fonts de despertar. O sigui 
 **la prova que `lib/hal_esp32` és de la família i no del xip**: el que hi ha escrit és el que els dos
 xips comparteixen, i el que no ho és viu a `lib/hal_t5s3/`.
 
-**Què fa avui**: el prompt, les alarmes, la targeta, la NVS, la ràdio, l'hora del PCF8563, el tàctil
-GT911 i l'indicador de bateria. **Què no fa: el vidre.** I no és una oblit sinó una dada del maquinari:
-l'ED047TC1 no té cap controlador a qui parlar-li un protocol —el que el Paper té a l'IT8951, aquí no hi
-és— i és el xip qui ha de moure la tinta, amb **les taules de forma d'ona del panell**, que són dades
-del fabricant i que aquest repositori no té. O sigui que `LUNOK_GLASS` és **0** en aquesta identitat i
-ho diu (`lib/board_t5s3/include/board/identity.h`), i el que falta és una peça amb nom: el driver
-paral·lel + el **TPS65185** (0x68) que dona les tensions + el **PCA9535** (0x20) que obre les portes
-(`EP_OE`, `EP_MODE`, `VCOM_CTRL`, `PWRUP`, `WAKEUP`). El que sí que està mesurat des d'ara és que **les
-set bandes compilen** amb el xip nou.
+**Què fa avui** (0.190.33): el prompt, les alarmes, la targeta, la NVS, la ràdio, l'hora del PCF8563,
+el tàctil GT911, l'indicador de bateria **i el vidre**. El driver del panell és
+`lib/hal_t5s3/src/epd47.cpp` i el de l'expansor `lib/hal_t5s3/src/expander.cpp`, i el que hi ha dins
+són tres coses que el Paper no havia de fer mai:
+
+1. **El bus paral·lel**: vuit línies de dades i un rellotge amb el perifèric i80 del xip, a vint
+   megahertz. **I dues trampes que costen un flash cadascuna**: el bus **no es deixa crear sense un
+   `dc_gpio_num`** encara que el panell no tingui línia de comandament —és el GPIO46, el *chip select*
+   de la LoRa, que el driver té alt sempre, que és el seu repòs—, i amb `lcd_cmd_bits` a vuit el driver
+   envia **un byte d'ordre abans de cada transferència** que cauria al registre de desplaçament i faria
+   lliscar la fila quatre píxels. Zero bits vol dir zero cicles d'ordre.
+2. **L'alimentació**, que és del **TPS65185** (0x68) però la obre el **PCA9535** (0x20): `EP_MODE` **alt**,
+   `EP_OE` alt, i després `WAKEUP`, `PWRUP` i `VCOM_CTRL`; el `POWER_GOOD` de l'expansor; el registre
+   d'habilitació a `0x3F`; la **VCOM a 1560 mV** —el valor amb què surt de fàbrica aquesta placa, no els
+   1600 del codi d'epdiy—; i el registre de *power good* a `0xFA`, que és l'única cosa que diu que el
+   panell es pot pintar. **I la tercera trampa, que és la que va costar la primera llum** (0.190.34): el
+   registre de configuració del PCA9535 diu quin pin és **entrada** amb un `1`, i la primera versió del
+   HAL li passava la **negació** de la màscara de les entrades. Els cinc pins de l'alimentació
+   (`IO1_0..IO1_5`) quedaven com a **entrades** i el `PWR_GOOD` (`IO1_6`) com a **sortida**: el TPS65185
+   no es despertava mai, no contestava a `0x68` (`write to 68 failed`) i el pin de bo llegia zero per
+   sempre, sense cap error que ho digués. Tres coses en queden: la màscara s'escriu tal com és
+   (`0xC400`), **es llegeix de tornada** i es compara —un xip que contesta i no es queda la configuració
+   és un error invisible des de fora—, i les portes es tanquen també quan l'alimentació falla a mitges.
+   **I la quarta trampa** (0.190.35): el `EP_MODE`/`GMOD` ha d'anar **alt** mentre es pinta. `epd_board_v7`
+   d'epdiy el deixa baix perquè és una altra placa; el firmware que aquesta porta de fàbrica —FastEPD,
+   `EPDiyV7EinkPower`, `bbepPCA9535DigitalWrite(9, 1); // GMOD on`— el posa alt, i amb el GMOD baix el
+   panell no pren els codis de dos bits de cada passada: la font puja, el registre de bo diu `fa`, les
+   files surten pel bus (2,7 s de feina) i **la tinta no es mou gens**.
+   **I dues més del mateix forat, que són les que van costar el segon i el tercer flash** (0.190.36): el
+   `EP_STH` (GPIO41) **no és un pin quiet** —és el «començament horitzontal» i va al perifèric com a
+   `cs_gpio_num`, polsat a cada fila, tal com fa `bbepWriteRow`—, i el **`CKV` ha de pujar abans de cada
+   transferència**, perquè és el que avança la porta una línia. Amb el `STH` quiet i el `CKV` baix, el bus
+   treballa 2,7 s per pintada i no hi ha ni un píxel que rebi el codi que li toca.
+3. **La forma d'ona**, que és l'única part que no és codi d'aquest projecte: `t5s3/epd47_waveform.h`,
+   la `u8GrayMatrix` de **FastEPD** (Apache-2.0, BitBank Software), que és la mateixa taula que porta
+   el firmware de fàbrica de la placa perquè el seu exemple és `epd_board_v7` d'epdiy.
+
+**I el preu de no tenir controlador, dit clar**: una actualització és **la forma d'ona sencera, trenta-
+vuit passades** —una per fase, amb el `ROW_START` a l'inici de cada passada i el `LE` a cada fila—, o
+sigui que refrescar una pàgina sencera costa **2,5 segons** i no mil·lisegons (mesurat a la placa: 125 µs
+per fila, dels quals 96 són el cable a vint megahertz i la resta el perifèric). **El que sí que es pot
+retallar, i ja es fa** (0.190.37): com que el nucli marca el rectangle que ha canviat, una pintada
+escaneja **només fins a l'última fila marcada** —les files de sobre del rectangle surten amb el codi que
+no fa res, perquè la porta s'ha de recórrer des de la primera línia, i les de sota no surten gens— i una
+pintada sense res marcat no es gasta. O sigui que una banda estreta prop d'una vora costa una fracció del
+que costa una pàgina.
+
+**I les tres palanques de la velocitat** (0.190.38), que es poden provar totes tres juntes i cada una
+sola:
+
+1. **La forma d'ona curta**: `du`, `du4` i `a2` són de dues tintes i no necessiten les trenta-vuit
+   fases del panell. `kFastPhases` en té sis —dues cap a la via contrària i quatre cap a la de destí,
+   que és el que manté el fantasma a ratlla—, i **és d'aquest projecte i no del panell**, dit a
+   `epd47_waveform.h`; el `gc16` del nucli, que sí que fa servir la taula del panell, és el que neteja
+   el que les curtes deixen. La UI és tota `du` (el nucli només la puja a `gc16` quan la regió és set
+   vuitens del vidre), o sigui que aquesta és la palanca que es nota.
+2. **El rellotge del bus, en calent**: `set_bus_mhz` torna a obrir el perifèric amb el rellotge nou i deixa
+   el quadre, el panell i la font on són. La comanda `panel bus <mhz>` del prompt ja hi era esperant-lo, o
+   sigui que 20, 26, 32 i 40 MHz es proven en una sola sessió sense cap flash.
+3. **La mesura**: cada pintada diu files, fases, mil·lisegons de cable, mil·lisegons de la resta i els
+   megahertz, i amb això se sap quina de les tres ha guanyat.
+
+Aquesta placa continua sense animar res: el que hi ha és una actualització curta, no un vídeo.
+
+**La trampa de debò d'aquesta placa, i és com la del Paper però al revés**: no té cap latch
+d'alimentació —el corrent de la cel·la arriba al xip i prou— i l'única manera d'**apagar-la** és el bit
+`BATFET_DIS` del **carregador** (BQ25896, registre 9, bit 0x20), que obre el transistor entre la cel·la
+i la placa. És el que fa `LilyGoT5_Shutdown` al repositori del fabricant, i per això `can_power_off()`
+és cert en aquesta placa i `poweroff` és una apagada de debò. **Amb el cable a dins no fa res**, o sigui
+que una placa endollada que diu que s'ha apagat és una placa que no s'ha apagat.
 
 **El que aquesta placa comparteix amb el Paper i no s'ha escrit dues vegades**: el GT911 (el mateix
 controlador, altres pins: `INT` 3 i `RST` 9) i el rellotge —el **PCF8563 és el xip que el BM8563

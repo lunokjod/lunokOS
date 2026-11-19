@@ -505,7 +505,7 @@ Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
-| `About` | `about` | 0.5.172 |
+| `About` | `about` | 0.5.173 |
 | `Calculator` | `calculator` | 0.2.2 |
 | `Clock` | `clock` | 0.1.6 |
 | `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.3 |
