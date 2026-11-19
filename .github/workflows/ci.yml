@@ -135,3 +135,10 @@ jobs:
       # that can stop compiling without a red anywhere (docs/80).
       - name: build koala
         run: pio run -e ttgo-t-koala
+
+      # **The seventh, and the first one whose chip is not the ESP32-D0WDQ6** (0.190.29): the LilyGO
+      # T5 E-Paper S3 Pro is an ESP32-S3, so a change that compiles on the other six and not here is a
+      # change that hid behind the chip of the family —the S3's headers are their own, and the PSRAM,
+      # the SPI hosts and the sleep sources are not the ESP32's— (docs/50, docs/80).
+      - name: build lilygo-t5s3
+        run: pio run -e lilygo-t5s3

@@ -1,5 +1,6 @@
 // The five by seven glyphs and the two functions that put them on a surface (docs/30).
 #include "kernel/font.h"
+#include "kernel/power.h"
 
 #include "ttf/ttf.h"
 
@@ -242,6 +243,10 @@ uint8_t g_outline_rows[kOutlineRowBytes * kOutlineMaxHeight];
 uint16_t outline_runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t scale,
                       const Clip& clip, RunFn fn, void* user, const Ink& ink) {
   if (text == nullptr || scale == 0 || fn == nullptr) return 0;
+  // **Cada glif d'una cara d'outlines és un dibuix i no una taula** (0.190.26): the curves are flattened and rasterised one glyph
+  // at a time, and a page of a book is a thousand of them — o sigui que això és el que fa car una pàgina d'un epub i no el
+  // `layout` (docs/30, docs/46, docs/60). La finestra es renova a cada línia i el governador no hi entra fins que el text s'acaba.
+  power::work_cpu("the glyphs of a page");
   const ttf::Face& font = *face.outline;
   const uint16_t px = static_cast<uint16_t>(kOutlineBody * scale);
   const uint32_t body = (font.units_per_em == 0) ? 1 : font.units_per_em;
@@ -938,6 +943,10 @@ bool looks_like_ttf(const char* text, uint32_t length) {
 
 const char* load_any(const char* text, uint32_t length, uint8_t* bits, Face& out) {
   if (text == nullptr || length == 0) return "there is nothing to read";
+  // **Una font es converteix amb el processador** (0.190.26, l'amo: *«al carregar una font, puja a 240»*): a `pcf` or a `bdf` is
+  // hundreds of glyphs decoded into a bit table and a `ttf` is a table of curves that every glyph reads, i les dues coses es fan
+  // aquí i enlloc més — és l'única porta de les quatre (docs/30, docs/60).
+  power::work_cpu("a face");
   // **A PCF is binary and its first four bytes are its own**, so there is no first line to read in it.
   if (length >= 4 && static_cast<uint8_t>(text[0]) == 0x01 && text[1] == 'f' && text[2] == 'c' &&
       text[3] == 'p') {

@@ -330,7 +330,19 @@ corrent se'n va abans i la tecla PWR és la del xip de potència, que és com aq
 | Arrencada | **240** | fins que el sistema està carregat | `kernel::boot`, `power::hold_cpu(240, 0, "boot")` |
 | Sistema carregat | **160** | fins a la finestra següent | `power::rest_cpu("the system is loaded")` al final del boot |
 | Llançament d'una app de Lua | **240** | **3 s** (`kStartBusyMs`) | `shell::run_app`, `power::hold_cpu(240, 3000, "an app is starting")` |
+| Una imatge, una font, un epub | **240** | **600 ms** (`kWorkWindowMs`) | `power::work_cpu("a picture" / "a face" / "a book" / "a page of a book" / "the glyphs of a page")` |
+| Enviar al panell, esperar la tinta, escriure a la targeta | **80** | el que duri | `power::wait_cpu("a paint" / "the ink of the picture" / "the card")` |
 | La resta | **160** | — | la velocitat de repòs |
+
+- **Dues portes i no una: la feina i l'espera** (0.190.26, l'amo: *«Si està habilitat el Automatic scaling: al carregar una imatge,
+  puja a 240; al carregar un epub, 240; al carregar una font, 240; al enviar dades al eink usa 80»*). `power::work_cpu` és el que el
+  xip té **a calcular** —descodificar una imatge, convertir una font, el `layout` d'una pàgina d'epub i els glifs de cada línia, que
+  és el que fa car un llibre de debò— i `power::wait_cpu` és el que el xip té **a esperar**: el bus del panell, la tinta, la targeta.
+  La diferència no és de grau sinó de naturalesa, i per això són dues funcions i no un número que cada crida endevina. **Les dues
+  només manen amb l'escalat automàtic encès**: qui ha fixat un pas a mà el vol fixat, i aquesta és la promesa de `power cpu`.
+- **I l'enviament al panell baixa a 80 encara que el `gather` sigui feina**: les files que es llegeixen de la imatge costen unes
+  tres vegades més a 80 (99 ms contra ~300 en una pàgina), però el panell triga 783 ms a tinta igualment i el corrent del pas de
+  dalt no el paga ningú. El número de debò és a `docs/95` (D-5).
 
 - **La finestra té rellotge i no amo**: `power::hold_cpu(mhz, ms, why)` posa el pas ara i deixa escrit quan s'acaba; qui
   el tanca és **`power::poll`**, un torn del sistema, o sigui que cap app no ha de vigilar la seva pròpia estona (ni pot
@@ -438,6 +450,14 @@ Per què, amb els números a la mà i els que falten:
   és: és el firmware comptant-se a si mateix. El nucli ara **resta el temps des de l'arrencada**
   (`monotonic_ms`) quan el despert ve d'un son de debò, i deixa el número net. El que queda dins és
   el carregador d'arrencada, que es mesura a part (`docs/95`, E-3).
+- **Un número negatiu no és un error: és el RC del xip** (19/11). El despert d'un son que no apaga el
+  corrent el compta el **temporitzador del SoC**, i el seu rellotge lento és l'oscil·lador RC de la
+  placa —no un quars—, que és del mig per cent. Al log del 19/11: `woke on the timer, -2182 ms` en un
+  son de 493 s és un **−0,44 %**, i el que sembla una contradicció amb el `#1 fired … 1689 ms late`
+  no ho és: **−2 182 + 3 871 d'arrencada = +1 689**. O sigui que la placa va despertar 2,2 s abans
+  d'hora (el RC) i l'alarma es va lliurar 1,7 s tard perquè l'arrencada costa gairebé quatre segons.
+  El quars el té el xip del rellotge, i amb la bateria és ell qui compta (`(clock)` a `power last`);
+  amb el cable, el corrent no se'n va i el que compta és l'RC (docs/50, docs/95).
 
 El que **no** canvia amb això: la cua continua essent de software (`lib/alarms`), perquè una alarma
 aquí és un objecte —amo, payload, repetició, `late_ms`, persistència— i un registre dins d'un xip de
@@ -457,9 +477,10 @@ Com està avui:
    (docs/50): el compte enrere del xip va **al segon** fins a 4 h 15 min, l'alarma de rellotge va al
    minut per a més enllà, i una espera de més d'un dia s'arma **en tandes** —la placa es desperta
    abans d'hora, no hi troba res i torna a armar—, o sigui que el quars compta **totes** les esperes.
-   Els números de la política, que són decisions i no mesures: **deu segons de quietud** —que des de la 0.190.9
-   els tria la persona—, una espera mínima de deu segons i cap app ni `keep_awake` enmig. `power idle off` la
-   desactiva mentre una persona treballa al prompt.
+   Els números de la política, que són decisions i no mesures: **la quietud que tria la persona** a *Sleep after*
+   —cinc, deu o quinze minuts des de la 0.190.13—, una espera mínima de **vint segons** (era de deu fins a la 0.190.20:
+   la baixada sola en gasta més) i cap app ni `keep_awake` enmig. `power idle off` la desactiva mentre una persona
+   treballa al prompt.
 
    **I "ningú l'està fent servir" era només la consola** (0.190.5, l'amo: *«sembla que s'adorm sola quasi
    d'inmediat... perqué?»*). El comptador del silenci el movien les tecles del terminal i prou: un dit al
@@ -585,15 +606,21 @@ Com està avui:
    certa per a **tota** la run d'un despert per una alarma, o sigui que quan aquella alarma es gastava i la cua quedava buida el
    codi queia al camí de l'alarma amb la data a zero: deia `-1767225 s to the next alarm`, la son es refusava —una son fonda sense
    hora no existeix— i el comptador tornava a començar, cada cinc minuts, per sempre. **La regla de «un despert per una alarma no
-   torna a baixar de seguida» és del primer torn** (`straight_back_down`, que només és cert amb una alarma a la cua); aquí el
-   comptador ja s'ha esgotat i baixar a la tecla és exactament el que la persona va triar.
+   torna a baixar de seguida» **ja no existeix** (0.190.19): quan el vidre va dir el son, un despert per una alarma no ha
+   pintat res, o sigui que quedar-se despert no ensenyava cap pàgina —només la imatge del son i la placa gastant corrent—. El
+   que queda d'aquella regla és el primer torn: `straight_back_down` només és cert si ningú no ha tocat la placa. **I una
+   alarma que s'ha de veure no és un cas de la política**: si demana el primer pla (`raise`), `for_an_alarm` de l'arrencada ja
+   és fals perquè hi ha una app al davant, i mentre hi sigui la política no dorm. Sense cap alarma a la cua, la placa baixa a
+   la tecla —amb el comptador esgotat o perquè la represa no ha de quedar-se desperta per res— i el que hi ha al vidre és la
+   imatge del son.
 
    **I quants segons és «quietud» també es tria** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per
    fer el DeepSleep)»*): la fila **Sleep after** de la mateixa pestanya Battery és un desplegable del sistema amb **tres temps** —**5
    minutes** (el de sèrie), **10 minutes** i **15 minutes**—, que és `cfg.idle` des de Lua i `cfg idle [300|600|900]` al
    prompt. El número es desa, o sigui que el boot el torna a llegir, i la política el llegeix d'allà en lloc de la constant. **El
-   terra de deu segons no es mou**: és una altra pregunta —si val la pena un cicle d'apagada quan l'alarma és a tocar— i barrejar-les
-   faria que triar cinc minuts canviés quan la placa deixa de despertar-se per una alarma propera (docs/30, docs/50).
+   terra de vint segons no es mou** (era de deu fins a la 0.190.20): és una altra pregunta —si val la pena un cicle d'apagada
+   quan l'alarma és a tocar— i barrejar-les faria que triar cinc minuts canviés quan la placa deixa de despertar-se per una
+   alarma propera (docs/30, docs/50).
 3. **Rearmar-lo a cada despert**: el xip dispara una vegada. A l'arrencada es llegeix el bit `AF` —per
    saber si va ser l'alarma o el botó `PWR`— i es desarma (`RtcClock::adopt`).
 4. **Un sol despertador, i el té el xip.** La cua està ordenada i només s'arma la seva entrada més

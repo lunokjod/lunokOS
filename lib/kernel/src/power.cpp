@@ -559,6 +559,9 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // —the same step for the way off, for the card of the system and for the policy— (docs/70, docs/75).
   if (mode == hal::SleepMode::kDeep) {
     const char* why = (until > 0) ? "the board sleeps until its hour" : "the board sleeps with its keys awake";
+    // **I la baixada és esperar**: the sessions go to the card and the card takes its two seconds, i el processador no hi té res
+    // a fer-hi (0.190.26, docs/50, docs/60, docs/70).
+    wait_cpu("the card of the way down");
     session::park_all(why);
     const session::Checked parked = session::check_parked();
     log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
@@ -585,6 +588,9 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // **I el vidre ha de dir el son, no el que hi hagi pintat algú** (0.190.18): a wake for an alarm keeps the picture it found, pero una
   // finestra que ha corregut hi ha deixat la pàgina de l'app —i l'app ja no hi és quan la placa baixa—, o sigui que la imatge es torna a
   // pintar quan el vidre no és el que havia deixat el son (docs/30, docs/60).
+  // **I una app que puja no arriba aquí** (0.190.23, revisat): `for_an_alarm` exigeix `!shell::app_running()` a l'arrencada, o sigui que
+  // un despert que aixeca una app —el `raise` del Clock— **no és un despert per a una alarma** per a aquesta política: baixa pel camí de
+  // sempre, amb la imatge pintada i el rail tallat. És el que el cas del `raise` mira, i per això no cal una segona porta aquí (docs/60).
   if (mode == hal::SleepMode::kDeep && (!g_for_an_alarm || g_a_page_on_the_glass)) {
     splash::show(going_down_picture(/*deep=*/true));
     g_a_page_on_the_glass = false;
@@ -595,7 +601,17 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // **Una baixada que no ha tocat el vidre no baixa els rails del panell** (0.190.19): a wake for an alarm runs with nobody in front and
   // the glass keeps the picture it had, o sigui que el controlador ha de quedar-se amb el seu estat i la imatge que ensenya (docs/50).
   const bool back = g_power->sleep(mode, until, g_for_an_alarm);
-  if (!back) return false;
+  if (!back) {
+    // **Una baixada que la placa refusa no ha deixat res fet** (0.190.23): l'única porta que pot dir que no quan ja s'ha preparat tot és
+    // l'hora —she went past while the session was being written and the picture painted—, i llavors aquest run **no s'ha adormit**. La
+    // marca del son i l'hora desada son dues coses que la propera arrencada llegiria com una tornada que no ha existit, així que
+    // s'esborren aquí i el que queda és la veritat (docs/60, docs/75).
+    if (mode == hal::SleepMode::kDeep) {
+      write_in(kPowerNs, kSleptKey, nullptr);
+      save_deadline(0);
+    }
+    return false;
+  }
   // **Sense hora no hi ha res a mesurar** (0.190.15): a board that came back on a key was not early and not late, and a drift written
   // for it would be a number `power last` shows and nobody asked for (docs/60).
   if (mode == hal::SleepMode::kDeep && until <= 0) return true;
@@ -660,9 +676,9 @@ void note_activity() {
 
 void note_a_page_on_the_glass() { g_a_page_on_the_glass = true; }
 
-// **Quanta quietud mana** (0.190.9): the setting a person chose in Settings -> Battery —ten seconds, a minute or five—, i una
-// suite que hagués d'esperar els deu segons seria una suite deu segons més lenta, o sigui que on hi ha algú que mogui el número
-// de la prova mana el de la prova (docs/60, docs/80).
+// **Quanta quietud mana** (0.190.9): the setting a person chose in Settings -> Battery —five, ten or fifteen minutes—, i una
+// suite que hagués d'esperar-los seria una suite de minuts més lenta, o sigui que on hi ha algú que mogui el número de la prova
+// mana el de la prova (docs/60, docs/80).
 // **L'única pregunta de la quietud** (0.190.9): seconds-ish of mono time since a person last did anything, and zero for the
 // first turn of a boot that has not stamped itself (which is a board that has just come up and not a board that has been quiet
 // for ever).
@@ -688,7 +704,7 @@ void set_idle_quiet_ms(int64_t ms) {
 #if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
   g_idle_quiet_ms = (ms < 0) ? 0 : ms;
 #else
-  (void)ms;  // a board does not move the number of its own policy: it is ten seconds (docs/60).
+  (void)ms;  // a board does not move the number of its own policy: it is the one a person chose in Settings -> Battery (docs/60).
 #endif
 }
 
@@ -743,13 +759,15 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // in front of the glass, o sigui que cada segon despert és un segon de l'espera llençat. **Per a tota la resta mana el comptador**,
   // que és l'únic que hi ha (0.190.9), i la placa només s'apaga quan la quietud **arriba** al temps que la persona va triar: amb cinc
   // minuts al desplegable, cinc minuts i no deu segons (docs/30, docs/60).
-  // **I només quan hi ha una alarma a la qual tornar** (0.190.12): a wake for an alarm has its hour in the queue and goes back down
-  // because there is nobody in front of the glass. **Un despert sense res a la cua no és això**: la placa ha de quedar-se desperta i
-  // ensenyar la seva pàgina, o el camí de «sense alarma» la tornaria a adormir al mateix torn i el que es veuria al vidre seria la
-  // imatge del son —l'amo: *«quan salta no torna a activar la pantalla i no es veu res»*— (docs/30, docs/60).
   // **Una represa per una alarma i una tanda d'una espera llarga no esperen el comptador** (0.190.18): the board came back on its own and
   // there is nobody in front of the glass, o sigui que cada segon despert és un segon de l'espera llençat. **I només mentre ningú no l'ha
   // tocada**: el comptador mana a qui hi és a sobre, i una mà en el primer torn no ha de veure la placa apagar-se-li a sota (docs/60).
+  // **I la regla de la 0.190.12 —«un despert per una alarma no torna a baixar sense res a la cua»— ja no hi és, i no hi ha de ser**
+  // (0.190.19): quan el vidre va dir el son, un despert per una alarma **no ha pintat res**, o sigui que quedar-se despert no ensenyava
+  // cap pàgina —el que s'hi veia era la imatge del son i la placa gastant corrent—. El que sí que queda d'aquella regla és el **primer
+  // torn**: `straight_back_down` només és cert si ningú no ha tocat la placa. **I una alarma que ha de veure's no és un cas d'aquesta
+  // política**: si demana el primer pla (`raise`), `for_an_alarm` de l'arrencada ja és fals perquè hi ha una app al davant, i mentre hi
+  // sigui la política no dorm (`an app is in front`, a baix) (docs/30, docs/60).
   const bool straight_back_down = (staging || g_for_an_alarm) && !g_touched_since_boot;
   const int64_t quiet = quiet_ms();
   if (!straight_back_down && quiet < idle_quiet_ms()) return;
@@ -801,14 +819,14 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // temps»*): the policy did nothing at all when the queue was empty —a `return` with no line—, o sigui que una placa sense alarma no
   // s'adormia mai i el commutador de Battery no feia res. Ara baixa **fins a la tecla**: la sessió es desa, la imatge del son es pinta
   // i la placa torna on era quan algú prem el dial, que és el que aquest commutador vol dir (docs/50, docs/60, docs/90).
-  // **I el camí de la tecla és el mateix tant si aquesta arrencada ha vingut per una alarma com si no** (0.190.14). La regla de
-  // «un despert per una alarma no torna a baixar sense res a la cua» (0.190.12) viu **al primer torn**, que és on la placa acaba
-  // d'ensenyar el que ha sonat, i està dita on toca: `straight_back_down` només és cert amb una alarma a la cua (`hour > 0`).
-  // Aquí el comptador de la quietud ja s'ha esgotat —cinc, deu o quinze minuts sense cap mà—, o sigui que baixar a la tecla és
-  // exactament el que la persona va triar. **Tenir-ho lligat a `g_for_an_alarm` era una porta tancada per dins**: aquella bandera
-  // és certa per a tota la run d'un despert per alarma, o sigui que quan la cua es buidava el codi queia al camí de l'alarma amb
-  // `deadline` zero, deia `-1767225 s to the next alarm`, `power::sleep` el refusava i el comptador tornava a començar: una placa
-  // que havia despertat per una alarma **no tornava a adormir-se mai** fins a reiniciar-se (trobat llegint el codi, 19/11).
+  // **I el camí de la tecla és el mateix tant si aquesta arrencada ha vingut per una alarma com si no** (0.190.14). **Aquí no hi ha
+  // cap hora** —la cua és buida—, i el comptador de la quietud s'ha esgotat de debò llevat d'una represa que ha arribat fins aquí, o
+  // sigui que baixar a la tecla és el que la persona va triar. **Tenir-ho lligat a `g_for_an_alarm` era una porta tancada per dins**:
+  // aquella bandera és certa per a tota la run d'un despert per alarma, o sigui que quan la cua es buidava el codi queia al camí de
+  // l'alarma amb `deadline` zero, deia `-1767225 s to the next alarm`, `power::sleep` el refusava i el comptador tornava a començar:
+  // una placa que havia despertat per una alarma **no tornava a adormir-se mai** fins a reiniciar-se (trobat llegint el codi, 19/11).
+  // **I una represa que arriba aquí sense haver-se adormit al primer torn és una mà**: `straight_back_down` només salta el comptador
+  // si ningú no ha tocat la placa, i la línia de dalt ja diu quants segons de quietud hi ha hagut (docs/60).
   if (hour <= 0) {
     sayf("power: nothing to do for %lld s, sleeping until a key\r\n", static_cast<long long>(quiet / 1000));
     log_printf(pal::kLogInfo, "POWER",
@@ -1163,6 +1181,22 @@ void rest_cpu(const char* why) {
   move_to(g_cpu_rest_mhz, why);
 }
 
+// **Una feina vol el cim** (0.190.26): the top step for the length of the window, and the governor is told to stay out of it —
+// `hold_cpu` with a window is exactly that— because a decode that starts slow and ends fast is one piece of work and not a load
+// that climbed (docs/50, docs/60).
+void work_cpu(const char* why) {
+  if (!policy_is_auto()) return;
+  hold_cpu(kBusyMhz, kWorkWindowMs, why);
+}
+
+// **I una espera no vol res** (0.190.26): the bottom step, and **no window**, perquè el que ve després no és una espera i el
+// governador ha de poder tornar-lo a pujar quan la mostra ho digui. It is the card, the wire and the ink of the panel: time the
+// chip spends with nothing to compute (docs/50, docs/60).
+void wait_cpu(const char* why) {
+  if (!policy_is_auto()) return;
+  hold_cpu(kIdleMhz, 0, why);
+}
+
 void restore_session() {
   if (g_nvs == nullptr) return;
   char id[kIdCap];
@@ -1175,17 +1209,22 @@ void restore_session() {
   write_text(kAppKey, nullptr);
   write_text(kPathKey, nullptr);
 
-  sayf("power: %s comes back where it was\r\n", id);
+  // **La línia diu el que passa i no el que s'intentava** (0.190.24): it was printed before the two guards, so a boot that
+  // came back for an alarm said `home_eink comes back where it was` and then, in the next line, `home_eink does not come
+  // back: clock is in front` —two lines that contradict each other, of an app that did not move—. One line per outcome
+  // (docs/60, docs/90).
+  //
   // **Una app que ha pujat al davant es queda amb el vidre** (0.189.175): a `raise` alarm delivered at boot has already put
-  // its app in front, and a second `run_app` on top of it is refused by the interpreter —so the line said «could not come
-  // back» of an app that is there and of a glass that is not free— (docs/60, docs/90).
+  // its app in front, and a second `run_app` on top of it is refused by the interpreter.
   if (shell::app_running()) {
     sayf("power: %s does not come back: %s is in front\r\n", id, shell::app_id());
     return;
   }
   if (!shell::restore_app(id, has_path ? path : nullptr)) {
     sayf("power: %s could not come back (is it still there?)\r\n", id);
+    return;
   }
+  sayf("power: %s comes back where it was\r\n", id);
 }
 
 void forget_session() {

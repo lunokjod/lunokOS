@@ -231,6 +231,16 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   // (`UART_RXFIFO_TOUT_INT`, at most 126 symbols, ~12 ms at 115200); reading the counter here costs no event
   // task and no second consumer of UART0 (docs/50).
   bool wait_quiet(uint32_t quiet_ms, uint32_t cap_ms) override {
+    // **Amb la consola al USB no hi ha cap línia a vigilar** (0.190.30): a board whose chip puts its console on the
+    // USB CDC —the T5 E-Paper S3 Pro does, it has no bridge chip— has no UART to watch, and reading UART0 anyway is
+    // doubly wrong there: its RX pin is somebody else's (the GPS of that board) and the pull-up this used to put on
+    // GPIO3 is the interrupt line of its touch controller. The bytes of a CDC arrive when the host writes them and
+    // there is no line to settle, o sigui que la resposta honesta és que ja ha callat (docs/50).
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    (void)quiet_ms;
+    (void)cap_ms;
+    return true;
+#else
     uart_dev_t* hw = UART_LL_GET_HW(0);
     // On a battery boot the bridge at the other end has no power and the pin floats; the pull-up is what makes
     // "high and still" mean "nobody is talking" instead of "the wire is picking up the room" (docs/50).
@@ -257,6 +267,7 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
       if ((now - started) >= cap_ms) return false;
       vTaskDelay(pdMS_TO_TICKS(1));
     }
+#endif  // ARDUINO_USB_CDC_ON_BOOT
   }
 
   bool ansi() const override { return true; }

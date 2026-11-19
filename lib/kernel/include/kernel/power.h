@@ -164,6 +164,21 @@ void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why);
 // The resting step now, and no window is owed any more.
 void rest_cpu(const char* why);
 
+// **El que la feina demana i el que l'espera demana** (0.190.26, l'amo: *«Si està habilitat el Automatic scaling: al carregar una
+// imatge, puja a 240; al carregar un epub, 240; al carregar una font, 240; al enviar dades al eink usa 80»*). Two doors and not one,
+// because the two halves of a turn cost the opposite: `work_cpu` is a decode, a layout, the glyphs of a page —the chip has
+// something to compute and the top step is what makes it shorter— and `wait_cpu` is a card, a wire, the ink of the panel —the chip
+// has nothing to compute and the bottom step is what makes it cheaper—. **Les dues només manen amb l'escalat automàtic encès**: a
+// person who fixed a step fixed it on purpose, and a window that undoes it two hundred milliseconds later is the thing `power cpu`
+// exists to stop (docs/50, docs/60).
+//
+// **I el «quant» de la feina no és una mesura sinó una estona**: the window keeps the governor away while the work lasts and it is
+// not exact on purpose —a page that took longer leaves the chip at the top for the rest of the window, which is what the next thing
+// it does will want anyway— (docs/50, docs/60).
+const int32_t kWorkWindowMs = 600;
+void work_cpu(const char* why);
+void wait_cpu(const char* why);
+
 // ---- la càrrega del sistema, en tres paraules (0.189.93, docs/60) ----
 //
 // **Una càrrega no és un número instantani**: it is the share of a window of time that the kernel spent *working* and not

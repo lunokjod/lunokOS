@@ -434,7 +434,9 @@ end
 local function save_events()
   local ok, why = agenda.save(agenda_file, events_)
   if ok then return true end
-  hint_ = 'Could not save: ' .. tostring(why)
+  -- **El codi i no la taula** (0.190.24): a `fs.write` that fails answers a table, and `tostring` of it is `table 0x…`
+  -- on the line of the page (docs/30).
+  hint_ = 'Could not save: ' .. tostring((type(why) == 'table') and (why.code or why.message) or why)
   reload_all()
   return false
 end

@@ -657,6 +657,57 @@ Es mesura amb `pio run -e esp32-devkit` cada cop que es toca la memòria: **107 
 327 680 (32,7 %) i 2 081 225 B de flash de 3 145 728 (66,2 %)** (2/11). No té fila a la taula de
 capacitats perquè seria la de l'ATOM amb guions a sobre, i diria dues vegades el mateix.
 
+## Fitxa: LilyGO T5 E-Paper S3 Pro (0.190.29, el primer xip que no és un ESP32)
+
+| | |
+|---|---|
+| Nom (`sys.board`) | `lilygo-t5s3-epaper-pro` (la placa del fabricant és `H752-01`) |
+| Entorn | `lilygo-t5s3`, amb la definició del projecte a `boards/lilygo-t5s3-epaper-pro.json` |
+| Xip | **ESP32-S3-WROOM-1**, 240 MHz, arrenca a 160 |
+| Flash | 16 MB, la taula `partitions_16mb.csv` (4 MB d'app i 11,9 MB de disc) |
+| RAM | 320 KB, i **8 MB de PSRAM OPI**, tota mapejable |
+| Pantalla | **ED047TC1, 4,7", 960 × 540, setze nivells, en paral·lel i sense controlador** — el driver no hi és encara |
+| Entrada | La tecla BOOT del mòdul (GPIO0). El botó `S3` de la placa és a l'expansor PCA9535 i arribarà amb ell |
+| Llum | Cap |
+| Sensor | Cap (té LoRa SX1262 i GPS, sense driver) |
+| Rellotge | **PCF8563** (0x51) amb pila de botó, i el del SoC |
+| Bateria | **BQ27220** (0x55) d'indicador i **BQ25896** (0x6B) de càrrega, per I2C |
+| Consola | La UART0 del xip, **GPIO43/GPIO44**, que també van al GPS |
+
+**Per què és una fitxa i no una línia a la del Paper**: perquè **el xip no és el mateix**. Fins a la
+0.190.29 totes les plaques d'aquest projecte eren ESP32-D0WDQ6 i `hal_esp32` era, de fet, el HAL del
+xip *i* de la família alhora. L'ESP32-S3 té els seus propis caps de PSRAM (`esp32/spiram.h` i no
+`esp_spiram.h`), el seu propi repartiment d'SPI (`SPI2_HOST` i `SPI3_HOST` són els dos dispositius, i
+no hi ha l'`HSPI` del D0WDQ6) i el seu propi joc de fonts de despertar. O sigui que aquesta placa és
+**la prova que `lib/hal_esp32` és de la família i no del xip**: el que hi ha escrit és el que els dos
+xips comparteixen, i el que no ho és viu a `lib/hal_t5s3/`.
+
+**Què fa avui**: el prompt, les alarmes, la targeta, la NVS, la ràdio, l'hora del PCF8563, el tàctil
+GT911 i l'indicador de bateria. **Què no fa: el vidre.** I no és una oblit sinó una dada del maquinari:
+l'ED047TC1 no té cap controlador a qui parlar-li un protocol —el que el Paper té a l'IT8951, aquí no hi
+és— i és el xip qui ha de moure la tinta, amb **les taules de forma d'ona del panell**, que són dades
+del fabricant i que aquest repositori no té. O sigui que `LUNOK_GLASS` és **0** en aquesta identitat i
+ho diu (`lib/board_t5s3/include/board/identity.h`), i el que falta és una peça amb nom: el driver
+paral·lel + el **TPS65185** (0x68) que dona les tensions + el **PCA9535** (0x20) que obre les portes
+(`EP_OE`, `EP_MODE`, `VCOM_CTRL`, `PWRUP`, `WAKEUP`). El que sí que està mesurat des d'ara és que **les
+set bandes compilen** amb el xip nou.
+
+**El que aquesta placa comparteix amb el Paper i no s'ha escrit dues vegades**: el GT911 (el mateix
+controlador, altres pins: `INT` 3 i `RST` 9) i el rellotge —el **PCF8563 és el xip que el BM8563
+clona**, o sigui que el driver de `lib/hal_esp32/bm8563.cpp` el llegeix i l'escriu sense una línia de
+més—. **I les dues portes del son** (0.190.29): la tecla BOOT (GPIO0) i la línia del PCF8563 (GPIO2),
+armades alhora amb **`ext1` en el mode «qualsevol baixa»**, que és el que aquest xip té i l'ESP32 no
+—els seus dos modes són «tots baixos», que demanaria la tecla *i* l'alarma al mateix temps, i
+«qualsevol alt», que és l'estat de repòs de les dues línies—. O sigui que aquí una placa adormida torna
+amb una tecla **i** amb l'alarma del rellotge, i `power.caps().wake` ho diu: `timer, button, clock`. **I el que no comparteix**: la bateria, que aquí no és un divisor en un ADC sinó dos xips que
+parlen; i el despertar, perquè aquí no hi ha cap latch d'alimentació com el GPIO2 del Paper
+(`deep_powers_off()` és fals: el corrent no se'n va, el xip dorm i la cel·la el manté).
+
+**El mapa de pins és el del fabricant** (`docs/pinmap.md` del repositori de la placa) i aquest projecte
+no l'inventa: I2C 39/40, panell `CKH` 4 i `D0..D7` 5-8 i 15-18, `STV` 45, `CKV` 48, `STH` 41, `LE` 42,
+targeta `CS` 12 `SCK` 14 `MOSI` 13 `MISO` 21, tàctil `INT` 3 `RST` 9, `PCA_INT` 38, `RTC_INT` 2,
+`BL_EN` 11.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |
@@ -1113,6 +1164,18 @@ paper. El que fa ara el sistema:
   (`ui::owe_the_page()`, el mateix camí que quan una app torna una vista enrere). Abans això ho deia el `gc16`
   que cada llançador escrivia a la primera línia de la seva pàgina; ara ho diu el sistema, que és qui sap què hi
   ha al vidre.
+- **i la primera pàgina d'una pàgina nova va al vidre d'una passada** (0.190.28, l'amo: *«Perqué l'app device_lock dibuixa item
+  per item a la pantalla? També ho he vist a "Broken App Test"»*): `paint_root` envia **una passada de tinta per caixa**, i les
+  caixes d'una pàgina que s'acaba de construir no es toquen mai —cada control té el seu forat—, o sigui que la pàgina del
+  Broken App Test eren **vuit `gc16` de 470 ms** (3,7 s per una pàgina que surt de cop) i la del pany cinc. `present()` ara
+  ajunta les caixes en una sola regió **quan aquesta és la primera passada de la pàgina** (`g_updates == 0`, el comptador de
+  passades de tinta, que torna a zero cada vegada que la pàgina es dona o un rentat sencer hi puja). La resta de la vida de la
+  pàgina segueix amb les seves caixes: una animació vol enviar només el que ha canviat (docs/30, docs/50, docs/95);
+- **i un deute sencer ja és el rentat** (0.190.27): quan el sistema deu la pàgina —un despert per una alarma que aixeca una
+  app, la imatge d'una splash—, el primer present de l'app la pinta **sencera i neta** (`present_all(kGc16)`), o sigui que
+  rentar la pàgina blanca a `attach` era pagar dues vegades el mateix vidre: al log del 19/11, `799 ms` d'un `gld16` de blanc
+  i tot seguit `782 ms` del `gc16` de l'app. És el mateix argument que `attach_under_a_picture` ja feia servir, i el que es
+  mira al `stats` és el `boot` d'una arrencada per alarma, que ha de baixar uns vuit-cents mil·lisegons (docs/30, docs/95);
 - **i el deute és la vista i no les caixes de la pàgina** (0.179.53): `present_all` ajuntava el dany que hi havia i
   no n'afegia cap, i una pàgina que el sistema ha donat blanca fa gratuït el `ui.clear(15)` de l'app (0.168.0) — o
   sigui que l'app que torna una vista i no ha dibuixat res demanava una pàgina sencera, no trobava cap regió i el
@@ -1925,14 +1988,17 @@ s'apagui sola. O sigui que:
     esperant. **L'app no es dona per desperta en una tanda**: el nucli desa l'hora que falta, no la
     restaura i s'apaga un altre cop (docs/60).
 - **Qui decideix apagar-se no és una app: és el nucli.** A cada torn, `kernel::power` mira si hi ha
-  una alarma pendent i si ningú no fa servir la placa —deu segons de consola en silenci, cap app
-  oberta i cap `keep_awake`— i, si l'espera és de **deu segons o més**, s'apaga fins a aquella
-  alarma. Amb menys de deu segons es queda despert: un despert d'una apagada és un arrencada, i no
-  val la pena per a nou segons. `power idle off` ho desactiva mentre una persona treballa al prompt.
+  una alarma pendent i si ningú no fa servir la placa —la quietud que tria la persona a *Sleep
+  after*, cap app oberta i cap `keep_awake`— i, si l'espera és de **vint segons o més**, s'apaga
+  fins a aquella alarma. Amb menys de vint segons es queda despert: un despert d'una apagada és un
+  arrencada, i la baixada sola ja en gasta uns quants. `power idle off` ho desactiva mentre una
+  persona treballa al prompt. **Sense cap alarma a la cua baixa igualment, fins a la tecla** (0.190.12).
 - **Qui va despertar-ho**: després d'una apagada, un despert per alarma i una premuda del botó `PWR`
-  són el mateix arrencada. L'única cosa que els distingeix és el bit `AF` del xip, que es llegeix
-  **abans** de desarmar-lo (`RtcClock::woke_by_alarm`). Avui es llegeix i es desa; ensenyar-ho al
-  sistema és feina pendent (docs/90).
+  són el mateix arrencada. L'únic que els distingeix és el motiu del despert del xip, que es llegeix
+  **abans** de desarmar-lo (`RtcClock::woke_by_alarm`), i des de la 0.190.19 la primera línia del
+  registre el diu amb el que vol dir: `back from a deep sleep, woken by the clock chip: an alarm,
+  nobody in front, the glass is not touched` o `… woken by the key of the dial: a person, the page
+  comes back` (docs/60, docs/90).
 
 El que encara no està provat a la placa: que el corrent caigui de debò i que l'alarma el torni a
 pujar. És la primera cosa de la llista de mesures de `docs/90`.

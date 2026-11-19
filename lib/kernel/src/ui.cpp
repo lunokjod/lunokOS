@@ -12,6 +12,7 @@
 //   - the faces a text can be drawn with.
 // The `// ----` banners are the same index in place (docs/10, docs/90).
 #include "kernel/log.h"
+#include "kernel/power.h"
 #include "kernel/meter.h"
 #include "kernel/ui.h"
 
@@ -1725,6 +1726,7 @@ bool picture_of_a_mark(Canvas& view, const char* name, int32_t x, int32_t y, int
       place.source_h = picture.height;
       place.paper = paper;
       place.ink = ink;
+      power::work_cpu("a picture");
       ok = img::decode(data, static_cast<uint32_t>(read), img::RowSink(icon_row, &place),
                        static_cast<uint8_t*>(scratch), scratch_bytes) == img::kOk;
       if (ok) mark_box(view, x, y, w, h, mode);
@@ -2360,7 +2362,14 @@ void attach_the_view(bool wash) {
   // between two apps, and the next one started on the ghost of it—. `g_page_owes_nothing` is false the moment anything
   // reaches the view, composed or drawn, and when it says there is ink that nobody counted the wash is the sixteen-level
   // one, which cleans without the flash of the full one (found by this suite, 9/11).
-  const bool ink_on_the_glass = wash && (g_levels != 0 || g_ink_on_the_view);
+  // **I un deute sencer ja és el rentat** (0.190.27, el log del despert per una alarma del 19/11): the app's first present
+  // paints the whole view with a mode that cleans when the system owes it (`present()` → `present_all(kGc16)`), o sigui que
+  // rentar la pàgina blanca aquí és pagar dues vegades el mateix vidre —**799 ms d'un `gld16` de blanc i 782 ms del `gc16` de
+  // l'app, 1,58 s dels 3,87 s d'una arrencada per una alarma**—. És el mateix argument que una arrencada amb imatge pròpia ja
+  // fa servir (`attach_under_a_picture`): quan alguna cosa deu la pàgina, la passada que la paga és la que neteja. **I el
+  // `g_page_owes_nothing` que en surt és fals**, perquè el que hi ha al vidre no és la pàgina blanca sinó el que hi deixés el
+  // que la tenia (docs/30, docs/50, docs/95).
+  const bool ink_on_the_glass = wash && !g_owe_all && (g_levels != 0 || g_ink_on_the_view);
   if (ink_on_the_glass) {
     // **The budget of quick paints is the passes and not the boxes the page was drawn with** (0.179.5): a page of forty words
     // is one page and not forty updates, and counting the boxes made every page of text owe the full wash (docs/50).
@@ -2824,6 +2833,10 @@ bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
     reason = "that is not a path an app may name";
     return false;
   }
+  // **Una imatge es descodifica amb el processador i no amb el bus** (0.190.26, l'amo: *«al carregar una imatge, puja a 240»*):
+  // the read and the decoder both happen here, and a page-sized picture is the heaviest thing an app asks for in one call. El
+  // pintar-la després no ho és: això baixa sol quan el panell envia (docs/50, docs/60).
+  power::work_cpu("a picture");
   hal::Stat info;
   if (!vfs::stat(full, info) || info.type != hal::NodeType::kFile) {
     close_draw(target);
@@ -8803,8 +8816,16 @@ bool present() {
   keyboard_paint();
   if (root().damage_count > 0) {
     const bool whole = the_damage_is_the_page();
+    // **La primera pàgina va al vidre d'una passada** (0.190.28, la pregunta de l'amo: *«Perqué l'app device_lock dibuixa item
+    // per item a la pantalla? També ho he vist a "Broken App Test"»*). A page that has just been given to an app is built from
+    // white paper: every control puts its own box and **no box touches another**, o sigui que `paint_root` enviava una passada
+    // de tinta per control —la pàgina del Broken App Test eren **vuit `gc16` de 470 ms**, 3,7 s per una pàgina que surt de cop;
+    // la del pany, cinc— (mesurat a l'emulador, 19/11). **`g_updates` és el que diu que aquesta és la primera**: compta les
+    // passades de tinta des que la pàgina es va donar, i torna a zero cada vegada que un rentat sencer puja (docs/30, docs/50).
+    // La resta de la vida de la pàgina segueix amb les seves caixes, que és el que una animació vol.
+    const bool first_pass = (g_updates == 0);
     const hal::UpdateMode mode = quality_of_the_damage();
-    if (whole) {
+    if (whole || first_pass) {
       merge_all(root(), mode, /*one_region=*/true);
       // **And the page is clean again**: a wash is the whole page and it is what the inks of the page owed, so the budget
       // of quick paints and the levels the wash between two apps reads start again from here (docs/50).

@@ -1817,6 +1817,8 @@ const char* fs_error_code(FsError err) {
       return "E_TOOBIG";
     case FsError::kNoHandles:
       return "E_NO_HANDLES";
+    case FsError::kIo:
+      return "E_IO";
     case FsError::kUnsupported:
       return "E_UNSUPPORTED";
     case FsError::kUnavail:
@@ -1838,6 +1840,8 @@ const char* fs_error_message(FsError err) {
       return "a path or a name that does not fit";
     case FsError::kNoHandles:
       return "every file this system can have open at once is taken";
+    case FsError::kIo:
+      return "the file system failed";
     case FsError::kUnsupported:
       return "the file system does not do that";
     case FsError::kUnavail:

@@ -9,6 +9,7 @@
 #include "img/img.h"
 #include "kernel/font.h"
 #include "kernel/log.h"
+#include "kernel/power.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
@@ -611,6 +612,9 @@ void close() {
 
 const char* open(const char* path) {
   pal::MemoryTag who_asks(pal::kMemoryBook, shell::app_id());
+  // **Un epub s'obre amb el processador** (0.190.26, l'amo: *«al carregar un epub, 240»*): inflate of the container, the spine,
+  // the stylesheet and the cover —the cover is a picture and the picture already asks for its own window— (docs/46, docs/60).
+  power::work_cpu("a book");
   close();
 
   if (path == nullptr || path[0] != '/') return "the path of a book has to be absolute";
@@ -969,6 +973,10 @@ bool font(const char* name, const uint8_t** data, uint32_t& size, const char*& w
 }
 
 bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style, const Fonts& fonts, Page& out) {
+  // **I una pàgina és la feina més grossa que fa aquest sistema** (0.190.26): the tokens of a chapter, the cascade, the line
+  // breaking and the glyphs of every word —the drawing of them renews the window, and this is the one that covers the rest—
+  // (docs/46, docs/60).
+  power::work_cpu("a page of a book");
   out.count = 0;
   out.ended = false;
   out.has_picture = false;

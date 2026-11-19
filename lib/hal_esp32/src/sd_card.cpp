@@ -4,6 +4,7 @@
 // There is no Arduino SD class here on purpose: it brings `<Arduino.h>` and its own bus,
 // and this slot shares the bus with the panel (docs/50).
 #include "hal/log.h"
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -87,8 +88,17 @@ class SdCard : public IStorage {
   bool open(const char* rel, OpenMode mode, FileSlot& slot) override {
     char path[kPathCap];
     if (!full_path(rel, path, sizeof(path))) return false;
+    errno = 0;
     FILE* file = ::fopen(path, mode_name(mode));
-    if (file == nullptr) return false;
+    if (file == nullptr) {
+      // **La targeta diu per què, o l'app no ho pot saber** (0.190.24): this layer used to answer `false` and nothing else,
+      // and a `fs.write` that fails here reaches an app as `E_IO` —the disk failed— with no way of knowing whether the
+      // card was full, the FAT was cross, every file this mount allows was open, or the bus was busy (docs/50, docs/70,
+      // docs/95). The LittleFS layer has said its errno since 0.151.18; this is the same line for the card.
+      logf(pal::kLogWarn, "SD", "cannot open %s for %s: errno %d (%u file(s) at once is the cap of this mount)", path,
+           mode_name(mode), errno, static_cast<unsigned>(kMaxOpenFiles));
+      return false;
+    }
     struct stat info;
     slot.impl = file;
     slot.size = (::stat(path, &info) == 0) ? static_cast<uint32_t>(info.st_size) : 0;
@@ -105,9 +115,15 @@ class SdCard : public IStorage {
   int32_t write(FileSlot& slot, const void* buf, uint32_t len) override {
     FILE* file = file_of(slot);
     if (file == nullptr) return -1;
+    errno = 0;
     const size_t put = ::fwrite(buf, 1, len, file);
     // A card that says it wrote fewer bytes is a card that is full or going: the count
-    // is the answer and the caller decides (docs/70).
+    // is the answer and the caller decides (docs/70). **I es diu** (0.190.24): a short write used to reach an app as a
+    // code with no line behind it, and the errno is the only thing that tells a full card from a bus that gave up.
+    if (put != len) {
+      logf(pal::kLogWarn, "SD", "wrote %u of %u B: errno %d", static_cast<unsigned>(put),
+           static_cast<unsigned>(len), errno);
+    }
     return static_cast<int32_t>(put);
   }
 
@@ -143,7 +159,17 @@ class SdCard : public IStorage {
     char to_path[kPathCap];
     if (!full_path(from, from_path, sizeof(from_path))) return false;
     if (!full_path(to, to_path, sizeof(to_path))) return false;
-    return ::rename(from_path, to_path) == 0;
+    errno = 0;
+    if (::rename(from_path, to_path) != 0) {
+      // **`EEXIST` és la regla de FATFS i no un disc trencat** (0.190.25): POSIX's `rename` replaces the destination and
+      // FatFs refuses it, so the caller (`write_atomic`) takes the target away and tries again. **It is a `[D]` and not a
+      // `[W]`**: every save of every app on this card goes through here, and a warning that appears on every save of a
+      // board that is working is a warning nobody reads. A rename that fails for another errno still ends in the app's
+      // error and in the write's own line (docs/50, docs/70, docs/95).
+      logf(pal::kLogDebug, "SD", "cannot rename %s to %s: errno %d", from_path, to_path, errno);
+      return false;
+    }
+    return true;
   }
 
   // The numbers of the card itself, which is what a person with a full card asks for.

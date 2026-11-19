@@ -860,15 +860,14 @@ function build()
   read_row(6, 'board', 'Board', function() return string.format('%s, %d MHz', sys.board, power.cpu()) end)
   -- ---- **I el son de la placa, aquí** (0.190.5, l'amo: *«has posat l'opció a Settings->Battery ?»*): the switch of the board's power
   -- lives with what the battery knows —a person who opens Battery is asking what the board does with its charge— and not with the three
-  -- apps the system opens on System. The board powers itself off until its next alarm when nobody has touched it for ten seconds —no
-  -- consola, no dit al vidre i cap tecla del dial—, which is law 9 and what makes the quartz count the hour. **Una persona que vol la
+  -- apps the system opens on System. The board powers itself off until its next alarm when nobody has touched it for the time of
+  -- *Sleep after* —no console, no finger on the glass and no key of the dial—, which is law 9 and what makes the quartz count the hour. **Una persona que vol la
   -- placa desperta** —una demo, una sessió de mesura, una app que escriu un registre— ho apaga aquí, i la resposta es queda
   -- (`cfg.sleep`) perquè el pròxim boot no torni a la política del sistema. El que la fila ensenya és el que la política té, no el que
   -- l'app ha demanat (docs/30, docs/45).
   -- **I el dit com a porta** (0.190.16, l'amo: *«opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el
   -- panell»*): a finger on the glass wakes the board from a deep sleep, i ve apagat de sèrie perquè sentir un dit vol dir deixar el rail
-  -- del panell i el controlador del tàctil desperts tota la son. El que la fila ensenya és el que el sistema ha acceptat: una placa que no
-  -- té aquesta porta refusa l'escriptura i la fila queda apagada (docs/30, docs/45).
+  -- del panell i el controlador del tàctil desperts tota la son. El que la fila ensenya és el que el sistema ha acceptat (docs/30, docs/45).
   -- **I la fila només hi és on la placa hi pot sentir** (0.190.17, l'amo: *«a koala, atom i matri[x] simplement s'ignora el paràmetre»*): a
   -- board with no touch panel keeps the setting and does nothing with it, so a switch that says nothing would be a door to nowhere. The
   -- question is `caps.touch` and not the value, perquè el que decideix si la fila té feina és el maquinari (docs/30, docs/50).

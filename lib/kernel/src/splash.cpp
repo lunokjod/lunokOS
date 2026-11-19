@@ -17,6 +17,7 @@
 #include "kernel/display.h"
 #include "kernel/font.h"
 #include "kernel/log.h"
+#include "kernel/power.h"
 #include "kernel/version.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
@@ -444,6 +445,9 @@ bool show(const char* path) {
   pal::MemoryTag who_asks(pal::kMemorySplash, shell::app_id());
   g_error = "";
   g_showing = kNone;
+  // **La imatge es descodifica amb el processador** (0.190.26): the read of the file and the decoder are work, i el que ve després
+  // —una rentada i una pintada— baixa sol quan el panell envia (docs/50, docs/60).
+  power::work_cpu("a picture");
   // **El vidre que no s'ha de tocar no rep cap imatge** (0.190.19), sigui quin sigui el camí que la demana.
   if (display::the_glass_is_asleep()) {
     g_error = "the glass of this run is not to be touched";
@@ -563,6 +567,8 @@ bool show(const char* path) {
 }
 
 bool wait() {
+  // **Esperar la tinta no és calcular** (0.190.26): the panel is moving ink and the processor is looking at it (docs/50, docs/60).
+  power::wait_cpu("the ink of the picture");
   hal::ISurface* glass = display::surface();
   // **Un vidre que no s'ha de tocar no espera res** (0.190.19): a wake for an alarm that has nothing to show never painted, o sigui que no hi
   // ha tinta de la qual esperar i la baixada no ha de donar un torn ni preguntar al controlador per una feina que no existeix

@@ -52,7 +52,8 @@ exit
 ```
 
 I tot seguit **desendolla el cable USB** (si no el desendolles, la placa no cau i el que es mesura
-és el temporitzador del xip, no el quars). Passats deu segons sense ningú a la consola, el nucli
+és el temporitzador del xip, no el quars). Passat el temps de *Sleep after* sense ningú a la consola
+—cinc minuts si no s'ha tocat el desplegable, i es pot abaixar a cop de `cfg idle 300`—, el nucli
 s'apaga sol fins a l'alarma; al cap de deu minuts la placa s'ha d'encendre **tota sola**, arrencar i
 ensenyar `ALARM wake up … late N ms`.
 
@@ -331,6 +332,42 @@ el pull-up del GPIO3 ha de fer el mateix. Si surt `at the ceiling`, el pin no é
 | Què apuntar | On va |
 |---|---|
 | Els dos números del log, amb cable i amb bateria, i el `boot` de `stats` abans i després | `docs/50` §La consola |
+
+### D-2b · El que costa enviar una pàgina a 80 (3 minuts)
+
+`[I][PANEL] paint 0,0 960x540 mode 5 gld16 … (214 ms on the wire as burst, 99 ms gathering, …)` i tot seguit
+`[D][GLASS] flush gld16 799 ms`. La línia del `paint` ja separa el cable del `gather`; el que canvia amb la
+**0.190.26** és el pas del processador: enviar al panell és una **espera** i va a 80 (`power::wait_cpu("a paint")`),
+mentre que una imatge, una font o una pàgina d'epub són **feina** i van a 240 (`power::work_cpu`).
+
+| Què apuntar | On va |
+|---|---|
+| El `gather` de la mateixa pàgina a 240 i a 80 (`power idle off` + `power cpu 240` / `power cpu 80`, i una pintada sencera) | docs/50 §La velocitat |
+| El `flush` sencer de la mateixa pàgina en els dos passos | docs/50 §La velocitat |
+| Els mil·liamps de la placa en repòs a 80 i a 240 (si hi ha pinça) | docs/50 §La velocitat |
+
+La pregunta que respon: si el `gather` a 80 costa més temps del que estalvia en corrent. El compte que hi ha a
+`docs/60` és que el panell triga 783 ms a tinta igualment, o sigui que el `gather` extra hauria de cabre dins d'aquests.
+
+### D-2c · El son lleuger: què estalvia i què es perd (5 minuts)
+
+El son lleuger (`sleep light 3000`, `power.sleep({mode='light'})`) **no el fa servir mai el nucli**: és una eina
+manual, i el motiu és documentat (docs/60): amb l'APB parat, un caràcter que arriba pel port es perd. El que no hi ha
+és el número.
+
+```
+sleep light 5000
+```
+
+| Què apuntar | On va |
+|---|---|
+| Els mil·liamps amb el son lleuger i sense, amb la pantalla quieta | docs/50 §El son |
+| Si un caràcter escrit durant la son apareix després (una tecla a la consola mentre dorm) | docs/60 §Son |
+| `awake after N ms` a la línia, contra els 5000 demanats | docs/50 §El son |
+| El `power last` de la son, per saber quant ha derivat el temporitzador | docs/60 §La deriva |
+
+Si els caràcters no es perden, el pas següent és que el **torn del nucli** (el `queue.pop` d'entre voltes) dormi
+lleuger en lloc de fer `WFI`, que és on la placa passa la major part del temps quan no hi ha res a fer.
 
 ### D-3 · La ràdio i l'hora de debò (5 minuts)
 

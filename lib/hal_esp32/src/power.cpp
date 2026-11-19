@@ -16,7 +16,26 @@
 
 namespace hal {
 
-Esp32Power::Esp32Power(int wake_pin) : wake_pin_(wake_pin) {}
+Esp32Power::Esp32Power(int wake_pin, int second_wake_pin)
+    : wake_pin_(wake_pin), second_wake_pin_(second_wake_pin) {}
+
+// **Dues portes alhora, quan el xip en sap** (0.190.29): `ext1` on a chip after the ESP32 has an «any of them low»
+// mode, and the two lines a board like the T5 E-Paper S3 Pro wires to it are exactly that —a button to ground and the
+// open-drain INT of a clock chip—, so one call arms both. **On the ESP32 that mode does not exist**: its two are «all
+// low», which would ask for the key *and* the alarm at once, and «any high», which is the idle state of both lines;
+// o sigui que allà es queda la porta d'`ext0` i la segona no s'arma (docs/50, docs/60).
+bool Esp32Power::arm_the_doors() {
+#if !defined(CONFIG_IDF_TARGET_ESP32) || !CONFIG_IDF_TARGET_ESP32
+  if (wake_pin_ >= 0 && second_wake_pin_ >= 0 && wake_pin_ < 32 && second_wake_pin_ < 32) {
+    const uint64_t mask = (1ULL << wake_pin_) | (1ULL << second_wake_pin_);
+    if (esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW) == ESP_OK) return true;
+    hal::logf(pal::kLogWarn, "POWER", "the chip did not take the two doors (%d and %d); the key alone is armed",
+              wake_pin_, second_wake_pin_);
+  }
+#endif
+  if (wake_pin_ < 0) return false;
+  return esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(wake_pin_), 0) == ESP_OK;
+}
 
 bool Esp32Power::battery(int& mv, int& pct, bool& charging) {
   (void)mv;
@@ -42,12 +61,12 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel)
   // either sleep. A board without one and without a deadline would be a board that is
   // gone until the cable is pulled, and the kernel refuses that on its own as well
   // (docs/60).
-  if (wake_pin_ >= 0) esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(wake_pin_), 0);
+  const bool a_door = arm_the_doors();
   if (at_epoch_ms > 0) {
     // The timer is armed in one place only, so that taking it down again knows whether it is
     // ours (docs/60).
     esp32_arm_timer_wake(at_epoch_ms);
-  } else if (wake_pin_ < 0) {
+  } else if (!a_door) {
     return false;
   }
   say_the_way_down(mode, at_epoch_ms);
@@ -67,7 +86,10 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel)
   return true;
 }
 
-const char* Esp32Power::wakes() { return (wake_pin_ >= 0) ? "timer, button" : "timer"; }
+const char* Esp32Power::wakes() {
+  if (wake_pin_ >= 0 && second_wake_pin_ >= 0) return "timer, button, clock";
+  return (wake_pin_ >= 0) ? "timer, button" : "timer";
+}
 
 uint32_t Esp32Power::cpu_mhz() { return getCpuFrequencyMhz(); }
 

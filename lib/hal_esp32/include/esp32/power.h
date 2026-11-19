@@ -18,7 +18,15 @@ class Esp32Power : public IPower {
   // `wake_pin` is the GPIO the board wires to EXT0, or a negative number when the
   // board has no key that wakes the chip (the Paper's keys switch the power off
   // instead, docs/50).
-  explicit Esp32Power(int wake_pin);
+  //
+  // **I una segona porta, per a la placa que en té dues** (0.190.29): the T5 E-Paper S3 Pro wires the BOOT key
+  // and the line of its clock chip (a PCF8563 whose INT goes low when the alarm fires) to two pins, and both are
+  // ways back from a deep sleep. A chip **after** the ESP32 watches several pins at once with `ext1` in its «any
+  // of them low» mode, which is exactly what a button to ground and an open-drain line are; on the ESP32 that mode
+  // does not exist —`ALL_LOW` asks for every pin at the same time— so there the one door is `wake_pin` and the
+  // second is not armed. `-1` is the default and keeps every board that came before this one exactly as it was
+  // (docs/50, docs/60).
+  explicit Esp32Power(int wake_pin, int second_wake_pin = -1);
 
   // The chip has no fuel gauge of its own, and no board of this project reads one yet
   // —the Paper has the divider on GPIO35 and it is not calibrated—: what is not
@@ -40,8 +48,15 @@ class Esp32Power : public IPower {
   // not an hour: it is the key of a board that keeps its supply.
   void say_the_way_down(SleepMode mode, int64_t at_epoch_ms);
 
+  // **Les portes del despert, armades com la placa les té** (0.190.29): the one pin of `ext0`, the two of `ext1`, or
+  // neither. True when at least one of them took the arming, which is what says whether a board with no hour has
+  // anywhere to come back from (docs/50).
+  bool arm_the_doors();
+
  private:
   int wake_pin_;
+  // The second door, or -1: the line of a clock chip that goes low when its alarm fires (docs/50, docs/60).
+  int second_wake_pin_;
 };
 
 }  // namespace hal

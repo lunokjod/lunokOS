@@ -156,7 +156,12 @@ local function write_run()
     counting and 'run' or 'hold', math.floor(leftMs), counting and leftAt or 0, min, sec)
   local written, why = fs.write(path, text)
   if written == nil then
-    console.print('clock: the run is not on the disk (' .. tostring(why and why.code or 'the disk') .. ')')
+    -- **El codi i el que vol dir** (0.190.24): `fs.write` answers `nil, {code, message}`, and the code alone left a person
+    -- with `E_IO` and no sentence. The disk's own line (`[W][SD] … errno N`) says which of the failures it was (docs/30).
+    local said = (type(why) == 'table') and (why.code or why.message) or why
+    local more = (type(why) == 'table') and why.message or nil
+    console.print(string.format('clock: the run is not on the disk (%s%s)', tostring(said or 'the disk'),
+      (more ~= nil and more ~= said) and (': ' .. more) or ''))
   end
 end
 

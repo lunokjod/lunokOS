@@ -134,7 +134,13 @@ uint32_t bus_mhz() { return (g_surface != nullptr) ? g_surface->bus_mhz() : 0u; 
 
 bool set_bus_mhz(uint32_t mhz) { return (g_surface != nullptr) && g_surface->set_bus_mhz(mhz); }
 
-void hold_for_a_paint() { power::hold_cpu(power::kBusyMhz, kPaintWindowMs, "a paint"); }
+// **Enviar els píxels no és calcular** (0.190.26, l'amo: *«al enviar dades al eink usa 80»*): the burst is a DMA of the bus and
+// the ink of the panel is the panel's own time —a page costs 783 ms of `flush` of which a third is the wire and the rest is waiting
+// for the controller—, o sigui que el processador no hi té res a fer i el pas de baix és el que li toca. **El preu és el
+// `gather`**: les files que es llegeixen de la imatge són feina de debò i a 80 costen unes tres vegades més (99 ms contra ~300 en
+// una pàgina); el que mana és que el panell triga 783 ms igualment, i per això el que es guanya en corrent no es perd en temps
+// (docs/50, docs/60, docs/95).
+void hold_for_a_paint() { power::wait_cpu("a paint"); }
 
 // **El vidre que no s'ha de tocar** (0.190.19): the switch and its two doors. A paint that arrives while the glass is asleep is written into
 // the buffer and **not sent**: the damage stays marked, o sigui que el primer `present` després de despertar-lo hi posa el que hi hagi

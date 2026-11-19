@@ -659,18 +659,19 @@ void boot(hal::IPlatform& platform) {
   }
   char freq_words[kFreqCap] = {0};
   freq_text(freq_words, sizeof(freq_words), freq_mask());
-  // **Dues línies i no una** (0.189.150): the summary had grown past the hundred and ninety-two bytes of a line of the
-  // registry, o sigui que la cua s'escrivia i no es veia —el valor de `settings app` feia versions que no es podia llegir i els
-  // tres del bloqueig hi queien de ple—. La primera línia és la placa (el magatzem, el teclat, la imatge, el calendari, la
-  // marxa i el processador) i la segona **les apps que una persona ha triat**, que és la pestanya System llegida en veu alta
-  // (docs/30, docs/45).
-  log_printf(pal::kLogInfo, "CFG",
-             "/cfg on %s (asked for %s), keyboard %s, boot %s, tz %+03d:%02d, leap %s, dst %s, week %s, turn %u, "
-             "sort apps by usage %s, cursor delay %d ms, cpu allows %s",
+  // **Tres línies i no una, i la tercera vegada que es parteix** (0.189.150 i 0.190.32): the summary grew past the hundred
+  // and ninety-two bytes of a line of the registry twice, o sigui que la cua s'escrivia i no es veia. La primera línia és
+  // **el disc i el calendari**, la segona **la política del processador i de la pàgina**, i la tercera **les apps que una
+  // persona ha triat**, que és la pestanya System llegida en veu alta. **I el motiu de la tercera**: un magatzem amb un nom
+  // llarg —`littlefs` en lloc de `sd`— ja torna a passar dels cent noranta-dos bytes i el `cpu allows 80,160,240` sortia com
+  // `cpu allows 80,16…` al log del 19/11 (docs/30, docs/45).
+  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, boot %s, tz %+03d:%02d, leap %s, dst %s, week %s",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot, g_tz_minutes / 60,
              (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60, g_leap_years ? kOn : kOff, g_dst ? kOn : kOff,
-             (g_week_start == 7) ? kSunday : kMonday, static_cast<unsigned>(luabind::turn_budget()),
-             g_sort_by_usage ? kOn : kOff, static_cast<int>(luabind::caret_blink_ms()), freq_words);
+             (g_week_start == 7) ? kSunday : kMonday);
+  log_printf(pal::kLogInfo, "CFG", "the page: turn %u, sort apps by usage %s, cursor delay %d ms, cpu allows %s",
+             static_cast<unsigned>(luabind::turn_budget()), g_sort_by_usage ? kOn : kOff,
+             static_cast<int>(luabind::caret_blink_ms()), freq_words);
   log_printf(pal::kLogInfo, "CFG", "the apps a person chose: home %s, settings %s, lock %s; the lock is %s and waits %u min",
              (g_home[0] != '\0') ? g_home : "none", (g_settings[0] != '\0') ? g_settings : "none",
              (g_lock[0] != '\0') ? g_lock : "none", g_lock_on ? kOn : kOff, static_cast<unsigned>(g_lock_after));

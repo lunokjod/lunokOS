@@ -265,11 +265,12 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   —dues caixes, el focus en una i el bloc només a la del focus— (`test_apps`, 0.189.181), i la del 19/11 és **una alarma més a
   prop que la baixada i una arrencada**: la placa no dorm i el rellotge monotònic no salta (`test_apps`), i **una consola que no
   veu la seva línia diu que sí de seguida**, que és el valor per defecte de la porta nova (`test_pal`, 0.190.21);
-- les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
-  `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques**, amb
-  guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`. **Les sis les compila el CI**
+- les **set bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
+  `m5-paper`, `esp32-devkit`, `ttgo-t-koala` i **`lilygo-t5s3`**. **Els noms dels entorns són els de les plaques**, amb
+  guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`. **Les set les compila el CI**
   (0.177.3): `ttgo-t-koala` no hi era, i una placa fora del job és una placa que pot deixar de compilar sense cap
-  vermell enlloc.
+  vermell enlloc — la setena va arribar el 19/11 i és la primera **que no és un ESP32-D0WDQ6**: l'ESP32-S3 té els
+  seus propis caps de PSRAM, d'SPI i de despertar, i un canvi que compila a les altres sis pot no compilar-hi (docs/50).
 
 El CI **no flasheja cap placa ni pren cap mesura de camp**: això continua sent d'una persona (docs/95).
 

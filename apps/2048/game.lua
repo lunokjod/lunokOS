@@ -300,7 +300,11 @@ local function save()
 
   if written == nil then
     canSave = false
-    why = 'Could not save: ' .. tostring(reason)
+    -- **El codi i no la taula** (0.190.24): `fs.write` answers `nil, {code = ..., message = ...}` and this line said
+    -- `Could not save: table 0x…`, which is what a person read on the glass: the error was in front of him and it said
+    -- nothing (docs/30).
+    local said = (type(reason) == 'table') and (reason.code or reason.message) or reason
+    why = 'Could not save: ' .. tostring(said)
     console.print('[2048] ' .. why)
 
     return false

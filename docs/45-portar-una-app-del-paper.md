@@ -338,7 +338,7 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
   fa res, que és el que l'amo va demanar el 19/11 (docs/30, docs/50, docs/60).
 - **I la pestanya Battery té el son de la placa** (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?»*): el
   commutador **Sleep when idle** és `cfg.sleep` i el que fa és la política de la llei 9 —la placa s'apaga fins a la propera alarma
-  quan ningú no l'ha tocada deu segons—, que és un ajust i no una llei perquè hi ha tardes en què una persona vol la placa
+  quan ningú no l'ha tocada el temps de *Sleep after*—, que és un ajust i no una llei perquè hi ha tardes en què una persona vol la placa
   desperta. El que la fila ensenya és el que la política té, i la resposta es desa perquè el pròxim boot no la desfaci (docs/30,
   docs/60). **I el temps de quietud és un desplegable** (0.190.9, l'amo: *«un selector desplegable … per seleccionar quan es posa en
   DeepSleep»*): la fila **Sleep after** obre la targeta de tria del sistema amb tres temps —5, 10 i 15 minuts—, que és
@@ -505,7 +505,7 @@ Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
-| `About` | `about` | 0.5.153 |
+| `About` | `about` | 0.5.172 |
 | `Calculator` | `calculator` | 0.2.2 |
 | `Clock` | `clock` | 0.1.6 |
 | `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.3 |

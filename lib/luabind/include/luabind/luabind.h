@@ -32,6 +32,10 @@ enum class FsError : uint8_t {
   kNoSpc,       // the room this app has is not enough
   kTooBig,      // a path or a name that does not fit
   kNoHandles,   // every file this system can have open at once is taken
+  // **El disc ha dit que no** (0.190.24): the backend knows how and failed —a card that refuses the open, a sector that
+  // does not take the bytes, a folder that cannot be made—, which is not the same as a backend that does not know how
+  // and is the difference an app (and the person reading its line) needs (docs/30, docs/70).
+  kIo,
   kUnsupported,  // the backend does not know how
   kUnavail      // what was asked for is not on this board right now
 };

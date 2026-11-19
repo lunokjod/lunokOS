@@ -1,0 +1,6 @@
+{
+  "name": "board_t5s3",
+  "version": "0.1.0",
+  "description": "Who this firmware is for: the LilyGO T5 E-Paper S3 Pro (H752-01), ESP32-S3-WROOM-1, 16 MB of flash, 8 MB of OPI PSRAM, the ED047TC1 of 4.7 inches driven in parallel and the pin map of the board. Headers only: board/identity.h says the name, board/impl.h says what to link.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

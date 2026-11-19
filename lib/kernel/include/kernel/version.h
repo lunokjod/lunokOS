@@ -10243,7 +10243,78 @@ namespace kernel {
 // abans de `power_on()`; si és alta, arma el controlador sense ciclar el rail, i els vint mots del `GetDeviceInfo` són els que refusen un
 // `ffff`. El segon de rampa només el paga un vidre fred —la bateria, el `poweroff`—; un reinici o un despert que ha conservat el rail
 // (0.190.19) s'estalvien el segon, que era el cost més gran que quedava a l'arrencada (docs/50, docs/95).
-static const char kVersion[] = "0.190.22";
+// **Una baixada que la placa refusa no deixa res escrit, i els comentaris diuen el que el codi fa** (0.190.23, la revisió del 19/11). L'única
+// porta que pot dir que no quan la sessió ja s'ha desat i la imatge pintada és l'hora —ha passat mentre la baixada s'acabava de preparar—, i
+// fins ara la marca del son i l'hora desada hi quedaven: la propera arrencada hauria llegit una tornada que no ha existit. Ara s'esborren
+// (docs/60, docs/75). I el que la revisió va trobar als comentaris: la regla de la 0.190.12 —«un despert per una alarma no torna a baixar
+// sense res a la cua»— va deixar de ser certa quan la 0.190.19 va fer que un despert per una alarma no pintés res, i el comentari encara
+// deia que `straight_back_down` només és cert amb una alarma a la cua (no mira l'hora); els «deu segons» de la política eren vint des de la
+// 0.190.20 i la quietud és la que tria la persona des de la 0.190.9 (docs/30, docs/45, docs/50, docs/60, docs/95). **I el que la revisió va
+// provar i no era**: una app que puja en un despert per una alarma **no** deixa el vidre gastat, perquè `for_an_alarm` exigeix
+// `!shell::app_running()` a l'arrencada i un `raise` baixa pel camí de sempre (ho aguanta el cas del `raise`, docs/60).
+// **Un disc que diu que no ho diu amb el seu codi, i amb la seva errno al registre** (0.190.24, el log del despert per una alarma del
+// 19/11). The Clock printed `clock: the run is not on the disk (E_UNSUPPORTED)` on a card that had 15 GB free, and the 2048 printed
+// `Could not save: table 0x…`: the first is `fs.write` answering a code that means «the file system does not do that» for a backend that
+// **failed**, i el segon és una app imprimint la taula de l'error en lloc del seu codi. Ara una obertura o una escriptura que fallen amb
+// lloc al volum són `E_IO` (`failure_code` i les quatre portes del `fs_ops`), la capa de la targeta diu el seu `errno` i quants fitxers
+// permet el muntatge, i les dues apps diuen el codi (docs/30, docs/70, docs/95). **I dues línies que es contradeien**: `power: %s comes
+// back where it was` sortia abans de les dues portes que la poden aturar, o sigui que un despert per una alarma deia que `home_eink` tornava
+// i tot seguit que no tornava perquè el `clock` era al davant; ara hi ha una línia per resultat (docs/60, docs/90).
+// **El renombrat de FatFs no reemplaça, i per això mitja dotzena d'apps no desaven res** (0.190.25, el log del despert del 19/11 amb
+// la 0.190.24 al damunt). `fs.write` escriu un `.tmp` i el renombra al seu lloc; POSIX's `rename` overwrites the destination and
+// FatFs's `f_rename` answers `FR_EXIST` —it registers a new object and the folder refuses—, so **the first save of a file worked and
+// every save after it failed**, which is exactly what the Clock (`the run is not on the disk`) and the 2048 (`Could not save`) said.
+// El que ho va fer visible va ser una dada negativa: la 0.190.24 ja deia l'errno de l'obertura i **no en va dir cap**, o sigui que
+// l'obertura anava bé i el que fallava era el renombrat. Ara `write_atomic` ho torna a provar després de treure el destí (i diu que ho
+// ha hagut de fer), la targeta diu l'errno de les seves tres passes —obrir, escriure, renombrar— i les app diuen el codi de l'error
+// amb la frase (docs/30, docs/50, docs/70, docs/95).
+// **Dues portes per a la velocitat: la feina i l'espera** (0.190.26, l'amo: *«Si està habilitat el Automatic scaling: al carregar una
+// imatge, puja a 240; al carregar un epub, 240; al carregar una font, 240; al enviar dades al eink usa 80. Busca tots els punts on el
+// nucli ha de fer càlcul intensiu i puja la velocitat; busca tots els que està esperant alguna cosa i baixa la velocitat»*). `work_cpu`
+// és el que el xip té a calcular —descodificar una imatge (`canvas_image` i el `ui.icon`), convertir una font (`font::load_any`, les
+// quatre portes), obrir un llibre i fer-ne una pàgina (`book::open`, `book::page`) i els glifs de cada línia d'una cara d'outlines
+// (`outline_runs`, que és el que fa car un epub de debò)— i `wait_cpu` és el que té a esperar: el bus del panell i la seva tinta
+// (`display::hold_for_a_paint`, `splash::wait`), la targeta (`session::park_all` i la baixada). Les dues només manen amb l'escalat
+// automàtic encès, perquè qui ha fixat un pas a mà el vol fixat. **I el que s'hi perd i el que s'hi guanya és a mesurar**: el `gather`
+// d'una pàgina a 80 costa unes tres vegades més que a 240, i el panell triga 783 ms a tinta igualment (docs/50, docs/60, docs/95 D-2b).
+// **El despert d'una alarma pintava el vidre dues vegades per la mateixa pàgina** (0.190.27, el log del 19/11). `run_app` demana la
+// pàgina sencera (`ui::owe_the_page`) i tot seguit `ui::attach` feia **el seu** rentat blanc de tota la vista —`gld16`, 799 ms— i el
+// primer present de l'app pagava el deute amb un altre sencer —`gc16`, 782 ms—: **1,58 s dels 3,87 s** d'una arrencada per una alarma,
+// per una pàgina que acaba sent la de l'app i prou. Quan el sistema deu la pàgina, el present que la paga **ja neteja**, o sigui que el
+// rentat de l'attach no s'hi fa —el mateix argument d'`attach_under_a_picture`, que existeix des de la 0.189.39 per la imatge d'una
+// splash— (docs/30, docs/50, docs/95).
+// **Una pàgina que neix va al vidre d'una passada** (0.190.28, l'amo: *«Perqué l'app device_lock dibuixa item per item a la pantalla?
+// També ho he vist a "Broken App Test"»*). `paint_root` envia una passada de tinta per caixa de dany, i les caixes d'una pàgina que
+// s'acaba de construir **no es toquen**: cada control té el seu forat i `merge_all` només ajunta les caixes que es toquen, o sigui que
+// la pàgina del Broken App Test eren vuit `gc16` de 470 ms i la del pany cinc (mesurat a l'emulador, 19/11). `present()` ara ajunta
+// totes les caixes en una sola regió quan la que arriba és **la primera passada de la pàgina** (`g_updates == 0`); la resta de la vida
+// de la pàgina segueix amb les seves caixes, que és el que una animació necessita (docs/30, docs/50, docs/95).
+// **La primera placa que no és un ESP32-D0WDQ6** (0.190.29): the LilyGO T5 E-Paper S3 Pro —an ESP32-S3-WROOM-1 with 16 MB of
+// flash and 8 MB of OPI PSRAM— has its own identity (`lib/board_t5s3`), its own HAL (`lib/hal_t5s3`: the shared I2C on 39/40,
+// the PCF8563 that the BM8563 driver already speaks, the GT911 of the Paper on other pins, a BQ27220 gauge and a BQ25896
+// charger, the card on SPI2 and the BOOT key as the way back) and the seventh band of the build, which is what the CI compiles
+// from now on. **I el vidre no hi és, i l'error no és meu**: the ED047TC1 of this board has no controller to talk a protocol to
+// —the chip moves the ink itself over an 8-bit parallel bus, with the panel's waveform tables, which are the vendor's data and
+// are not in this repository—, so the identity says `LUNOK_GLASS 0` and this build is a console until that driver arrives, with
+// the TPS65185 (0x68) and the PCA9535 (0x20) that the same work owes (docs/50, docs/80, docs/90).
+// **Dues portes del son en un sol armat, i això és una cosa que el xip després de l'ESP32 sí que té** (0.190.30). La LilyGO T5
+// E-Paper S3 Pro cableja la tecla BOOT (GPIO0) i la línia del seu PCF8563 (GPIO2) a dos pins, i totes dues són camins de tornada
+// d'un son profund: `Esp32Power` accepta una segona porta i, en un xip que té el mode «qualsevol baixa» d'`ext1`, les arma amb una
+// sola crida. A l'ESP32 aquest mode no existeix —els seus dos són «tots baixos», que demanaria la tecla i l'alarma alhora, i
+// «qualsevol alt», que és el repòs de les dues línies—, o sigui que allà es queda `ext0` i la segona porta no s'arma: cap placa
+// anterior canvia de comportament, i `wakes()` ho diu (`timer, button, clock` en aquesta) (docs/50, docs/60).
+// **El primer log de la placa nova, i el que hi havia a dins** (0.190.31, la T5 E-Paper S3 Pro del 19/11). Tres coses: (1) el
+// sostre del temps d'espera de l'I2C és **un registre de cinc bits** en aquest xip i no de vint com al Paper, o sigui que la
+// constant de la família es refusava a cada arrencada (`i2c timing value error`) i el que quedava era el límit de la IDF; (2)
+// l'indicador BQ27220 **es desperta quan veu activitat al bus**, i la primera transacció després d'encendre la placa és la que
+// es pot perdre, així que es pregunta tres vegades amb tres mil·lisegons entremig; (3) la consola d'aquesta placa és el **USB
+// CDC** i no la UART —no té cap xip de pont i els pins 43/44 són del GPS—, i amb el CDC la PAL no ha de vigilar cap línia (ni
+// posar un pull-up al GPIO3, que aquí és la interrupció del tàctil) (docs/50, docs/80).
+// **La línia de `cfg` es va tornar a passar dels cent noranta-dos bytes, i ara són tres** (0.190.32, el log de la T5S3 del 19/11:
+// `cpu allows 80,16…`). El disc i el calendari en una línia, la política de la pàgina i del processador en una altra, i les apps
+// que una persona ha triat a la tercera: un magatzem amb nom llarg —`littlefs` en lloc de `sd`— ja arribava a omplir la línia, i
+// una cua que s'escriu i no es veu és una dada que ningú pot llegir (docs/30, docs/45).
+static const char kVersion[] = "0.190.32";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -769,6 +769,21 @@ llibre obert és el que llegeix el lector cada dia —el pla i el que queda de c
 | `E_INVAL` | Camí mal format, amb `..` o massa llarg |
 | `E_IO` | El backend ha fallat (targeta treta, sector dolent) |
 
+**El renombrat d'una targeta no reemplaça** (0.190.25): `fs.write` escriu al costat i renombra al seu lloc, que és el que fa que
+una escriptura trencada no deixi mig fitxer. A POSIX això és `rename()` i reemplaça el destí; a **FatFs** `f_rename` contesta
+`FR_EXIST` quan el nom ja hi és —registra un objecte nou i la carpeta diu que no—, o sigui que **la primera escriptura d'un
+fitxer anava bé i totes les següents fallaven** (el `run.txt` del Clock, el tauler del 2048, el registre de la Battery). El
+símptoma era un `E_IO` sense cap línia de disc al darrere, perquè ni l'obertura ni l'escriptura fallaven: la que fallava era
+la tercera passa. Ara es prova el renombrat, i si el disc el refusa es treu el destí i es torna a provar —amb la finestra d'un
+renombrat, que és el preu de desar de debò— i el registre ho diu (`[W][SD] cannot rename … errno 17`). Les tres passes de la
+targeta diuen el seu `errno` quan fallen.
+
+**`E_IO` i no `E_UNSUPPORTED`** (0.190.24): una escriptura que falla amb lloc al volum és el disc fallant, i durant molt
+de temps aquesta caixa deia `E_UNSUPPORTED` —«the file system does not do that»— per una targeta que havia refusat
+l'obertura. El que diu per què és la capa del disc: `[W][SD] cannot open /sd/data/clock/run.txt.tmp for w: errno 28 …` al
+registre, amb l'errno de la targeta i el nombre de fitxers que aquest muntatge permet alhora (cinc, que és el que FATFS
+accepta). Sense aquesta línia, una app que no pot desar diu `E_IO` i la placa no diu res més (docs/30, docs/50).
+
 ## Desgast de la flash
 
 - LittleFS reparteix les escriptures; tot i així, escriure molt i en bucle es nota.

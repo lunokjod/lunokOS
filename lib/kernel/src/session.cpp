@@ -7,6 +7,7 @@
 
 #include "hal/hal.h"
 #include "kernel/log.h"
+#include "kernel/power.h"
 #include "kernel/meter.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
@@ -697,6 +698,9 @@ Parked flush(const char* app) {
 // VFS**, which is what a person needs to know that the cache of their launcher will be there tomorrow (docs/30, docs/75).
 Parked park_all(const char* why) {
   const char* reason = (why != nullptr && why[0] != '\0') ? why : "the board is going down";
+  // **Escriure a la targeta és esperar i no calcular** (0.190.26): a block is a kilobyte that the card takes in its own time, and
+  // the processor has nothing to do with it while it happens (docs/50, docs/60, docs/70).
+  power::wait_cpu("the card");
   Parked done;
   uint32_t held = 0;
   uint32_t failed = 0;

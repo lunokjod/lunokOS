@@ -229,7 +229,7 @@ int32_t read_at(const char* path, int64_t offset, char* buf, uint32_t len,
   const int32_t got = storage->read(slot, buf, len);
   storage->close(slot);
   if (got < 0) {
-    err = luabind::FsError::kUnsupported;
+    err = luabind::FsError::kIo;
     return -1;
   }
   return got;
@@ -303,13 +303,17 @@ bool list(const char* path, luabind::DirVisitor& visitor, luabind::FsError& err)
 // Why a write failed, asked only when it failed: the room on the device is the
 // expensive question (176 ms on this board, because it walks the whole file
 // system), and a write that fits does not need to know it (docs/75).
+// **El que diu un disc que diu que no** (0.190.24): a write that failed with room on the volume is the backend failing and
+// not the backend not knowing how. It used to answer `E_UNSUPPORTED` —«the file system does not do that»—, which is a lie
+// that sends a person to the wrong place: the card refused the open, and the card's own layer is the one that says why
+// (docs/30, docs/70, docs/95).
 luabind::FsError failure_code(const char* full, size_t len) {
   uint64_t total = 0;
   uint64_t free_bytes = 0;
   if (vfs::space(full, total, free_bytes) && free_bytes < len) {
     return luabind::FsError::kNoSpc;
   }
-  return luabind::FsError::kUnsupported;
+  return luabind::FsError::kIo;
 }
 
 // **Writing raw memory**: there are no files inside, the mount is the file, and what is written is what stays
@@ -422,9 +426,28 @@ int64_t write_atomic(const char* path, const char* data, size_t len, luabind::Fs
     return -1;
   }
   if (!storage->rename(temp_rel, target_rel)) {
-    storage->remove(temp_rel);
-    err = failure_code(full, len);
-    return -1;
+    // **El renombrat d'aquest disc no reemplaça** (0.190.25, el log del despert per una alarma del 19/11). POSIX's `rename`
+    // overwrites the destination; FatFs's `f_rename` answers `FR_EXIST` when the name is already taken —it registers a new
+    // object in the folder and the folder says no—, o sigui que **la segona escriptura d'un fitxer que ja hi era fallava
+    // sempre** i la primera anava bé perquè no hi havia destí. It is the card's rule and not this system's, and it is why
+    // the Clock's run file and the 2048's board never saved again after the first time (docs/70, docs/95).
+    //
+    // So the target is taken away and the rename tried once more. **El preu és una finestra d'un renombrat** —a current
+    // that goes exactly there loses the old file and leaves the `.tmp` next to it— i el preu de no fer-ho és una escriptura
+    // que no arriba mai. The first attempt is kept for the disks that do replace (the flash of this board, the host of the
+    // emulator), so nothing pays the window that does not need it (docs/70).
+    // **I el destí només es toca si hi és**: a rename that fails for another reason —a card that has gone— must not take the
+    // good file away on its way to failing again (docs/70).
+    hal::Stat there;
+    if (vfs::stat(full, there)) {
+      log_printf(pal::kLogDebug, "FS", "%s: this disk does not rename over a file, so it is taken away first", target_rel);
+      storage->remove(target_rel);
+    }
+    if (!storage->rename(temp_rel, target_rel)) {
+      storage->remove(temp_rel);
+      err = failure_code(full, len);
+      return -1;
+    }
   }
   const int64_t done_ms = pal::system().millis();
   log_printf(pal::kLogDebug, "FS", "write %u B in %lld ms", static_cast<unsigned>(len),
@@ -452,7 +475,7 @@ bool mkdir(const char* path, luabind::FsError& err) {
   hal::Stat info;
   if (vfs::stat(full, info) && info.type == hal::NodeType::kDir) return true;  // already there
   if (!storage->mkdir(rel)) {
-    err = luabind::FsError::kUnsupported;
+    err = luabind::FsError::kIo;
     return false;
   }
   return true;
@@ -629,7 +652,7 @@ int32_t file_read(int32_t handle, char* buf, uint32_t len, luabind::FsError& err
     return file->storage->read(file->slot, buf, len);
   }();
   if (got < 0) {
-    err = luabind::FsError::kUnsupported;
+    err = luabind::FsError::kIo;
     return -1;
   }
   file->position += got;
@@ -648,7 +671,7 @@ int64_t file_write(int32_t handle, const char* data, size_t len, luabind::FsErro
     return file->storage->write(file->slot, data, static_cast<uint32_t>(len));
   }();
   if (put < 0 || static_cast<size_t>(put) != len) {
-    err = luabind::FsError::kUnsupported;
+    err = luabind::FsError::kIo;
     return -1;
   }
   file->position += static_cast<int64_t>(len);

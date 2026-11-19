@@ -23,7 +23,18 @@ const uint32_t kTimeoutMs = 50;
 // while it measures, measured on the Paper as `i2c: read of 44 failed (ESP_ERR_TIMEOUT)` with the
 // sensor not announced at all, so the ceiling goes to the register's 20-bit maximum: 1 048 575 APB
 // cycles, **13.1 ms at 80 MHz**, twice the longest measurement the sensor asks for (docs/50).
+// **I el sostre és una cosa del xip i no de la família** (0.190.31, el log de la T5S3 del 19/11): the register of an
+// ESP32 is **twenty bits** of APB cycles and the one of an **ESP32-S3 is five** —`I2C_TIME_OUT_VALUE` is `bitpos: [4:0]`
+// in its own `soc/i2c_reg.h`—, o sigui que el número que serveix per al Paper es refusava aquí amb
+// `i2c_set_timeout(839): i2c timing value error` a cada arrencada, i el que quedava era el límit de deu cicles de la IDF.
+// Ara es demana el màxim que el registre d'aquest xip accepta: 13 ms al Paper i el que hi càpiga a l'S3. **El que això
+// vol dir** és que un xip que estiri el rellotge més que això —l'SHT30 en demana sis mil·lisegons— no es pot esperar en
+// aquesta família amb aquest driver, i el sensor ho dirà amb el seu `E_IO` en lloc de mentir (docs/50).
+#if defined(CONFIG_IDF_TARGET_ESP32)
 const int kStretchCycles = 0xFFFFF;
+#else
+const int kStretchCycles = 0x1F;
+#endif
 
 class Esp32I2c : public II2c {
  public:
