@@ -10239,7 +10239,11 @@ namespace kernel {
 // el nivell de la línia, la FIFO i l'anella del driver), i `IConsole::wait_quiet` torna quan no hi ha hagut cap flanc ni cap byte i la
 // línia és alta durant 12 ms —el màxim del RX timeout del xip, 126 símbols a 115200—. El quart de segon queda com a **sostre** d'una
 // línia que no calla; amb bateria, el pull-up del GPIO3 fa que el pin flotant no es llegeixi com a soroll (docs/50, docs/95).
-static const char kVersion[] = "0.190.21";
+// **El panell que ja és calent no paga el segon de rampa** (0.190.22, la llista del 19/11). `It8951::begin` pregunta la línia de BUSY
+// abans de `power_on()`; si és alta, arma el controlador sense ciclar el rail, i els vint mots del `GetDeviceInfo` són els que refusen un
+// `ffff`. El segon de rampa només el paga un vidre fred —la bateria, el `poweroff`—; un reinici o un despert que ha conservat el rail
+// (0.190.19) s'estalvien el segon, que era el cost més gran que quedava a l'arrencada (docs/50, docs/95).
+static const char kVersion[] = "0.190.22";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -596,6 +596,12 @@ cinc quadres arriben sencers després d'enviar **un sol preàmbul de dades per t
 mot. El que encara no està mesurat és el temps del `gc16` i el sentit dels nivells: el número que dirà
 una pàgina de prova quan es torni a córrer.
 
+**I el segon de rampa només el paga un vidre fred** (0.190.22): `It8951::begin` pregunta la línia de BUSY
+abans de `power_on()`; si és alta, arma el controlador sense ciclar el rail i el log diu
+`[I][PANEL] the panel was already up: the second of ramp is not owed`. El `boot` de `stats` ha de baixar
+~1 s en un reinici o un despert amb el rail conservat (el `[I][PANEL] busy reads 1`); si el segon es paga,
+el vidre era fred (la bateria, el `poweroff`) o el `rest()` de la baixada l'havia adormit.
+
 Abans d'això, el handshake va fallar de quatre maneres i cadascuna té el seu nom al log. Serveix per
 no tornar-hi:
 

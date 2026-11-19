@@ -899,9 +899,13 @@ El `busy reads 1` és la meitat bona de la notícia —el panell hi és— i el 
 baix, i `spi_device_release_bus()` quan la trama s'ha acabat. Tres coses més que la placa ha ensenyat
 el mateix dia:
 
-- **el rail del panell vol un segon**: `M5EPD::begin` encén GPIO23 i espera **1000 ms** abans del
-  primer mot. Amb 100 ms la línia BUSY encara llegeix baixa i el handshake es rendeix a `SYS_RUN`
-  (`M5EPD_Driver::begin` no prem cap reset: el seu `rst` val `-1` de sèrie);
+- **el rail del panell vol un segon, i només el fred el paga** (0.190.22): `M5EPD::begin` encén GPIO23 i
+  espera **1000 ms** abans del primer mot. Amb 100 ms la línia BUSY encara llegeix baixa i el handshake es
+  rendeix a `SYS_RUN` (`M5EPD_Driver::begin` no prem cap reset: el seu `rst` val `-1` de sèrie). **I un
+  panell que ja és calent no torna a pagar-lo**: `It8951::begin` pregunta la línia BUSY abans de
+  `power_on()`; si és alta, arma el controlador sense ciclar el rail, i els vint mots del `GetDeviceInfo`
+  són els que refusen un `ffff`. El segon només el paga un vidre fred —la bateria, el `poweroff`—; un
+  reinici o un despert que ha conservat el rail s'estalvien el segon (docs/60);
 - **un sol preàmbul de dades per trama, i després els bytes tal com són**: el fabricant posa un
   `0x0000` davant de cada mot (`write32(0x0000FFFF)` a `Clear()`), però **aixeca el CS a cada parell de
   mots** i el controlador es resincronitza en aquell flanc. Amb el CS aguantat tota la fila —que és el

@@ -553,7 +553,8 @@ Com està avui:
    finestra, el que sigui— es queda a la memòria i el vidre conserva exactament la imatge que hi havia deixat el son
    (`display::set_the_glass_asleep`, que la portada de `splash` i totes les `flush` miren). La baixada d'aquell run **no baixa el rail del
    panell** (`IPower::sleep(…, keep_the_panel)`: el controlador es queda amb el seu estat i la seva imatge), o sigui que el despert següent
-   no ha de reinicialitzar ni repintar res.
+   no ha de reinicialitzar ni repintar res. **I la 0.190.22 ho fa complir**: `It8951::begin` pregunta la línia de BUSY i, si el
+   controlador és viu, l'arma sense `power_on()`; el segon de rampa només el paga un vidre fred (docs/50).
 
    **I la pantalla només s'encén si l'app cridada demana el primer pla** (0.190.19): una `battery` o un `meteo` que recullen una mostra no
    mostren res i la placa torna a dormir; un temporitzador o un avís del `Clock` que fa `raise` posa la seva pàgina al davant, el vidre es

@@ -124,6 +124,11 @@ const uint32_t kEngineFloorCeilingMs = 1200;
 // because a panel that has not come back in three seconds of rail is not coming back (docs/95).
 const uint8_t kReviveTries = 3;
 
+// **How long the line of busy is given to say "up" before the rail is cycled** (0.190.22): a panel that kept its
+// supply answers at once, and one that is cold holds the line low. It is not the three seconds of a word: this is a
+// question about a supply and not about a paint (docs/50).
+const uint32_t kProbeBusyMs = 20;
+
 // **How long the line of busy may stay low before a word is given up on**, which is the maker's own
 // three seconds and not two: while a paint of `init` runs, the controller holds that line low for two
 // whole seconds, and a command that arrives in the middle of it must wait rather than fail
@@ -435,9 +440,18 @@ bool It8951::read_register(uint16_t reg, uint16_t& value) {
 
 bool It8951::begin() {
   if (ready_) return true;
-  power_on();
   pin_input(pins_.busy);
   if (!join_bus()) return false;
+  // **El panell que ja és calent no paga el segon** (0.190.22): the way down of a wake for an alarm does not cut the
+  // rail (0.190.19), and the maker's second of ramp is only owed to a glass that is cold. The line of busy is the
+  // question —high is a controller that is up, low is a supply that is not— and the twenty words of `arm` are the
+  // answer that cannot be faked: a `ffff` is a MISO nobody drives and is refused there.
+  if (wait_busy(kProbeBusyMs) && arm()) {
+    hal::logf(pal::kLogInfo, "PANEL", "the panel was already up: the second of ramp is not owed");
+    return true;
+  }
+  // Cold, or a controller that did not take the armed state: the maker's own bring-up, with its whole second.
+  power_on();
   return arm();
 }
 
