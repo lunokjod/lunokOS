@@ -10444,7 +10444,15 @@ namespace kernel {
 // 1/15 del camí de blanc a negre**, i el nostre esquema (vuit cap al negre i comptar les de tornada cap al blanc) tenia el
 // compte al revés: la tornada des del negre és molt més sensible que l'anada, i mitja passada de blanc ja era mig camí. Ara es
 // renta a blanc i es compta el camí cap al negre, que és el que fa el fabricant (docs/50, docs/95).
-static const char kVersion[] = "0.190.51";
+// **I el compte és en temps, no en passades** (0.190.52). L'amo, amb la forma d'ona del fabricant: *«panel bars: distingeixo 5
+// colors i la resta tot negre»* i amb la porta a tres *«4 colors»*, i *«splash sleep: es veu la silueta de l'ós, quasi tot
+// negre»*. Cinc colors amb la resta negre vol dir que el camí de blanc a negre es fa amb **quatre empentes de sis microsegons**,
+// no amb les quinze del fabricant: el seu vidre en demana noranta microsegons de porta i el nostre vint-i-quatre. O sigui que el
+// compte del fabricant era el bo i el que estava malament era **quant de temps hi ha d'anar cada empenta**, i per això ara no es
+// compten passades sinó **nanosegons de porta**: vint-i-quatre microsegons per al camí cap al negre, dotze per al rentat a blanc,
+// i les passades que hi caben. A un microsegon i mig hi caben setze i es veuen setze grisos; a sis, quatre i cinc colors. Baixar
+// la porta ja no aclareix la pàgina, la parteix més fi (docs/50, docs/95).
+static const char kVersion[] = "0.190.52";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

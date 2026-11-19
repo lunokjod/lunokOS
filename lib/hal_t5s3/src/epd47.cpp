@@ -8,6 +8,8 @@
 
 #include <Arduino.h>
 
+#include <esp32/clk.h>
+#include <esp_cpu.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <esp_lcd_panel_io.h>
@@ -67,6 +69,17 @@ const size_t kRowBytes = 960 / 4;
 // **El temps de repòs entre dos passatges** és el de l'original (230 µs), i és el que dona a la tinta el temps de
 // moure's abans del següent (docs/50).
 const uint32_t kBetweenPhasesUs = 230;
+// **I una espera d'una fracció de microsegon** (0.190.52): `delayMicroseconds` no baixa del microsegon i el pas que separa dos
+// grisos és més petit que això, o sigui que la porta es compta en cicles del processador. La lectura del comptador és una
+// instrucció i el llaç sencer en gasta poques, que a 240 MHz són desenes de nanosegons de precisió (docs/50).
+inline void IRAM_ATTR delay_ns(uint32_t ns) {
+  if (ns == 0) return;
+  const uint32_t cycles = static_cast<uint32_t>((static_cast<uint64_t>(ns) * esp_clk_cpu_freq()) / 1000000000ull);
+  if (cycles < 4) return;
+  const uint32_t start = static_cast<uint32_t>(esp_cpu_get_ccount());
+  while (static_cast<uint32_t>(esp_cpu_get_ccount()) - start < cycles) {
+  }
+}
 // **I el que de debò mou la tinta: el temps que la porta de la fila està oberta** (0.190.48, i és el que faltava des del
 // primer dia). The source driver holds the row's codes, but the charge reaches the ink only while the gate of that line is
 // open —`CKV` high— and the impulse a pixel gets is that window and not the length of the transfer. epdiy, which drives this
@@ -74,7 +87,7 @@ const uint32_t kBetweenPhasesUs = 230;
 // tota la transferència (uns vint-i-dos microsegons), o sigui que cada píxel rebia **cinc vegades** la càrrega que la forma
 // d'ona suposa: la tinta anava directa a la via a cada passada i els grisos queien a quatre bandes. Aquest és el número que
 // decideix quants nivells separa el vidre (docs/50, docs/95).
-// **El valor de sèrie és a `gate_us_`** (0.190.49) i el prompt el canvia amb `panel gate`.
+// **El valor de sèrie és a `gate_ns_`** (0.190.52) i el prompt el canvia amb `panel gate`.
 // How long a row is allowed to take before the driver calls it a failure: a row is 240 bytes at twenty megahertz, o
 // sigui que cent mil·lisegons és un panell que no contesta i no un que va lent (docs/50).
 const uint32_t kRowTimeoutMs = 100;
@@ -96,36 +109,38 @@ uint16_t Epd47::width() const { return kPageW; }
 uint16_t Epd47::height() const { return kPageH; }
 uint32_t Epd47::bus_mhz() const { return pclk_hz_ / 1000000; }
 
-// **Les passades que demana una porta** (0.190.50): the charge that moves the ink is the window times the count, o sigui que el
-// que s'ha de mantenir és el producte. Amb la porta de referència surten les quinze del fabricant —una passada és 1/15 del camí
-// de blanc a negre—, a la meitat de porta el doble, i el sostre és el del temps, perquè quaranta-vuit escombrades ja són més de
-// mig segon i la prova s'ha de poder mirar (docs/50, docs/95).
+// **Les passades que demana una porta** (0.190.52): what moves the ink is **time**, so the ink is not counted in passes but in
+// nanoseconds of open gate, and a pass is whatever fits. El camí de blanc a negre són vint-i-quatre microsegons d'aquesta porta
+// i el camí cap al blanc dotze —ho diu la mesura de `panel bars`, que amb la forma d'ona del fabricant donava cinc colors i la
+// resta negre—, o sigui que a sis microsegons hi caben quatre empentes per fer el camí i a un microsegon i mig setze, que és el
+// que separa setze grisos. **Aquest és el canvi de fons del 0.190.52**: baixar la porta ja no aclareix la pàgina, la parteix
+// més fi (docs/50, docs/95).
 void Epd47::scale_the_passes() {
-  const uint32_t wanted = (static_cast<uint32_t>(epd47::kRefPasses) * epd47::kRefGateUs + gate_us_ / 2u) / gate_us_;
-  uint32_t passes = wanted == 0 ? 1u : wanted;
-  if (passes > epd47::kMostPasses) passes = epd47::kMostPasses;
-  black_passes_ = static_cast<uint8_t>(passes);
+  const uint32_t want_black = (epd47::kBlackTravelNs + gate_ns_ / 2u) / gate_ns_;
+  const uint32_t want_white = (epd47::kWhiteTravelNs + gate_ns_ / 2u) / gate_ns_;
+  black_passes_ = static_cast<uint8_t>(want_black == 0 ? 1u : (want_black > epd47::kMostPasses ? epd47::kMostPasses : want_black));
+  wash_passes_ = static_cast<uint8_t>(want_white == 0 ? 1u : (want_white > epd47::kMostWash ? epd47::kMostWash : want_white));
 }
 
-bool Epd47::set_gate_us(uint32_t us) {
+bool Epd47::set_gate_ns(uint32_t ns) {
   // **Els límits els posa el sentit comú**: una porta oberta zero no mou res i una oberta mig mil·lisegon és mitja pantalla
-  // cremada; entre dos i quaranta microsegons hi cap tot el que aquest panell pot voler (docs/50).
-  if (us == 0) {
+  // cremada; entre quatre-cents nanosegons i quaranta microsegons hi cap tot el que aquest panell pot voler (docs/50).
+  if (ns == 0) {
     // **Zero no és un valor de la palanca, és el que diu «aquest vidre no té porta»** (0.190.49): a gate that never opens moves
     // no ink at all, o sigui que no és una prova sinó una pàgina que no canvia, i el prompt l'ha de poder distingir d'una placa
     // que no té el control (docs/50).
     error_ = "a gate that is never open moves no ink";
     return false;
   }
-  if (us > 40) {
+  if (ns > 40000) {
     error_ = "a gate that long is not a line of this panel";
     return false;
   }
-  gate_us_ = us;
+  gate_ns_ = ns;
   scale_the_passes();
-  // **I la pàgina dirà quantes passades ha costat**, que és la meitat del número que la palanca mou (docs/50, docs/95).
-  logf(pal::kLogDebug, "PANEL", "a gate of %u us: %u passes towards black and %u of wash", static_cast<unsigned>(gate_us_),
-       static_cast<unsigned>(black_passes_), static_cast<unsigned>(epd47::kWhiteWash));
+  // **I la pàgina dirà quants passos ha costat**, que és l'altra meitat del número que la palanca mou (docs/50, docs/95).
+  logf(pal::kLogDebug, "PANEL", "a gate of %u ns: %u passes towards black and %u of wash", static_cast<unsigned>(gate_ns_),
+       static_cast<unsigned>(black_passes_), static_cast<unsigned>(wash_passes_));
   return true;
 }
 
@@ -600,7 +615,7 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
   // **Quantes passades i amb quina taula** (0.190.38): a `du` is two levels and does not need the panel's thirty-eight
   // phases, i un `gc16` sí; the table and the count are decided once, here, and the rest of the loop is the same
   // (docs/50, docs/95).
-  const uint8_t phases = fast ? epd47::kFastPhases : static_cast<uint8_t>(epd47::kWhiteWash + black_passes_);
+  const uint8_t phases = fast ? epd47::kFastPhases : static_cast<uint8_t>(wash_passes_ + black_passes_);
   const uint8_t* const before = only_changed ? previous_ : nullptr;
   // **El rentat a blanc ja no cal** (0.190.46): the pulse waveform below starts by taking every pixel to black, o sigui que
   // el lloc des d'on comença la forma d'ona el posa ella mateixa i no una passada prèvia a part (docs/50, docs/95).
@@ -616,10 +631,10 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
       uint8_t code = 0;
       if (fast) {
         code = (level < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase];
-      } else if (phase < epd47::kWhiteWash) {
+      } else if (phase < wash_passes_) {
         code = epd47::kTowardsWhite;
       } else {
-        code = (static_cast<uint8_t>(phase - epd47::kWhiteWash) < epd47::steps_towards_black(level, black_passes_))
+        code = (static_cast<uint8_t>(phase - wash_passes_) < epd47::steps_towards_black(level, black_passes_))
                    ? epd47::kTowardsBlack
                    : 0;
       }
@@ -687,7 +702,7 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
       gpio_set_level(ckv, 0);
       row_control(false);
       gpio_set_level(ckv, 1);
-      if (gate_us_ > 0) delayMicroseconds(gate_us_);
+      delay_ns(gate_ns_);
       gpio_set_level(ckv, 0);
     }
     const uint32_t before_the_wire = static_cast<uint32_t>(esp_timer_get_time());
@@ -733,7 +748,7 @@ bool Epd47::flush(UpdateMode mode) {
   // i és la que deixa `previous_` sabut (docs/50, docs/95).
   const bool cleans = mode == UpdateMode::kInit || mode == UpdateMode::kGc16;
   const bool only_changed = !cleans && previous_is_known_;
-  uint8_t phases = fast ? epd47::kFastPhases : static_cast<uint8_t>(epd47::kWhiteWash + black_passes_);
+  uint8_t phases = fast ? epd47::kFastPhases : static_cast<uint8_t>(wash_passes_ + black_passes_);
   // **I la finestra s'encongeix al que de debò s'ha mogut** (0.190.41): the rectangle the kernel marks is what it *drew*,
   // and a page that is redrawn whole is a rectangle of five hundred and forty rows for two digits that changed. Comparing
   // the two frames —a `memcmp` a row, which is cheap and in the PSRAM— gives the box of what is not the same, o sigui que

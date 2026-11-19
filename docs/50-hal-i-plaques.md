@@ -857,6 +857,22 @@ El nombre de passades del camí segueix la palanca de la porta: **quinze a sis m
 fabricant—, trenta a tres, quaranta-vuit a la porta més curta que la palanca accepta. El que canvia a la
 pàgina quan l'amo la mou és **quants esglaons se separen**, que és la pregunta.
 
+**I el compte és en temps, no en passades** (0.190.52). Amb la forma d'ona del fabricant, `panel bars` va donar
+*«cinc colors i la resta tot negre»* a sis microsegons de porta i quatre colors a tres. Cinc colors amb la
+resta negre vol dir que **el camí de blanc a negre es fa amb quatre empentes de sis microsegons**, no amb les
+quinze del fabricant: el seu vidre en demana noranta microsegons de porta i el nostre **vint-i-quatre**. O
+sigui que el compte del fabricant era el bo —rentar a blanc i comptar cap al negre— i el que estava
+malament era **quant de temps hi ha d'anar cada empenta**.
+
+Per això el driver no compta passades sinó **nanosegons de porta**: vint-i-quatre microsegons per al camí cap
+al negre, dotze per al rentat a blanc, i **les passades que hi caben**. A un microsegon i mig hi caben setze
+empentes i es veuen setze grisos; a sis n'hi caben quatre i se'n veuen cinc. Baixar la porta ja no aclareix
+la pàgina, **la parteix més fi**, que és el que havia de fer des del principi.
+
+`panel gate` accepta la coma decimal (`panel gate 1.5`) i diu el número en nanosegons, perquè el pas que
+separa dos grisos en aquest panell és més fi que un microsegon: d'aquí ve `delay_ns()`, una espera comptada
+en cicles del processador, que `delayMicroseconds` no baixa del microsegon.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

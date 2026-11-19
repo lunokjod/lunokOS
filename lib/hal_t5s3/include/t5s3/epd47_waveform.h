@@ -49,20 +49,25 @@ const uint8_t kFastToWhite[kFastPhases] = {1, 1, 2, 2, 2, 2};
 //
 // **El rentat a blanc no és opcional i el fabricant el pot estalviar perquè la seva pàgina ja ho és**: la seva taula només dona
 // codi als píxels que venen del blanc (`from` = 15) —el `data[frame][to][from]` és una matriu de transició de 16×16 i les seves
-// quinze files només tenen el bit del 15—. Nosaltres no podem suposar res del que hi ha al vidre, o sigui que el rentat es fa.
-const uint8_t kWhiteWash = 8;
+// quinze files només tenen el bit del 15—. Nosaltres no podem suposar res del que hi ha al vidre, o sigui que el rentat es fa, i
+// la seva llargada també surt del temps de porta (0.190.52).
 const uint8_t kTowardsWhite = 2;
 const uint8_t kTowardsBlack = 1;
-// **I el compte del fabricant per al seu vidre**: quinze empentes de blanc a negre, amb la porta de sis microsegons.
-const uint8_t kRefPasses = 15;
-// **El temps de porta al qual aquestes quinze són les bones** (0.190.50): el que mou la tinta és **la càrrega**, que és porta
-// per temps, o sigui que el nombre de passades i el temps de porta **no són dos números independents**: si la porta s'obre un
-// terç, la mateixa càrrega demana el triple de passades. Aquest és el punt de referència, i `Epd47::scale_the_passes()` el
-// manté quan l'amo mou la palanca, de manera que el que canvia a la pàgina sigui **quants nivells se separen** (docs/50).
-const uint8_t kRefGateUs = 6;
-// **I el sostre, que és el del temps i no el de la física**: una passada és una escombrada del vidre (uns dotze mil·lisegons de
+// **I quant temps de porta demana aquest vidre per fer el camí sencer**, que és el número que la mesura ha trobat (0.190.52).
+// El fabricant hi gasta quinze passades de sis microsegons —noranta—, i aquí el camí de blanc a negre s'acaba amb **quatre
+// passades de sis**, o sigui vint-i-quatre microsegons: `panel bars` amb la seva forma d'ona donava *«cinc colors i la resta
+// tot negre»*, que és exactament una tinta que satura a la quarta empenta. La diferència és del nostre vidre i no del compte:
+// el compte del fabricant és el bo i el que canvia és **quant de temps hi ha d'anar cada empenta**, o sigui que en comptes de
+// comptar passades es compta **temps de porta** i les passades que hi caben. Així, baixar la porta no aclareix la pàgina: la
+// parteix més fi (docs/50, docs/95).
+const uint32_t kBlackTravelNs = 24000;
+// **I el camí cap al blanc és més curt**, que és el que la mateixa mesura diu: dues empentes de sis ja el feien. El rentat ha
+// de ser suficient per saturar, i prou (docs/50).
+const uint32_t kWhiteTravelNs = 12000;
+// **El sostre, que és el del temps i no el de la física**: una passada és una escombrada del vidre (uns dotze mil·lisegons de
 // cable), o sigui que quaranta-vuit ja són més de mig segon i la prova es fa feixuga abans que la tinta digui res (docs/50).
 const uint8_t kMostPasses = 48;
+const uint8_t kMostWash = 16;
 // **Les empentes cap al negre que demana un nivell**: el 0 les demana totes i el 15 cap, i al mig es reparteixen. És l'única
 // aritmètica d'aquesta forma d'ona (docs/50, docs/95).
 inline uint8_t steps_towards_black(uint8_t level, uint8_t passes) {

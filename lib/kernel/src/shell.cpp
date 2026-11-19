@@ -1057,33 +1057,45 @@ bool command_panel(const char* rest) {
     return true;
   }
   // **`panel gate <us>`** (0.190.49): the time the gate of a line is open, which is the knob that decides how much ink moves
-  // per pass and therefore how many greys the glass separates. It is changed hot because every value is a test page, and a
-  // flash per value is a session per value (docs/50, docs/95).
+  // per pass and therefore how many greys the glass separates. **Es demana en microsegons i s'admet la coma** (0.190.52,
+  // `panel gate 1.5`) perquè el pas que separa setze grisos en aquest vidre és més fi que un microsegon; endins es compta en
+  // nanosegons. It is changed hot because every value is a test page, and a flash per value is a session per value.
   if (strcmp(both[0], "gate") == 0) {
     if (many < 2) {
-      if (display::gate_us() == 0) {
+      if (display::gate_ns() == 0) {
         out("panel: this glass has no gate of its own\r\n");
         return true;
       }
-      char said[56];
-      snprintf(said, sizeof(said), "panel: the gate is open %u us per line\r\n",
-               static_cast<unsigned>(display::gate_us()));
+      char said[64];
+      snprintf(said, sizeof(said), "panel: the gate is open %u ns per line\r\n",
+               static_cast<unsigned>(display::gate_ns()));
       out(said);
       return true;
     }
-    const uint32_t us = static_cast<uint32_t>(atoi(both[1]));
-    if (!display::set_gate_us(us)) {
+    // **La coma decimal sense `strtod`**: el prompt no en porta i el número és petit; mil·lèsimes de microsegon ja són més
+    // precisió de la que el processador pot donar en una espera (docs/50).
+    const uint32_t us_whole = static_cast<uint32_t>(atoi(both[1]));
+    uint32_t us_frac = 0;
+    const char* dot = strchr(both[1], '.');
+    if (dot != nullptr) {
+      uint32_t scale = 100;
+      for (const char* p = dot + 1; *p >= '0' && *p <= '9' && scale > 0; p++, scale /= 10) {
+        us_frac += static_cast<uint32_t>(*p - '0') * scale;
+      }
+    }
+    const uint32_t ns = us_whole * 1000u + us_frac * 10u;
+    if (!display::set_gate_ns(ns)) {
       out("panel: the glass did not take that gate\r\n");
       return false;
     }
-    char said[56];
-    snprintf(said, sizeof(said), "panel: the gate is open %u us per line\r\n",
-             static_cast<unsigned>(display::gate_us()));
+    char said[64];
+    snprintf(said, sizeof(said), "panel: the gate is open %u ns per line\r\n",
+             static_cast<unsigned>(display::gate_ns()));
     out(said);
     return true;
   }
   if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
-    usage_out("usage: panel [edge|box|bars|gate [us]|bus [mhz]] | panel flush [rows|burst|2bit]\r\n");
+    usage_out("usage: panel [edge|box|bars|gate [us]] | panel bus [mhz] | panel flush [rows|burst|2bit]\r\n");
     return false;
   }
   if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {
