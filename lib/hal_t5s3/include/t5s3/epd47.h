@@ -67,6 +67,8 @@ class Epd47 : public ISurface {
   // mesura en calent perquè cada valor és una pintada de prova (docs/50, docs/95).
   uint32_t gate_ns() const override { return gate_ns_; }
   bool set_gate_ns(uint32_t ns) override;
+  uint32_t road_ns() const override { return road_ns_; }
+  bool set_road_ns(uint32_t ns) override;
   const char* last_error() const override { return error_; }
 
  private:
@@ -152,6 +154,10 @@ class Epd47 : public ISurface {
   // **I les passades que la porta d'aquest moment demana** (0.190.50): la tinta es mou per **temps de porta**, o sigui que
   // baixar la porta sense apujar les passades treu contrast en lloc de guanyar nivells. Es tornen a comptar a cada canvi de
   // `gate_ns_` i mai no són zero (docs/50, docs/95).
+  // **I el camí sencer, que és el contrast i no el gruix del pas** (0.190.54): gairebé sempre és el mateix número que la mesura
+  // dona —tretze microsegons i mig—, però si a la porta curta el píxel no es carrega prou, el que falta no és més gruix sinó més
+  // temps de camí, i això és el que aquest segon número permet sense canviar el gruix de cada esglaó (docs/50, docs/95).
+  uint32_t road_ns_ = epd47::kTravelNs;
   uint8_t black_passes_ = 9;
   uint8_t wash_passes_ = 9;
   void scale_the_passes();

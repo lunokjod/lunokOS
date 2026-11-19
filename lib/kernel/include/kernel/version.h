@@ -10459,7 +10459,12 @@ namespace kernel {
 // (deu grisos, tots nets) i quinze a nou-cents nanosegons (setze, si el píxel es carrega prou de pressa). El que abans es veia
 // era mig panell cremat pel compte massa llarg, i a la porta d'un microsegon el píxel ja no es carrega i per això surten menys
 // colors (docs/50, docs/95).
-static const char kVersion[] = "0.190.53";
+// **I el camí i el pas es poden moure per separat** (0.190.54). Amb 0.190.53 el compte sortia del camí de tretze microsegons i
+// mig, que és el que la mesura dona, però si a la porta curta el píxel no es carrega del tot el que falta **no és gruix sinó
+// temps**: els esglaons hi són i el negre no arriba. O sigui que hi ha dos números i no un — `panel gate <us>` és **el gruix
+// d'un esglaó** (quants grisos) i `panel road <us>` és **la llargada del camí** (quant de negre)—, i tots dos es canvien en
+// calent. El compte de passades que en surt és el camí dividit pel pas, que és l'única aritmètica honesta aquí (docs/50, docs/95).
+static const char kVersion[] = "0.190.54";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

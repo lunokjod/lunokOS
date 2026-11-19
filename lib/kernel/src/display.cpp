@@ -138,6 +138,10 @@ uint32_t gate_ns() { return (g_surface != nullptr) ? g_surface->gate_ns() : 0u; 
 
 bool set_gate_ns(uint32_t ns) { return (g_surface != nullptr) && g_surface->set_gate_ns(ns); }
 
+uint32_t road_ns() { return (g_surface != nullptr) ? g_surface->road_ns() : 0u; }
+
+bool set_road_ns(uint32_t ns) { return (g_surface != nullptr) && g_surface->set_road_ns(ns); }
+
 // **Enviar els píxels no és calcular** (0.190.26, l'amo: *«al enviar dades al eink usa 80»*): the burst is a DMA of the bus and
 // the ink of the panel is the panel's own time —a page costs 783 ms of `flush` of which a third is the wire and the rest is waiting
 // for the controller—, o sigui que el processador no hi té res a fer i el pas de baix és el que li toca. **El preu és el

@@ -1,7 +1,7 @@
 {
   "title": "About",
   "author": "@lunokjod",
-  "version": "0.5.192",
+  "version": "0.5.193",
   "entry": "about.lua",
   "boards": [
     "esp32"

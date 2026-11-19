@@ -115,7 +115,7 @@ uint32_t Epd47::bus_mhz() const { return pclk_hz_ / 1000000; }
 // el que separa deu grisos; a nou-cents nanosegons n'hi caben quinze i en surten setze. **Aquest és el canvi de fons**: baixar la
 // porta ja no aclareix la pàgina ni deixa mig panell negre, la parteix més fi (docs/50, docs/95).
 void Epd47::scale_the_passes() {
-  const uint32_t want = (epd47::kTravelNs + gate_ns_ / 2u) / gate_ns_;
+  const uint32_t want = (road_ns_ + gate_ns_ / 2u) / gate_ns_;
   uint32_t passes = want == 0 ? 1u : want;
   if (passes > epd47::kMostPasses) passes = epd47::kMostPasses;
   black_passes_ = static_cast<uint8_t>(passes);
@@ -140,6 +140,24 @@ bool Epd47::set_gate_ns(uint32_t ns) {
   scale_the_passes();
   // **I la pàgina dirà quants passos ha costat**, que és l'altra meitat del número que la palanca mou (docs/50, docs/95).
   logf(pal::kLogDebug, "PANEL", "a gate of %u ns: %u passes towards black and %u of wash", static_cast<unsigned>(gate_ns_),
+       static_cast<unsigned>(black_passes_), static_cast<unsigned>(wash_passes_));
+  return true;
+}
+
+bool Epd47::set_road_ns(uint32_t ns) {
+  // **Els límits són els de la tinta**: menys de dos microsegons no arriba ni a un esglaó i més de quaranta ja és mitja pàgina
+  // cremada; entremig hi ha el contrast que aquest vidre pot donar (docs/50).
+  if (ns < 2000) {
+    error_ = "a road that short is not a grey scale";
+    return false;
+  }
+  if (ns > 40000) {
+    error_ = "a road that long burns the glass";
+    return false;
+  }
+  road_ns_ = ns;
+  scale_the_passes();
+  logf(pal::kLogDebug, "PANEL", "a road of %u ns: %u passes towards black and %u of wash", static_cast<unsigned>(road_ns_),
        static_cast<unsigned>(black_passes_), static_cast<unsigned>(wash_passes_));
   return true;
 }

@@ -881,6 +881,11 @@ número que el driver ha de mantenir no és el de passades sinó el del **camí*
 empentes a la porta de sèrie i quinze a nou-cents nanosegons. A la porta de sèrie se separen **deu grisos
 nets** amb el contrast sencer; els setze només surten si el píxel aguanta nou-cents nanosegons.
 
+**I dos números i no un** (0.190.54): `panel gate <us>` és **el gruix d'un esglaó** —quants grisos
+se separen— i `panel road <us>` és **la llargada del camí** —quant de negre—, i les passades que en surten
+són el camí dividit pel pas. Si a la porta curta el píxel no es carrega del tot, el que falta no és gruix
+sinó temps, i amb el camí es pot allargar sense perdre el nombre d'esglaons. Tots dos es canvien en calent.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

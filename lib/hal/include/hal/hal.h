@@ -524,6 +524,14 @@ class ISurface : public IDisplay {
     (void)ns;
     return false;
   }
+  // **I la llargada del camí sencer** (0.190.54), també en nanosegons: how much open gate a pixel gets to go from white to black,
+  // o sigui el **contrast**, que és un número diferent del gruix de cada esglaó (`gate_ns`). Amb tots dos, el nombre de grisos i
+  // la fondària del negre es poden moure per separat, que és el que fa falta quan el píxel no es carrega del tot (docs/50).
+  virtual uint32_t road_ns() const { return 0; }
+  virtual bool set_road_ns(uint32_t ns) {
+    (void)ns;
+    return false;
+  }
   virtual bool set_bus_mhz(uint32_t mhz) {
     (void)mhz;
     return false;
