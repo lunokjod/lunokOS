@@ -67,6 +67,14 @@ const size_t kRowBytes = 960 / 4;
 // **El temps de repòs entre dos passatges** és el de l'original (230 µs), i és el que dona a la tinta el temps de
 // moure's abans del següent (docs/50).
 const uint32_t kBetweenPhasesUs = 230;
+// **I el que de debò mou la tinta: el temps que la porta de la fila està oberta** (0.190.48, i és el que faltava des del
+// primer dia). The source driver holds the row's codes, but the charge reaches the ink only while the gate of that line is
+// open —`CKV` high— and the impulse a pixel gets is that window and not the length of the transfer. epdiy, which drives this
+// same panel, sets its `ckv_high_time` to **six microseconds** of a twelve-microsecond line; nosaltres obríem la porta per a
+// tota la transferència (uns vint-i-dos microsegons), o sigui que cada píxel rebia **cinc vegades** la càrrega que la forma
+// d'ona suposa: la tinta anava directa a la via a cada passada i els grisos queien a quatre bandes. Aquest és el número que
+// decideix quants nivells separa el vidre (docs/50, docs/95).
+// **El valor de sèrie és a `gate_us_`** (0.190.49) i el prompt el canvia amb `panel gate`.
 // How long a row is allowed to take before the driver calls it a failure: a row is 240 bytes at twenty megahertz, o
 // sigui que cent mil·lisegons és un panell que no contesta i no un que va lent (docs/50).
 const uint32_t kRowTimeoutMs = 100;
@@ -87,6 +95,24 @@ Epd47::Epd47(Pca9535* expander, II2c* bus)
 uint16_t Epd47::width() const { return kPageW; }
 uint16_t Epd47::height() const { return kPageH; }
 uint32_t Epd47::bus_mhz() const { return pclk_hz_ / 1000000; }
+
+bool Epd47::set_gate_us(uint32_t us) {
+  // **Els límits els posa el sentit comú**: una porta oberta zero no mou res i una oberta mig mil·lisegon és mitja pantalla
+  // cremada; entre dos i quaranta microsegons hi cap tot el que aquest panell pot voler (docs/50).
+  if (us == 0) {
+    // **Zero no és un valor de la palanca, és el que diu «aquest vidre no té porta»** (0.190.49): a gate that never opens moves
+    // no ink at all, o sigui que no és una prova sinó una pàgina que no canvia, i el prompt l'ha de poder distingir d'una placa
+    // que no té el control (docs/50).
+    error_ = "a gate that is never open moves no ink";
+    return false;
+  }
+  if (us > 40) {
+    error_ = "a gate that long is not a line of this panel";
+    return false;
+  }
+  gate_us_ = us;
+  return true;
+}
 
 bool Epd47::set_bus_mhz(uint32_t mhz) {
   // **Els límits són del xip i no del panell**: the i80 takes its clock from the 160 MHz PLL, o sigui que el que es pot
@@ -568,16 +594,12 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
     // parelles o senars, o sigui que hi ha quatre taules de setze i el que fa la fila és triar-ne dues (les de la seva
     // paritat de fila i les de cada paritat de columna) (docs/50, docs/95).
     uint8_t codes[4][16];
-    for (uint8_t corner = 0; corner < 4; ++corner) {
-      for (uint8_t level = 0; level < 16; ++level) {
-        if (fast) {
-          // **Els dos nivells del `du`**: el que el nucli ha dibuixat com a gris també hi cap, i cau al costat del negre o
-          // del blanc que li toca, perquè una forma d'ona de dues tintes no pot fer mitjos tons (docs/50).
-          codes[corner][level] = (level < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase];
-        } else {
-          codes[corner][level] = epd47::pulse_code(epd47::ink_of(level, corner), phase);
-        }
-      }
+    for (uint8_t level = 0; level < 16; ++level) {
+      const uint8_t code = fast ? ((level < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase])
+                                : epd47::pulse_code(level, phase);
+      // The four corners of the table are the same now that there is no dither, i la fila tria igualment per cantonada
+      // perquè el codi del camí sigui un sol (docs/50).
+      for (uint8_t corner = 0; corner < 4; ++corner) codes[corner][level] = code;
     }
     if (!scan_a_pass(first, last, b0, b1, before != nullptr, &codes[0][0])) return false;
     delayMicroseconds(kBetweenPhasesUs);
@@ -633,8 +655,14 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
     // conversió i el del cable es tapin l'un a l'altre (docs/50, docs/95).
     if (pending) {
       if (!wait_row()) return false;
+      // **La porta es tanca, la fila que acaba de sortir es tanca, i la porta s'obre la seva estona** (0.190.48): the data is
+      // clocked with the gate closed, the latch takes it into the source outputs, and only then does the gate open for its
+      // share of the line (docs/50, docs/95).
+      gpio_set_level(ckv, 0);
       row_control(false);
       gpio_set_level(ckv, 1);
+      if (gate_us_ > 0) delayMicroseconds(gate_us_);
+      gpio_set_level(ckv, 0);
     }
     const uint32_t before_the_wire = static_cast<uint32_t>(esp_timer_get_time());
     if (!start_row(row)) return false;

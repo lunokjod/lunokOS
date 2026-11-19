@@ -81,6 +81,10 @@ bool the_glass_is_asleep();
 // board and not in three flashes. It is not remembered across a boot either (docs/50).
 uint32_t bus_mhz();
 bool set_bus_mhz(uint32_t mhz);
+// **La finestra de la porta de la fila** (0.190.49): the number that decides how much ink moves in one pass, and therefore
+// how many greys this glass separates. Zero is a glass without a gate of its own (docs/50, docs/95).
+uint32_t gate_us();
+bool set_gate_us(uint32_t us);
 
 // **Quatre-cents i no mil cinc-cents** (0.189.79): the window was sized by eye when a paint still cost six hundred and sixty
 // milliseconds of preparation; with the bands, the pointers and the bus at twenty-four the worst page the board measures is

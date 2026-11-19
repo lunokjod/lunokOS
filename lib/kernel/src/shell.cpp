@@ -1056,8 +1056,34 @@ bool command_panel(const char* rest) {
     out(said);
     return true;
   }
+  // **`panel gate <us>`** (0.190.49): the time the gate of a line is open, which is the knob that decides how much ink moves
+  // per pass and therefore how many greys the glass separates. It is changed hot because every value is a test page, and a
+  // flash per value is a session per value (docs/50, docs/95).
+  if (strcmp(both[0], "gate") == 0) {
+    if (many < 2) {
+      if (display::gate_us() == 0) {
+        out("panel: this glass has no gate of its own\r\n");
+        return true;
+      }
+      char said[56];
+      snprintf(said, sizeof(said), "panel: the gate is open %u us per line\r\n",
+               static_cast<unsigned>(display::gate_us()));
+      out(said);
+      return true;
+    }
+    const uint32_t us = static_cast<uint32_t>(atoi(both[1]));
+    if (!display::set_gate_us(us)) {
+      out("panel: the glass did not take that gate\r\n");
+      return false;
+    }
+    char said[56];
+    snprintf(said, sizeof(said), "panel: the gate is open %u us per line\r\n",
+             static_cast<unsigned>(display::gate_us()));
+    out(said);
+    return true;
+  }
   if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
-    usage_out("usage: panel [edge|box|bus [mhz]] | panel flush [rows|burst|2bit]\r\n");
+    usage_out("usage: panel [edge|box|bars|gate [us]|bus [mhz]] | panel flush [rows|burst|2bit]\r\n");
     return false;
   }
   if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {

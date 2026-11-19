@@ -62,6 +62,10 @@ class Epd47 : public ISurface {
   // is the whole test—. The peripheral is created again with the new clock and the frame, the panel and the supply stay
   // where they are; a speed this chip cannot give is refused and never rounded (docs/50, docs/80).
   bool set_bus_mhz(uint32_t mhz) override;
+  // **I la finestra de la porta, en microsegons** (0.190.49): el número que decideix quants grisos separa aquest vidre, i es
+  // mesura en calent perquè cada valor és una pintada de prova (docs/50, docs/95).
+  uint32_t gate_us() const override { return gate_us_; }
+  bool set_gate_us(uint32_t us) override;
   const char* last_error() const override { return error_; }
 
  private:
@@ -139,6 +143,8 @@ class Epd47 : public ISurface {
   // **Vint megahertz, que és el que la taula del fabricant dona per aquest panell** i el que fa servir el seu firmware, i
   // es pot canviar en calent des del prompt (`panel bus 26`) (0.190.38, docs/50).
   uint32_t pclk_hz_ = 20000000;
+  // **Sis microsegons de dotze**, que és el que epdiy dona a aquest mateix panell (`ckv_high_time = 60`, en dècimes).
+  uint32_t gate_us_ = 6;
   // **El que ha costat la pintada, partit en dos** (0.190.38): `bus_us_` is the wire and the peripheral —the row that has
   // gone out— and `cpu_us_` is the turning of the frame into codes, which is the only part a faster processor or a
   // different loop can take away (docs/95).

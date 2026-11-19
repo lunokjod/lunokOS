@@ -42,27 +42,20 @@ const uint8_t kFastToWhite[kFastPhases] = {1, 1, 2, 2, 2, 2};
 // cap. El que sí que hi cap és el contrari: **portar el píxel al negre i donar-li un nombre comptat d'empentes cap al blanc**,
 // o sigui amplada de pols. Vuit passades de negre i fins a dotze de blanc, i el nivell és quantes de blanques arriben.
 const uint8_t kBlackPhases = 8;
-const uint8_t kPulsePhases = kBlackPhases + 8;
-// **I els nivells de tinta que aquest vidre separa de debò** (0.190.47). `panel bars` amb la forma d'amplada de pols va donar
-// cinc: k=0 negre, k=1 gris, k=2 i k=3 el mateix gris clar, k=4 quasi blanc i k=5 o més blanc. És el límit de l'arquitectura —
-// cada passada mou la tinta una quarta part del recorregut— o sigui que una passada no pot fer un esglaó més fi. El que sí que
-// es pot fer és el que fa qualsevol lector de tinta amb pocs nivells: **trames**, 16 nivells d'entrada repartits en un 2×2
-// sobre aquests cinc. El preu és mig píxel de resolució; el guany és que un gris deixa de ser una barrera i passa a ser una
-// textura (docs/50, docs/95).
-const uint8_t kWhiteStepsOfInk[5] = {0, 1, 2, 4, 8};
 const uint8_t kWhiteMost = 8;
-// **La trama ordenada 2×2**: `pos` és la cantonada del bloc —0 (x parell, y parell), 1 (x senar, y parell), 2 (x parell, y
-// senar), 3 (x senar, y senar)— i el nivell de tinta surt d'escalar setze nivells a quatre passos i arrodonir amb la cantonada.
-inline uint8_t ink_of(uint8_t level, uint8_t pos) {
-  static const uint8_t kBayer[4] = {0, 2, 3, 1};
-  const uint16_t scaled = static_cast<uint16_t>(level & 0x0F) * 4u + kBayer[pos & 3u];
-  return static_cast<uint8_t>(scaled / 15u);
+const uint8_t kPulsePhases = kBlackPhases + kWhiteMost;
+// **Els esglaons de blanc de cada nivell** (0.190.48): nine steps instead of twelve, i el nivell és quants n'arriben. **La
+// trama del 0.190.47 s'ha tret**: sobre aquest vidre un bloc de 2×2 es veu com a brutícia i no com a gris, i el que va fer va
+// ser empitjorar la pàgina. El que ha de fer que setze nivells capiguen en nou esglaons no és la trama sinó el **temps de
+// porta** (`kGateUs`, a `epd47.cpp`), que és el que decideix quanta tinta es mou a cada passada (docs/50, docs/95).
+inline uint8_t white_steps_of(uint8_t level) {
+  return static_cast<uint8_t>((static_cast<uint16_t>(level & 0x0F) * kWhiteMost + 7u) / 15u);
 }
-// **I el codi d'un nivell de tinta en una passada**: negre a la primera meitat, blanc comptat a la segona, i res quan les
-// empentes d'aquell nivell ja s'han acabat (docs/50, docs/95).
-inline uint8_t pulse_code(uint8_t ink, uint8_t phase) {
+// **I el codi d'un nivell en una passada**: negre a la primera meitat, blanc comptat a la segona, i res quan les empentes
+// d'aquell nivell ja s'han acabat (docs/50, docs/95).
+inline uint8_t pulse_code(uint8_t level, uint8_t phase) {
   if (phase < kBlackPhases) return 1;
-  return (static_cast<uint8_t>(phase - kBlackPhases) < kWhiteStepsOfInk[ink < 5 ? ink : 4]) ? 2 : 0;
+  return (static_cast<uint8_t>(phase - kBlackPhases) < white_steps_of(level)) ? 2 : 0;
 }
 
 // **I el paper que la taula del panell suposa** (0.190.42). `kWaveform` és una taula **des de blanc**: the row of a level is

@@ -134,6 +134,10 @@ uint32_t bus_mhz() { return (g_surface != nullptr) ? g_surface->bus_mhz() : 0u; 
 
 bool set_bus_mhz(uint32_t mhz) { return (g_surface != nullptr) && g_surface->set_bus_mhz(mhz); }
 
+uint32_t gate_us() { return (g_surface != nullptr) ? g_surface->gate_us() : 0u; }
+
+bool set_gate_us(uint32_t us) { return (g_surface != nullptr) && g_surface->set_gate_us(us); }
+
 // **Enviar els píxels no és calcular** (0.190.26, l'amo: *«al enviar dades al eink usa 80»*): the burst is a DMA of the bus and
 // the ink of the panel is the panel's own time —a page costs 783 ms of `flush` of which a third is the wire and the rest is waiting
 // for the controller—, o sigui que el processador no hi té res a fer i el pas de baix és el que li toca. **El preu és el

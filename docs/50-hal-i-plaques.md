@@ -811,6 +811,24 @@ un 20 % de passades en els modes de qualitat; els `du`, que ja comencen amb dues
 tintes és parcial —sobre una foto només s'hi empenyen els foscos i els clars queden a mig esborrar—; ara demana `gld16`,
 que és blanc sobre el que no ho és i res sobre el que ja ho és.
 
+**I la palanca que de debò decideix quants grisos té el vidre: el temps de porta** (0.190.48). Les
+formes d'ona d'aquest panell no diuen quant de temps ha d'estar oberta la fila, perquè no en tenen: diuen
+quins codis rep el píxel a cada passada, i la càrrega que arriba a la tinta és **la finestra** en què la
+porta d'aquella línia està oberta, no la llargada de la transferència. epdiy, que mou aquest mateix
+panell, obre **sis microsegons** d'una línia de dotze (`ckv_high_time = 60` en dècimes); nosaltres obríem
+la porta tota la transferència —uns vint-i-dos— i per tant cada píxel rebia **cinc vegades** la càrrega
+que la forma suposa: la tinta anava a la via a cada passada i els setze nivells queien a quatre bandes
+—negre, gris fosc, una fila barrejada i quasi blanc—. Ara la seqüència d'una fila és transferència amb la
+porta tancada, `LE` polsat, **`CKV` alt sis microsegons** i `CKV` baix.
+
+El número és per trobar i no per endevinar, o sigui que és **una palanca en calent**:
+`panel gate` diu quants microsegons hi ha (sis de sèrie), `panel gate 2`, `4`, `8` els canvia **sense
+reflaixar** —el rellotge del bus no es toca, només la finestra— i la prova és `panel bars` (els setze
+nivells en setze barres) o `splash sleep` (el dibuix conegut). El límit és quaranta microsegons, que ja és
+més que la transferència sencera i per tant deixa provar l'extrem dolent; **zero no s'accepta**, perquè una
+porta que no s'obre mai no mou tinta i no és una prova sinó una pàgina que no canvia —i és el valor que
+diu que una placa no té porta pròpia—.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

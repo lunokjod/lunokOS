@@ -10422,7 +10422,14 @@ namespace kernel {
 // amb pocs nivells és **trames**: els setze nivells d'entrada es reparteixen en un bloc 2×2 ordenat sobre els cinc que la tinta separa,
 // i el gris deixa de ser una barrera i passa a ser una textura. El preu és mig píxel de resolució i el guany és que la pàgina torna a
 // tenir setze tons; la mesura que ho diu és la mateixa: `panel bars` (docs/50, docs/95).
-static const char kVersion[] = "0.190.47";
+// **I el temps de porta, que és el número que decideix quants grisos té aquest vidre** (0.190.48 → 0.190.49). La font de la fila
+// aguanta els codis, però la càrrega només arriba a la tinta mentre la **porta** d'aquella línia està oberta, i l'impuls que rep un
+// píxel és aquesta finestra i no la llargada de la transferència. epdiy, que mou aquest mateix panell, dona sis microsegons a una línia
+// de dotze; nosaltres obríem la porta tota la transferència (uns vint-i-dos), o sigui que cada píxel rebia cinc vegades la càrrega que
+// la forma d'ona suposa i la tinta anava a la via a cada passada —els grisos queien a quatre bandes—. Amb sis microsegons la pàgina ja
+// es veu millor i encara falta, o sigui que és un número per trobar i no per endevinar: `panel gate <us>` el canvia **en calent** i la
+// prova és `panel bars` o `splash sleep`, sense cap flaish per valor (docs/50, docs/95).
+static const char kVersion[] = "0.190.49";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
