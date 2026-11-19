@@ -10390,7 +10390,13 @@ namespace kernel {
 // pàgina, i un `a2` és un mode **parcial** —el nucli mateix diu que un `du` no cobreix mai el vidre—, o sigui que sobre la foto
 // només s'hi empenyien els píxels foscos i els clars es quedaven a mig esborrar. El que aquella pàgina vol és blanc sobre el que no
 // ho és i res sobre el que ja és blanc, i això és un `gld16` (docs/50, docs/95).
-static const char kVersion[] = "0.190.42";
+// **I comptar bé els píxels d'un byte, que era el que tallava el sistema** (0.190.43). Hi ha **dues unitats** i no una: el quadre
+// del vidre és de quatre bits per píxel —un byte seu són **dos** píxels— i la fila que surt pel bus és de dos bits per píxel —un
+// byte seu en són **quatre**—. La finestra es convertia de columnes a bytes dividint per dos a tot arreu, o sigui que cada pintada
+// donava codi **al doble d'ample i desplaçada**: la banda del sistema quedava tallada a l'esquerra (els sis primers píxels no es
+// pintaven mai) i el rentat de l'splash començava vint columnes enllà. Ara la comparació amb el quadre anterior va en bytes del
+// quadre i la fila del bus en bytes de la fila, i cada una té el seu factor (docs/50, docs/95).
+static const char kVersion[] = "0.190.43";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

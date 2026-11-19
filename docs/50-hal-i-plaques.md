@@ -795,6 +795,13 @@ no l'inventa: I2C 39/40, panell `CKH` 4 i `D0..D7` 5-8 i 15-18, `STV` 45, `CKV` 
 targeta `CS` 12 `SCK` 14 `MOSI` 13 `MISO` 21, tàctil `INT` 3 `RST` 9, `PCA_INT` 38, `RTC_INT` 2,
 `BL_EN` 11.
 
+**I les dues unitats dels bytes, que és el que tallava la banda** (0.190.43): el quadre del vidre és de quatre bits per
+píxel —un byte seu són **dos** píxels— i la fila que surt pel bus és de dos bits per píxel —un byte seu en són
+**quatre**—. La finestra es convertia de columnes a bytes dividint sempre per dos, o sigui que cada pintada donava codi
+al doble d'ample i desplaçada: la banda del sistema quedava tallada a l'esquerra i el rentat de l'splash començava vint
+columnes enllà. La comparació amb el quadre anterior va en bytes del quadre, la fila del bus en bytes de la fila, i cada
+una té el seu factor.
+
 **I la taula parla des de blanc, i això s'havia de complir** (0.190.42): `u8GrayMatrix` és «des de blanc» —la
 nota del fabricant diu *from white (15) to each gray*— i aplicar-la sobre un píxel que no és blanc és un píxel que
 acaba on no toca. Cada píxel que s'ha de moure passa ara per **vuit passades cap al blanc** abans de la taula (el

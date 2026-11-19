@@ -661,9 +661,12 @@ bool Epd47::flush(UpdateMode mode) {
   dirty_glass(gx0, gy0, gx1, gy1);
   uint16_t first = gy0;
   uint16_t last = gy1;
-  // Un byte del vidre són dos píxels, o sigui que la finestra de columnes s'arrodoneix a bytes sencers.
-  uint16_t b0 = static_cast<uint16_t>(gx0 >> 1);
-  uint16_t b1 = static_cast<uint16_t>(gx1 >> 1 < (kRowBytes - 1) ? gx1 >> 1 : (kRowBytes - 1));
+  // **Dues unitats i no una** (0.190.43, i era un error de comptar): el **quadre** del vidre és de quatre bits per píxel, o
+  // sigui que un byte seu són **dos** píxels; però la **fila que surt pel bus** és de dos bits per píxel, o sigui que un
+  // byte seu en són **quatre**. Confondre-les pintava cada finestra al doble d'ample i desplaçada —la banda del sistema
+  // quedava tallada a l'esquerra i el rentat de l'splash començava vint columnes enllà— (docs/50, docs/95).
+  uint16_t fb0 = static_cast<uint16_t>(gx0 >> 1);
+  uint16_t fb1 = static_cast<uint16_t>(gx1 >> 1 < (kGlassStride - 1) ? gx1 >> 1 : (kGlassStride - 1));
   // **El mode que demana el nucli és el que decideix la forma d'ona** (0.190.38): `du`, `du4` and `a2` are the two-level
   // ones and they get the six phases of `kFastPhases`; every other one —and `gc16` above all— gets the panel's own
   // thirty-eight, que és la que neteja el fantasma que les curtes deixen (docs/50).
@@ -688,11 +691,11 @@ bool Epd47::flush(UpdateMode mode) {
     uint16_t far_row = 0;
     uint16_t left = 0xFFFF;
     uint16_t right = 0;
-    const uint16_t count = static_cast<uint16_t>(b1 - b0 + 1);
+    const uint16_t count = static_cast<uint16_t>(fb1 - fb0 + 1);
     for (uint16_t y = first; y <= last && y < kGlassH; ++y) {
       const uint32_t at = static_cast<uint32_t>(y) * kGlassStride;
-      const uint8_t* now = bits_ + at + b0;
-      const uint8_t* was = previous_ + at + b0;
+      const uint8_t* now = bits_ + at + fb0;
+      const uint8_t* was = previous_ + at + fb0;
       if (memcmp(now, was, count) == 0) continue;
       uint16_t i = 0;
       while (i + 1 < count && now[i] == was[i]) ++i;
@@ -700,8 +703,8 @@ bool Epd47::flush(UpdateMode mode) {
       while (j > i && now[j] == was[j]) --j;
       if (y < near_row) near_row = y;
       far_row = y;
-      if (static_cast<uint16_t>(b0 + i) < left) left = static_cast<uint16_t>(b0 + i);
-      if (static_cast<uint16_t>(b0 + j) > right) right = static_cast<uint16_t>(b0 + j);
+      if (static_cast<uint16_t>(fb0 + i) < left) left = static_cast<uint16_t>(fb0 + i);
+      if (static_cast<uint16_t>(fb0 + j) > right) right = static_cast<uint16_t>(fb0 + j);
     }
     if (near_row == 0xFFFF) {
       // **No hi ha res a moure**: el rectangle es deixa anar i no es paga cap passada.
@@ -713,11 +716,14 @@ bool Epd47::flush(UpdateMode mode) {
     }
     first = near_row;
     last = far_row;
-    b0 = left;
-    b1 = right;
-    gx0 = static_cast<uint16_t>(b0 * 2);
-    gx1 = static_cast<uint16_t>(b1 * 2 + 1);
+    fb0 = left;
+    fb1 = right;
+    gx0 = static_cast<uint16_t>(fb0 * 2);
+    gx1 = static_cast<uint16_t>(fb1 * 2 + 1);
   }
+  // **I la fila del bus, que és l'altra unitat**: un byte seu són quatre columnes del vidre.
+  const uint16_t b0 = static_cast<uint16_t>(gx0 >> 2);
+  const uint16_t b1 = static_cast<uint16_t>((gx1 >> 2) < (kRowBytes - 1) ? (gx1 >> 2) : (kRowBytes - 1));
   bus_us_ = 0;
   cpu_us_ = 0;
   const uint32_t started = static_cast<uint32_t>(esp_timer_get_time());
@@ -730,8 +736,8 @@ bool Epd47::flush(UpdateMode mode) {
   // els bytes que han sortit— i només si la pintada ha arribat al final (docs/50).
   if (ok) {
     for (uint16_t y = first; y <= last && y < kGlassH; ++y) {
-      const uint32_t at = static_cast<uint32_t>(y) * kGlassStride + b0;
-      const size_t len = static_cast<size_t>(b1 - b0 + 1);
+      const uint32_t at = static_cast<uint32_t>(y) * kGlassStride + fb0;
+      const size_t len = static_cast<size_t>(fb1 - fb0 + 1);
       if (!fast) {
         memcpy(previous_ + at, bits_ + at, len);
         continue;
