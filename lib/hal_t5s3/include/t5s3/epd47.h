@@ -63,12 +63,6 @@ class Epd47 : public ISurface {
   // is the whole test—. The peripheral is created again with the new clock and the frame, the panel and the supply stay
   // where they are; a speed this chip cannot give is refused and never rounded (docs/50, docs/80).
   bool set_bus_mhz(uint32_t mhz) override;
-  // **I la finestra de la porta, en nanosegons** (0.190.49): el número que decideix quants grisos separa aquest vidre, i es
-  // mesura en calent perquè cada valor és una pintada de prova (docs/50, docs/95).
-  uint32_t gate_ns() const override { return gate_ns_; }
-  bool set_gate_ns(uint32_t ns) override;
-  uint32_t road_ns() const override { return road_ns_; }
-  bool set_road_ns(uint32_t ns) override;
   const char* last_error() const override { return error_; }
 
  private:
@@ -143,24 +137,10 @@ class Epd47 : public ISurface {
   uint16_t dirty_x1_ = 0;
   uint16_t dirty_y1_ = 0;
   uint16_t rotation_ = 270;
-  // **Vint megahertz, que és el que la taula del fabricant dona per aquest panell** i el que fa servir el seu firmware, i
-  // es pot canviar en calent des del prompt (`panel bus 26`) (0.190.38, docs/50).
-  uint32_t pclk_hz_ = 20000000;
-  // **Un microsegon i mig de línia** (0.190.53), que és el pas que aquest vidre aguanta sense deixar de moure la tinta: el camí
-  // sencer de blanc a negre són tretze microsegons i mig, o sigui nou empentes, i nou esglaons és el que es veu net. A nou-cents
-  // nanosegons n'hi caben quinze i en surten setze, si el pixel es carrega prou de pressa. **No és el número del fabricant**: el
-  // seu vidre en demana noranta de microsegons per fer el mateix camí (docs/50, docs/95).
-  uint32_t gate_ns_ = 1500;
-  // **I les passades que la porta d'aquest moment demana** (0.190.50): la tinta es mou per **temps de porta**, o sigui que
-  // baixar la porta sense apujar les passades treu contrast en lloc de guanyar nivells. Es tornen a comptar a cada canvi de
-  // `gate_ns_` i mai no són zero (docs/50, docs/95).
-  // **I el camí sencer, que és el contrast i no el gruix del pas** (0.190.54): gairebé sempre és el mateix número que la mesura
-  // dona —tretze microsegons i mig—, però si a la porta curta el píxel no es carrega prou, el que falta no és més gruix sinó més
-  // temps de camí, i això és el que aquest segon número permet sense canviar el gruix de cada esglaó (docs/50, docs/95).
-  uint32_t road_ns_ = epd47::kTravelNs;
-  uint8_t black_passes_ = 9;
-  uint8_t wash_passes_ = 9;
-  void scale_the_passes();
+  // **Vint-i-sis megahertz i mig, que és el que el fabricant demana a la seva pròpia placa** (0.190.55): `initPanel(
+  // BB_PANEL_EPDIY_V7, 26666666)` a tots els seus exemples per a aquest vidre —la taula del panell en diu vint, i el seu
+  // programa en fa servir vint-i-sis i mig—, i es pot canviar en calent des del prompt (`panel bus 26`) (docs/50).
+  uint32_t pclk_hz_ = 26666666;
   // **El que ha costat la pintada, partit en dos** (0.190.38): `bus_us_` is the wire and the peripheral —the row that has
   // gone out— and `cpu_us_` is the turning of the frame into codes, which is the only part a faster processor or a
   // different loop can take away (docs/95).

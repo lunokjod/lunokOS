@@ -1,17 +1,18 @@
-// **La forma d'ona del fabricant, que es conserva com a document i que aquest vidre no sap separar** (0.190.33, i la
-// 0.190.46 la substitueix a la pràctica): 16 rows by 38 columns, and each value is what a
-// phase does to a pixel that has to end up at that level —`0` nothing, `1` towards black, `2` towards white—.
+// **La forma d'ona amb què el fabricant pinta setze grisos en aquesta placa, copiada tal com és** (0.190.55). It is
+// `u8_103Grays` of the board's own repository, `examples/FastEPD/grayscale_test`, the sketch that installs it with
+// `setCustomMatrix()` and then fills the screen with the sixteen levels ("Set a custom gray matrix for this panel. This
+// determines how the shades of gray look in 4-bpp mode"). **No és cap dibuix meu ni cap número trobat a cops de porta**: és la
+// seva taula, amb la seva atribució —FastEPD és de BitBank Software, Inc., sota Apache License 2.0— i sense tocar-ne ni una
+// xifra.
 //
-// It is **the panel's own data and not a drawing of mine**, and where it comes from is part of the file: it is
-// `u8GrayMatrix` of **FastEPD**, the library the board's own repository carries (`lib/FastEPD/src/FastEPD.inl`),
-// which is published under the **Apache License 2.0 by BitBank Software, Inc.** —the same table the vendor's
-// firmware drives with, since its factory example is epdiy's `epd_board_v7`—. It is reproduced here with that
-// attribution and under that licence, and it is the one thing of this driver that is not this project's code.
+// Setze files (el nivell de destí, 0 negre a 15 blanc) i **divuit passades**, i cada valor és què fa aquella passada a aquell
+// píxel: `0` res, `1` cap al negre, `2` cap al blanc. Fixa-t'hi que **les dues tintes hi són dins de cada fila**: no és un camí
+// d'anada i tornada com els que vaig inventar, sinó una seqüència amb empentes en tots dos sentits, que és el que separa setze
+// nivells amb divuit escombrades.
 //
-// **I la mesura que hi ha a sota és la de l'original** (`// 38 columns by 16 rows. From white (15) to each gray
-// (0-black to 15-white) at 20C`): a row is the destination level and the table goes **from white**, o sigui que
-// repintar sobre tinta que ja hi és deixa un fantasma i la matriu de 16 × 16 arribarà quan hi hagi la manera de
-// recordar què hi havia (docs/50, docs/95).
+// **I la manera de donar-li temps a la tinta també és la seva** (vegeu `scan_a_pass` a `epd47.cpp`): la porta de la fila està
+// oberta **durant tota la transferència**, no en una finestra comptada, i el que la tanca és el pols de `LE` de la fila
+// següent. Qualsevol finestra que hi posis a mà és una invenció que et menges el contrast.
 #ifndef LUNOK_T5S3_EPD47_WAVEFORM_H
 #define LUNOK_T5S3_EPD47_WAVEFORM_H
 
@@ -20,73 +21,38 @@
 namespace hal {
 namespace epd47 {
 
-// How many phases the table has: the screen is scanned this many times for one update (docs/50).
-const uint8_t kPhases = 38;
+// **Divuit escorregudes del vidre per pintar setze grisos** (docs/50).
+const uint8_t kGrayPhases = 18;
 
-// **I la curta, que és d'aquest projecte i no del panell** (0.190.38): `kPhases` is thirty-eight scans of the glass for a
-// page of sixteen greys, and a `du` —the fast mode, two levels— does not need them. What is below is **not** the panel's
-// data and does not pretend to be: it is the shortest shape that moves ink to a rail and leaves it there, a push of two
-// phases towards the opposite rail (the reset that keeps the ghost down) and four towards the target, o sigui sis
-// passades en lloc de trenta-vuit. El preu és el de sempre en tinta: un `du` deixa fantasma i el `gc16` del nucli —que
-// sí que fa servir la taula del panell— el neteja (docs/50, docs/95).
+// **I la curta, que és d'aquest projecte i no del panell** (0.190.38): a `du` —the fast mode, two levels— does not need
+// eighteen scans. What is below is **not** the panel's data and does not pretend to be: it is the shortest shape that moves
+// ink to a rail and leaves it there, two phases towards the opposite rail (the reset that keeps the ghost down) and four
+// towards the target, o sigui sis passades en lloc de divuit. El preu és el de sempre en tinta: un `du` deixa fantasma i el
+// `gc16` del nucli —que sí que fa servir la taula del panell— el neteja (docs/50, docs/95).
 const uint8_t kFastPhases = 6;
 // Vers el negre: primer un empenta cap al blanc i després cap al negre.
 const uint8_t kFastToBlack[kFastPhases] = {2, 2, 1, 1, 1, 1};
 // I vers el blanc, al revés.
 const uint8_t kFastToWhite[kFastPhases] = {1, 1, 2, 2, 2, 2};
 
-// **I la forma d'ona d'aquest projecte, que ara és la del fabricant** (0.190.51). La de `kWaveform` (les trenta-vuit passades
-// del FastEPD) no separa els nivells en aquest vidre i una taula feta de *formes* tampoc: el que hi ha dins del panell, per al
-// mode de setze grisos, és una altra cosa, i s'ha llegit del seu propi fitxer (`epd_wp_epdiy_ED047TC1_16_0`, quinze passades):
-//
-//   **cada nivell s'empeny cap al negre un nombre comptat de vegades, i el compte es fa des del blanc.** El nivell 0 rep les
-//   quinze passades, el 15 no en rep cap, i el 14 en rep una. Res més: no hi ha empentes de tornada, ni balances, ni trama.
-//
-// O sigui que **una passada és 1/15 del camí** de blanc a negre, i d'aquí surten els setze nivells. El nostre esquema anterior
-// (vuit passades cap al negre i després comptar les de tornada cap al blanc) tenia el compte al revés, i per això `panel bars`
-// donava quatre colors tots a l'esquerra: la tornada des del negre és molt més sensible que l'anada, i mitja passada de blanc ja
-// era mig camí (docs/50, docs/95).
-//
-// **El rentat a blanc no és opcional i el fabricant el pot estalviar perquè la seva pàgina ja ho és**: la seva taula només dona
-// codi als píxels que venen del blanc (`from` = 15) —el `data[frame][to][from]` és una matriu de transició de 16×16 i les seves
-// quinze files només tenen el bit del 15—. Nosaltres no podem suposar res del que hi ha al vidre, o sigui que el rentat es fa, i
-// la seva llargada també surt del temps de porta (0.190.52).
-const uint8_t kTowardsWhite = 2;
-const uint8_t kTowardsBlack = 1;
-// **I quant temps de porta demana aquest vidre per fer el camí sencer** (0.190.53), que és el número que la mesura ha trobat i
-// que no és el del fabricant. Ells hi gasten quinze empentes de sis microsegons —noranta—; aquí `panel bars` amb la seva forma
-// d'ona donava *«cinc colors i la resta tot negre»* a sis microsegons i, a microsegon i mig, *«quasi arriba a la meitat, però
-// mig panell encara és negre»*: o sigui que **el camí de blanc a negre s'acaba amb nou empentes de microsegon i mig**, tretze
-// microsegons i mig. Aquest vidre es mou unes set vegades més de pressa que el del fabricant, i això no és cap error de compte:
-// és el que hi ha, i el que s'ha de fer és **partir el camí amb el temps que hi ha** (docs/50, docs/95).
-const uint32_t kTravelNs = 13500;
-const uint8_t kMostPasses = 48;
-const uint8_t kMostWash = 16;
-// **Les empentes cap al negre que demana un nivell**: el 0 les demana totes i el 15 cap, i al mig es reparteixen. És l'única
-// aritmètica d'aquesta forma d'ona (docs/50, docs/95).
-inline uint8_t steps_towards_black(uint8_t level, uint8_t passes) {
-  const uint16_t steps = static_cast<uint16_t>(15u - (level & 0x0F)) * passes;
-  return static_cast<uint8_t>((steps + 7u) / 15u);
-}
-
-// `kPhases` values per level, 0 black to 15 white.
-static const uint8_t kWaveform[16][kPhases] = {
-  0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-  2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-  0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-  0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0,
-  0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-  0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 0, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0,
-  0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 2, 0,
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0,
+// **La taula del fabricant, sense una xifra tocada**: setze nivells per divuit passades (docs/50, docs/95).
+static const uint8_t kGrayMatrix[16][kGrayPhases] = {
+  0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,   // 0
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 1, 1, 0, 0, 0, 0,   // 1
+  0, 0, 0, 0, 0, 1, 1, 1, 2, 1, 1, 1, 2, 1, 0, 0, 0, 0,   // 2
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 1, 0, 0, 0, 0, 0,   // 3
+  0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 1, 0, 0, 0, 0, 0, 0,   // 4
+  0, 0, 0, 0, 0, 1, 0, 0, 1, 2, 0, 1, 0, 0, 0, 0, 0, 0,   // 5
+  0, 0, 0, 0, 0, 1, 2, 0, 1, 2, 0, 1, 0, 0, 0, 0, 0, 0,   // 6
+  0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 0, 0, 0,   // 7
+  0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 1, 2, 1, 0, 0, 0, 0, 0,   // 8
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 0, 0, 0,   // 9
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 0, 0, 0,   // 10
+  0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 1, 2, 0, 0,   // 11
+  0, 0, 0, 0, 0, 1, 1, 1, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0,   // 12
+  0, 0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 1, 2, 0, 0, 0, 0, 0,   // 13
+  1, 1, 1, 1, 1, 1, 2, 2, 1, 2, 2, 0, 0, 0, 0, 0, 0, 0,   // 14
+  0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,   // 15
 };
 
 }  // namespace epd47

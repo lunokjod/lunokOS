@@ -967,21 +967,6 @@ void print_apps() {
 // partial paint —**the whole height of the page for a cell at the bottom of a launcher**— and it was decided on a night
 // where the panel was never selected again after the splash (0.118.9), so it is a question a person can put to the
 // glass and read in the log: `paint 24,60 108x242` instead of `paint 0,274 168x242` (docs/30, docs/50).
-// **Un microsegon amb coma, en nanosegons** (0.190.54): el prompt no porta `strtod` i el número és petit, o sigui que es llegeix
-// a mà; mil·lèsimes de microsegon ja són més precisió de la que el processador pot donar en una espera (docs/50).
-uint32_t micros_of(const char* text) {
-  const uint32_t whole = static_cast<uint32_t>(atoi(text));
-  uint32_t frac = 0;
-  const char* dot = strchr(text, '.');
-  if (dot != nullptr) {
-    uint32_t scale = 100;
-    for (const char* p = dot + 1; *p >= '0' && *p <= '9' && scale > 0; p++, scale /= 10) {
-      frac += static_cast<uint32_t>(*p - '0') * scale;
-    }
-  }
-  return whole * 1000u + frac * 10u;
-}
-
 bool command_panel(const char* rest) {
   char both[2][kWordCap];
   size_t many = 0;
@@ -1071,60 +1056,8 @@ bool command_panel(const char* rest) {
     out(said);
     return true;
   }
-  // **`panel gate <us>`** (0.190.49): the time the gate of a line is open, which is the knob that decides **how fine a step is**
-  // and therefore how many greys the glass separates. **Es demana en microsegons i s'admet la coma** (0.190.52, `panel gate
-  // 1.5`) perquè el pas que separa setze grisos en aquest vidre és més fi que un microsegon; endins es compta en nanosegons. It
-  // is changed hot because every value is a test page, and a flash per value is a session per value.
-  if (strcmp(both[0], "gate") == 0) {
-    if (many < 2) {
-      if (display::gate_ns() == 0) {
-        out("panel: this glass has no gate of its own\r\n");
-        return true;
-      }
-      char said[64];
-      snprintf(said, sizeof(said), "panel: the gate is open %u ns per line\r\n",
-               static_cast<unsigned>(display::gate_ns()));
-      out(said);
-      return true;
-    }
-    const uint32_t ns = micros_of(both[1]);
-    if (!display::set_gate_ns(ns)) {
-      out("panel: the glass did not take that gate\r\n");
-      return false;
-    }
-    char said[64];
-    snprintf(said, sizeof(said), "panel: the gate is open %u ns per line\r\n",
-             static_cast<unsigned>(display::gate_ns()));
-    out(said);
-    return true;
-  }
-  // **`panel road <us>`** (0.190.54): how much open gate a pixel gets for the whole way from white to black, **which is the
-  // contrast** and not the size of a step (`panel gate`). Si el negre no arriba a negre amb la porta curta, el que falta és
-  // camí i no gruix, i això es pot provar sense flaishar (docs/50, docs/95).
-  if (strcmp(both[0], "road") == 0) {
-    if (many < 2) {
-      if (display::road_ns() == 0) {
-        out("panel: this glass has no road of its own\r\n");
-        return true;
-      }
-      char said[64];
-      snprintf(said, sizeof(said), "panel: the road is %u ns long\r\n", static_cast<unsigned>(display::road_ns()));
-      out(said);
-      return true;
-    }
-    const uint32_t ns = micros_of(both[1]);
-    if (!display::set_road_ns(ns)) {
-      out("panel: the glass did not take that road\r\n");
-      return false;
-    }
-    char said[64];
-    snprintf(said, sizeof(said), "panel: the road is %u ns long\r\n", static_cast<unsigned>(display::road_ns()));
-    out(said);
-    return true;
-  }
   if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
-    usage_out("usage: panel [edge|box|bars|gate [us]]\r\n"
-              "       panel [road [us]] | panel bus [mhz] | panel flush [rows|burst|2bit]\r\n");
+    usage_out("usage: panel [edge|box|bars] | panel bus [mhz] | panel flush [rows|burst|2bit]\r\n");
     return false;
   }
   if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {

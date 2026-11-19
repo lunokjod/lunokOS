@@ -81,15 +81,6 @@ bool the_glass_is_asleep();
 // board and not in three flashes. It is not remembered across a boot either (docs/50).
 uint32_t bus_mhz();
 bool set_bus_mhz(uint32_t mhz);
-// **La finestra de la porta de la fila** (0.190.49), en nanosegons (0.190.52): the number that decides how much ink moves in
-// one pass, and therefore how many greys this glass separates. Zero is a glass without a gate of its own (docs/50, docs/95).
-uint32_t gate_ns();
-bool set_gate_ns(uint32_t ns);
-// **I el camí sencer** (0.190.54), que és el contrast: quants nanosegons de porta té un píxel per anar de blanc a negre. Zero és
-// un vidre que no ho sap dir (docs/50, docs/95).
-uint32_t road_ns();
-bool set_road_ns(uint32_t ns);
-
 // **Quatre-cents i no mil cinc-cents** (0.189.79): the window was sized by eye when a paint still cost six hundred and sixty
 // milliseconds of preparation; with the bands, the pointers and the bus at twenty-four the worst page the board measures is
 // **182 ms**, so four hundred is twice the work and not four times it. El que es paga de més és el processador a dalt durant

@@ -811,80 +811,27 @@ un 20 % de passades en els modes de qualitat; els `du`, que ja comencen amb dues
 tintes és parcial —sobre una foto només s'hi empenyen els foscos i els clars queden a mig esborrar—; ara demana `gld16`,
 que és blanc sobre el que no ho és i res sobre el que ja ho és.
 
-**I la palanca que de debò decideix quants grisos té el vidre: el temps de porta** (0.190.48). Les
-formes d'ona d'aquest panell no diuen quant de temps ha d'estar oberta la fila, perquè no en tenen: diuen
-quins codis rep el píxel a cada passada, i la càrrega que arriba a la tinta és **la finestra** en què la
-porta d'aquella línia està oberta, no la llargada de la transferència. epdiy, que mou aquest mateix
-panell, obre **sis microsegons** d'una línia de dotze (`ckv_high_time = 60` en dècimes); nosaltres obríem
-la porta tota la transferència —uns vint-i-dos— i per tant cada píxel rebia **cinc vegades** la càrrega
-que la forma suposa: la tinta anava a la via a cada passada i els setze nivells queien a quatre bandes
-—negre, gris fosc, una fila barrejada i quasi blanc—. Ara la seqüència d'una fila és transferència amb la
-porta tancada, `LE` polsat, **`CKV` alt sis microsegons** i `CKV` baix.
+**I el que de debò hi havia de ser: el codi del fabricant, no el meu** (0.190.55). Entre la 0.190.46 i la
+0.190.54 aquesta fitxa va acumular una sèrie de números que eren invents meus —una finestra de porta comptada a
+mà, un camí de blanc a negre de tretze microsegons i mig, «passades» en lloc de temps, una trama de 2×2— i
+l'amo ho va tallar amb raó: *«el codi d'exemple de LilyGO fa la feina i la fa bé... vols fer el favor de
+copiar el que fan ells?»*. El que fan ells és, exactament:
 
-El número és per trobar i no per endevinar, o sigui que és **una palanca en calent**:
-`panel gate` diu quants microsegons hi ha (sis de sèrie), `panel gate 2`, `4`, `8` els canvia **sense
-reflaixar** —el rellotge del bus no es toca, només la finestra— i la prova és `panel bars` (els setze
-nivells en setze barres) o `splash sleep` (el dibuix conegut). El límit és quaranta microsegons, que ja és
-més que la transferència sencera i per tant deixa provar l'extrem dolent; **zero no s'accepta**, perquè una
-porta que no s'obre mai no mou tinta i no és una prova sinó una pàgina que no canvia —i és el valor que
-diu que una placa no té porta pròpia—.
+1. **La seva taula**: `u8_103Grays` del seu `examples/FastEPD/grayscale_test`, setze nivells per **divuit
+   passades**, instal·lada amb `setCustomMatrix()` («determines how the shades of gray look in 4-bpp mode»).
+   És a `t5s3/epd47_waveform.h` **sense una xifra tocada**, amb l'atribució de FastEPD (BitBank Software,
+   Apache 2.0). Dins de cada fila hi ha les **dues tintes** —`1` cap al negre i `2` cap al blanc—, que és el
+   que separa setze nivells amb divuit escombrades.
+2. **La seva seqüència de fila** (`bbepWriteRow`): `ROW_STEP` —`CKV` baix i pols de `LE`— i tot seguit
+   **`CKV` alt per a tota la transferència**, no una finestra comptada; el que tanca la porta és el pols de la
+   fila següent. La finestra que hi vaig posar jo a la 0.190.48 és, literalment, la que em menjava el
+   contrast i em va fer buscar set formes d'ona diferents durant sis versions.
+3. **El seu rellotge**: vint-i-sis megahertz i mig (`initPanel(BB_PANEL_EPDIY_V7, 26666666)`), no els vint de
+   la taula del panell.
+4. **El seu repòs entre passades**: 230 µs, i una passada de codi neutral al final per descarregar els
+   drivers del panell.
 
-**I les passades i la porta són un sol número** (0.190.50). L'amo, amb la porta a sis: *«l'splash sleep es
-veu millor... encara falten colors, però es veu menys negre»* —i les dues meitats de la frase són la
-mateixa cosa, perquè la càrrega que mou la tinta és porta **per** temps: tancar la porta sense apujar les
-passades treu contrast en lloc de guanyar nivells. O sigui que `set_gate_us` recompta les passades i
-manté el producte —**vuit i vuit** a sis microsegons, setze i setze a tres, vint-i-quatre i vint-i-quatre
-a dos—, i així el que canvia a la pàgina és **quants nivells se separen** i no quant de negre hi ha, que és
-la pregunta que la palanca ha de respondre. El sostre és el del temps i no el de la física: quaranta-vuit
-escombrades del vidre ja són gairebé un segon, i el log de la pintada diu les passades que ha costat.
-
-**I el compte del fabricant, que és el que faltava** (0.190.51). Amb la porta a sis, quatre i dos microsegons
-`panel bars` donava *quatre colors tots a l'esquerra* i la resta blanc, i `splash sleep` sortia *cremat*. El
-compte no quadrava amb cap model de càrrega: baixar la porta no separava més nivells, només aclaria la
-pàgina. La resposta és dins del panell: el mode de setze grisos del fabricant
-(`epd_wp_epdiy_ED047TC1_16_0`, quinze passades) **no té empentes de tornada**. A cada passada, els nivells
-que encara han d'anar cap al negre reben **una empenta cap al negre i res més**; el nivell 0 les rep totes
-les quinze, el 15 cap, el 14 una. O sigui que **una passada és 1/15 del camí de blanc a negre**, i d'aquí
-surten els setze nivells.
-
-El nostre esquema tenia el compte al revés —vuit passades cap al negre i després comptar les de tornada cap
-al blanc— i per això la meitat fosca de les barres sortia tota igual i la clara s'ho menjava tot: la
-tornada des del negre és molt més sensible que l'anada, i mitja passada de blanc ja era mig camí. Ara es
-**renta a blanc** (vuit passades, el que el fabricant pot estalviar perquè la seva pàgina ja ho és: la seva
-taula només dona codi al píxel que ve del blanc) i es compta el camí cap al negre.
-
-El nombre de passades del camí segueix la palanca de la porta: **quinze a sis microsegons** —les del
-fabricant—, trenta a tres, quaranta-vuit a la porta més curta que la palanca accepta. El que canvia a la
-pàgina quan l'amo la mou és **quants esglaons se separen**, que és la pregunta.
-
-**I el compte és en temps, no en passades** (0.190.52). Amb la forma d'ona del fabricant, `panel bars` va donar
-*«cinc colors i la resta tot negre»* a sis microsegons de porta i quatre colors a tres. Cinc colors amb la
-resta negre vol dir que **el camí de blanc a negre es fa amb quatre empentes de sis microsegons**, no amb les
-quinze del fabricant: el seu vidre en demana noranta microsegons de porta i el nostre **vint-i-quatre**. O
-sigui que el compte del fabricant era el bo —rentar a blanc i comptar cap al negre— i el que estava
-malament era **quant de temps hi ha d'anar cada empenta**.
-
-Per això el driver no compta passades sinó **nanosegons de porta**: vint-i-quatre microsegons per al camí cap
-al negre, dotze per al rentat a blanc, i **les passades que hi caben**. A un microsegon i mig hi caben setze
-empentes i es veuen setze grisos; a sis n'hi caben quatre i se'n veuen cinc. Baixar la porta ja no aclareix
-la pàgina, **la parteix més fi**, que és el que havia de fer des del principi.
-
-`panel gate` accepta la coma decimal (`panel gate 1.5`) i diu el número en nanosegons, perquè el pas que
-separa dos grisos en aquest panell és més fi que un microsegon: d'aquí ve `delay_ns()`, una espera comptada
-en cicles del processador, que `delayMicroseconds` no baixa del microsegon.
-
-**I el camí sencer són tretze microsegons i mig** (0.190.53). La mesura que ho va tancar: amb setze empentes a
-microsegon i mig, *«quasi arriba a la meitat, però es continua veient mitja pantalla (esquerra) negre»* —la
-tinta satura abans que el compte s'acabi—; a dos microsegons, pitjor; a un, *«millor, però menys colors»*,
-perquè a un microsegon el píxel ja no es carrega prou i l'empenta val menys del que diu. O sigui que el
-número que el driver ha de mantenir no és el de passades sinó el del **camí**: tretze microsegons i mig, nou
-empentes a la porta de sèrie i quinze a nou-cents nanosegons. A la porta de sèrie se separen **deu grisos
-nets** amb el contrast sencer; els setze només surten si el píxel aguanta nou-cents nanosegons.
-
-**I dos números i no un** (0.190.54): `panel gate <us>` és **el gruix d'un esglaó** —quants grisos
-se separen— i `panel road <us>` és **la llargada del camí** —quant de negre—, i les passades que en surten
-són el camí dividit pel pas. Si a la porta curta el píxel no es carrega del tot, el que falta no és gruix
-sinó temps, i amb el camí es pot allargar sense perdre el nombre d'esglaons. Tots dos es canvien en calent.
+Les comandes `panel gate` i `panel road` **no hi són**: eren palanques sobre un mecanisme que no era el bo.
 
 ## Fitxa: M5 Paper v1.0 i v1.1
 

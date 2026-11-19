@@ -10464,7 +10464,14 @@ namespace kernel {
 // temps**: els esglaons hi són i el negre no arriba. O sigui que hi ha dos números i no un — `panel gate <us>` és **el gruix
 // d'un esglaó** (quants grisos) i `panel road <us>` és **la llargada del camí** (quant de negre)—, i tots dos es canvien en
 // calent. El compte de passades que en surt és el camí dividit pel pas, que és l'única aritmètica honesta aquí (docs/50, docs/95).
-static const char kVersion[] = "0.190.54";
+// **I el que hi havia de ser des del primer dia: el codi del fabricant** (0.190.55). L'amo ho va dir clar i tenia raó:
+// *«el codi d'exemple de LilyGO fa la feina i la fa bé... vols fer el favor de copiar el que fan ells?»*. Sis versions
+// perseguint setze grisos amb coses que m'havia inventat —una finestra de porta comptada, un camí de tretze microsegons i mig,
+// comptes de passades, una trama— i el que hi ha al seu repositori és: **la seva matriu de setze per divuit** (`u8_103Grays`
+// del seu `grayscale_test`), **la porta oberta durant tota la transferència** (`bbepWriteRow`: `ROW_STEP` amb `CKV` baix i
+// pols de `LE`, i tot seguit `CKV` alt fins a la fila següent), **vint-i-sis megahertz i mig** i 230 µs entre passades. La
+// finestra de porta que vaig inventar-me era, literalment, el que em menjava el contrast (docs/50, docs/95).
+static const char kVersion[] = "0.190.55";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
