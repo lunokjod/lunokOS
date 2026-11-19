@@ -885,6 +885,16 @@ als seus modes (`kGc16`/`kInit` → `MODE_GC16`, `kGl16`/`kGlr16`/`kGld16` → `
 **I la llicència, dita clar**: epdiy és **LGPL-3** i viatja amb el seu `LICENSE` a `lib/epdiy/`, sense una
 línia tocada. No és codi d'aquest projecte i no s'ha de presentar com a tal.
 
+**I el voltant de la pintada, que és el que faltava copiar** (0.190.60). El panell que inicialitzen —`epd_board_v7`,
+`ED047TC1`, `EPD_LUT_64K`, la forma d'ona de sèrie, i `EPD_ROT_INVERTED_PORTRAIT` com a gir— és exactament el que ja hi
+ha, i el gir és el mateix mapa de pàgina que fa aquest fitxer. El que faltava és el que fan **al voltant**:
+
+- el seu `screen_update()` de fàbrica és `epd_poweron()` → `epd_hl_update_screen(&hl, MODE_GL16, epd_ambient_temperature())`
+  → `epd_poweroff()`: **les tensions no es queden enceses** entre dues hores;
+- l'exemple dels setze grisos fa **`epd_clear()` abans** de `MODE_GC16`, i és el que posa el paper blanc que la taula suposa;
+- la **VCOM** és 1560 mV a la seva NVS i **ajustable des del seu menú de fàbrica** (0 a 5,1 V, passos de 10 mV): és un
+  número per unitat, i per això `panel vcom <mv>` l'exposa.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

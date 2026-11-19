@@ -81,6 +81,11 @@ bool the_glass_is_asleep();
 // board and not in three flashes. It is not remembered across a boot either (docs/50).
 // **La finestra de la porta de la fila** (0.190.57), en nanosegons: el número que parteix el camí de blanc a negre en esglaons, i
 // per tant quants grisos separa el vidre. Zero és un vidre que no en té (docs/50, docs/95).
+// **La VCOM del vidre** (0.190.60), en milivolts: el número elèctric que decideix quanta tensió arriba de debò a la tinta.
+// Zero és un vidre que no la sap dir (docs/50, docs/95).
+uint16_t vcom_mv();
+bool set_vcom_mv(uint16_t mv);
+
 uint32_t gate_ns();
 bool set_gate_ns(uint32_t ns);
 

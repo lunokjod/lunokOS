@@ -10496,7 +10496,14 @@ namespace kernel {
 // el mapa entre la pàgina de 540 × 960 i el vidre de 960 × 540, el nivell d'un píxel, el rectangle que ha canviat i la traducció de
 // les quatre qualitats del nucli als modes d'epdiy. **És LGPL-3** i viatja amb la seva llicència a `lib/epdiy/LICENSE`, sense una
 // línia tocada (docs/50, docs/95).
-static const char kVersion[] = "0.190.59";
+// **I el que ells fan a cada pintada, adaptat al que tenim** (0.190.60). Llegit el seu codi, el panell és `epd_board_v7` +
+// `ED047TC1` + `EPD_LUT_64K` + la forma d'ona de sèrie (el que ja hi és) i el gir és `EPD_ROT_INVERTED_PORTRAIT`, que és
+// exactament el mapa de pàgina que ja teníem. El que faltava és el **voltant** de la pintada: el seu `screen_update()` fa
+// `epd_poweron()` → `epd_hl_update_screen()` → `epd_poweroff()`, o sigui que les tensions no es queden enceses entre dues hores; i
+// l'exemple de grisos fa **`epd_clear()` abans** de `MODE_GC16`, perquè la taula de setze grisos compta des de paper blanc. Les dues
+// coses són seves i ara també són nostres. I `panel vcom <mv>` perquè la VCOM —1560 mV per defecte a la seva NVS, ajustable des del
+// seu menú de fàbrica— es pugui moure sense flaishar (docs/50, docs/95).
+static const char kVersion[] = "0.190.60";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

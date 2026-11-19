@@ -518,6 +518,14 @@ class ISurface : public IDisplay {
   // a row, but the charge only reaches the ink while the gate of that line is open, o sigui que aquest número decideix en quants
   // esglaons es parteix el camí i, per tant, quants grisos separa el vidre. És el que el driver del fabricant no ha de comptar
   // perquè la seva fabricació de fila ja és curta. Zero és un vidre sense porta pròpia (docs/50, docs/95).
+  // **La VCOM del panell** (0.190.60), in millivolts: the common voltage of the ink, the number that decides how much of the drive
+  // actually lands across the pigment and the only electrical knob a driver can turn. Cada panell el vol diferent —el firmware de
+  // fàbrica el deixa ajustar des del seu menú— i un valor heretat d'una altra unitat és una pàgina cremada (docs/50, docs/95).
+  virtual uint16_t vcom_mv() const { return 0; }
+  virtual bool set_vcom_mv(uint16_t mv) {
+    (void)mv;
+    return false;
+  }
   virtual uint32_t gate_ns() const { return 0; }
   virtual bool set_gate_ns(uint32_t ns) {
     (void)ns;

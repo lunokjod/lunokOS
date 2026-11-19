@@ -1067,6 +1067,30 @@ bool command_panel(const char* rest) {
     out(said);
     return true;
   }
+  // **`panel vcom [mv]`** (0.190.60): the common voltage of the ink in millivolts, which is the only electrical number a driver can
+  // turn and the one the factory firmware lets a person calibrate. Un valor heretat d'una altra unitat és una pàgina cremada: si la
+  // tinta satura de seguida, aquest és el número que s'ha de moure (docs/50, docs/95).
+  if (strcmp(both[0], "vcom") == 0) {
+    if (many < 2) {
+      if (display::vcom_mv() == 0) {
+        out("panel: this glass has no VCOM of its own\r\n");
+        return true;
+      }
+      char said[56];
+      snprintf(said, sizeof(said), "panel: VCOM is %u mV\r\n", static_cast<unsigned>(display::vcom_mv()));
+      out(said);
+      return true;
+    }
+    const uint32_t mv = static_cast<uint32_t>(atoi(both[1]));
+    if (!display::set_vcom_mv(static_cast<uint16_t>(mv))) {
+      out("panel: the supply did not take that VCOM\r\n");
+      return false;
+    }
+    char said[56];
+    snprintf(said, sizeof(said), "panel: VCOM is %u mV\r\n", static_cast<unsigned>(display::vcom_mv()));
+    out(said);
+    return true;
+  }
   // **`panel bus <mhz>`** (0.189.77): the clock of the bus the pixels travel on, which is the last piece of a paint that is
   // still worth moving. It takes the place of a flash and a session per speed.
   if (strcmp(both[0], "bus") == 0) {
@@ -1092,7 +1116,7 @@ bool command_panel(const char* rest) {
     return true;
   }
   if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
-    usage_out("usage: panel [edge|box|bars|gate [us]] | panel bus [mhz] | panel flush [rows|burst|2bit]\r\n");
+    usage_out("usage: panel [edge|box|bars|vcom [mv]] | panel flush [rows|burst|2bit]\r\n");
     return false;
   }
   if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {

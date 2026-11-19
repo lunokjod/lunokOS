@@ -48,6 +48,12 @@ class Epd47 : public ISurface {
   bool set_rotation(uint16_t degrees) override;
   uint16_t rotation() const override { return rotation_; }
 
+  // **La VCOM del vidre** (0.190.60): the number the TPS65185 is told before a paint, in millivolts. És l'únic paràmetre elèctric
+  // que un driver pot moure i el firmware de fàbrica el deixa calibrar per unitat, o sigui que no és cap invent exposar-lo
+  // (docs/50, docs/95).
+  uint16_t vcom_mv() const override { return vcom_mv_; }
+  bool set_vcom_mv(uint16_t mv) override;
+
   // **El bus i la porta ja no són d'aquest projecte**: epdiy els té al seu `epd_board_v7` (vint megahertz, porta de sis
   // microsegons en una línia de dotze, CKV per RMT), o sigui que aquí no hi ha res a respondre i el prompt ho diu (docs/50).
   const char* last_error() const override { return error_; }
@@ -76,6 +82,7 @@ class Epd47 : public ISurface {
   bool begun_ = false;
   bool powered_ = false;
   uint16_t rotation_ = 270;
+  uint16_t vcom_mv_ = 1560;
   uint16_t dirty_x0_ = 0xFFFF;
   uint16_t dirty_y0_ = 0xFFFF;
   uint16_t dirty_x1_ = 0;

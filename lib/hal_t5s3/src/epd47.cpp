@@ -63,7 +63,7 @@ bool Epd47::begin() {
   // **L'arrencada és la del seu firmware de fàbrica** (0.190.59): the board, the panel, the 64k lookup table, the VCOM of this
   // glass and the built-in waveform. Epdiy owns the I2C, the PCA9535 and the TPS65185 from here on (docs/50).
   epd_init(&epd_board_v7, &ED047TC1, EPD_LUT_64K);
-  epd_set_vcom(kVcomMillivolts);
+  epd_set_vcom(vcom_mv_);
   g_state = epd_hl_init(EPD_BUILTIN_WAVEFORM);
   frame_ = epd_hl_get_framebuffer(&g_state);
   if (frame_ == nullptr) {
@@ -72,9 +72,9 @@ bool Epd47::begin() {
   }
   g_ready = true;
   begun_ = true;
-  // **I el corrent, en marxa**: a page of ink is written with the rails up, and they stay up until `rest()` (docs/50).
-  epd_poweron();
-  powered_ = true;
+  // **I el corrent no es queda obert** (0.190.60): their own firmware powers the supply **around every update** —`epd_poweron()`
+  // … `epd_hl_update_screen()` … `epd_poweroff()`— i les tensions enceses tot el dia són una tinta que es mou quan no toca
+  // (docs/50, docs/95).
   logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass, the built-in waveform of this panel", "2.0.0",
        static_cast<unsigned>(epd_width()), static_cast<unsigned>(epd_height()));
   return true;
@@ -218,23 +218,31 @@ bool Epd47::set_rotation(uint16_t degrees) {
 
 bool Epd47::flush(UpdateMode mode) {
   if (!begin()) return false;
+  // **Les tensions, a cada pintada** (0.190.60), com el seu `screen_update()`: they come up, the page is written and they go down
+  // again, o sigui que el vidre no es queda amb les vies obertes entre dues hores (docs/50).
   if (!powered_) {
     epd_poweron();
     powered_ = true;
   }
   const enum EpdDrawMode draw = mode_of(mode);
+  // **I el rentat del seu exemple de grisos** (0.190.60): `epd_clear()` **abans** de la taula, perquè la de setze grisos compta des
+  // de paper blanc. És el que fa el seu `grayscale_test` —`epd_poweron(); epd_clear(); epd_hl_update_screen(MODE_GC16)`— i sense el
+  // rentat el que hi hagi al vidre es queda a sota i la pàgina surt bruta (docs/50, docs/95).
+  if (mode == UpdateMode::kInit || mode == UpdateMode::kGc16) {
+    const uint32_t wash = static_cast<uint32_t>(esp_timer_get_time());
+    epd_clear();
+    logf(pal::kLogDebug, "PANEL", "epdiy: the wash before the waveform took %u ms",
+         static_cast<unsigned>((static_cast<uint32_t>(esp_timer_get_time()) - wash) / 1000u));
+  }
   // **El rectangle que ha canviat és el que es pinta** (0.190.40): epdiy can update an area, o sigui que una hora que canvia no ha
   // de costar la pàgina; i si no ha canviat res no es pinta (docs/50, docs/95).
   const bool nothing = (dirty_x0_ > dirty_x1_ || dirty_y0_ > dirty_y1_);
   const uint32_t started = static_cast<uint32_t>(esp_timer_get_time());
   if (nothing) {
-    if (mode == UpdateMode::kInit || mode == UpdateMode::kGc16) {
-      // **Una pàgina que neteja passa per tot el vidre encara que el nucli no hagi marcat res** (docs/50).
-      epd_clear();
-    }
     const uint32_t took = static_cast<uint32_t>(esp_timer_get_time()) - started;
-    logf(pal::kLogDebug, "PANEL", "%s: nothing changed, no paint", "epdiy");
-    (void)took;
+    logf(pal::kLogDebug, "PANEL", "%s: nothing changed, no paint (%u ms)", "epdiy", static_cast<unsigned>(took / 1000u));
+    epd_poweroff();
+    powered_ = false;
     return true;
   }
   uint16_t gx0 = 0;
@@ -255,10 +263,35 @@ bool Epd47::flush(UpdateMode mode) {
        static_cast<int>(area.y), area.width, area.height, static_cast<int>(draw), static_cast<unsigned>(took_ms),
        err == EPD_DRAW_SUCCESS ? "ok" : "with an error");
   forget_the_dirty();
+  // **I les tensions, avall** (0.190.60): the image stays because it is ink, and the rails do not (docs/50).
+  epd_poweroff();
+  powered_ = false;
   if (err != EPD_DRAW_SUCCESS) {
     error_ = "epdiy did not finish that paint";
     return false;
   }
+  return true;
+}
+
+bool Epd47::set_vcom_mv(uint16_t mv) {
+  // **Els límits són els del xip i no els d'aquest fitxer**: el TPS65185 dona de zero a cinc mil cent milivolts en passos de deu, i
+  // res fora d'això no és una VCOM sinó un registre inventat (docs/50).
+  if (mv == 0 || mv > 5100) {
+    error_ = "that is not a VCOM this supply can make";
+    return false;
+  }
+  vcom_mv_ = mv;
+  if (!begun_) return true;
+  // **I s'ha de tornar a encendre perquè l'agafi**: the value is written to the supply when the rails come up, o sigui que el que es
+  // fa és baixar-les, dir-ho i tornar-les a pujar; la imatge no es mou perquè és tinta (docs/50, docs/95).
+  if (powered_) {
+    epd_poweroff();
+    powered_ = false;
+  }
+  epd_set_vcom(mv);
+  epd_poweron();
+  powered_ = true;
+  logf(pal::kLogInfo, "PANEL", "the supply now holds VCOM at %u mV", static_cast<unsigned>(mv));
   return true;
 }
 
