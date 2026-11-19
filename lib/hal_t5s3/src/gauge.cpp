@@ -19,6 +19,11 @@ const uint8_t kStateOfCharge = 0x2C;
 // SLUSCQ1). What a person sees is the bolt: a cable that is feeding the cell.
 const uint8_t kChargerAddress = 0x6B;
 const uint8_t kChargerStatus = 0x0B;
+// **I el registre que apaga la placa** (0.190.33): REG09 bit 5 is `BATFET_DIS`, the transistor between the cell and the
+// board, and it is the maker's own way of switching this board off (`LilyGoT5_Shutdown` in its repository). It does
+// nothing while the cable is in (docs/50).
+const uint8_t kChargerControl = 0x09;
+const uint8_t kBatteryFetDisable = 0x20;
 
 // **El BQ27220 es desperta quan veu activitat al bus** (0.190.31, el log del 19/11): the gauge of this board answered
 // `ESP_ERR_TIMEOUT` on a bus where the touch controller (0x5D) and the clock chip (0x51) answered at once, and the
@@ -43,6 +48,16 @@ uint16_t little_endian(const uint8_t* bytes, size_t len) {
 }
 
 }  // namespace
+
+bool T5Gauge::shut_down() {
+  if (bus_ == nullptr) return false;
+  // **Read, or, write**: the register has other bits in it and the maker's own example keeps them, o sigui que el que
+  // es gira és un sol bit i la resta queda com estava (docs/50).
+  uint8_t value = 0;
+  if (!bus_->read(kChargerAddress, kChargerControl, &value, 1)) return false;
+  const uint8_t off[2] = {kChargerControl, static_cast<uint8_t>(value | kBatteryFetDisable)};
+  return bus_->write(kChargerAddress, off, sizeof(off));
+}
 
 bool T5Gauge::read(int& mv, int& pct, bool& charging) {
   if (bus_ == nullptr) return false;

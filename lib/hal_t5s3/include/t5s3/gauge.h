@@ -25,6 +25,13 @@ class T5Gauge {
   // zero volts and zero per cent are a board that is off, not one that cannot tell (docs/30, docs/50).
   bool read(int& mv, int& pct, bool& charging);
 
+  // **Tallar el corrent de debò** (0.190.33, el codi del fabricant: `LilyGoT5_Shutdown`): the only way to switch this
+  // board off is the charger's `BATFET_DIS` bit —register 9, bit 0x20—, which opens the field-effect transistor between
+  // the cell and the board. **It only works on the battery**: with the cable in, the board stays up and the bit does
+  // nothing (the maker's own note), o sigui que una placa endollada que diu que s'apaga és una placa que no s'ha apagat
+  // (docs/50).
+  bool shut_down();
+
  private:
   II2c* bus_;
 };

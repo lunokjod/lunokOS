@@ -1,0 +1,138 @@
+// **El vidre d'aquesta placa** (docs/50): an ED047TC1 of 4.7 inches, 960 × 540 and sixteen levels, and the thing that
+// makes this board different from the Paper is that **there is no controller between the chip and the panel**. On the
+// Paper an IT8951 is told «paint this rectangle with this mode» and it does; here the chip has to clock every row,
+// every phase of the panel's waveform, itself.
+//
+// What that means for the system, said once: an update is **`kPhases` scans of the whole glass** —thirty-eight—, o
+// sigui que refrescar costa segons i no mil·lisegons, i la pàgina es pinta quan ha de quedar quieta i no a cada tecla
+// (docs/50, docs/95). És el preu de no tenir controlador, i no una decisió d'aquest driver.
+//
+// **La forma d'ona és de l'ED047TC1 i no meva** (0.190.33): `epd47_waveform.h`, amb la seva atribució (FastEPD,
+// Apache-2.0, BitBank Software). Here is the rest: the bus, the supply and the frame.
+#ifndef LUNOK_T5S3_EPD47_H
+#define LUNOK_T5S3_EPD47_H
+
+#include <stdint.h>
+
+#include "hal/hal.h"
+#include "t5s3/expander.h"
+
+namespace hal {
+
+// The driver of the panel, built once: it owns the parallel bus, the frame and the supply sequence of the TPS65185
+// (docs/50).
+class Epd47 : public ISurface {
+ public:
+  // **Els dos xips que el panell necessita**: the expander that opens its gates and the bus the TPS65185 answers on —
+  // the same two wires as the clock chip and the touch controller (docs/50).
+  Epd47(Pca9535* expander, II2c* bus);
+
+  // **The panel, brought up**: the bus, its pins and the frame in the PSRAM. False is a panel that is not there, and
+  // `last_error()` says which of them it was —a board whose BUS does not come up must be told apart from one whose
+  // PSRAM has no room, because they are two different repairs—. **Les tensions no són aquí**: l'alimentació es demana
+  // a cada pintada i el que la contesta és el `flush` (docs/50).
+  bool begin();
+
+  uint16_t width() const override;
+  uint16_t height() const override;
+  void clear(uint8_t level) override;
+  void fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level) override;
+  void pixel(uint16_t x, uint16_t y, uint8_t level) override;
+  void blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* packed, uint16_t stride) override;
+
+  // **One update, and the whole glass**: the panel has no partial engine, so a paint is every row and every phase
+  // (docs/50, docs/95).
+  bool flush(UpdateMode mode) override;
+  bool idle() override { return !busy_; }
+
+  // **The panel goes to rest** (0.183.0): the rails of the TPS are taken down after the last paint of a way down, and
+  // the image stays because it is ink (docs/50).
+  bool rest() override;
+
+  // Which way the page lies on the glass: the glass is landscape and the page is a portrait page of 540 × 960, o sigui
+  // que el gir és del driver i no del nucli. 90 and 270 are the two that fit (docs/50).
+  bool set_rotation(uint16_t degrees) override;
+  uint16_t rotation() const override { return rotation_; }
+
+  // The bus of this panel is the parallel one and it is not an SPI: what the kernel prints about the wire is the clock
+  // of the i80 peripheral (docs/50).
+  uint32_t bus_mhz() const override;
+  // **I es canvia en calent** (0.190.38): a row is 240 bytes of cable and the cable is the largest piece of a paint, so
+  // the speed of the wire is the one knob worth measuring on the board and not by flashing —`panel bus 26` at the prompt
+  // is the whole test—. The peripheral is created again with the new clock and the frame, the panel and the supply stay
+  // where they are; a speed this chip cannot give is refused and never rounded (docs/50, docs/80).
+  bool set_bus_mhz(uint32_t mhz) override;
+  const char* last_error() const override { return error_; }
+
+ private:
+  // **The frame lives in the glass's own frame** (960 × 540, four bits a pixel, 259 200 B in the PSRAM): the page is
+  // turned into it once per write, and the update is then a straight walk of its rows, which is the hot path (docs/50).
+  static const uint16_t kGlassW = 960;
+  static const uint16_t kGlassH = 540;
+  static const uint16_t kGlassStride = kGlassW / 2;
+  // The page an app draws in: a portrait page on a landscape glass (docs/50).
+  static const uint16_t kPageW = 540;
+  static const uint16_t kPageH = 960;
+
+  void to_glass(uint16_t px, uint16_t py, uint16_t& gx, uint16_t& gy) const;
+  void put(uint16_t gx, uint16_t gy, uint8_t level);
+  uint8_t get(uint16_t gx, uint16_t gy) const;
+  // **El rectangle que ha canviat, en coordenades de pàgina** (0.190.37): the contract of `ISurface` is that a flush sends
+  // the rectangle the writes marked and forgets it, i en un vidre que costa dos segons i mig per passada això no és un
+  // detall. Les cantonades són totes dues dins del rectangle i `nothing_dirty()` és una pintada que no surt (docs/50).
+  void mark(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  bool nothing_dirty() const { return dirty_x1_ < dirty_x0_ || dirty_y1_ < dirty_y0_; }
+  void forget_the_dirty();
+  // **Les files del vidre que aquest rectangle toca**: the gate scan starts at line zero and walks down, o sigui que el
+  // que es pot estalviar és el que hi ha **per sota** de l'última fila marcada (docs/50).
+  void dirty_rows(uint16_t& first, uint16_t& last) const;
+
+  // The supply of the panel, in the order the maker's own driver gives it (TPS65185 + PCA9535).
+  bool power(bool on);
+  // **Les portes de tornada a baix**, and it is not the error path's private business: a supply that came halfway up
+  // is closed with the same writes as one that came all the way (0.190.34).
+  void gates_down();
+  // **Un passatge sencer**: the STV start, the rows of the marked rectangle with the gate advancing one line at a time,
+  // and the latch of the last one. `upper`/`lower` are the two halves of the table for this phase, and a null pair is the
+  // discharge pass, que és la que deixa els drivers del panell en repòs (docs/50).
+  bool scan_a_pass(uint16_t first, uint16_t last, const uint8_t* upper, const uint8_t* lower);
+  // **El perifèric del bus, obert i tornat a obrir** quan canvia el rellotge (0.190.38).
+  bool open_the_io();
+  // The four edges of a row: `start` opens a pass, and the step latches a row that has just been clocked.
+  void row_control(bool start);
+  bool send_row(const uint8_t* row, size_t len);
+  bool update_the_glass(uint16_t first, uint16_t last, bool fast);
+
+  Pca9535* expander_;
+  II2c* bus_;
+  void* bus_handle_;
+  void* io_;
+  uint8_t* bits_;
+  uint8_t* row_;
+  volatile bool dma_done_;
+  bool started_;
+  bool powered_;
+  bool busy_;
+  // The rectangle the writes marked, in page coordinates and both corners inside it (0.190.37).
+  uint16_t dirty_x0_ = 0xFFFF;
+  uint16_t dirty_y0_ = 0xFFFF;
+  uint16_t dirty_x1_ = 0;
+  uint16_t dirty_y1_ = 0;
+  uint16_t rotation_ = 270;
+  // **Vint megahertz, que és el que la taula del fabricant dona per aquest panell** i el que fa servir el seu firmware, i
+  // es pot canviar en calent des del prompt (`panel bus 26`) (0.190.38, docs/50).
+  uint32_t pclk_hz_ = 20000000;
+  // **El que ha costat la pintada, partit en dos** (0.190.38): `bus_us_` is the wire and the peripheral —the row that has
+  // gone out— and `cpu_us_` is the turning of the frame into codes, which is the only part a faster processor or a
+  // different loop can take away (docs/95).
+  uint32_t bus_us_ = 0;
+  uint32_t cpu_us_ = 0;
+  const char* error_ = "";
+};
+
+// The panel of this board, built once (docs/50).
+ISurface* t5s3_epd47(Pca9535* expander, II2c* bus);
+
+}  // namespace hal
+
+#endif  // LUNOK_T5S3_EPD47_H

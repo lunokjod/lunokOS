@@ -28,15 +28,12 @@
 
 #include <stdint.h>
 
-// **Whether this build carries a glass** (0.179.9): **not yet**. The board has a panel and it
-// is the reason it exists, but the ED047TC1 has no controller to talk a protocol to: the
-// waveform tables that tell it how to move the ink are the panel's own data and they are not
-// in this repository, o sigui que el driver del vidre és la peça que falta (docs/50, docs/90).
-// Until it is here this build is a console: the prompt, the alarms, the card, the hour and the
-// touch controller, and no page. **The question is asked before the compiler** —`#if
-// LUNOK_GLASS` decides which translation units exist— and a running board with a panel still
-// answers `kCapDisplay` from its HAL (docs/50, docs/75).
-#define LUNOK_GLASS 0
+// **Whether this build carries a glass** (0.179.9): **yes**. The panel of this board is an ED047TC1 with no controller
+// and the driver is `lib/hal_t5s3/src/epd47.cpp` —the parallel bus, the supply of the TPS65185, the frame in the PSRAM
+// and the panel's own waveform—, o sigui que la pàgina, els controls, les cares, el lector i la barra hi són. **El que
+// costa**: una actualització és la forma d'ona sencera, trenta-vuit passades de tot el vidre, i per això aquesta placa
+// no anima res i pinta quan la pàgina ha de quedar quieta (docs/50, docs/95).
+#define LUNOK_GLASS 1
 
 namespace board {
 

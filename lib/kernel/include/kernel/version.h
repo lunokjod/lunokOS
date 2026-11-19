@@ -10314,7 +10314,35 @@ namespace kernel {
 // `cpu allows 80,16…`). El disc i el calendari en una línia, la política de la pàgina i del processador en una altra, i les apps
 // que una persona ha triat a la tercera: un magatzem amb nom llarg —`littlefs` en lloc de `sd`— ja arribava a omplir la línia, i
 // una cua que s'escriu i no es veu és una dada que ningú pot llegir (docs/30, docs/45).
-static const char kVersion[] = "0.190.32";
+// **El vidre de la setena placa, que no té controlador** (0.190.33). L'ED047TC1 de la T5 E-Paper S3 Pro no és com l'IT8951 del
+// Paper: no hi ha ningú a qui dir-li «pinta aquest rectangle», i el xip ha de moure la tinta ell mateix, amb la forma d'ona del
+// panell. El driver (`lib/hal_t5s3/src/epd47.cpp`) porta el bus paral·lel de vuit línies amb el perifèric i80, l'alimentació del
+// TPS65185 oberta per un PCA9535, el quadre de 259 200 B a la PSRAM i les trenta-vuit passades de la matriu, que és la
+// `u8GrayMatrix` de FastEPD (Apache-2.0) i no una invenció meva. **I dues trampes que haurien costat un flash cada una**: el bus
+// no es deixa crear sense un `dc_gpio_num` i amb vuit bits d'ordre el driver envia un byte abans de cada fila que fa lliscar la
+// imatge quatre píxels. **I l'apagada de debò d'aquesta placa és el `BATFET_DIS` del carregador**, no un latch com el del Paper
+// (docs/50, docs/95).
+// **I la primera llum no va encendre res, per una màscara negada dues vegades** (0.190.34, el log del 19/11). El registre de
+// configuració del PCA9535 diu quin pin és **entrada** amb un `1`, i el cridador li passava la **negació** de la màscara de les
+// entrades: els cinc pins de l'alimentació del panell (`OE`, `MODE`, `PWRUP`, `VCOM_CTRL`, `WAKEUP`) quedaven com a entrades i
+// el `PWR_GOOD` com a sortida, o sigui que el TPS65185 no es despertava mai —no contestava a `0x68`— i el pin de bo llegia zero
+// per sempre. Tres coses en queden: la màscara s'escriu tal com és i **es llegeix de tornada** (un xip que contesta i no es queda
+// la configuració és un error invisible des de fora), la baixada de les portes es fa també quan l'alimentació falla a mitges, i
+// `display()` **pregunta de debò** pel bus i pel quadre abans de dir que aquesta placa té vidre (docs/50, docs/95).
+// **I la primera imatge no va sortir per una sola línia baixa** (0.190.35, el mateix log): el `EP_MODE`/`GMOD` del panell —`IO1_1`
+// de l'expansor— ha d'anar **alt** mentre el panell es pinta. El codi el deixava baix perquè així ho fa `epd_board_v7` d'epdiy, que és
+// una **altra** placa; el firmware que aquesta porta de fàbrica (`FastEPD`, `EPDiyV7EinkPower`) el posa alt («GMOD on») i sense això
+// el panell no pren els codis de dos bits de cada passada: la font puja, el bo diu `fa`, la fila surt pel bus i la tinta no es mou
+// gens (docs/50, docs/95).
+// **I el que de debò va deixar el vidre en blanc va ser `EP_STH`** (0.190.36). Aquell pin no és quiet: és el «començament
+// horitzontal» i s'ha de **polsar a cada fila** —baix mentre surten els 240 bytes d'una fila i alt entremig—. El fabricant el
+// dona al perifèric com a `cs_gpio_num` (`panel_config.cs_gpio_num = kCsGpio`, que és `PIN_EPD_STH`, amb `cs_active_high = 0`)
+// i epdiy el cableja al *data enable* del mateix perifèric; aquest driver el tenia com una sortida quieta a u, o sigui que el
+// registre de desplaçament horitzontal del panell no arrencava mai: 20 520 files i 2,7 s de bus amb **cap píxel que rebés el
+// codi** i ni un parpelleig a la tinta. **I la segona meitat del mateix forat**: el rellotge vertical (`CKV`) ha de pujar
+// **abans de cada transferència** —així ho fa `bbepWriteRow` del fabricant— perquè és el que avança la porta una línia; el
+// bucle antic el deixava baix i les cinc-centes quaranta files queien totes damunt de la primera (docs/50, docs/95).
+static const char kVersion[] = "0.190.36";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

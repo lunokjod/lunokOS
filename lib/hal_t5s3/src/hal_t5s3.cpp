@@ -36,6 +36,9 @@
 #include "esp32/sd_card.h"
 #include "esp32/storage.h"
 #include "hal/hal.h"
+#include "hal/log.h"
+#include "t5s3/epd47.h"
+#include "t5s3/expander.h"
 #include "t5s3/gauge.h"
 
 namespace hal {
@@ -56,7 +59,20 @@ const int kTouchIntPin = 3;
 // GPIO —it hangs from the PCA9535— and it will arrive with the expander (docs/50).
 const int kBootKeyPin = 0;
 
-// **I la segona porta**: the PCF8563's interrupt line, on GPIO2. A PCF8563 pulls it low when its alarm
+// **L'expansor de ports, que és la meitat del panell** (0.190.33): the sixteen pins of a PCA9535 carry the panel's output
+// enable and mode, the four gates of its supply and the button of the board, o sigui que sense aquest xip el vidre no
+// existeix. Its inputs are the supply's `POWER_GOOD` and interrupt and the button (docs/50).
+const uint8_t kExpanderAddress = 0x20;
+// **Què és entrada i què és sortida, en el registre de configuració del propi xip** (0.190.34, i és la segona trampa
+// d'aquesta placa): en un PCA9535 un `1` en aquest registre vol dir **entrada**, o sigui que `0xC400` són les tres
+// entrades de la placa —IO1_2 el botó `S3`, IO1_6 el `PWR_GOOD` de la font i IO1_7 la interrupció de la font— i tota la
+// resta sortides. **Aquesta màscara s'escriu tal com és**: the first version of this file negated it at the call site
+// («the mask is the config register» in one place and «the mask is the inputs» in the other), o sigui que el xip va
+// quedar amb els cinc pins de l'alimentació com a entrades i amb el `PWR_GOOD` com a sortida —el panell no despertava
+// mai i la font no contestava a 0x68— i és el que va fer el log de la primera llum (docs/50, docs/95).
+const uint16_t kExpanderInputs = 0xC400;
+
+// **La segona porta**: the PCF8563's interrupt line, on GPIO2. A PCF8563 pulls it low when its alarm
 // or its countdown fires and lets it go when the flags are cleared, o sigui que és una porta del son
 // profund exactament com la tecla —una línia oberta que baixa— i el xip d'aquesta placa les pot vigilar
 // totes dues alhora amb `ext1` en el seu mode «qualsevol baixa» (docs/50, docs/60).
@@ -92,7 +108,12 @@ class T5Power : public Esp32Power {
   // false, and the policy does not treat this board as one that is powered off between two alarms
   // (docs/50, docs/60).
   bool deep_powers_off() const override { return false; }
-  bool can_power_off() const override { return false; }
+  // **I el corrent sí que se'l pot tallar** (0.190.33, la trampa d'aquesta placa): the charger's `BATFET_DIS` bit is the
+  // only switch between its cell and the board —the maker's `LilyGoT5_Shutdown` example is that one write—, o sigui que
+  // `poweroff` aquí és una apagada de debò i no un son. **Amb el cable a dins no fa res**, perquè la placa no es pot
+  // desconnectar d'una font que no és la seva (docs/50).
+  bool can_power_off() const override { return true; }
+  bool power_off() override { return gauge_.shut_down(); }
   bool battery(int& mv, int& pct, bool& charging) override { return gauge_.read(mv, pct, charging); }
   // The chip answers this one itself, amb les dues portes que la placa li ha cablejat (docs/50).
   const char* wakes() override { return Esp32Power::wakes(); }
@@ -127,8 +148,10 @@ class T5Platform : public IPlatform {
       }
       // El tàctil: el xip contesta i el nucli en treu tocs (docs/50).
       if (touch() != nullptr) caps_.add(kCapTouch);
-      // **I el vidre, quan hi sigui**: `kCapDisplay` el posarà el driver del panell el dia que
-      // l'ED047TC1 es pugui pintar (docs/50, docs/90).
+      // **El vidre**: the panel answers —the supply says its power is good and the bus is there— and from that moment an
+      // app can draw on it (docs/50). It is the last one because it is the most expensive question of this function: it
+      // brings up the parallel bus, the supply and a frame of 259 200 bytes (docs/75).
+      if (const_cast<T5Platform*>(this)->display() != nullptr) caps_.add(kCapDisplay);
     }
     return caps_;
   }
@@ -156,13 +179,41 @@ class T5Platform : public IPlatform {
   IKeyValue* nvs() override { return esp32_nvs(); }
   INet* net() override { return esp32_net(); }
   IPower* power() override { return &power_; }
-  ISurface* display() override { return nullptr; }
+  // **El vidre** (0.190.33): l'expansor obre les portes del panell i el TPS65185 li dona les tensions, o sigui que el
+  // driver dels dos és el que el construeix. **I es pregunta de debò** (0.190.34): a panel whose bus or frame did not
+  // come up answers nothing and this says `nullptr` with the reason in the log, perquè una placa sense vidre ha de
+  // sortir com una placa sense vidre i no com una placa que pinta en un lloc on no hi ha res (docs/50).
+  ISurface* display() override {
+    ISurface* panel = t5s3_epd47(expander(), esp32_i2c(kI2cSdaPin, kI2cSclPin));
+    auto* glass = static_cast<Epd47*>(panel);
+    if (glass == nullptr || !glass->begin()) {
+      logf(pal::kLogWarn, "PANEL", "%s", glass != nullptr ? glass->last_error() : "there is no panel");
+      return nullptr;
+    }
+    return panel;
+  }
   ILed* led() override { return nullptr; }
   IInput* input() override { return &keys_; }
   IImu* imu() override { return nullptr; }
   ITouch* touch() const override { return esp32_gt911(esp32_i2c(kI2cSdaPin, kI2cSclPin), kTouchIntPin); }
 
  private:
+  // **L'expansor, construït una vegada i configurat a la primera pregunta** (docs/50): the panel and the board's own
+  // button live on it, and configuring a chip is an I2C transaction that must happen once.
+  Pca9535* expander() {
+    static Pca9535 chip(esp32_i2c(kI2cSdaPin, kI2cSclPin), kExpanderAddress);
+    if (!chip.configured()) {
+      if (chip.configure(kExpanderInputs)) {
+        // **El rail de la ràdio i el GPS comença apagat** (docs/50): the board says it is not always enabled, and a
+        // module that nobody uses does not have to draw current.
+        chip.write(Expander::kLoraEnable, false);
+      } else {
+        logf(pal::kLogWarn, "BOARD", "the expander is not usable: %s", chip.last_error());
+      }
+    }
+    return &chip;
+  }
+
   // The hour: the PCF8563 is the memory and the chip's counter is the clock, exactly as on the Paper
   // —the chip is adopted once, when somebody first asks for the clock, which is before the boot reads
   // the epoch— (docs/50, docs/60).
