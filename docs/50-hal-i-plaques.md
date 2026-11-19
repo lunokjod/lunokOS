@@ -489,10 +489,17 @@ una placa que només un reset tornava a engegar. Ara el son arma **`ext0` sobre 
 RTC), i prémer-la la torna a despertar; amb la bateria el corrent ja ha caigut abans d'aquesta línia i l'armat no vol dir res.
 Un `esp_sleep_enable_ext1_wakeup` sobre GPIO37/38/39 seria un **son amb el corrent aguantat** (una tecla desperta i la
 pàgina torna a començar), que és una altra cosa que `poweroff`, i és el que fa el **`deepsleep`** de la 0.189.25: la placa
-**no baixa el GPIO2**, adorm el panell i baixa la GPIO23 i la GPIO5, desarma el xip del rellotge —ningú no ha demanat que
-torni sola— i arma **`ext0` sobre el GPIO38**; una premsa de la tecla del dial la torna a engegar. **El repòs costa**: el
-xip i vuit megues de PSRAM en self-refresh són uns quants mil·liamps i no zero, o sigui dies de bateria i no mesos, i per
-això és una comanda a part (`deepsleep`, la lluna de la targeta, `sys.deepsleep()`) i no el que fa `poweroff`. Les tres
+**no baixa el GPIO2**, adorm el panell i baixa la GPIO23 i la GPIO5 i arma **`ext0` sobre el GPIO38**; una premsa de la
+tecla del dial la torna a engegar. **El repòs costa**: el xip i vuit megues de PSRAM en self-refresh són uns quants
+mil·liamps i no zero, o sigui dies de bateria i no mesos, i per això és una comanda a part (`deepsleep`, la lluna de la
+targeta, `sys.deepsleep()`) i no el que fa `poweroff`.
+
+**I des de la 0.190.15 el xip del rellotge no es desarma en aquesta son**: la placa només en té una (`IPower::sleep`) i el
+que decideix si el rellotge queda armat és **l'hora** que li han dit, no qui la demana. Amb una alarma a la cua —també si
+és una persona qui demana la son— el rellotge es queda armat i el seu `INT` torna a engegar la placa si el corrent se'n va
+de debò, i el temporitzador del xip la torna si el corrent s'aguanta; sense cap alarma el rellotge es desarma, perquè ningú
+no ha demanat que torni sola (docs/60). `sleep_with_the_keys` ja no existeix al HAL: una placa amb tecla dorm amb
+`sleep(kDeep, 0)`. Les tres
 baixades de la placa queden així: **`poweroff`** talla el corrent (mesos, i només la tecla del dial), **`sleep <hora>`**
 talla el corrent amb una alarma que la torna a engegar, i **`deepsleep`** deixa el corrent posat amb una tecla per tornar.
 El que **no** es pot fer és despertar un xip que no té corrent: això no ho fa cap placa.

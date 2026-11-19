@@ -10164,7 +10164,20 @@ namespace kernel {
 // que més interessa llegir, o sigui que el bloc es demana cada cop més petit —fins a trenta-dos bytes— abans de dir que no (docs/30,
 // docs/75). I les tres vegades que una mà a la placa movia el comptador de la quietud es tornaven a dir dues vegades: `lock::note_activity`
 // ja mou el de `power` des de la 0.190.9 (docs/30, docs/60).
-static const char kVersion[] = "0.190.14";
+// **Una baixada, no tres** (0.190.15, l'amo: *«el codi d'apagada per deepsleep ha de ser el mateix a tot arreu, tant si salta per timeout
+// d'inactivitat com si l'usuari l'activa manualment… Veig que si inicio sleep manual no es setegen les alarmes?»*). Hi havia tres camins
+// per baixar i no feien el mateix: la política amb una alarma anava al xip amb l'hora però **sense reposar el vidre ni baixar els rails**;
+// la son d'una persona (el botó de la lluna del panell, el `deepsleep` del prompt i `sys.deepsleep` de les apps) anava per una crida del
+// HAL que **desarmava el rellotge** —o sigui que la placa només tornava amb el dit i l'alarma s'esperava el proper engegament—; i el cas
+// del cable queia al xip i prou.
+//
+// Ara hi ha **una** preparació (`power::sleep`), **una** regla de l'hora (`the_hour_of_a_sleep`: la més propera entre la que s'ha demanat
+// i la propera alarma, i la propera alarma quan no se n'ha demanat cap) i **una** crida al HAL (`IPower::sleep`, que en una placa amb les
+// dues portes arma les dues: el temporitzador i la tecla, i el xip del rellotge quan el corrent se'n va). `sleep_with_the_keys` desapareix
+// del HAL: una placa amb tecla dorm amb `sleep(kDeep, 0)`. La línia del registre és la mateixa a totes les baixades
+// (`say_the_way_down`), i `zero no és una hora, és la tecla`. El cas `test_a_manual_deep_sleep_arms_the_nearest_alarm` ho aguanta: amb
+// l'hora antiga l'alarma es quedava a la cua (docs/50, docs/60).
+static const char kVersion[] = "0.190.15";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

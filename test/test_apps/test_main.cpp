@@ -15055,6 +15055,61 @@ void test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake(v
   storage->remove("/apps/sleeper");
 }
 
+// **Una baixada és una de sola, i s'endú les alarmes** (0.190.15, l'amo: *«el codi d'apagada per deepsleep ha de ser el mateix a tot arreu,
+// tant si salta per timeout d'inactivitat com si l'usuari l'activa manualment… Veig que si inicio sleep manual no es setegen les
+// alarmes?»*). Abans hi havia dues baixades: la de la política, que li deia al xip l'hora de l'alarma, i la d'una persona, que anava per
+// una crida del HAL que **desarmava el rellotge** —o sigui que la placa només tornava amb el dit i l'alarma s'esperava el proper
+// engegament—. Ara totes dues passen pel mateix cos (`power::sleep(kDeep, …)`), la mateixa preparació i la mateixa crida, i l'hora que es
+// desa és **la més propera entre la que s'ha demanat i la propera alarma**: una persona que fa dormir la placa amb una alarma armada té
+// les dues portes, l'hora i la tecla (docs/50, docs/60).
+void test_a_manual_deep_sleep_arms_the_nearest_alarm(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  use_board("m5stack-paper");
+  TEST_ASSERT_TRUE(hal::platform().power()->deep_powers_off());
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  alarms::reset();
+  kernel::cfg::set_home_app("");
+  close_any_app();
+  TEST_ASSERT_TRUE(add_app(storage, "alarmist",
+                           "{\"title\":\"Alarmist\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "if console.is_foreground() then\n"
+                           "  local id = alarm.at{in_ms = 900000, payload = 'later'}\n"
+                           "  console.print('armed ' .. tostring(id))\n"
+                           "end\n"
+                           "while true do sys.delay(200):await() end\n"));
+  pump_captured(40, g_out, sizeof(g_out), "run alarmist");
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+  close_any_app();
+
+  // **La baixada d'una persona, amb l'alarma armada**: the hour the board is told is the alarm's and not a zero, o sigui que la placa
+  // **torna a l'alarma** i no només al dit. El que es mira és el que una persona veu: el rellotge de l'emulació salta a l'hora que se li
+  // ha dit i l'alarma **sona**; amb la baixada de les tecles d'abans, que desarmava el rellotge, es quedava a la cua fins al proper
+  // engegament (docs/50, docs/60).
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(1, alarms::count(), "the alarm of the page was not in the queue before the way down");
+  kernel::power::set_idle_sleep_allowed(false);  // the policy is not what this case is about
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::deep_sleep_with_the_keys(), "the board did not take the way down");
+  kernel::power::set_idle_sleep_allowed(true);
+  pump_captured(6, g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, alarms::count(),
+                                   "the alarm was still waiting after a sleep that was told the hour of it");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fired for alarmist"), g_out);
+
+  // **I la porta de dalt també hi és**: on a board whose deep sleep keeps the supply and a key wakes it, the same call arms the key, and
+  // the system refuses a deep sleep it cannot come back from before spending its picture (docs/50, docs/90).
+  TEST_ASSERT_TRUE(kernel::power::can_deep_sleep());
+
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  storage->remove("/apps/alarmist/app.lua");
+  storage->remove("/apps/alarmist/manifest.json");
+  storage->remove("/apps/alarmist");
+  use_board("m5stack-atom");
+}
+
 // **El son a la tecla acaba la run** (0.190.14). La política, quan la cua d'alarmes és buida, baixa **fins a la tecla**; i el camí
 // d'aquell son és el del sistema (`shell::deep_sleep`), que és qui **tanca la run** quan el que baixa és un emulador
 // (`kernel::shutdown`). La crida directa al xip deixava l'emulador amb la imatge del son al vidre, l'app tancada i el procés viu, i la
@@ -15115,11 +15170,16 @@ void test_a_wake_for_an_alarm_with_an_empty_queue_still_sleeps_to_the_key(void) 
   TEST_ASSERT_TRUE(kernel::cfg::set_home_app("waiter"));
   pump_captured(40, g_out, sizeof(g_out), "run waiter");
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(1, alarms::count(), "the page did not arm the alarm the board waits for");
+  // **La política no hi ha de fer res en aquest tros** (0.190.15): the emulator's clock jumps to the hour it was given and the board would
+  // find itself idle in the same pumps, o sigui que la son a la tecla arribaria abans del `kernel::boot` d'aquest cas i el que es mira
+  // —una tornada per una alarma— ja no seria cert. Es tanca fins que el cas la vulgui (docs/60, docs/80).
+  kernel::power::set_idle_sleep_allowed(false);
   pump_captured(20, g_out, sizeof(g_out), "sleep deep 60000");
   TEST_ASSERT_FALSE(kernel::shell::app_running());
 
   // **La tornada pel xip**: the chip brought it back on its own, so this whole run says it came back for an alarm.
   kernel::boot(hal::platform());
+  kernel::power::set_idle_sleep_allowed(true);
   TEST_ASSERT_TRUE_MESSAGE(kernel::power::came_back_for_an_alarm(), "this boot is not a return for an alarm");
 
   // **I la cua es buida** —l'alarma s'ha gastat—, que és l'estat on la política s'embolicava.
@@ -20285,6 +20345,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_idle_sleep_is_a_switch);
   RUN_TEST(test_the_home_page_does_not_keep_the_board_awake);
   RUN_TEST(test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake);
+  RUN_TEST(test_a_manual_deep_sleep_arms_the_nearest_alarm);
   RUN_TEST(test_the_idle_sleep_to_the_key_ends_the_run);
   RUN_TEST(test_a_wake_for_an_alarm_with_an_empty_queue_still_sleeps_to_the_key);
   RUN_TEST(test_poweroff_cuts_the_power_of_the_board_that_can);

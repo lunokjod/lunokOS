@@ -326,8 +326,13 @@ class IPower {
   // The battery, when the board can tell. False is "this board has no gauge", not
   // "empty": the ATOM is powered by its cable and says it cannot tell (docs/50).
   virtual bool battery(int& mv, int& pct, bool& charging) = 0;
-  // Sleeps until `at_epoch_ms` (0 = no deadline). **A deep sleep does not return**:
-  // the board restarts (docs/90). True when it came back from a light sleep.
+  // Sleeps until `at_epoch_ms` (0 = no deadline). **A deep sleep does not return**: the board restarts (docs/90). True when it came
+  // back from a light sleep.
+  //
+  // **És l'única crida d'una baixada** (0.190.15): the idle policy, the card of the system and the `deepsleep` of the prompt all come
+  // here, and a board that has **both** doors arms **both** —the hour it was told and the key a person presses— when it has them. Zero
+  // is not an hour: it is a board that comes back on a key, and a board with no key and no hour is a board that did not answer this
+  // call at all (`can_sleep_with_the_keys` and `deep_powers_off` are how the system knows before asking) (docs/50, docs/60).
   virtual bool sleep(SleepMode mode, int64_t at_epoch_ms) = 0;
   // Whether this board's deep sleep is a **full power off**: the board does not sleep,
   // it stops being powered and the clock chip's alarm turns it back on (docs/50). It is
@@ -345,15 +350,9 @@ class IPower {
   // spends the margin of a card's rest on a board that was never going to be cut—. True is a board with a hold on its own
   // supply; the default is the honest «no» of the one that is powered by its cable (docs/50, docs/75).
   virtual bool can_power_off() const { return false; }
-  // **El son que deixa les tecles vives** (0.189.25): the board **keeps its own supply up** —it is drawing current, and that is
-  // the whole point— puts what it can to rest, and sleeps the chip with a key as the wake, so a person presses and the board
-  // comes back. **It is not `sleep(kDeep)`**: on a board whose deep sleep is a power off, nothing wakes it but the clock; and it
-  // is not `power_off()`, which cuts everything. False is a board with no key wired to a pin the chip can watch while it
-  // sleeps, said out loud instead of looking like it worked. A board that can does not come back from here: it restarts
-  // (docs/50).
-  virtual bool sleep_with_the_keys() { return false; }
-  // **I la mateixa resposta, preguntada** (0.189.25): the way down asks this **before** it spends its picture, its wait and its
-  // margin, so a board that cannot be woken by a key says so instead of looking like it went to sleep (docs/50, docs/75).
+  // **La tecla que desperta aquesta placa** (0.189.25): whether a key a person presses brings the chip back from a deep sleep. It is a
+  // capability of the wiring and not a way down of its own: **a board with a key sleeps with `sleep(kDeep, 0)`**, the same call as
+  // every other way down (0.190.15), and the board arms the key there along with the hour when it has one (docs/50).
   virtual bool can_sleep_with_the_keys() const { return false; }
   // Where this board can be woken from: "timer", "button", "console" or "none".
   // Said by the board, because it is the wiring that decides it (docs/50).

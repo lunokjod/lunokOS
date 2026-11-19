@@ -587,9 +587,14 @@ class FakePower : public IPower {
     }
     // To stderr and not to the console: it is this band talking about itself and
     // it must not be mixed with what the system says to a person (docs/85).
-    fprintf(stderr, "power: %s sleep until %lld (the clock jumps; the PC does not sleep)\n",
-            (mode == SleepMode::kDeep) ? "deep" : "light",
-            static_cast<long long>(at_epoch_ms));
+    if (at_epoch_ms > 0) {
+      fprintf(stderr, "power: %s sleep until %lld (the clock jumps; the PC does not sleep)\n",
+              (mode == SleepMode::kDeep) ? "deep" : "light", static_cast<long long>(at_epoch_ms));
+    } else {
+      // **Zero no és una hora, és la tecla** (0.190.15): the same words as the board, so two runs can be compared line by line.
+      fprintf(stderr, "power: %s sleep until a key of the board (the PC does not sleep)\n",
+              (mode == SleepMode::kDeep) ? "deep" : "light");
+    }
     return true;
   }
 
@@ -619,15 +624,6 @@ class FakePower : public IPower {
   // be cut does not wait two seconds to be told so (docs/75).
   bool can_power_off() const override { return emu::model().powers_off; }
   bool can_sleep_with_the_keys() const override { return emu::model().keys_wake; }
-
-  // **El son amb les tecles vives** (0.189.25): the PC keeps its own power whether it wants to or not, so what is imitated is
-  // the part a test can read —the board says whether it has a key to wake it, and a board that does ends the process the way
-  // a chip that restarted does— (docs/50, docs/85).
-  bool sleep_with_the_keys() override {
-    if (!emu::model().keys_wake) return false;
-    fprintf(stderr, "power: asleep with the keys awake (the emulator ends; the supply is kept)\n");
-    return true;
-  }
 
   // The PC does not change its speed, and this band says so instead of pretending:
   // the value is remembered so the call and its refusals can be used and tested,

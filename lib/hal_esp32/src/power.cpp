@@ -25,6 +25,16 @@ bool Esp32Power::battery(int& mv, int& pct, bool& charging) {
   return false;
 }
 
+void Esp32Power::say_the_way_down(SleepMode mode, int64_t at_epoch_ms) {
+  if (at_epoch_ms > 0) {
+    hal::logf(pal::kLogInfo, "POWER", "%s sleep until %lld", (mode == SleepMode::kDeep) ? "deep" : "light",
+              static_cast<long long>(at_epoch_ms));
+  } else {
+    hal::logf(pal::kLogInfo, "POWER", "%s sleep until a key of the board",
+              (mode == SleepMode::kDeep) ? "deep" : "light");
+  }
+}
+
 bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms) {
   // A key that wakes the chip is the one thing a person can press, and it works from
   // either sleep. A board without one and without a deadline would be a board that is
@@ -38,8 +48,7 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms) {
   } else if (wake_pin_ < 0) {
     return false;
   }
-  hal::logf(pal::kLogInfo, "POWER", "%s sleep until %lld",
-            (mode == SleepMode::kDeep) ? "deep" : "light", static_cast<long long>(at_epoch_ms));
+  say_the_way_down(mode, at_epoch_ms);
   // The chip goes quiet with the clocks: what is still in the UART has to leave
   // before, or the line that says why it sleeps never arrives.
   fflush(stdout);

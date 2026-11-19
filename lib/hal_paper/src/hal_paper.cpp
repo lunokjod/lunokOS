@@ -239,22 +239,7 @@ class PaperPower : public Esp32Power {
   // and a cable that blinks is a board that comes back by itself and never reaches its hour
   // (measured on the glass, 31/10: a deep sleep of 300 s came back at 56 s with the wake cause
   // unset, which is a supply and not a clock).
-  bool sleep(SleepMode mode, int64_t at_epoch_ms) override {
-    if (mode == SleepMode::kDeep && at_epoch_ms > 0) {
-      Bm8563* chip = paper_chip();
-      const int64_t now_ms = esp32_wall_ms();
-      if (now_ms > 0 && at_epoch_ms > now_ms && chip->write_epoch_ms(now_ms) &&
-          chip->arm_at(at_epoch_ms)) {
-        gpio_set_level(static_cast<gpio_num_t>(kMainPowerPin), 0);
-        // Still here: the cable is in. Take the alarm back down —it would fire while the board is
-        // awake and mean nothing— and hold the power up again, because this board stays on for the
-        // sleep that follows and it must not depend on somebody's USB cable to keep doing it.
-        gpio_set_level(static_cast<gpio_num_t>(kMainPowerPin), 1);
-        chip->disarm();
-      }
-    }
-    return Esp32Power::sleep(mode, at_epoch_ms);
-  }
+
 
   bool deep_powers_off() const override { return true; }
 
@@ -281,28 +266,61 @@ class PaperPower : public Esp32Power {
   bool can_power_off() const override { return true; }
   bool can_sleep_with_the_keys() const override { return true; }
 
-  // **El son que deixa la placa encesa i les tecles vives** (0.189.25, l'amo: *«Fes la B … l'afegeixes al panell desplegable
-  // del sistema entre el botó de poweroff i el de reboot»*): the hold of the supply stays **up** —that is what makes a key able
-  // to wake a chip that would otherwise be gone— and what goes down is the panel and the ports, after the glass has been asked
-  // to rest, exactly as the way off does. The clock chip is disarmed: nobody asked this board to come back by itself.
+  // **La baixada del Paper, i n'hi ha una de sola** (0.190.15, l'amo: *«el codi d'apagada per deepsleep ha de ser el mateix a tot arreu,
+  // tant si salta per timeout d'inactivitat com si l'usuari l'activa manualment… Recoerda que vull despertar per botons físics i per
+  // alarma»*). Hi havia **tres** camins per baixar en aquesta placa i no feien el mateix: la política amb una alarma baixava el corrent
+  // (`kMainPowerPin` avall, el xip del rellotge armat) però **no reposava el vidre ni baixava els rails del panell i de l'extensió**; la
+  // política sense alarma i el botó de la lluna del panell anaven per `sleep_with_the_keys`, que reposava el vidre i baixava els rails
+  // però **desarmava el rellotge** —o sigui que una son demanada per una persona s'enduia les alarmes i la placa només tornava amb el dit—;
+  // i el cas del cable, on la placa no es pot apagar, queia al xip i prou.
   //
-  // **La tecla que el desperta és la del dial, GPIO38**, and it is the only one: `esp_sleep_enable_ext1_wakeup` takes several
-  // pins but its two modes are **all low** —which would ask for the three at once— or **any high** —which is what the line is
-  // while nobody presses it, because the board pulls it up—, so a wake on «any of the three, pressed» is not one of its two
-  // (docs/50). `ext0` is a level on one pin of the RTC domain, and GPIO38 is that pin: it is the key the board itself uses to
-  // start, so pressing it is what a person does to a board that is asleep.
-  bool sleep_with_the_keys() override {
-    if (Bm8563* chip = paper_chip()) chip->disarm();
+  // Ara tot passa per aquí i el que canvia entre un cas i l'altre és **l'hora, no el camí**: qui demana la baixada diu quan vol tornar
+  // (la propera alarma, o zero) i la placa arma **les tres portes que té**:
+  //  - **la tecla del dial, GPIO38**: `esp_sleep_enable_ext1_wakeup` prendria diversos pins però els seus dos modes són **tots baixos**
+  //    —que demanaria els tres alhora— o **qualsevol alt** —que és el que fa la línia quan ningú la prem, perquè la placa la puja—, o
+  //    sigui que un despert de «qualsevol dels tres, premut» no és cap dels seus dos (docs/50). `ext0` és un nivell en un pin del domini
+  //    RTC i GPIO38 és aquest pin: és la tecla que la pròpia placa fa servir per engegar-se;
+  //  - **el corrent que se'n va**, quan hi ha una hora: el xip del rellotge es queda armat i el seu `INT` —que va al circuit
+  //    d'alimentació— torna a engegar la placa. Amb el cable al slot la placa no es pot apagar (ho diu el fabricant), o sigui que es torna
+  //    a aguantar el corrent, es desarma el rellotge —una alarma que saltaria amb la placa desperta no vol dir res— i el que la torna és el
+  //    temporitzador del xip;
+  //  - **el temporitzador del xip**, quan hi ha una hora, que és el que la torna a l'hora dita amb el corrent aguantat.
+  //
+  // I el que fa tota baixada d'aquesta placa sigui quina sigui l'hora: el vidre reposa, els rails del panell i de l'extensió baixen, el
+  // corrent es queda aguantat (`kMainPowerPin` alt) perquè una tecla pugui despertar un xip que si no seria mort, i la línia del registre
+  // és la mateixa (docs/50, docs/60).
+  bool sleep(SleepMode mode, int64_t at_epoch_ms) override {
+    if (mode != SleepMode::kDeep) return Esp32Power::sleep(mode, at_epoch_ms);
+    Bm8563* chip = paper_chip();
+    const bool has_an_hour = at_epoch_ms > 0;
+    if (chip != nullptr) {
+      if (has_an_hour) {
+        const int64_t now_ms = esp32_wall_ms();
+        if (now_ms > 0 && at_epoch_ms > now_ms && chip->write_epoch_ms(now_ms) && chip->arm_at(at_epoch_ms)) {
+          gpio_set_level(static_cast<gpio_num_t>(kMainPowerPin), 0);
+          // Still here: the cable is in. Take the alarm back down —it would fire while the board is awake and mean
+          // nothing— and hold the power up again, because this board stays on for the sleep that follows and it must not
+          // depend on somebody's USB cable to keep doing it.
+          gpio_set_level(static_cast<gpio_num_t>(kMainPowerPin), 1);
+          chip->disarm();
+        }
+      } else {
+        chip->disarm();  // nobody asked this board to come back by itself
+      }
+    }
     // Nothing is left in flight when the chip stops its clocks: the line out, and the maker's own wait before the supplies go.
+    say_the_way_down(mode, at_epoch_ms);
     fflush(stdout);
     vTaskDelay(pdMS_TO_TICKS(100));
     if (glass_ != nullptr) glass_->rest();
     turn_supply_off(kPanelPowerPin);
     turn_supply_off(kExtPowerPin);
-    // **El corrent no es toca**: kMainPowerPin stays high, and that is the difference between this sleep and being off.
+    // **El corrent no es toca**: kMainPowerPin stays high, and that is the difference between this sleep and being off when the chip
+    // kept the hour (`power_off` is the one that lets it go).
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(kPowerKeyPin), 0);
-    esp_deep_sleep_start();  // does not return: the chip restarts when the key is pressed
+    if (has_an_hour) esp32_arm_timer_wake(at_epoch_ms);
+    esp_deep_sleep_start();  // does not return: the chip restarts on the key, on its timer or on the current of the board
     return false;
   }
 

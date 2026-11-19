@@ -53,14 +53,20 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms);
 // because closing the interpreter from the inside is not a thing (docs/30).
 bool request_sleep(hal::SleepMode mode, int64_t at_epoch_ms);
 
-// **El son que deixa les tecles vives** (0.189.25, l'amo: *«Fes la B … l'afegeixes al panell desplegable del sistema entre el
-// botó de poweroff i el de reboot»*): the board keeps its own supply —it draws current— and sleeps until a key is pressed. The
-// app in front is closed with its goodbye hooks and written down, exactly as a deep sleep does, because **a deep sleep is a
-// reset**: `boot()` brings the app back with its page, only the hour it was waiting for is none (docs/30, docs/50, docs/90).
-// False is a board with no key the chip can watch while it sleeps; a board that can does not come back from here.
+// **La baixada d'una persona** (0.189.25, l'amo: *«Fes la B … l'afegeixes al panell desplegable del sistema entre el botó de
+// poweroff i el de reboot»*): the same way down the idle policy takes —one preparation, one call to the board— with no hour asked,
+// and the nearest alarm filling it in when there is one (0.190.15). The app in front is closed with its goodbye hooks and written
+// down, because **a deep sleep is a reset**: `boot()` brings the app back with its page (docs/30, docs/50, docs/90).
+// False is a board with nowhere to come back from —no hour and no key the chip can watch while it sleeps—; a board that can does
+// not come back from here.
 bool deep_sleep_with_the_keys();
 
-// True when this board can do that sleep at all, asked **before** the way down spends its picture and its margin.
+// True when this board can do that sleep at all —a key, or an alarm and a clock to wake it—, asked **before** the way down spends
+// its picture and its margin.
+bool can_deep_sleep();
+
+// **La porta de darrere d'una placa de tecles** (0.189.25): whether a key pressed by a person wakes this chip. It is a capability
+// of the board and not a question about the queue, which is why `can_deep_sleep` is the one that decides (docs/50, docs/60).
 bool can_deep_sleep_with_the_keys();
 
 // Does the pending request, if there is one, and then applies the **idle policy**: on a

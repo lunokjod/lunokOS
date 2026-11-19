@@ -4420,7 +4420,7 @@ bool deep_sleep(const char* reason) {
   // **Una placa que no pot despertar-se amb una tecla ho diu abans de gastar la imatge i el repòs** (0.189.25): the same rule
   // the way off follows with `can_power_off` (0.189.18), so a board without a key of the RTC domain answers now and not after
   // two seconds of a picture that promised a sleep nobody can leave (docs/50, docs/75).
-  if (!power::can_deep_sleep_with_the_keys()) return false;
+  if (!power::can_deep_sleep()) return false;
   if (!power::deep_sleep_with_the_keys()) return false;
   shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
   return true;

@@ -34,6 +34,12 @@ class Esp32Power : public IPower {
   uint32_t cpu_mhz() override;
   bool set_cpu_mhz(uint32_t mhz) override;
 
+ protected:
+  // **La línia de la baixada, la mateixa a totes les baixades** (0.190.15): the idle policy, the card of the system and the `deepsleep`
+  // of the prompt are three questions and **one** answer, and a person who compares two logs has to read the same line in both. Zero is
+  // not an hour: it is the key of a board that keeps its supply.
+  void say_the_way_down(SleepMode mode, int64_t at_epoch_ms);
+
  private:
   int wake_pin_;
 };

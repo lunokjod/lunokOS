@@ -504,6 +504,24 @@ Com està avui:
    (`kernel::shutdown`). Amb la crida directa al xip l'emulador es quedava amb la imatge del son al vidre, l'app tancada i el
    procés viu, i la potència de mentida fins i tot deia *«the emulator ends»* mentre no s'acabava.
 
+   **I hi ha una baixada i prou** (0.190.15, l'amo: *«el codi d'apagada per deepsleep ha de ser el mateix a tot arreu, tant si salta
+   per timeout d'inactivitat com si l'usuari l'activa manualment… Veig que si inicio sleep manual no es setegen les alarmes?»*). Tres
+   coses són úniques i no tres:
+
+   - **la preparació** (`power::sleep`): la sessió de l'app que hi ha al davant, la marca del son, el disc amb les sessions aparcades i
+     el repòs de la targeta, la imatge de la baixada, el buidatge de la línia i la llista de rellotges;
+   - **l'hora** (`the_hour_of_a_sleep`): **la més propera** entre la que s'ha demanat i la propera alarma, i **la propera alarma quan
+     no se n'ha demanat cap** (zero, que és el que demanen el botó de la lluna, el `deepsleep` i `sys.deepsleep`). Zero no és una
+     hora: és la tecla;
+   - **la crida al HAL** (`IPower::sleep`): `sleep_with_the_keys` desapareix perquè era **una altra baixada** —al Paper desarmava el
+     xip del rellotge, o sigui que una son demanada per una persona s'enduia les alarmes—, i ara una placa amb tecla dorm amb
+     `sleep(kDeep, 0)`. On hi ha les dues portes s'armen **les dues**: el temporitzador del xip i la tecla del dial, i el xip del
+     rellotge quan és el corrent qui ha de tornar. La línia del registre és la mateixa a tota baixada (`say_the_way_down`, docs/50).
+
+   O sigui que una persona que fa dormir la placa amb una alarma armada **torna a l'hora dita i amb el dit**, i la política que la fa
+   dormir amb la cua buida torna amb el dit. El cas `test_a_manual_deep_sleep_arms_the_nearest_alarm` ho aguanta: amb el camí de les
+   tecles d'abans l'alarma es quedava a la cua.
+
    **I el camí de la tecla no depèn de com ha arrencat la placa** (0.190.14): la porta estava lligada a `g_for_an_alarm`, que és
    certa per a **tota** la run d'un despert per una alarma, o sigui que quan aquella alarma es gastava i la cua quedava buida el
    codi queia al camí de l'alarma amb la data a zero: deia `-1767225 s to the next alarm`, la son es refusava —una son fonda sense

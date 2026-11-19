@@ -238,7 +238,7 @@ bool key_is_there(Key which) {
   // **I el son amb les tecles vives, només si la placa en té una** (0.189.25): the same rule as the cross —a key that does
   // nothing says the system can do something it cannot— and it is asked of the board and not of the model of the glass
   // (docs/30, docs/45, docs/50).
-  if (which == Key::kDeepSleep) return power::can_deep_sleep_with_the_keys();
+  if (which == Key::kDeepSleep) return power::can_deep_sleep();
   return true;
 }
 

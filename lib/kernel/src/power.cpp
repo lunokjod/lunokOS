@@ -478,17 +478,24 @@ bool last_wake_report(char* out, size_t cap) {
   return written > 0 && static_cast<size_t>(written) < cap;
 }
 
-// A **light** sleep comes back to the same place and a finger can already cut it short, so the
-// nearest alarm may cut it short too: the alarm belongs to the system and must not be made to wait
-// for an app that is asleep. The hour that is written down is the one the board was really told, or
-// `power last` would measure a difference nobody asked for (docs/60).
-int64_t light_sleep_until(int64_t at_epoch_ms) {
-  if (g_clock == nullptr) return at_epoch_ms;
-  const int64_t next = alarms::next_due_mono_ms();
-  if (next < 0) return at_epoch_ms;
-  const int64_t epoch = g_clock->epoch_ms();
-  if (epoch <= 0) return at_epoch_ms;
-  const int64_t alarm_epoch = epoch + (next - g_clock->monotonic_ms());
+// **A quina hora torna la placa, i és una sola pregunta per a tots els sons** (0.190.15, l'amo: *«en tots els casos que fas deepsleep ha
+// de ser la mateixa crida en ambdós punts i usar un codi comú per la preparació»*). The hour a sleep is told is **the earlier of the one
+// that was asked for and the nearest alarm** —an alarm belongs to the system and must not be made to wait for a page that is asleep, and
+// a person who asks the board to sleep with an alarm armed wants to be woken by that alarm—, and with **nothing asked** —zero, which is
+// what the card of the system, the `deepsleep` of the prompt and the idle policy with an empty queue ask for— the nearest alarm **is**
+// the hour. Zero is not an hour: it is the key (docs/50, docs/60).
+//
+// The hour that is written down is the one the board was really told, or `power last` would measure a difference nobody asked for.
+int64_t the_hour_of_a_sleep(int64_t at_epoch_ms) {
+  int64_t alarm_epoch = 0;
+  if (g_clock != nullptr) {
+    const int64_t next = alarms::next_due_mono_ms();
+    if (next >= 0) {
+      const int64_t epoch = g_clock->epoch_ms();
+      if (epoch > 0) alarm_epoch = epoch + (next - g_clock->monotonic_ms());
+    }
+  }
+  if (at_epoch_ms <= 0) return (alarm_epoch > 0) ? alarm_epoch : 0;
   if (alarm_epoch > 0 && alarm_epoch < at_epoch_ms) return alarm_epoch;
   return at_epoch_ms;
 }
@@ -499,10 +506,12 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   meter::Scope scope(meter::kSleep);
   if (g_power == nullptr) return false;
   if (!can_sleep(mode)) return false;
-  // A deep sleep with no hour to come back at is a board that waits for somebody
-  // to press the button. That is a decision and not an accident, so it is refused
-  // here and the caller says which one it wanted (docs/90).
-  if (mode == hal::SleepMode::kDeep && at_epoch_ms <= 0) return false;
+  // **L'hora de la baixada és la que la placa ha de saber**, i es decideix aquí i enlloc més: la més propera entre la que s'ha demanat i la
+  // propera alarma (0.190.15, vegeu `the_hour_of_a_sleep`).
+  const int64_t until = the_hour_of_a_sleep(at_epoch_ms);
+  // **I una son fonda sense cap porta sí que es refusa**: sense hora i sense una tecla que desperti aquesta placa, el que baixa no torna.
+  // És una decisió i no un accident, i es diu aquí perquè el qui la demana pugui dir quina volia (docs/50, docs/90).
+  if (mode == hal::SleepMode::kDeep && until <= 0 && !g_power->can_sleep_with_the_keys()) return false;
 
   if (mode == hal::SleepMode::kDeep) {
     // What was in front is written down **before** it is closed: closing stops the
@@ -516,9 +525,20 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
     // back on a key, o sigui que el que diu que aquesta arrencada és una tornada és la marca i no l'hora (docs/60, docs/75).
     write_in(kPowerNs, kSleptKey, "1");
   }
-  const int64_t until = (mode == hal::SleepMode::kLight) ? light_sleep_until(at_epoch_ms)
-                                                        : at_epoch_ms;
   save_deadline(until);
+
+  // **I el disc, amb el que es pugui rentar i el repòs de la targeta** (0.189.18, i una sola vegada per a totes les baixades des de la
+  // 0.190.15): a chip stopping is not the supply going, but an SPI that stops in the middle of a sector is a card that has to be told so
+  // —the same step for the way off, for the card of the system and for the policy— (docs/70, docs/75).
+  if (mode == hal::SleepMode::kDeep) {
+    const char* why = (until > 0) ? "the board sleeps until its hour" : "the board sleeps with its keys awake";
+    session::park_all(why);
+    const session::Checked parked = session::check_parked();
+    log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
+               "%u of %u session file(s) are on the disk", static_cast<unsigned>(parked.ok),
+               static_cast<unsigned>(parked.files));
+    settle_before_leaving(why);
+  }
 
   // The line is emptied before the board stops: the UART keeps bytes in flight after a
   // write returns, and both sleeps stop its clock, so the last thing a person reads would
@@ -541,6 +561,9 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   if (mode == hal::SleepMode::kDeep) splash::wait();
   const bool back = g_power->sleep(mode, until);
   if (!back) return false;
+  // **Sense hora no hi ha res a mesurar** (0.190.15): a board that came back on a key was not early and not late, and a drift written
+  // for it would be a number `power last` shows and nobody asked for (docs/60).
+  if (mode == hal::SleepMode::kDeep && until <= 0) return true;
   // A board that answers slept lightly (or is the emulator): what it was told is
   // checked against what happened, and the note is not kept for a restart that is
   // not coming.
@@ -565,36 +588,25 @@ bool can_deep_sleep_with_the_keys() {
   return g_power != nullptr && g_power->can_sleep_with_the_keys();
 }
 
+// **La baixada d'una persona és exactament la de la política** (0.190.15, l'amo: *«el codi d'apagada per deepsleep ha de ser el mateix a
+// tot arreu… En tots els casos que fas deepsleep ha de ser la mateixa crida en ambdós punts i usar un codi comú per la preparació»*). Abans
+// d'això hi havia **dues** baixades: aquesta, amb la seva pròpia preparació (la sessió, la imatge, el disc i el repòs de la targeta) i una
+// crida al xip que **desarmava el rellotge** —o sigui que una son demanada per una persona s'enduia les alarmes—, i la de `sleep(kDeep,
+// at)`, que no pintava la imatge ni feia reposar el disc. Ara n'hi ha una: `sleep(kDeep, 0)`, amb la mateixa preparació i la mateixa
+// crida, i `the_hour_of_a_sleep` hi posa **la propera alarma** quan n'hi ha una. Una persona que demana a la placa que s'adormi amb una
+// alarma armada té les dues portes: l'hora i la tecla (docs/50, docs/60).
 bool deep_sleep_with_the_keys() {
-  if (g_power == nullptr || !g_power->can_sleep_with_the_keys()) return false;
-  meter::Scope scope(meter::kSleep);
-  // What was in front is written down **before** it is closed: closing stops the interpreter and forgets which app it was,
-  // and the board is going to restart with that app (docs/90).
-  save_session();
-  if (shell::app_running()) shell::close_app();
-  // **Cap hora**: the board comes back when a person presses a key, so there is no deadline to be late for (docs/60).
-  save_deadline(0);
+  if (g_power == nullptr) return false;
+  return sleep(hal::SleepMode::kDeep, 0);
+}
 
-  // **La marca del son, com la de `sleep deep`** (0.189.176): a board that comes back on a key is a board that did not end its
-  // run either (docs/60).
-  write_in(kPowerNs, kSleptKey, "1");
-  // **La imatge del son, que és la d'un son i no la d'una apagada** (0.189.25): a person who finds the board dark has to know
-  // that it comes back —with a key— and the picture is the one the system already has for a sleep (docs/30, docs/50, docs/92).
-  splash::show(going_down_picture(/*deep=*/true));
-  // The line is emptied before the clocks stop: the UART keeps bytes in flight after a write returns (docs/50).
-  pal::IConsole* console = pal::system().console();
-  if (console != nullptr) console->flush();
-  splash::wait();
-  // **I el disc, amb el que es pugui rentar i el repòs de la targeta** (0.189.18): the chip stopping is not the supply going,
-  // but an SPI that stops in the middle of a sector is a card that has to be told so —so the same step as the way off, and
-  // the same margin (docs/70, docs/75).
-  session::park_all("the board sleeps with its keys awake");
-  const session::Checked parked = session::check_parked();
-  log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
-             "%u of %u session file(s) are on the disk", static_cast<unsigned>(parked.ok),
-             static_cast<unsigned>(parked.files));
-  settle_before_leaving("the board sleeps with its keys awake");
-  return g_power->sleep_with_the_keys();
+// **Si aquesta placa pot baixar del tot** (0.190.15): a deep sleep is possible when the board can keep a clock (or has a battery-backed
+// chip) **and** it has a door back —the hour of an alarm or a key that wakes the chip—. A board with neither is a board that goes dark
+// for ever, and the card of the system and the prompt ask this before spending the picture of the way down (docs/50, docs/60).
+bool can_deep_sleep() {
+  if (g_power == nullptr || !can_sleep(hal::SleepMode::kDeep)) return false;
+  if (g_power->can_sleep_with_the_keys()) return true;
+  return the_hour_of_a_sleep(0) > 0;
 }
 
 void note_activity() { g_last_activity_ms = mono_now(); }
