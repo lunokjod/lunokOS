@@ -35,7 +35,9 @@ void Esp32Power::say_the_way_down(SleepMode mode, int64_t at_epoch_ms) {
   }
 }
 
-bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms) {
+bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel) {
+  // A board with no panel of its own has nothing to keep: the whole of it is the chip (docs/50).
+  (void)keep_the_panel;
   // A key that wakes the chip is the one thing a person can press, and it works from
   // either sleep. A board without one and without a deadline would be a board that is
   // gone until the cable is pulled, and the kernel refuses that on its own as well

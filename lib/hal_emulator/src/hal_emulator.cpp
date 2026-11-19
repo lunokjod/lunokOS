@@ -574,7 +574,8 @@ class FakePower : public IPower {
     return true;
   }
 
-  bool sleep(SleepMode mode, int64_t at_epoch_ms) override {
+  bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) override {
+    (void)keep_the_panel;
     host_clock().note_sleep(at_epoch_ms);
     if (at_epoch_ms > 0) {
       const int64_t now = host_clock().epoch_ms();

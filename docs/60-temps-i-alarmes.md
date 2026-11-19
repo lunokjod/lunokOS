@@ -544,6 +544,25 @@ Com està avui:
    que s'apagui sota el dit—. Es mira amb dues banderes que `note_the_boot` posa a zero i que només mou una mà de debò
    (`power::note_activity`), i no amb el comptador, que una arrencada també mou.
 
+   **I el vidre no es toca** (0.190.19, l'amo: *«Al despertar de DeepSleep, si es una alarma no has de tocar la pantalla per res … el
+   procés es realitza i tornem a deepsleep sense molestar ni gastar pantalla»*). Un despert per una alarma encén el xip, fa la feina i
+   torna a baixar **sense enviar ni un píxel al panell**: tot el que es pinta durant aquell run —la barra del boot, la pàgina d'una
+   finestra, el que sigui— es queda a la memòria i el vidre conserva exactament la imatge que hi havia deixat el son
+   (`display::set_the_glass_asleep`, que la portada de `splash` i totes les `flush` miren). La baixada d'aquell run **no baixa el rail del
+   panell** (`IPower::sleep(…, keep_the_panel)`: el controlador es queda amb el seu estat i la seva imatge), o sigui que el despert següent
+   no ha de reinicialitzar ni repintar res.
+
+   **I la pantalla només s'encén si l'app cridada demana el primer pla** (0.190.19): una `battery` o un `meteo` que recullen una mostra no
+   mostren res i la placa torna a dormir; un temporitzador o un avís del `Clock` que fa `raise` posa la seva pàgina al davant, el vidre es
+   desperta per a ella (`shell::run_app` obre la porta i deu la pàgina sencera) i **la placa no torna a baixar**, perquè una app al davant
+   és una persona que ha de veure-hi. I si qui ha despertat la placa és una persona —la tecla del dial o el vidre—, el camí és el de
+   sempre.
+
+   **I el motiu del despert, dit clar** (0.190.19): `note_the_boot` escriu una línia amb la porta que s'ha obert i què vol dir —
+   `back from a deep sleep, woken by the clock chip: an alarm, nobody in front, the glass is not touched` o
+   `… woken by the key of the dial: a person, the page comes back`—, i el xip distingeix el dit del botó (`WakeCause::kTouch` és
+   `ext1`, la línia del tàctil, i `ext0` és la tecla del dial).
+
    **I el vidre ha de dir el son, no el que hi hagi pintat algú** (0.190.18). Una tornada per una alarma conserva la imatge del son —el
    vidre ja la té i tornar-la a pintar serien dos parpelleigs per res—, però una alarma que corre en una **finestra** pinta la pàgina de
    l'app... i aquella app ja no hi és quan la placa baixa, o sigui que el que una persona trobaria en prémer el dial és la pàgina d'una

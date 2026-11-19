@@ -61,6 +61,16 @@ bool mode_from_name(const char* name, hal::UpdateMode& out);
 // for one region (docs/30).
 bool present(hal::UpdateMode mode);
 
+// **El vidre que no s'ha de tocar** (0.190.19, l'amo: *«Al despertar de DeepSleep, si es una alarma no has de tocar la pantalla per res …
+// el procés es realitza i tornem a deepsleep sense molestar ni gastar pantalla»*). While this switch is on, **every paint stays in memory
+// and nothing goes to the panel**: the bar of the boot, the page of a window and anything else paint into the buffer they were given and
+// the glass keeps exactly the image the sleep left on it.
+//
+// It is turned on at the boot of a wake for an alarm —before anything could paint— and off the moment an app claims the front, because a
+// page that asks for the glass is a page a person has to see (docs/30, docs/50, docs/60).
+void set_the_glass_asleep(bool on);
+bool the_glass_is_asleep();
+
 // **El rellotge de l'experiment** (0.189.74): sending the pixels to the panel is a page of work done at the resting step of
 // the processor —the board measures three hundred and twenty milliseconds of a page— and whether that time is the code or the
 // memory of the chip is a question only one variable answers: the speed. This asks for the top step for a window that covers

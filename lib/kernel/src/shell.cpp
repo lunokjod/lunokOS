@@ -1737,6 +1737,15 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   // does not want it —the glass already has the picture of the boot— and the way back to a launcher does (docs/30,
   // docs/40).
   const bool shows_a_picture = splash && (target.splash[0] != '\0') && !restore;
+  // **I una app que puja demana el vidre** (0.190.19): a wake for an alarm keeps the glass exactly as the sleep left it, i el que el
+  // desperta de debò és una pàgina que algú ha de veure —un `raise` d'una alarma, o la pàgina de la persona—. El que s'ha pintat mentre
+  // dormia no s'ha enviat, o sigui que la pàgina es deu sencera i la barra es pinta amb el títol de l'app que arriba (docs/30, docs/60).
+#if LUNOK_GLASS
+  if (display::the_glass_is_asleep()) {
+    display::set_the_glass_asleep(false);
+    ui::owe_the_page();
+  }
+#endif
   bar::title(target.title);
   if (!shows_a_picture) bar::flush();
 
@@ -4270,8 +4279,10 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
     luabind::poll();
     ok = luabind::call_alarm(entry, late_ms);
     // **I la finestra ha pintat el vidre** (0.190.18): the page of an app that is not there any more is what a person would find when the
-    // board goes back down to wait, o sigui que el sistema ho apunta per tornar-hi la imatge del son (docs/30, docs/60).
-    if (ok) power::note_a_page_on_the_glass();
+    // board goes back down to wait, o sigui que el sistema ho apunta per tornar-hi la imatge del son. **Amb el vidre dormit no ha pintat
+    // res** (0.190.19): un despert per una alarma de fons deixa la pantalla exactament com era, i apuntar-hi una pàgina faria que la
+    // baixada hi tornés a pintar una imatge per res (docs/30, docs/60).
+    if (ok && !display::the_glass_is_asleep()) power::note_a_page_on_the_glass();
   }
   luabind::stop();
   // **A window is an app too, for the glass** (0.136.0, docs/46 D1): whatever it asked for is given back when it goes,

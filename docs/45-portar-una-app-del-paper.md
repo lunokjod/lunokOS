@@ -256,6 +256,10 @@ pick	<minuts>	<segons>
   només serveix per creuar el forat d'un reinici, i quan la placa no té hora **es diu** en lloc d'inventar-se una estona.
 - **`alarm.at` del compte enrere porta `persist`**, com l'alarma diària (`repeat`): una promesa que no sobreviu a un
   desendollament és una promesa que no sona, i la promesa es torna a deixar **després** d'esborrar les velles.
+  **I l'alarma diària també en porta** (0.190.19, l'amo: *«L'app Clock posa alarmes? I fa raise … ?»*): la cua que torna
+  del disc només porta les alarmes que ho van dir, i un deep sleep d'aquesta placa és un reset — sense `persist` la diària
+  s'armava, el sistema baixava a esperar-la i en tornar la cua la hi havia perduda. És el defecte del `Clock` que la llista
+  de proves de la placa va trobar, i no un de la cua: `raise` i `repeat` hi eren tots dos, i el tercer camp no.
 - **Cada canvi de la marxa va al disc abans de pintar** (arrencar, aturar, posar a zero), i en tornar l'app hi torna a
   escriure el que ha llegit, amb l'ancora nova: el valor i l'ancora es mouen junts o el proper arrencada el compta dues
   vegades.
@@ -503,7 +507,7 @@ Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
 |---|---|---|
 | `About` | `about` | 0.5.153 |
 | `Calculator` | `calculator` | 0.2.2 |
-| `Clock` | `clock` | 0.1.5 |
+| `Clock` | `clock` | 0.1.6 |
 | `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.3 |
 | `Editor` | `editor` | 0.1.1 |
 | `EPUB` | `reader` | 0.1.1 |

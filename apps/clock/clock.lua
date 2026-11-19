@@ -279,7 +279,10 @@ local function arm_next()
   if ms <= 0 then return end
   -- **El payload és el text de la fila i no una data**: és el que la pantalla gran escriu quan sona, i així el que
   -- s'ha desat i el que es veu són la mateixa cosa (docs/30).
-  local spec = { in_ms = ms, raise = true, payload = (row_text(a)) }
+  -- **I `persist`, o la placa se l'endú a la tomba** (0.190.19, l'amo: *«L'app Clock posa alarmes? I fa raise … quan una alarma ha
+  -- vençut?»*): a deep sleep d'aquesta placa és un reset, i la cua que torna del disc només porta les alarmes que van dir que sí —les de
+  -- `battery`, `meteo` i `agenda` ho fan—. Una alarma diària sense `persist` s'armava, la placa s'adormia esperant-la... i no hi era.
+  local spec = { in_ms = ms, raise = true, persist = true, payload = (row_text(a)) }
   -- **`repeat` és una paraula de Lua** i un camp escrit amb el seu nom ni tan sols s'analitza: es llegeix i s'escriu
   -- amb l'índex (docs/30).
   if a.d == nil then spec['repeat'] = 86400 end

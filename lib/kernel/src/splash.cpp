@@ -358,6 +358,12 @@ bool available(Kind kind) {
 
 bool show(Kind kind) {
   g_error = "";
+  // **El vidre que no s'ha de tocar no rep cap imatge** (0.190.19): a wake for an alarm leaves the panel exactly as the sleep left it, i una
+  // imatge que hi caigués seria el canvi de pantalla que aquest camí existeix per no fer. Es diu i no es pinta (docs/30, docs/50).
+  if (display::the_glass_is_asleep()) {
+    g_error = "the glass of this run is not to be touched";
+    return false;
+  }
   if (kind == kNone) {
     g_error = "no such moment";
     return false;
@@ -438,6 +444,11 @@ bool show(const char* path) {
   pal::MemoryTag who_asks(pal::kMemorySplash, shell::app_id());
   g_error = "";
   g_showing = kNone;
+  // **El vidre que no s'ha de tocar no rep cap imatge** (0.190.19), sigui quin sigui el camí que la demana.
+  if (display::the_glass_is_asleep()) {
+    g_error = "the glass of this run is not to be touched";
+    return false;
+  }
   hal::ISurface* glass = display::surface();
   if (glass == nullptr) {
     g_error = "this board has no glass";
@@ -553,6 +564,10 @@ bool show(const char* path) {
 
 bool wait() {
   hal::ISurface* glass = display::surface();
+  // **Un vidre que no s'ha de tocar no espera res** (0.190.19): a wake for an alarm that has nothing to show never painted, o sigui que no hi
+  // ha tinta de la qual esperar i la baixada no ha de donar un torn ni preguntar al controlador per una feina que no existeix
+  // (docs/30, docs/50).
+  if (display::the_glass_is_asleep()) return true;
   if (glass == nullptr) {
     g_error = "this board has no glass";
     return false;

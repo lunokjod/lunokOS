@@ -393,6 +393,14 @@ bool it_is_an_answer(uint16_t width, uint16_t height, const char* kind, int32_t 
 void show(const char* id, const char* text) {
   hal::ISurface* surface = display::surface();
   if (surface == nullptr) return;
+  // **Ningú no mira un vidre que dorm** (0.190.19): a wake for an alarm keeps the panel as it was —nobody in front, the glass not
+  // touched— so a page that painted itself here would spend the picture and wait for a finger that is not coming. The crash is in
+  // the log, which is where the why of a board with no glass lives too (docs/30, docs/50).
+  if (display::the_glass_is_asleep()) {
+    log_printf(pal::kLogWarn, "ERROR", "the page of %s waits in the log: the glass is asleep",
+               (id != nullptr) ? id : "(no app)");
+    return;
+  }
   const uint16_t width = surface->width();
   if (width <= 2 * (kMargin + 12)) return;
 

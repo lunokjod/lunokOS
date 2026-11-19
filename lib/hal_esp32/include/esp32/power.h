@@ -26,7 +26,7 @@ class Esp32Power : public IPower {
   // (docs/90).
   bool battery(int& mv, int& pct, bool& charging) override;
 
-  bool sleep(SleepMode mode, int64_t at_epoch_ms) override;
+  bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) override;
 
   // Said by the wiring: the RTC timer for the alarms, and the key when there is one.
   const char* wakes() override;

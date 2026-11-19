@@ -162,6 +162,12 @@ uint32_t bus_mhz() { return 0; }
 
 bool set_bus_mhz(uint32_t) { return false; }
 
+// **Una placa sense vidre no té res a deixar dormir** (0.190.19): the switch exists and says nothing, so the kernel and the shell can ask it
+// on any board without a `#if` of their own (docs/50, docs/75).
+void set_the_glass_asleep(bool) {}
+
+bool the_glass_is_asleep() { return false; }
+
 }  // namespace display
 
 // **La pàgina d'una app que s'ha mort no té on pintar-se** (0.189.162): the page of `app_error.cpp` is inside `LUNOK_GLASS` with the

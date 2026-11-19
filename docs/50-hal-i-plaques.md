@@ -507,7 +507,13 @@ no ha demanat que torni sola (docs/60). `sleep_with_the_keys` ja no existeix al 
 **GPIO36** amb `ESP_EXT1_WAKEUP_ALL_LOW`: el GT911 porta la línia avall quan un escombrat té un marc i la deixa anar entre marcs (la
 placa la puja), i amb un sol pin «tots baixos» és «aquest baix». El que costa és el corrent del panell i del tàctil durant tota la son, i
 per això ve apagat. `ext0` (la tecla) i `ext1` (el dit) conviuen: són dues condicions del bloc RTC i la placa es desperta amb la que
-arribi primer. Les tres
+arribi primer. **I el xip diu quina de les dues ha estat** (0.190.19): `ESP_SLEEP_WAKEUP_EXT1` és `WakeCause::kTouch` i `EXT0` és el
+botó, o sigui que el registre del despert diu «un dit al vidre» o «la tecla del dial» i no les dues coses alhora.
+
+**I una baixada que no ha tocat el vidre no baixa el rail del panell** (0.190.19): `IPower::sleep(mode, at, keep_the_panel)` és el
+paràmetre que ho diu, i el Paper el rep quan el run ha estat un despert per una alarma sense ningú al davant. El controlador del panell
+es queda amb el seu estat i la imatge que ensenya —el que costa és el corrent del repòs del controlador— o sigui que el despert següent
+no ha de reinicialitzar el panell ni repintar-lo. Les tres
 baixades de la placa queden així: **`poweroff`** talla el corrent (mesos, i només la tecla del dial), **`sleep <hora>`**
 talla el corrent amb una alarma que la torna a engegar, i **`deepsleep`** deixa el corrent posat amb una tecla per tornar.
 El que **no** es pot fer és despertar un xip que no té corrent: això no ho fa cap placa.

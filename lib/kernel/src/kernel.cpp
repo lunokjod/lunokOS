@@ -508,6 +508,17 @@ void boot(hal::IPlatform& platform) {
   // de desfer el camí cadascú pel seu compte (docs/50, docs/60, docs/75).
   const power::BootKind booted = power::note_the_boot(platform);
 
+  // **Un despert per una alarma no toca el vidre** (0.190.19, l'amo: *«Al despertar de DeepSleep, si es una alarma no has de tocar la
+  // pantalla per res … el procés es realitza i tornem a deepsleep sense molestar ni gastar pantalla»*): the glass keeps the image the sleep
+  // left on it, and this switch is what makes every paint of this run stay in memory instead of going to the panel —la barra del boot,
+  // la pàgina d'una finestra, el que sigui—. **L'app que demana el vidre el desperta** (`shell::run_app`), que és la meitat que l'amo vol:
+  // una alarma que només treballa de fons no canvia ni un píxel de la pantalla (docs/30, docs/50, docs/60).
+  // **I s'apaga també explícitament**, perquè el que decideix és aquest boot i no el de la prova d'abans (docs/80): the switch is the
+  // state of a run and a run that is not a wake for an alarm leaves it where a glass is: awake (docs/30, docs/50).
+#if LUNOK_GLASS
+  display::set_the_glass_asleep(booted == power::BootKind::kSleep && power::woken_by_an_alarm());
+#endif
+
   // **La forma de cada pàgina comença de zero a cada arrencada de debò** (0.189.167, l'amo: *«el session state de totes les
   // apps s'ha d'esborrar al iniciar el sistema»*), **i no quan la placa torna d'un son profund** (0.189.176, el mateix amo:
   // *«Al tornar d'un deep sleep no has d'esborrar les sessions state»*). The `state` block is the shape of the page a person
@@ -557,7 +568,11 @@ void boot(hal::IPlatform& platform) {
   // després és la pàgina de la persona —el camí de tornada el sap `restore_session`—; una targeta de més són dos parpelleigs per
   // res. La pàgina que arriba sí que deu el rentat, perquè el que hi ha al vidre és una altra cosa. Una bateria baixa és
   // l'excepció: és una cosa que la persona ha de saber i no una targeta de cortesia (docs/30, docs/50, docs/60).
-  const bool show_it = (booted != power::BootKind::kSleep) || (boot_moment == splash::kLowBattery);
+  // **I un vidre que no s'ha de tocar no rep cap imatge** (0.190.19): a wake for an alarm runs with the panel exactly as the sleep left it,
+  // o sigui que ni la targeta del boot ni la de la bateria baixa s'hi pinten —la bateria baixa es diu al registre i la pàgina de la persona
+  // la trobarà quan hi sigui— (docs/30, docs/50, docs/60).
+  const bool show_it =
+      ((booted != power::BootKind::kSleep) || (boot_moment == splash::kLowBattery)) && !display::the_glass_is_asleep();
   if (!show_it) {
     ui::owe_the_page();
   } else if (!splash::show(boot_moment)) {

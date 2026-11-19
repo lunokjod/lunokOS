@@ -1006,6 +1006,12 @@ un dit que queia a la barra de baix i no al que es veu —el cas de la suite que
 demana `touch::on_the_glass` abans de preguntar res: el camí de tornada de `turn_frame`, que és el desplaçament de la vista sumat al
 punt (docs/50, docs/90).
 
+**I el vidre d'un despert per una alarma no es toca** (0.190.19): mentre el run és un despert per una alarma amb ningú al davant, tota
+pintada es queda a la memòria i no arriba al panell (`display::set_the_glass_asleep`), i la imatge que hi ha al vidre és la que va deixar
+el son. L'app que demana el primer pla —un `raise`— és la qui l'encén, i llavors la seva pàgina es deu sencera (docs/50, docs/60).
+**La pàgina d'una app que s'ha mort tampoc no es pinta** en un run així: el perquè va al log, que és l'únic lector que hi ha quan no hi
+ha ningú davant del vidre.
+
 **I el host es mira mentre s'espera** (0.190.3, l'amo: *«es veu l'error al log i després l'emulator es penja "program" is not
 responding»*). El torn del nucli és **el que mira la finestra de l'emulador** —els seus esdeveniments, el dit sobre el vidre, els
 quadres d'una pintada— i aquesta pàgina atura aquell torn: la finestra va deixar de respondre al gestor de finestres, el ratolí ja no

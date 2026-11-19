@@ -289,8 +289,8 @@ class PaperPower : public Esp32Power {
   // I el que fa tota baixada d'aquesta placa sigui quina sigui l'hora: el vidre reposa, els rails del panell i de l'extensió baixen, el
   // corrent es queda aguantat (`kMainPowerPin` alt) perquè una tecla pugui despertar un xip que si no seria mort, i la línia del registre
   // és la mateixa (docs/50, docs/60).
-  bool sleep(SleepMode mode, int64_t at_epoch_ms) override {
-    if (mode != SleepMode::kDeep) return Esp32Power::sleep(mode, at_epoch_ms);
+  bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) override {
+    if (mode != SleepMode::kDeep) return Esp32Power::sleep(mode, at_epoch_ms, keep_the_panel);
     Bm8563* chip = paper_chip();
     const bool has_an_hour = at_epoch_ms > 0;
     // **I el dit, si és una porta, mana sobre el corrent** (0.190.16): to hear a finger the touch controller has to stay powered, so the
@@ -321,7 +321,11 @@ class PaperPower : public Esp32Power {
     if (glass_ != nullptr) glass_->rest();
     // **El rail del panell és el del tàctil** (0.190.16): with the finger as a door it is not cut, because the GT911 lives on it and a
     // controller with no current is a glass that cannot hear anybody. It is the current this option costs, and the reason it is off.
-    if (!the_finger_is_a_door) turn_supply_off(kPanelPowerPin);
+    //
+    // **I una baixada que no ha tocat el vidre tampoc no el baixa** (0.190.19, l'amo: *«No baixis els rails, així no es veuen canvis ni es
+    // gasta energia»*): the controller keeps its state and the image it is showing, o sigui que el despert següent no ha de reinicialitzar
+    // ni repintar res (docs/50, docs/60).
+    if (!the_finger_is_a_door && !keep_the_panel) turn_supply_off(kPanelPowerPin);
     turn_supply_off(kExtPowerPin);
     // **El corrent no es toca**: kMainPowerPin stays high, and that is the difference between this sleep and being off when the chip
     // kept the hour (`power_off` is the one that lets it go).

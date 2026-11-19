@@ -136,8 +136,20 @@ bool set_bus_mhz(uint32_t mhz) { return (g_surface != nullptr) && g_surface->set
 
 void hold_for_a_paint() { power::hold_cpu(power::kBusyMhz, kPaintWindowMs, "a paint"); }
 
+// **El vidre que no s'ha de tocar** (0.190.19): the switch and its two doors. A paint that arrives while the glass is asleep is written into
+// the buffer and **not sent**: the damage stays marked, o sigui que el primer `present` després de despertar-lo hi posa el que hi hagi
+// (docs/30, docs/50).
+bool g_the_glass_is_asleep = false;
+
+void set_the_glass_asleep(bool on) { g_the_glass_is_asleep = on; }
+
+bool the_glass_is_asleep() { return g_the_glass_is_asleep; }
+
 bool present(hal::UpdateMode mode) {
   if (g_surface == nullptr) return false;
+  // **Ningú no ha tocat la pantalla**: a wake for an alarm runs its windows and goes down again with the glass exactly as the sleep left it
+  // (docs/60).
+  if (g_the_glass_is_asleep) return false;
   hold_for_a_paint();
   meter::Scope whole(meter::kGlassFlush);
   // **Not every paint is the same paint.** `gc16` and its family clean the ghost of what was there and

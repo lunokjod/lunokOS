@@ -26,6 +26,7 @@
 #include "img/img.h"
 #include "json/json.h"
 #include "kernel/app_error.h"
+#include "kernel/display.h"
 #include "kernel/apps.h"
 #include "kernel/bar.h"
 #include "kernel/button.h"
@@ -15109,6 +15110,9 @@ void test_a_wake_for_an_alarm_that_ran_a_window_goes_down_with_the_picture_back(
   // that keeps running would deliver the alarm here and the queue would be empty at the boot this case is about. La cua desada és la que el
   // boot ha de trobar (docs/60, docs/85).
   TEST_ASSERT_TRUE(kernel::execute("sleep deep 60000"));
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint32_t the_glass_before = glass->flushes();
 
   // **La tornada pel rellotge del xip**, amb la cua que encara té l'alarma: the emulator's clock jumps to the hour and this whole run says it
   // came back for an alarm. **La captura envolta l'arrencada** perquè la finestra escriu al prompt del sistema i no a una consola d'app
@@ -15129,19 +15133,11 @@ void test_a_wake_for_an_alarm_that_ran_a_window_goes_down_with_the_picture_back(
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle deep sleep: no alarm to come back for"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::running(), "the board of a wake for an alarm waited for the counter instead of going down");
 
-  // **I la imatge del son és al vidre**: the picture of a case is a few black pixels in the middle of a wash that is paper all round, o
-  // sigui que el que es mira és que n'hi hagi (docs/50, docs/85).
-  emu::MemorySurface* glass = emu::memory_surface();
-  TEST_ASSERT_NOT_NULL(glass);
-  const uint16_t at_x = static_cast<uint16_t>(glass->width() / 2);
-  const uint16_t at_y = static_cast<uint16_t>(glass->height() / 2);
-  int ink = 0;
-  for (uint16_t y = static_cast<uint16_t>(at_y - 3); y <= static_cast<uint16_t>(at_y + 3); ++y) {
-    for (uint16_t x = static_cast<uint16_t>(at_x - 3); x <= static_cast<uint16_t>(at_x + 3); ++x) {
-      if (glass->level_at(x, y) == 0) ++ink;
-    }
-  }
-  TEST_ASSERT_GREATER_THAN_MESSAGE(0, ink, "the board went down with the page of a window on the glass");
+  // **I el vidre no s'ha tocat ni una vegada** (0.190.19): la finestra pintava la seva pàgina i des de la 0.190.19 tot el que es pinta en un
+  // despert per una alarma es queda a la memòria —el panell conserva la imatge del son i el despert següent no ha de repintar res—, o sigui que
+  // el que es mira és que aquest run no hagi enviat cap pintada (docs/50, docs/85).
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(the_glass_before, glass->flushes(),
+                                   "a wake for an alarm painted the glass for a window that shows nothing");
 
   kernel::cfg::set_home_app("");
   while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
@@ -15149,6 +15145,112 @@ void test_a_wake_for_an_alarm_that_ran_a_window_goes_down_with_the_picture_back(
   storage->remove("/apps/winker/manifest.json");
   storage->remove("/apps/winker");
   storage->remove("/res/splash/sleep.bmp");
+  use_board("m5stack-atom");
+  TEST_ASSERT_TRUE(kernel::running());
+}
+
+// **Un despert per una alarma no toca el vidre, i una app que demana el primer pla sí** (0.190.19, l'amo: *«Al despertar de DeepSleep, si
+// es una alarma no has de tocar la pantalla per res … Una app com Battery o Meteo que recolecti dades dels sensors no mostrarà res. Però un
+// temporizador o alarma de l'app Clock es posarà en primer pla amb l'avis d'alarma i no tornarà a dormir»*).
+//
+// **La meitat de fons**: a window runs, the panel is not touched —ni una flush, ni la barra del boot— and the board goes back down.
+// **La meitat del primer pla**: the same wake with a `raise` puts the app in front, the glass wakes up for it, and the board stays awake
+// (docs/30, docs/50, docs/60).
+void test_a_wake_for_an_alarm_leaves_the_glass_alone_unless_the_app_asks_for_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  use_board("m5stack-paper");
+  TEST_ASSERT_TRUE(hal::platform().power()->deep_powers_off());
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  alarms::reset();
+  kernel::cfg::set_home_app("");
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+
+  // **Una app de fons**: it arms an alarm for itself and goes; when it rings nobody has it loaded, o sigui que corre en una finestra.
+  TEST_ASSERT_TRUE(add_app(storage, "sampler",
+                           "{\"title\":\"Sampler\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "function on_alarm(id, payload)\n"
+                           "  console.print('sampler took ' .. tostring(payload))\n"
+                           "  ui.clear(0)\n"
+                           "  ui.present('gc16')\n"
+                           "end\n"
+                           "if console.is_foreground() then\n"
+                           "  alarm.at{in_ms = 60000, payload = 'read', persist = true, raise = false}\n"
+                           "end\n"));
+  kernel::power::set_idle_sleep_allowed(false);
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  kernel::power::set_idle_quiet_ms(600000);
+  pump_captured(40, g_out, sizeof(g_out), "run sampler");
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+  close_any_app();
+  TEST_ASSERT_TRUE(kernel::execute("sleep deep 60000"));
+
+  // **La tornada**: the clock jumps and this boot is a wake for an alarm. **Cap flush**: the paints of this run —la barra del boot i la
+  // pàgina de la finestra— es queden a la memòria (docs/50, docs/85).
+  const uint32_t the_glass_before = glass->flushes();
+  capture_begin();
+  kernel::boot(hal::platform());
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE(kernel::power::woken_by_an_alarm());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::display::the_glass_is_asleep(), "a wake for an alarm asked the glass to paint");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back from a deep sleep, woken by the clock chip: an alarm"),
+                               g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sampler took read"), g_out);
+
+  pump_captured(30, g_out, sizeof(g_out));
+  kernel::power::set_idle_quiet_ms(was_quiet);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(the_glass_before, glass->flushes(),
+                                   "a wake for an alarm painted the glass of a person for a window");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::running(), "the board of a window did not go back down");
+
+  // **I ara la meitat del primer pla**: the same alarm with `raise`, que és el temporitzador o l'avís del Clock —l'app demana el vidre, la
+  // placa es queda desperta i el que s'hi veu és la seva pàgina (docs/30, docs/60).
+  use_board("m5stack-paper");
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  alarms::reset();
+  kernel::cfg::set_home_app("");
+  storage->remove("/apps/sampler/app.lua");
+  storage->remove("/apps/sampler/manifest.json");
+  storage->remove("/apps/sampler");
+  TEST_ASSERT_TRUE(add_app(storage, "ringer",
+                           "{\"title\":\"Ringer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "function on_alarm(id, payload)\n"
+                           "  console.print('ringer rings ' .. tostring(payload))\n"
+                           "end\n"
+                           "if console.is_foreground() then\n"
+                           "  alarm.at{in_ms = 60000, payload = 'wake up', persist = true, raise = true}\n"
+                           "end\n"
+                           "while true do sys.delay(200):await() end\n"));
+  kernel::power::set_idle_sleep_allowed(false);
+  pump_captured(40, g_out, sizeof(g_out), "run ringer");
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+  close_any_app();
+  TEST_ASSERT_TRUE(kernel::execute("sleep deep 60000"));
+
+  const uint32_t before_the_raise = glass->flushes();
+  capture_begin();
+  kernel::boot(hal::platform());
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ringer rings wake up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::app_running(), "the app that asked for the front is not in front");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::display::the_glass_is_asleep(),
+                            "the glass stayed asleep under a page that asked for it");
+  pump_captured(30, g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::running(), "the board went back down under the page of the app that rang");
+  TEST_ASSERT_GREATER_THAN_UINT32_MESSAGE(before_the_raise, glass->flushes(),
+                                          "the page of the app that rang was never painted");
+
+  close_any_app();
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  storage->remove("/apps/ringer/app.lua");
+  storage->remove("/apps/ringer/manifest.json");
+  storage->remove("/apps/ringer");
   use_board("m5stack-atom");
   TEST_ASSERT_TRUE(kernel::running());
 }
@@ -20488,6 +20590,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_home_page_does_not_keep_the_board_awake);
   RUN_TEST(test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake);
   RUN_TEST(test_a_wake_for_an_alarm_that_ran_a_window_goes_down_with_the_picture_back);
+  RUN_TEST(test_a_wake_for_an_alarm_leaves_the_glass_alone_unless_the_app_asks_for_it);
   RUN_TEST(test_the_glass_is_a_door_of_the_sleep_only_when_asked);
   RUN_TEST(test_a_manual_deep_sleep_arms_the_nearest_alarm);
   RUN_TEST(test_the_idle_sleep_to_the_key_ends_the_run);

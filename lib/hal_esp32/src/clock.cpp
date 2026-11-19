@@ -63,8 +63,12 @@ class Esp32Clock : public IClock {
         return WakeCause::kTimer;
       case ESP_SLEEP_WAKEUP_UNDEFINED:
         return WakeCause::kPowerOn;
+      case ESP_SLEEP_WAKEUP_EXT1:
+        // **El dit és una porta a part del botó** (0.190.19): `ext1` és la línia del controlador del tàctil i `ext0` és la tecla del dial,
+        // o sigui que el xip sí que sap quina de les dues l'ha despertat (docs/50, docs/60).
+        return WakeCause::kTouch;
       default:
-        // A key or a pin of the board: this chip cannot tell which one from here.
+        // A key or another pin of the board: `ext0`, which is the dial of the Paper.
         return WakeCause::kOther;
     }
   }

@@ -67,7 +67,11 @@ uint32_t cap_bit(uint32_t index);
 // timer, `kConsole` a byte on the serial port, `kOther` anything else, and `kClock` is the
 // **clock chip's alarm**: a board that was powered off and that a quartz brought back, which
 // is not the same thing as a timer and is the strongest evidence of a good wake (docs/60).
-enum class WakeCause : uint8_t { kPowerOn = 0, kTimer = 1, kConsole = 2, kOther = 3, kClock = 4 };
+// **Què ha despertat la placa, i el dit és una cosa a part del botó** (0.190.19): a deep sleep of this system has three doors —the hour, a
+// key and, if a person asked for it, the glass— and the board knows which one it was: the chip's `ext0` is the key of the dial and its
+// `ext1` is the line of the touch controller. Un sol `kOther` per a tots dos era una línia de registre que deia «un botó» quan havia estat
+// un dit (docs/50, docs/60).
+enum class WakeCause : uint8_t { kPowerOn = 0, kTimer = 1, kConsole = 2, kOther = 3, kClock = 4, kTouch = 5 };
 
 enum class OpenMode : uint8_t { kRead = 0, kWrite = 1, kAppend = 2, kReadWrite = 3 };
 
@@ -333,7 +337,11 @@ class IPower {
   // here, and a board that has **both** doors arms **both** —the hour it was told and the key a person presses— when it has them. Zero
   // is not an hour: it is a board that comes back on a key, and a board with no key and no hour is a board that did not answer this
   // call at all (`can_sleep_with_the_keys` and `deep_powers_off` are how the system knows before asking) (docs/50, docs/60).
-  virtual bool sleep(SleepMode mode, int64_t at_epoch_ms) = 0;
+  // **`keep_the_panel`** (0.190.19, l'amo: *«No baixis els rails, així no es veuen canvis ni es gasta energia»*): a way down that has not
+  // touched the glass leaves the panel's supply where it is, so the controller keeps its state and the image it is showing and the next
+  // wake has nothing to re-initialise and nothing to repaint. It is the way down of an alarm that runs with nobody in front (docs/50,
+  // docs/60).
+  virtual bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) = 0;
   // Whether this board's deep sleep is a **full power off**: the board does not sleep,
   // it stops being powered and the clock chip's alarm turns it back on (docs/50). It is
   // the least current a board can draw, and it means the wake does not come from the

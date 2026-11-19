@@ -266,6 +266,10 @@ void report_wake(bool restarted) {
       how = "a button";
       cause = "button";
       break;
+    case hal::WakeCause::kTouch:
+      how = "the glass";
+      cause = "touch";
+      break;
     case hal::WakeCause::kClock:
       how = "the clock";
       cause = "clock";
@@ -575,7 +579,9 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // **And the ink of the picture is over before the chip stops** (0.165.1): the deep sleep cuts the clocks where the call
   // found them, so a picture asked for and not waited on is a picture that nobody sees (docs/50).
   if (mode == hal::SleepMode::kDeep) splash::wait();
-  const bool back = g_power->sleep(mode, until);
+  // **Una baixada que no ha tocat el vidre no baixa els rails del panell** (0.190.19): a wake for an alarm runs with nobody in front and
+  // the glass keeps the picture it had, o sigui que el controlador ha de quedar-se amb el seu estat i la imatge que ensenya (docs/50).
+  const bool back = g_power->sleep(mode, until, g_for_an_alarm);
   if (!back) return false;
   // **Sense hora no hi ha res a mesurar** (0.190.15): a board that came back on a key was not early and not late, and a drift written
   // for it would be a number `power last` shows and nobody asked for (docs/60).
@@ -1248,9 +1254,37 @@ BootKind note_the_boot(hal::IPlatform& platform) {
   // **I la marca es deixa per a la propera arrencada**, sigui quina sigui aquesta: una RAM que ja la té vol dir que el corrent no
   // ha marxat, i una de buida que la pila s'ha desconnectat (docs/50, docs/70).
   leave_the_mark(rtc);
+  // **El motiu del despert, dit clar i en una línia** (0.190.19, l'amo: *«Posa ben clar al despertar de DeepSleep quin es el motiu del
+  // wake»*): the board knows which of its doors opened —the clock chip, the chip's timer, the dial's key or the glass— and this is the line
+  // that says it, with what it means: an alarm is nobody in front and the glass stays as it was; a person is the page coming back.
+  const char* by = "the power coming back";
+  switch (woke) {
+    case hal::WakeCause::kClock:
+      by = "the clock chip";
+      break;
+    case hal::WakeCause::kTimer:
+      by = "the timer of the chip";
+      break;
+    case hal::WakeCause::kTouch:
+      by = "a finger on the glass";
+      break;
+    case hal::WakeCause::kOther:
+      by = "the key of the dial";
+      break;
+    case hal::WakeCause::kConsole:
+      by = "the console";
+      break;
+    default:
+      break;
+  }
   switch (g_boot_kind) {
     case BootKind::kSleep:
-      log_printf(pal::kLogInfo, "BOOT", "the board comes back from a deep sleep: the run goes on");
+      if (g_woke_by_an_alarm) {
+        log_printf(pal::kLogInfo, "BOOT", "back from a deep sleep, woken by %s: an alarm, nobody in front, the glass is not touched",
+                   by);
+      } else {
+        log_printf(pal::kLogInfo, "BOOT", "back from a deep sleep, woken by %s: a person, the page comes back", by);
+      }
       break;
     case BootKind::kRestart:
       log_printf(pal::kLogInfo, "BOOT", "the chip restarted and the power never went away");

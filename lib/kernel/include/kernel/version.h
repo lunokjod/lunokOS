@@ -10207,7 +10207,24 @@ namespace kernel {
 // `lock::boot` ja no mou el comptador (una arrencada no és una mà), i el cas
 // `test_a_wake_for_an_alarm_that_ran_a_window_goes_down_with_the_picture_back` aguanta les dues meitats: amb la regla vella la placa es
 // queda desperta, i sense la imatge el vidre no té el son.
-static const char kVersion[] = "0.190.18";
+// **Un despert per una alarma no toca el vidre** (0.190.19, l'amo: *«Al despertar de DeepSleep, si es una alarma no has de tocar la pantalla
+// per res. No baixis els rails, així no es veuen canvis ni es gasta energia, el procés es realitza i tornem a deepsleep sense molestar ni
+// gastar pantalla»*). El run d'un despert per una alarma pintava: la barra del boot enviava la pàgina sencera al controlador i la finestra
+// de l'alarma hi tornava a pintar. Ara **tota pintada es queda a la memòria** mentre aquell run dura (`display::set_the_glass_asleep`, que
+// miren `display::present`, les portades de `splash` i la pàgina d'una finestra) —i també la pàgina d'una app que s'ha mort, que escriu
+// el perquè al log i no al vidre, perquè no hi ha ningú davant per llegir-la— i el vidre conserva exactament la imatge que hi havia
+// deixat el son. **I la baixada no baixa el rail del panell** (`IPower::sleep(mode, at, keep_the_panel)`): el controlador es queda amb el
+// seu estat i la seva imatge, o sigui que el despert següent no ha de reinicialitzar ni repintar res.
+//
+// **La pantalla només s'encén si l'app cridada demana el primer pla** (el mateix dia, l'amo: *«una app com Battery o Meteo que recolecti
+// dades dels sensors no mostrarà res. Però un temporizador o alarma de l'app Clock es posarà en primer pla amb l'avis d'alarma i no tornarà
+// a dormir»*): `shell::run_app` obre la porta, deu la pàgina sencera i pinta la barra; sense `raise` no hi ha app al davant, el run fa la
+// seva feina i la placa torna a baixar. I si qui desperta és una persona —la tecla o el vidre—, el camí és el de sempre.
+//
+// **I el motiu del despert, en una línia** (`note_the_boot`): `back from a deep sleep, woken by the clock chip: an alarm, nobody in front,
+// the glass is not touched` / `… woken by the key of the dial: a person, the page comes back`. El xip distingeix el dit del botó
+// (`WakeCause::kTouch` és `ext1`, `ext0` és la tecla) (docs/50, docs/60).
+static const char kVersion[] = "0.190.19";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
