@@ -744,7 +744,16 @@ sola:
 3. **La mesura**: cada pintada diu files, fases, mil·lisegons de cable, mil·lisegons de la resta i els
    megahertz, i amb això se sap quina de les tres ha guanyat.
 
-**I la quarta, que és la que més ha valgut** (0.190.39): la mateixa pàgina sencera costa **2,67 s amb el
+**I la finestra, que és el que fa que un dígit no repinti una columna sencera** (0.190.40): el rectangle que el
+nucli marca es tradueix a coordenades del vidre **senceres** —les quatre cantonades, perquè el gir de 270° inverteix
+un eix— i una pintada només dona codi a les **columnes de dins** d'aquell rectangle; la resta de la fila surt amb el
+codi que no fa res, i les files de fora no surten. Sense això un `du`, que és de dues tintes, empenyia totes les
+nou-centes seixanta columnes de la banda de files cap a negre o blanc i s'enduia els grisos del que hi havia a la vora
+—que és exactament el que es veia: pocs tons i tota una columna repintada per canviar un dígit—. El preu del que queda
+és el de sempre en tinta: dins de la finestra, un `du` deixa dues tintes i el `gc16` del nucli és el que hi torna a
+posar setze.
+
+**I la quarta palanca, que és la que més ha valgut** (0.190.39): la mateixa pàgina sencera costa **2,67 s amb el
 processador a 80 MHz i 1,2 s a 240**, perquè aquí el xip no espera res —converteix el quadre en els codis
 del panell fila a fila i alimenta el i80 a cada fila— i el cable només són dotze microsegons d'una fila
 de setanta-vuit. Aquell «en enviar dades al eink, 80 MHz» era cert en una placa **amb** controlador, que

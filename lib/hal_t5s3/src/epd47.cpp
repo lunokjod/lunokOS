@@ -170,27 +170,31 @@ void Epd47::forget_the_dirty() {
   dirty_y1_ = 0;
 }
 
-void Epd47::dirty_rows(uint16_t& first, uint16_t& last) const {
-  first = 0;
-  last = 0;
+void Epd47::dirty_glass(uint16_t& gx0, uint16_t& gy0, uint16_t& gx1, uint16_t& gy1) const {
+  gx0 = 0;
+  gy0 = 0;
+  gx1 = kGlassW - 1;
+  gy1 = kGlassH - 1;
   if (nothing_dirty()) return;
   // **Les quatre cantonades**, perquè un gir de noranta graus inverteix un dels dos eixos i el mínim de les files no és el
   // mínim de les columnes (docs/50).
-  uint16_t gx = 0;
-  uint16_t gy = 0;
-  uint16_t lo = kGlassH - 1;
-  uint16_t hi = 0;
+  gx0 = kGlassW - 1;
+  gy0 = kGlassH - 1;
+  gx1 = 0;
+  gy1 = 0;
   const uint16_t xs[2] = {dirty_x0_, dirty_x1_};
   const uint16_t ys[2] = {dirty_y0_, dirty_y1_};
   for (int i = 0; i < 2; ++i) {
     for (int j = 0; j < 2; ++j) {
+      uint16_t gx = 0;
+      uint16_t gy = 0;
       to_glass(xs[i], ys[j], gx, gy);
-      if (gy < lo) lo = gy;
-      if (gy > hi) hi = gy;
+      if (gx < gx0) gx0 = gx;
+      if (gy < gy0) gy0 = gy;
+      if (gx > gx1) gx1 = gx;
+      if (gy > gy1) gy1 = gy;
     }
   }
-  first = lo;
-  last = hi;
 }
 
 void Epd47::clear(uint8_t level) {
@@ -296,7 +300,9 @@ bool Epd47::begin() {
   // fits anywhere else.
   bits_ = static_cast<uint8_t*>(heap_caps_malloc(static_cast<size_t>(kGlassW) * kGlassStride, MALLOC_CAP_SPIRAM));
   row_ = static_cast<uint8_t*>(heap_caps_malloc(kRowBytes, MALLOC_CAP_DMA));
-  if (bits_ == nullptr || row_ == nullptr) {
+  // **Dues memòries de fila** (0.190.40): la que viatja i la que s'està construint, perquè el cable i la conversió es tapin.
+  row2_ = static_cast<uint8_t*>(heap_caps_malloc(kRowBytes, MALLOC_CAP_DMA));
+  if (bits_ == nullptr || row_ == nullptr || row2_ == nullptr) {
     error_ = "there is no room for the frame of the panel";
     return false;
   }
@@ -475,24 +481,32 @@ void Epd47::row_control(bool start) {
   gpio_set_level(le, 0);
 }
 
-bool Epd47::send_row(const uint8_t* row, size_t len) {
+bool Epd47::start_row(const uint8_t* row) {
   if (io_ == nullptr) return false;
   s_dma_done = false;
-  if (esp_lcd_panel_io_tx_color(reinterpret_cast<esp_lcd_panel_io_handle_t>(io_), -1, row, len) != ESP_OK) {
+  if (esp_lcd_panel_io_tx_color(reinterpret_cast<esp_lcd_panel_io_handle_t>(io_), -1, row, kRowBytes) != ESP_OK) {
     error_ = "the bus did not take the row";
     return false;
   }
+  pending_ = true;
+  return true;
+}
+
+bool Epd47::wait_row() {
+  if (!pending_) return true;
   const uint32_t started = millis();
   while (!s_dma_done) {
     if ((millis() - started) > kRowTimeoutMs) {
       error_ = "the row never finished";
+      pending_ = false;
       return false;
     }
   }
+  pending_ = false;
   return true;
 }
 
-bool Epd47::update_the_glass(uint16_t first, uint16_t last, bool fast) {
+bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool fast) {
   if (!begin()) return false;
   // **Un passatge és una passada de tota la forma d'ona** (docs/50): for each phase the glass is scanned once, and what
   // each pixel is told to do comes from the panel's own table indexed by the level it has to end at. **Les files de
@@ -522,40 +536,52 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, bool fast) {
       lower[b] = codes;
       upper[b] = static_cast<uint8_t>(codes << 4);
     }
-    if (!scan_a_pass(first, last, upper, lower)) return false;
+    if (!scan_a_pass(first, last, b0, b1, upper, lower)) return false;
     delayMicroseconds(kBetweenPhasesUs);
   }
   // **I la descàrrega**, que és el que deixa els drivers del panell en repòs i no amb una tensió a sobre: one pass of
   // «do nothing» codes, which is the maker's `BB_CLEAR_NEUTRAL` (docs/50).
-  return scan_a_pass(first, last, nullptr, nullptr);
+  return scan_a_pass(first, last, b0, b1, nullptr, nullptr);
 }
 
-bool Epd47::scan_a_pass(uint16_t first, uint16_t last, const uint8_t* upper, const uint8_t* lower) {
+bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, const uint8_t* upper,
+                        const uint8_t* lower) {
   const gpio_num_t ckv = static_cast<gpio_num_t>(kCkv);
   // **El començament del passatge**, que deixa el rellotge vertical a dalt.
   row_control(true);
+  uint8_t* buffers[2] = {row_, row2_};
+  bool pending = false;
   for (uint16_t y = 0; y <= last && y < kGlassH; ++y) {
-    // **La fila anterior es tanca i la porta d'aquesta s'obre, en aquest ordre** (0.190.36, i és el que faltava): the
-    // maker's own loop latches the row that has just gone out (`ROW_STEP`: CKV low and the LE pulse) and then **raises
-    // CKV before the transfer**, which is what moves the gate driver one line down. Sense el CKV les cinc-centes quaranta
-    // files cauen totes damunt de la primera línia de porta —i no es veu res de res, perquè no hi ha cap fila que rebi
-    // el codi que li toca— (docs/50, docs/95).
-    if (y > 0) row_control(false);
-    gpio_set_level(ckv, 1);
+    uint8_t* row = buffers[y & 1u];
     const uint32_t before_the_row = static_cast<uint32_t>(esp_timer_get_time());
+    // **Només la finestra marcada porta codi** (0.190.40, i és el que es veia com «es redibuixa tota la columna»): a byte
+    // outside `b0..b1` is left at the code that does nothing, o sigui que la tinta només es mou dins del rectangle que el
+    // nucli ha marcat. Sense això, un `du` —que és de dues tintes— empenyia **totes nou-centes seixanta columnes** de la
+    // banda de files cap a negre o blanc i s'enduia els grisos de tot el que hi havia a la vora (docs/50, docs/95).
+    memset(row, 0, kRowBytes);
     if (upper != nullptr && lower != nullptr && y >= first) {
       const uint8_t* src = bits_ + static_cast<uint32_t>(y) * kGlassStride;
-      for (size_t i = 0; i < kRowBytes; ++i) {
-        row_[i] = static_cast<uint8_t>(upper[src[2 * i]] | lower[src[2 * i + 1]]);
+      for (uint16_t i = b0; i <= b1; ++i) {
+        row[i] = static_cast<uint8_t>(upper[src[2 * i]] | lower[src[2 * i + 1]]);
       }
-    } else {
-      memset(row_, 0, kRowBytes);
+    }
+    cpu_us_ += static_cast<uint32_t>(esp_timer_get_time()) - before_the_row;
+    // **I la fila que ja viatjava es recull ara**, quan la d'aquesta ja està construïda: és el que fa que el temps de la
+    // conversió i el del cable es tapin l'un a l'altre (docs/50, docs/95).
+    if (pending) {
+      if (!wait_row()) return false;
+      // **La fila anterior es tanca i la porta d'aquesta s'obre, en aquest ordre** (0.190.36): the maker's own loop
+      // latches the row that has just gone out (`ROW_STEP`: CKV low and the LE pulse) and then **raises CKV before the
+      // transfer**, which is what moves the gate driver one line down.
+      row_control(false);
+      gpio_set_level(ckv, 1);
     }
     const uint32_t before_the_wire = static_cast<uint32_t>(esp_timer_get_time());
-    cpu_us_ += before_the_wire - before_the_row;
-    if (!send_row(row_, kRowBytes)) return false;
+    if (!start_row(row)) return false;
+    pending = true;
     bus_us_ += static_cast<uint32_t>(esp_timer_get_time()) - before_the_wire;
   }
+  if (pending && !wait_row()) return false;
   // **I l'última fila també es tanca**: the maker's loop leaves the last row clocked and not latched because the next
   // pass starts with its own `ROW_START`, i tancar-la aquí és una vora de més que no pot fer mal i que deixa totes les
   // files igual de senceres (docs/50).
@@ -568,9 +594,18 @@ bool Epd47::flush(UpdateMode mode) {
   // **Res marcat és una pintada que no surt** (0.190.37): the contract of `ISurface` —a page nobody asked to be repainted
   // is a page this system does not touch— i en aquest vidre una pintada buida no és gratis, són dos segons i mig.
   if (nothing_dirty()) return true;
-  uint16_t first = 0;
-  uint16_t last = kGlassH - 1;
-  dirty_rows(first, last);
+  // **El rectangle marcat, al vidre** (0.190.40): the rows say where the scan stops and the columns say what is worth
+  // driving; el que queda fora de les dues coses no surt o surt amb el codi que no fa res (docs/50, docs/95).
+  uint16_t gx0 = 0;
+  uint16_t gy0 = 0;
+  uint16_t gx1 = static_cast<uint16_t>(kGlassW - 1);
+  uint16_t gy1 = static_cast<uint16_t>(kGlassH - 1);
+  dirty_glass(gx0, gy0, gx1, gy1);
+  const uint16_t first = gy0;
+  const uint16_t last = gy1;
+  // Un byte del vidre són dos píxels, o sigui que la finestra de columnes s'arrodoneix a bytes sencers.
+  const uint16_t b0 = static_cast<uint16_t>(gx0 >> 1);
+  const uint16_t b1 = static_cast<uint16_t>(gx1 >> 1 < (kRowBytes - 1) ? gx1 >> 1 : (kRowBytes - 1));
   // **El mode que demana el nucli és el que decideix la forma d'ona** (0.190.38): `du`, `du4` and `a2` are the two-level
   // ones and they get the six phases of `kFastPhases`; every other one —and `gc16` above all— gets the panel's own
   // thirty-eight, que és la que neteja el fantasma que les curtes deixen (docs/50).
@@ -580,15 +615,17 @@ bool Epd47::flush(UpdateMode mode) {
   cpu_us_ = 0;
   const uint32_t started = static_cast<uint32_t>(esp_timer_get_time());
   busy_ = true;
-  const bool ok = power(true) && update_the_glass(first, last, fast);
+  const bool ok = power(true) && update_the_glass(first, last, b0, b1, fast);
   busy_ = false;
   const uint32_t took_ms = (static_cast<uint32_t>(esp_timer_get_time()) - started) / 1000;
   // **I el rectangle s'oblida només quan la pintada ha sortit**: a paint that failed leaves the marks where they were so
   // the next turn asks for it again (docs/50).
   if (ok) forget_the_dirty();
-  logf(pal::kLogDebug, "PANEL", "%s: %u of %u lines from %u, %u phases, %u ms (%u on the wire and %u elsewhere) at %u MHz",
-       mode_name(mode), static_cast<unsigned>(last - first + 1), static_cast<unsigned>(kGlassH),
-       static_cast<unsigned>(first), static_cast<unsigned>(phases), static_cast<unsigned>(took_ms),
+  logf(pal::kLogDebug, "PANEL",
+       "%s: %u,%u %ux%u of the glass, %u phases, %u ms (%u on the wire and %u elsewhere) at %u MHz", mode_name(mode),
+       static_cast<unsigned>(gx0), static_cast<unsigned>(first),
+       static_cast<unsigned>(gx1 - gx0 + 1), static_cast<unsigned>(last - first + 1),
+       static_cast<unsigned>(phases), static_cast<unsigned>(took_ms),
        static_cast<unsigned>(bus_us_ / 1000), static_cast<unsigned>(cpu_us_ / 1000),
        static_cast<unsigned>(pclk_hz_ / 1000000));
   return ok;

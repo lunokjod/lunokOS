@@ -83,9 +83,11 @@ class Epd47 : public ISurface {
   void mark(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
   bool nothing_dirty() const { return dirty_x1_ < dirty_x0_ || dirty_y1_ < dirty_y0_; }
   void forget_the_dirty();
-  // **Les files del vidre que aquest rectangle toca**: the gate scan starts at line zero and walks down, o sigui que el
-  // que es pot estalviar és el que hi ha **per sota** de l'última fila marcada (docs/50).
-  void dirty_rows(uint16_t& first, uint16_t& last) const;
+  // **El rectangle marcat, en coordenades del vidre** (0.190.40): the page is turned, o sigui que el que a la pàgina és una
+  // caixa és una caixa al vidre, però les files no són les de la pàgina i s'han de treure de les quatre cantonades. El que
+  // mana una pintada és aquest rectangle: **les files de fora no surten i, dins d'una fila, només es dona codi a les
+  // columnes de dins**. El que queda a zero és el codi que no fa res (docs/50, docs/95).
+  void dirty_glass(uint16_t& gx0, uint16_t& gy0, uint16_t& gx1, uint16_t& gy1) const;
 
   // The supply of the panel, in the order the maker's own driver gives it (TPS65185 + PCA9535).
   bool power(bool on);
@@ -95,13 +97,18 @@ class Epd47 : public ISurface {
   // **Un passatge sencer**: the STV start, the rows of the marked rectangle with the gate advancing one line at a time,
   // and the latch of the last one. `upper`/`lower` are the two halves of the table for this phase, and a null pair is the
   // discharge pass, que és la que deixa els drivers del panell en repòs (docs/50).
-  bool scan_a_pass(uint16_t first, uint16_t last, const uint8_t* upper, const uint8_t* lower);
+  bool scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, const uint8_t* upper,
+                   const uint8_t* lower);
   // **El perifèric del bus, obert i tornat a obrir** quan canvia el rellotge (0.190.38).
   bool open_the_io();
   // The four edges of a row: `start` opens a pass, and the step latches a row that has just been clocked.
   void row_control(bool start);
-  bool send_row(const uint8_t* row, size_t len);
-  bool update_the_glass(uint16_t first, uint16_t last, bool fast);
+  // **Una fila es llança i es recull en dos temps** (0.190.40): `start_row` hands the row to the peripheral and
+  // `wait_row` waits for the one that was already travelling, o sigui que la fila següent es construeix mentre l'anterior
+  // va pel cable i el que queda és el més gran dels dos temps i no la seva suma (docs/50, docs/95).
+  bool start_row(const uint8_t* row);
+  bool wait_row();
+  bool update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool fast);
 
   Pca9535* expander_;
   II2c* bus_;
@@ -109,6 +116,7 @@ class Epd47 : public ISurface {
   void* io_;
   uint8_t* bits_;
   uint8_t* row_;
+  uint8_t* row2_;
   volatile bool dma_done_;
   bool started_;
   bool powered_;
@@ -127,6 +135,8 @@ class Epd47 : public ISurface {
   // different loop can take away (docs/95).
   uint32_t bus_us_ = 0;
   uint32_t cpu_us_ = 0;
+  // Whether a row is still travelling through the peripheral (0.190.40).
+  bool pending_ = false;
   const char* error_ = "";
 };
 

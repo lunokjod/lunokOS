@@ -10366,7 +10366,14 @@ namespace kernel {
 // velocitat, cada dispositiu decideix; vàries plaques poden compartir hardware i per unes és espera i per altres és feina»*):
 // el mateix panell i el mateix driver poden costar una cosa en una placa i una altra en una altra, o sigui que qui mana la
 // velocitat és qui la paga (docs/50, docs/95).
-static const char kVersion[] = "0.190.39";
+// **I la finestra, que és el que es veia com «es redibuixa tota la columna»** (0.190.40). El rectangle marcat es tradueix a
+// coordenades del vidre **senceres** —les quatre cantonades, perquè el gir inverteix un eix— i una pintada només dona codi a les
+// columnes de dins: la resta de la fila va amb el codi que no fa res. Sense això, un `du` —que és de dues tintes— empenyia totes
+// nou-centes seixanta columnes de la banda de files cap a negre o blanc i s'enduia els grisos de tot el que hi havia a la vora, que
+// és exactament el que es veia: pocs tons i una columna sencera repintada per un dígit. **I la fila es llança i es recull en dos
+// temps** (`start_row`/`wait_row`): la següent es construeix mentre l'anterior va pel cable, o sigui que el que queda és el més
+// gran dels dos temps i no la seva suma (docs/50, docs/95).
+static const char kVersion[] = "0.190.40";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
