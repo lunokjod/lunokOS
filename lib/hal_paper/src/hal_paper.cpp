@@ -293,7 +293,13 @@ class PaperPower : public Esp32Power {
     if (mode != SleepMode::kDeep) return Esp32Power::sleep(mode, at_epoch_ms);
     Bm8563* chip = paper_chip();
     const bool has_an_hour = at_epoch_ms > 0;
-    if (chip != nullptr) {
+    // **I el dit, si és una porta, mana sobre el corrent** (0.190.16): to hear a finger the touch controller has to stay powered, so the
+    // rail of the panel is kept and the board does not cut its own current —the way down is the one that keeps the supply, like the key
+    // sleep—. El xip del rellotge es desarma com al cas del cable: una alarma que saltaria amb la placa encesa i amb el panell despert
+    // no vol dir res, i qui la torna a l'hora és el temporitzador del xip (docs/50, docs/60).
+    const bool the_finger_is_a_door = wake_on_touch_;
+    if (the_finger_is_a_door && chip != nullptr) chip->disarm();
+    if (!the_finger_is_a_door && chip != nullptr) {
       if (has_an_hour) {
         const int64_t now_ms = esp32_wall_ms();
         if (now_ms > 0 && at_epoch_ms > now_ms && chip->write_epoch_ms(now_ms) && chip->arm_at(at_epoch_ms)) {
@@ -313,14 +319,27 @@ class PaperPower : public Esp32Power {
     fflush(stdout);
     vTaskDelay(pdMS_TO_TICKS(100));
     if (glass_ != nullptr) glass_->rest();
-    turn_supply_off(kPanelPowerPin);
+    // **El rail del panell és el del tàctil** (0.190.16): with the finger as a door it is not cut, because the GT911 lives on it and a
+    // controller with no current is a glass that cannot hear anybody. It is the current this option costs, and the reason it is off.
+    if (!the_finger_is_a_door) turn_supply_off(kPanelPowerPin);
     turn_supply_off(kExtPowerPin);
     // **El corrent no es toca**: kMainPowerPin stays high, and that is the difference between this sleep and being off when the chip
     // kept the hour (`power_off` is the one that lets it go).
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    // **Les dues portes de sempre**: the key of the dial, always, and the chip's timer when there is an hour.
     esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(kPowerKeyPin), 0);
     if (has_an_hour) esp32_arm_timer_wake(at_epoch_ms);
-    esp_deep_sleep_start();  // does not return: the chip restarts on the key, on its timer or on the current of the board
+    // **I la tercera, el dit** (0.190.16): the GT911 pulls its line **low** when a scan has a frame and lets it go between frames —the
+    // board pulls it up—, o sigui que la condició és «GPIO36 baix». `ext1` d'un ESP32 només sap «tots baixos» o «qualsevol alt»; amb un
+    // sol pin, «tots baixos» **és** «aquest baix», que és exactament el que el xip del tàctil fa (docs/50, docs/95).
+    if (the_finger_is_a_door) {
+      if (esp_sleep_enable_ext1_wakeup(1ULL << kTouchIntPin, ESP_EXT1_WAKEUP_ALL_LOW) != ESP_OK) {
+        // **Si el xip no ho accepta, es diu**: una porta que no s'ha armat i que el registre calla és una persona esperant un dit que no
+        // despertarà res (docs/50).
+        fprintf(stdout, "power: the finger is not a door of this sleep\r\n");
+      }
+    }
+    esp_deep_sleep_start();  // does not return: the chip restarts on the key, on its timer, on the current or on the glass
     return false;
   }
 
@@ -353,9 +372,20 @@ class PaperPower : public Esp32Power {
   // the two ways this board comes back (docs/50).
   const char* wakes() override { return "timer, clock, button"; }
 
+  // **El dit com a porta** (0.190.16): the GT911 is powered from the panel's rail and it scans by itself, o sigui que el que cal per
+  // despertar-se amb un dit és **deixar aquell rail ences** i escoltar la seva línia mentre el xip dorm. És un ajust i no el de sèrie
+  // perquè tot això és corrent: el panell i el controlador del tàctil encesos tota la son (docs/50, docs/60).
+  bool wake_on_touch() const override { return wake_on_touch_; }
+  bool set_wake_on_touch(bool on) override {
+    wake_on_touch_ = on;
+    return wake_on_touch_;
+  }
+
  private:
   // The glass, for the way down to put to sleep first (0.183.0).
   ISurface* glass_ = nullptr;
+  // **El dit, apagat de sèrie** (0.190.16): the system turns it on from the setting and the board reads it here.
+  bool wake_on_touch_ = false;
 };
 
 class PaperPlatform : public IPlatform {

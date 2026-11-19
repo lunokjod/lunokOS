@@ -15055,6 +15055,44 @@ void test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake(v
   storage->remove("/apps/sleeper");
 }
 
+// **Les tres portes del son profund** (0.190.16, l'amo: *«del DeepSleep s'ha de poder tornar sempre a part de per les alarmes, també els
+// botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*). The hour and the key are
+// always armed where the board has them; **the glass is a door only when a person asks for it**, because hearing a finger means keeping
+// the panel's rail and its touch controller awake for the whole sleep. El que es mira aquí és la cadena sencera: l'ajust desat, la porta
+// del sistema i el que la placa contesta —una placa sense tàctil refusa l'escriptura i el que queda és apagat— (docs/30, docs/50, docs/60).
+void test_the_glass_is_a_door_of_the_sleep_only_when_asked(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board_with_fingers("m5stack-paper");
+  TEST_ASSERT_TRUE(kernel::touch::available());
+
+  // **De sèrie, apagat**, i el commutador de la pàgina ensenya el que el sistema té (docs/30, docs/45).
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::wake_on_touch(), "the glass was a door of the sleep without anybody asking for it");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::power::wake_on_touch(), "the board heard a finger while it slept by default");
+
+  pump_captured(10, g_out, sizeof(g_out), "cfg touchwake on");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: touch to wake on"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::wake_on_touch(), "the setting did not keep the answer of the board");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::wake_on_touch(),
+                           "the setting did not reach the board, which is what the way down reads");
+
+  pump_captured(10, g_out, sizeof(g_out), "cfg touchwake off");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: touch to wake off"), g_out);
+  TEST_ASSERT_FALSE(kernel::cfg::wake_on_touch());
+  TEST_ASSERT_FALSE(kernel::power::wake_on_touch());
+
+  // **I una placa sense tàctil no té aquesta porta**: the write is refused and what stands is off, which is what the row will show.
+  pump_captured(10, g_out, sizeof(g_out), "cfg touchwake on");
+  TEST_ASSERT_TRUE(kernel::cfg::wake_on_touch());
+  use_board("m5stack-atom");
+  TEST_ASSERT_FALSE_MESSAGE(hal::platform().power()->wake_on_touch(), "the ATOM says it hears a finger while it sleeps");
+  pump_captured(10, g_out, sizeof(g_out), "cfg touchwake on");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "this board does not hear a finger"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::wake_on_touch(), "a board with no glass kept a door it cannot open");
+
+  kernel::cfg::set_wake_on_touch(false);
+  use_board("m5stack-atom");
+}
+
 // **Una baixada és una de sola, i s'endú les alarmes** (0.190.15, l'amo: *«el codi d'apagada per deepsleep ha de ser el mateix a tot arreu,
 // tant si salta per timeout d'inactivitat com si l'usuari l'activa manualment… Veig que si inicio sleep manual no es setegen les
 // alarmes?»*). Abans hi havia dues baixades: la de la política, que li deia al xip l'hora de l'alarma, i la d'una persona, que anava per
@@ -20345,6 +20383,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_idle_sleep_is_a_switch);
   RUN_TEST(test_the_home_page_does_not_keep_the_board_awake);
   RUN_TEST(test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake);
+  RUN_TEST(test_the_glass_is_a_door_of_the_sleep_only_when_asked);
   RUN_TEST(test_a_manual_deep_sleep_arms_the_nearest_alarm);
   RUN_TEST(test_the_idle_sleep_to_the_key_ends_the_run);
   RUN_TEST(test_a_wake_for_an_alarm_with_an_empty_queue_still_sleeps_to_the_key);

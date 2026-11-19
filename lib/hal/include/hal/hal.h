@@ -354,6 +354,22 @@ class IPower {
   // capability of the wiring and not a way down of its own: **a board with a key sleeps with `sleep(kDeep, 0)`**, the same call as
   // every other way down (0.190.15), and the board arms the key there along with the hour when it has one (docs/50).
   virtual bool can_sleep_with_the_keys() const { return false; }
+  // **Tornar d'un son profund amb el dit** (0.190.16, l'amo: *«del DeepSleep s'ha de poder tornar sempre a part de per les alarmes, també
+  // els botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*): whether this board
+  // can hear a finger while the chip is asleep, and the switch the system sets. **Off by default and off on every board that does not
+  // say otherwise**: hearing a finger means keeping the panel's rail and its touch controller awake for the whole sleep, which is exactly
+  // the current a deep sleep exists to stop (docs/50, docs/60).
+  //
+  // The key and the alarm are **not** this switch: a deep sleep always arms them where the board has them, and a board that says false
+  // here is a board that comes back on its hour or on a key, never on the glass.
+  virtual bool wake_on_touch() const { return false; }
+  // Turns it on or off and answers **the value in force**, which is the board's: false is a board with no such door. The system sets it
+  // from the setting of the Battery tab and asks it again before spending the picture of the way down (docs/30, docs/60).
+  virtual bool set_wake_on_touch(bool on) {
+    (void)on;
+    return false;
+  }
+
   // Where this board can be woken from: "timer", "button", "console" or "none".
   // Said by the board, because it is the wiring that decides it (docs/50).
   virtual const char* wakes() = 0;

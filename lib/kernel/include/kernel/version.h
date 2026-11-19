@@ -10177,7 +10177,16 @@ namespace kernel {
 // del HAL: una placa amb tecla dorm amb `sleep(kDeep, 0)`. La línia del registre és la mateixa a totes les baixades
 // (`say_the_way_down`), i `zero no és una hora, és la tecla`. El cas `test_a_manual_deep_sleep_arms_the_nearest_alarm` ho aguanta: amb
 // l'hora antiga l'alarma es quedava a la cua (docs/50, docs/60).
-static const char kVersion[] = "0.190.15";
+// **Els botons físics sempre, i el dit si es demana** (0.190.16, l'amo: *«del DeepSleep s'ha de poder tornar sempre a part de per les
+// alarmes, també els botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*). Un son
+// profund té **tres portes**: l'hora (el temporitzador del xip i el rellotge quan el corrent se'n va), **la tecla del dial, sempre**
+// (`ext0` sobre GPIO38) i **el dit, només si una persona ho ha demanat**: `cfg.touch_wake`, la fila *Wake on touch* de la pestanya
+// Battery i `cfg touchwake on|off`. **Apagat de sèrie**, perquè sentir un dit vol dir deixar encesos el rail del panell i el controlador
+// del tàctil tota la son —el corrent que el son existeix per estalviar—; amb el commutador encès la baixada no talla `kPanelPowerPin`,
+// deixa el vidre reposat i arma `ext1` sobre el GPIO36 amb «aquest pin baix», que és el que el GT911 fa quan un escombrat té un marc
+// (docs/50, docs/60, docs/95). El HAL té la pregunta i el commutador (`IPower::wake_on_touch`/`set_wake_on_touch`), i una placa sense
+// tàctil refusa l'escriptura i el que queda és apagat.
+static const char kVersion[] = "0.190.16";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

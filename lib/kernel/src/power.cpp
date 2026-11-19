@@ -417,6 +417,9 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   // (docs/60).
   g_coming_back_at = 0;
   g_for_an_alarm = for_an_alarm;
+  // **I la porta del dit, que és un ajust i no una política** (0.190.16): the setting of the Battery tab is pushed into the board at every
+  // boot, because the board is built before the settings are read (docs/30, docs/50).
+  if (g_power != nullptr) g_power->set_wake_on_touch(cfg::wake_on_touch());
 
   // What an app may ask for. Without a power interface the operations stay
   // absent, and power.* answers E_UNSUPPORTED instead of pretending (docs/30).
@@ -603,6 +606,12 @@ bool deep_sleep_with_the_keys() {
 // **Si aquesta placa pot baixar del tot** (0.190.15): a deep sleep is possible when the board can keep a clock (or has a battery-backed
 // chip) **and** it has a door back —the hour of an alarm or a key that wakes the chip—. A board with neither is a board that goes dark
 // for ever, and the card of the system and the prompt ask this before spending the picture of the way down (docs/50, docs/60).
+// **El dit** (0.190.16): the board is the one that knows whether it can hear a finger while its chip sleeps, o sigui que la resposta és
+// la seva i el sistema només la hi demana (docs/50).
+bool wake_on_touch() { return (g_power != nullptr) && g_power->wake_on_touch(); }
+
+bool set_wake_on_touch(bool on) { return (g_power != nullptr) ? g_power->set_wake_on_touch(on) : false; }
+
 bool can_deep_sleep() {
   if (g_power == nullptr || !can_sleep(hal::SleepMode::kDeep)) return false;
   if (g_power->can_sleep_with_the_keys()) return true;

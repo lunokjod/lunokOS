@@ -625,6 +625,15 @@ class FakePower : public IPower {
   bool can_power_off() const override { return emu::model().powers_off; }
   bool can_sleep_with_the_keys() const override { return emu::model().keys_wake; }
 
+  // **El dit com a porta, que aquest model sí que pot dir** (0.190.16): the PC has no touch controller to keep awake, so what is imitated is
+  // the part a case can read —the switch the system sets and the answer of the board—, and the value the way down would read (docs/50,
+  // docs/85).
+  bool wake_on_touch() const override { return wake_on_touch_ && emu::model().touch; }
+  bool set_wake_on_touch(bool on) override {
+    wake_on_touch_ = on && emu::model().touch;
+    return wake_on_touch_;
+  }
+
   // The PC does not change its speed, and this band says so instead of pretending:
   // the value is remembered so the call and its refusals can be used and tested,
   // and it starts at the 160 MHz a board boots with (docs/85).
@@ -637,6 +646,7 @@ class FakePower : public IPower {
 
  private:
   uint32_t cpu_mhz_ = 160;
+  bool wake_on_touch_ = false;
 };
 
 // The network of this band is a **fake** and docs/85 says so: it takes `--wifi`

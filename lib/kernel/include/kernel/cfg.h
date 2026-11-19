@@ -96,6 +96,14 @@ bool set_idle_seconds(uint16_t seconds);
 bool sleep_on();
 bool set_sleep_on(bool on);
 
+// **Si el vidre és una porta per tornar d'un son profund** (0.190.16, l'amo: *«del DeepSleep s'ha de poder tornar sempre … també els
+// botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*). Off by default: hearing a
+// finger means keeping the panel's rail and its touch controller awake for the whole sleep, which is the current a deep sleep exists to
+// stop. The key and the alarm are not this switch —a deep sleep always arms them—, i el que això encén és **una tercera porta** (docs/50,
+// docs/60).
+bool wake_on_touch();
+bool set_wake_on_touch(bool on);
+
 // Asks for a unit and persists it. `auto` prefers the card and falls back to the flash.
 // False when the name is not one of the three, or when that unit is not mounted.
 bool set_unit(const char* name);

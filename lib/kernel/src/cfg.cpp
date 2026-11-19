@@ -85,6 +85,7 @@ const size_t kFreqCap = 12;  // "80,160,240" and the null
 const char kLockKey[] = "lock";
 const char kLockOnKey[] = "lockon";
 const char kSleepKey[] = "sleep";
+const char kTouchWakeKey[] = "touchwake";
 const char kIdleKey[] = "idle";
 const char kLockAfterKey[] = "lockafter";
 const size_t kLockCap = 40;
@@ -123,6 +124,8 @@ bool g_lock_on = false;
 // **El son sol de la placa** (0.190.5): on by default, which is the rule of law 9; the page of the settings turns it off and this is what
 // remembers the answer (docs/60).
 bool g_sleep_on = true;
+// **El dit, apagat de sèrie** (0.190.16): the board hears a finger only when a person asks for it (docs/50, docs/60).
+bool g_wake_on_touch = false;
 uint8_t g_lock_after = kLockAfterDefault;
 // **Quant de quietud abans del son profund** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per fer el
 // DeepSleep)»*): segons, i la política de `power` el llegeix d'aquí en lloc de la constant de deu (docs/30, docs/60).
@@ -232,6 +235,13 @@ bool remember_lock() {
   const char* value = (g_lock[0] != '\0') ? g_lock : "none";
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kLockKey, value, strlen(value));
+}
+
+bool remember_wake_on_touch() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_wake_on_touch ? kOn : kOff;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kTouchWakeKey, word, strlen(word));
 }
 
 bool remember_sleep_on() {
@@ -554,6 +564,17 @@ void boot(hal::IPlatform& platform) {
           log_printf(pal::kLogWarn, "CFG", "sleep '%s' is not on or off; the board keeps its own policy", raw_sleep);
         }
       }
+      char raw_touch[8] = {0};
+      size_t touch_len = 0;
+      if (g_nvs->get(kNamespace, kTouchWakeKey, raw_touch, sizeof(raw_touch) - 1, touch_len) && touch_len > 0 &&
+          touch_len < sizeof(raw_touch)) {
+        raw_touch[touch_len] = '\0';
+        if (same(raw_touch, kOn) || same(raw_touch, kOff)) {
+          g_wake_on_touch = same(raw_touch, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "touchwake '%s' is not on or off; the glass is not a door", raw_touch);
+        }
+      }
       char raw_on[8] = {0};
       size_t on_len = 0;
       if (g_nvs->get(kNamespace, kLockOnKey, raw_on, sizeof(raw_on) - 1, on_len) && on_len > 0 &&
@@ -669,6 +690,18 @@ bool sort_by_usage() { return g_sort_by_usage; }
 // **I el son sol** (0.190.5): the value of the page is the policy's (`power`), so writing it here turns the board's rule off in the same
 // moment a person moves the switch instead of on the next boot (docs/60).
 bool sleep_on() { return g_sleep_on; }
+
+// **I el dit** (0.190.16): the value that is kept is the setting, and what a board can do is the board's answer —a board with no such
+// door refuses the write and the page shows off—. El boot empeny el valor desat al maquinari, perquè la placa es construeix abans que els
+// ajustos es llegeixin (docs/30, docs/50).
+bool wake_on_touch() { return g_wake_on_touch; }
+
+bool set_wake_on_touch(bool on) {
+  const bool in_force = power::set_wake_on_touch(on);
+  g_wake_on_touch = in_force;
+  const bool kept = remember_wake_on_touch();
+  return kept && in_force;
+}
 
 bool set_sleep_on(bool on) {
   g_sleep_on = on;

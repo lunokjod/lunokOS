@@ -12604,6 +12604,23 @@ int l_cfg_idle(lua_State* L) {
   return 1;
 }
 
+// **Si el vidre desperta el son profund** (0.190.16, l'amo: *«opcionalment el panell tàctil (per defecte false) així no cal mantenir
+// despert el panell»*): the third door of the way down, and the only one that costs current while the board sleeps. Off is what a board
+// that has not been told anything answers (docs/30, docs/60).
+int l_cfg_touch_wake(lua_State* L) {
+  if (g_cfg_ops.wake_on_touch == nullptr || g_cfg_ops.set_wake_on_touch == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no way down to the glass");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (!cfg_switch(L, 1, on) || !g_cfg_ops.set_wake_on_touch(on)) {
+      return push_nil_error(L, "E_INVAL", "the glass of the sleep is on or off");
+    }
+  }
+  lua_pushboolean(L, g_cfg_ops.wake_on_touch() ? 1 : 0);
+  return 1;
+}
+
 int l_cfg_lock_after(lua_State* L) {
   if (g_cfg_ops.lock_after_minutes == nullptr || g_cfg_ops.set_lock_after_minutes == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no lock of the screen");
@@ -12764,6 +12781,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "lock_on", l_cfg_lock_on);
   set_function(L, "lock_after", l_cfg_lock_after);
   set_function(L, "sleep", l_cfg_sleep);
+  set_function(L, "touch_wake", l_cfg_touch_wake);
   set_function(L, "idle", l_cfg_idle);
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);

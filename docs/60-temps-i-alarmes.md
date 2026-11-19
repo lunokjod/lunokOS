@@ -522,6 +522,19 @@ Com està avui:
    dormir amb la cua buida torna amb el dit. El cas `test_a_manual_deep_sleep_arms_the_nearest_alarm` ho aguanta: amb el camí de les
    tecles d'abans l'alarma es quedava a la cua.
 
+   **I les portes d'un son profund són tres** (0.190.16, l'amo: *«del DeepSleep s'ha de poder tornar sempre a part de per les alarmes,
+   també els botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*):
+
+   - **l'hora**, si n'hi ha una: el temporitzador del xip, i el xip del rellotge quan el corrent se'n va de debò;
+   - **la tecla del dial (GPIO38)**, sempre: `ext0` sobre el pin, que és del domini RTC i que la placa ja fa servir per engegar-se;
+   - **el dit**, i només si una persona ho ha demanat (`cfg.touchwake on`, la fila *Wake on touch* de la pestanya Battery, `cfg.touch_wake()`
+     des de Lua). **Apagat de sèrie**: sentir un dit vol dir deixar encesos el rail del panell i el controlador del tàctil tota la son, i
+     això és el corrent que el son existeix per estalviar. Amb el commutador encès, la baixada **no talla el rail del panell** (el GT911
+     hi viu), deixa el vidre reposat, i arma `ext1` sobre el **GPIO36** amb la condició «aquest pin baix» —el GT911 porta la línia avall
+     quan un escombrat té un marc, i la placa la puja entre marcs—; `ext1` d'un ESP32 només sap «tots baixos» o «qualsevol alt», i amb un
+     sol pin «tots baixos» és exactament «aquest baix» (docs/50, docs/95). Amb el dit com a porta el corrent no es talla, o sigui que qui
+     torna la placa a l'hora és el temporitzador del xip.
+
    **I el camí de la tecla no depèn de com ha arrencat la placa** (0.190.14): la porta estava lligada a `g_for_an_alarm`, que és
    certa per a **tota** la run d'un despert per una alarma, o sigui que quan aquella alarma es gastava i la cua quedava buida el
    codi queia al camí de l'alarma amb la data a zero: deia `-1767225 s to the next alarm`, la son es refusava —una son fonda sense

@@ -499,7 +499,15 @@ que decideix si el rellotge queda armat és **l'hora** que li han dit, no qui la
 és una persona qui demana la son— el rellotge es queda armat i el seu `INT` torna a engegar la placa si el corrent se'n va
 de debò, i el temporitzador del xip la torna si el corrent s'aguanta; sense cap alarma el rellotge es desarma, perquè ningú
 no ha demanat que torni sola (docs/60). `sleep_with_the_keys` ja no existeix al HAL: una placa amb tecla dorm amb
-`sleep(kDeep, 0)`. Les tres
+`sleep(kDeep, 0)`.
+
+**I la tercera porta és el dit, i la diu el `IPower` d'aquesta placa** (0.190.16): `wake_on_touch()` /
+`set_wake_on_touch()` són la pregunta i el commutador, apagat per defecte. Amb el commutador encès, la baixada del Paper **no talla
+`kPanelPowerPin`** —el GT911 viu en aquell rail i un controlador sense corrent no sent ningú—, reposa el vidre i arma `ext1` sobre el
+**GPIO36** amb `ESP_EXT1_WAKEUP_ALL_LOW`: el GT911 porta la línia avall quan un escombrat té un marc i la deixa anar entre marcs (la
+placa la puja), i amb un sol pin «tots baixos» és «aquest baix». El que costa és el corrent del panell i del tàctil durant tota la son, i
+per això ve apagat. `ext0` (la tecla) i `ext1` (el dit) conviuen: són dues condicions del bloc RTC i la placa es desperta amb la que
+arribi primer. Les tres
 baixades de la placa queden així: **`poweroff`** talla el corrent (mesos, i només la tecla del dial), **`sleep <hora>`**
 talla el corrent amb una alarma que la torna a engegar, i **`deepsleep`** deixa el corrent posat amb una tecla per tornar.
 El que **no** es pot fer és despertar un xip que no té corrent: això no ho fa cap placa.

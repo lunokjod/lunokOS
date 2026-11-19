@@ -272,6 +272,10 @@ struct CfgOps {
   // the number the policy reads before it powers the board off (docs/30, docs/60).
   uint16_t (*idle_seconds)();
   bool (*set_idle_seconds)(uint16_t seconds);
+  // **Si el vidre desperta el son profund** (0.190.16): the third door of a deep sleep, off by default and a setting of the Battery tab.
+  // The answer is the system's and not the page's, like the others (docs/30, docs/60).
+  bool (*wake_on_touch)();
+  bool (*set_wake_on_touch)(bool on);
 };
 
 void set_cfg_ops(const CfgOps& ops);

@@ -329,6 +329,9 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
   pàgina que obre els ajustos no és la pàgina amb què arrenca una placa— i sí que és a la llista del botó i a la del pany, que
   és el seu lloc (docs/30, docs/40). **Els noms són els que va demanar l'amo** (`Home`, `Settings` i `Lock`): una fila que diu
   `Home` diu què és l'ajust i no com es diu una variable.
+- **I el dit com a porta del son** (0.190.16): la fila **Wake on touch** és `cfg.touch_wake` i ve **apagada**, perquè un panell despert per
+  sentir un dit és corrent durant tota la son. El que la fila ensenya és el que el sistema ha acceptat: una placa sense tàctil refusa
+  l'escriptura i queda apagada (docs/30, docs/50, docs/60).
 - **I la pestanya Battery té el son de la placa** (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?»*): el
   commutador **Sleep when idle** és `cfg.sleep` i el que fa és la política de la llei 9 —la placa s'apaga fins a la propera alarma
   quan ningú no l'ha tocada deu segons—, que és un ajust i no una llei perquè hi ha tardes en què una persona vol la placa

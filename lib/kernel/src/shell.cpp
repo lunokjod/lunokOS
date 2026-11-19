@@ -617,6 +617,7 @@ void print_help(const char* only) {
   help_line("  alarm [list]      the queue of alarms, the nearest first, and where the wake is armed", only);
   help_line("  cfg lock [<id>|none]  the page that covers the screen, and `cfg lockon on|off` with `cfg lockafter 5|10|15`", only);
   help_line("  cfg sleep on|off      whether the board sleeps until its next alarm when nobody uses it", only);
+  help_line("  cfg touchwake on|off  whether a finger on the glass wakes the board from a deep sleep", only);
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
   help_line("  power last        how far the last sleep was from the hour it was given", only);
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
@@ -4824,6 +4825,23 @@ bool command_cfg(const char* argument) {
       out(on ? "on" : "off");
       newline();
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg touchwake on|off`**: the third door of a deep sleep —a finger on the glass wakes the board—, which is off by default because
+    // hearing a finger means keeping the panel's rail and its touch controller awake for the whole sleep (0.190.16, docs/30, docs/60).
+    if (strcmp(words[0], "touchwake") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the glass of the sleep is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_wake_on_touch(on);
+      out("settings: touch to wake ");
+      out(cfg::wake_on_touch() ? "on" : "off");
+      newline();
+      if (!kept) out("cfg: this board does not hear a finger while it sleeps\r\n");
       return true;
     }
     // **`cfg lockafter <5|10|15>`**: the minutes without a hand on the board. The three of the list and nothing else, perquè

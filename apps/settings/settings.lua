@@ -865,6 +865,15 @@ function build()
   -- placa desperta** —una demo, una sessió de mesura, una app que escriu un registre— ho apaga aquí, i la resposta es queda
   -- (`cfg.sleep`) perquè el pròxim boot no torni a la política del sistema. El que la fila ensenya és el que la política té, no el que
   -- l'app ha demanat (docs/30, docs/45).
+  -- **I el dit com a porta** (0.190.16, l'amo: *«opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el
+  -- panell»*): a finger on the glass wakes the board from a deep sleep, i ve apagat de sèrie perquè sentir un dit vol dir deixar el rail
+  -- del panell i el controlador del tàctil desperts tota la son. El que la fila ensenya és el que el sistema ha acceptat: una placa que no
+  -- té aquesta porta refusa l'escriptura i la fila queda apagada (docs/30, docs/45).
+  check_row(6, 'touchwake', 'Wake on touch', function() return cfg.touch_wake() == true end, function(on)
+    cfg.touch_wake(on)
+    say(on and 'A finger on the glass wakes the board' or 'The glass stays asleep with the board')
+    console.print(string.format('settings: touch to wake is %s', on and 'on' or 'off'))
+  end)
   check_row(6, 'sleep', 'Sleep when idle', function() return cfg.sleep() == true end, function(on)
     cfg.sleep(on)
     say(on and 'The board sleeps when nobody uses it' or 'The board stays awake')
