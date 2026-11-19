@@ -753,6 +753,15 @@ nou-centes seixanta columnes de la banda de files cap a negre o blanc i s'enduia
 és el de sempre en tinta: dins de la finestra, un `du` deixa dues tintes i el `gc16` del nucli és el que hi torna a
 posar setze.
 
+**I el motor de la diferència** (0.190.41), que és el que fa que una actualització parcial sigui parcial de debò: el
+vidre guarda el **quadre que ja hi ha** —259 200 B més de PSRAM, i en sobraren set mega— i una pintada només dona codi
+als píxels que han canviat, que és el `pPrevious` del FastEPD. `gc16` i `init` no s'hi apunten (passen per tot el
+rectangle a propòsit, i són els que treuen el fantasma) i la primera pintada d'una arrencada tampoc (el vidre pot tenir
+la imatge d'abans). **I la finestra s'encongeix al que de debò s'ha mogut**: el rectangle del nucli és el que ha
+*dibuixat*, i una pàgina redibuixada sencera són 540 files per dos dígits; comparar els dos quadres fila a fila dona la
+caixa del que no és igual, o sigui que el panell camina només fins a l'última fila que ha canviat i una pintada on no ha
+canvat res no es gasta gens.
+
 **I la quarta palanca, que és la que més ha valgut** (0.190.39): la mateixa pàgina sencera costa **2,67 s amb el
 processador a 80 MHz i 1,2 s a 240**, perquè aquí el xip no espera res —converteix el quadre en els codis
 del panell fila a fila i alimenta el i80 a cada fila— i el cable només són dotze microsegons d'una fila

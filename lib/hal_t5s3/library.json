@@ -1,6 +1,6 @@
 {
   "name": "hal_t5s3",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Board support for the LilyGO T5 E-Paper S3 Pro (H752-01): ESP32-S3-WROOM-1, 16 MB of flash, 8 MB of OPI PSRAM, a BQ27220 gauge and a BQ25896 charger on the shared I2C, a PCF8563 with a coin cell, the GT911 touch of the Paper and a card slot on an SPI bus of its own. The panel of this board (an ED047TC1 driven in parallel) is not here yet. What is the chip's, the S3 included, is in hal_esp32.",
   "build": { "flags": ["-Wall", "-Wextra", "-Werror"] },
   "dependencies": { "hal_esp32": "*" }

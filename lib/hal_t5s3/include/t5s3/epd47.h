@@ -97,8 +97,11 @@ class Epd47 : public ISurface {
   // **Un passatge sencer**: the STV start, the rows of the marked rectangle with the gate advancing one line at a time,
   // and the latch of the last one. `upper`/`lower` are the two halves of the table for this phase, and a null pair is the
   // discharge pass, que és la que deixa els drivers del panell en repòs (docs/50).
-  bool scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, const uint8_t* upper,
-                   const uint8_t* lower);
+  // **El que fa una passada, i sobre quins píxels**: `only_changed` is the difference engine of the maker's own driver
+  // (`pPrevious` in FastEPD): a pixel whose level is the same as the frame that is already on the glass is given the code
+  // that does nothing, o sigui que la seva tinta no es mou (docs/50, docs/95).
+  bool scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool only_changed, const uint8_t* upper,
+                   const uint8_t* lower, const uint8_t* through);
   // **El perifèric del bus, obert i tornat a obrir** quan canvia el rellotge (0.190.38).
   bool open_the_io();
   // The four edges of a row: `start` opens a pass, and the step latches a row that has just been clocked.
@@ -108,7 +111,7 @@ class Epd47 : public ISurface {
   // va pel cable i el que queda és el més gran dels dos temps i no la seva suma (docs/50, docs/95).
   bool start_row(const uint8_t* row);
   bool wait_row();
-  bool update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool fast);
+  bool update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool fast, bool only_changed);
 
   Pca9535* expander_;
   II2c* bus_;
@@ -117,6 +120,10 @@ class Epd47 : public ISurface {
   uint8_t* bits_;
   uint8_t* row_;
   uint8_t* row2_;
+  // **El quadre que ja és al vidre** (0.190.41): 259 200 B more of PSRAM for the whole point of a partial update —without
+  // it a paint cannot know which pixels are already right, i el que fa és empenyeu tots— (docs/50, docs/95).
+  uint8_t* previous_;
+  bool previous_is_known_ = false;
   volatile bool dma_done_;
   bool started_;
   bool powered_;

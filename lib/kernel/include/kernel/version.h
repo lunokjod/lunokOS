@@ -10373,7 +10373,16 @@ namespace kernel {
 // és exactament el que es veia: pocs tons i una columna sencera repintada per un dígit. **I la fila es llança i es recull en dos
 // temps** (`start_row`/`wait_row`): la següent es construeix mentre l'anterior va pel cable, o sigui que el que queda és el més
 // gran dels dos temps i no la seva suma (docs/50, docs/95).
-static const char kVersion[] = "0.190.40";
+// **I el motor de la diferència, que és el que fa que una actualització parcial sigui parcial de debò** (0.190.41). El vidre
+// guarda el **quadre que ja hi ha** —259 200 B més de PSRAM— i una pintada només dona codi als píxels que han canviat: `pPrevious`
+// del FastEPD és exactament això, i és el que fa que un `du` no s'endugui els grisos ni el que no s'ha mogut. **Els modes que
+// netegen no s'hi apunten** (`gc16` i `init` passen per tot el rectangle a propòsit, que és el que treu el fantasma), i la primera
+// pintada d'una arrencada tampoc, perquè el vidre pot tenir la imatge d'abans. **I la finestra s'encongeix al que de debò s'ha
+// mogut**: el rectangle que marca el nucli és el que ha *dibuixat*, i una pàgina redibuixada sencera són cinc-centes quaranta files
+// per dos dígits; comparar els dos quadres fila a fila —un `memcmp`, barat i a la PSRAM— dona la caixa del que no és igual, o sigui
+// que la porta del panell camina només fins a l'última fila que ha canviat, i una pintada on no ha canviat res **no es gasta**
+// (docs/50, docs/95).
+static const char kVersion[] = "0.190.41";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -82,7 +82,7 @@ bool on_color_done(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, vo
 
 Epd47::Epd47(Pca9535* expander, II2c* bus)
     : expander_(expander), bus_(bus), bus_handle_(nullptr), io_(nullptr), bits_(nullptr), row_(nullptr),
-      started_(false), powered_(false), busy_(false) {}
+      row2_(nullptr), previous_(nullptr), started_(false), powered_(false), busy_(false) {}
 
 uint16_t Epd47::width() const { return kPageW; }
 uint16_t Epd47::height() const { return kPageH; }
@@ -302,7 +302,10 @@ bool Epd47::begin() {
   row_ = static_cast<uint8_t*>(heap_caps_malloc(kRowBytes, MALLOC_CAP_DMA));
   // **Dues memòries de fila** (0.190.40): la que viatja i la que s'està construint, perquè el cable i la conversió es tapin.
   row2_ = static_cast<uint8_t*>(heap_caps_malloc(kRowBytes, MALLOC_CAP_DMA));
-  if (bits_ == nullptr || row_ == nullptr || row2_ == nullptr) {
+  // **I el quadre que ja és al vidre** (0.190.41): l'altra meitat d'una actualització parcial és saber què hi ha sota, i
+  // això són els mateixos 259 200 B del quadre una altra vegada —a la PSRAM, que en té vuit mega— (docs/50, docs/75).
+  previous_ = static_cast<uint8_t*>(heap_caps_malloc(static_cast<size_t>(kGlassW) * kGlassStride, MALLOC_CAP_SPIRAM));
+  if (bits_ == nullptr || row_ == nullptr || row2_ == nullptr || previous_ == nullptr) {
     error_ = "there is no room for the frame of the panel";
     return false;
   }
@@ -506,7 +509,7 @@ bool Epd47::wait_row() {
   return true;
 }
 
-bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool fast) {
+bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool fast, bool only_changed) {
   if (!begin()) return false;
   // **Un passatge és una passada de tota la forma d'ona** (docs/50): for each phase the glass is scanned once, and what
   // each pixel is told to do comes from the panel's own table indexed by the level it has to end at. **Les files de
@@ -519,6 +522,13 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
   const uint8_t phases = fast ? epd47::kFastPhases : epd47::kPhases;
   uint8_t upper[256];
   uint8_t lower[256];
+  // **La taula del canvi**: indexed by `(what is on the glass << 4) | what has to be there`, and it is zero when the two
+  // levels are the same one, o sigui que el píxel no es mou (0.190.41). En un `du` la comparació és entre els dos nivells
+  // **després** d'arrodonir a dues tintes, perquè un gris que va d'un gris a un altre no ha de fer res (docs/50, docs/95).
+  uint8_t through[256];
+  // A byte of the frame is 4 bits a pixel, o sigui que la fila del vidre el llegeix de dos en dos.
+  const uint8_t* const current = bits_;
+  const uint8_t* const before = only_changed ? previous_ : nullptr;
   for (uint8_t phase = 0; phase < phases; ++phase) {
     for (int b = 0; b < 256; ++b) {
       uint8_t first_level = 0;
@@ -535,17 +545,26 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
       const uint8_t codes = static_cast<uint8_t>((first_level << 2) | second);
       lower[b] = codes;
       upper[b] = static_cast<uint8_t>(codes << 4);
+      if (before != nullptr) {
+        const uint8_t was = static_cast<uint8_t>((b >> 4) & 0x0F);
+        const uint8_t now = static_cast<uint8_t>(b & 0x0F);
+        if (fast) {
+          through[b] = ((was < 8) == (now < 8)) ? 0 : ((now < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase]);
+        } else {
+          through[b] = (was == now) ? 0 : epd47::kWaveform[now][phase];
+        }
+      }
     }
-    if (!scan_a_pass(first, last, b0, b1, upper, lower)) return false;
+    if (!scan_a_pass(first, last, b0, b1, before != nullptr, upper, lower, through)) return false;
     delayMicroseconds(kBetweenPhasesUs);
   }
   // **I la descàrrega**, que és el que deixa els drivers del panell en repòs i no amb una tensió a sobre: one pass of
   // «do nothing» codes, which is the maker's `BB_CLEAR_NEUTRAL` (docs/50).
-  return scan_a_pass(first, last, b0, b1, nullptr, nullptr);
+  return scan_a_pass(first, last, b0, b1, false, nullptr, nullptr, nullptr);
 }
 
-bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, const uint8_t* upper,
-                        const uint8_t* lower) {
+bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool only_changed,
+                        const uint8_t* upper, const uint8_t* lower, const uint8_t* through) {
   const gpio_num_t ckv = static_cast<gpio_num_t>(kCkv);
   // **El començament del passatge**, que deixa el rellotge vertical a dalt.
   row_control(true);
@@ -560,9 +579,29 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
     // banda de files cap a negre o blanc i s'enduia els grisos de tot el que hi havia a la vora (docs/50, docs/95).
     memset(row, 0, kRowBytes);
     if (upper != nullptr && lower != nullptr && y >= first) {
-      const uint8_t* src = bits_ + static_cast<uint32_t>(y) * kGlassStride;
-      for (uint16_t i = b0; i <= b1; ++i) {
-        row[i] = static_cast<uint8_t>(upper[src[2 * i]] | lower[src[2 * i + 1]]);
+      const uint32_t at = static_cast<uint32_t>(y) * kGlassStride;
+      const uint8_t* src = bits_ + at;
+      if (!only_changed || through == nullptr) {
+        for (uint16_t i = b0; i <= b1; ++i) {
+          row[i] = static_cast<uint8_t>(upper[src[2 * i]] | lower[src[2 * i + 1]]);
+        }
+      } else {
+        // **El motor de la diferència** (0.190.41): a byte of the two frames that has not moved gives the code that does
+        // nothing —one comparison and out— and a byte that has moved pays four lookups, one per pixel, because each of the
+        // four needs to know **from where to where** and not just where (docs/50, docs/95).
+        const uint8_t* was = previous_ + at;
+        for (uint16_t i = b0; i <= b1; ++i) {
+          const uint8_t pa = was[2 * i];
+          const uint8_t pb = was[2 * i + 1];
+          const uint8_t a = src[2 * i];
+          const uint8_t b = src[2 * i + 1];
+          if (a == pa && b == pb) continue;
+          const uint8_t c0 = through[static_cast<uint8_t>((pa & 0xF0) | (a >> 4))];
+          const uint8_t c1 = through[static_cast<uint8_t>(((pa & 0x0F) << 4) | (a & 0x0F))];
+          const uint8_t c2 = through[static_cast<uint8_t>((pb & 0xF0) | (b >> 4))];
+          const uint8_t c3 = through[static_cast<uint8_t>(((pb & 0x0F) << 4) | (b & 0x0F))];
+          row[i] = static_cast<uint8_t>((c0 << 6) | (c1 << 4) | (c2 << 2) | c3);
+        }
       }
     }
     cpu_us_ += static_cast<uint32_t>(esp_timer_get_time()) - before_the_row;
@@ -601,33 +640,105 @@ bool Epd47::flush(UpdateMode mode) {
   uint16_t gx1 = static_cast<uint16_t>(kGlassW - 1);
   uint16_t gy1 = static_cast<uint16_t>(kGlassH - 1);
   dirty_glass(gx0, gy0, gx1, gy1);
-  const uint16_t first = gy0;
-  const uint16_t last = gy1;
+  uint16_t first = gy0;
+  uint16_t last = gy1;
   // Un byte del vidre són dos píxels, o sigui que la finestra de columnes s'arrodoneix a bytes sencers.
-  const uint16_t b0 = static_cast<uint16_t>(gx0 >> 1);
-  const uint16_t b1 = static_cast<uint16_t>(gx1 >> 1 < (kRowBytes - 1) ? gx1 >> 1 : (kRowBytes - 1));
+  uint16_t b0 = static_cast<uint16_t>(gx0 >> 1);
+  uint16_t b1 = static_cast<uint16_t>(gx1 >> 1 < (kRowBytes - 1) ? gx1 >> 1 : (kRowBytes - 1));
   // **El mode que demana el nucli és el que decideix la forma d'ona** (0.190.38): `du`, `du4` and `a2` are the two-level
   // ones and they get the six phases of `kFastPhases`; every other one —and `gc16` above all— gets the panel's own
   // thirty-eight, que és la que neteja el fantasma que les curtes deixen (docs/50).
   const bool fast = mode == UpdateMode::kDu || mode == UpdateMode::kDu4 || mode == UpdateMode::kA2;
-  const uint8_t phases = fast ? epd47::kFastPhases : epd47::kPhases;
+  // **I si la pintada ha de moure tots els píxels o només els que han canviat** (0.190.41, i és el vocabulari del vidre):
+  // `gc16` and `init` are the **cleaning** ones —they drive the whole rectangle on purpose, which is what takes the ghost
+  // away—; every other quality is a paint that must not touch what is already right, i `gld16`/`gl16` volen dir
+  // exactament això al controlador del Paper («els setze grisos sense esborrar el que ja hi és»). **I la primera pintada
+  // d'un arrencada no es pot comparar amb res**, perquè el vidre pot tenir la imatge d'abans: aquella mou tot el rectangle
+  // i és la que deixa `previous_` sabut (docs/50, docs/95).
+  const bool cleans = mode == UpdateMode::kInit || mode == UpdateMode::kGc16;
+  const bool only_changed = !cleans && previous_is_known_;
+  uint8_t phases = fast ? epd47::kFastPhases : epd47::kPhases;
+  // **I la finestra s'encongeix al que de debò s'ha mogut** (0.190.41): the rectangle the kernel marks is what it *drew*,
+  // and a page that is redrawn whole is a rectangle of five hundred and forty rows for two digits that changed. Comparing
+  // the two frames —a `memcmp` a row, which is cheap and in the PSRAM— gives the box of what is not the same, o sigui que
+  // la porta del panell camina fins a la primera fila que ha canviat i prou, i una pintada on no ha canviat res no es gasta.
+  // **Els modes que netegen no s'encongeixen**: `gc16` vol passar per tot el rectangle i és el que treu el fantasma
+  // (docs/50, docs/95).
+  if (only_changed) {
+    uint16_t near_row = 0xFFFF;
+    uint16_t far_row = 0;
+    uint16_t left = 0xFFFF;
+    uint16_t right = 0;
+    const uint16_t count = static_cast<uint16_t>(b1 - b0 + 1);
+    for (uint16_t y = first; y <= last && y < kGlassH; ++y) {
+      const uint32_t at = static_cast<uint32_t>(y) * kGlassStride;
+      const uint8_t* now = bits_ + at + b0;
+      const uint8_t* was = previous_ + at + b0;
+      if (memcmp(now, was, count) == 0) continue;
+      uint16_t i = 0;
+      while (i + 1 < count && now[i] == was[i]) ++i;
+      uint16_t j = static_cast<uint16_t>(count - 1);
+      while (j > i && now[j] == was[j]) --j;
+      if (y < near_row) near_row = y;
+      far_row = y;
+      if (static_cast<uint16_t>(b0 + i) < left) left = static_cast<uint16_t>(b0 + i);
+      if (static_cast<uint16_t>(b0 + j) > right) right = static_cast<uint16_t>(b0 + j);
+    }
+    if (near_row == 0xFFFF) {
+      // **No hi ha res a moure**: el rectangle es deixa anar i no es paga cap passada.
+      forget_the_dirty();
+      logf(pal::kLogDebug, "PANEL", "%s: nothing changed in %u,%u %ux%u, no paint", mode_name(mode),
+           static_cast<unsigned>(gx0), static_cast<unsigned>(first), static_cast<unsigned>(gx1 - gx0 + 1),
+           static_cast<unsigned>(last - first + 1));
+      return true;
+    }
+    first = near_row;
+    last = far_row;
+    b0 = left;
+    b1 = right;
+    gx0 = static_cast<uint16_t>(b0 * 2);
+    gx1 = static_cast<uint16_t>(b1 * 2 + 1);
+  }
   bus_us_ = 0;
   cpu_us_ = 0;
   const uint32_t started = static_cast<uint32_t>(esp_timer_get_time());
   busy_ = true;
-  const bool ok = power(true) && update_the_glass(first, last, b0, b1, fast);
+  const bool ok = power(true) && update_the_glass(first, last, b0, b1, fast, only_changed);
   busy_ = false;
   const uint32_t took_ms = (static_cast<uint32_t>(esp_timer_get_time()) - started) / 1000;
-  // **I el rectangle s'oblida només quan la pintada ha sortit**: a paint that failed leaves the marks where they were so
-  // the next turn asks for it again (docs/50).
-  if (ok) forget_the_dirty();
+  // **I el rectangle que s'ha pintat passa a ser el que hi ha al vidre** (0.190.41): la comparació de la propera pintada
+  // és contra el que hem donat al panell, o sigui que el que es copia és el rectangle i no el quadre sencer —les files i
+  // els bytes que han sortit— i només si la pintada ha arribat al final (docs/50).
+  if (ok) {
+    for (uint16_t y = first; y <= last && y < kGlassH; ++y) {
+      const uint32_t at = static_cast<uint32_t>(y) * kGlassStride + b0;
+      const size_t len = static_cast<size_t>(b1 - b0 + 1);
+      if (!fast) {
+        memcpy(previous_ + at, bits_ + at, len);
+        continue;
+      }
+      // **Un `du` deixa dues tintes, i el que s'apunta és el que hi ha al vidre i no el que volia el nucli** (0.190.41):
+      // after a six-phase pass the ink of that window is black or white, o sigui que el quadre anterior es guarda
+      // arrodonit —si no, la propera comparació diria que un gris ha canviat quan al vidre no hi ha cap gris (docs/50).
+      const uint8_t* from = bits_ + at;
+      uint8_t* to = previous_ + at;
+      for (size_t i = 0; i < len; ++i) {
+        const uint8_t src = from[i];
+        const uint8_t hi = ((src >> 4) & 0x0F) < 8 ? 0x00 : 0xF0;
+        const uint8_t lo = (src & 0x0F) < 8 ? 0x00 : 0x0F;
+        to[i] = static_cast<uint8_t>(hi | lo);
+      }
+    }
+    previous_is_known_ = true;
+    forget_the_dirty();
+  }
   logf(pal::kLogDebug, "PANEL",
-       "%s: %u,%u %ux%u of the glass, %u phases, %u ms (%u on the wire and %u elsewhere) at %u MHz", mode_name(mode),
+       "%s: %u,%u %ux%u of the glass, %s, %u phases, %u ms (%u on the wire and %u elsewhere) at %u MHz", mode_name(mode),
        static_cast<unsigned>(gx0), static_cast<unsigned>(first),
        static_cast<unsigned>(gx1 - gx0 + 1), static_cast<unsigned>(last - first + 1),
-       static_cast<unsigned>(phases), static_cast<unsigned>(took_ms),
-       static_cast<unsigned>(bus_us_ / 1000), static_cast<unsigned>(cpu_us_ / 1000),
-       static_cast<unsigned>(pclk_hz_ / 1000000));
+       only_changed ? "only what changed" : "the whole window", static_cast<unsigned>(phases),
+       static_cast<unsigned>(took_ms), static_cast<unsigned>(bus_us_ / 1000),
+       static_cast<unsigned>(cpu_us_ / 1000), static_cast<unsigned>(pclk_hz_ / 1000000));
   return ok;
 }
 
