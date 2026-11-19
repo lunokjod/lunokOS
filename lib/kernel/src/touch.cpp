@@ -9,7 +9,6 @@
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/orientation.h"
-#include "kernel/power.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
 
@@ -384,11 +383,11 @@ void poll() {
     // quiet també és un dit (docs/30, docs/60).
     //
     // **I és la placa en ús, que és una altra cosa** (0.190.5, l'amo: *«sembla que s'adorm sola quasi d'inmediat... perqué?»*):
-    // the idle policy measured "nobody is using it" by the console only, so a person who spent the ten seconds of the policy
-    // touching the glass —the panel of the system, a page of the launcher, the band of the keyboard— was a person the board
-    // could not see, and the board powered off under the finger (docs/30, docs/60).
+    // the idle policy measured "nobody is using it" by the console only, so a person who spent the policy's time touching the
+    // glass —the panel of the system, a page of the launcher, the band of the keyboard— was a person the board could not see,
+    // and the board powered off under the finger. **El comptador és un i el té `power`** (0.190.9): `lock::note_activity` ja el
+    // mou, o sigui que aquí no s'ha de dir dues vegades (docs/30, docs/60).
     lock::note_activity();
-    power::note_activity();
     // **A frame of a finger that is already gone is a tap that is over**, and it carries its own release: the chip
     // hands over the frame of its last scan and a finger that came and went between two reads is not on the glass any
     // more. The keyboard hears that release before the press, or the tap after one whose release was missed —while a

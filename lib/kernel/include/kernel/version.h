@@ -10147,7 +10147,24 @@ namespace kernel {
 // quatre plaques sense vidre tornaven a enllaçar**: `panel::open()` és d'un fitxer que sencer és `#if LUNOK_GLASS` i la política el
 // cridava sense guarda des de la 0.190.5, o sigui que l'ATOM, l'ATOM Matrix, el devkit i el T-Koala no compilaven (trobat compilant les
 // sis bandes del CI, 18/11) (docs/50, docs/60, docs/80).
-static const char kVersion[] = "0.190.13";
+// **Una placa que havia despertat per una alarma no tornava a dormir-se mai** (0.190.14, trobat llegint el codi del 18/11). La porta del
+// son a la tecla estava lligada a `!g_for_an_alarm`, i aquella bandera és certa per a **tota** la run d'un despert per una alarma: quan la
+// cua es buidava, el codi queia al camí de l'alarma amb `deadline` zero, deia `-1767225 s to the next alarm`, `power::sleep` el refusava
+// (una son fonda sense hora no existeix) i el comptador tornava a començar — cada cinc minuts, per sempre. La regla de «no tornar a baixar
+// de seguida» viu al primer torn (`straight_back_down`, que només és cert amb una alarma a la cua) i aquí el comptador ja s'ha esgotat, o
+// sigui que la guarda no hi fa res (docs/50, docs/60).
+//
+// **I el son a la tecla passa per la porta del sistema** (el mateix dia): la política cridava `power::deep_sleep_with_the_keys` i no
+// `shell::deep_sleep`, que és qui **acaba la run** quan el que baixa és un emulador (`kernel::shutdown`). A l'emulador la placa es quedava
+// amb la imatge del son al vidre, l'app tancada i el procés viu, i la potència de mentida deia «the emulator ends» mentre no s'acabava
+// (docs/60, docs/85). Dos casos nous ho aguanten: `test_the_idle_sleep_to_the_key_ends_the_run` i
+// `test_a_wake_for_an_alarm_with_an_empty_queue_still_sleeps_to_the_key`.
+//
+// **I el text de l'error, quan la placa no en té ni per a ell**: un error que no es pot enregistrar per falta de memòria és justament el
+// que més interessa llegir, o sigui que el bloc es demana cada cop més petit —fins a trenta-dos bytes— abans de dir que no (docs/30,
+// docs/75). I les tres vegades que una mà a la placa movia el comptador de la quietud es tornaven a dir dues vegades: `lock::note_activity`
+// ja mou el de `power` des de la 0.190.9 (docs/30, docs/60).
+static const char kVersion[] = "0.190.14";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

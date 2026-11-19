@@ -13135,12 +13135,28 @@ bool room_for_the_error(size_t need) {
   size_t cap = (g_last_error_cap == 0) ? 128 : g_last_error_cap;
   while (cap < need + 1 && cap < kLastErrorCap) cap *= 2;
   if (cap > kLastErrorCap) cap = kLastErrorCap;
-  void* block = (g_last_error == nullptr) ? pal::extra_memory().allocate(cap, /*prefer_extra=*/true)
-                                          : pal::extra_memory().resize(g_last_error, cap, /*prefer_extra=*/true);
-  if (block == nullptr) return false;  // a board with no room keeps what fits, and says so with its three dots
-  g_last_error = static_cast<char*>(block);
-  g_last_error_cap = cap;
-  return need + 1 <= g_last_error_cap;
+  if (g_last_error != nullptr) {
+    // A block that is already here does not shrink for an error: a resize that fails leaves it as it was, and the caller cuts the text
+    // to what fits (docs/75).
+    void* moved = pal::extra_memory().resize(g_last_error, cap, /*prefer_extra=*/true);
+    if (moved == nullptr) return false;
+    g_last_error = static_cast<char*>(moved);
+    g_last_error_cap = cap;
+    return need + 1 <= g_last_error_cap;
+  }
+  // **I la primera petició, cada cop més petita** (0.190.14): the error that matters most is the one that says the board has no memory,
+  // and that is exactly the moment when a hundred and twenty-eight bytes may be too many. Asking for half —down to thirty-two— is the
+  // difference between a page that says nothing and a page that says the first line of the why (docs/30, docs/75).
+  for (;;) {
+    void* block = pal::extra_memory().allocate(cap, /*prefer_extra=*/true);
+    if (block != nullptr) {
+      g_last_error = static_cast<char*>(block);
+      g_last_error_cap = cap;
+      return need + 1 <= g_last_error_cap;
+    }
+    if (cap <= 32) return false;
+    cap /= 2;
+  }
 }
 
 void note_the_error(const char* text, size_t len) {

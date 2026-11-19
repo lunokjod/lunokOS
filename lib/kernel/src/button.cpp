@@ -4,7 +4,6 @@
 #include "kernel/button.h"
 
 #include "kernel/lock.h"
-#include "kernel/power.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -310,11 +309,10 @@ void poll() {
 
     if (rising) {
       // **Una tecla és una mà a la placa** (0.189.150): every press —the middle key, a side one, a key the app took— starts
-      // the counter of the lock again, because a person pressing keys is a person using the board (docs/30, docs/60). **And the
-      // counter of the sleep too** (0.190.5): a board that measured "nobody is using it" by the console alone powered off with a
-      // finger on the dial (docs/30, docs/60).
+      // the counter of the lock again, because a person pressing keys is a person using the board (docs/30, docs/60). **I el del
+      // son és el mateix des de la 0.190.9**: `lock::note_activity` mou el comptador de `power`, o sigui que una tecla al dial
+      // també compta per a l'adormida (docs/30, docs/60).
       lock::note_activity();
-      power::note_activity();
       g_long_sent[key] = false;
       if (key != 0) {
         // A side key has no gesture of the system on it: that one is the app's

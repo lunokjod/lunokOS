@@ -15055,6 +15055,96 @@ void test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake(v
   storage->remove("/apps/sleeper");
 }
 
+// **El son a la tecla acaba la run** (0.190.14). La política, quan la cua d'alarmes és buida, baixa **fins a la tecla**; i el camí
+// d'aquell son és el del sistema (`shell::deep_sleep`), que és qui **tanca la run** quan el que baixa és un emulador
+// (`kernel::shutdown`). La crida directa al xip deixava l'emulador amb la imatge del son al vidre, l'app tancada i el procés viu, i la
+// potència de mentida fins i tot deia «the emulator ends» mentre no s'acabava (docs/60, docs/85).
+void test_the_idle_sleep_to_the_key_ends_the_run(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  use_board("m5stack-paper");
+  TEST_ASSERT_TRUE(hal::platform().power()->deep_powers_off());
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  alarms::reset();
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::count());
+  kernel::cfg::set_home_app("");
+  close_any_app();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::running(), "the run was already over before the case began");
+
+  // **Els zero segons de quietud del cas** i no els cinc minuts de la placa (docs/60, docs/80).
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  kernel::power::set_idle_quiet_ms(0);
+  pump_captured(20, g_out, sizeof(g_out));
+  kernel::power::set_idle_quiet_ms(was_quiet);
+
+  // **La línia diu la porta** i no la de l'alarma, i el run s'ha acabat: a la placa perquè el xip ha parat, i a l'emulador perquè el
+  // camí del sistema és el que tanca el procés (docs/60, docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle deep sleep: no alarm to come back for"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "s to the next alarm"), "the board with no alarm said it slept until one");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::running(), "the emulator was left alive with the picture of a sleep on the glass");
+
+  use_board("m5stack-atom");
+  TEST_ASSERT_TRUE(kernel::running());
+}
+
+// **I el despert per una alarma amb la cua buida també baixa a la tecla** (0.190.14). `g_for_an_alarm` és certa per a **tota** la run
+// d'un despert per una alarma, o sigui que quan aquella alarma es gastava i la cua quedava buida el codi queia al camí de l'alarma amb
+// `deadline` zero: deia «-1767225 s to the next alarm», `power::sleep` el refusava (una son fonda sense hora no existeix) i el comptador
+// tornava a començar, o sigui que **una placa que havia despertat per una alarma no tornava a adormir-se mai** fins a reiniciar-se
+// (docs/50, docs/60).
+void test_a_wake_for_an_alarm_with_an_empty_queue_still_sleeps_to_the_key(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  use_board("m5stack-paper");
+  TEST_ASSERT_TRUE(hal::platform().power()->deep_powers_off());
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  alarms::reset();
+  // The alarm the board goes down for, and the page that waits for it: the sleep is what writes the page down (docs/90).
+  TEST_ASSERT_TRUE(add_app(storage, "waiter",
+                           "{\"title\":\"Waiter\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('waiter in front')\n"
+                           "if console.is_foreground() then\n"
+                           "  alarm.at{in_ms = 60000, payload = 'tick', persist = true}\n"
+                           "end\n"
+                           "while true do sys.delay(50):await() end\n"));
+  TEST_ASSERT_TRUE(kernel::cfg::set_home_app("waiter"));
+  pump_captured(40, g_out, sizeof(g_out), "run waiter");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(1, alarms::count(), "the page did not arm the alarm the board waits for");
+  pump_captured(20, g_out, sizeof(g_out), "sleep deep 60000");
+  TEST_ASSERT_FALSE(kernel::shell::app_running());
+
+  // **La tornada pel xip**: the chip brought it back on its own, so this whole run says it came back for an alarm.
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::came_back_for_an_alarm(), "this boot is not a return for an alarm");
+
+  // **I la cua es buida** —l'alarma s'ha gastat—, que és l'estat on la política s'embolicava.
+  alarms::reset();
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::count());
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  kernel::power::set_idle_quiet_ms(0);
+  pump_captured(20, g_out, sizeof(g_out));
+  kernel::power::set_idle_quiet_ms(was_quiet);
+
+  // **Baixa a la tecla i ho diu, i no diu la mentida**: the board waited for the counter like any other boot —the rule that a wake
+  // for an alarm does not go straight back down lives at the first turn— and then it goes down to a key (docs/60).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle deep sleep: no alarm to come back for"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "s to the next alarm"), "the board with an empty queue said it slept until an alarm");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::running(), "the board of a wake for an alarm never went down again");
+
+  kernel::cfg::set_home_app("");
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  storage->remove("/apps/waiter/app.lua");
+  storage->remove("/apps/waiter/manifest.json");
+  storage->remove("/apps/waiter");
+  use_board("m5stack-atom");
+  TEST_ASSERT_TRUE(kernel::running());
+}
+
 // Off is not a sleep: on a board that holds its own supply the command ends the system, and on a
 // board that does not the board says so instead of looking like it worked (docs/50, docs/85). The
 // ATOM has no hold on its supply; the Paper has one, and the model of the emulator says so.
@@ -20195,6 +20285,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_idle_sleep_is_a_switch);
   RUN_TEST(test_the_home_page_does_not_keep_the_board_awake);
   RUN_TEST(test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake);
+  RUN_TEST(test_the_idle_sleep_to_the_key_ends_the_run);
+  RUN_TEST(test_a_wake_for_an_alarm_with_an_empty_queue_still_sleeps_to_the_key);
   RUN_TEST(test_poweroff_cuts_the_power_of_the_board_that_can);
   RUN_TEST(test_the_board_counts_what_it_wrote_and_rests_before_the_current_goes);
   RUN_TEST(test_the_boot_holds_the_power_before_anything_else);

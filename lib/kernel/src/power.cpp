@@ -733,17 +733,25 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // temps»*): the policy did nothing at all when the queue was empty —a `return` with no line—, o sigui que una placa sense alarma no
   // s'adormia mai i el commutador de Battery no feia res. Ara baixa **fins a la tecla**: la sessió es desa, la imatge del son es pinta
   // i la placa torna on era quan algú prem el dial, que és el que aquest commutador vol dir (docs/50, docs/60, docs/90).
-  // **I un despert per una alarma no torna a baixar sense res a la cua** (0.190.12): the board came back to show what had
-  // sounded, the alarm is spent and nobody has touched it yet —going down here is a board that wiped the page of the person
-  // and left the picture of a sleep on the glass (*«quan salta no torna a activar la pantalla i no es veu res»*). It stays awake
-  // and the quiet counter decides later, like any other boot (docs/30, docs/60).
-  if (deadline <= 0 && !g_for_an_alarm) {
+  // **I el camí de la tecla és el mateix tant si aquesta arrencada ha vingut per una alarma com si no** (0.190.14). La regla de
+  // «un despert per una alarma no torna a baixar sense res a la cua» (0.190.12) viu **al primer torn**, que és on la placa acaba
+  // d'ensenyar el que ha sonat, i està dita on toca: `straight_back_down` només és cert amb una alarma a la cua (`deadline > 0`).
+  // Aquí el comptador de la quietud ja s'ha esgotat —cinc, deu o quinze minuts sense cap mà—, o sigui que baixar a la tecla és
+  // exactament el que la persona va triar. **Tenir-ho lligat a `g_for_an_alarm` era una porta tancada per dins**: aquella bandera
+  // és certa per a tota la run d'un despert per alarma, o sigui que quan la cua es buidava el codi queia al camí de l'alarma amb
+  // `deadline` zero, deia `-1767225 s to the next alarm`, `power::sleep` el refusava i el comptador tornava a començar: una placa
+  // que havia despertat per una alarma **no tornava a adormir-se mai** fins a reiniciar-se (trobat llegint el codi, 19/11).
+  if (deadline <= 0) {
     sayf("power: nothing to do for %lld s, sleeping until a key\r\n", static_cast<long long>(quiet / 1000));
     log_printf(pal::kLogInfo, "POWER",
                "idle deep sleep: no alarm to come back for, %lld s of quiet (the policy asks %lld), a key wakes the board",
                static_cast<long long>(quiet / 1000), static_cast<long long>(idle_quiet_ms() / 1000));
     note_activity();
-    (void)deep_sleep_with_the_keys();
+    // **I la porta és la del sistema i no la del xip** (0.190.14): `shell::deep_sleep` és el mateix camí que el botó de la lluna
+    // del panell i el `deepsleep` del prompt, i és qui **acaba la run** quan el que baixa és un emulador (`kernel::shutdown`). Amb
+    // la crida al xip i prou, l'emulador es quedava amb la imatge del son al vidre, l'app tancada i el procés viu —i la potència de
+    // mentida fins i tot deia «the emulator ends» mentre no s'acabava— (docs/50, docs/60, docs/85).
+    (void)shell::deep_sleep("the board is idle and there is no alarm");
     return;
   }
   g_idle_said = nullptr;

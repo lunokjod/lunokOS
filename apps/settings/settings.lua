@@ -25,7 +25,8 @@
 -- **El que aquesta app encara no fa, i per què** (docs/45): la política de miniatures, les sessions al disc, el NTP a
 -- l'arrencada, el paper pintat de fons, el splash propi i el PIN demanen un subsistema que el nucli no té; les files no hi són
 -- per no ensenyar una porta que no obre res. **Els temps de son ja no són d'aquesta llista** (0.190.5): el nucli té la política
--- d'adormir-se fins a la propera alarma i la fila `Sleep when idle` de la pestanya System l'apaga i la desa (docs/60).
+-- d'adormir-se i les dues files de la pestanya Battery —`Sleep when idle` i `Sleep after`— l'apaguen, la desen i li diuen quanta estona de
+-- quietud vol (docs/60).
 --
 -- **I el que és de l'app i no del sistema**: la pestanya on era i el control amb el cercle, al bloc `state` de sempre.
 
@@ -866,7 +867,7 @@ function build()
   -- l'app ha demanat (docs/30, docs/45).
   check_row(6, 'sleep', 'Sleep when idle', function() return cfg.sleep() == true end, function(on)
     cfg.sleep(on)
-    say(on and 'The board sleeps until its next alarm' or 'The board stays awake')
+    say(on and 'The board sleeps when nobody uses it' or 'The board stays awake')
     console.print(string.format('settings: the idle sleep is %s', on and 'on' or 'off'))
   end)
   -- **I quanta quietud és «inactiu»** (0.190.9, l'amo: *«un selector desplegable … per seleccionar quan es posa en DeepSleep»*):

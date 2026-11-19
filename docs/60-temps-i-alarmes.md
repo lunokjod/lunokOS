@@ -495,9 +495,21 @@ Com està avui:
    arrencada. Sense aquesta línia, un comptador que creix i una condició que falla es veuen exactament igual (docs/30, docs/95).
 
    **I sense cap alarma la porta és la tecla** (0.190.12): la política no feia res quan la cua era buida —un `return` sense línia—,
-   o sigui que una placa sense alarma no s'adormia mai i el commutador de Battery no feia res. Ara baixa **fins a la tecla**
-   (`deep_sleep_with_the_keys`, el mateix camí que la targeta del sistema): la sessió es desa, la imatge del son es pinta i la placa
-   torna on era quan algú prem el dial. **Amb una alarma, les dues portes**: l'hora del xip i la tecla (docs/50, docs/90).
+   o sigui que una placa sense alarma no s'adormia mai i el commutador de Battery no feia res. Ara baixa **fins a la tecla**: la
+   sessió es desa, la imatge del son es pinta i la placa torna on era quan algú prem el dial. **Amb una alarma, les dues portes**:
+   l'hora del xip i la tecla (docs/50, docs/90).
+
+   **I aquest camí és el del sistema i no el del xip** (0.190.14): la política va per `shell::deep_sleep` —el mateix que el botó
+   de la lluna del panell i el `deepsleep` del prompt—, que és qui **acaba la run** quan el que baixa és un emulador
+   (`kernel::shutdown`). Amb la crida directa al xip l'emulador es quedava amb la imatge del son al vidre, l'app tancada i el
+   procés viu, i la potència de mentida fins i tot deia *«the emulator ends»* mentre no s'acabava.
+
+   **I el camí de la tecla no depèn de com ha arrencat la placa** (0.190.14): la porta estava lligada a `g_for_an_alarm`, que és
+   certa per a **tota** la run d'un despert per una alarma, o sigui que quan aquella alarma es gastava i la cua quedava buida el
+   codi queia al camí de l'alarma amb la data a zero: deia `-1767225 s to the next alarm`, la son es refusava —una son fonda sense
+   hora no existeix— i el comptador tornava a començar, cada cinc minuts, per sempre. **La regla de «un despert per una alarma no
+   torna a baixar de seguida» és del primer torn** (`straight_back_down`, que només és cert amb una alarma a la cua); aquí el
+   comptador ja s'ha esgotat i baixar a la tecla és exactament el que la persona va triar.
 
    **I quants segons és «quietud» també es tria** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per
    fer el DeepSleep)»*): la fila **Sleep after** de la mateixa pestanya Battery és un desplegable del sistema amb **tres temps** —**5

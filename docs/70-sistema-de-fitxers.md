@@ -60,7 +60,7 @@ i un `sessions destroy` no pot dir «8 file(s)» sobre una carpeta de vint-i-un 
 
 **Una targeta i una partició no són el mateix.** FATFS munta **una** partició FAT de la targeta (la que troba), i els números de `fs.space` són d'aquella partició, no de la targeta. Amb una targeta de 16 GB que porta una partició de 2,8 GiB, `fs.space` diu 2,8 GiB i fa bé: el que no es munta no existeix per al sistema (31/10, mesurat a la placa).
 
-**Què hi pot fer una app**: **llegir** sí —llegir és lliure, excepte el racó d'una altra app—, i **escriure no**: escriure només es fa dins de `/data/<id>/` (docs/30). Una targeta és, avui, d'on les apps llegeixen.
+**Què hi pot fer una app**: **llegir** sí —llegir és lliure, excepte el racó d'una altra app—, i **escriure no** pel camí del disc: escriure només es fa dins de `/data/<id>/` (docs/30). **I des de la 0.190.8 aquest `/data` pot ser a la targeta** (segueix el disc preferit, vegeu la fila `/data`): la regla no és «la targeta no s'escriu» sinó **«una app només escriu al seu propi racó»**. El muntatge `/sd` continua sent de només lectura i el que una app anomena `/data/<seva-id>/` és seu, visqui on visqui. Amb la targeta triada —o amb `auto`, que és la targeta quan n'hi ha— és d'on les apps llegeixen **i on desen el seu registre**, que és el que fa que un `pio run -t uploadfs` no s'endugui el de la bateria ni el del rellotge.
 
 Els **àlies no són còpies**: són una entrada més a la taula de muntatges que apunta a un camí dins
 d'un altre muntatge. Ocupen una fila i una comparació de prefix, res més. L'únic que no vol dir el
