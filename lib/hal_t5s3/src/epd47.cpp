@@ -96,6 +96,17 @@ uint16_t Epd47::width() const { return kPageW; }
 uint16_t Epd47::height() const { return kPageH; }
 uint32_t Epd47::bus_mhz() const { return pclk_hz_ / 1000000; }
 
+// **Les passades que demana una porta** (0.190.50): the charge that moves the ink is the window times the count, o sigui que el
+// que s'ha de mantenir és el producte. Amb la porta de referència surten les vuit i vuit de sempre; a la meitat de porta, el
+// doble; i el sostre és el del temps, perquè quaranta-vuit escombrades ja són gairebé un segon i la prova s'ha de poder mirar.
+void Epd47::scale_the_passes() {
+  const uint32_t wanted = (static_cast<uint32_t>(epd47::kBlackPhases) * epd47::kRefGateUs + gate_us_ / 2u) / gate_us_;
+  uint32_t passes = wanted == 0 ? 1u : wanted;
+  if (passes > epd47::kMostPasses / 2u) passes = epd47::kMostPasses / 2u;
+  black_passes_ = static_cast<uint8_t>(passes);
+  white_steps_ = static_cast<uint8_t>(passes);
+}
+
 bool Epd47::set_gate_us(uint32_t us) {
   // **Els límits els posa el sentit comú**: una porta oberta zero no mou res i una oberta mig mil·lisegon és mitja pantalla
   // cremada; entre dos i quaranta microsegons hi cap tot el que aquest panell pot voler (docs/50).
@@ -111,6 +122,10 @@ bool Epd47::set_gate_us(uint32_t us) {
     return false;
   }
   gate_us_ = us;
+  scale_the_passes();
+  // **I la pàgina dirà quantes passades ha costat**, que és la meitat del número que la palanca mou (docs/50, docs/95).
+  logf(pal::kLogDebug, "PANEL", "a gate of %u us: %u black passes and %u white steps", static_cast<unsigned>(gate_us_),
+       static_cast<unsigned>(black_passes_), static_cast<unsigned>(white_steps_));
   return true;
 }
 
@@ -585,7 +600,7 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
   // **Quantes passades i amb quina taula** (0.190.38): a `du` is two levels and does not need the panel's thirty-eight
   // phases, i un `gc16` sí; the table and the count are decided once, here, and the rest of the loop is the same
   // (docs/50, docs/95).
-  const uint8_t phases = fast ? epd47::kFastPhases : epd47::kPulsePhases;
+  const uint8_t phases = fast ? epd47::kFastPhases : static_cast<uint8_t>(black_passes_ + white_steps_);
   const uint8_t* const before = only_changed ? previous_ : nullptr;
   // **El rentat a blanc ja no cal** (0.190.46): the pulse waveform below starts by taking every pixel to black, o sigui que
   // el lloc des d'on comença la forma d'ona el posa ella mateixa i no una passada prèvia a part (docs/50, docs/95).
@@ -596,7 +611,7 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
     uint8_t codes[4][16];
     for (uint8_t level = 0; level < 16; ++level) {
       const uint8_t code = fast ? ((level < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase])
-                                : epd47::pulse_code(level, phase);
+                                : epd47::pulse_code(level, phase, black_passes_, white_steps_);
       // The four corners of the table are the same now that there is no dither, i la fila tria igualment per cantonada
       // perquè el codi del camí sigui un sol (docs/50).
       for (uint8_t corner = 0; corner < 4; ++corner) codes[corner][level] = code;
@@ -707,7 +722,7 @@ bool Epd47::flush(UpdateMode mode) {
   // i és la que deixa `previous_` sabut (docs/50, docs/95).
   const bool cleans = mode == UpdateMode::kInit || mode == UpdateMode::kGc16;
   const bool only_changed = !cleans && previous_is_known_;
-  uint8_t phases = fast ? epd47::kFastPhases : epd47::kPhases;
+  uint8_t phases = fast ? epd47::kFastPhases : static_cast<uint8_t>(black_passes_ + white_steps_);
   // **I la finestra s'encongeix al que de debò s'ha mogut** (0.190.41): the rectangle the kernel marks is what it *drew*,
   // and a page that is redrawn whole is a rectangle of five hundred and forty rows for two digits that changed. Comparing
   // the two frames —a `memcmp` a row, which is cheap and in the PSRAM— gives the box of what is not the same, o sigui que

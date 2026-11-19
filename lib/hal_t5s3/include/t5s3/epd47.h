@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "hal/hal.h"
+#include "t5s3/epd47_waveform.h"
 #include "t5s3/expander.h"
 
 namespace hal {
@@ -144,7 +145,13 @@ class Epd47 : public ISurface {
   // es pot canviar en calent des del prompt (`panel bus 26`) (0.190.38, docs/50).
   uint32_t pclk_hz_ = 20000000;
   // **Sis microsegons de dotze**, que és el que epdiy dona a aquest mateix panell (`ckv_high_time = 60`, en dècimes).
-  uint32_t gate_us_ = 6;
+  uint32_t gate_us_ = epd47::kRefGateUs;
+  // **I les passades que la porta d'aquest moment demana** (0.190.50): la càrrega que mou la tinta és porta per temps, o sigui
+  // que baixar la porta sense apujar les passades treu contrast en lloc de guanyar nivells. Es tornen a comptar a cada canvi de
+  // `gate_us_` i mai no són zero (docs/50, docs/95).
+  uint8_t black_passes_ = epd47::kBlackPhases;
+  uint8_t white_steps_ = epd47::kWhiteMost;
+  void scale_the_passes();
   // **El que ha costat la pintada, partit en dos** (0.190.38): `bus_us_` is the wire and the peripheral —the row that has
   // gone out— and `cpu_us_` is the turning of the frame into codes, which is the only part a faster processor or a
   // different loop can take away (docs/95).

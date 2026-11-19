@@ -10429,7 +10429,13 @@ namespace kernel {
 // la forma d'ona suposa i la tinta anava a la via a cada passada —els grisos queien a quatre bandes—. Amb sis microsegons la pàgina ja
 // es veu millor i encara falta, o sigui que és un número per trobar i no per endevinar: `panel gate <us>` el canvia **en calent** i la
 // prova és `panel bars` o `splash sleep`, sense cap flaish per valor (docs/50, docs/95).
-static const char kVersion[] = "0.190.49";
+// **I la porta i les passades són un sol número** (0.190.50). L'amo, amb la porta a sis microsegons: *«l'splash sleep es veu millor...
+// encara falten colors, però es veu menys negre»*. Les dues meitats de la frase són la mateixa: la càrrega que mou la tinta és
+// **porta per temps**, o sigui que tancar la porta sense apujar les passades treu contrast en lloc de guanyar nivells. Ara
+// `set_gate_us` recompta les passades mantenint el producte —vuit i vuit a sis microsegons, setze i setze a tres, vint-i-quatre i
+// vint-i-quatre a dos—, i el que canvia a la pàgina és **quants nivells se separen** i no quant de negre hi ha. El sostre és el del
+// temps: quaranta-vuit escombrades del vidre ja són gairebé un segon (docs/50, docs/95).
+static const char kVersion[] = "0.190.50";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -829,6 +829,15 @@ més que la transferència sencera i per tant deixa provar l'extrem dolent; **ze
 porta que no s'obre mai no mou tinta i no és una prova sinó una pàgina que no canvia —i és el valor que
 diu que una placa no té porta pròpia—.
 
+**I les passades i la porta són un sol número** (0.190.50). L'amo, amb la porta a sis: *«l'splash sleep es
+veu millor... encara falten colors, però es veu menys negre»* —i les dues meitats de la frase són la
+mateixa cosa, perquè la càrrega que mou la tinta és porta **per** temps: tancar la porta sense apujar les
+passades treu contrast en lloc de guanyar nivells. O sigui que `set_gate_us` recompta les passades i
+manté el producte —**vuit i vuit** a sis microsegons, setze i setze a tres, vint-i-quatre i vint-i-quatre
+a dos—, i així el que canvia a la pàgina és **quants nivells se separen** i no quant de negre hi ha, que és
+la pregunta que la palanca ha de respondre. El sostre és el del temps i no el de la física: quaranta-vuit
+escombrades del vidre ja són gairebé un segon, i el log de la pintada diu les passades que ha costat.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

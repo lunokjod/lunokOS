@@ -43,19 +43,27 @@ const uint8_t kFastToWhite[kFastPhases] = {1, 1, 2, 2, 2, 2};
 // o sigui amplada de pols. Vuit passades de negre i fins a dotze de blanc, i el nivell és quantes de blanques arriben.
 const uint8_t kBlackPhases = 8;
 const uint8_t kWhiteMost = 8;
-const uint8_t kPulsePhases = kBlackPhases + kWhiteMost;
-// **Els esglaons de blanc de cada nivell** (0.190.48): nine steps instead of twelve, i el nivell és quants n'arriben. **La
-// trama del 0.190.47 s'ha tret**: sobre aquest vidre un bloc de 2×2 es veu com a brutícia i no com a gris, i el que va fer va
-// ser empitjorar la pàgina. El que ha de fer que setze nivells capiguen en nou esglaons no és la trama sinó el **temps de
-// porta** (`kGateUs`, a `epd47.cpp`), que és el que decideix quanta tinta es mou a cada passada (docs/50, docs/95).
-inline uint8_t white_steps_of(uint8_t level) {
-  return static_cast<uint8_t>((static_cast<uint16_t>(level & 0x0F) * kWhiteMost + 7u) / 15u);
+// **I el temps de porta al qual aquests vuit i vuit són els bons** (0.190.50): les passades d'aquest projecte es van comptar amb
+// la porta oberta tota la transferència, i el que mou la tinta és **la càrrega**, que és porta per temps. O sigui que el nombre
+// de passades i el temps de porta **no són dos números independents**: si la porta s'obre un terç, la mateixa càrrega demana el
+// triple de passades. Aquest és el punt de referència, i `Epd47::scale_the_passes()` el manté quan l'amo mou la palanca, de
+// manera que el que canvia a la pàgina sigui **quants nivells se separen** i no quant de negre hi ha (docs/50, docs/95).
+const uint8_t kRefGateUs = 6;
+// **I el sostre, que és el del temps i no el de la física**: una passada és una escombrada del vidre (uns dotze mil·lisegons de
+// cable), o sigui que quaranta-vuit ja són gairebé un segon i la prova es fa feixuga abans que la tinta digui res (docs/50).
+const uint8_t kMostPasses = 48;
+// **Els esglaons de blanc de cada nivell** (0.190.48): the level is how many of the counting pushes it gets. **La trama del
+// 0.190.47 s'ha tret**: sobre aquest vidre un bloc de 2×2 es veu com a brutícia i no com a gris, i el que va fer va ser
+// empitjorar la pàgina. El que ha de fer que setze nivells capiguen en aquests esglaons no és la trama sinó el **temps de
+// porta**, que és el que decideix quanta tinta es mou a cada passada (docs/50, docs/95).
+inline uint8_t white_steps_of(uint8_t level, uint8_t most) {
+  return static_cast<uint8_t>((static_cast<uint16_t>(level & 0x0F) * most + 7u) / 15u);
 }
 // **I el codi d'un nivell en una passada**: negre a la primera meitat, blanc comptat a la segona, i res quan les empentes
 // d'aquell nivell ja s'han acabat (docs/50, docs/95).
-inline uint8_t pulse_code(uint8_t level, uint8_t phase) {
-  if (phase < kBlackPhases) return 1;
-  return (static_cast<uint8_t>(phase - kBlackPhases) < white_steps_of(level)) ? 2 : 0;
+inline uint8_t pulse_code(uint8_t level, uint8_t phase, uint8_t black, uint8_t most) {
+  if (phase < black) return 1;
+  return (static_cast<uint8_t>(phase - black) < white_steps_of(level, most)) ? 2 : 0;
 }
 
 // **I el paper que la taula del panell suposa** (0.190.42). `kWaveform` és una taula **des de blanc**: the row of a level is
