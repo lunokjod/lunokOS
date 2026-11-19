@@ -10396,7 +10396,13 @@ namespace kernel {
 // donava codi **al doble d'ample i desplaçada**: la banda del sistema quedava tallada a l'esquerra (els sis primers píxels no es
 // pintaven mai) i el rentat de l'splash començava vint columnes enllà. Ara la comparació amb el quadre anterior va en bytes del
 // quadre i la fila del bus en bytes de la fila, i cada una té el seu factor (docs/50, docs/95).
-static const char kVersion[] = "0.190.43";
+// **I `panel bus` havia mort el vidre** (0.190.44, el log del 20/11: «a partir de tocar panel bus X el panell ha deixat de
+// dibuixar»). El rellotge de l'i80 és estat del **bus** i no del io, o sigui que tancar i tornar a obrir només el io deixava el
+// rellotge com estava —el log deia `452 ms on the wire` a 5 MHz i a 20 MHz, el mateix número— i a més deixava el panell sense rebre
+// cap fila. Ara es refan **el bus i el io, i en aquest ordre**, i **es mesura**: una fila de 240 bytes són 1 920 bits i a M megahertz
+// no pot costar menys de 1920/M microsegons de cable, o sigui que si el número no ha baixat el perifèric s'ha quedat amb el rellotge
+// d'abans, es torna enrere i es diu. Un commutador que no commuta és pitjor que no tenir-ne (docs/50, docs/80).
+static const char kVersion[] = "0.190.44";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

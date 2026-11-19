@@ -102,7 +102,9 @@ class Epd47 : public ISurface {
   // that does nothing, o sigui que la seva tinta no es mou (docs/50, docs/95).
   bool scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool only_changed, const uint8_t* upper,
                    const uint8_t* lower, const uint8_t* through);
-  // **El perifèric del bus, obert i tornat a obrir** quan canvia el rellotge (0.190.38).
+  // **El bus i el perifèric, oberts i tornats a obrir** quan canvia el rellotge (0.190.38 → 0.190.44): the clock is state
+  // of the bus, o sigui que els dos es fan de nou i en aquest ordre.
+  bool open_the_bus();
   bool open_the_io();
   // The four edges of a row: `start` opens a pass, and the step latches a row that has just been clocked.
   void row_control(bool start);

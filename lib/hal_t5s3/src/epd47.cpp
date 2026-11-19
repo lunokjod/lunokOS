@@ -109,10 +109,35 @@ bool Epd47::set_bus_mhz(uint32_t mhz) {
   // és tancar-lo i tornar-lo a crear amb el rellotge nou —el bus, el quadre i el panell es queden on són—. Si el xip no
   // dona aquest rellotge es torna al que hi havia, perquè un vidre que es queda sense io és un vidre que no pinta mai més
   // (docs/50).
-  if (open_the_io()) return true;
-  pclk_hz_ = was;
-  (void)open_the_io();
-  return false;
+  if (!open_the_bus()) {
+    pclk_hz_ = was;
+    if (open_the_bus()) return false;
+    error_ = "the bus did not come back at the old clock";
+    return false;
+  }
+  // **I es mesura, perquè un commutador que no commuta és pitjor que cap commutador** (0.190.44): a row is 240 bytes, o
+  // sigui que cent noranta-dues mil nou-cents vint bits, i a M megahertz no pot costar menys de 1920/M microsegons de
+  // cable. Si el número no ha baixat, el perifèric s'ha quedat amb el rellotge d'abans —que és exactament el que va fer la
+  // 0.190.38— i el que es fa és tornar enrere i dir-ho, en lloc de deixar un vidre que no pinta (docs/50, docs/80).
+  memset(row_, 0, kRowBytes);
+  const uint32_t probe_started = static_cast<uint32_t>(esp_timer_get_time());
+  if (!start_row(row_) || !wait_row()) {
+    pclk_hz_ = was;
+    (void)open_the_bus();
+    error_ = "the row did not come back after the clock change";
+    return false;
+  }
+  const uint32_t took_us = static_cast<uint32_t>(esp_timer_get_time()) - probe_started;
+  const uint32_t wire_us = 1920u / mhz + 1u;
+  logf(pal::kLogDebug, "PANEL", "asked for %u MHz: one row took %u us and the wire is %u", static_cast<unsigned>(mhz),
+       static_cast<unsigned>(took_us), static_cast<unsigned>(wire_us));
+  if (took_us + 2 < wire_us) {
+    pclk_hz_ = was;
+    (void)open_the_bus();
+    error_ = "the bus kept its old clock";
+    return false;
+  }
+  return true;
 }
 
 bool Epd47::set_rotation(uint16_t degrees) {
@@ -281,20 +306,7 @@ bool Epd47::begin() {
   gpio_set_level(static_cast<gpio_num_t>(kSth), 1);
   gpio_set_level(static_cast<gpio_num_t>(kFrontLight), 0);
 
-  // **El bus paral·lel, amb el perifèric del xip** (docs/50): eight data lines and the clock, a data/command line that
-  // does not exist —the panel has no registers— and **un `EP_STH` que sí que hi és** (vegeu avall).
-  esp_lcd_i80_bus_config_t bus = {};
-  bus.dc_gpio_num = kDummyDc;
-  bus.wr_gpio_num = kCkh;
-  bus.clk_src = LCD_CLK_SRC_PLL160M;
-  bus.bus_width = 8;
-  bus.max_transfer_bytes = 1024;
-  for (size_t i = 0; i < 8; ++i) bus.data_gpio_nums[i] = kData[i];
-  if (esp_lcd_new_i80_bus(&bus, reinterpret_cast<esp_lcd_i80_bus_handle_t*>(&bus_handle_)) != ESP_OK) {
-    error_ = "the parallel bus did not come up";
-    return false;
-  }
-  if (!open_the_io()) return false;
+  if (!open_the_bus()) return false;
 
   // **El quadre, a la PSRAM** (docs/75): 259 200 bytes is twice the RAM of the chip and there is no version of this that
   // fits anywhere else.
@@ -314,9 +326,39 @@ bool Epd47::begin() {
   return true;
 }
 
-// **El perifèric del bus** (0.190.33 → 0.190.38): it is a function of its own because the clock lives here and the clock
-// is the one thing of a paint that is worth measuring on the board, o sigui que `panel bus 26` al prompt ha de poder
-// tancar aquest i obrir-ne un altre sense perdre ni el quadre ni el panell (docs/50, docs/80).
+// **El bus i el perifèric, de dues en dues** (0.190.44, i era un error greu de la 0.190.38): the clock of the i80 is
+// hardware state of the **bus** and not of the io, o sigui que tancar i tornar a obrir només el io deixava el rellotge com
+// estava —el log d'aquella versió deia `452 ms on the wire` a 5 MHz i a 20 MHz, el mateix número— i a més deixava el
+// panell sense rebre cap fila: `panel bus` matava el vidre fins al reinici. What the prompt changes is rebuilt from the
+// bottom: el bus i el io, amb els pins del perifèric inclosos (docs/50, docs/80).
+bool Epd47::open_the_bus() {
+  if (io_ != nullptr) {
+    esp_lcd_panel_io_del(reinterpret_cast<esp_lcd_panel_io_handle_t>(io_));
+    io_ = nullptr;
+  }
+  if (bus_handle_ != nullptr) {
+    esp_lcd_del_i80_bus(reinterpret_cast<esp_lcd_i80_bus_handle_t>(bus_handle_));
+    bus_handle_ = nullptr;
+  }
+  // **El bus paral·lel, amb el perifèric del xip** (docs/50): eight data lines and the clock, a data/command line that
+  // does not exist —the panel has no registers— and **un `EP_STH` que sí que hi és** (vegeu avall).
+  esp_lcd_i80_bus_config_t bus = {};
+  bus.dc_gpio_num = kDummyDc;
+  bus.wr_gpio_num = kCkh;
+  bus.clk_src = LCD_CLK_SRC_PLL160M;
+  bus.bus_width = 8;
+  bus.max_transfer_bytes = 1024;
+  for (size_t i = 0; i < 8; ++i) bus.data_gpio_nums[i] = kData[i];
+  if (esp_lcd_new_i80_bus(&bus, reinterpret_cast<esp_lcd_i80_bus_handle_t*>(&bus_handle_)) != ESP_OK) {
+    bus_handle_ = nullptr;
+    error_ = "the parallel bus did not come up";
+    return false;
+  }
+  return open_the_io();
+}
+
+// **El perifèric del bus** (0.190.33 → 0.190.38): it is a function of its own because the clock lives in its config, o
+// sigui que `panel bus 26` al prompt ha de poder-lo tornar a obrir (docs/50, docs/80).
 bool Epd47::open_the_io() {
   if (bus_handle_ == nullptr) {
     error_ = "the parallel bus did not come up";
