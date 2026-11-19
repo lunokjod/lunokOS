@@ -1032,6 +1032,41 @@ bool command_panel(const char* rest) {
     out("\r\n");
     return true;
   }
+  // **`panel gate <us>`** (0.190.57): the time the gate of a line is open, which is what cuts the road from white to black into
+  // steps and therefore decides how many greys the glass separates. **Es demana en microsegons i s'admet la coma** (`panel gate
+  // 0.9`) perquè el pas d'aquest vidre és més fi que un microsegon; endins es compta en nanosegons. Canviar-ho és una pintada de
+  // prova, i un flaish per valor és una sessió per valor (docs/50, docs/95).
+  if (strcmp(both[0], "gate") == 0) {
+    if (many < 2) {
+      if (display::gate_ns() == 0) {
+        out("panel: this glass has no gate of its own\r\n");
+        return true;
+      }
+      char said[64];
+      snprintf(said, sizeof(said), "panel: the gate is open %u ns per line\r\n",
+               static_cast<unsigned>(display::gate_ns()));
+      out(said);
+      return true;
+    }
+    const uint32_t whole = static_cast<uint32_t>(atoi(both[1]));
+    uint32_t frac = 0;
+    const char* dot = strchr(both[1], '.');
+    if (dot != nullptr) {
+      uint32_t scale = 100;
+      for (const char* p = dot + 1; *p >= '0' && *p <= '9' && scale > 0; p++, scale /= 10) {
+        frac += static_cast<uint32_t>(*p - '0') * scale;
+      }
+    }
+    if (!display::set_gate_ns(whole * 1000u + frac * 10u)) {
+      out("panel: the glass did not take that gate\r\n");
+      return false;
+    }
+    char said[64];
+    snprintf(said, sizeof(said), "panel: the gate is open %u ns per line\r\n",
+             static_cast<unsigned>(display::gate_ns()));
+    out(said);
+    return true;
+  }
   // **`panel bus <mhz>`** (0.189.77): the clock of the bus the pixels travel on, which is the last piece of a paint that is
   // still worth moving. It takes the place of a flash and a session per speed.
   if (strcmp(both[0], "bus") == 0) {
@@ -1057,7 +1092,7 @@ bool command_panel(const char* rest) {
     return true;
   }
   if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
-    usage_out("usage: panel [edge|box|bars] | panel bus [mhz] | panel flush [rows|burst|2bit]\r\n");
+    usage_out("usage: panel [edge|box|bars|gate [us]] | panel bus [mhz] | panel flush [rows|burst|2bit]\r\n");
     return false;
   }
   if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {

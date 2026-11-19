@@ -10480,7 +10480,16 @@ namespace kernel {
 // que la porta quedava oberta vuit vegades més que la línia del panell i la tinta rebia vuit vegades més càrrega per passada. Ara
 // la porta es tanca **abans** de fabricar la fila, i la fila es fabrica amb dos miralls de 256 entrades com els seus, que és el
 // que fa que quaranta-tres passades siguin un segon i no quatre (docs/50, docs/95).
-static const char kVersion[] = "0.190.56";
+// **I la forma d'ona del fabricant sí, la seva durada no** (0.190.57). Amb la matriu de deu polzades que vaig agafar, `panel bars`
+// donava setze barres però *«no estan en l'ordre correcte, alguns colors es veuen en dues columnes contigües i a l'esquerra tres o
+// quatre barres són negres»*: era la taula d'un altre panell. El que sí que és de tots dos és l'**estructura**, i és la del mode de
+// setze grisos del panell (`epd_wp_epdiy_ED047TC1_16_0`): quinze passades, cada nivell amb una empenta cap al negre mentre li
+// calgui, el 0 les quinze i el 15 cap, **i el compte des d'un paper blanc** —per això el firmware que la fa servir neteja el vidre
+// primer—. El que no es pot copiar és **quant dura cada empenta**, perquè aquest vidre es mou unes set vegades més de pressa: amb
+// la porta oberta tota la transferència satura a la segona passada i queden tres colors. Amb la porta comptada, els tretze
+// microsegons i mig del camí es reparteixen en **quinze empentes de nou-cents nanosegons** i surten setze esglaons: neteja, compte,
+// i `panel gate` per moure-ho (docs/50, docs/95).
+static const char kVersion[] = "0.190.57";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

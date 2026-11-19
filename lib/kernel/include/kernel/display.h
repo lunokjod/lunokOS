@@ -79,6 +79,11 @@ bool the_glass_is_asleep();
 // purpose so that no paint is left half way.
 // **I el rellotge del bus** (0.189.77): `panel bus <mhz>`, so the three numbers of the wire are measured in one session of the
 // board and not in three flashes. It is not remembered across a boot either (docs/50).
+// **La finestra de la porta de la fila** (0.190.57), en nanosegons: el número que parteix el camí de blanc a negre en esglaons, i
+// per tant quants grisos separa el vidre. Zero és un vidre que no en té (docs/50, docs/95).
+uint32_t gate_ns();
+bool set_gate_ns(uint32_t ns);
+
 uint32_t bus_mhz();
 bool set_bus_mhz(uint32_t mhz);
 // **Quatre-cents i no mil cinc-cents** (0.189.79): the window was sized by eye when a paint still cost six hundred and sixty

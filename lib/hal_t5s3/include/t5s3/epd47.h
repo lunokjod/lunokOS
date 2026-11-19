@@ -63,6 +63,10 @@ class Epd47 : public ISurface {
   // is the whole test—. The peripheral is created again with the new clock and the frame, the panel and the supply stay
   // where they are; a speed this chip cannot give is refused and never rounded (docs/50, docs/80).
   bool set_bus_mhz(uint32_t mhz) override;
+  // **I la finestra de la porta** (0.190.57): the time the gate of a line is open, in nanoseconds, which is what decides how
+  // many steps the road is cut into. Es canvia en calent des del prompt (`panel gate 0.9`) (docs/50, docs/95).
+  uint32_t gate_ns() const override { return gate_ns_; }
+  bool set_gate_ns(uint32_t ns) override;
   const char* last_error() const override { return error_; }
 
  private:
@@ -143,6 +147,9 @@ class Epd47 : public ISurface {
   // BB_PANEL_EPDIY_V7, 26666666)` a tots els seus exemples per a aquest vidre —la taula del panell en diu vint, i el seu
   // programa en fa servir vint-i-sis i mig—, i es pot canviar en calent des del prompt (`panel bus 26`) (docs/50).
   uint32_t pclk_hz_ = 26666666;
+  // **Nou-cents nanosegons de porta per línia** (0.190.57), que és el que reparteix els tretze microsegons i mig del camí en
+  // quinze esglaons. Es compta en nanosegons perquè `delayMicroseconds` no baixa del microsegon (docs/50, docs/95).
+  uint32_t gate_ns_ = 900;
   // **El que ha costat la pintada, partit en dos** (0.190.38): `bus_us_` is the wire and the peripheral —the row that has
   // gone out— and `cpu_us_` is the turning of the frame into codes, which is the only part a faster processor or a
   // different loop can take away (docs/95).

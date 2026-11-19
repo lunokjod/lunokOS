@@ -848,6 +848,23 @@ amb colors intercalats i el dibuix sortia *«massa fosc»*. Totes dues són a `b
    passades saturessin als quatre colors. Ara la porta es tanca **abans** de fabricar la fila, i la fila es fabrica
    amb dos miralls de 256 entrades com els seus (`pGrayUpper`/`pGrayLower`), no amb quatre cerques per byte.
 
+**I la forma d'ona del fabricant sí, la seva durada no** (0.190.57). La matriu de deu polzades del seu
+`grayscale_test` (`u8_103Grays`) donava setze barres però *«no en l'ordre correcte, amb colors repetits en
+dues columnes i tres o quatre barres negres a l'esquerra»*: era la taula d'un altre panell. El que sí que
+comparteixen tots dos vidres és l'**estructura**, i és la del mode de setze grisos del panell
+(`epd_wp_epdiy_ED047TC1_16_0`):
+
+- **quinze passades**, i cada nivell rep una empenta cap al negre **mentre li calgui** —el 0 les quinze, el
+  15 cap, el 14 una—, sense cap empenta de tornada;
+- **i el compte es fa des d'un paper blanc**: la seva taula només dona codi al píxel que ve del blanc, i per
+  això el firmware que la fa servir neteja el vidre abans (`epd_clear()` abans de `MODE_GC16`).
+
+El que **no** es pot copiar és quant dura cada empenta, perquè aquest vidre es mou unes set vegades més de
+pressa: amb la porta oberta tota la transferència —la seva manera— satura a la segona passada i la pàgina
+queda en tres colors. Amb la porta comptada, els tretze microsegons i mig del camí es reparteixen en
+**quinze empentes de nou-cents nanosegons** i en surten setze esglaons. `panel gate <us>` (amb coma) mou la
+finor; el sostre és el camí sencer.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

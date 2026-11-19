@@ -514,6 +514,15 @@ class ISurface : public IDisplay {
   // handshake no era clar el rellotge era una variable massa. **Ara ho és a propòsit**, i es canvia en calent per mesurar els
   // tres números en una sola sessió de placa (docs/50). Zero vol dir un vidre que no té bus, com el de l'emulador.
   virtual uint32_t bus_mhz() const { return 0; }
+  // **Quant temps té la porta de la fila per moure la tinta** (0.190.57), en **nanosegons**: the source driver holds the codes of
+  // a row, but the charge only reaches the ink while the gate of that line is open, o sigui que aquest número decideix en quants
+  // esglaons es parteix el camí i, per tant, quants grisos separa el vidre. És el que el driver del fabricant no ha de comptar
+  // perquè la seva fabricació de fila ja és curta. Zero és un vidre sense porta pròpia (docs/50, docs/95).
+  virtual uint32_t gate_ns() const { return 0; }
+  virtual bool set_gate_ns(uint32_t ns) {
+    (void)ns;
+    return false;
+  }
   virtual bool set_bus_mhz(uint32_t mhz) {
     (void)mhz;
     return false;

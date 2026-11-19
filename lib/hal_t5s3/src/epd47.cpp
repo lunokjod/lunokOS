@@ -69,6 +69,16 @@ const size_t kRowBytes = 960 / 4;
 // **El temps de repòs entre dos passatges** és el de l'original (230 µs), i és el que dona a la tinta el temps de
 // moure's abans del següent (docs/50).
 const uint32_t kBetweenPhasesUs = 230;
+// **I una espera d'una fracció de microsegon** (0.190.57): `delayMicroseconds` no baixa del microsegon i el pas que separa dos
+// grisos en aquest vidre és més fi que això, o sigui que la porta es compta en cicles del processador (docs/50, docs/95).
+inline void IRAM_ATTR delay_ns(uint32_t ns) {
+  if (ns == 0) return;
+  const uint32_t cycles = static_cast<uint32_t>((static_cast<uint64_t>(ns) * esp_clk_cpu_freq()) / 1000000000ull);
+  if (cycles < 4) return;
+  const uint32_t start = static_cast<uint32_t>(esp_cpu_get_ccount());
+  while (static_cast<uint32_t>(esp_cpu_get_ccount()) - start < cycles) {
+  }
+}
 // How long a row is allowed to take before the driver calls it a failure: a row is 240 bytes at twenty megahertz, o
 // sigui que cent mil·lisegons és un panell que no contesta i no un que va lent (docs/50).
 const uint32_t kRowTimeoutMs = 100;
@@ -89,6 +99,23 @@ Epd47::Epd47(Pca9535* expander, II2c* bus)
 uint16_t Epd47::width() const { return kPageW; }
 uint16_t Epd47::height() const { return kPageH; }
 uint32_t Epd47::bus_mhz() const { return pclk_hz_ / 1000000; }
+
+bool Epd47::set_gate_ns(uint32_t ns) {
+  // **Els límits són els d'una línia**: zero no mou res i més de quaranta microsegons és més que la transferència sencera; el
+  // que aquest vidre demana per tenir setze esglaons és més fi que un microsegon (docs/50).
+  if (ns < 200) {
+    error_ = "a gate that short moves no ink";
+    return false;
+  }
+  if (ns > epd47::kRoadNs) {
+    error_ = "a gate that long fills the whole road in one pass";
+    return false;
+  }
+  gate_ns_ = ns;
+  logf(pal::kLogDebug, "PANEL", "a gate of %u ns per line: %u steps of the road", static_cast<unsigned>(gate_ns_),
+       static_cast<unsigned>((epd47::kRoadNs + ns / 2u) / ns));
+  return true;
+}
 
 bool Epd47::set_bus_mhz(uint32_t mhz) {
   // **Els límits són del xip i no del panell**: the i80 takes its clock from the 160 MHz PLL, o sigui que el que es pot
@@ -592,7 +619,7 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
     uint8_t codes[16];
     for (uint8_t level = 0; level < 16; ++level) {
       codes[level] = fast ? ((level < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase])
-                          : epd47::kGrayMatrix[level][phase];
+                          : epd47::gray_code(level, phase);
     }
     if (!scan_a_pass(first, last, b0, b1, before != nullptr, &codes[0])) return false;
     delayMicroseconds(kBetweenPhasesUs);
@@ -626,10 +653,6 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
     // llegeix byte a byte—, o sigui que la porta quedava oberta vuit vegades més estona que la línia del panell i la tinta rebia
     // vuit vegades més càrrega per passada. Tancar-la primer deixa el temps de porta en el de la transferència, que és el que el
     // panell espera (docs/50, docs/95).
-    if (pending) {
-      if (!wait_row()) return false;
-      row_control(false);
-    }
     uint8_t* row = buffers[y & 1u];
     const uint32_t before_the_row = static_cast<uint32_t>(esp_timer_get_time());
     // **Només la finestra marcada porta codi** (0.190.40): a byte outside `b0..b1` is left at the code that does nothing, o
@@ -662,7 +685,18 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
       }
     }
     cpu_us_ += static_cast<uint32_t>(esp_timer_get_time()) - before_the_row;
-    gpio_set_level(ckv, 1);
+    // **La porta, comptada** (0.190.57): the row that has just gone out is latched by `LE` with the gate closed, and then the
+    // gate is opened **for its share of the road** and closed again, so the charge the ink gets is the same on every row no
+    // matter how long the frame takes to build —which here is the whole difference with the maker's own driver: our build is
+    // slow and theirs is not, i si la porta queda oberta durant la fabricació la tinta rep molt més del que li toca
+    // (docs/50, docs/95).
+    if (pending) {
+      if (!wait_row()) return false;
+      row_control(false);
+      gpio_set_level(ckv, 1);
+      delay_ns(gate_ns_);
+      gpio_set_level(ckv, 0);
+    }
     // **I la fila que ja viatjava es recull ara**, quan la d'aquesta ja està construïda: és el que fa que el temps de la
     // conversió i el del cable es tapin l'un a l'altre (docs/50, docs/95).
     const uint32_t before_the_wire = static_cast<uint32_t>(esp_timer_get_time());
