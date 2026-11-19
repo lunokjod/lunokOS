@@ -537,6 +537,19 @@ Com està avui:
      atom i matri[x] simplement s'ignora el paràmetre»*): el commutador es desa com a qualsevol altra placa i el que la placa contesta és
      `can_wake_on_touch()`, que allà és fals, o sigui que no hi ha res a armar i la fila de la pàgina no hi és (`caps.touch`).
 
+   **I una represa no espera el comptador, i ho mira abans de tocar res** (0.190.18). Una tornada per una alarma i una **tanda** d'una espera
+   llarga (el rellotge ha despertat la placa abans d'hora i només cal rearmar) no poden esperar els cinc, deu o quinze minuts de quietud: el
+   que havien de fer ja està fet i cada segon despert és un segon de l'espera llençat. La placa baixa **al primer torn**, i només mentre
+   **ningú no l'ha tocada des que ha arrencat** —una mà al vidre, una tecla o un byte de consola fan manar el comptador, que és el que evita
+   que s'apagui sota el dit—. Es mira amb dues banderes que `note_the_boot` posa a zero i que només mou una mà de debò
+   (`power::note_activity`), i no amb el comptador, que una arrencada també mou.
+
+   **I el vidre ha de dir el son, no el que hi hagi pintat algú** (0.190.18). Una tornada per una alarma conserva la imatge del son —el
+   vidre ja la té i tornar-la a pintar serien dos parpelleigs per res—, però una alarma que corre en una **finestra** pinta la pàgina de
+   l'app... i aquella app ja no hi és quan la placa baixa, o sigui que el que una persona trobaria en prémer el dial és la pàgina d'una
+   cosa que s'ha acabat. La finestra diu que ha pintat (`power::note_a_page_on_the_glass`) i la baixada hi torna a posar la imatge
+   (docs/30, docs/50).
+
    **I el camí de la tecla no depèn de com ha arrencat la placa** (0.190.14): la porta estava lligada a `g_for_an_alarm`, que és
    certa per a **tota** la run d'un despert per una alarma, o sigui que quan aquella alarma es gastava i la cua quedava buida el
    codi queia al camí de l'alarma amb la data a zero: deia `-1767225 s to the next alarm`, la son es refusava —una son fonda sense

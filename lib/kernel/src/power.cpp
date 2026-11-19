@@ -81,6 +81,11 @@ constexpr int64_t g_idle_quiet_ms = kIdleQuietMs;
 #endif
 
 bool g_idle_allowed = true;
+// **Qui ha tocat la placa des d'aquest boot, i si el vidre té una pàgina que no és la del son** (0.190.18). The first is what makes a
+// wake for an alarm or a stage of a long wait go straight back down **and** what keeps it from going down under a finger; the second is
+// the window that painted over the picture (docs/30, docs/60).
+bool g_touched_since_boot = false;
+bool g_a_page_on_the_glass = false;
 int64_t g_last_activity_ms = 0;
 
 // **La velocitat de repòs i la finestra d'una feina pesada** (0.179.38): the step the system goes back to and the hour a
@@ -411,7 +416,9 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   g_cpu_rest_mhz = kRestingMhz;
   g_cpu_busy_until_ms = 0;
   // **El comptador de la quietud arrenca amb aquesta arrencada** (0.190.9): nothing has been typed at it yet, and the person
-  // who chose five minutes gets five minutes from the boot and not from the first turn that happened to look.
+  // who chose five minutes gets five minutes from the boot and not from the first turn that happened to look. **I una arrencada no és
+  // una mà** (0.190.18): the flag is what tells «nobody has touched it since it came back» —the wake for an alarm and the stage of a long
+  // wait go straight down because of it— from «somebody is using it», which is the counter (docs/60).
   g_last_activity_ms = mono_now();
   // A stage of a longer wait belongs to one boot: `report_wake()` is what sets it again
   // (docs/60).
@@ -558,7 +565,13 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // says `lowbatt` —the reason it is going down is the one a person has to know—, which is one function and not a branch
   // here (docs/50).
   // **I la imatge del son ja hi és**: a board that comes back for an alarm and goes down again does not paint it twice (0.189.182).
-  if (mode == hal::SleepMode::kDeep && !g_for_an_alarm) splash::show(going_down_picture(/*deep=*/true));
+  // **I el vidre ha de dir el son, no el que hi hagi pintat algú** (0.190.18): a wake for an alarm keeps the picture it found, pero una
+  // finestra que ha corregut hi ha deixat la pàgina de l'app —i l'app ja no hi és quan la placa baixa—, o sigui que la imatge es torna a
+  // pintar quan el vidre no és el que havia deixat el son (docs/30, docs/60).
+  if (mode == hal::SleepMode::kDeep && (!g_for_an_alarm || g_a_page_on_the_glass)) {
+    splash::show(going_down_picture(/*deep=*/true));
+    g_a_page_on_the_glass = false;
+  }
   // **And the ink of the picture is over before the chip stops** (0.165.1): the deep sleep cuts the clocks where the call
   // found them, so a picture asked for and not waited on is a picture that nobody sees (docs/50).
   if (mode == hal::SleepMode::kDeep) splash::wait();
@@ -621,7 +634,12 @@ bool can_deep_sleep() {
   return the_hour_of_a_sleep(0) > 0;
 }
 
-void note_activity() { g_last_activity_ms = mono_now(); }
+void note_activity() {
+  g_last_activity_ms = mono_now();
+  g_touched_since_boot = true;
+}
+
+void note_a_page_on_the_glass() { g_a_page_on_the_glass = true; }
 
 // **Quanta quietud mana** (0.190.9): the setting a person chose in Settings -> Battery —ten seconds, a minute or five—, i una
 // suite que hagués d'esperar els deu segons seria una suite deu segons més lenta, o sigui que on hi ha algú que mogui el número
@@ -710,7 +728,10 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // because there is nobody in front of the glass. **Un despert sense res a la cua no és això**: la placa ha de quedar-se desperta i
   // ensenyar la seva pàgina, o el camí de «sense alarma» la tornaria a adormir al mateix torn i el que es veuria al vidre seria la
   // imatge del son —l'amo: *«quan salta no torna a activar la pantalla i no es veu res»*— (docs/30, docs/60).
-  const bool straight_back_down = (!staging && g_for_an_alarm && deadline > 0);
+  // **Una represa per una alarma i una tanda d'una espera llarga no esperen el comptador** (0.190.18): the board came back on its own and
+  // there is nobody in front of the glass, o sigui que cada segon despert és un segon de l'espera llençat. **I només mentre ningú no l'ha
+  // tocada**: el comptador mana a qui hi és a sobre, i una mà en el primer torn no ha de veure la placa apagar-se-li a sota (docs/60).
+  const bool straight_back_down = (staging || g_for_an_alarm) && !g_touched_since_boot;
   const int64_t quiet = quiet_ms();
   if (!straight_back_down && quiet < idle_quiet_ms()) return;
 
@@ -1211,6 +1232,12 @@ BootKind note_the_boot(hal::IPlatform& platform) {
   hal::IClock* clock = platform.clock();
   const hal::WakeCause woke = (clock != nullptr) ? clock->last_wake() : hal::WakeCause::kOther;
   g_woke_by_an_alarm = (woke == hal::WakeCause::kTimer || woke == hal::WakeCause::kClock);
+  // **Un boot nou, i dues coses que són d'aquest boot** (0.190.18): nobody has touched the board yet —which is what makes a wake for an
+  // alarm and a stage of a long wait go straight down— and the glass still says what the sleep left on it. Es posa aquí i no a
+  // `power::boot` perquè les finestres de les alarmes corren **abans** (`kernel::boot`), i una finestra que ha pintat és un vidre que ja no
+  // diu el son (docs/30, docs/60).
+  g_touched_since_boot = false;
+  g_a_page_on_the_glass = false;
   if (nvs != nullptr && coming_back_from_a_sleep(*nvs)) {
     g_boot_kind = BootKind::kSleep;
   } else if (the_rtc_remembers(rtc)) {

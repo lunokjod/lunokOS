@@ -73,7 +73,8 @@ void bring_it_up(const char* why) {
 }  // namespace
 
 const char* boot() {
-  power::note_activity();
+  // **Una arrencada no és una mà** (0.190.18): `power::boot` ja ha arrencat el comptador de la quietud, i dir-ho aquí tornava a comptar
+  // com a ús el que només és el començament d'un boot —i trencava el «ningú l'ha tocada» de la tornada per una alarma— (docs/30, docs/60).
   g_a_wake_is_owed = false;
   g_complained = nullptr;
   // **Un tauler sense vidre no tapa res**: the four boards of this build with no screen keep their prompt, which is all they

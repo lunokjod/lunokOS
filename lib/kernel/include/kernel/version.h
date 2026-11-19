@@ -10192,7 +10192,22 @@ namespace kernel {
 // classe base), i el que diu si hi ha res a armar és `IPower::can_wake_on_touch()` — cert al Paper, `emu::model().touch` a l'emulador, fals a
 // l'ATOM, la Matrix, el devkit i el T-Koala. Al prompt la resposta diu el valor desat i, si la placa no hi sent, una línia que ho diu sense
 // ser un error; a la pàgina la fila *Wake on touch* només hi és quan `caps.touch` (docs/30, docs/50, docs/60).
-static const char kVersion[] = "0.190.17";
+// **Una represa d'una alarma esperava el comptador, i una finestra deixava la seva pàgina al vidre** (0.190.18, revisant el mecanisme del
+// son profund sencer). Dues coses que la unificació de la 0.190.9 va deixar a mitges:
+//
+//  - **`straight_back_down` havia perdut les tandes i demanava una alarma a la cua**: una tornada per una alarma sense res més a esperar
+//    (una alarma d'un sol cop) es quedava desperta els cinc, deu o quinze minuts de quietud en lloc de tornar a baixar, i una **tanda**
+//    d'una espera llarga (el rellotge desperta abans d'hora per rearmar) igual. Ara les dues baixen al primer torn, i **només mentre
+//    ningú no ha tocat la placa des que ha arrencat**: una mà al vidre, una tecla o un byte de consola fan manar el comptador, que és el
+//    que evita que la placa s'apagui sota el dit (`power::note_activity` mou les dues coses).
+//  - **Una finestra d'alarma pintava sobre la imatge del son**: la baixada no la tornava a pintar perquè venia d'una alarma, i el que una
+//    persona trobava en prémer el dial era la pàgina d'una app que ja s'havia acabat. `power::note_a_page_on_the_glass` ho diu i la baixada
+//    hi torna a posar la imatge (docs/30, docs/50, docs/60).
+//
+// `lock::boot` ja no mou el comptador (una arrencada no és una mà), i el cas
+// `test_a_wake_for_an_alarm_that_ran_a_window_goes_down_with_the_picture_back` aguanta les dues meitats: amb la regla vella la placa es
+// queda desperta, i sense la imatge el vidre no té el son.
+static const char kVersion[] = "0.190.18";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

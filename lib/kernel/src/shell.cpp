@@ -4269,6 +4269,9 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
     // session, and it does not get the keyboard.
     luabind::poll();
     ok = luabind::call_alarm(entry, late_ms);
+    // **I la finestra ha pintat el vidre** (0.190.18): the page of an app that is not there any more is what a person would find when the
+    // board goes back down to wait, o sigui que el sistema ho apunta per tornar-hi la imatge del son (docs/30, docs/60).
+    if (ok) power::note_a_page_on_the_glass();
   }
   luabind::stop();
   // **A window is an app too, for the glass** (0.136.0, docs/46 D1): whatever it asked for is given back when it goes,

@@ -224,7 +224,7 @@ void save_alarms() {
     }
     return;
   }
-  if (!nvs->set(kAlarmNs, kAlarmKey, blob, len)) {
+    if (!nvs->set(kAlarmNs, kAlarmKey, blob, len)) {
     log_printf(pal::kLogWarn, "ALARM", "cannot write the queue to nvs");
     return;
   }

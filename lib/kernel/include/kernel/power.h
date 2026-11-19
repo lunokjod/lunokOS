@@ -76,6 +76,12 @@ bool wake_on_touch();
 bool set_wake_on_touch(bool on);
 bool can_wake_on_touch();
 
+// **Un quadre que no és la imatge del son** (0.190.18). A wake for an alarm comes back with the picture of the way down on the glass and
+// goes back down without painting it again —the glass already says it—; but an alarm that runs in a **window** paints the app's page, and
+// a board that went down there would leave it for the person to find, over a run that is over. This is the word the window says when it
+// ends, and `sleep` is what puts the picture back (docs/30, docs/60, docs/85).
+void note_a_page_on_the_glass();
+
 // Does the pending request, if there is one, and then applies the **idle policy**: on a
 // board whose deep sleep is a real power off (a clock chip keeps the hour while the power
 // is gone) and with an alarm pending, the board goes to sleep by itself until that alarm
