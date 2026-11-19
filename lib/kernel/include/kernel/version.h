@@ -10416,7 +10416,13 @@ namespace kernel {
 // (vuit passades) i donar-li un nombre comptat d'empentes cap al blanc (fins a dotze), i el nivell és quantes de blanques arriben. És
 // més curta que la de trenta-vuit (vint passades), és d'aquest projecte i no de ningú, i la mesura que la valida o la tomba és la
 // mateixa comanda: `panel bars` (docs/50, docs/95).
-static const char kVersion[] = "0.190.46";
+// **I les trames, que és el que queda quan el vidre té cinc nivells** (0.190.47). Amb l'amplada de pols, `panel bars` va donar cinc
+// esglaons: k=0 negre, k=1 gris, k=2 i k=3 el mateix gris clar, k=4 quasi blanc i k=5 blanc. No és un defecte del codi: cada passada
+// mou la tinta una quarta part del recorregut, o sigui que una passada no pot fer un esglaó més fi. El que fa qualsevol lector de tinta
+// amb pocs nivells és **trames**: els setze nivells d'entrada es reparteixen en un bloc 2×2 ordenat sobre els cinc que la tinta separa,
+// i el gris deixa de ser una barrera i passa a ser una textura. El preu és mig píxel de resolució i el guany és que la pàgina torna a
+// tenir setze tons; la mesura que ho diu és la mateixa: `panel bars` (docs/50, docs/95).
+static const char kVersion[] = "0.190.47";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

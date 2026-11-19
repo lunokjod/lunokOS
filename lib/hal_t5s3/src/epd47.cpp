@@ -560,52 +560,35 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
   // phases, i un `gc16` sí; the table and the count are decided once, here, and the rest of the loop is the same
   // (docs/50, docs/95).
   const uint8_t phases = fast ? epd47::kFastPhases : epd47::kPulsePhases;
-  uint8_t upper[256];
-  uint8_t lower[256];
-  // **La taula del canvi**: indexed by `(what is on the glass << 4) | what has to be there`, and it is zero when the two
-  // levels are the same one, o sigui que el píxel no es mou (0.190.41). En un `du` la comparació és entre els dos nivells
-  // **després** d'arrodonir a dues tintes, perquè un gris que va d'un gris a un altre no ha de fer res (docs/50, docs/95).
-  uint8_t through[256];
   const uint8_t* const before = only_changed ? previous_ : nullptr;
   // **El rentat a blanc ja no cal** (0.190.46): the pulse waveform below starts by taking every pixel to black, o sigui que
   // el lloc des d'on comença la forma d'ona el posa ella mateixa i no una passada prèvia a part (docs/50, docs/95).
   for (uint8_t phase = 0; phase < phases; ++phase) {
-    for (int b = 0; b < 256; ++b) {
-      uint8_t first_level = 0;
-      uint8_t second = 0;
-      if (fast) {
-        // **Els dos nivells del `du`**: el que el nucli ha dibuixat com a gris també hi cap, i cau al costat del negre o
-        // del blanc que li toca, perquè una forma d'ona de dues tintes no pot fer mitjos tons (docs/50).
-        first_level = ((b >> 4) & 0x0F) < 8 ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase];
-        second = (b & 0x0F) < 8 ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase];
-      } else {
-        // **L'amplada de pols d'aquest projecte** (0.190.46), que és el que aquest vidre sap separar.
-        first_level = epd47::pulse_code(static_cast<uint8_t>((b >> 4) & 0x0F), phase);
-        second = epd47::pulse_code(static_cast<uint8_t>(b & 0x0F), phase);
-      }
-      const uint8_t codes = static_cast<uint8_t>((first_level << 2) | second);
-      lower[b] = codes;
-      upper[b] = static_cast<uint8_t>(codes << 4);
-      if (before != nullptr) {
-        const uint8_t was = static_cast<uint8_t>((b >> 4) & 0x0F);
-        const uint8_t now = static_cast<uint8_t>(b & 0x0F);
+    // **El codi de cada nivell, per a cada cantonada de la trama** (0.190.47): la trama depèn de si la columna i la fila són
+    // parelles o senars, o sigui que hi ha quatre taules de setze i el que fa la fila és triar-ne dues (les de la seva
+    // paritat de fila i les de cada paritat de columna) (docs/50, docs/95).
+    uint8_t codes[4][16];
+    for (uint8_t corner = 0; corner < 4; ++corner) {
+      for (uint8_t level = 0; level < 16; ++level) {
         if (fast) {
-          through[b] = ((was < 8) == (now < 8)) ? 0 : ((now < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase]);
+          // **Els dos nivells del `du`**: el que el nucli ha dibuixat com a gris també hi cap, i cau al costat del negre o
+          // del blanc que li toca, perquè una forma d'ona de dues tintes no pot fer mitjos tons (docs/50).
+          codes[corner][level] = (level < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase];
         } else {
-          through[b] = (was == now) ? 0 : epd47::pulse_code(now, phase);
+          codes[corner][level] = epd47::pulse_code(epd47::ink_of(level, corner), phase);
         }
       }
     }
-    if (!scan_a_pass(first, last, b0, b1, before != nullptr, upper, lower, through)) return false;
+    if (!scan_a_pass(first, last, b0, b1, before != nullptr, &codes[0][0])) return false;
     delayMicroseconds(kBetweenPhasesUs);
   }
   // **I la descàrrega**, que és el que deixa els drivers del panell en repòs i no amb una tensió a sobre: one pass of
   // «do nothing» codes, which is the maker's `BB_CLEAR_NEUTRAL` (docs/50).
-  return scan_a_pass(first, last, b0, b1, false, nullptr, nullptr, nullptr);
+  return scan_a_pass(first, last, b0, b1, false, nullptr);
 }
 
 bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool only_changed,
-                        const uint8_t* upper, const uint8_t* lower, const uint8_t* through) {
+                        const uint8_t* codes) {
   const gpio_num_t ckv = static_cast<gpio_num_t>(kCkv);
   // **El començament del passatge**, que deixa el rellotge vertical a dalt.
   row_control(true);
@@ -614,35 +597,35 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
   for (uint16_t y = 0; y <= last && y < kGlassH; ++y) {
     uint8_t* row = buffers[y & 1u];
     const uint32_t before_the_row = static_cast<uint32_t>(esp_timer_get_time());
-    // **Només la finestra marcada porta codi** (0.190.40, i és el que es veia com «es redibuixa tota la columna»): a byte
-    // outside `b0..b1` is left at the code that does nothing, o sigui que la tinta només es mou dins del rectangle que el
-    // nucli ha marcat. Sense això, un `du` —que és de dues tintes— empenyia **totes nou-centes seixanta columnes** de la
-    // banda de files cap a negre o blanc i s'enduia els grisos de tot el que hi havia a la vora (docs/50, docs/95).
+    // **Només la finestra marcada porta codi** (0.190.40): a byte outside `b0..b1` is left at the code that does nothing, o
+    // sigui que la tinta només es mou dins del rectangle que el nucli ha marcat (docs/50, docs/95).
     memset(row, 0, kRowBytes);
-    if (upper != nullptr && lower != nullptr && y >= first) {
+    if (codes != nullptr && y >= first) {
       const uint32_t at = static_cast<uint32_t>(y) * kGlassStride;
       const uint8_t* src = bits_ + at;
-      if (!only_changed || through == nullptr) {
-        for (uint16_t i = b0; i <= b1; ++i) {
-          row[i] = static_cast<uint8_t>(upper[src[2 * i]] | lower[src[2 * i + 1]]);
-        }
-      } else {
-        // **El motor de la diferència** (0.190.41): a byte of the two frames that has not moved gives the code that does
-        // nothing —one comparison and out— and a byte that has moved pays four lookups, one per pixel, because each of the
-        // four needs to know **from where to where** and not just where (docs/50, docs/95).
-        const uint8_t* was = previous_ + at;
-        for (uint16_t i = b0; i <= b1; ++i) {
+      const uint8_t* was = only_changed ? (previous_ + at) : nullptr;
+      // **La cantonada de la trama d'aquesta fila** (0.190.47): the ordered dither is 2×2, o sigui que la fila aporta la
+      // meitat de la clau i cada columna l'altra meitat.
+      const uint8_t row_part = static_cast<uint8_t>((y & 1u) << 1);
+      const uint8_t* even = codes + static_cast<uint32_t>(row_part | 0u) * 16u;
+      const uint8_t* odd = codes + static_cast<uint32_t>(row_part | 1u) * 16u;
+      for (uint16_t i = b0; i <= b1; ++i) {
+        const uint8_t a = src[2 * i];
+        const uint8_t b = src[2 * i + 1];
+        uint8_t c0 = even[a >> 4];
+        uint8_t c1 = odd[a & 0x0F];
+        uint8_t c2 = even[b >> 4];
+        uint8_t c3 = odd[b & 0x0F];
+        if (was != nullptr) {
+          // **El motor de la diferència** (0.190.41): a pixel whose level is the one the glass has does not move at all.
           const uint8_t pa = was[2 * i];
           const uint8_t pb = was[2 * i + 1];
-          const uint8_t a = src[2 * i];
-          const uint8_t b = src[2 * i + 1];
-          if (a == pa && b == pb) continue;
-          const uint8_t c0 = through[static_cast<uint8_t>((pa & 0xF0) | (a >> 4))];
-          const uint8_t c1 = through[static_cast<uint8_t>(((pa & 0x0F) << 4) | (a & 0x0F))];
-          const uint8_t c2 = through[static_cast<uint8_t>((pb & 0xF0) | (b >> 4))];
-          const uint8_t c3 = through[static_cast<uint8_t>(((pb & 0x0F) << 4) | (b & 0x0F))];
-          row[i] = static_cast<uint8_t>((c0 << 6) | (c1 << 4) | (c2 << 2) | c3);
+          if ((pa >> 4) == (a >> 4)) c0 = 0;
+          if ((pa & 0x0F) == (a & 0x0F)) c1 = 0;
+          if ((pb >> 4) == (b >> 4)) c2 = 0;
+          if ((pb & 0x0F) == (b & 0x0F)) c3 = 0;
         }
+        row[i] = static_cast<uint8_t>((c0 << 6) | (c1 << 4) | (c2 << 2) | c3);
       }
     }
     cpu_us_ += static_cast<uint32_t>(esp_timer_get_time()) - before_the_row;
@@ -650,9 +633,6 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
     // conversió i el del cable es tapin l'un a l'altre (docs/50, docs/95).
     if (pending) {
       if (!wait_row()) return false;
-      // **La fila anterior es tanca i la porta d'aquesta s'obre, en aquest ordre** (0.190.36): the maker's own loop
-      // latches the row that has just gone out (`ROW_STEP`: CKV low and the LE pulse) and then **raises CKV before the
-      // transfer**, which is what moves the gate driver one line down.
       row_control(false);
       gpio_set_level(ckv, 1);
     }
@@ -662,9 +642,7 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
     bus_us_ += static_cast<uint32_t>(esp_timer_get_time()) - before_the_wire;
   }
   if (pending && !wait_row()) return false;
-  // **I l'última fila també es tanca**: the maker's loop leaves the last row clocked and not latched because the next
-  // pass starts with its own `ROW_START`, i tancar-la aquí és una vora de més que no pot fer mal i que deixa totes les
-  // files igual de senceres (docs/50).
+  // **I l'última fila també es tanca** (docs/50).
   row_control(false);
   return true;
 }

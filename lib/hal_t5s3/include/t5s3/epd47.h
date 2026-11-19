@@ -100,8 +100,8 @@ class Epd47 : public ISurface {
   // **El que fa una passada, i sobre quins píxels**: `only_changed` is the difference engine of the maker's own driver
   // (`pPrevious` in FastEPD): a pixel whose level is the same as the frame that is already on the glass is given the code
   // that does nothing, o sigui que la seva tinta no es mou (docs/50, docs/95).
-  bool scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool only_changed, const uint8_t* upper,
-                   const uint8_t* lower, const uint8_t* through);
+  // `codes` is four tables of sixteen —one per corner of the 2×2 dither— and a null pointer is the discharge pass.
+  bool scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool only_changed, const uint8_t* codes);
   // **El bus i el perifèric, oberts i tornats a obrir** quan canvia el rellotge (0.190.38 → 0.190.44): the clock is state
   // of the bus, o sigui que els dos es fan de nou i en aquest ordre.
   bool open_the_bus();
