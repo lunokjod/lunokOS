@@ -4841,7 +4841,10 @@ bool command_cfg(const char* argument) {
       out("settings: touch to wake ");
       out(cfg::wake_on_touch() ? "on" : "off");
       newline();
-      if (!kept) out("cfg: this board does not hear a finger while it sleeps\r\n");
+      // **I si aquesta placa no hi sent, es diu una vegada i no és cap error** (0.190.17): the setting is kept like on any other board and the
+      // board does nothing with it, which is the difference between ignoring a switch and refusing it (docs/30, docs/50).
+      if (!power::can_wake_on_touch()) out("cfg: this board has no glass to wake it, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
     // **`cfg lockafter <5|10|15>`**: the minutes without a hand on the board. The three of the list and nothing else, perquè

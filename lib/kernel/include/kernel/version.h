@@ -10186,7 +10186,13 @@ namespace kernel {
 // deixa el vidre reposat i arma `ext1` sobre el GPIO36 amb «aquest pin baix», que és el que el GT911 fa quan un escombrat té un marc
 // (docs/50, docs/60, docs/95). El HAL té la pregunta i el commutador (`IPower::wake_on_touch`/`set_wake_on_touch`), i una placa sense
 // tàctil refusa l'escriptura i el que queda és apagat.
-static const char kVersion[] = "0.190.16";
+// **I a una placa sense tàctil el paràmetre s'ignora** (0.190.17, l'amo: *«a koala, atom i matri[x] simplement s'ignora el paràmetre»*). El
+// commutador del dit era una promesa del maquinari i refusava l'escriptura en una placa que no hi sent, amb un error que una persona ha de
+// llegir com si hagués fet alguna cosa malament. Ara el commutador **el guarda tota placa** (`IPower::wake_on_touch`, una sola vegada a la
+// classe base), i el que diu si hi ha res a armar és `IPower::can_wake_on_touch()` — cert al Paper, `emu::model().touch` a l'emulador, fals a
+// l'ATOM, la Matrix, el devkit i el T-Koala. Al prompt la resposta diu el valor desat i, si la placa no hi sent, una línia que ho diu sense
+// ser un error; a la pàgina la fila *Wake on touch* només hi és quan `caps.touch` (docs/30, docs/50, docs/60).
+static const char kVersion[] = "0.190.17";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -607,10 +607,13 @@ bool deep_sleep_with_the_keys() {
 // chip) **and** it has a door back —the hour of an alarm or a key that wakes the chip—. A board with neither is a board that goes dark
 // for ever, and the card of the system and the prompt ask this before spending the picture of the way down (docs/50, docs/60).
 // **El dit** (0.190.16): the board is the one that knows whether it can hear a finger while its chip sleeps, o sigui que la resposta és
-// la seva i el sistema només la hi demana (docs/50).
-bool wake_on_touch() { return (g_power != nullptr) && g_power->wake_on_touch(); }
+// la seva i el sistema només la hi demana (docs/50). **I el commutador el guarda tota placa** (0.190.17): una que no hi sent l'accepta i
+// no en fa res, que és el que una persona demana quan el toca en una placa que no té el maquinari (docs/30).
+bool wake_on_touch() { return (g_power != nullptr) ? g_power->wake_on_touch() : false; }
 
 bool set_wake_on_touch(bool on) { return (g_power != nullptr) ? g_power->set_wake_on_touch(on) : false; }
+
+bool can_wake_on_touch() { return (g_power != nullptr) && g_power->can_wake_on_touch(); }
 
 bool can_deep_sleep() {
   if (g_power == nullptr || !can_sleep(hal::SleepMode::kDeep)) return false;

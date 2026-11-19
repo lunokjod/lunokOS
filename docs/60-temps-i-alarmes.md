@@ -533,7 +533,9 @@ Com està avui:
      hi viu), deixa el vidre reposat, i arma `ext1` sobre el **GPIO36** amb la condició «aquest pin baix» —el GT911 porta la línia avall
      quan un escombrat té un marc, i la placa la puja entre marcs—; `ext1` d'un ESP32 només sap «tots baixos» o «qualsevol alt», i amb un
      sol pin «tots baixos» és exactament «aquest baix» (docs/50, docs/95). Amb el dit com a porta el corrent no es talla, o sigui que qui
-     torna la placa a l'hora és el temporitzador del xip.
+     torna la placa a l'hora és el temporitzador del xip. **En una placa sense tàctil el paràmetre s'ignora** (0.190.17, l'amo: *«a koala,
+     atom i matri[x] simplement s'ignora el paràmetre»*): el commutador es desa com a qualsevol altra placa i el que la placa contesta és
+     `can_wake_on_touch()`, que allà és fals, o sigui que no hi ha res a armar i la fila de la pàgina no hi és (`caps.touch`).
 
    **I el camí de la tecla no depèn de com ha arrencat la placa** (0.190.14): la porta estava lligada a `g_for_an_alarm`, que és
    certa per a **tota** la run d'un despert per una alarma, o sigui que quan aquella alarma es gastava i la cua quedava buida el

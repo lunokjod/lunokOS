@@ -691,16 +691,15 @@ bool sort_by_usage() { return g_sort_by_usage; }
 // moment a person moves the switch instead of on the next boot (docs/60).
 bool sleep_on() { return g_sleep_on; }
 
-// **I el dit** (0.190.16): the value that is kept is the setting, and what a board can do is the board's answer —a board with no such
-// door refuses the write and the page shows off—. El boot empeny el valor desat al maquinari, perquè la placa es construeix abans que els
-// ajustos es llegeixin (docs/30, docs/50).
+// **I el dit** (0.190.16): the value is the setting the system keeps, i el boot l'empeny al maquinari perquè la placa es construeix abans
+// que els ajustos es llegeixin (docs/30, docs/50). **Una placa que no hi sent no el refusa** (0.190.17, l'amo: *«a koala, atom i matri[x]
+// simplement s'ignora el paràmetre»*): el desa i no en fa res, que és el que una persona demana quan el toca en una placa sense tàctil.
 bool wake_on_touch() { return g_wake_on_touch; }
 
 bool set_wake_on_touch(bool on) {
-  const bool in_force = power::set_wake_on_touch(on);
-  g_wake_on_touch = in_force;
-  const bool kept = remember_wake_on_touch();
-  return kept && in_force;
+  g_wake_on_touch = on;
+  (void)power::set_wake_on_touch(on);
+  return remember_wake_on_touch();
 }
 
 bool set_sleep_on(bool on) {

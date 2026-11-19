@@ -15059,7 +15059,8 @@ void test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake(v
 // botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*). The hour and the key are
 // always armed where the board has them; **the glass is a door only when a person asks for it**, because hearing a finger means keeping
 // the panel's rail and its touch controller awake for the whole sleep. El que es mira aquí és la cadena sencera: l'ajust desat, la porta
-// del sistema i el que la placa contesta —una placa sense tàctil refusa l'escriptura i el que queda és apagat— (docs/30, docs/50, docs/60).
+// del sistema i el que la placa contesta —**i que una placa sense tàctil desa el paràmetre i no en fa res**, que és el que l'amo va
+// demanar el 19/11: *«a koala, atom i matri[x] simplement s'ignora el paràmetre»*— (docs/30, docs/50, docs/60).
 void test_the_glass_is_a_door_of_the_sleep_only_when_asked(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board_with_fingers("m5stack-paper");
@@ -15068,6 +15069,7 @@ void test_the_glass_is_a_door_of_the_sleep_only_when_asked(void) {
   // **De sèrie, apagat**, i el commutador de la pàgina ensenya el que el sistema té (docs/30, docs/45).
   TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::wake_on_touch(), "the glass was a door of the sleep without anybody asking for it");
   TEST_ASSERT_FALSE_MESSAGE(kernel::power::wake_on_touch(), "the board heard a finger while it slept by default");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::can_wake_on_touch(), "the Paper has a glass and says it cannot hear it");
 
   pump_captured(10, g_out, sizeof(g_out), "cfg touchwake on");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: touch to wake on"), g_out);
@@ -15080,14 +15082,18 @@ void test_the_glass_is_a_door_of_the_sleep_only_when_asked(void) {
   TEST_ASSERT_FALSE(kernel::cfg::wake_on_touch());
   TEST_ASSERT_FALSE(kernel::power::wake_on_touch());
 
-  // **I una placa sense tàctil no té aquesta porta**: the write is refused and what stands is off, which is what the row will show.
+  // **I una placa sense tàctil ignora el paràmetre** (0.190.17): the setting is taken and kept like on any board —it is what a person asked for
+  // and the board has nothing to arm with it—, i la resposta de si aquesta placa hi sent és la del maquinari (docs/30, docs/50).
   pump_captured(10, g_out, sizeof(g_out), "cfg touchwake on");
   TEST_ASSERT_TRUE(kernel::cfg::wake_on_touch());
   use_board("m5stack-atom");
-  TEST_ASSERT_FALSE_MESSAGE(hal::platform().power()->wake_on_touch(), "the ATOM says it hears a finger while it sleeps");
+  TEST_ASSERT_FALSE_MESSAGE(hal::platform().power()->can_wake_on_touch(), "the ATOM says it has a glass to hear a finger");
   pump_captured(10, g_out, sizeof(g_out), "cfg touchwake on");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "this board does not hear a finger"), g_out);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::wake_on_touch(), "a board with no glass kept a door it cannot open");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: touch to wake on"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "this board has no glass to wake it, and the setting is kept all the same"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cfg: the glass of the sleep is on or off"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::wake_on_touch(),
+                           "a board with no glass refused a setting it should simply ignore");
 
   kernel::cfg::set_wake_on_touch(false);
   use_board("m5stack-atom");

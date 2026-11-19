@@ -69,11 +69,12 @@ bool can_deep_sleep();
 // of the board and not a question about the queue, which is why `can_deep_sleep` is the one that decides (docs/50, docs/60).
 bool can_deep_sleep_with_the_keys();
 
-// **El dit com a porta d'un son profund** (0.190.16): whether the board hears a finger while the chip sleeps, and the switch that turns it
-// on. Off is the default and the cheap way down —the panel's rail is cut—, i el que això encén és una tercera porta que costa corrent
-// (docs/50, docs/60).
+// **El dit com a porta d'un son profund** (0.190.16): the switch that turns it on, which **every board keeps** —a board that cannot hear a
+// finger accepts it and does nothing with it—, and the question of whether this board can (0.190.17). Off is the default and the cheap way
+// down: the panel's rail is cut, i el que això encén és una tercera porta que costa corrent (docs/50, docs/60).
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);
+bool can_wake_on_touch();
 
 // Does the pending request, if there is one, and then applies the **idle policy**: on a
 // board whose deep sleep is a real power off (a clock chip keeps the hour while the power

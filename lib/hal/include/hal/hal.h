@@ -356,18 +356,21 @@ class IPower {
   virtual bool can_sleep_with_the_keys() const { return false; }
   // **Tornar d'un son profund amb el dit** (0.190.16, l'amo: *«del DeepSleep s'ha de poder tornar sempre a part de per les alarmes, també
   // els botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*): whether this board
-  // can hear a finger while the chip is asleep, and the switch the system sets. **Off by default and off on every board that does not
-  // say otherwise**: hearing a finger means keeping the panel's rail and its touch controller awake for the whole sleep, which is exactly
-  // the current a deep sleep exists to stop (docs/50, docs/60).
+  // can hear a finger while the chip is asleep. **Off by default and off on every board that does not say otherwise**: hearing a finger
+  // means keeping the panel's rail and its touch controller awake for the whole sleep, which is exactly the current a deep sleep exists
+  // to stop (docs/50, docs/60).
   //
   // The key and the alarm are **not** this switch: a deep sleep always arms them where the board has them, and a board that says false
-  // here is a board that comes back on its hour or on a key, never on the glass.
-  virtual bool wake_on_touch() const { return false; }
-  // Turns it on or off and answers **the value in force**, which is the board's: false is a board with no such door. The system sets it
-  // from the setting of the Battery tab and asks it again before spending the picture of the way down (docs/30, docs/60).
+  // here is a board that comes back on its hour or on a key, never on the glass (docs/30, docs/50).
+  virtual bool can_wake_on_touch() const { return false; }
+  // **L'ajust, i tota placa el guarda** (0.190.17, l'amo: *«a koala, atom i matri[x] simplement s'ignora el paràmetre»*): the switch of the
+  // Battery tab is a setting of the system and not a promise of the wiring, o sigui que una placa que no pot sentir el dit **l'accepta i
+  // el deixa estar** en lloc de refusar-lo amb un error que una persona ha de llegir com si hagués fet alguna cosa malament. The way down
+  // is what reads it, and a board whose `can_wake_on_touch()` is false has no arming to do with it (docs/30, docs/50).
+  virtual bool wake_on_touch() const { return wake_on_touch_; }
   virtual bool set_wake_on_touch(bool on) {
-    (void)on;
-    return false;
+    wake_on_touch_ = on;
+    return true;
   }
 
   // Where this board can be woken from: "timer", "button", "console" or "none".
@@ -378,6 +381,11 @@ class IPower {
   // nearest one, because a rounded speed is a lie about what it costs (docs/50).
   virtual uint32_t cpu_mhz() = 0;
   virtual bool set_cpu_mhz(uint32_t mhz) = 0;
+
+ protected:
+  // **El commutador del dit, que és de tota placa** (0.190.17): kept here and not in each board, because the setting belongs to the system
+  // and only the arming belongs to the wiring (docs/30, docs/50).
+  bool wake_on_touch_ = false;
 };
 
 // Reserved: implemented when a board with a screen exists (docs/50).

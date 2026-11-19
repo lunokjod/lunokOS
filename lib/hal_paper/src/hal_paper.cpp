@@ -374,18 +374,13 @@ class PaperPower : public Esp32Power {
 
   // **El dit com a porta** (0.190.16): the GT911 is powered from the panel's rail and it scans by itself, o sigui que el que cal per
   // despertar-se amb un dit és **deixar aquell rail ences** i escoltar la seva línia mentre el xip dorm. És un ajust i no el de sèrie
-  // perquè tot això és corrent: el panell i el controlador del tàctil encesos tota la son (docs/50, docs/60).
-  bool wake_on_touch() const override { return wake_on_touch_; }
-  bool set_wake_on_touch(bool on) override {
-    wake_on_touch_ = on;
-    return wake_on_touch_;
-  }
+  // perquè tot això és corrent: el panell i el controlador del tàctil encesos tota la son (docs/50, docs/60). **El commutador el guarda
+  // la classe base** (0.190.17): aquí només es diu que aquesta placa sí que hi sent.
+  bool can_wake_on_touch() const override { return true; }
 
  private:
   // The glass, for the way down to put to sleep first (0.183.0).
   ISurface* glass_ = nullptr;
-  // **El dit, apagat de sèrie** (0.190.16): the system turns it on from the setting and the board reads it here.
-  bool wake_on_touch_ = false;
 };
 
 class PaperPlatform : public IPlatform {

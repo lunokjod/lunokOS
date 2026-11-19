@@ -869,11 +869,16 @@ function build()
   -- panell»*): a finger on the glass wakes the board from a deep sleep, i ve apagat de sèrie perquè sentir un dit vol dir deixar el rail
   -- del panell i el controlador del tàctil desperts tota la son. El que la fila ensenya és el que el sistema ha acceptat: una placa que no
   -- té aquesta porta refusa l'escriptura i la fila queda apagada (docs/30, docs/45).
-  check_row(6, 'touchwake', 'Wake on touch', function() return cfg.touch_wake() == true end, function(on)
-    cfg.touch_wake(on)
-    say(on and 'A finger on the glass wakes the board' or 'The glass stays asleep with the board')
-    console.print(string.format('settings: touch to wake is %s', on and 'on' or 'off'))
-  end)
+  -- **I la fila només hi és on la placa hi pot sentir** (0.190.17, l'amo: *«a koala, atom i matri[x] simplement s'ignora el paràmetre»*): a
+  -- board with no touch panel keeps the setting and does nothing with it, so a switch that says nothing would be a door to nowhere. The
+  -- question is `caps.touch` and not the value, perquè el que decideix si la fila té feina és el maquinari (docs/30, docs/50).
+  if caps.touch then
+    check_row(6, 'touchwake', 'Wake on touch', function() return cfg.touch_wake() == true end, function(on)
+      cfg.touch_wake(on)
+      say(on and 'A finger on the glass wakes the board' or 'The glass stays asleep with the board')
+      console.print(string.format('settings: touch to wake is %s', on and 'on' or 'off'))
+    end)
+  end
   check_row(6, 'sleep', 'Sleep when idle', function() return cfg.sleep() == true end, function(on)
     cfg.sleep(on)
     say(on and 'The board sleeps when nobody uses it' or 'The board stays awake')
