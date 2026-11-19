@@ -984,6 +984,30 @@ bool command_panel(const char* rest) {
     out("panel [edge|box|bus [mhz]] | panel flush [rows|burst|2bit]\r\n");
     return true;
   }
+  // **`panel bars`** (0.190.45): the sixteen levels of the glass, drawn as sixteen vertical bars, black on the left and white
+  // on the right. **No és una comanda per a una persona que llegeix un manual: és la mesura** —a panel whose mid greys are
+  // missing looks like a handful of wide bars, i el que diu si el driver, la forma d'ona o la VCOM són on toca és comptar
+  // quants esglaons es veuen— (docs/50, docs/95).
+  if (strcmp(both[0], "bars") == 0) {
+    hal::ISurface* glass = display::surface();
+    if (glass == nullptr) {
+      out("panel: this board has no glass\r\n");
+      return true;
+    }
+    const uint16_t wide = glass->width();
+    const uint16_t tall = glass->height();
+    const uint16_t each = static_cast<uint16_t>(wide / 16u);
+    for (uint16_t i = 0; i < 16; ++i) {
+      glass->fill_rect(static_cast<uint16_t>(i * each), 0, (i == 15) ? static_cast<uint16_t>(wide - i * each) : each, tall,
+                       static_cast<uint8_t>(i));
+    }
+    if (!display::present(hal::UpdateMode::kGc16)) {
+      out("panel: the glass did not take the bars\r\n");
+      return false;
+    }
+    out("panel: sixteen bars, black on the left\r\n");
+    return true;
+  }
   // **`panel flush`** (0.189.66): three ways of sending the same picture, and the one that wins is the one measured on this
   // board. Nothing is remembered across a boot yet: the style lives as long as the run, because a setting that survives and
   // makes every page wrong is a board that has to be reflashed to come back (docs/50).

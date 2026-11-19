@@ -131,12 +131,10 @@ bool Epd47::set_bus_mhz(uint32_t mhz) {
   const uint32_t wire_us = 1920u / mhz + 1u;
   logf(pal::kLogDebug, "PANEL", "asked for %u MHz: one row took %u us and the wire is %u", static_cast<unsigned>(mhz),
        static_cast<unsigned>(took_us), static_cast<unsigned>(wire_us));
-  if (took_us + 2 < wire_us) {
-    pclk_hz_ = was;
-    (void)open_the_bus();
-    error_ = "the bus kept its old clock";
-    return false;
-  }
+  // **I no es refusa res pel número**: the i80 adds its own gaps at slow clocks —a row that should be 48 µs at 5 MHz was
+  // measured at 174 on the board— o sigui que el número és per llegir-lo i no per decidir-hi; el que sí que no es pot
+  // permetre és que el bus quedi mort, i això ja ho diu el fet que la fila hagi tornat (docs/50, docs/80).
+  (void)wire_us;
   return true;
 }
 

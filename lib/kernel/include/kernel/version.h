@@ -10402,7 +10402,13 @@ namespace kernel {
 // cap fila. Ara es refan **el bus i el io, i en aquest ordre**, i **es mesura**: una fila de 240 bytes són 1 920 bits i a M megahertz
 // no pot costar menys de 1920/M microsegons de cable, o sigui que si el número no ha baixat el perifèric s'ha quedat amb el rellotge
 // d'abans, es torna enrere i es diu. Un commutador que no commuta és pitjor que no tenir-ne (docs/50, docs/80).
-static const char kVersion[] = "0.190.44";
+// **I les setze barres, que són la mesura** (0.190.45). `panel bars` dibuixa els setze nivells com a setze barres verticals —negre a
+// l'esquerra, blanc a la dreta— i les envia amb un `gc16`: un vidre al qual li falten els grisos es veu com un grapat de barres amples,
+// i comptar quants esglaons hi ha és el que diu si el problema és la forma d'ona, el rentat o la VCOM. **I el número del rellotge ja no
+// refusa res**: l'i80 afegeix les seves pròpies pauses a rellotges baixos —una fila que a 5 MHz hauria de costar 48 µs es va mesurar a
+// 174 a la placa— o sigui que el número és per llegir-lo i no per decidir-hi; el que no es pot permetre és un bus mort, i això ho diu
+// el fet que la fila torni (docs/50, docs/80, docs/95).
+static const char kVersion[] = "0.190.45";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
