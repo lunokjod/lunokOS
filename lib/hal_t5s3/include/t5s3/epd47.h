@@ -149,8 +149,7 @@ class Epd47 : public ISurface {
   // **I les passades que la porta d'aquest moment demana** (0.190.50): la càrrega que mou la tinta és porta per temps, o sigui
   // que baixar la porta sense apujar les passades treu contrast en lloc de guanyar nivells. Es tornen a comptar a cada canvi de
   // `gate_us_` i mai no són zero (docs/50, docs/95).
-  uint8_t black_passes_ = epd47::kBlackPhases;
-  uint8_t white_steps_ = epd47::kWhiteMost;
+  uint8_t black_passes_ = epd47::kRefPasses;
   void scale_the_passes();
   // **El que ha costat la pintada, partit en dos** (0.190.38): `bus_us_` is the wire and the peripheral —the row that has
   // gone out— and `cpu_us_` is the turning of the frame into codes, which is the only part a faster processor or a

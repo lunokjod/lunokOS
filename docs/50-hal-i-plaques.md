@@ -838,6 +838,25 @@ a dos—, i així el que canvia a la pàgina és **quants nivells se separen** i
 la pregunta que la palanca ha de respondre. El sostre és el del temps i no el de la física: quaranta-vuit
 escombrades del vidre ja són gairebé un segon, i el log de la pintada diu les passades que ha costat.
 
+**I el compte del fabricant, que és el que faltava** (0.190.51). Amb la porta a sis, quatre i dos microsegons
+`panel bars` donava *quatre colors tots a l'esquerra* i la resta blanc, i `splash sleep` sortia *cremat*. El
+compte no quadrava amb cap model de càrrega: baixar la porta no separava més nivells, només aclaria la
+pàgina. La resposta és dins del panell: el mode de setze grisos del fabricant
+(`epd_wp_epdiy_ED047TC1_16_0`, quinze passades) **no té empentes de tornada**. A cada passada, els nivells
+que encara han d'anar cap al negre reben **una empenta cap al negre i res més**; el nivell 0 les rep totes
+les quinze, el 15 cap, el 14 una. O sigui que **una passada és 1/15 del camí de blanc a negre**, i d'aquí
+surten els setze nivells.
+
+El nostre esquema tenia el compte al revés —vuit passades cap al negre i després comptar les de tornada cap
+al blanc— i per això la meitat fosca de les barres sortia tota igual i la clara s'ho menjava tot: la
+tornada des del negre és molt més sensible que l'anada, i mitja passada de blanc ja era mig camí. Ara es
+**renta a blanc** (vuit passades, el que el fabricant pot estalviar perquè la seva pàgina ja ho és: la seva
+taula només dona codi al píxel que ve del blanc) i es compta el camí cap al negre.
+
+El nombre de passades del camí segueix la palanca de la porta: **quinze a sis microsegons** —les del
+fabricant—, trenta a tres, quaranta-vuit a la porta més curta que la palanca accepta. El que canvia a la
+pàgina quan l'amo la mou és **quants esglaons se separen**, que és la pregunta.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

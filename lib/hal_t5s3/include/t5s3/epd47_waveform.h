@@ -35,46 +35,40 @@ const uint8_t kFastToBlack[kFastPhases] = {2, 2, 1, 1, 1, 1};
 // I vers el blanc, al revés.
 const uint8_t kFastToWhite[kFastPhases] = {1, 1, 2, 2, 2, 2};
 
-// **I la forma d'ona que la mesura demana, que és d'aquest projecte** (0.190.46). `kWaveform` (les trenta-vuit passades del
-// FastEPD) **no separa els nivells en aquest vidre**: mesurat amb `panel bars`, els nivells 0 a 7 surten tots negres i els 8 a
-// 15 fan un degradat, que és exactament el que diuen els seus *nets* (21,14,11,9,6,7,6,6 | 5,4,4,5,2,1,0,0). O sigui que
-// aquí la tinta respon al **balanç** de les empentes i satura fora d'una finestra estreta, i una taula feta de *formes* no hi
-// cap. El que sí que hi cap és el contrari: **portar el píxel al negre i donar-li un nombre comptat d'empentes cap al blanc**,
-// o sigui amplada de pols. Vuit passades de negre i fins a dotze de blanc, i el nivell és quantes de blanques arriben.
-const uint8_t kBlackPhases = 8;
-const uint8_t kWhiteMost = 8;
-// **I el temps de porta al qual aquests vuit i vuit són els bons** (0.190.50): les passades d'aquest projecte es van comptar amb
-// la porta oberta tota la transferència, i el que mou la tinta és **la càrrega**, que és porta per temps. O sigui que el nombre
-// de passades i el temps de porta **no són dos números independents**: si la porta s'obre un terç, la mateixa càrrega demana el
-// triple de passades. Aquest és el punt de referència, i `Epd47::scale_the_passes()` el manté quan l'amo mou la palanca, de
-// manera que el que canvia a la pàgina sigui **quants nivells se separen** i no quant de negre hi ha (docs/50, docs/95).
+// **I la forma d'ona d'aquest projecte, que ara és la del fabricant** (0.190.51). La de `kWaveform` (les trenta-vuit passades
+// del FastEPD) no separa els nivells en aquest vidre i una taula feta de *formes* tampoc: el que hi ha dins del panell, per al
+// mode de setze grisos, és una altra cosa, i s'ha llegit del seu propi fitxer (`epd_wp_epdiy_ED047TC1_16_0`, quinze passades):
+//
+//   **cada nivell s'empeny cap al negre un nombre comptat de vegades, i el compte es fa des del blanc.** El nivell 0 rep les
+//   quinze passades, el 15 no en rep cap, i el 14 en rep una. Res més: no hi ha empentes de tornada, ni balances, ni trama.
+//
+// O sigui que **una passada és 1/15 del camí** de blanc a negre, i d'aquí surten els setze nivells. El nostre esquema anterior
+// (vuit passades cap al negre i després comptar les de tornada cap al blanc) tenia el compte al revés, i per això `panel bars`
+// donava quatre colors tots a l'esquerra: la tornada des del negre és molt més sensible que l'anada, i mitja passada de blanc ja
+// era mig camí (docs/50, docs/95).
+//
+// **El rentat a blanc no és opcional i el fabricant el pot estalviar perquè la seva pàgina ja ho és**: la seva taula només dona
+// codi als píxels que venen del blanc (`from` = 15) —el `data[frame][to][from]` és una matriu de transició de 16×16 i les seves
+// quinze files només tenen el bit del 15—. Nosaltres no podem suposar res del que hi ha al vidre, o sigui que el rentat es fa.
+const uint8_t kWhiteWash = 8;
+const uint8_t kTowardsWhite = 2;
+const uint8_t kTowardsBlack = 1;
+// **I el compte del fabricant per al seu vidre**: quinze empentes de blanc a negre, amb la porta de sis microsegons.
+const uint8_t kRefPasses = 15;
+// **El temps de porta al qual aquestes quinze són les bones** (0.190.50): el que mou la tinta és **la càrrega**, que és porta
+// per temps, o sigui que el nombre de passades i el temps de porta **no són dos números independents**: si la porta s'obre un
+// terç, la mateixa càrrega demana el triple de passades. Aquest és el punt de referència, i `Epd47::scale_the_passes()` el
+// manté quan l'amo mou la palanca, de manera que el que canvia a la pàgina sigui **quants nivells se separen** (docs/50).
 const uint8_t kRefGateUs = 6;
 // **I el sostre, que és el del temps i no el de la física**: una passada és una escombrada del vidre (uns dotze mil·lisegons de
-// cable), o sigui que quaranta-vuit ja són gairebé un segon i la prova es fa feixuga abans que la tinta digui res (docs/50).
+// cable), o sigui que quaranta-vuit ja són més de mig segon i la prova es fa feixuga abans que la tinta digui res (docs/50).
 const uint8_t kMostPasses = 48;
-// **Els esglaons de blanc de cada nivell** (0.190.48): the level is how many of the counting pushes it gets. **La trama del
-// 0.190.47 s'ha tret**: sobre aquest vidre un bloc de 2×2 es veu com a brutícia i no com a gris, i el que va fer va ser
-// empitjorar la pàgina. El que ha de fer que setze nivells capiguen en aquests esglaons no és la trama sinó el **temps de
-// porta**, que és el que decideix quanta tinta es mou a cada passada (docs/50, docs/95).
-inline uint8_t white_steps_of(uint8_t level, uint8_t most) {
-  return static_cast<uint8_t>((static_cast<uint16_t>(level & 0x0F) * most + 7u) / 15u);
+// **Les empentes cap al negre que demana un nivell**: el 0 les demana totes i el 15 cap, i al mig es reparteixen. És l'única
+// aritmètica d'aquesta forma d'ona (docs/50, docs/95).
+inline uint8_t steps_towards_black(uint8_t level, uint8_t passes) {
+  const uint16_t steps = static_cast<uint16_t>(15u - (level & 0x0F)) * passes;
+  return static_cast<uint8_t>((steps + 7u) / 15u);
 }
-// **I el codi d'un nivell en una passada**: negre a la primera meitat, blanc comptat a la segona, i res quan les empentes
-// d'aquell nivell ja s'han acabat (docs/50, docs/95).
-inline uint8_t pulse_code(uint8_t level, uint8_t phase, uint8_t black, uint8_t most) {
-  if (phase < black) return 1;
-  return (static_cast<uint8_t>(phase - black) < white_steps_of(level, most)) ? 2 : 0;
-}
-
-// **I el paper que la taula del panell suposa** (0.190.42). `kWaveform` és una taula **des de blanc**: the row of a level is
-// the shape that takes a pixel **that is white** to that level, and the maker says so in its own note («From white (15) to
-// each gray»). Applying it to a pixel that is not white is a pixel that ends somewhere else, and that is what «falten
-// tintes» was: the picture of the splash is drawn on a page of its own colour, so half the glass started where the table
-// did not expect. Aquestes passades són el **rentat a blanc** que es fa abans de la taula, o sigui que cada píxel que s'ha
-// de moure comença el viatge des del lloc on la taula el comença. **No és cap invent**: `2` és el codi que empeny cap al
-// blanc, i les vuit passades són les que el propi nivell 0 de la taula gasta per anar de blanc a negre (docs/50, docs/95).
-const uint8_t kResetPhases = 8;
-const uint8_t kTowardsWhite = 2;
 
 // `kPhases` values per level, 0 black to 15 white.
 static const uint8_t kWaveform[16][kPhases] = {

@@ -10435,7 +10435,16 @@ namespace kernel {
 // `set_gate_us` recompta les passades mantenint el producte —vuit i vuit a sis microsegons, setze i setze a tres, vint-i-quatre i
 // vint-i-quatre a dos—, i el que canvia a la pàgina és **quants nivells se separen** i no quant de negre hi ha. El sostre és el del
 // temps: quaranta-vuit escombrades del vidre ja són gairebé un segon (docs/50, docs/95).
-static const char kVersion[] = "0.190.50";
+// **I la forma d'ona del fabricant, llegida del seu fitxer i no endevinada** (0.190.51). L'amo, amb la porta a sis, quatre i dos
+// microsegons: *«panel bars: 4 colors i tots a l'esquerra... la resta blanc»*, i amb la porta a dos *«splash sleep: quasi no es
+// veu, és majorment blanca amb alguns punts gris claret... l'imatge està cremada»*. El compte no quadrava amb cap model de
+// càrrega: baixar la porta no separava més nivells, només ho deixava tot més clar. La resposta és dins del panell, a
+// `epd_wp_epdiy_ED047TC1_16_0`: el mode de setze grisos són **quinze passades** i, a cada passada, els nivells que encara han
+// d'anar cap al negre reben **una empenta cap al negre i res més** — el 0 les quinze, el 15 cap. O sigui que **una passada és
+// 1/15 del camí de blanc a negre**, i el nostre esquema (vuit cap al negre i comptar les de tornada cap al blanc) tenia el
+// compte al revés: la tornada des del negre és molt més sensible que l'anada, i mitja passada de blanc ja era mig camí. Ara es
+// renta a blanc i es compta el camí cap al negre, que és el que fa el fabricant (docs/50, docs/95).
+static const char kVersion[] = "0.190.51";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
