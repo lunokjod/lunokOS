@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <Esp.h>
 #include <bootloader_random.h>
+#include <driver/gpio.h>
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_wifi.h>
@@ -14,6 +15,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+#include <hal/uart_ll.h>
 
 #include "pal/pal.h"
 
@@ -223,6 +225,40 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     return n;
   }
 
+  // **La línia diu quan ha callat** (0.190.21): the UART counts the edges of its RX pin, shows the level of
+  // the line and holds the bytes that have not been read; a byte in flight is an edge, a break is a low line,
+  // and a byte in the FIFO or in the driver's ring is a byte. The chip's RX timeout is this same fact
+  // (`UART_RXFIFO_TOUT_INT`, at most 126 symbols, ~12 ms at 115200); reading the counter here costs no event
+  // task and no second consumer of UART0 (docs/50).
+  bool wait_quiet(uint32_t quiet_ms, uint32_t cap_ms) override {
+    uart_dev_t* hw = UART_LL_GET_HW(0);
+    // On a battery boot the bridge at the other end has no power and the pin floats; the pull-up is what makes
+    // "high and still" mean "nobody is talking" instead of "the wire is picking up the room" (docs/50).
+    gpio_pullup_en(GPIO_NUM_3);
+    // Whatever arrived while the system was not looking is dropped, as the boot did with its first bytes.
+    Serial.flush(false);
+    if (quiet_ms == 0) quiet_ms = 1;
+
+    const uint32_t started = millis();
+    uint32_t edges = uart_ll_get_rxd_edge_cnt(hw);
+    uint32_t still_since = started;
+    for (;;) {
+      while (Serial.available() > 0) Serial.read();
+      const uint32_t now = millis();
+      const uint32_t seen = uart_ll_get_rxd_edge_cnt(hw);
+      const bool high = hw->status.rxd != 0;
+      const bool bytes = uart_ll_get_rxfifo_len(hw) > 0;
+      if (!high || bytes || seen != edges) {
+        edges = seen;
+        still_since = now;
+      } else if ((now - still_since) >= quiet_ms) {
+        return true;
+      }
+      if ((now - started) >= cap_ms) return false;
+      vTaskDelay(pdMS_TO_TICKS(1));
+    }
+  }
+
   bool ansi() const override { return true; }
 
  private:
@@ -389,12 +425,10 @@ bool init() {
   g_random.seed();
   Serial.setDebugOutput(false);
   Serial.begin(115200);
-  // Right after a reset the line carries junk for a few milliseconds. Let it
-  // arrive and throw it away before the console is handed to anyone.
-  delay(20);
-  while (Serial.available() > 0) {
-    Serial.read();
-  }
+  // Right after a reset the line carries junk for a few milliseconds. The line
+  // says when it has gone quiet; the twenty milliseconds are the ceiling of a
+  // bridge that never stops talking (docs/50).
+  (void)g_system.wait_quiet(12, 20);
   return g_system.bring_up();
 }
 

@@ -10234,7 +10234,12 @@ namespace kernel {
 // quinze segons era un nap de pocs segons o, amb l'hora passada, un temporitzador d'un mil·lisegon; el guard és de vint segons i
 // `power::sleep` refusa una hora que ja és passada (docs/50, docs/60). El cas `test_an_alarm_closer_than_the_way_down_keeps_the_board_awake`
 // ho aguanta.
-static const char kVersion[] = "0.190.20";
+// **L'arrencada no espera un rellotge per una consola que ja ha callat** (0.190.21, la investigació de l'UART del 19/11). El quart de
+// segon de `settle_console` era el preu de no saber quan la línia havia callat; la UART del xip ho sap (el comptador de flancs del pin RX,
+// el nivell de la línia, la FIFO i l'anella del driver), i `IConsole::wait_quiet` torna quan no hi ha hagut cap flanc ni cap byte i la
+// línia és alta durant 12 ms —el màxim del RX timeout del xip, 126 símbols a 115200—. El quart de segon queda com a **sostre** d'una
+// línia que no calla; amb bateria, el pull-up del GPIO3 fa que el pin flotant no es llegeixi com a soroll (docs/50, docs/95).
+static const char kVersion[] = "0.190.21";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -74,11 +74,18 @@ const int32_t kInputPeriodMs = 10;
 // Longest command line the batch mode accepts.
 const size_t kCommandBytes = 128;
 
+// **Un caràcter i mig a 115200** (0.190.21): 126 symbols is the longest RX timeout the UART can count
+// (~12 ms at 115200), and a line that has been high and still for that long has nothing of this boot
+// left in it (docs/50).
+const uint32_t kConsoleQuietMs = 12;
+
 // How long the console is allowed to keep throwing bytes away before the system
 // says anything. The board starts its UART before us and the first bytes after
 // a reset are junk; without this the shell answers bytes nobody typed and prints
-// a prompt for each newline it finds in the noise.
-const int32_t kConsoleSettleMs = 250;
+// a prompt for each newline it finds in the noise. **It is the ceiling now**
+// (0.190.21): a quiet line is done at `kConsoleQuietMs`, and only a line that
+// never stops talking spends the quarter of a second (docs/50).
+const uint32_t kConsoleSettleMs = 250;
 
 hal::IPlatform* g_platform = nullptr;
 bool g_running = false;
@@ -132,19 +139,18 @@ void settle_console() {
   pal::IConsole* console = pal::system().console();
   if (console == nullptr) return;
 
-  char sink[64];
+  const int64_t started = pal::system().millis();
+  // **La línia diu quan ha callat** (0.190.21): the board's UART counts the edges of its RX pin, so the
+  // quarter of a second that used to be spent throwing away noise is now the ceiling of a line that never
+  // goes quiet; a quiet line is done in about one character time (docs/50, docs/95).
+  const bool quiet = console->wait_quiet(kConsoleQuietMs, kConsoleSettleMs);
+  // The reader task of the PAL leaves one event per look at the line; they are no-ops and the old wait
+  // drained them. Leaving them would fill the queue the alarms use before the first turn runs.
   pal::Event ev;
-  const int64_t deadline = pal::system().millis() + kConsoleSettleMs;
-  for (;;) {
-    while (console->read(sink, sizeof(sink)) > 0) {
-    }
-    const int64_t left = deadline - pal::system().millis();
-    if (left <= 0) break;
-    // Sleeping through the queue keeps the CPU idle instead of spinning.
-    pal::system().queue()->pop(ev, static_cast<int32_t>(left));
+  while (pal::system().queue()->pop(ev, 0)) {
   }
-  while (console->read(sink, sizeof(sink)) > 0) {
-  }
+  log_printf(pal::kLogDebug, "SYS", "console %s after %lld ms", quiet ? "quiet" : "at the ceiling",
+             static_cast<long long>(pal::system().millis() - started));
 }
 
 void out(const char* text) {

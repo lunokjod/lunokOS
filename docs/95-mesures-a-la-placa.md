@@ -314,7 +314,25 @@ tools/serial_ping.py --port /dev/ttyUSB0 --rounds 10
 |---|---|
 | Mínim, mediana i màxim de les deu anades i tornades, amb el nom del pont (CP2104 o CH9102) | `docs/80` §«La latència del port sí que es pot mesurar» |
 
-### D-2 · La ràdio i l'hora de debò (5 minuts)
+### D-2 · El que costa esperar la consola (2 minuts)
+
+El nucli diu al log, a cada arrencada, quant ha esperat la consola:
+
+```
+[D][SYS] console quiet after 12 ms
+[D][SYS] console at the ceiling after 250 ms
+```
+
+La línia buida i el pont connectat han de donar **~12 ms**; amb el cable tret i la placa a bateria,
+el pull-up del GPIO3 ha de fer el mateix. Si surt `at the ceiling`, el pin no és quiet: soroll, un
+`break` o un pont que encara parla. El número que compta per a l'usuari és el `boot` de `stats`
+(docs/95 E-3), que ha de baixar uns 230 ms respecte de la 0.190.20.
+
+| Què apuntar | On va |
+|---|---|
+| Els dos números del log, amb cable i amb bateria, i el `boot` de `stats` abans i després | `docs/50` §La consola |
+
+### D-3 · La ràdio i l'hora de debò (5 minuts)
 
 ```
 wifi scan

@@ -97,9 +97,12 @@ d'una app i el son es miren a cada torn (docs/60).
 
 ## Arrencada
 
-1. La PAL arrenca (consola, rellotge monòton, cua) i el log comença a l'anella de RAM. Tot seguit es
-   llença un quart de segon de consola: la placa obre la UART abans que nosaltres i els primers bytes
-   després d'un reset són brossa, i el shell no ha de respondre a bytes que ningú no ha escrit.
+1. La PAL arrenca (consola, rellotge monòton, cua) i el log comença a l'anella de RAM. Tot seguit
+   s'espera que la consola calli: la placa obre la UART abans que nosaltres i els primers bytes
+   després d'un reset són brossa, i el shell no ha de respondre a bytes que ningú no ha escrit. **No
+   és un rellotge**: la línia diu quan fa estona que no té cap flanc ni cap byte, i el quart de segon
+   és només el sostre d'una línia que no calla (una línia quieta es dona per bona al cap de ~12 ms,
+   docs/50).
 2. Es pregunta a la placa què té (`Platform::caps()`).
 3. Es munten els volums. `/littlefs` és **obligatori** i es munta sempre; `/nvs` hi és si la placa
    el té, i `/sd` només a la placa que té ranura i amb una targeta a dins (el Paper: docs/50). Si

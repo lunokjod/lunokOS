@@ -527,8 +527,15 @@ El que **no** es pot fer és despertar un xip que no té corrent: això no ho fa
 Els primers bytes que surten per un terminal a 115200 **no són nostres**: abans de `Serial.begin()` el
 xip ja ha imprès el que imprimeix la seva ROM (la línia de reset i l'`ets Jun 8 2016…`) a **74880
 bauds**, i un terminal a una altra velocitat en llegeix una pila de bytes `0x00`. El que sí que és nostre
-és netejar **l'entrada**: `pal::init()` buida el que hagi arribat i el nucli en llença una mica més
-abans de llegir la primera ordre, de manera que aquesta brossa no es pot convertir mai en una comanda.
+és netejar **l'entrada**: `pal::init()` buida el que hagi arribat i el nucli espera que la línia calli
+abans de llegir la primera ordre. **No espera un rellotge** (0.190.21): la UART compta els flancs del
+pin RX, ensenya el nivell de la línia i guarda els bytes que ningú no ha llegit, i
+`IConsole::wait_quiet()` torna quan no hi ha hagut cap flanc ni cap byte i la línia és alta durant
+~12 ms —el màxim del RX timeout del xip, 126 símbols a 115200—. El quart de segon és només el
+**sostre** d'una línia que no calla; un `break` (línia baixa) no compta com a quiet, i un byte a la
+FIFO o a l'anella del driver tampoc. Amb bateria, el pont de l'altra banda no té corrent i el pin
+queda flotant: l'espera li posa el pull-up intern, que és el que fa que «alta i quieta» sigui
+«ningú no parla».
 
 ## Interfícies de la PAL
 
@@ -551,6 +558,7 @@ class IConsole {
  public:
   virtual size_t write(const void* data, size_t len) = 0;
   virtual size_t read(void* data, size_t len) = 0;   // el que hi hagi ara; no bloqueja
+  virtual bool wait_quiet(uint32_t quiet_ms, uint32_t cap_ms);  // la línia ha callat; `cap_ms` és el sostre
   virtual bool ansi() const = 0;
 };
 

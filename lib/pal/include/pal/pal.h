@@ -56,6 +56,16 @@ class IConsole {
   virtual size_t write(const void* data, size_t len) = 0;
   // Returns what is available right now, 0 if nothing. Never blocks.
   virtual size_t read(void* data, size_t len) = 0;
+  // **Quan la línia ha callat** (0.190.21): the boot throws away what the UART had before the system
+  // existed, and a fixed quarter of a second is a wait that a quiet line does not owe. This says when
+  // there have been no edges, no bytes and a high line for `quiet_ms`; `cap_ms` is the ceiling of a
+  // line that does not go quiet. A console that cannot see its own line (the host's pipe) returns at
+  // once and says it is quiet, which is the truth there (docs/50).
+  virtual bool wait_quiet(uint32_t quiet_ms, uint32_t cap_ms) {
+    (void)quiet_ms;
+    (void)cap_ms;
+    return true;
+  }
   virtual bool ansi() const = 0;
   // **Whether this console is a session that can really end** (0.158.0): a **virtual terminal** —the console of
   // the emulator, which is a program on a PC that somebody started and can hang up— is a session, and `logout` ends

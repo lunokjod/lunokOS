@@ -310,6 +310,17 @@ void test_a_host_is_looked_at_with_the_answer_that_ends_a_page(void) {
   TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_pump_calls, "a host that was taken out was looked at");
 }
 
+void test_a_console_that_cannot_see_its_line_says_it_is_quiet_at_once(void) {
+  // The boot's settle asks the console, and the host's pipe is not a UART: it cannot watch an RX pin, so its
+  // answer is "quiet" and it is the truth there. A wait of a second would be a boot that pays for a line it
+  // does not have (docs/50).
+  pal::IConsole* console = pal::system().console();
+  TEST_ASSERT_NOT_NULL(console);
+  const int64_t started = pal::system().millis();
+  TEST_ASSERT_TRUE(console->wait_quiet(1000, 2000));
+  TEST_ASSERT_TRUE_MESSAGE(pal::system().millis() - started < 50, "a console with no line waited for one");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -323,5 +334,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_block_that_is_being_moved_is_not_one_the_relief_may_take);
   RUN_TEST(test_the_books_say_which_block_is_whose);
   RUN_TEST(test_a_host_is_looked_at_with_the_answer_that_ends_a_page);
+  RUN_TEST(test_a_console_that_cannot_see_its_line_says_it_is_quiet_at_once);
   return UNITY_END();
 }
