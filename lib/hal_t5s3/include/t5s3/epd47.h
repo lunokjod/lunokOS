@@ -144,16 +144,16 @@ class Epd47 : public ISurface {
   // **Vint megahertz, que és el que la taula del fabricant dona per aquest panell** i el que fa servir el seu firmware, i
   // es pot canviar en calent des del prompt (`panel bus 26`) (0.190.38, docs/50).
   uint32_t pclk_hz_ = 20000000;
-  // **Un microsegon i mig de línia** (0.190.52), que és el pas que separa setze grisos en aquest vidre: el camí sencer de blanc
-  // a negre són vint-i-quatre microsegons de porta i setze empentes hi caben just. **No és el número del fabricant**: el seu vidre
-  // en demana noranta, i aquest satura a la quarta empenta de sis, o sigui que el nostre es mou unes quatre vegades més de
-  // pressa (docs/50, docs/95).
+  // **Un microsegon i mig de línia** (0.190.53), que és el pas que aquest vidre aguanta sense deixar de moure la tinta: el camí
+  // sencer de blanc a negre són tretze microsegons i mig, o sigui nou empentes, i nou esglaons és el que es veu net. A nou-cents
+  // nanosegons n'hi caben quinze i en surten setze, si el pixel es carrega prou de pressa. **No és el número del fabricant**: el
+  // seu vidre en demana noranta de microsegons per fer el mateix camí (docs/50, docs/95).
   uint32_t gate_ns_ = 1500;
   // **I les passades que la porta d'aquest moment demana** (0.190.50): la tinta es mou per **temps de porta**, o sigui que
   // baixar la porta sense apujar les passades treu contrast en lloc de guanyar nivells. Es tornen a comptar a cada canvi de
   // `gate_ns_` i mai no són zero (docs/50, docs/95).
-  uint8_t black_passes_ = 16;
-  uint8_t wash_passes_ = 8;
+  uint8_t black_passes_ = 9;
+  uint8_t wash_passes_ = 9;
   void scale_the_passes();
   // **El que ha costat la pintada, partit en dos** (0.190.38): `bus_us_` is the wire and the peripheral —the row that has
   // gone out— and `cpu_us_` is the turning of the frame into codes, which is the only part a faster processor or a

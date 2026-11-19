@@ -873,6 +873,14 @@ la pàgina, **la parteix més fi**, que és el que havia de fer des del principi
 separa dos grisos en aquest panell és més fi que un microsegon: d'aquí ve `delay_ns()`, una espera comptada
 en cicles del processador, que `delayMicroseconds` no baixa del microsegon.
 
+**I el camí sencer són tretze microsegons i mig** (0.190.53). La mesura que ho va tancar: amb setze empentes a
+microsegon i mig, *«quasi arriba a la meitat, però es continua veient mitja pantalla (esquerra) negre»* —la
+tinta satura abans que el compte s'acabi—; a dos microsegons, pitjor; a un, *«millor, però menys colors»*,
+perquè a un microsegon el píxel ja no es carrega prou i l'empenta val menys del que diu. O sigui que el
+número que el driver ha de mantenir no és el de passades sinó el del **camí**: tretze microsegons i mig, nou
+empentes a la porta de sèrie i quinze a nou-cents nanosegons. A la porta de sèrie se separen **deu grisos
+nets** amb el contrast sencer; els setze només surten si el píxel aguanta nou-cents nanosegons.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

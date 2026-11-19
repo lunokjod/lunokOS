@@ -10452,7 +10452,14 @@ namespace kernel {
 // compten passades sinó **nanosegons de porta**: vint-i-quatre microsegons per al camí cap al negre, dotze per al rentat a blanc,
 // i les passades que hi caben. A un microsegon i mig hi caben setze i es veuen setze grisos; a sis, quatre i cinc colors. Baixar
 // la porta ja no aclareix la pàgina, la parteix més fi (docs/50, docs/95).
-static const char kVersion[] = "0.190.52";
+// **I el camí és tretze microsegons i mig, no vint-i-quatre** (0.190.53). L'amo, amb la porta a microsegon i mig: *«quasi arriba a
+// la meitat! però es continua veient mitja pantalla (esquerra) negre»*, i a dos *«pitjor»*, i a un *«millor, però menys colors»*.
+// Mig panell negre vol dir que la tinta satura abans que el compte s'acabi: nou empentes de microsegon i mig i no setze. El número
+// de passades surt ara dels **tretze microsegons i mig** que la mesura dona per al camí sencer, o sigui nou a la porta de sèrie
+// (deu grisos, tots nets) i quinze a nou-cents nanosegons (setze, si el píxel es carrega prou de pressa). El que abans es veia
+// era mig panell cremat pel compte massa llarg, i a la porta d'un microsegon el píxel ja no es carrega i per això surten menys
+// colors (docs/50, docs/95).
+static const char kVersion[] = "0.190.53";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -110,16 +110,16 @@ uint16_t Epd47::height() const { return kPageH; }
 uint32_t Epd47::bus_mhz() const { return pclk_hz_ / 1000000; }
 
 // **Les passades que demana una porta** (0.190.52): what moves the ink is **time**, so the ink is not counted in passes but in
-// nanoseconds of open gate, and a pass is whatever fits. El camí de blanc a negre són vint-i-quatre microsegons d'aquesta porta
-// i el camí cap al blanc dotze —ho diu la mesura de `panel bars`, que amb la forma d'ona del fabricant donava cinc colors i la
-// resta negre—, o sigui que a sis microsegons hi caben quatre empentes per fer el camí i a un microsegon i mig setze, que és el
-// que separa setze grisos. **Aquest és el canvi de fons del 0.190.52**: baixar la porta ja no aclareix la pàgina, la parteix
-// més fi (docs/50, docs/95).
+// nanoseconds of open gate, and a pass is whatever fits. El camí sencer de blanc a negre són tretze microsegons i mig en aquest
+// vidre —ho diu la mesura de `panel bars`—, o sigui que a sis microsegons hi caben dues empentes i a microsegon i mig nou, que és
+// el que separa deu grisos; a nou-cents nanosegons n'hi caben quinze i en surten setze. **Aquest és el canvi de fons**: baixar la
+// porta ja no aclareix la pàgina ni deixa mig panell negre, la parteix més fi (docs/50, docs/95).
 void Epd47::scale_the_passes() {
-  const uint32_t want_black = (epd47::kBlackTravelNs + gate_ns_ / 2u) / gate_ns_;
-  const uint32_t want_white = (epd47::kWhiteTravelNs + gate_ns_ / 2u) / gate_ns_;
-  black_passes_ = static_cast<uint8_t>(want_black == 0 ? 1u : (want_black > epd47::kMostPasses ? epd47::kMostPasses : want_black));
-  wash_passes_ = static_cast<uint8_t>(want_white == 0 ? 1u : (want_white > epd47::kMostWash ? epd47::kMostWash : want_white));
+  const uint32_t want = (epd47::kTravelNs + gate_ns_ / 2u) / gate_ns_;
+  uint32_t passes = want == 0 ? 1u : want;
+  if (passes > epd47::kMostPasses) passes = epd47::kMostPasses;
+  black_passes_ = static_cast<uint8_t>(passes);
+  wash_passes_ = static_cast<uint8_t>(passes > epd47::kMostWash ? epd47::kMostWash : passes);
 }
 
 bool Epd47::set_gate_ns(uint32_t ns) {

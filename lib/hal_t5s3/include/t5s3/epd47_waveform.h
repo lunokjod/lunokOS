@@ -53,19 +53,13 @@ const uint8_t kFastToWhite[kFastPhases] = {1, 1, 2, 2, 2, 2};
 // la seva llargada també surt del temps de porta (0.190.52).
 const uint8_t kTowardsWhite = 2;
 const uint8_t kTowardsBlack = 1;
-// **I quant temps de porta demana aquest vidre per fer el camí sencer**, que és el número que la mesura ha trobat (0.190.52).
-// El fabricant hi gasta quinze passades de sis microsegons —noranta—, i aquí el camí de blanc a negre s'acaba amb **quatre
-// passades de sis**, o sigui vint-i-quatre microsegons: `panel bars` amb la seva forma d'ona donava *«cinc colors i la resta
-// tot negre»*, que és exactament una tinta que satura a la quarta empenta. La diferència és del nostre vidre i no del compte:
-// el compte del fabricant és el bo i el que canvia és **quant de temps hi ha d'anar cada empenta**, o sigui que en comptes de
-// comptar passades es compta **temps de porta** i les passades que hi caben. Així, baixar la porta no aclareix la pàgina: la
-// parteix més fi (docs/50, docs/95).
-const uint32_t kBlackTravelNs = 24000;
-// **I el camí cap al blanc és més curt**, que és el que la mateixa mesura diu: dues empentes de sis ja el feien. El rentat ha
-// de ser suficient per saturar, i prou (docs/50).
-const uint32_t kWhiteTravelNs = 12000;
-// **El sostre, que és el del temps i no el de la física**: una passada és una escombrada del vidre (uns dotze mil·lisegons de
-// cable), o sigui que quaranta-vuit ja són més de mig segon i la prova es fa feixuga abans que la tinta digui res (docs/50).
+// **I quant temps de porta demana aquest vidre per fer el camí sencer** (0.190.53), que és el número que la mesura ha trobat i
+// que no és el del fabricant. Ells hi gasten quinze empentes de sis microsegons —noranta—; aquí `panel bars` amb la seva forma
+// d'ona donava *«cinc colors i la resta tot negre»* a sis microsegons i, a microsegon i mig, *«quasi arriba a la meitat, però
+// mig panell encara és negre»*: o sigui que **el camí de blanc a negre s'acaba amb nou empentes de microsegon i mig**, tretze
+// microsegons i mig. Aquest vidre es mou unes set vegades més de pressa que el del fabricant, i això no és cap error de compte:
+// és el que hi ha, i el que s'ha de fer és **partir el camí amb el temps que hi ha** (docs/50, docs/95).
+const uint32_t kTravelNs = 13500;
 const uint8_t kMostPasses = 48;
 const uint8_t kMostWash = 16;
 // **Les empentes cap al negre que demana un nivell**: el 0 les demana totes i el 15 cap, i al mig es reparteixen. És l'única
