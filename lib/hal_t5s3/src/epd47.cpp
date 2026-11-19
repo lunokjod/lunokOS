@@ -529,6 +529,25 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
   // A byte of the frame is 4 bits a pixel, o sigui que la fila del vidre el llegeix de dos en dos.
   const uint8_t* const current = bits_;
   const uint8_t* const before = only_changed ? previous_ : nullptr;
+  // **El paper primer** (0.190.42): abans de la taula del panell, els píxels que s'han de moure es porten a **blanc**, que
+  // és el lloc des d'on la taula parla («From white (15) to each gray», diu el fabricant). Sense això un gris que arriba a la
+  // taula des d'un altre gris —o des de negre— acaba on no toca, i això és el que es veia com a pocs tons (docs/50, docs/95).
+  // **Els `du` no el paguen**: la seva taula ja comença amb dues passades cap al blanc.
+  if (!fast) {
+    uint8_t wash_upper[256];
+    uint8_t wash_lower[256];
+    uint8_t wash_through[256];
+    const uint8_t both = static_cast<uint8_t>((epd47::kTowardsWhite << 2) | epd47::kTowardsWhite);
+    for (int b = 0; b < 256; ++b) {
+      wash_lower[b] = both;
+      wash_upper[b] = static_cast<uint8_t>(both << 4);
+      wash_through[b] = (((b >> 4) & 0x0F) == (b & 0x0F)) ? 0 : epd47::kTowardsWhite;
+    }
+    for (uint8_t phase = 0; phase < epd47::kResetPhases; ++phase) {
+      if (!scan_a_pass(first, last, b0, b1, before != nullptr, wash_upper, wash_lower, wash_through)) return false;
+      delayMicroseconds(kBetweenPhasesUs);
+    }
+  }
   for (uint8_t phase = 0; phase < phases; ++phase) {
     for (int b = 0; b < 256; ++b) {
       uint8_t first_level = 0;

@@ -795,6 +795,15 @@ no l'inventa: I2C 39/40, panell `CKH` 4 i `D0..D7` 5-8 i 15-18, `STV` 45, `CKV` 
 targeta `CS` 12 `SCK` 14 `MOSI` 13 `MISO` 21, tàctil `INT` 3 `RST` 9, `PCA_INT` 38, `RTC_INT` 2,
 `BL_EN` 11.
 
+**I la taula parla des de blanc, i això s'havia de complir** (0.190.42): `u8GrayMatrix` és «des de blanc» —la
+nota del fabricant diu *from white (15) to each gray*— i aplicar-la sobre un píxel que no és blanc és un píxel que
+acaba on no toca. Cada píxel que s'ha de moure passa ara per **vuit passades cap al blanc** abans de la taula (el
+mateix codi que el nivell 0 gasta per anar de blanc a negre), i el que es veia com a pocs tons desapareix. El preu és
+un 20 % de passades en els modes de qualitat; els `du`, que ja comencen amb dues passades cap al blanc, no el paguen.
+**I el rentat de l'splash demanava dues tintes**: `splash::hide()` feia un `a2` sobre tota la pàgina, i un mode de dues
+tintes és parcial —sobre una foto només s'hi empenyen els foscos i els clars queden a mig esborrar—; ara demana `gld16`,
+que és blanc sobre el que no ho és i res sobre el que ja ho és.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

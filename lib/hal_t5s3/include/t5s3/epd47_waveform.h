@@ -34,6 +34,16 @@ const uint8_t kFastToBlack[kFastPhases] = {2, 2, 1, 1, 1, 1};
 // I vers el blanc, al revés.
 const uint8_t kFastToWhite[kFastPhases] = {1, 1, 2, 2, 2, 2};
 
+// **I el paper que la taula del panell suposa** (0.190.42). `kWaveform` és una taula **des de blanc**: the row of a level is
+// the shape that takes a pixel **that is white** to that level, and the maker says so in its own note («From white (15) to
+// each gray»). Applying it to a pixel that is not white is a pixel that ends somewhere else, and that is what «falten
+// tintes» was: the picture of the splash is drawn on a page of its own colour, so half the glass started where the table
+// did not expect. Aquestes passades són el **rentat a blanc** que es fa abans de la taula, o sigui que cada píxel que s'ha
+// de moure comença el viatge des del lloc on la taula el comença. **No és cap invent**: `2` és el codi que empeny cap al
+// blanc, i les vuit passades són les que el propi nivell 0 de la taula gasta per anar de blanc a negre (docs/50, docs/95).
+const uint8_t kResetPhases = 8;
+const uint8_t kTowardsWhite = 2;
+
 // `kPhases` values per level, 0 black to 15 white.
 static const uint8_t kWaveform[16][kPhases] = {
   0, 0, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,

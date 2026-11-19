@@ -10382,7 +10382,15 @@ namespace kernel {
 // per dos dígits; comparar els dos quadres fila a fila —un `memcmp`, barat i a la PSRAM— dona la caixa del que no és igual, o sigui
 // que la porta del panell camina només fins a l'última fila que ha canviat, i una pintada on no ha canviat res **no es gasta**
 // (docs/50, docs/95).
-static const char kVersion[] = "0.190.41";
+// **I el paper que la taula del panell suposa** (0.190.42, i és el que es veia com a «falten tintes»). `u8GrayMatrix` és una taula
+// **des de blanc** —«From white (15) to each gray», diu el fabricant a la seva pròpia nota— i nosaltres l'aplicàvem sobre el que hi
+// hagués: un gris que arriba a la taula des d'un altre gris, o des de negre, acaba on no toca. Ara cada píxel que s'ha de moure passa
+// abans per **vuit passades cap al blanc** (el mateix codi que gasta el nivell 0 de la taula per anar de blanc a negre), i la taula
+// parla sempre des del lloc que suposa. **I el rentat de l'splash demanava dues tintes**: `hide()` feia `flush(kA2)` sobre tota la
+// pàgina, i un `a2` és un mode **parcial** —el nucli mateix diu que un `du` no cobreix mai el vidre—, o sigui que sobre la foto
+// només s'hi empenyien els píxels foscos i els clars es quedaven a mig esborrar. El que aquella pàgina vol és blanc sobre el que no
+// ho és i res sobre el que ja és blanc, i això és un `gld16` (docs/50, docs/95).
+static const char kVersion[] = "0.190.42";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

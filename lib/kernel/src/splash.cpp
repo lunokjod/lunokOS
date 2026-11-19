@@ -598,9 +598,15 @@ bool hide() {
   }
   // **Paper, washed whole**: the page that comes next is composed over a glass that says nothing, and a
   // picture left under it would come out at its edges (docs/30, docs/50).
+  //
+  // **I el rentat demana setze nivells i no dues tintes** (0.190.42): it was an `a2`, and a two-level mode is a *partial*
+  // one —the kernel's own rule says a `du` never covers the glass—, o sigui que sobre la foto de l'splash només s'hi
+  // empenyien els píxels foscos i els clars es quedaven a mig esborrar, que és exactament el que es veia. El que aquesta
+  // pàgina vol és el contrari: **blanc sobre el que no ho és i res sobre el que ja és blanc**, i això és un `gld16`
+  // (docs/30, docs/50).
   glass->clear(15);
   display::hold_for_a_paint();
-  return glass->flush(hal::UpdateMode::kA2);
+  return glass->flush(hal::UpdateMode::kGld16);
 }
 
 Kind showing() { return g_showing; }
