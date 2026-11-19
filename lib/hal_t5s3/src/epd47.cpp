@@ -559,35 +559,16 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
   // **Quantes passades i amb quina taula** (0.190.38): a `du` is two levels and does not need the panel's thirty-eight
   // phases, i un `gc16` sí; the table and the count are decided once, here, and the rest of the loop is the same
   // (docs/50, docs/95).
-  const uint8_t phases = fast ? epd47::kFastPhases : epd47::kPhases;
+  const uint8_t phases = fast ? epd47::kFastPhases : epd47::kPulsePhases;
   uint8_t upper[256];
   uint8_t lower[256];
   // **La taula del canvi**: indexed by `(what is on the glass << 4) | what has to be there`, and it is zero when the two
   // levels are the same one, o sigui que el píxel no es mou (0.190.41). En un `du` la comparació és entre els dos nivells
   // **després** d'arrodonir a dues tintes, perquè un gris que va d'un gris a un altre no ha de fer res (docs/50, docs/95).
   uint8_t through[256];
-  // A byte of the frame is 4 bits a pixel, o sigui que la fila del vidre el llegeix de dos en dos.
-  const uint8_t* const current = bits_;
   const uint8_t* const before = only_changed ? previous_ : nullptr;
-  // **El paper primer** (0.190.42): abans de la taula del panell, els píxels que s'han de moure es porten a **blanc**, que
-  // és el lloc des d'on la taula parla («From white (15) to each gray», diu el fabricant). Sense això un gris que arriba a la
-  // taula des d'un altre gris —o des de negre— acaba on no toca, i això és el que es veia com a pocs tons (docs/50, docs/95).
-  // **Els `du` no el paguen**: la seva taula ja comença amb dues passades cap al blanc.
-  if (!fast) {
-    uint8_t wash_upper[256];
-    uint8_t wash_lower[256];
-    uint8_t wash_through[256];
-    const uint8_t both = static_cast<uint8_t>((epd47::kTowardsWhite << 2) | epd47::kTowardsWhite);
-    for (int b = 0; b < 256; ++b) {
-      wash_lower[b] = both;
-      wash_upper[b] = static_cast<uint8_t>(both << 4);
-      wash_through[b] = (((b >> 4) & 0x0F) == (b & 0x0F)) ? 0 : epd47::kTowardsWhite;
-    }
-    for (uint8_t phase = 0; phase < epd47::kResetPhases; ++phase) {
-      if (!scan_a_pass(first, last, b0, b1, before != nullptr, wash_upper, wash_lower, wash_through)) return false;
-      delayMicroseconds(kBetweenPhasesUs);
-    }
-  }
+  // **El rentat a blanc ja no cal** (0.190.46): the pulse waveform below starts by taking every pixel to black, o sigui que
+  // el lloc des d'on comença la forma d'ona el posa ella mateixa i no una passada prèvia a part (docs/50, docs/95).
   for (uint8_t phase = 0; phase < phases; ++phase) {
     for (int b = 0; b < 256; ++b) {
       uint8_t first_level = 0;
@@ -598,8 +579,9 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
         first_level = ((b >> 4) & 0x0F) < 8 ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase];
         second = (b & 0x0F) < 8 ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase];
       } else {
-        first_level = epd47::kWaveform[(b >> 4) & 0x0F][phase];
-        second = epd47::kWaveform[b & 0x0F][phase];
+        // **L'amplada de pols d'aquest projecte** (0.190.46), que és el que aquest vidre sap separar.
+        first_level = epd47::pulse_code(static_cast<uint8_t>((b >> 4) & 0x0F), phase);
+        second = epd47::pulse_code(static_cast<uint8_t>(b & 0x0F), phase);
       }
       const uint8_t codes = static_cast<uint8_t>((first_level << 2) | second);
       lower[b] = codes;
@@ -610,7 +592,7 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
         if (fast) {
           through[b] = ((was < 8) == (now < 8)) ? 0 : ((now < 8) ? epd47::kFastToBlack[phase] : epd47::kFastToWhite[phase]);
         } else {
-          through[b] = (was == now) ? 0 : epd47::kWaveform[now][phase];
+          through[b] = (was == now) ? 0 : epd47::pulse_code(now, phase);
         }
       }
     }

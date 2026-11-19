@@ -1,4 +1,5 @@
-// **La forma d'ona de l'ED047TC1 d'aquesta placa** (0.190.33): 16 rows by 38 columns, and each value is what a
+// **La forma d'ona del fabricant, que es conserva com a document i que aquest vidre no sap separar** (0.190.33, i la
+// 0.190.46 la substitueix a la pràctica): 16 rows by 38 columns, and each value is what a
 // phase does to a pixel that has to end up at that level —`0` nothing, `1` towards black, `2` towards white—.
 //
 // It is **the panel's own data and not a drawing of mine**, and where it comes from is part of the file: it is
@@ -33,6 +34,26 @@ const uint8_t kFastPhases = 6;
 const uint8_t kFastToBlack[kFastPhases] = {2, 2, 1, 1, 1, 1};
 // I vers el blanc, al revés.
 const uint8_t kFastToWhite[kFastPhases] = {1, 1, 2, 2, 2, 2};
+
+// **I la forma d'ona que la mesura demana, que és d'aquest projecte** (0.190.46). `kWaveform` (les trenta-vuit passades del
+// FastEPD) **no separa els nivells en aquest vidre**: mesurat amb `panel bars`, els nivells 0 a 7 surten tots negres i els 8 a
+// 15 fan un degradat, que és exactament el que diuen els seus *nets* (21,14,11,9,6,7,6,6 | 5,4,4,5,2,1,0,0). O sigui que
+// aquí la tinta respon al **balanç** de les empentes i satura fora d'una finestra estreta, i una taula feta de *formes* no hi
+// cap. El que sí que hi cap és el contrari: **portar el píxel al negre i donar-li un nombre comptat d'empentes cap al blanc**,
+// o sigui amplada de pols. Vuit passades de negre i fins a dotze de blanc, i el nivell és quantes de blanques arriben.
+const uint8_t kBlackPhases = 8;
+const uint8_t kWhiteSteps = 12;
+const uint8_t kPulsePhases = kBlackPhases + kWhiteSteps;
+// **Els esglaons de blanc de cada nivell**: zero per al negre, tots dotze per al blanc, repartits.
+inline uint8_t white_steps_of(uint8_t level) {
+  return static_cast<uint8_t>((static_cast<uint16_t>(level & 0x0F) * kWhiteSteps + 7u) / 15u);
+}
+// **I el codi d'un nivell en una passada d'aquesta forma**: negre a la primera meitat, blanc comptat a la segona, i res quan
+// les empentes del nivell ja s'han acabat (docs/50, docs/95).
+inline uint8_t pulse_code(uint8_t level, uint8_t phase) {
+  if (phase < kBlackPhases) return 1;
+  return (static_cast<uint8_t>(phase - kBlackPhases) < white_steps_of(level)) ? 2 : 0;
+}
 
 // **I el paper que la taula del panell suposa** (0.190.42). `kWaveform` és una taula **des de blanc**: the row of a level is
 // the shape that takes a pixel **that is white** to that level, and the maker says so in its own note («From white (15) to

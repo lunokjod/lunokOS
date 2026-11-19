@@ -10408,7 +10408,15 @@ namespace kernel {
 // refusa res**: l'i80 afegeix les seves pròpies pauses a rellotges baixos —una fila que a 5 MHz hauria de costar 48 µs es va mesurar a
 // 174 a la placa— o sigui que el número és per llegir-lo i no per decidir-hi; el que no es pot permetre és un bus mort, i això ho diu
 // el fet que la fila torni (docs/50, docs/80, docs/95).
-static const char kVersion[] = "0.190.45";
+// **I la forma d'ona que la mesura demana, que és d'aquest projecte** (0.190.46). Les trenta-vuit passades del FastEPD **no
+// separen els nivells en aquest vidre**, i el `panel bars` del 0.190.45 ho va deixar escrit: els nivells 0 a 7 surten tots negres i els
+// 8 a 15 fan un degradat, que és exactament el que diuen els seus nets (21,14,11,9,6,7,6,6 | 5,4,4,5,2,1,0,0). El datasheet del
+// panell diu que la forma d'ona és de **85 Hz** i que una passada nostre és d'11,9 ms contra els 11,76 que toquen, o sigui que el
+// temps és correcte i el que no hi cap és una taula feta de formes. El que hi cap és **amplada de pols**: portar el píxel al negre
+// (vuit passades) i donar-li un nombre comptat d'empentes cap al blanc (fins a dotze), i el nivell és quantes de blanques arriben. És
+// més curta que la de trenta-vuit (vint passades), és d'aquest projecte i no de ningú, i la mesura que la valida o la tomba és la
+// mateixa comanda: `panel bars` (docs/50, docs/95).
+static const char kVersion[] = "0.190.46";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
