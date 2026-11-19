@@ -225,6 +225,17 @@ uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {
   return count;
 }
 
+bool Gt911::flush() {
+  if (bus_ == nullptr) return false;
+  uint8_t status = 0;
+  // The read is the question and the write is the answer that lifts the line. Both even when the status says there is
+  // no frame: the chip keeps INT low until 0x814E is written back (docs/50, and M5Unified #91).
+  const bool answered = bus_->read16(address_, kRegStatus, &status, 1);
+  release();
+  g_frame_ready = false;
+  return answered;
+}
+
 uint32_t Gt911::false_warnings() const { return g_warnings_without_frame; }
 
 ITouch* esp32_gt911(II2c* bus, int int_pin) {

@@ -504,9 +504,13 @@ no ha demanat que torni sola (docs/60). `sleep_with_the_keys` ja no existeix al 
 **I la tercera porta és el dit, i la diu el `IPower` d'aquesta placa** (0.190.16): `wake_on_touch()` /
 `set_wake_on_touch()` són la pregunta i el commutador, apagat per defecte. Amb el commutador encès, la baixada del Paper **no talla
 `kPanelPowerPin`** —el GT911 viu en aquell rail i un controlador sense corrent no sent ningú—, reposa el vidre i arma `ext1` sobre el
-**GPIO36** amb `ESP_EXT1_WAKEUP_ALL_LOW`: el GT911 porta la línia avall quan un escombrat té un marc i la deixa anar entre marcs (la
-placa la puja), i amb un sol pin «tots baixos» és «aquest baix». El que costa és el corrent del panell i del tàctil durant tota la son, i
-per això ve apagat. `ext0` (la tecla) i `ext1` (el dit) conviuen: són dues condicions del bloc RTC i la placa es desperta amb la que
+**GPIO36** amb `ESP_EXT1_WAKEUP_ALL_LOW`: el GT911 porta la línia avall quan un escombrat té un marc, i amb un sol pin «tots baixos» és
+«aquest baix». **I la línia no s'arma fins que el xip l'ha deixada anar** (M5Unified #91): el GT911 la té baixa mentre hi ha un marc que
+ningú no ha llegit —i la torna a polsar mentre l'amfitrió no llegeix—, o sigui que una son armada amb la línia ja baixa desperta a
+l'instant, i una altra vegada a cada intent. La baixada llegeix l'estat i l'escriu a zero (`ITouch::flush`, el `M5.TP.flush()` de
+l'original) i espera que GPIO36 sigui alt abans d'armar; si no ho és al cap d'un segon, el dit no és una porta d'aquella son i el rail
+del panell es torna a tallar (llevat d'un despert per una alarma, que el guarda per la imatge). El que costa és el corrent del panell i
+del tàctil durant tota la son, i per això ve apagat. `ext0` (la tecla) i `ext1` (el dit) conviuen: són dues condicions del bloc RTC i la placa es desperta amb la que
 arribi primer. **I el xip diu quina de les dues ha estat** (0.190.19): `ESP_SLEEP_WAKEUP_EXT1` és `WakeCause::kTouch` i `EXT0` és el
 botó, o sigui que el registre del despert diu «un dit al vidre» o «la tecla del dial» i no les dues coses alhora.
 

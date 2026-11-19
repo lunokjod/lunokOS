@@ -590,6 +590,11 @@ class ITouch {
   // release comes later, and a keyboard of one press per finger would swallow the next tap. A panel that cannot
   // tell says `true`, which is the safe answer —a frame is a finger until the panel says otherwise— (docs/50).
   virtual bool finger_still_down() const { return true; }
+  // **Take what the chip has and let its warning line go** (M5Unified #91): a controller that keeps a frame unread
+  // keeps the line it warns on asserted —and some pulse it again while nobody reads—, and a deep sleep armed on
+  // "this line low" would wake at once, and again on every attempt. It is a read that hands nothing to anybody;
+  // a glass with no such line answers false (docs/50).
+  virtual bool flush() { return false; }
 };
 
 // Where a key sits, said the same way on every board: the board is a box and a

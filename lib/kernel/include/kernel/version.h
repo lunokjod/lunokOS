@@ -10224,7 +10224,17 @@ namespace kernel {
 // **I el motiu del despert, en una línia** (`note_the_boot`): `back from a deep sleep, woken by the clock chip: an alarm, nobody in front,
 // the glass is not touched` / `… woken by the key of the dial: a person, the page comes back`. El xip distingeix el dit del botó
 // (`WakeCause::kTouch` és `ext1`, `ext0` és la tecla) (docs/50, docs/60).
-static const char kVersion[] = "0.190.19";
+// **La línia del tàctil es deixa anar abans d'armar la son, i una hora que la baixada s'empassa no es dorm** (0.190.20, el log d'una
+// Paper que s'adormia i tornava de seguida, 19/11). Amb `touchwake on`, la baixada armava `ext1` sobre GPIO36 encara que el GT911
+// tingués la línia baixa —un marc que ningú no havia llegit, i el xip la torna a polsar mentre no es llegeix—: la condició de despert ja
+// era certa i la placa tornava a l'instant, i una altra vegada a cada intent (M5Unified #91; l'original ho arregla amb `M5.TP.flush()` i
+// esperant la línia alta). Ara es llegeix l'estat, s'escriu a zero i s'espera que GPIO36 sigui alt abans d'armar; si no ho és al cap d'un
+// segon, el dit no és una porta d'aquella son. **I la política mira l'hora que `sleep()` armarà de debò**, no la data de la tanda: el guard
+// era de deu segons i la baixada sola en gasta més (2,0 s de marge i 3,6 s de la imatge al log del 19/11), o sigui que una alarma a deu o
+// quinze segons era un nap de pocs segons o, amb l'hora passada, un temporitzador d'un mil·lisegon; el guard és de vint segons i
+// `power::sleep` refusa una hora que ja és passada (docs/50, docs/60). El cas `test_an_alarm_closer_than_the_way_down_keeps_the_board_awake`
+// ho aguanta.
+static const char kVersion[] = "0.190.20";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -66,11 +66,12 @@ const char kSleptKey[] = "slept";
 //
 //   - the console has to be **quiet** before the board puts itself down, or a person would
 //     be typing at a board that keeps powering off between two commands;
-//   - a wait shorter than ten seconds is not worth a power cycle: a wake from a power off is a
-//     boot, and a boot costs around a second of work. Below a minute that is only true because
-//     the clock chip's **countdown** counts seconds (docs/50).
+//   - a wait shorter than **twenty seconds** is not worth a power cycle. It was ten when a boot was the
+//     only cost, and the way down is not: it writes the session, waits the two seconds of the card and
+//     paints the picture of the sleep —the board's own log measured 2.0 s and 3.6 s on the 19/11— and a
+//     wake from a power off is a boot. Ten was a sleep the board spent going down and coming back.
 const int64_t kIdleQuietMs = 10000;
-const int64_t kMinIdleSleepMs = 10000;
+const int64_t kMinIdleSleepMs = 20000;
 // **I el número de la quietud és una constant a la placa i una variable a la suite** (0.189.182): the DRAM of a Paper is full to
 // sixteen bytes and a case that had to wait the ten seconds would be a suite ten seconds slower, o sigui que el que es pot moure
 // només existeix on hi ha algú que el mogui (docs/60, docs/80).
@@ -523,6 +524,18 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // **L'hora de la baixada és la que la placa ha de saber**, i es decideix aquí i enlloc més: la més propera entre la que s'ha demanat i la
   // propera alarma (0.190.15, vegeu `the_hour_of_a_sleep`).
   const int64_t until = the_hour_of_a_sleep(at_epoch_ms);
+  // **L'hora que ja ha passat no es dorm** (19/11): the margin, the picture and the glass's line are spent between the
+  // policy's look and this line, i una hora que era futura pot ser passada quan el xip la rep. A sleep to a gone hour is a
+  // timer of one millisecond with the cable in —a boot for nothing— and a board with no door but the key on the battery; the
+  // alarm is delivered awake on the next turn instead. The close ones are the policy's to refuse (`idle_sleep`); an app that
+  // asks for a short sleep is answered here and not argued with (docs/50, docs/60).
+  if (mode == hal::SleepMode::kDeep && until > 0 && g_clock != nullptr) {
+    const int64_t now = g_clock->epoch_ms();
+    if (now > 0 && until <= now) {
+      log_printf(pal::kLogInfo, "POWER", "the hour is already past: the board stays awake");
+      return false;
+    }
+  }
   // **I una son fonda sense cap porta sí que es refusa**: sense hora i sense una tecla que desperti aquesta placa, el que baixa no torna.
   // És una decisió i no un accident, i es diu aquí perquè el qui la demana pugui dir quina volia (docs/50, docs/90).
   if (mode == hal::SleepMode::kDeep && until <= 0 && !g_power->can_sleep_with_the_keys()) return false;
@@ -743,6 +756,10 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
 
   // **I ara, pot anar-se'n?** Each of these is a board that would sleep through something, and each one says its name.
   const int64_t now_epoch = g_clock->epoch_ms();
+  // **L'hora que s'armarà és la que compta** (19/11): `sleep()` takes the earlier of the deadline and the nearest alarm in
+  // the queue, so the guard has to look at the same hour; otherwise an alarm two seconds away passes a guard that only
+  // looked at a staging deadline an hour away (docs/60).
+  const int64_t hour = the_hour_of_a_sleep(deadline);
   // **Una pàgina que és la de casa no és ningú treballant** (0.189.182): the idle policy refused to sleep while any app was in
   // front, and the board of this system has the launcher there always —o sigui que una placa amb `cfg home` no dormia mai i la
   // seva alarma es quedava esperant una son que no arribava—. La casa es tanca amb els seus comiats i la seva sessió, com qualsevol
@@ -767,11 +784,11 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   } else if (led::animating()) {
     // An effect of the light is the board saying something right now, and it is painted once a turn: powering off would cut it.
     why = "the light has a frame to paint";
-  } else if (deadline > 0 && now_epoch <= 0) {
+  } else if (hour > 0 && now_epoch <= 0) {
     why = "the board has no hour to wake at";
-  } else if (deadline > 0 && (deadline - now_epoch) < kMinIdleSleepMs) {
-    why = "the alarm is closer than the ten seconds a boot is worth";
-  } else if (deadline <= 0 && !can_deep_sleep_with_the_keys()) {
+  } else if (hour > 0 && (hour - now_epoch) < kMinIdleSleepMs) {
+    why = "the alarm is closer than the way down and a boot are worth";
+  } else if (hour <= 0 && !can_deep_sleep_with_the_keys()) {
     why = "there is no alarm, and no key wakes this board";
   }
   if (why != nullptr) {
@@ -786,13 +803,13 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // i la placa torna on era quan algú prem el dial, que és el que aquest commutador vol dir (docs/50, docs/60, docs/90).
   // **I el camí de la tecla és el mateix tant si aquesta arrencada ha vingut per una alarma com si no** (0.190.14). La regla de
   // «un despert per una alarma no torna a baixar sense res a la cua» (0.190.12) viu **al primer torn**, que és on la placa acaba
-  // d'ensenyar el que ha sonat, i està dita on toca: `straight_back_down` només és cert amb una alarma a la cua (`deadline > 0`).
+  // d'ensenyar el que ha sonat, i està dita on toca: `straight_back_down` només és cert amb una alarma a la cua (`hour > 0`).
   // Aquí el comptador de la quietud ja s'ha esgotat —cinc, deu o quinze minuts sense cap mà—, o sigui que baixar a la tecla és
   // exactament el que la persona va triar. **Tenir-ho lligat a `g_for_an_alarm` era una porta tancada per dins**: aquella bandera
   // és certa per a tota la run d'un despert per alarma, o sigui que quan la cua es buidava el codi queia al camí de l'alarma amb
   // `deadline` zero, deia `-1767225 s to the next alarm`, `power::sleep` el refusava i el comptador tornava a començar: una placa
   // que havia despertat per una alarma **no tornava a adormir-se mai** fins a reiniciar-se (trobat llegint el codi, 19/11).
-  if (deadline <= 0) {
+  if (hour <= 0) {
     sayf("power: nothing to do for %lld s, sleeping until a key\r\n", static_cast<long long>(quiet / 1000));
     log_printf(pal::kLogInfo, "POWER",
                "idle deep sleep: no alarm to come back for, %lld s of quiet (the policy asks %lld), a key wakes the board",
@@ -810,7 +827,7 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // and not from a person is a line a board should be able to explain, o sigui que la línia diu **les tres xifres de la decisió**: quant
   // falta per a la propera alarma, quanta estona fa que la placa està quieta i quants segons de quietud li demana la política —i si és una
   // represa d'una alarma ho diu, perquè aquesta és l'única decisió que no espera el comptador— (docs/60, docs/90).
-  const int64_t wait = deadline - now_epoch;
+  const int64_t wait = hour - now_epoch;
   sayf("power: nothing to do for %lld s, sleeping until the next alarm\r\n",
        static_cast<long long>(wait / 1000));
   log_printf(pal::kLogInfo, "POWER",

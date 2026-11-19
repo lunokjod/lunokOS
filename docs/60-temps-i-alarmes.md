@@ -531,9 +531,12 @@ Com està avui:
      des de Lua). **Apagat de sèrie**: sentir un dit vol dir deixar encesos el rail del panell i el controlador del tàctil tota la son, i
      això és el corrent que el son existeix per estalviar. Amb el commutador encès, la baixada **no talla el rail del panell** (el GT911
      hi viu), deixa el vidre reposat, i arma `ext1` sobre el **GPIO36** amb la condició «aquest pin baix» —el GT911 porta la línia avall
-     quan un escombrat té un marc, i la placa la puja entre marcs—; `ext1` d'un ESP32 només sap «tots baixos» o «qualsevol alt», i amb un
-     sol pin «tots baixos» és exactament «aquest baix» (docs/50, docs/95). Amb el dit com a porta el corrent no es talla, o sigui que qui
-     torna la placa a l'hora és el temporitzador del xip. **En una placa sense tàctil el paràmetre s'ignora** (0.190.17, l'amo: *«a koala,
+     quan un escombrat té un marc—; `ext1` d'un ESP32 només sap «tots baixos» o «qualsevol alt», i amb un sol pin «tots baixos» és
+     exactament «aquest baix» (docs/50, docs/95). **I la línia no s'arma fins que s'ha deixat anar** (M5Unified #91, 19/11): el GT911
+     la té baixa mentre hi ha un marc que ningú no ha llegit —i la torna a polsar mentre l'amfitrió no llegeix—, o sigui que una son
+     armada amb la línia ja baixa desperta a l'instant i una altra vegada a cada intent; la baixada llegeix l'estat, l'escriu a zero i
+     espera que el pin sigui alt abans d'armar, i si no ho és al cap d'un segon el dit no és una porta d'aquella son. Amb el dit com a
+     porta el corrent no es talla, o sigui que qui torna la placa a l'hora és el temporitzador del xip. **En una placa sense tàctil el paràmetre s'ignora** (0.190.17, l'amo: *«a koala,
      atom i matri[x] simplement s'ignora el paràmetre»*): el commutador es desa com a qualsevol altra placa i el que la placa contesta és
      `can_wake_on_touch()`, que allà és fals, o sigui que no hi ha res a armar i la fila de la pàgina no hi és (`caps.touch`).
 
@@ -557,6 +560,14 @@ Com està avui:
    desperta per a ella (`shell::run_app` obre la porta i deu la pàgina sencera) i **la placa no torna a baixar**, perquè una app al davant
    és una persona que ha de veure-hi. I si qui ha despertat la placa és una persona —la tecla del dial o el vidre—, el camí és el de
    sempre.
+
+   **I una hora que la baixada s'empassa no es dorm** (19/11). El guard de la política era de deu segons, i la baixada sola ja en gasta
+   més: dos segons de marge per a la targeta i fins a sis esperant la imatge del son —el registre de la placa del 19/11 va mesurar 2,0 s i
+   3,6 s—, i encara hi ha l'arrencada. Amb una alarma a deu o quinze segons, el que la placa anomenava son era un nap de pocs segons o,
+   amb l'hora ja passada, un temporitzador d'un mil·lisegon que tornava a arrencar la placa per no res; a bateria, el xip ni tan sols
+   s'armava (`at > now` falla) i la placa podia baixar sense cap porta. El guard és de **vint segons**, mira **l'hora que `sleep()` armarà
+   de debò** (la més propera entre la demanada i la de la cua), i `power::sleep` refusa una hora que ja és passada abans de tancar res
+   ni pintar res; les que són massa a prop les refusa la política i les pot demanar una app, que sap el que vol (docs/50, docs/60).
 
    **I el motiu del despert, dit clar** (0.190.19): `note_the_boot` escriu una línia amb la porta que s'ha obert i què vol dir —
    `back from a deep sleep, woken by the clock chip: an alarm, nobody in front, the glass is not touched` o

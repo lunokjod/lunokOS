@@ -14978,6 +14978,42 @@ void test_the_home_page_does_not_keep_the_board_awake(void) {
   storage->remove("/apps/sleeper");
 }
 
+// **Una hora que la baixada s'empassa no és una hora** (19/11): the idle policy looked at ten seconds, and the
+// way down alone is the two seconds of the card plus the picture of the sleep —3.6 s in the board's log— and a boot. An alarm
+// fifteen seconds away was a sleep of a few seconds or, with the hour already gone, a timer of one millisecond. The board stays
+// awake and delivers it (docs/60).
+void test_an_alarm_closer_than_the_way_down_keeps_the_board_awake(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  use_board("m5stack-paper");
+  TEST_ASSERT_TRUE(hal::platform().power()->deep_powers_off());
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
+  alarms::reset();
+  kernel::cfg::set_home_app("");
+  kernel::power::set_idle_sleep_allowed(true);
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  kernel::power::set_idle_quiet_ms(0);
+
+  alarms::Spec spec;
+  spec.app = "clock";
+  spec.on_mono_ms = clock->monotonic_ms() + 15000;
+  TEST_ASSERT_TRUE(alarms::add(spec) != 0);
+  const int64_t before = clock->monotonic_ms();
+  pump_captured(5, g_out, sizeof(g_out));
+  // **El rellotge no ha saltat**: the emulator's deep sleep jumps the monotonic clock to the hour it was given, so a board
+  // that had slept here would come back fifteen seconds later (docs/85).
+  TEST_ASSERT_TRUE_MESSAGE(kernel::running(), "the board stopped at an alarm the way down would have eaten");
+  TEST_ASSERT_TRUE_MESSAGE(clock->monotonic_ms() - before < 5000,
+                           "the board slept to an alarm the way down would have eaten");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "closer than the way down"), g_out);
+
+  kernel::power::set_idle_quiet_ms(was_quiet);
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  use_board("m5stack-atom");
+  TEST_ASSERT_TRUE(kernel::running());
+}
+
 // **L'adormida mira el vidre i la targeta del sistema** (0.190.5, l'amo: *«sembla que s'adorm sola quasi d'inmediat... perqué?»*).
 // The idle policy measured "nobody is using it" by the **console** alone, so a finger on the glass —the card of the system, a page
 // of the launcher, the band of the keyboard— and a key of the dial were a person the board could not see, and it powered off under
@@ -20588,6 +20624,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_wake_for_an_alarm_comes_up_with_nobody_in_front);
   RUN_TEST(test_the_idle_sleep_is_a_switch);
   RUN_TEST(test_the_home_page_does_not_keep_the_board_awake);
+  RUN_TEST(test_an_alarm_closer_than_the_way_down_keeps_the_board_awake);
   RUN_TEST(test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake);
   RUN_TEST(test_a_wake_for_an_alarm_that_ran_a_window_goes_down_with_the_picture_back);
   RUN_TEST(test_a_wake_for_an_alarm_leaves_the_glass_alone_unless_the_app_asks_for_it);

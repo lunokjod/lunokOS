@@ -159,6 +159,10 @@ const int kI2cSclPin = 22;
 // És el número que fa servir el codi del fabricant (`M5EPD.cpp`, `TP.begin(21, 22, 36)`) i el que aquesta `hal` li passa al
 // driver perquè no pregunti el registre d'estat a cada torn (docs/50, docs/95).
 const int kTouchIntPin = 36;
+// **Quant es pot esperar que el GT911 deixi anar la línia** (M5Unified #91): a frame that nobody has taken is flushed in one
+// scan —fifty milliseconds—, and a finger that is really there keeps it low; a sleep asked for by a person does not wait for
+// ever on a hand that is using the board (docs/50).
+const uint32_t kTouchReleaseMostMs = 1000;
 // The BM8563, which is the board's real-time clock: the one with a coin cell behind it.
 const uint8_t kBm8563Address = 0x51;
 
@@ -291,8 +295,18 @@ class PaperPower : public Esp32Power {
   // és la mateixa (docs/50, docs/60).
   bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) override {
     if (mode != SleepMode::kDeep) return Esp32Power::sleep(mode, at_epoch_ms, keep_the_panel);
-    Bm8563* chip = paper_chip();
     const bool has_an_hour = at_epoch_ms > 0;
+    // **L'hora que la baixada s'ha menjat no s'arma** (19/11): the margin, the picture and the glass's line are spent before
+    // this call, and an hour already gone is a timer of one millisecond with the cable in —a boot for nothing— and a board
+    // with no door at all on the battery. The kernel refuses the close ones; this is the last guard, and it says so.
+    if (has_an_hour) {
+      const int64_t now_ms = esp32_wall_ms();
+      if (now_ms > 0 && at_epoch_ms <= now_ms) {
+        fprintf(stdout, "power: the hour is already past; the board stays awake\r\n");
+        return false;
+      }
+    }
+    Bm8563* chip = paper_chip();
     // **I el dit, si és una porta, mana sobre el corrent** (0.190.16): to hear a finger the touch controller has to stay powered, so the
     // rail of the panel is kept and the board does not cut its own current —the way down is the one that keeps the supply, like the key
     // sleep—. El xip del rellotge es desarma com al cas del cable: una alarma que saltaria amb la placa encesa i amb el panell despert
@@ -336,11 +350,33 @@ class PaperPower : public Esp32Power {
     // **I la tercera, el dit** (0.190.16): the GT911 pulls its line **low** when a scan has a frame and lets it go between frames —the
     // board pulls it up—, o sigui que la condició és «GPIO36 baix». `ext1` d'un ESP32 només sap «tots baixos» o «qualsevol alt»; amb un
     // sol pin, «tots baixos» **és** «aquest baix», que és exactament el que el xip del tàctil fa (docs/50, docs/95).
+    //
+    // **I no s'arma fins que la línia s'ha deixat anar** (M5Unified #91, 19/11): the GT911 holds INT low while it has a frame
+    // nobody has taken —and it pulses it again while the host does not read—, and it also holds it low in standby; a sleep armed
+    // on «GPIO36 low» with the line already low is a board that wakes at once, and again on every attempt. The maker's fix is to
+    // take what the controller has, so the line is high, and only then arm the door. A line that does not go high in a second is
+    // a finger that is really there: the key and the hour are still doors, and this one is not armed (docs/50, docs/60).
     if (the_finger_is_a_door) {
-      if (esp_sleep_enable_ext1_wakeup(1ULL << kTouchIntPin, ESP_EXT1_WAKEUP_ALL_LOW) != ESP_OK) {
-        // **Si el xip no ho accepta, es diu**: una porta que no s'ha armat i que el registre calla és una persona esperant un dit que no
-        // despertarà res (docs/50).
-        fprintf(stdout, "power: the finger is not a door of this sleep\r\n");
+      ITouch* touch = esp32_gt911(esp32_i2c(kI2cSdaPin, kI2cSclPin), kTouchIntPin);
+      const TickType_t started = xTaskGetTickCount();
+      while (gpio_get_level(static_cast<gpio_num_t>(kTouchIntPin)) == 0 &&
+             (xTaskGetTickCount() - started) < pdMS_TO_TICKS(kTouchReleaseMostMs)) {
+        if (touch != nullptr) (void)touch->flush();
+        vTaskDelay(pdMS_TO_TICKS(10));
+      }
+      const char* why_not = nullptr;
+      if (gpio_get_level(static_cast<gpio_num_t>(kTouchIntPin)) == 0) {
+        why_not = "the glass did not let its line go";
+      } else if (esp_sleep_enable_ext1_wakeup(1ULL << kTouchIntPin, ESP_EXT1_WAKEUP_ALL_LOW) != ESP_OK) {
+        why_not = "the chip did not take the line";
+      }
+      if (why_not != nullptr) {
+        // **Una porta que no s'ha armat no ha de costar corrent**: the panel's rail was kept for the finger (0.190.16), and a
+        // controller that cannot wake the board is current nobody asked for —except on a wake for an alarm, where the rail
+        // is kept for the image and not for the finger (0.190.19)—. The line and the arming are said, because a door that
+        // nobody armed and the log keeps quiet is a person waiting for a finger that will wake nothing (docs/50).
+        if (!keep_the_panel) turn_supply_off(kPanelPowerPin);
+        fprintf(stdout, "power: %s; the finger is not a door of this sleep\r\n", why_not);
       }
     }
     esp_deep_sleep_start();  // does not return: the chip restarts on the key, on its timer, on the current or on the glass

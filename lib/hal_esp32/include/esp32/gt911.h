@@ -87,6 +87,10 @@ class Gt911 : public ITouch {
   // that only falls for a finger (docs/50, docs/95).
   uint32_t false_warnings() const override;
   uint8_t read(TouchPoint* out, uint8_t capacity) override;
+  // **La línia es deixa anar sense lliurar cap frame** (M5Unified #91): the GT911 holds INT low while it has a frame
+  // nobody has taken, and this is the read that takes it and writes the status back, which is what lifts the line. The
+  // power asks it before arming a deep sleep on that line.
+  bool flush() override;
   // **El que diu el darrer frame que el xip ha lliurat** (0.183.2): a frame with points is a finger on the glass and a frame
   // with none is the lift. The driver used to throw the second one away —`read` answered zero for it, the same word as “no
   // frame yet”—, and the system had to **guess** a lift from a silence of thirty milliseconds: a chip that reports slower
