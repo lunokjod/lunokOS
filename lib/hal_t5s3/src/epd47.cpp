@@ -551,6 +551,18 @@ bool Epd47::wait_row() {
   return true;
 }
 
+// **Una neteja és N passades del mateix codi a tota la finestra** (0.190.56), que és `bbepClear` del fabricant: no depèn del
+// que hi hagi dibuixat, i per això és l'única manera de deixar el paper en un lloc conegut abans de la taula (docs/50).
+bool Epd47::clear_the_window(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, uint8_t code, uint8_t passes) {
+  uint8_t codes[16];
+  memset(codes, code, sizeof(codes));
+  for (uint8_t i = 0; i < passes; ++i) {
+    if (!scan_a_pass(first, last, b0, b1, false, (code == epd47::kCodeNeutral) ? nullptr : codes)) return false;
+    delayMicroseconds(kBetweenPhasesUs);
+  }
+  return true;
+}
+
 bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool fast, bool only_changed) {
   if (!begin()) return false;
   // **Un passatge és una passada de tota la forma d'ona** (docs/50): for each phase the glass is scanned once, and what
@@ -563,6 +575,17 @@ bool Epd47::update_the_glass(uint16_t first, uint16_t last, uint16_t b0, uint16_
   // once, here, and the rest of the loop is the same (docs/50, docs/95).
   const uint8_t phases = fast ? epd47::kFastPhases : epd47::kGrayPhases;
   const uint8_t* const before = only_changed ? previous_ : nullptr;
+  // **I la neteja del fabricant abans de la taula** (0.190.56): their `fullUpdate()` defaults to `CLEAR_SLOW`, which is four
+  // passes towards black, eight towards white, four towards black and eight towards white, and one neutral —the page ends
+  // **white**—, and only then the eighteen passes of the matrix. La matriu compta des d'un paper blanc; sense això, el que hi
+  // hagi al vidre es queda a sota i la pàgina surt bruta i fosca, que és exactament el que passava (docs/50, docs/95).
+  if (!fast && !only_changed) {
+    if (!clear_the_window(first, last, b0, b1, epd47::kCodeBlack, epd47::kClearDarkPasses)) return false;
+    if (!clear_the_window(first, last, b0, b1, epd47::kCodeWhite, epd47::kClearLightPasses)) return false;
+    if (!clear_the_window(first, last, b0, b1, epd47::kCodeBlack, epd47::kClearDarkPasses)) return false;
+    if (!clear_the_window(first, last, b0, b1, epd47::kCodeWhite, epd47::kClearLightPasses)) return false;
+    if (!scan_a_pass(first, last, b0, b1, false, nullptr)) return false;
+  }
   for (uint8_t phase = 0; phase < phases; ++phase) {
     // **El codi de cada nivell en aquesta passada, tal com el fabricant el té escrit** (0.190.55): `kGrayMatrix` és la seva
     // taula de setze per divuit i no s'hi toca res; el `du` fa servir la curta d'aquest projecte (docs/50, docs/95).
@@ -583,10 +606,30 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
                         const uint8_t* codes) {
   const gpio_num_t ckv = static_cast<gpio_num_t>(kCkv);
   // **El començament del passatge**, que deixa el rellotge vertical a dalt.
+  // **Els dos miralls d'aquest passatge** (0.190.56): un byte del quadre són dos píxels i un byte de la fila en són quatre, o
+  // sigui que les dues meitats d'un byte de sortida surten de dos bytes d'entrada i una taula de 256 ho resol d'un cop.
+  uint8_t hi[256];
+  uint8_t lo[256];
+  for (uint32_t v = 0; v < 256; ++v) {
+    const uint8_t high = (codes != nullptr) ? codes[v >> 4] : 0;
+    const uint8_t low = (codes != nullptr) ? codes[v & 0x0F] : 0;
+    hi[v] = static_cast<uint8_t>((high << 6) | (low << 4));
+    lo[v] = static_cast<uint8_t>((high << 2) | low);
+  }
   row_control(true);
   uint8_t* buffers[2] = {row_, row2_};
   bool pending = false;
   for (uint16_t y = 0; y <= last && y < kGlassH; ++y) {
+    // **La porta es tanca ABANS de fabricar la fila** (0.190.56), i això és el que fa que la tinta rebi el que ha de rebre: a
+    // `bbepWriteRow` el `ROW_STEP` —`CKV` baix i pols de `LE`— passa abans de la transferència, però la fabricació de la fila
+    // següent la fa amb la porta encara oberta. Aquí la fabricació és molt més lenta que la seva —el quadre és a la PSRAM i es
+    // llegeix byte a byte—, o sigui que la porta quedava oberta vuit vegades més estona que la línia del panell i la tinta rebia
+    // vuit vegades més càrrega per passada. Tancar-la primer deixa el temps de porta en el de la transferència, que és el que el
+    // panell espera (docs/50, docs/95).
+    if (pending) {
+      if (!wait_row()) return false;
+      row_control(false);
+    }
     uint8_t* row = buffers[y & 1u];
     const uint32_t before_the_row = static_cast<uint32_t>(esp_timer_get_time());
     // **Només la finestra marcada porta codi** (0.190.40): a byte outside `b0..b1` is left at the code that does nothing, o
@@ -596,38 +639,32 @@ bool Epd47::scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1,
       const uint32_t at = static_cast<uint32_t>(y) * kGlassStride;
       const uint8_t* src = bits_ + at;
       const uint8_t* was = only_changed ? (previous_ + at) : nullptr;
-      const uint8_t* level_of = codes;
+      // **Dos miralls de 256 entrades i una fila feta de paraules** (0.190.56): the same two lookups the maker does
+      // (`pGrayUpper`/`pGrayLower` in FastEPD), o sigui que una fila de 240 bytes surt amb 240 parells de lectures i un OR en
+      // lloc de quatre cerques per byte. La fabricació passa de ~70 µs a uns pocs microsegons per fila, que és el que fa que
+      // divuit passades més la neteja siguin un segon i no quatre (docs/50, docs/95).
       for (uint16_t i = b0; i <= b1; ++i) {
         const uint8_t a = src[2 * i];
         const uint8_t b = src[2 * i + 1];
-        uint8_t c0 = level_of[a >> 4];
-        uint8_t c1 = level_of[a & 0x0F];
-        uint8_t c2 = level_of[b >> 4];
-        uint8_t c3 = level_of[b & 0x0F];
+        uint8_t out = static_cast<uint8_t>(hi[a] | lo[b]);
         if (was != nullptr) {
-          // **El motor de la diferència** (0.190.41): a pixel whose level is the one the glass has does not move at all.
+          // **El motor de la diferència** (0.190.41): a pixel whose level is the one the glass has gets no code at all.
           const uint8_t pa = was[2 * i];
           const uint8_t pb = was[2 * i + 1];
-          if ((pa >> 4) == (a >> 4)) c0 = 0;
-          if ((pa & 0x0F) == (a & 0x0F)) c1 = 0;
-          if ((pb >> 4) == (b >> 4)) c2 = 0;
-          if ((pb & 0x0F) == (b & 0x0F)) c3 = 0;
+          uint8_t keep = 0xFF;
+          if ((pa >> 4) == (a >> 4)) keep = static_cast<uint8_t>(keep & 0x3Fu);
+          if ((pa & 0x0F) == (a & 0x0F)) keep = static_cast<uint8_t>(keep & 0xCFu);
+          if ((pb >> 4) == (b >> 4)) keep = static_cast<uint8_t>(keep & 0xF3u);
+          if ((pb & 0x0F) == (b & 0x0F)) keep = static_cast<uint8_t>(keep & 0xFCu);
+          out = static_cast<uint8_t>(out & keep);
         }
-        row[i] = static_cast<uint8_t>((c0 << 6) | (c1 << 4) | (c2 << 2) | c3);
+        row[i] = out;
       }
     }
     cpu_us_ += static_cast<uint32_t>(esp_timer_get_time()) - before_the_row;
+    gpio_set_level(ckv, 1);
     // **I la fila que ja viatjava es recull ara**, quan la d'aquesta ja està construïda: és el que fa que el temps de la
     // conversió i el del cable es tapin l'un a l'altre (docs/50, docs/95).
-    if (pending) {
-      if (!wait_row()) return false;
-      // **La porta es tanca i el pols de `LE` carrega la fila que acaba de sortir, i tot seguit la porta s'obre per a la
-      // següent** (0.190.55): exactly what the maker's `bbepWriteRow` does —`ROW_STEP` (CKV low, LE pulse), then CKV high
-      // before the transfer— i és la diferència que em vaig inventar i que em menjava el contrast: la porta està oberta
-      // **durant tota la transferència** i no en una finestra comptada a mà (docs/50, docs/95).
-      row_control(false);
-      gpio_set_level(ckv, 1);
-    }
     const uint32_t before_the_wire = static_cast<uint32_t>(esp_timer_get_time());
     if (!start_row(row)) return false;
     pending = true;
@@ -671,7 +708,10 @@ bool Epd47::flush(UpdateMode mode) {
   // i és la que deixa `previous_` sabut (docs/50, docs/95).
   const bool cleans = mode == UpdateMode::kInit || mode == UpdateMode::kGc16;
   const bool only_changed = !cleans && previous_is_known_;
-  uint8_t phases = fast ? epd47::kFastPhases : epd47::kGrayPhases;
+  // **El número de passades que es paguen de debò**, que quan la pintada neteja inclou la neteja del fabricant (0.190.56).
+  const uint8_t clear_phases = static_cast<uint8_t>(2 * epd47::kClearDarkPasses + 2 * epd47::kClearLightPasses + 1);
+  uint8_t phases = fast ? epd47::kFastPhases
+                        : static_cast<uint8_t>(epd47::kGrayPhases + (only_changed ? 0 : clear_phases));
   // **I la finestra s'encongeix al que de debò s'ha mogut** (0.190.41): the rectangle the kernel marks is what it *drew*,
   // and a page that is redrawn whole is a rectangle of five hundred and forty rows for two digits that changed. Comparing
   // the two frames —a `memcmp` a row, which is cheap and in the PSRAM— gives the box of what is not the same, o sigui que

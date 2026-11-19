@@ -23,6 +23,17 @@ namespace epd47 {
 
 // **Divuit escorregudes del vidre per pintar setze grisos** (docs/50).
 const uint8_t kGrayPhases = 18;
+// **Els dos codis i el neutre**, que és el que fa servir la neteja de debò del fabricant: `0x55` és tots els píxels cap al negre,
+// `0xaa` tots cap al blanc i `0x00` cap enlloc (`bbepClear` de FastEPD) (docs/50).
+const uint8_t kCodeNeutral = 0;
+const uint8_t kCodeBlack = 1;
+const uint8_t kCodeWhite = 2;
+// **I la neteja que fa el seu `fullUpdate()` abans de la taula** (0.190.56): `CLEAR_SLOW` —quatre passades cap al negre, vuit cap
+// al blanc, quatre cap al negre i vuit cap al blanc— i una de neutra. **Això és el que fa que la taula de setze per divuit
+// funcioni**: la seva matriu dona codi comptant des d'un paper blanc, i sense aquesta neteja el que hi hagi al vidre es queda a
+// sota i la pàgina surt bruta i fosca (docs/50, docs/95).
+const uint8_t kClearDarkPasses = 4;
+const uint8_t kClearLightPasses = 8;
 
 // **I la curta, que és d'aquest projecte i no del panell** (0.190.38): a `du` —the fast mode, two levels— does not need
 // eighteen scans. What is below is **not** the panel's data and does not pretend to be: it is the shortest shape that moves

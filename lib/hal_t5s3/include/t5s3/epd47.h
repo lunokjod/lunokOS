@@ -103,6 +103,8 @@ class Epd47 : public ISurface {
   // that does nothing, o sigui que la seva tinta no es mou (docs/50, docs/95).
   // `codes` is four tables of sixteen —one per corner of the 2×2 dither— and a null pointer is the discharge pass.
   bool scan_a_pass(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, bool only_changed, const uint8_t* codes);
+  // **Una neteja del fabricant**: N passades del mateix codi a la finestra, que és el seu `bbepClear` (0.190.56).
+  bool clear_the_window(uint16_t first, uint16_t last, uint16_t b0, uint16_t b1, uint8_t code, uint8_t passes);
   // **El bus i el perifèric, oberts i tornats a obrir** quan canvia el rellotge (0.190.38 → 0.190.44): the clock is state
   // of the bus, o sigui que els dos es fan de nou i en aquest ordre.
   bool open_the_bus();

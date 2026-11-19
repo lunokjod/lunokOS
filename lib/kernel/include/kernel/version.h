@@ -10471,7 +10471,16 @@ namespace kernel {
 // del seu `grayscale_test`), **la porta oberta durant tota la transferència** (`bbepWriteRow`: `ROW_STEP` amb `CKV` baix i
 // pols de `LE`, i tot seguit `CKV` alt fins a la fila següent), **vint-i-sis megahertz i mig** i 230 µs entre passades. La
 // finestra de porta que vaig inventar-me era, literalment, el que em menjava el contrast (docs/50, docs/95).
-static const char kVersion[] = "0.190.55";
+// **I les dues coses que faltaven del seu codi** (0.190.56). Amb la seva matriu, `panel bars` ja feia escala però amb colors
+// intercalats i el dibuix sortia *«massa fosc»*. El que faltava és a `bbepFullUpdate`: el seu `fullUpdate()` neteja **abans** de la
+// taula —`CLEAR_SLOW`: quatre passades cap al negre, vuit cap al blanc, quatre cap al negre, vuit cap al blanc i una de neutra, o
+// sigui que la pàgina queda **blanca**— i només després escriu les divuit passades, perquè la matriu compta des d'un paper blanc.
+// I la segona: la porta de la fila. Ells la tanquen amb el `ROW_STEP` de la fila següent, i la fabricació de la fila la fan amb la
+// porta encara oberta; aquí la fabricació llegia el quadre de la PSRAM byte a byte i hi passava **setanta microsegons**, o sigui
+// que la porta quedava oberta vuit vegades més que la línia del panell i la tinta rebia vuit vegades més càrrega per passada. Ara
+// la porta es tanca **abans** de fabricar la fila, i la fila es fabrica amb dos miralls de 256 entrades com els seus, que és el
+// que fa que quaranta-tres passades siguin un segon i no quatre (docs/50, docs/95).
+static const char kVersion[] = "0.190.56";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -833,6 +833,21 @@ copiar el que fan ells?»*. El que fan ells és, exactament:
 
 Les comandes `panel gate` i `panel road` **no hi són**: eren palanques sobre un mecanisme que no era el bo.
 
+**I les dues coses que encara faltaven del seu codi** (0.190.56). Amb la seva matriu, `panel bars` feia escala però
+amb colors intercalats i el dibuix sortia *«massa fosc»*. Totes dues són a `bbepFullUpdate`:
+
+1. **La neteja va abans de la taula.** El seu `fullUpdate()` és `CLEAR_SLOW` per defecte: quatre passades cap al
+   negre, vuit cap al blanc, quatre cap al negre, vuit cap al blanc i una de neutra —**la pàgina queda blanca**— i
+   només llavors les divuit passades de la matriu. La matriu compta des d'un paper blanc; sense la neteja, el que hi
+   hagués al vidre es queda a sota. És el que fa que la finestra que neteja (`kInit`, `kGc16`) sigui lenta i la
+   parcial no: 25 passades més.
+2. **La porta de la fila, que era oberta massa estona.** Ells tanquen la porta amb el `ROW_STEP` de la fila següent i
+   fabriquen la fila amb la porta encara oberta. Aquí la fabricació llegia el quadre de la PSRAM byte a byte i hi
+   passava **setanta microsegons**, o sigui que la porta quedava oberta vuit vegades més que la línia del panell i la
+   tinta rebia vuit vegades més càrrega per passada —que és exactament el que feia que la seva matriu de divuit
+   passades saturessin als quatre colors. Ara la porta es tanca **abans** de fabricar la fila, i la fila es fabrica
+   amb dos miralls de 256 entrades com els seus (`pGrayUpper`/`pGrayLower`), no amb quatre cerques per byte.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |
