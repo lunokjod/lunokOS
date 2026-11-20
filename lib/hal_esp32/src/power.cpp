@@ -30,6 +30,11 @@ uint8_t g_nap_refusals = 0;
 bool g_nap_refused = false;
 const uint8_t kNapRefusalsMost = 3;
 
+// **Si el vidre ha despertat mai una becaina** (0.190.72): no es declara, es veu. El xip torna d'un son lleuger dient per què, i si el
+// que l'ha tornat és el GPIO del panell amb la línia del dit baixa, aleshores aquesta línia **és** una porta i una espera llarga ja no
+// deixa el tàctil mort. Fins que no s'ha vist això, la resposta és que no i el nucli no dorma més que una engruna (docs/50, docs/95).
+bool g_glass_is_a_door = false;
+
 }  // namespace
 
 // **Dues portes alhora, quan el xip en sap** (0.190.29): `ext1` on a chip after the ESP32 has an «any of them low»
@@ -58,6 +63,8 @@ bool Esp32Power::arm_the_doors() {
 // **Cada porta s'ha d'armar aquí i desarmar-se en sortir**: l'IDF guarda els despertars en una estructura estàtica que el son profund
 // també llegeix, o sigui que una becaina que deixi la consola armada acabaria despertant un son profund per una tecla que ja no és
 // (docs/50).
+bool Esp32Power::the_glass_wakes_the_chip() const { return g_glass_is_a_door; }
+
 bool Esp32Power::can_nap() const {
   // Una tecla o el vidre: una placa sense cap de les dues només tindria el temporitzador i la consola, i el que s'hi guanya no paga
   // el que costa perdre-hi una tecla (docs/95).
@@ -160,6 +167,14 @@ bool Esp32Power::nap(int32_t max_ms) {
       }
     } else {
       g_nap_refusals = 0;
+      // **I el que ha tornat el xip es mira per aprendre'n una cosa** (0.190.72): si ha estat el GPIO del panell i la línia del dit és
+      // baixa, el vidre és una porta de debò i el nucli pot deixar d'esperar en engrunes. Es diu un cop, perquè és el que canvia el
+      // comportament de la placa (docs/50, docs/95).
+      if (!g_glass_is_a_door && glass_pin_ >= 0 && cause == ESP_SLEEP_WAKEUP_GPIO &&
+          gpio_get_level(static_cast<gpio_num_t>(glass_pin_)) == 0) {
+        g_glass_is_a_door = true;
+        hal::logf(pal::kLogInfo, "POWER", "the glass woke the chip from a light sleep: it is a door, and the waits can be long");
+      }
       // **I una becaina que no ha acabat el seu temps també es diu**: la que el temporitzador ha deixat anar és el cas normal i
       // no omple el registre, però la que ha tallat una tecla, el dit o la consola és la línia que explica per què la placa és
       // desperta abans d'hora (docs/50, docs/95).

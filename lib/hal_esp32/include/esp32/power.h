@@ -41,6 +41,9 @@ class Esp32Power : public IPower {
   // o sigui que és el que el sistema fa en lloc d'esperar. Una placa que no pot escoltar res mentre dorm contesta que no a
   // `can_nap` (docs/50, docs/60, docs/95).
   bool can_nap() const override;
+  // **Si el vidre ha despertat mai una becaina en aquest run** (0.190.72): el que fa que una espera pugui ser llarga. Es guanya amb una
+  // prova —un son que ha tornat la línia del panell— i no es declara (docs/50, docs/95).
+  bool the_glass_wakes_the_chip() const override;
   bool nap(int32_t max_ms) override;
 
   // Said by the wiring: the RTC timer for the alarms, and the key when there is one.

@@ -893,15 +893,23 @@ void poll() {
   // is no hand to miss (docs/30, docs/50).
   //
   // **I la mà mana sobre la becaina** (0.190.71): the turn is ten milliseconds when the board has a key or a glass, and it stays that
-  // way. La 0.190.70 li va treure aquest topall quan el xip podia dormir, donant per fet que la tecla i el dit despertarien el son
-  // lleuger; al Paper no ho van fer i el resultat va ser una placa que anava a un segon per torn i un tàctil mort. **Una placa que no
-  // pot respondre a un dit no pot dormir**: la becaina només pot escurçar una espera que la placa pot despertar, i això es prova amb
-  // `power nap` (docs/30, docs/50, docs/95).
+  // way —unless the board can take a light sleep, and then the turn is the **slice a finger can wait**: forty milliseconds that the
+  // chip spends asleep and that a touch either ends at once (if the glass is a door) or is read at the next turn (if it is not). La
+  // 0.190.70 va treure el topall del tot i el Paper va quedar a un segon per torn amb el tàctil mort: el que es pot esperar no és el
+  // que la placa sap, és el que una persona no nota (docs/30, docs/50, docs/95).
   bool hand = button::available();
 #if LUNOK_GLASS
   hand = hand || touch::available();
 #endif
-  if (hand && wait > kInputPeriodMs) wait = kInputPeriodMs;
+  if (hand) {
+    int32_t most = kInputPeriodMs;
+    if (power::nap_on() && power::can_nap()) {
+      // **Una espera llarga només si el vidre ha demostrat que desperta el xip** (0.190.72): la placa contesta si ho ha vist, i fins que
+      // no ho ha vist el que es dorma és una engruna de quaranta mil·lisegons (docs/50, docs/95).
+      most = power::the_glass_wakes_the_chip() ? kIdleTimeoutMs : power::nap_slice_ms();
+    }
+    if (wait > most) wait = most;
+  }
 
   // **Què ha despertat la volta** (0.189.85): a turn that came back because something happened and a turn that came back
   // because its ten milliseconds were over are two different lives for the board, and the wait is measured apart from the

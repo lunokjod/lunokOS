@@ -10639,7 +10639,18 @@ namespace kernel {
 // lleuger; i **una tanda de becaines es diu sola cada deu segons de son** (`250 nap(s), 41000 ms asleep, and nothing has happened`), que
 // és el que converteix «no en veig cap» en un número. I si la consola no pot ser una porta, el xip ho diu en comptes de callar: un
 // `esp_sleep_enable_uart_wakeup` que falla deixava la becaina sense demanar i sense cap línia (docs/30, docs/50, docs/95).
-static const char kVersion[] = "0.190.71";
+// **La becaina sí que hi és, però en engrunes, i es guanya** (0.190.72, l'amo del 20/11: *«estic provant al paper i no veig cap missatge de
+// light sleep»*). Amb la 0.190.71 el Paper no dormia gens al torn: deu mil·lisegons de topall i vint de mínim per demanar una becaina, o
+// sigui que la resposta honesta era «no en veuràs cap». L'arreglo no és tornar a fer l'espera d'un segon —això va deixar el tàctil mort—,
+// sinó **preguntar què es pot esperar**:
+//
+// El torn del Paper espera ara **quaranta mil·lisegons dormint** (`nap_slice_ms`) quan la placa sap fer becaines. Quaranta és el que un
+// dit no nota: si el vidre desperta el xip, el contacte el torna a l'instant; si no ho fa, el contacte es llegeix al torn següent, i quaranta
+// mil·lisegons de retard no es veuen. I **l'espera llarga es guanya amb una prova**: `IPower::the_glass_wakes_the_chip()` només diu que sí
+// quan una becaina ha tornat per la línia del panell amb el dit a sobre (`the glass woke the chip from a light sleep: it is a door, and the
+// waits can be long`); aleshores el torn passa a esperar fins a un segon i l'escala pot créixer. Una placa que no ho ha vist mai no ho promet,
+// i el tàctil no es pot quedar mort per una promesa (docs/50, docs/95).
+static const char kVersion[] = "0.190.72";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

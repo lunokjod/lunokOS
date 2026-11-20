@@ -458,6 +458,10 @@ no hi ha cap transacció a mitges i on una becaina que surt malament costa un to
 - **La mà mana sobre la becaina, i el topall de deu mil·lisegons es queda** (0.190.71). La 0.190.70 el va treure donant per fet que la
   tecla i el dit despertarien el son lleuger; **al Paper no ho van fer** i la placa va quedar a un segon per torn amb el tàctil llegit un
   cop per segon. Una placa que no pot respondre a un dit no pot dormir.
+- **I el torn del Paper espera quaranta mil·lisegons dormint** (0.190.72): `nap_slice_ms()` és el que un dit no nota —si el vidre
+  desperta el xip, el contacte el torna a l'instant; si no, es llegeix al torn següent— i l'espera llarga (fins a un segon) **es guanya**:
+  `IPower::the_glass_wakes_the_chip()` només diu que sí quan una becaina ha tornat per la línia del panell amb el dit a sobre
+  (`the glass woke the chip from a light sleep: it is a door, and the waits can be long`).
 - **I per això hi ha `power nap [ms]`**: demana un son lleuger d'un segon i diu què l'ha tornat (`a nap of 987 ms ended by a key or the
   glass`, o que el xip no l'ha pres). És l'instrument que diu si el vidre d'aquesta placa és una porta del son lleuger, que és el que
   decideix si el torn pot esperar-lo. I una tanda de becaines **es diu sola cada deu segons de son** (`250 nap(s), 41000 ms asleep, and

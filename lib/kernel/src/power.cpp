@@ -720,6 +720,10 @@ bool can_wake_on_touch() { return (g_power != nullptr) && g_power->can_wake_on_t
 // és la de sempre i el que s'estalvia és l'estona en què no hi havia ningú (docs/60, docs/95).
 const int32_t kNapFirstMs = 40;
 const int32_t kNapMostMs = 1000;
+// **I la becaina d'una placa que encara no ha provat el seu vidre** (0.190.72): quaranta mil·lisegons, que és el que pot esperar un dit
+// sense que es noti. Dormir un segon en una placa on el tàctil no pot tornar el xip és deixar la pàgina sense respondre un segon, i això
+// és el que va passar al Paper la nit del 20/11 (docs/50, docs/95).
+const int32_t kNapGlassMs = 40;
 // El que s'ha de poder dormir perquè valgui la pena entrar-hi: per sota, el camí de sortida costa més que l'espera.
 const int32_t kNapLeastMs = 20;
 
@@ -753,6 +757,10 @@ bool set_nap_on(bool on) {
 
 bool can_nap() { return (g_power != nullptr) && g_power->can_nap(); }
 
+bool the_glass_wakes_the_chip() { return (g_power != nullptr) && g_power->the_glass_wakes_the_chip(); }
+
+int32_t nap_slice_ms() { return kNapGlassMs; }
+
 // **Una becaina demanada des del prompt** (0.190.71): the ladder and the switch are for the turn, and what a person wants to see is one
 // sleep with a number —how long it lasted and what brought the chip back—. És l'instrument que diu si la tecla o el vidre desperten un
 // son lleuger en aquesta placa, que és el que decideix si la volta pot esperar-lo (docs/50, docs/95).
@@ -775,6 +783,10 @@ bool nap(int32_t wait_ms) {
   // ha de tornar la placa, i una espera curta no s'ha de convertir en una de llarga (docs/50, docs/60).
   int32_t asked = (wait_ms < g_nap_ms) ? wait_ms : g_nap_ms;
   if (asked > kNapMostMs) asked = kNapMostMs;
+  // **I mai més del que la placa pot despertar** (0.190.72): si el vidre encara no ha despertat cap becaina, el que es dorm és una
+  // engruna i el dit es llegeix igual de sovint que abans.
+  const int32_t most = g_power->the_glass_wakes_the_chip() ? kNapMostMs : kNapGlassMs;
+  if (asked > most) asked = most;
   if (!g_power->nap(asked)) return false;
   g_napped = true;
   ++g_nap_run;
