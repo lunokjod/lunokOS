@@ -10673,7 +10673,12 @@ namespace kernel {
 // **I es veu**: la línia de l'arrencada diu si la placa dorma, `a nap of 987 ms ended by a key or the glass` diu quant ha durat i per què
 // s'ha acabat quan algú el trenca, i cada **cinc segons de son** el registre diu els comptes (`250 nap(s), 10000 ms asleep, and nothing has
 // happened`), que és el que l'amo demanava: quan hi ha light sleep, quant dura i per què (docs/50, docs/60, docs/95).
-static const char kVersion[] = "0.190.74";
+// **Amb una persona a la consola no es dorm** (0.190.75, l'amo del 20/11: *«El port sèrie és inutilitzable si fa LightSleeps… Si el port sèrie
+// està en ús no usar lightSleep»*). Un son lleuger atura el UART i el primer byte és el que el desperta: els que arriben mentre el xip es
+// lleva es perden, i una línia escrita a mà surt tallada. La becaina mira **dues coses abans de demanar-se**: que el port no estigui cedit a
+// una app (`serial::claimed()`) i que la placa porti **deu segons de silenci** (`quiet_ms()`, que és el comptador que mouen els bytes de la
+// consola i les mans al vidre). Per sota d'això el que mana és el port (docs/30, docs/50, docs/95).
+static const char kVersion[] = "0.190.75";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

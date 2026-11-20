@@ -19,6 +19,7 @@
 #include "kernel/led.h"
 #include "kernel/log.h"
 #include "kernel/session.h"
+#include "kernel/serial.h"
 #include "alarms/alarms.h"
 #include "hal/alarm.h"
 #include "luabind/luabind.h"
@@ -723,6 +724,11 @@ const int32_t kNapMostMs = 1000;
 // **El que pot esperar un dit** (0.190.74): quaranta mil·lisegons és el que no es nota, tant si el vidre desperta el xip com si el contacte
 // es llegeix al torn següent. El torn del nucli no espera més que això mentre la placa dorma entre voltes (docs/50, docs/95).
 const int32_t kNapSliceMs = 40;
+// **I amb una persona a la consola no es dorm** (0.190.75, l'amo: *«El port sèrie és inutilitzable si fa LightSleeps… Si el port sèrie està
+// en ús no usar lightSleep»*). Un son lleuger atura el UART i el desperta el primer byte: els que arriben mentre el xip es lleva es perden,
+// i una línia escrita a mà arriba tallada. Deu segons de silenci a la línia volen dir que no hi ha ningú escrivint; per sota d'això el que
+// mana és el port (docs/50, docs/95).
+const int64_t kConsoleInUseMs = 10000;
 
 // El que s'ha de poder dormir perquè valgui la pena entrar-hi: per sota, el camí de sortida costa més que l'espera.
 const int32_t kNapLeastMs = 20;
@@ -778,6 +784,11 @@ int32_t nap_ms() { return g_nap_ms; }
 bool nap(int32_t wait_ms) {
   g_napped = false;
   if (!g_nap_on || g_power == nullptr || wait_ms < kNapLeastMs) return false;
+  // **I si el port sèrie s'està fent servir, no es dorm** (0.190.75): una becaina atura el UART i el primer byte la desperta, però els que
+  // arriben mentre el xip es lleva es perden — una línia escrita a mà surt tallada i el port és inutilitzable. Deu segons de silenci volen
+  // dir que no hi ha ningú; i un port cedit a una app no dorma mai (docs/30, docs/50, docs/95).
+  if (serial::claimed()) return false;
+  if (quiet_ms() < kConsoleInUseMs) return false;
   // **La becaina no pot durar més del que qui espera ha demanat** i no creix més enllà del sostre: el temporitzador del xip és el que
   // ha de tornar la placa, i una espera curta no s'ha de convertir en una de llarga (docs/50, docs/60).
   int32_t asked = (wait_ms < g_nap_ms) ? wait_ms : g_nap_ms;

@@ -472,6 +472,9 @@ no hi ha cap transacció a mitges i on una becaina que surt malament costa un to
   son lleuger l'aturaria; a l'emulador tampoc, perquè el PC no dorm (docs/50).
 - **La consola és la porta que no es pot perdre**: si el xip no la pot prendre (`esp_sleep_enable_uart_wakeup`), no es dorm. Una
   becaina que es menja el que una persona escriu és pitjor que no estalviar res.
+- **I amb una persona a la consola no es dorm** (0.190.75, l'amo: *«El port sèrie és inutilitzable si fa LightSleeps… Si el port sèrie està en
+  ús no usar lightSleep»*). El primer byte desperta el xip, però els que arriben mentre es lleva es perden i una línia escrita a mà surt
+  tallada: la becaina només es demana amb **deu segons de silenci** a la línia i amb el port no cedit a cap app (`serial::claimed()`).
 - **I només s'arma una porta que ara és tancada** (0.190.69, el registre de l'amo del 20/11: *«the chip did not take the nap (259) … I
   es queda penjada»*). El 259 era `ESP_ERR_SLEEP_REJECT`: una porta de nivell que ja és baixa fa que el xip **refusi** la becaina
   sencera, i la línia del GT911 queda baixa mentre hi ha un contacte —o sigui que la becaina es refusava una vegada i una altra sense
