@@ -99,6 +99,11 @@ bool esp32_arm_timer_wake(int64_t at_epoch_ms) {
   return true;
 }
 
+void esp32_note_wake_cleared() {
+  g_timer_wake_armed = false;
+  g_armed_epoch_ms = 0;
+}
+
 void esp32_disarm_timer_wake() {
   g_armed_epoch_ms = 0;
   // Only ours to take down: ESP-IDF logs an error when a source that is not armed is disarmed, and

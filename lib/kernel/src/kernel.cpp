@@ -900,7 +900,14 @@ void poll() {
   bool woke = false;
   {
     meter::Scope waiting(meter::kQueueWait);
-    woke = pal::system().queue()->pop(ev, wait);
+    // **Esperar, o dormir?** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*). La volta del nucli
+    // espera pel que hi hagi a la cua fins a un segon quan no hi ha cap app, i tenir el processador despert per fer-ho és el corrent més
+    // fàcil d'estalviar: amb la becaina encesa el xip atura els rellotges i el temporitzador del RTC el torna, o una tecla, el dit o la
+    // consola abans d'hora —i tot el que hi hagués a la cua es llegeix tot seguit amb una espera de zero—. `nap` torna **sempre** i diu si
+    // ha dormit: a una placa que no en sap (l'emulador, la del USB com a consola) el camí és exactament el d'abans (docs/50, docs/60, docs/95).
+    const bool slept = power::nap(wait);
+    woke = pal::system().queue()->pop(ev, slept ? 0 : wait);
+    power::note_the_nap_end(woke);
   }
   if (woke) {
     ++g_turns_with_event;

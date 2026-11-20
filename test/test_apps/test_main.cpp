@@ -10321,7 +10321,12 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   // exactament el que l'app diu que fa. El que aquest cas ha de vigilar no és «cap pàgina sencera» sinó **«una generació no
   // és una pàgina»**: una rentada com a molt dins de la captura, i el `du` del tauler a cada generació (docs/50, docs/95).
   TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(1, times_in(g_out, "paint 0,0 540x912"), g_out);
-  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(1, times_in(g_out, "paint 8,80 524x824 mode 1 du"), g_out);
+  // **I la caixa d'una generació es compta per l'amplada i no per l'altura** (0.190.63, revisat): a generation of this game is
+  // `8,141 524x763`, the next one `8,110 524x794` —the world's bounding box follows the cells that die—, o sigui que comptar una
+  // caixa exacta era comptar com van morir les cèl·lules en dos segons del rellotge de l'amfitrió, i el cas es va posar vermell en
+  // una màquina carregada amb tres caixes de 524 i cap d'elles repetida. El que aquest cas vigila és que **una generació sigui la
+  // caixa del tauler i no la pàgina**, i això és l'amplada de 524 i el mode `du` (docs/50, docs/85).
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(1, times_in(g_out, " 524x"), g_out);
   TEST_ASSERT_GREATER_THAN_INT32_MESSAGE(0, painted_pixels(g_out), g_out);
 
   // **The gear opens the page of the settings** (0.189.47): a whole page, in one wash that does not blink, and the world
@@ -14282,6 +14287,56 @@ void test_a_light_sleep_comes_back_with_the_clock_moved(void) {
   // (docs/85).
   const int64_t after = clock->epoch_ms();
   TEST_ASSERT_TRUE_MESSAGE(after >= epoch + 1000 && after < epoch + 1100, "the clock did not move as asked");
+}
+
+// **La becaina és un ajust i una escala** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*): the
+// switch of the Battery tab is read and written from Lua (`cfg.nap`), it reaches the policy in the same moment, and the wait it buys
+// grows while nothing happens and goes back to the floor the moment a person touches the board. **El que no es pot provar aquí és el
+// son**: l'emulador no en fa —el PC no dorm— i el que aquest cas mira és que ho digui i que el sistema no hi confiï (docs/50, docs/85).
+void test_the_nap_is_a_setting_and_a_ladder(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  TEST_ASSERT_TRUE(kernel::cfg::nap_on());
+  TEST_ASSERT_TRUE(kernel::power::nap_on());
+  TEST_ASSERT_EQUAL_INT32(40, kernel::power::nap_ms());
+
+  // **L'escala**: quaranta, vuitanta, cent seixanta… fins a un segon, i una mà la torna al mínim.
+  kernel::power::note_the_nap_end(false);
+  TEST_ASSERT_EQUAL_INT32(80, kernel::power::nap_ms());
+  kernel::power::note_the_nap_end(false);
+  TEST_ASSERT_EQUAL_INT32(160, kernel::power::nap_ms());
+  for (int i = 0; i < 8; ++i) kernel::power::note_the_nap_end(false);
+  TEST_ASSERT_EQUAL_INT32(1000, kernel::power::nap_ms());
+  kernel::power::note_the_nap_end(true);
+  TEST_ASSERT_EQUAL_INT32(40, kernel::power::nap_ms());
+
+  // **I el commutador, des del prompt i des de Lua**, que és el que la fila de la pestaña Battery fa servir.
+  pump_captured(20, g_out, sizeof(g_out), "cfg nap off");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "light sleep instead of wait off"), g_out);
+  TEST_ASSERT_FALSE(kernel::cfg::nap_on());
+  TEST_ASSERT_FALSE(kernel::power::nap_on());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "napper",
+                           "{\"title\":\"Napper\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "if console.is_foreground() then\n"
+                           "  console.print('nap is ' .. tostring(cfg.nap()))\n"
+                           "  console.print('nap now ' .. tostring(cfg.nap(true)))\n"
+                           "end\n"));
+  pump_captured(40, g_out, sizeof(g_out), "run napper");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "nap is false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "nap now true"), g_out);
+  TEST_ASSERT_TRUE(kernel::cfg::nap_on());
+  close_any_app();
+  storage->remove("/apps/napper/app.lua");
+  storage->remove("/apps/napper/manifest.json");
+  storage->remove("/apps/napper");
+
+  // **I aquesta placa no en fa**: l'emulador respon que no a `can_nap` i la becaina no dorm res, o sigui que el sistema espera
+  // despert exactament com abans que aquest ajust existís (docs/85).
+  TEST_ASSERT_FALSE_MESSAGE(kernel::power::can_nap(), "the emulator said it can take a light sleep");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::power::nap(100), "the emulator slept");
+  pump_captured(10, g_out, sizeof(g_out), "cfg nap on");
+  TEST_ASSERT_TRUE(kernel::cfg::nap_on());
 }
 
 // An app asks for a deep sleep: the kernel writes down what was in front, closes
@@ -20815,6 +20870,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_only_an_administrator_gets_the_admin_table_and_a_lock);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);
+  RUN_TEST(test_the_nap_is_a_setting_and_a_ladder);
   RUN_TEST(test_an_app_sleeps_deeply_and_comes_back_where_it_was);
   RUN_TEST(test_an_app_writes_the_file_the_prompt_named_and_no_other);
   RUN_TEST(test_a_big_file_is_read_in_chunks);

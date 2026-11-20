@@ -1,6 +1,6 @@
 {
   "name": "hal",
-  "version": "0.2.27",
+  "version": "0.2.28",
   "description": "Hardware abstraction interfaces: capabilities, clock, storage, net, power.",
   "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
 }

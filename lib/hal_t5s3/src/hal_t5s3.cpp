@@ -117,6 +117,10 @@ class T5Power : public Esp32Power {
   bool battery(int& mv, int& pct, bool& charging) override { return gauge_.read(mv, pct, charging); }
   // The chip answers this one itself, amb les dues portes que la placa li ha cablejat (docs/50).
   const char* wakes() override { return Esp32Power::wakes(); }
+  // **Aquesta placa no fa becaines, i és la consola qui ho diu** (0.190.63): its console is the chip's own USB (`ARDUINO_USB_CDC_ON_BOOT`),
+  // and a light sleep stops that peripheral: the prompt would go deaf for every nap and the bytes typed meanwhile are gone. Until the USB
+  // side of a nap is worked out, the honest answer is that this board waits awake (docs/50, docs/95).
+  bool can_nap() const override { return false; }
 
  private:
   T5Gauge gauge_{esp32_i2c(kI2cSdaPin, kI2cSclPin)};

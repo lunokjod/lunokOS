@@ -618,6 +618,7 @@ void print_help(const char* only) {
   help_line("  cfg lock [<id>|none]  the page that covers the screen, and `cfg lockon on|off` with `cfg lockafter 5|10|15`", only);
   help_line("  cfg sleep on|off      whether the board sleeps until its next alarm when nobody uses it", only);
   help_line("  cfg touchwake on|off  whether a finger on the glass wakes the board from a deep sleep", only);
+  help_line("  cfg nap on|off        whether the waits of the board are spent in a light sleep", only);
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
   help_line("  power last        how far the last sleep was from the hour it was given", only);
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
@@ -4773,7 +4774,7 @@ bool command_cfg(const char* argument) {
   if (count > 3) {
     usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|lock [<id>|none]|"
               "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-              "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|cursor delay [<ms>]]\r\n");
+              "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|nap [on|off]|cursor delay [<ms>]]\r\n");
     return false;
   }
   // **El parpalleig del cursor** (0.189.34, l'amo: *«Crea una opcio nova de cfg anomenada "cursor delay"… Aquest valor es
@@ -4941,6 +4942,25 @@ bool command_cfg(const char* argument) {
       // **I si aquesta placa no hi sent, es diu una vegada i no és cap error** (0.190.17): the setting is kept like on any other board and the
       // board does nothing with it, which is the difference between ignoring a switch and refusing it (docs/30, docs/50).
       if (!power::can_wake_on_touch()) out("cfg: this board has no glass to wake it, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg nap on|off`**: les esperes del sistema, passades dormint o despert (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica
+    // lightSleep allá on puguis»*). És el mateix ajust que la fila de la pestanya Battery, i la resposta diu també què en fa aquesta placa:
+    // una que no en sap espera com sempre (docs/30, docs/50).
+    if (strcmp(words[0], "nap") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the nap of the waits is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_nap_on(on);
+      out("settings: light sleep instead of wait ");
+      out(cfg::nap_on() ? "on" : "off");
+      newline();
+      if (!power::can_nap()) out("cfg: this board does not take a light sleep, and the setting is kept all the same\r\n");
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
@@ -5161,7 +5181,7 @@ bool command_cfg(const char* argument) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
                 "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
                 "settings [<id>|none]|lock [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [300|600|900]|"
-              "cursor delay [<ms>]]\r\n");
+              "nap [on|off]|cursor delay [<ms>]]\r\n");
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a

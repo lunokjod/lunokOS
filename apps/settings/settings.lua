@@ -878,6 +878,16 @@ function build()
       console.print(string.format('settings: touch to wake is %s', on and 'on' or 'off'))
     end)
   end
+  -- **I les esperes, passades dormint** (0.190.63, l'amo: *«[X] Light sleep instead of wait»*): the system spends half of its life waiting
+  -- —the turn of the kernel when nothing is happening, the ink of the glass, the margin of the card before the current goes— and waiting
+  -- awake is the easiest current to save on this board: a light sleep stops the clocks and keeps the RAM, the interpreter and the page, and
+  -- the RTC timer brings it back. **El que la fila ensenya és el que el sistema fa**, i ve encesa de sèrie; una placa que no en sap —la del
+  -- USB com a consola— l'accepta i no en fa res (docs/30, docs/45, docs/50).
+  check_row(6, 'nap', 'Light sleep instead of wait', function() return cfg.nap() == true end, function(on)
+    cfg.nap(on)
+    say(on and 'The waits of the board are spent asleep' or 'The board waits awake')
+    console.print(string.format('settings: light sleep instead of wait is %s', on and 'on' or 'off'))
+  end)
   check_row(6, 'sleep', 'Sleep when idle', function() return cfg.sleep() == true end, function(on)
     cfg.sleep(on)
     say(on and 'The board sleeps when nobody uses it' or 'The board stays awake')

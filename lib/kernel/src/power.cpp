@@ -432,6 +432,9 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   // **I la porta del dit, que és un ajust i no una política** (0.190.16): the setting of the Battery tab is pushed into the board at every
   // boot, because the board is built before the settings are read (docs/30, docs/50).
   if (g_power != nullptr) g_power->set_wake_on_touch(cfg::wake_on_touch());
+  // **I la becaina, que és de la política i no del maquinari** (0.190.63): the switch is read here so that the board's answer
+  // (`can_nap`) and the person's wish are both in force from the first turn (docs/30, docs/60).
+  set_nap_on(cfg::nap_on());
 
   // What an app may ask for. Without a power interface the operations stay
   // absent, and power.* answers E_UNSUPPORTED instead of pretending (docs/30).
@@ -662,6 +665,71 @@ bool wake_on_touch() { return (g_power != nullptr) ? g_power->wake_on_touch() : 
 bool set_wake_on_touch(bool on) { return (g_power != nullptr) ? g_power->set_wake_on_touch(on) : false; }
 
 bool can_wake_on_touch() { return (g_power != nullptr) && g_power->can_wake_on_touch(); }
+
+// ---------------------------------------------------------------- la becaina
+
+// **Quaranta mil·lisegons i doblar mentre no passi res, fins a un segon** (0.190.63): the first nap is the shortest that pays the entry
+// and the exit of a light sleep, and the ladder is what makes an idle board cost hundreds of times less without making a busy one pay
+// for every turn: a hand on the glass, a key or a byte at the prompt puts it back to the bottom, o sigui que la resposta a una persona
+// és la de sempre i el que s'estalvia és l'estona en què no hi havia ningú (docs/60, docs/95).
+const int32_t kNapFirstMs = 40;
+const int32_t kNapMostMs = 1000;
+// El que s'ha de poder dormir perquè valgui la pena entrar-hi: per sota, el camí de sortida costa més que l'espera.
+const int32_t kNapLeastMs = 20;
+
+bool g_nap_on = true;     // encès de sèrie, que és el que demana el commutador
+int32_t g_nap_ms = kNapFirstMs;
+
+bool nap_on() { return g_nap_on; }
+
+bool set_nap_on(bool on) {
+  g_nap_on = on;
+  // El que dorm no es recorda entre dues vegades: una placa a la qual se li encén el commutador comença per la becaina curta.
+  g_nap_ms = kNapFirstMs;
+  return true;
+}
+
+bool can_nap() { return (g_power != nullptr) && g_power->can_nap(); }
+
+int32_t nap_ms() { return g_nap_ms; }
+
+bool nap(int32_t wait_ms) {
+  if (!g_nap_on || g_power == nullptr || wait_ms < kNapLeastMs) return false;
+  // **La becaina no pot durar més del que qui espera ha demanat** i no creix més enllà del sostre: el temporitzador del xip és el que
+  // ha de tornar la placa, i una espera curta no s'ha de convertir en una de llarga (docs/50, docs/60).
+  int32_t asked = (wait_ms < g_nap_ms) ? wait_ms : g_nap_ms;
+  if (asked > kNapMostMs) asked = kNapMostMs;
+  return g_power->nap(asked);
+}
+
+void note_the_nap_end(bool something_happened) {
+  if (something_happened) {
+    g_nap_ms = kNapFirstMs;
+    return;
+  }
+  g_nap_ms = (g_nap_ms >= kNapMostMs / 2) ? kNapMostMs : g_nap_ms * 2;
+}
+
+// **Esperar becainant, i despert si la placa no en sap** (0.190.63): the same wait a caller asked for, spent asleep when that is possible.
+// A board that cannot nap —the emulator, the one whose console is a USB— waits exactly as it did before, o sigui que res d'aquí canvia
+// el que aquestes plaques ja feien (docs/50, docs/85).
+void wait_napping(int32_t ms) {
+  if (ms <= 0) return;
+  if (!g_nap_on || g_power == nullptr || !g_power->can_nap()) {
+    pal::delay_us(static_cast<uint32_t>(ms) * 1000U);
+    return;
+  }
+  int64_t left = ms;
+  while (left > 0) {
+    const int32_t step = (left > kNapMostMs) ? kNapMostMs : static_cast<int32_t>(left);
+    if (!nap(step)) {
+      // La placa ha dit que no a mig camí: el que queda es passa despert, que és el pitjor que pot passar.
+      pal::delay_us(static_cast<uint32_t>(left) * 1000U);
+      return;
+    }
+    left -= step;
+  }
+}
 
 bool can_deep_sleep() {
   if (g_power == nullptr || !can_sleep(hal::SleepMode::kDeep)) return false;
@@ -1404,7 +1472,10 @@ Leaving settle_before_leaving(const char* why) {
   if (done.margin_ms > 0) {
     log_printf(pal::kLogInfo, "POWER", "a margin of %u ms before the current goes (a card finishes writing after the last sector)",
                static_cast<unsigned>(done.margin_ms));
-    pal::delay_us(done.margin_ms * 1000U);
+    // **I aquesta estona es passa dormint si la placa en sap** (0.190.63): two seconds of a card finishing its own write are two seconds
+    // with nothing to compute, o sigui que el xip els pot fer amb els rellotges aturats; a una placa que no fa becaines li queda
+    // l'espera de sempre (docs/50, docs/75).
+    wait_napping(static_cast<int32_t>(done.margin_ms));
   }
   return done;
 }

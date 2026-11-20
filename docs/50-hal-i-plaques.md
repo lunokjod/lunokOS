@@ -522,6 +522,25 @@ baixades de la placa queden així: **`poweroff`** talla el corrent (mesos, i nom
 talla el corrent amb una alarma que la torna a engegar, i **`deepsleep`** deixa el corrent posat amb una tecla per tornar.
 El que **no** es pot fer és despertar un xip que no té corrent: això no ho fa cap placa.
 
+**I la quarta cosa que se sap fer amb el corrent és no gastar-lo esperant** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica
+lightSleep allá on puguis»*). `IPower::nap(max_ms)` és un **son lleuger amb hora de tornada curta**: el xip atura els rellotges, la RAM i
+l'estat no es perden (no és un reset) i el temporitzador del RTC el torna; la resposta és sempre, o sigui que qui l'ha demanat segueix el
+seu camí. `can_nap()` és la pregunta prèvia, perquè les portes del despert són les de la placa:
+
+| placa | `can_nap()` | per què |
+|---|---|---|
+| Paper | **sí** | la tecla del dial (GPIO38), **la línia del GT911** (GPIO36, que cau mentre hi ha un dit i puja quan el marc s'ha pres: és el flanc que un son lleuger vol) i la consola |
+| ATOM, Matrix, T-Koala, ESP32 | **sí** | la tecla de la placa i la consola |
+| T5 E-Paper S3 Pro | **no** | la seva consola és el **USB del xip** i un son lleuger atura aquell perifèric: el prompt s'ensordiria a cada becaina |
+| l'emulador | **no** | el PC no dorm, i un run que s'aturés a posta només faria més lentes les proves |
+
+La consola és **la porta que no es pot perdre**: `esp_sleep_enable_uart_wakeup(0)` i, si el xip no la pren, la becaina no es fa. Cada
+porta s'arma amb `gpio_wakeup_enable` (nivell baix, que és el que fa una tecla a massa i la línia oberta del tàctil) i **es desarma
+tota en sortir** amb `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL)`: l'IDF guarda els despertars en una estructura estàtica que
+el son profund també llegeix, o sigui que una becaina que deixés la consola armada acabaria despertant un son profund per una tecla que
+ja no és —i el compte del temporitzador es posa a zero amb ells (`esp32_note_wake_cleared`), o el `disarm` de després demanaria al xip
+que tragués una cosa que ja no hi és— (docs/60, docs/95).
+
 ## La consola
 
 Els primers bytes que surten per un terminal a 115200 **no són nostres**: abans de `Serial.begin()` el

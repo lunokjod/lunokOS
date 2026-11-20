@@ -155,9 +155,16 @@ void settle(hal::ISurface* glass) {
     if (glass->idle()) return;
     const int64_t left = deadline - pal::system().millis();
     if (left <= 0) return;
-    // Sleeping through the queue keeps the CPU idle instead of spinning, the same wait the console settle uses.
-    pal::Event event;
-    pal::system().queue()->pop(event, static_cast<int32_t>((left < kSettleTurnMs) ? left : kSettleTurnMs));
+    // Sleeping through the queue keeps the CPU idle instead of spinning, the same wait the console settle uses. **I si la placa fa
+    // becaines, aquesta estona la passa dormida** (0.190.63): waiting for the ink is a wait with nothing to compute —the panel moves it on
+    // its own— and a whole page is up to six seconds of it; `nap` torna sempre i diu si ha dormit, i una placa que no en sap espera com
+    // sempre (docs/50, docs/60).
+    const int32_t slice = static_cast<int32_t>((left < kSettleTurnMs) ? left : kSettleTurnMs);
+    if (!power::nap(slice)) {
+      pal::Event event;
+      pal::system().queue()->pop(event, slice);
+    }
+    power::note_the_nap_end(false);
   }
 }
 

@@ -235,7 +235,10 @@ Si el sistema estava apagat quan tocava:
   desperta per una mostra la pren amb el vidre buit —sense apartar res i sense repintar-lo— i l'app on la persona era hi és
   després.
 - Una repetició `"daily"` que s'ha perdut tres dies arriba **una vegada**, no tres.
-- Les alarmes que es reprodueixen es tracten com una finestra d'alarma normal, una darrere l'altra.
+- Les alarmes que es reprodueixen es tracten com una finestra d'alarma normal, una darrere l'altra — **tret que hagin perdut
+  períodes sencers i que no demanin el primer pla** (0.190.62): llavors es tornen a armar **en silenci** i no obren cap pàgina, perquè
+  una mostra de la bateria o del temps val el mateix d'aquí a deu minuts i fer passar la pàgina de la persona per ella no és el que
+  ningú ha demanat (docs/30, docs/45).
 
 ## Repetició
 
@@ -403,6 +406,31 @@ corrent se'n va abans i la tecla PWR és la del xip de potència, que és com aq
     encendre posant el board al pas que diu la càrrega en la mateixa línia.
   - **La baixada és el que s'estalvia**: la placa que no fa res baixa a 80 en comptes de quedar-se a 160, que és on la deixava
     la política de les dues finestres (docs/95).
+
+## Les esperes es passen dormint (0.190.63)
+
+L'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*. El sistema passa mitja vida esperant, i esperar amb el
+processador despert és el corrent més fàcil d'estalviar d'aquesta placa. Amb el commutador **Light sleep instead of wait** de la
+pestanya Battery encès —`cfg.nap on|off`, `cfg.nap()`, i ve de sèrie—, cada espera prou llarga és un **son lleuger**:
+
+| on | què s'hi espera | qui el desfà |
+|---|---|---|
+| el torn del nucli (`kernel::poll`) | el que arribi a la cua, fins a un segon quan no hi ha cap app | una tecla, el dit, la consola o el temporitzador |
+| la tinta del vidre (`splash::settle`) | que el panell acabi de moure la imatge, en tandes de vint mil·lisegons | el temporitzador (i una tecla, si algú prem) |
+| el marge de la targeta (`power::settle_before_leaving`) | els dos segons que la targeta necessita abans que el corrent marxi | el temporitzador, en tandes d'un segon |
+
+- **El son és lleuger i no un reset**: la RAM, l'intèrpret, la pàgina i el `state` hi són en tornar, o sigui que no s'ha de desar res ni
+  tornar a obrir cap app; el que s'atura són els rellotges.
+- **La becaina creix mentre no passa res**: quaranta mil·lisegons la primera, i el doble fins a un segon; una mà a la placa —una tecla,
+  un dit, un byte al prompt— la torna al mínim. És el que fa que una placa quieta costi unes quantes vegades menys sense que una placa
+  que es fa servir pagui res (docs/95).
+- **Les portes són les de la placa** i les decideix `IPower::can_nap()`: al Paper, la tecla del dial, **la línia del GT911** i la
+  consola; als ATOM i a la T-Koala, la tecla i la consola; a la T5 E-Paper S3 Pro **no**, perquè la seva consola és el USB del xip i un
+  son lleuger l'aturaria; a l'emulador tampoc, perquè el PC no dorm (docs/50).
+- **La consola és la porta que no es pot perdre**: si el xip no la pot prendre (`esp_sleep_enable_uart_wakeup`), no es dorm. Una
+  becaina que es menja el que una persona escriu és pitjor que no estalviar res.
+- **I cap armat no sobreviu a la becaina**: en sortir es desfan totes les portes i el compte del temporitzador, perquè el son profund
+  arma el que vol i no ha d'heretar res (docs/50).
 
 ## Precisió
 

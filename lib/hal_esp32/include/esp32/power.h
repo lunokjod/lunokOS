@@ -26,7 +26,7 @@ class Esp32Power : public IPower {
   // does not exist —`ALL_LOW` asks for every pin at the same time— so there the one door is `wake_pin` and the
   // second is not armed. `-1` is the default and keeps every board that came before this one exactly as it was
   // (docs/50, docs/60).
-  explicit Esp32Power(int wake_pin, int second_wake_pin = -1);
+  explicit Esp32Power(int wake_pin, int second_wake_pin = -1, int glass_pin = -1);
 
   // The chip has no fuel gauge of its own, and no board of this project reads one yet
   // —the Paper has the divider on GPIO35 and it is not calibrated—: what is not
@@ -35,6 +35,13 @@ class Esp32Power : public IPower {
   bool battery(int& mv, int& pct, bool& charging) override;
 
   bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) override;
+
+  // **La becaina** (0.190.63): a light sleep of at most `max_ms` that comes back by its timer **or before**, quan algú prem una
+  // tecla, toca el vidre o escriu a la consola. És un son lleuger i no un reset: la RAM, l'intèrpret i la pàgina hi són en tornar,
+  // o sigui que és el que el sistema fa en lloc d'esperar. Una placa que no pot escoltar res mentre dorm contesta que no a
+  // `can_nap` (docs/50, docs/60, docs/95).
+  bool can_nap() const override;
+  bool nap(int32_t max_ms) override;
 
   // Said by the wiring: the RTC timer for the alarms, and the key when there is one.
   const char* wakes() override;
@@ -57,6 +64,10 @@ class Esp32Power : public IPower {
   int wake_pin_;
   // The second door, or -1: the line of a clock chip that goes low when its alarm fires (docs/50, docs/60).
   int second_wake_pin_;
+  // **I la del vidre, que no és una porta d'un son profund però sí d'una becaina** (0.190.63): the INT line of the touch
+  // controller falls while a finger is on the glass and rises when the frame is taken, so it is exactly the edge a light sleep
+  // needs; it is not a door of the deep sleep because that one needs a level and this line pulses (docs/50).
+  int glass_pin_;
 };
 
 }  // namespace hal

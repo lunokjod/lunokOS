@@ -631,6 +631,11 @@ class FakePower : public IPower {
   // docs/85).
   bool can_wake_on_touch() const override { return emu::model().touch; }
 
+  // **La becaina no és cosa d'aquest banc** (0.190.63): the PC has no light sleep to take and a run that *stopped* for a few
+  // milliseconds on purpose would only make every case slower than the model it is checking. The answer is the honest one —this
+  // band cannot nap— and the system waits awake here exactly as it did before the setting existed (docs/50, docs/85).
+  bool can_nap() const override { return false; }
+
   // The PC does not change its speed, and this band says so instead of pretending:
   // the value is remembered so the call and its refusals can be used and tested,
   // and it starts at the 160 MHz a board boots with (docs/85).

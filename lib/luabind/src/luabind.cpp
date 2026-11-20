@@ -12625,6 +12625,23 @@ int l_cfg_touch_wake(lua_State* L) {
   return 1;
 }
 
+// **`cfg.nap([true|false])`: si les esperes es passen dormint** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on
+// puguis»*). With no argument it answers what the system does; with one it writes it and answers what stands, like every other switch of
+// the page. Una placa que no fa becaines accepta l'ajust i no en fa res, que és el que `power` diu de si mateixa (docs/30, docs/50).
+int l_cfg_nap(lua_State* L) {
+  if (g_cfg_ops.nap_on == nullptr || g_cfg_ops.set_nap_on == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no nap");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (!cfg_switch(L, 1, on) || !g_cfg_ops.set_nap_on(on)) {
+      return push_nil_error(L, "E_INVAL", "the nap of the board is on or off");
+    }
+  }
+  lua_pushboolean(L, g_cfg_ops.nap_on() ? 1 : 0);
+  return 1;
+}
+
 int l_cfg_lock_after(lua_State* L) {
   if (g_cfg_ops.lock_after_minutes == nullptr || g_cfg_ops.set_lock_after_minutes == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no lock of the screen");
@@ -12786,6 +12803,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "lock_after", l_cfg_lock_after);
   set_function(L, "sleep", l_cfg_sleep);
   set_function(L, "touch_wake", l_cfg_touch_wake);
+  set_function(L, "nap", l_cfg_nap);
   set_function(L, "idle", l_cfg_idle);
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);

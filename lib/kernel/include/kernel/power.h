@@ -72,6 +72,21 @@ bool can_deep_sleep_with_the_keys();
 // **El dit com a porta d'un son profund** (0.190.16): the switch that turns it on, which **every board keeps** —a board that cannot hear a
 // finger accepts it and does nothing with it—, and the question of whether this board can (0.190.17). Off is the default and the cheap way
 // down: the panel's rail is cut, i el que això encén és una tercera porta que costa corrent (docs/50, docs/60).
+//
+// **La becaina** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*): el sistema passa mitja vida
+// esperant i esperar despert és corrent que no cal gastar. Amb el commutador encès, cada espera prou llarga dorm el xip amb un son
+// lleuger —la RAM i l'intèrpret hi són en tornar— que el temporitzador del RTC desfà, o una tecla, el dit o la consola abans d'hora.
+// `nap(wait_ms)` és el que crida qui espera: torna sempre, i diu si ha dormit. `nap_ms()` és quant pot durar la becaina següent, que
+// creix mentre no passa res (quaranta mil·lisegons fins a un segon) i torna al mínim quan una mà mou la placa (docs/50, docs/60, docs/95).
+bool nap_on();
+bool set_nap_on(bool on);
+bool can_nap();
+bool nap(int32_t wait_ms);
+int32_t nap_ms();
+// **`wait_napping(ms)`: la mateixa espera, passada dormint quan es pot** (0.190.63). És el que fa servir qui té una estona a perdre
+// —el marge de la targeta abans de tallar el corrent— i, en una placa que no fa becaines, és exactament l'espera de sempre.
+void wait_napping(int32_t ms);
+void note_the_nap_end(bool something_happened);
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);
 bool can_wake_on_touch();

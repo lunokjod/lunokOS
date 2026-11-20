@@ -153,6 +153,9 @@ void install_settings_ops() {
   // **El son sol de la placa** (0.190.5): the switch of the System tab, kept where the policy is.
   doors.sleep_on = &cfg::sleep_on;
   doors.set_sleep_on = &cfg::set_sleep_on;
+  // **I la becaina en lloc d'esperar** (0.190.63): the switch of the Battery tab that spends the waits of the board asleep.
+  doors.nap_on = &cfg::nap_on;
+  doors.set_nap_on = &cfg::set_nap_on;
   // **I el dit com a porta** (0.190.16): the third door of the way down, a switch of the Battery tab.
   doors.wake_on_touch = &cfg::wake_on_touch;
   doors.set_wake_on_touch = &cfg::set_wake_on_touch;

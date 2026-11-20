@@ -86,6 +86,8 @@ const char kLockKey[] = "lock";
 const char kLockOnKey[] = "lockon";
 const char kSleepKey[] = "sleep";
 const char kTouchWakeKey[] = "touchwake";
+// **La becaina** (0.190.63): the switch of the Battery tab that turns the light sleep of the waits on and off.
+const char kNapKey[] = "nap";
 const char kIdleKey[] = "idle";
 const char kLockAfterKey[] = "lockafter";
 const size_t kLockCap = 40;
@@ -126,6 +128,9 @@ bool g_lock_on = false;
 bool g_sleep_on = true;
 // **El dit, apagat de sèrie** (0.190.16): the board hears a finger only when a person asks for it (docs/50, docs/60).
 bool g_wake_on_touch = false;
+// **La becaina, encesa de sèrie** (0.190.63, l'amo: *«[X] Light sleep instead of wait»*): waiting awake is current nobody asked for and a
+// light sleep keeps everything the system needs; a board that cannot nap ignores it, which is what `power::can_nap` says (docs/50, docs/60).
+bool g_nap_on = true;
 uint8_t g_lock_after = kLockAfterDefault;
 // **Quant de quietud abans del son profund** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per fer el
 // DeepSleep)»*): segons, i la política de `power` el llegeix d'aquí en lloc de la constant de deu (docs/30, docs/60).
@@ -242,6 +247,13 @@ bool remember_wake_on_touch() {
   const char* word = g_wake_on_touch ? kOn : kOff;
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kTouchWakeKey, word, strlen(word));
+}
+
+bool remember_nap_on() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_nap_on ? kOn : kOff;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kNapKey, word, strlen(word));
 }
 
 bool remember_sleep_on() {
@@ -564,6 +576,17 @@ void boot(hal::IPlatform& platform) {
           log_printf(pal::kLogWarn, "CFG", "sleep '%s' is not on or off; the board keeps its own policy", raw_sleep);
         }
       }
+      char raw_nap[8] = {0};
+      size_t nap_len = 0;
+      if (g_nvs->get(kNamespace, kNapKey, raw_nap, sizeof(raw_nap) - 1, nap_len) && nap_len > 0 &&
+          nap_len < sizeof(raw_nap)) {
+        raw_nap[nap_len] = '\0';
+        if (same(raw_nap, kOn) || same(raw_nap, kOff)) {
+          g_nap_on = same(raw_nap, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "nap '%s' is not on or off; the waits stay awake", raw_nap);
+        }
+      }
       char raw_touch[8] = {0};
       size_t touch_len = 0;
       if (g_nvs->get(kNamespace, kTouchWakeKey, raw_touch, sizeof(raw_touch) - 1, touch_len) && touch_len > 0 &&
@@ -669,9 +692,9 @@ void boot(hal::IPlatform& platform) {
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot, g_tz_minutes / 60,
              (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60, g_leap_years ? kOn : kOff, g_dst ? kOn : kOff,
              (g_week_start == 7) ? kSunday : kMonday);
-  log_printf(pal::kLogInfo, "CFG", "the page: turn %u, sort apps by usage %s, cursor delay %d ms, cpu allows %s",
+  log_printf(pal::kLogInfo, "CFG", "the page: turn %u, sort apps by usage %s, cursor delay %d ms, cpu allows %s, nap %s",
              static_cast<unsigned>(luabind::turn_budget()), g_sort_by_usage ? kOn : kOff,
-             static_cast<int>(luabind::caret_blink_ms()), freq_words);
+             static_cast<int>(luabind::caret_blink_ms()), freq_words, g_nap_on ? kOn : kOff);
   log_printf(pal::kLogInfo, "CFG", "the apps a person chose: home %s, settings %s, lock %s; the lock is %s and waits %u min",
              (g_home[0] != '\0') ? g_home : "none", (g_settings[0] != '\0') ? g_settings : "none",
              (g_lock[0] != '\0') ? g_lock : "none", g_lock_on ? kOn : kOff, static_cast<unsigned>(g_lock_after));
@@ -701,6 +724,16 @@ bool set_wake_on_touch(bool on) {
   g_wake_on_touch = on;
   (void)power::set_wake_on_touch(on);
   return remember_wake_on_touch();
+}
+
+// **I la becaina** (0.190.63): the value of the page is the policy's (`power`), like the sleep's, so moving the switch changes what the
+// board does in the same moment and not on the next boot (docs/30, docs/60).
+bool nap_on() { return g_nap_on; }
+
+bool set_nap_on(bool on) {
+  g_nap_on = on;
+  (void)power::set_nap_on(on);
+  return remember_nap_on();
 }
 
 bool set_sleep_on(bool on) {

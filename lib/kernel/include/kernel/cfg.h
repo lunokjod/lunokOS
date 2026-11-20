@@ -101,6 +101,11 @@ bool set_sleep_on(bool on);
 // finger means keeping the panel's rail and its touch controller awake for the whole sleep, which is the current a deep sleep exists to
 // stop. The key and the alarm are not this switch —a deep sleep always arms them—, i el que això encén és **una tercera porta** (docs/50,
 // docs/60).
+// **La becaina en lloc d'esperar** (0.190.63): the switch of the Battery tab, on by default, kept here and pushed to the policy so that
+// moving it changes the board's next wait and not the next boot (docs/30, docs/60).
+bool nap_on();
+bool set_nap_on(bool on);
+
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);
 

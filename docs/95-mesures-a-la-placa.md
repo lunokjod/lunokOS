@@ -1229,9 +1229,14 @@ bucle sinó **treure aquella espera** (o un debounce a l'ISR), i després el pas
 1. **Que la interrupció desperti la cua** (`push_from_isr` al PAL, l'ISR del tàctil i una de nova a les tecles, `rings()` i un
    sostre de 250 ms a l'espera): els torns han de baixar de ~70 a **~4 per segon**.
 2. **L'escala de CPU** 240 a la feina · 160 de repòs · 80 passats dos minuts sense entrades.
-3. **La bacaina light** amb temporitzador de 40 ms que dobla fins a 1 s, desperta pel tàctil, les tecles i el rellotge, amb
-   `power nap on|off`. És el que atura dominis de rellotge i perifèrics, i necessita el pas 1 perquè un son sense despertador
-   no és un son.
+3. ~~**La bacaina light** amb temporitzador de 40 ms que dobla fins a 1 s, desperta pel tàctil, les tecles i el rellotge, amb
+   `power nap on|off`.~~ **Fet a la 0.190.63** (l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*):
+   `IPower::nap` amb les portes de cada placa (tecles, la línia del tàctil i la consola) i el commutador a la pestanya Battery
+   (`cfg nap on|off`, `cfg.nap()`). **El que s'hi ha de mesurar**: (a) els **torns per segon** amb la placa quieta, que han de
+   baixar cap a 1 i no quedar-se a ~70; (b) que **una tecla i un dit** tornin la placa en menys de cent mil·lisegons —el que
+   es nota com un toc lent és aquest número—; (c) que **el que s'escriu al prompt mentre dorm no es perdi**, que és la porta que
+   no es pot perdre; (d) la deriva de la bateria en mV/hora amb el commutador encès i apagat, que és l'única mesura de
+   l'estalvi que aquesta placa pot donar (docs/50, docs/60).
 4. **El panell a dormir** (`TCON_SLEEP`, i el rail) a la quietud llarga, i el **deep sleep amb tecles** quan no hi ha cap alarma.
 
 **I el que no es pot dir sense mesurador**: els mA. Es pot mesurar el duty cycle (a sobre) i la **deriva de la bateria** en

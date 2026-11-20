@@ -27,6 +27,10 @@ int64_t esp32_wall_ms();
 // it. `esp32_arm_timer_wake` returns false when the chip refuses the deadline.
 bool esp32_arm_timer_wake(int64_t at_epoch_ms);
 void esp32_disarm_timer_wake();
+// **I quan algú altre ha esborrat els despertars** (0.190.63): una becaina arma les seves portes i les desfà totes en sortir, i el
+// temporitzador del son profund que hi havia abans ja no hi és. Això ho diu aquí, on es porta el compte, perquè el `disarm` de
+// després no demani a l'IDF que tregui una cosa que ja no hi és —que és un error que el xip escriu al registre— (docs/50).
+void esp32_note_wake_cleared();
 
 // The one clock of the board: the epoch, the monotonic counter, the armed wake and
 // where the epoch comes from.

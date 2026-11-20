@@ -16,8 +16,8 @@
 
 namespace hal {
 
-Esp32Power::Esp32Power(int wake_pin, int second_wake_pin)
-    : wake_pin_(wake_pin), second_wake_pin_(second_wake_pin) {}
+Esp32Power::Esp32Power(int wake_pin, int second_wake_pin, int glass_pin)
+    : wake_pin_(wake_pin), second_wake_pin_(second_wake_pin), glass_pin_(glass_pin) {}
 
 // **Dues portes alhora, quan el xip en sap** (0.190.29): `ext1` on a chip after the ESP32 has an «any of them low»
 // mode, and the two lines a board like the T5 E-Paper S3 Pro wires to it are exactly that —a button to ground and the
@@ -35,6 +35,64 @@ bool Esp32Power::arm_the_doors() {
 #endif
   if (wake_pin_ < 0) return false;
   return esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(wake_pin_), 0) == ESP_OK;
+}
+
+// **La becaina** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*): the chip stops its clocks
+// and the RTC brings it back with a timer of `max_ms` —o abans, si una tecla, el dit o la consola el desperten—, i el que hi ha a la
+// RAM és el mateix en tornar perquè un son lleuger no és un reset. És el que fa servir el sistema en lloc d'esperar (docs/50, docs/60,
+// docs/95).
+//
+// **Cada porta s'ha d'armar aquí i desarmar-se en sortir**: l'IDF guarda els despertars en una estructura estàtica que el son profund
+// també llegeix, o sigui que una becaina que deixi la consola armada acabaria despertant un son profund per una tecla que ja no és
+// (docs/50).
+bool Esp32Power::can_nap() const {
+  // Una tecla o el vidre: una placa sense cap de les dues només tindria el temporitzador i la consola, i el que s'hi guanya no paga
+  // el que costa perdre-hi una tecla (docs/95).
+  return wake_pin_ >= 0 || glass_pin_ >= 0;
+}
+
+bool Esp32Power::nap(int32_t max_ms) {
+  // Per sota d'aquest temps, entrar i sortir del son costa més que esperar despert.
+  const int32_t kLeastMs = 20;
+  if (max_ms < kLeastMs || !can_nap()) return false;
+
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(max_ms) * 1000ULL);
+
+  // **Les tecles i el vidre, pel nivell**: en un son lleuger el `gpio_wakeup_enable` val per a qualsevol GPIO i no només pels del
+  // domini RTC, que és el que fa possible escoltar la línia del tàctil (docs/50).
+  int lines[3] = {wake_pin_, second_wake_pin_, glass_pin_};
+  int armed[3] = {-1, -1, -1};
+  bool a_button = false;
+  for (int i = 0; i < 3; ++i) {
+    if (lines[i] < 0) continue;
+    if (gpio_wakeup_enable(static_cast<gpio_num_t>(lines[i]), GPIO_INTR_LOW_LEVEL) != ESP_OK) continue;
+    armed[i] = lines[i];
+    a_button = true;
+  }
+  if (a_button) esp_sleep_enable_gpio_wakeup();
+
+  // **I la consola**, que és la porta que no es pot perdre: aquesta placa no té teclat i el prompt és l'única manera de parlar-hi. Si
+  // el xip no la pot prendre, no es dorm: una becaina que es menja el que una persona escriu és pitjor que no estalviar res (docs/50).
+  bool ok = esp_sleep_enable_uart_wakeup(0) == ESP_OK;
+  if (ok) {
+    fflush(stdout);
+    const esp_err_t slept = esp_light_sleep_start();
+    // **Un son que el xip no ha pres es diu**: la volta que ve el sistema no el tornaria a demanar i el que quedaria és una placa que
+    // diu que estalvia i no estalvia (docs/50).
+    if (slept != ESP_OK) {
+      hal::logf(pal::kLogWarn, "POWER", "the chip did not take the nap (%d)", static_cast<int>(slept));
+      ok = false;
+    }
+  }
+  // El que hagi quedat armat es desfà: el son profund arma el que vol i no ha d'heretar res d'aquí (docs/50). I el compte del
+  // temporitzador es posa a zero amb ell, o el proper `disarm` demanaria a l'IDF que tragués un despertar que ja no hi és.
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  esp32_note_wake_cleared();
+  for (int i = 0; i < 3; ++i) {
+    if (armed[i] >= 0) gpio_wakeup_disable(static_cast<gpio_num_t>(armed[i]));
+  }
+  return ok;
 }
 
 bool Esp32Power::battery(int& mv, int& pct, bool& charging) {

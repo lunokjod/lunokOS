@@ -10522,7 +10522,22 @@ namespace kernel {
 // **períodes sencers** i que ningú no ha demanat veure (`raise` fals) es torna a armar i **no obre cap pàgina**: es diu al registre
 // quantes voltes s'ha perdut i l'app pren la mostra la propera vegada que s'obre, que és el que ja fa a l'arrencar la pàgina. Una
 // alarma d'una persona (`raise`, com les del `Clock`) es continua ensenyant encara que la placa hagi estat dies parada (docs/30, docs/60).
-static const char kVersion[] = "0.190.62";
+// **Les esperes es passen dormint** (0.190.63, l'amo: *«Implementar gestió de bateria: Settings->Battery. Afegeix: [X] Light sleep
+// instead of wait. Aplica lightSleep allá on puguis»*). El sistema passa mitja vida esperant i esperar despert és el corrent més fàcil
+// d'estalviar d'aquesta placa. La porta és `IPower::nap(max_ms)` —un son lleuger amb hora de tornada curta, que **torna sempre** i diu
+// si ha dormit— i `can_nap()` la pregunta prèvia, perquè les portes del despert són les de la placa: al Paper la tecla del dial, la
+// línia del GT911 (que cau mentre hi ha un dit i puja quan el marc s'ha pres) i la consola; als ATOM i a la T-Koala la tecla i la
+// consola; a la T5 E-Paper S3 Pro no, perquè la seva consola és el USB del xip i un son lleuger l'aturaria; a l'emulador tampoc, perquè
+// el PC no dorm. **I la consola és la porta que no es pot perdre**: si `esp_sleep_enable_uart_wakeup` falla, no es dorm.
+//
+// El nucli el fa servir **a les tres esperes que hi ha**: el torn del nucli quan no arriba res (`kernel::poll`, que és on la placa es
+// passa l'estona), la tinta del vidre (`splash::settle`, que pot ser un segon i mig per pàgina) i el marge de la targeta abans que el
+// corrent marxi (`power::settle_before_leaving`, dos segons). **I la becaina creix mentre no passa res** —quaranta mil·lisegons la
+// primera, el doble fins a un segon, i una mà a la placa la torna al mínim—, o sigui que una placa quieta costa unes quantes vegades
+// menys i una que es fa servir no paga res. El commutador és **Light sleep instead of wait** de la pestanya Battery (`cfg nap on|off`,
+// `cfg.nap()`) i ve encès; a una placa que no en sap, l'ajust es desa i no fa res, que és la diferència entre ignorar un commutador i
+// refusar-lo (docs/30, docs/45, docs/50, docs/60, docs/95).
+static const char kVersion[] = "0.190.63";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

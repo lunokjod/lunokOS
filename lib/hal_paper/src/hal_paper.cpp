@@ -207,7 +207,10 @@ class PaperPower : public Esp32Power {
   // les dues coses quan sap quina tecla és —`ext0` sobre el pin i el temporitzador—, i amb això el son de la placa torna a tenir
   // les dues portes: **l'hora que li van demanar i la tecla d'una persona**. Amb la bateria el corrent se'n va abans i l'arma
   // d'`ext0` no vol dir res; la tecla PWR és la del xip de potència i la placa torna com ha tornat sempre (docs/50, docs/60).
-  PaperPower() : Esp32Power(kPowerKeyPin) {}
+  // **I la línia del tàctil com a porta de la becaina** (0.190.63): `kTouchIntPin` cau mentre un dit és al vidre i puja quan el
+  // marc s'ha pres, o sigui que és exactament el flanc que un son lleuger necessita; no és una porta del son profund perquè aquell
+  // vol un nivell i aquesta línia va a polsos (docs/50).
+  PaperPower() : Esp32Power(kPowerKeyPin, -1, kTouchIntPin) {}
 
   bool battery(int& mv, int& pct, bool& charging) override {
     int read_mv = 0;

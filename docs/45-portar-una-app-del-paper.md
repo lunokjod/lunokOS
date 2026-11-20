@@ -336,6 +336,10 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
 - **I el dit com a porta del son** (0.190.16): la fila **Wake on touch** és `cfg.touch_wake` i ve **apagada**, perquè un panell despert per
   sentir un dit és corrent durant tota la son. La fila només hi és **on la placa hi pot sentir** (`caps.touch`), i en una placa sense tàctil el paràmetre **s'ignora**: es desa i no en
   fa res, que és el que l'amo va demanar el 19/11 (docs/30, docs/50, docs/60).
+- **I la fila «Light sleep instead of wait»** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*):
+  és `cfg.nap`, ve **encesa** i és el primer commutador de la pestanya Battery: les esperes del sistema —el torn quan no hi ha res, la
+  tinta del vidre, el marge de la targeta— es passen amb un son lleuger en lloc de despert, i la pàgina diu el que el sistema fa i no
+  el que ha demanat. Una placa que no en sap espera com sempre i el commutador no és una promesa trencada (docs/30, docs/50, docs/60).
 - **I la pestanya Battery té el son de la placa** (0.190.5, l'amo: *«On es l'opció a Settings per desactivar-ho?»*): el
   commutador **Sleep when idle** és `cfg.sleep` i el que fa és la política de la llei 9 —la placa s'apaga fins a la propera alarma
   quan ningú no l'ha tocada el temps de *Sleep after*—, que és un ajust i no una llei perquè hi ha tardes en què una persona vol la placa

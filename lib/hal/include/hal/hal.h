@@ -342,6 +342,23 @@ class IPower {
   // wake has nothing to re-initialise and nothing to repaint. It is the way down of an alarm that runs with nobody in front (docs/50,
   // docs/60).
   virtual bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) = 0;
+
+  // **Una becaina en lloc d'esperar** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*): el
+  // sistema passa mitja vida esperant —el torn del nucli quan no hi ha res, la tinta del vidre, el marge de la targeta abans de tallar
+  // el corrent— i esperar amb el processador despert és el corrent més fàcil d'estalviar d'aquesta placa: el xip atura els rellotges,
+  // la RAM i l'estat no es perden (no és un reset), i el temporitzador del RTC el torna sol. `nap(max_ms)` dorm com a molt `max_ms` i
+  // **torna sempre** —a diferència de `sleep`—, o sigui que el que l'ha demanat segueix el seu camí quan torna.
+  //
+  // **Les portes del despert són les de la placa**, i per això la resposta no és del nucli: una tecla, el dit al vidre (si és una
+  // porta) i la consola, perquè un prompt que no llegeix mentre dorm és un prompt que ha perdut el que s'hi ha escrit. `can_nap()` és
+  // la pregunta —una placa que no pot escoltar res mentre dorm diu que no, i llavors el sistema espera despert com sempre— i una placa
+  // que no en sap res no ha de fer res: la base respon que no i `nap` no dorm (docs/50, docs/60, docs/95).
+  virtual bool can_nap() const { return false; }
+  virtual bool nap(int32_t max_ms) {
+    (void)max_ms;
+    return false;
+  }
+
   // Whether this board's deep sleep is a **full power off**: the board does not sleep,
   // it stops being powered and the clock chip's alarm turns it back on (docs/50). It is
   // the least current a board can draw, and it means the wake does not come from the

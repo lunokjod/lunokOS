@@ -280,6 +280,10 @@ struct CfgOps {
   // The answer is the system's and not the page's, like the others (docs/30, docs/60).
   bool (*wake_on_touch)();
   bool (*set_wake_on_touch)(bool on);
+  // **Si les esperes es passen dormint** (0.190.63): the light sleep the system takes instead of waiting, on by default and a switch of
+  // the Battery tab. A board that cannot nap keeps the setting and does nothing with it, which is what `can_nap` answers (docs/30, docs/50).
+  bool (*nap_on)();
+  bool (*set_nap_on)(bool on);
 };
 
 void set_cfg_ops(const CfgOps& ops);
