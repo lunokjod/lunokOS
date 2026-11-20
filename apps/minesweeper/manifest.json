@@ -1,0 +1,9 @@
+{
+  "title": "Mines",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "mines.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "The field of mines: tap a cell to open it and long-press to put a flag on it.\nThe first tap is always safe, the numbers say how many mines are around, and the game is kept when the app is closed."
+}

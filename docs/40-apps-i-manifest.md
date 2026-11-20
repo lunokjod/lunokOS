@@ -440,6 +440,52 @@ que val la pena tenir aquí a mà:
   que l'aire del voltant es queda amb el que hi havia al vidre —el dibuix de l'arrencada— si l'app no
   fa un `ui.clear(15)` abans de construir la pàgina.
 
+## El primer joc escrit aquí: el Mines (0.190.76)
+
+L'amo: *«canviem de tema: Fes un joc "Minesweeper"»*. `apps/minesweeper` és un camp de nou per nou amb deu mines, i el
+joc sencer cap en set-centes línies de Lua: un toc obre una casella, una premsa llarga hi posa una bandera (o el
+commutador de la franja, per a qui no vulgui esperar un segon), i **tocar un número que ja és obert obre el que li
+falta** quan les banderes del voltant són exactament el número —el *chord* de tots els buscaminas—. Guanya qui obre
+totes les caselles que no són mina, i les mines es marquen totes soletes en aquell moment: una bandera en una casella
+equivocada **no** impedeix guanyar, perquè una partida que no es pot acabar perquè una bandera és al lloc dolent és una
+partida que una persona deixa de jugar.
+
+**El primer toc d'una partida és segur** (0.190.76): les mines no són al camp fins que un dit obre la primera casella,
+i llavors es reparteixen fora d'aquella casella i de les vuit del voltant. És l'única manera que la primera tirada no
+perdi en un camp on la persona no ha vist cap número encara; el preu és que el camp no existeix fins al primer toc, i
+per això el `save` desa també `placed` —una partida desada abans del primer toc no té mines i no n'ha de tenir—.
+
+**El camp és dada i el commutador és forma** (docs/45): les tres taules de 81 caràcters —la mina, l'oberta i la
+bandera—, més `placed`, `over` i `won`, són a `fs.data('game.txt')`, que una partida ha de sobreviure a un apagat; el
+bloc `state` dels 1024 bytes només guarda `flag=0|1`, que és què vol dir un toc en aquesta pàgina. El fitxer comença
+amb `9` i `10` —la mida del camp i les mines— i un fitxer d'un altre camp és una partida nova i no una pàgina amb els
+números equivocats.
+
+**Es pinta casella a casella i amb un sol `present`** (docs/30, docs/92): el tauler no viatja, o sigui que un toc
+pinta les caselles que han canviat (`dirty`, que és el que torna `openCell` i `chord`) en la qualitat que neteja i prou;
+la pàgina sencera es torna a pintar quan canvia la forma (una mida nova del vidre, un «New»). La bandera són cinc
+rectangles i cap dibuix —el pal, el drap en tres graons i el peu—, i els números van amb la tinta grisa de la cara,
+que al paper es llegeix igual que la negra i deixa la negra per a la bandera i les mines.
+
+**Dues coses les va ensenyar la pàgina del Paper i no el codi** (0.190.76, mirant el `--dump`):
+
+- **El fill d'un control es col·loca dins del control, i `place` d'un fill compta des del seu marc.** La paraula «Flag»
+  es col·locava amb la x de la pàgina i sortia fora del commutador, on el control la retallava: a la pàgina es veia el
+  dial amb la seva càpsula i **sense la paraula**, i el codi era correcte tret d'aquest número. És el que diu
+  [docs/30](30-api-lua.md) i el que la pàgina va dir.
+- **La línia del peu té tota l'amplada de la pàgina i no la del tauler**: un `ui.label` que no hi cap acaba amb punts
+  suspensius, i el peu d'aquest joc és l'única cosa que explica què fa un toc i què fa una premsa llarga. Amb l'amplada
+  del tauler quedava en «Tap to open, hold a second to f…», que no diu res; amb l'amplada de la pàgina hi cap sencera.
+
+**Un joc també ha de poder-se mirar sense jugar-lo** (docs/45): `run minesweeper keys` diu la geometria que ha sortit
+del `measure` —la casella, el tauler, el botó i el commutador— i `run minesweeper full` aixeca un camp acabat de jugar
+—una mina cada set caselles i tot el que no és mina obert, que és la victòria— per veure els números, les banderes i el
+peu d'una partida guanyada en una captura, que és com es va trobar el peu tallat.
+
+**La icona és una mina dibuixada** (0.190.76): `res/icon-source.png` és el dibuix de 448 × 448 —la bola amb les vuit
+puntes, la llum i el terra— i `res/icon.png` en surt amb `tools/make_icon.py` a 94 × 94, com la de la resta del disc
+(1 289 B).
+
 ## Una app sense pàgina: l'arc iris del Matrix (0.179.18)
 
 L'amo: *«fes una app de demo per l'M5Atom Matrix: Leds multicolor com l'arc iris i amb canvis de to suaus i amb
@@ -733,7 +779,7 @@ pàgina de l'error no arribava mai. Ara compara dues taules, que sí que és un 
 passar desapercebuda (docs/30, docs/80).
 
 Les altres apps —`about`, **`agenda` (0.189.171)**, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
-`home_eink`, `life`, **`meteo` (0.189.169)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i
+`home_eink`, `life`, **`meteo` (0.189.169)**, **`minesweeper` (0.190.76)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i
 `rainbow`, amb **`brokenapp`**— segueixen la
 mateixa convenció,
 amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0

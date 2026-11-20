@@ -10678,7 +10678,15 @@ namespace kernel {
 // lleva es perden, i una línia escrita a mà surt tallada. La becaina mira **dues coses abans de demanar-se**: que el port no estigui cedit a
 // una app (`serial::claimed()`) i que la placa porti **deu segons de silenci** (`quiet_ms()`, que és el comptador que mouen els bytes de la
 // consola i les mans al vidre). Per sota d'això el que mana és el port (docs/30, docs/50, docs/95).
-static const char kVersion[] = "0.190.75";
+//
+// **El primer joc escrit en aquest sistema és un buscaminas** (0.190.76, l'amo: *«canviem de tema: Fes un joc "Minesweeper"»*):
+// `apps/minesweeper`, un camp de nou per nou amb deu mines en set-centes línies de Lua. **El primer toc és segur** perquè les mines no es
+// reparteixen fins que un dit obre la primera casella, i es fan fora d'aquella i de les vuit del voltant; una casella buida obre la seva
+// vorera amb una pila i no amb recursió (noranta-un fulls de Lua en cinquanta kilobytes no hi caben); els números es toquen per obrir el que
+// els falta quan les banderes del voltant són exactament el número; i una bandera en una casella equivocada **no** impedeix guanyar, perquè
+// una partida que no es pot acabar és una partida que es deixa. El camp és dada (`fs.data('game.txt')`, vuit línies) i el commutador que
+// diu què fa un toc és forma (`state`), i la pàgina es pinta casella a casella amb un sol `present` (docs/40, docs/45).
+static const char kVersion[] = "0.190.76";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

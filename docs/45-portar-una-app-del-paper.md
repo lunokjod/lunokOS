@@ -189,8 +189,8 @@ dins de la mateixa encesa i mai a través d'un reinici; **l'excepció és la tor
 ha de ser la que la persona va deixar i el `state` és el que la fa (docs/30 § la sessió `state`, docs/60).
 
 **Quin full hi ha de mapejar què, i quins no hi han de mapejar res** (repàs complet, 0.189.52, i la calculadora des de la
-0.189.165): la sessió `state` la tenen avui **divuit de les vint-i-tres apps** del disc, i les cinc que no la tenen és una decisió
-dita al fitxer i no un oblit.
+0.189.165): la sessió `state` la tenen avui **dinou de les vint-i-quatre apps** del disc —la vint-i-quarta és el `minesweeper`
+(0.190.76, docs/40)—, i les cinc que no la tenen és una decisió dita al fitxer i no un oblit.
 
 | App | Què va a `state` |
 |---|---|
@@ -209,6 +209,7 @@ dita al fitxer i no un oblit.
 | `calculator` | `entry`/`acc` (el número que s'està teclejant o l'acumulat), `pending` (l'operació que espera el segon operand), `fresh` i `failed` —el que la pantalla diu, amb la línia de dalt— i **una línia `h=` per operació de l'historial** (0.189.165, l'amo: *«la calculador ha de tenir també session state, per el número de la pantalla i l'historial d'operacions»*). La 0.189.52 havia dit que no hi anava i el que ho va fer canviar és que una calculadora que es torna a obrir amb un zero i sense l'última suma no és la que la persona va deixar; **l'historial no és un document** —un document ha de sobreviure a `sessions destroy` i va a `fs.data`— i se'n guarden les últimes dotze |
 | `agenda` | **la pàgina sencera i el que s'hi està fent** (0.189.171): `page` (el mes, el dia o el formulari), `day`/`y`/`mo` (el dia obert i el mes que el calendari ensenyava), `marked` (l'esdeveniment amb el cercle), `editing` (el número de l'esdeveniment que el formulari escriu, o 0 per a un de nou), i les tries del formulari —`hour`, `min`, `len`, `rep` i `formy`/`formmo`/`formd`— amb **`text:title` i `text:note`** i `check:all_day`, que és el que la persona havia escrit i el que no s'ha de perdre quan la pàgina es reprèn. **Els esdeveniments no hi són**: són dada de l'app i tenen el seu fitxer a `fs.data` |
 | `appinfo`, `battery`, `clock`, `meteo` | **el que la seva pàgina és**: `appinfo` la pestanya i el detall obert (`page`, `focus`, `marked`), `battery` el cercle i prou —**la finestra del gràfic és una preferència i viu a `fs.data`**, que és la línia que separa la forma del gust—, `clock` la pestanya dels quatre fulls, el cercle i la fila triada (`tab`, `focus`, `marked`), i `meteo` el focus dels tres botons de la finestra —**la finestra triada i el registre de mostres són a `fs.data`**, i el registre no és forma sinó història— |
+| `minesweeper` | `flag` = el commutador de la franja, que és què vol dir un toc en aquesta pàgina; **el camp no hi és**, que una partida és dada i viu a `fs.data('game.txt')` (0.190.76) |
 | `2048`, `brokenapp`, `device_lock`, `luaperf`, `rainbow` | **res**: no tenen cap control amb cercle ni cap pàgina que tornar (les setze cel·les del 2048 són la partida, `rainbow` no té ni `ui`, `brokenapp` és un full de set botons que no recorda res, el pany és una pàgina que es tanca sola i `luaperf` és un instrument de mesura). Un bloc buit seria un kilobyte per no dir res |
 
 **I el que va fer possible que totes aquestes tornessin de debò** (0.189.52): el bloc es llegia amb els zeros del darrere
