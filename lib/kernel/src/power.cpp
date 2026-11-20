@@ -746,13 +746,20 @@ bool can_nap() { return (g_power != nullptr) && g_power->can_nap(); }
 
 int32_t nap_ms() { return g_nap_ms; }
 
+// **Si el darrer `nap` ha estat un son de debò** (0.190.70): l'escala de la becaina només ha de créixer quan el xip ha dormit, i el
+// que la feia créixer era el torn i no el son —la línia del sostre deia «mil mil·lisegons per torn» en una placa que no havia dormit
+// mai— (docs/95).
+bool g_napped = false;
+
 bool nap(int32_t wait_ms) {
+  g_napped = false;
   if (!g_nap_on || g_power == nullptr || wait_ms < kNapLeastMs) return false;
   // **La becaina no pot durar més del que qui espera ha demanat** i no creix més enllà del sostre: el temporitzador del xip és el que
   // ha de tornar la placa, i una espera curta no s'ha de convertir en una de llarga (docs/50, docs/60).
   int32_t asked = (wait_ms < g_nap_ms) ? wait_ms : g_nap_ms;
   if (asked > kNapMostMs) asked = kNapMostMs;
   if (!g_power->nap(asked)) return false;
+  g_napped = true;
   ++g_nap_run;
   g_nap_run_ms += asked;
   return true;
@@ -769,6 +776,12 @@ void note_the_nap_end(bool something_happened) {
     }
     g_nap_run = 0;
     g_nap_run_ms = 0;
+    g_nap_ms = kNapFirstMs;
+    return;
+  }
+  // **L'escala només creix si el xip ha dormit** (0.190.70): sinó, el que creix és el torn i la línia del sostre és una mentida sobre
+  // una placa que no ha dormit mai.
+  if (!g_napped) {
     g_nap_ms = kNapFirstMs;
     return;
   }

@@ -61,7 +61,11 @@ bool Esp32Power::arm_the_doors() {
 bool Esp32Power::can_nap() const {
   // Una tecla o el vidre: una placa sense cap de les dues només tindria el temporitzador i la consola, i el que s'hi guanya no paga
   // el que costa perdre-hi una tecla (docs/95).
-  return wake_pin_ >= 0 || glass_pin_ >= 0;
+  //
+  // **I un xip que ha dit que no ja no en pren en aquest run** (0.190.70): el nucli fa servir aquesta resposta per decidir si la volta pot
+  // esperar la becaina o si ha de mirar la mà cada deu mil·lisegons, o sigui que dir que sí a una placa que refusa el son seria deixar una
+  // tecla sense llegir fins a un segon (docs/50, docs/30).
+  return (wake_pin_ >= 0 || glass_pin_ >= 0) && !g_nap_refused;
 }
 
 // **Qui ha despertat la becaina, en una paraula** (0.190.64): el temporitzador és el cas normal i no diu res, però una becaina
@@ -87,6 +91,14 @@ bool Esp32Power::nap(int32_t max_ms) {
   // **Una placa que ha dit que no no es torna a preguntar** (0.190.69, el registre del 20/11: *«el xip no ha pres la becaina (259)»*):
   // 259 és `ESP_ERR_SLEEP_REJECT`, i el que fa és que el sistema pagui una crida que no dormeix a cada volta (docs/50, docs/95).
   if (g_nap_refused) return false;
+
+  // **I un dit que ja és a sobre no espera un segon** (0.190.70): si la línia del vidre ja és baixa, no s'arma —no pot despertar res que
+  // ja és despert— i el que torna el xip és el temporitzador; o sigui que la becaina s'escurça perquè el contacte es llegeixi sovint i el
+  // que una persona nota no sigui un dit que va a salts (docs/50, docs/30).
+  const int32_t kContactMs = 50;
+  if (glass_pin_ >= 0 && gpio_get_level(static_cast<gpio_num_t>(glass_pin_)) == 0 && max_ms > kContactMs) {
+    max_ms = kContactMs;
+  }
 
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(max_ms) * 1000ULL);

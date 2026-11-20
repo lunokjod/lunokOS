@@ -453,6 +453,14 @@ no hi ha cap transacció a mitges i on una becaina que surt malament costa un to
 - **La becaina creix mentre no passa res**: quaranta mil·lisegons la primera, i el doble fins a un segon; una mà a la placa —una tecla,
   un dit, un byte al prompt— la torna al mínim. És el que fa que una placa quieta costi unes quantes vegades menys sense que una placa
   que es fa servir pagui res (docs/95).
+- **I l'escala només creix si el xip ha dormit** (0.190.70): la línia del sostre sortia en una placa que no havia dormit mai, perquè el
+  que pujava l'escala era el torn i no el son.
+- **La mà no es mira cada deu mil·lisegons si el xip pot dormir** (0.190.70). El torn escurça l'espera a deu mil·lisegons quan la placa
+  té una tecla o un vidre, i una becaina no es demana mai per sota de vint: **el sistema no demanava la becaina enlloc**, i l'únic lloc
+  que la demanava amb una espera llarga era el marge de la targeta —d'aquí el `259` del registre del 20/11—. Ara la tecla i el dit són
+  el despertar i el que dona la resposta és l'escala; un vidre amb un contacte a mitges escurça la becaina a cinquanta mil·lisegons,
+  perquè la línia ja és baixa i no pot despertar res. I una placa que ha dit que no tres vegades es torna a mirar cada deu
+  mil·lisegons, perquè `can_nap()` es tanca amb ella (docs/30, docs/50).
 - **Les portes són les de la placa** i les decideix `IPower::can_nap()`: al Paper, la tecla del dial, **la línia del GT911** i la
   consola; als ATOM i a la T-Koala, la tecla i la consola; a la T5 E-Paper S3 Pro **no**, perquè la seva consola és el USB del xip i un
   son lleuger l'aturaria; a l'emulador tampoc, perquè el PC no dorm (docs/50).

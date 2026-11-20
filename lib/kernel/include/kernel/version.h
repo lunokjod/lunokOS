@@ -10614,7 +10614,21 @@ namespace kernel {
 // mil·lisegons** per a aquesta espera: el que es pot perdre és mitja línia del registre, i el que es perdia era la placa (docs/50, docs/60).
 // I la baixada diu on és (`the way down: the console first`, `… the picture is on the glass, and now the chip`) perquè la propera
 // vegada el registre ho digui tot (docs/50).
-static const char kVersion[] = "0.190.69";
+// **El torn esperava deu mil·lisegons, i una becaina en vol vint** (0.190.70, el registre de l'amo del 20/11: *«I el Light Sleep? No veig
+// cap event de light sleep»* — i tenia raó: no n'hi havia cap, i no era el xip qui el refusava). El torn del nucli escurça l'espera a deu
+// mil·lisegons quan la placa té una tecla o un vidre, perquè una placa desperta només sap d'una premsa quan la pregunta; i `nap` només
+// es pregunta a partir de vint. O sigui que **el sistema no demanava mai la becaina**: l'únic lloc que la demanava amb una espera llarga
+// era el marge de la targeta, i d'aquí el `259` del registre.
+//
+// Ara la mà només es mira cada deu mil·lisegons **si el xip no pot dormir** (`power::nap_on() && power::can_nap()`): a una placa que fa
+// becaines la tecla i el dit **són el despertar** —la porta és armada i el xip aturat—, i la resposta a una persona la dona l'escala de
+// la becaina, que comença a quaranta mil·lisegons i dobla mentre no passa res. Un vidre amb un contacte a mitges escurça la becaina a
+// cinquanta mil·lisegons, perquè la línia ja és baixa i no pot despertar res.
+//
+// **I l'escala només creix si el xip ha dormit**: la línia del sostre (`the nap is at its ceiling: 1000 ms a turn`) sortia en una placa
+// que no havia dormit mai, perquè el que pujava l'escala era el torn i no el son. I `can_nap()` es tanca després de tres refusos, o sigui
+// que una placa que diu que no torna sola a mirar la mà cada deu mil·lisegons (docs/30, docs/50, docs/95).
+static const char kVersion[] = "0.190.70";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
