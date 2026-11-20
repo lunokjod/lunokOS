@@ -83,6 +83,10 @@ bool set_nap_on(bool on);
 bool can_nap();
 bool nap(int32_t wait_ms);
 int32_t nap_ms();
+// **Una becaina demanada, per mirar-la** (0.190.71): one sleep of `ms` with no ladder and no switch, which is what `power nap` runs to
+// say how long it lasted and what brought the chip back. És com se sap si una tecla o un dit desperten un son lleuger en una placa
+// (docs/50, docs/95).
+bool nap_now(int32_t ms);
 void note_the_nap_end(bool something_happened);
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);

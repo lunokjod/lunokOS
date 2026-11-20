@@ -455,12 +455,13 @@ no hi ha cap transacció a mitges i on una becaina que surt malament costa un to
   que es fa servir pagui res (docs/95).
 - **I l'escala només creix si el xip ha dormit** (0.190.70): la línia del sostre sortia en una placa que no havia dormit mai, perquè el
   que pujava l'escala era el torn i no el son.
-- **La mà no es mira cada deu mil·lisegons si el xip pot dormir** (0.190.70). El torn escurça l'espera a deu mil·lisegons quan la placa
-  té una tecla o un vidre, i una becaina no es demana mai per sota de vint: **el sistema no demanava la becaina enlloc**, i l'únic lloc
-  que la demanava amb una espera llarga era el marge de la targeta —d'aquí el `259` del registre del 20/11—. Ara la tecla i el dit són
-  el despertar i el que dona la resposta és l'escala; un vidre amb un contacte a mitges escurça la becaina a cinquanta mil·lisegons,
-  perquè la línia ja és baixa i no pot despertar res. I una placa que ha dit que no tres vegades es torna a mirar cada deu
-  mil·lisegons, perquè `can_nap()` es tanca amb ella (docs/30, docs/50).
+- **La mà mana sobre la becaina, i el topall de deu mil·lisegons es queda** (0.190.71). La 0.190.70 el va treure donant per fet que la
+  tecla i el dit despertarien el son lleuger; **al Paper no ho van fer** i la placa va quedar a un segon per torn amb el tàctil llegit un
+  cop per segon. Una placa que no pot respondre a un dit no pot dormir.
+- **I per això hi ha `power nap [ms]`**: demana un son lleuger d'un segon i diu què l'ha tornat (`a nap of 987 ms ended by a key or the
+  glass`, o que el xip no l'ha pres). És l'instrument que diu si el vidre d'aquesta placa és una porta del son lleuger, que és el que
+  decideix si el torn pot esperar-lo. I una tanda de becaines **es diu sola cada deu segons de son** (`250 nap(s), 41000 ms asleep, and
+  nothing has happened`), perquè la línia que només sortia quan una mà la tancava no la veia mai una placa quieta (docs/50, docs/95).
 - **Les portes són les de la placa** i les decideix `IPower::can_nap()`: al Paper, la tecla del dial, **la línia del GT911** i la
   consola; als ATOM i a la T-Koala, la tecla i la consola; a la T5 E-Paper S3 Pro **no**, perquè la seva consola és el USB del xip i un
   son lleuger l'aturaria; a l'emulador tampoc, perquè el PC no dorm (docs/50).

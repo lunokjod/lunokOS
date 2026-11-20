@@ -892,18 +892,16 @@ void poll() {
   // less than a press that arrives now. A board with no key and no glass —the T-Koala— keeps the long wait, because there
   // is no hand to miss (docs/30, docs/50).
   //
-  // **I la mà no es mira cada deu mil·lisegons si el xip pot dormir** (0.190.70): this clamp exists because a board that waits awake
-  // only learns of a key when it asks, and it is what made the light sleep impossible —the turn waited ten milliseconds, and a nap is
-  // asked for only when there are twenty or more, so the system never asked for one at all—. A board that naps hears the key and the
-  // glass **as a wake**: the door is armed, the chip stops, and the press is what brings it back. La becaina creix de quaranta
-  // mil·lisegons a un segon mentre no passa res, o sigui que la resposta a una persona és la de sempre i el que s'estalvia és l'estona
-  // en què no hi havia ningú (docs/30, docs/50, docs/95).
+  // **I la mà mana sobre la becaina** (0.190.71): the turn is ten milliseconds when the board has a key or a glass, and it stays that
+  // way. La 0.190.70 li va treure aquest topall quan el xip podia dormir, donant per fet que la tecla i el dit despertarien el son
+  // lleuger; al Paper no ho van fer i el resultat va ser una placa que anava a un segon per torn i un tàctil mort. **Una placa que no
+  // pot respondre a un dit no pot dormir**: la becaina només pot escurçar una espera que la placa pot despertar, i això es prova amb
+  // `power nap` (docs/30, docs/50, docs/95).
   bool hand = button::available();
 #if LUNOK_GLASS
   hand = hand || touch::available();
 #endif
-  const bool the_chip_can_sleep = power::nap_on() && power::can_nap();
-  if (hand && !the_chip_can_sleep && wait > kInputPeriodMs) wait = kInputPeriodMs;
+  if (hand && wait > kInputPeriodMs) wait = kInputPeriodMs;
 
   // **Què ha despertat la volta** (0.189.85): a turn that came back because something happened and a turn that came back
   // because its ten milliseconds were over are two different lives for the board, and the wait is measured apart from the

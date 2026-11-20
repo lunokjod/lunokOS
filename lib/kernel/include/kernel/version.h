@@ -10628,7 +10628,18 @@ namespace kernel {
 // **I l'escala només creix si el xip ha dormit**: la línia del sostre (`the nap is at its ceiling: 1000 ms a turn`) sortia en una placa
 // que no havia dormit mai, perquè el que pujava l'escala era el torn i no el son. I `can_nap()` es tanca després de tres refusos, o sigui
 // que una placa que diu que no torna sola a mirar la mà cada deu mil·lisegons (docs/30, docs/50, docs/95).
-static const char kVersion[] = "0.190.70";
+// **Una placa que no pot respondre a un dit no pot dormir** (0.190.71, l'amo del 20/11: *«El tàctil ha deixat de funcionar. la màquina va
+// lenta… que collons has fet? i CONTINUO SENSE VEURE AVISOS DE LIGHTSLEEP»*). La 0.190.70 va treure el topall de deu mil·lisegons del torn
+// donant per fet que la tecla i el dit despertarien el son lleuger; al Paper **no ho van fer** —el xip dormia el segon sencer del
+// temporitzador— i el resultat va ser una placa que anava a un segon per torn, un tàctil que només es llegia un cop per segon i cap
+// línia, perquè una becaina que s'acaba amb el temporitzador és el cas normal i no diu res.
+//
+// El topall torna. **El que sí que es queda és el que fa que es pugui provar**: `power nap [ms]` demana un son lleuger i diu què l'ha
+// tornat (`a nap of 987 ms ended by a key or the glass`), que és l'única cosa que diu si el vidre d'aquesta placa és una porta del son
+// lleuger; i **una tanda de becaines es diu sola cada deu segons de son** (`250 nap(s), 41000 ms asleep, and nothing has happened`), que
+// és el que converteix «no en veig cap» en un número. I si la consola no pot ser una porta, el xip ho diu en comptes de callar: un
+// `esp_sleep_enable_uart_wakeup` que falla deixava la becaina sense demanar i sense cap línia (docs/30, docs/50, docs/95).
+static const char kVersion[] = "0.190.71";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

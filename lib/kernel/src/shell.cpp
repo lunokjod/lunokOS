@@ -3726,6 +3726,29 @@ bool command_power(const char* argument) {
     return true;
   }
 
+  // **`power nap [ms]`**: una becaina i el que l'ha tornada (0.190.71). És l'instrument que diu si aquesta placa pot dormir de debò: es
+  // demana un son lleuger d'un segon, es toca el vidre o es prem una tecla, i el registre diu quina porta s'ha obert i quants mil·lisegons
+  // ha durat —o que el xip no l'ha presa— (docs/50, docs/95).
+  if (count > 0 && strcmp(words[0], "nap") == 0) {
+    int32_t ms = 1000;
+    if (count == 2) {
+      const int32_t asked = static_cast<int32_t>(strtoll(words[1], nullptr, 10));
+      if (asked > 0) ms = asked;
+    }
+    if (!power::can_nap()) {
+      out("nap: this board does not take a light sleep\r\n");
+      return false;
+    }
+    const bool slept = power::nap_now(ms);
+    out("nap: ");
+    out(slept ? "slept " : "did not sleep ");
+    out_num(static_cast<uint32_t>(slept ? ms : 0));
+    out(" ms");
+    if (!slept) out(" (the chip refused it, or there was no door to come back from)");
+    out("\r\n");
+    return slept;
+  }
+
   if (count > 0 && strcmp(words[0], "last") == 0) {
     if (count != 1) {
       usage_out("usage: power last\r\n");

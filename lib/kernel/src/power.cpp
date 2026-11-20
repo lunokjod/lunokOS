@@ -731,6 +731,15 @@ int32_t g_nap_ms = kNapFirstMs;
 // consola tornen el xip— i quan l'escala arriba al sostre (docs/60, docs/75, docs/95).
 uint32_t g_nap_run = 0;
 int64_t g_nap_run_ms = 0;
+// **I cada deu segons de son es diu sol** (0.190.71): la línia de la tanda només sortia quan una mà la tancava, o sigui que una placa
+// quieta —la que dorm de debò— no en deia mai cap. El que es compara és el comptador amb l'últim que es va dir, perquè la línia
+// surti cada deu segons i no a cada becaina (docs/60, docs/95).
+int64_t g_nap_said_ms = 0;
+const int64_t kNapSayEveryMs = 10000;
+// **Si el darrer `nap` ha estat un son de debò** (0.190.70): l'escala de la becaina només ha de créixer quan el xip ha dormit, i el
+// que la feia créixer era el torn i no el son —la línia del sostre deia «mil mil·lisegons per torn» en una placa que no havia dormit
+// mai— (docs/95).
+bool g_napped = false;
 const int32_t kNapRunSayMs = 1000;  // una tanda d'un segon ja diu alguna cosa; per sota, no val una línia
 
 bool nap_on() { return g_nap_on; }
@@ -744,12 +753,20 @@ bool set_nap_on(bool on) {
 
 bool can_nap() { return (g_power != nullptr) && g_power->can_nap(); }
 
-int32_t nap_ms() { return g_nap_ms; }
+// **Una becaina demanada des del prompt** (0.190.71): the ladder and the switch are for the turn, and what a person wants to see is one
+// sleep with a number —how long it lasted and what brought the chip back—. És l'instrument que diu si la tecla o el vidre desperten un
+// son lleuger en aquesta placa, que és el que decideix si la volta pot esperar-lo (docs/50, docs/95).
+bool nap_now(int32_t ms) {
+  if (g_power == nullptr) return false;
+  g_napped = g_power->nap(ms);
+  if (g_napped) {
+    ++g_nap_run;
+    g_nap_run_ms += ms;
+  }
+  return g_napped;
+}
 
-// **Si el darrer `nap` ha estat un son de debò** (0.190.70): l'escala de la becaina només ha de créixer quan el xip ha dormit, i el
-// que la feia créixer era el torn i no el son —la línia del sostre deia «mil mil·lisegons per torn» en una placa que no havia dormit
-// mai— (docs/95).
-bool g_napped = false;
+int32_t nap_ms() { return g_nap_ms; }
 
 bool nap(int32_t wait_ms) {
   g_napped = false;
@@ -776,6 +793,7 @@ void note_the_nap_end(bool something_happened) {
     }
     g_nap_run = 0;
     g_nap_run_ms = 0;
+    g_nap_said_ms = 0;
     g_nap_ms = kNapFirstMs;
     return;
   }
@@ -784,6 +802,14 @@ void note_the_nap_end(bool something_happened) {
   if (!g_napped) {
     g_nap_ms = kNapFirstMs;
     return;
+  }
+  // **I una tanda llarga de becaines es diu sola** (0.190.71, l'amo: *«CONTINUO SENSE VEURE AVISOS DE LIGHTSLEEP»*): fins ara l'única
+  // línia d'una tanda sortia quan passava alguna cosa, i una placa quieta —que és la que dorm— no ho feia mai. Cada deu segons de son es
+  // diu quant n'hi ha hagut i en quantes becaines, que és el que converteix «no en veig cap» en un número (docs/95).
+  if (g_nap_run_ms - g_nap_said_ms >= kNapSayEveryMs) {
+    g_nap_said_ms = g_nap_run_ms;
+    log_printf(pal::kLogDebug, "POWER", "%u nap(s), %lld ms asleep, and nothing has happened",
+               static_cast<unsigned>(g_nap_run), static_cast<long long>(g_nap_run_ms));
   }
   if (g_nap_ms < kNapMostMs && g_nap_ms >= kNapMostMs / 2) {
     // **L'escala ha arribat al sostre**: una línia i prou, que és el que diu que la placa es pot passar hores dormint a trossos

@@ -125,6 +125,15 @@ bool Esp32Power::nap(int32_t max_ms) {
   // **I la consola**, que és la porta que no es pot perdre: aquesta placa no té teclat i el prompt és l'única manera de parlar-hi. Si
   // el xip no la pot prendre, no es dorm: una becaina que es menja el que una persona escriu és pitjor que no estalviar res (docs/50).
   bool ok = esp_sleep_enable_uart_wakeup(0) == ESP_OK;
+  // **I si el xip no pren la consola com a porta, es diu** (0.190.71): aquest `no` era mut, i una becaina que no es demana perquè la seva
+  // porta no s'ha pogut armar és exactament el que una persona no pot distingir d'una placa que no dorm (docs/50).
+  if (!ok) {
+    ++g_nap_refusals;
+    if (g_nap_refusals == 1) {
+      hal::logf(pal::kLogWarn, "POWER", "the console cannot be a door of the light sleep, so there is none");
+    }
+    g_nap_refused = true;
+  }
   if (ok) {
     fflush(stdout);
     const int64_t before_us = esp_timer_get_time();
