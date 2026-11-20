@@ -13,6 +13,13 @@
 
 #include "epd_highlevel.h"
 #include "epdiy.h"
+
+// **Les dues funcions del rellotge de la llibreria** (0.190.84): `lcd_driver.c` és C i la seva capçalera no té `extern "C"`, o sigui
+// que des d'aquí s'han de declarar amb l'enllaç del C o el nom no coincideix i no enllaça (docs/50, docs/95).
+extern "C" {
+int epd_lcd_pixel_clock_MHz();
+void epd_lcd_set_pixel_clock_MHz(int frequency);
+}
 #include "hal/log.h"
 
 namespace hal {
@@ -88,8 +95,9 @@ bool Epd47::begin() {
   // **I el corrent no es queda obert** (0.190.60): their own firmware powers the supply **around every update** —`epd_poweron()`
   // … `epd_hl_update_screen()` … `epd_poweroff()`— i les tensions enceses tot el dia són una tinta que es mou quan no toca
   // (docs/50, docs/95).
-  logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass, the waveform of the maker (TC2, seven temperatures)", "2.0.0",
-       static_cast<unsigned>(epd_width()), static_cast<unsigned>(epd_height()));
+  logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass at %u MHz, the waveform of the maker (TC2, seven temperatures)", "2.0.0",
+       static_cast<unsigned>(epd_width()), static_cast<unsigned>(epd_height()),
+       static_cast<unsigned>(epd_lcd_pixel_clock_MHz()));
   return true;
 }
 
@@ -306,6 +314,29 @@ bool Epd47::set_vcom_mv(uint16_t mv) {
   epd_poweron();
   powered_ = true;
   logf(pal::kLogInfo, "PANEL", "the supply now holds VCOM at %u mV", static_cast<unsigned>(mv));
+  return true;
+}
+
+uint32_t Epd47::bus_mhz() const {
+  // **El número de debò i no el que es va demanar**: epdiy baixa el rellotge sol quan la línia de la memòria cau no li agrada, o sigui
+  // que el que compta és el que el perifèric té posat (docs/50, docs/95).
+  return begun_ ? static_cast<uint32_t>(epd_lcd_pixel_clock_MHz()) : 0u;
+}
+
+bool Epd47::set_bus_mhz(uint32_t mhz) {
+  // **Els límits són del panell**: vint megahertz és el que la seva taula dona i el que el seu firmware fa servir, i res per sota de dos
+  // no paga el viatge; entremig, el que la placa aguanti és el que es veu (docs/50).
+  if (mhz < 2 || mhz > 26) {
+    error_ = "the bus of this panel does not take that clock";
+    return false;
+  }
+  if (!begun_) {
+    error_ = "the glass is not up yet";
+    return false;
+  }
+  epd_lcd_set_pixel_clock_MHz(static_cast<int>(mhz));
+  logf(pal::kLogInfo, "PANEL", "the pixels travel at %u MHz (asked for %u)", static_cast<unsigned>(bus_mhz()),
+       static_cast<unsigned>(mhz));
   return true;
 }
 

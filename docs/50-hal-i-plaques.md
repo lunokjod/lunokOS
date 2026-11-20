@@ -941,6 +941,15 @@ les ordres de la targeta tornen espatllades. Ara la placa declara els xips que c
 reintenta**: 10 MHz → 5 MHz → 400 kHz, tres intents, perquè una targeta que respon a la prova i llavors es rendeix
 és una targeta massa apressada i no un disc trencat.
 
+**I el rellotge del vidre, que anava a un quart** (0.190.84). El log de la placa ho deia i no ho vaig veure:
+`Reducing the pixel clock from 20 MHz to 10 MHz` i tot seguit `from 10 MHz to 5 MHz`, en la mateixa arrencada. No és el
+panell: `epd_lcd_init` de la llibreria crida **dues vegades** `check_cache_configuration()` —una des
+d'`assign_lcd_parameters_from_config` i una altra ella mateixa— i aquesta funció **divideix el rellotge per dos** cada
+cop, perquè l'Arduino d'aquest projecte munta la memòria cau de dades en línies de 32 bytes i epdiy les vol de 64. Amb la
+crida duplicada, cada fila costava quatre vegades el que tocava: una finestra de 48 × 540 es pagava en **1661 ms**. La
+duplicada s'ha tret (canvi local marcat dins de `lib/epdiy`), i `panel bus <mhz>` mou el rellotge en calent perquè sigui la
+placa qui digui si aguanta els vint.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

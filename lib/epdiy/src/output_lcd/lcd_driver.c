@@ -567,7 +567,13 @@ void epd_lcd_init(const LcdEpdConfig_t* config, int display_width, int display_h
     esp_err_t ret = ESP_OK;
     assign_lcd_parameters_from_config(config, display_width, display_height);
 
-    check_cache_configuration();
+    // **CANVI LOCAL de lunokOS (0.190.84)**: aquí hi havia una segona crida a `check_cache_configuration()`, i la primera ja la fa
+    // `assign_lcd_parameters_from_config()` unes línies més amunt. Com que la funció **divideix el rellotge per dos cada cop que es
+    // crida**, el panell s'inicialitzava a la meitat del que tocava i després a la meitat d'això: 20 MHz → 10 → **5**, amb el log dient
+    // dues vegades «Reducing the pixel clock». Amb les dues crides, cada fila costava quatre vegades el que havia de costar i una
+    // finestra de 48x540 es pagava en 1661 ms. Es treu la duplicada i prou; la política de la llibreria (baixar el rellotge quan la
+    // línia de cau de 64 bytes) queda exactament com era (docs/50).
+    // check_cache_configuration();
 
     ret = allocate_lcd_buffers();
     ESP_GOTO_ON_ERROR(ret, err, TAG, "lcd buffer allocation failed");
@@ -608,6 +614,10 @@ void epd_lcd_deinit() {
 
     ESP_LOGI(TAG, "LCD deinitialized.");
 }
+
+// **CANVI LOCAL de lunokOS (0.190.84)**: el rellotge que el driver té de debò, perquè el sistema el pugui dir en lloc d'endevinar-lo
+// (el de la configuració pot haver estat dividit per dos abans d'arribar aquí).
+int epd_lcd_pixel_clock_MHz() { return (int)(lcd.config.pixel_clock / 1000 / 1000); }
 
 void epd_lcd_set_pixel_clock_MHz(int frequency) {
     lcd.config.pixel_clock = frequency * 1000 * 1000;

@@ -10745,7 +10745,13 @@ namespace kernel {
 // quins altres xips té al mateix bus i amb quin nivell es queden fora (`kSdQuietPins`), la muntanya els posa així abans de la primera
 // transferència, i el muntatge **reintenta tres cops amb el rellotge baixant** (10 MHz → 5 → 400 kHz) en lloc de rendir-se al primer
 // (docs/50, docs/70, docs/90).
-static const char kVersion[] = "0.190.83";
+// **I el vidre anava a un quart del seu rellotge** (0.190.84, i és la meitat del *«lentíssim»*). El log de l'amo ho diu: epdiy baixa el
+// rellotge de 20 a 10 i de 10 a 5 MHz en la mateixa arrencada. No és el panell: és que `epd_lcd_init` crida **dues vegades**
+// `check_cache_configuration()` —una des d'`assign_lcd_parameters_from_config` i una altra ella mateixa—, i aquesta funció **divideix el
+// rellotge per dos cada cop**. Amb les dues crides, cada fila costava quatre vegades el que havia de costar (una finestra de 48x540 es
+// pagava en 1661 ms). La duplicada s'ha tret de la còpia de la llibreria, marcant-ho com a canvi local, i ara `panel bus <mhz>` pot
+// moure el rellotge en calent perquè la placa digui si aguanta més (docs/50, docs/95).
+static const char kVersion[] = "0.190.84";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

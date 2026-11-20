@@ -49,3 +49,6 @@ void epd_lcd_start_frame();
  * Set the LCD pixel clock frequency in MHz.
  */
 void epd_lcd_set_pixel_clock_MHz(int frequency);
+
+// **CANVI LOCAL de lunokOS (0.190.84)**: el rellotge que el driver té posat, en MHz.
+int epd_lcd_pixel_clock_MHz();

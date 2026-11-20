@@ -54,6 +54,12 @@ class Epd47 : public ISurface {
   uint16_t vcom_mv() const override { return vcom_mv_; }
   bool set_vcom_mv(uint16_t mv) override;
 
+  // **El rellotge del bus, que sí que és una palanca d'aquest projecte** (0.190.84): epdiy llegeix el rellotge del panell a la inicialització
+  // i el baixa si la línia de la memòria cau és de 32 bytes (que és el cas de l'Arduino d'aquesta placa); el que decideix quant triga una
+  // fila és aquest número, i per això es pot canviar en calent amb `panel bus <mhz>` i veure si la imatge aguanta (docs/50, docs/95).
+  uint32_t bus_mhz() const override;
+  bool set_bus_mhz(uint32_t mhz) override;
+
   // **El bus i la porta ja no són d'aquest projecte**: epdiy els té al seu `epd_board_v7` (vint megahertz, porta de sis
   // microsegons en una línia de dotze, CKV per RMT), o sigui que aquí no hi ha res a respondre i el prompt ho diu (docs/50).
   const char* last_error() const override { return error_; }
