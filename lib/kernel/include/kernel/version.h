@@ -10650,7 +10650,17 @@ namespace kernel {
 // quan una becaina ha tornat per la línia del panell amb el dit a sobre (`the glass woke the chip from a light sleep: it is a door, and the
 // waits can be long`); aleshores el torn passa a esperar fins a un segon i l'escala pot créixer. Una placa que no ho ha vist mai no ho promet,
 // i el tàctil no es pot quedar mort per una promesa (docs/50, docs/95).
-static const char kVersion[] = "0.190.72";
+// **El tàctil del Paper no torna d'un son lleuger, i s'ha acabat provar-ho** (0.190.73, l'amo del 20/11: *«t'has tornat a carregar el
+// tàctil»*). Tres intents i tres vegades el mateix: un segon d'espera dormida (0.190.70), quaranta mil·lisegons (0.190.72), i el panell
+// deixa de respondre. No és el topall de la resposta ni l'escala: **és el son mateix**, i el que no es pot provar en aquesta placa no es
+// programa en aquesta placa.
+//
+// El torn torna a esperar deu mil·lisegons quan hi ha una tecla o un vidre, i no hi ha cap camí que el faci dormir sol. El que queda és el
+// que sí que serveix i no toca el tàctil: `power nap [ms]` per mirar-s'ho quan una persona ho demana, el judici honest del despert
+// (`esp_sleep_get_wakeup_cause` i el temps viscut), les portes que només s'armen si són tancades, el sostre de cent mil·lisegons del
+// `flush` de la consola, la línia cada deu segons de son i la baixada que no dorm. **Una placa que no pot respondre a un dit no pot
+// dormir**, i el tàctil mana sobre l'estalvi (docs/50, docs/60, docs/95).
+static const char kVersion[] = "0.190.73";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

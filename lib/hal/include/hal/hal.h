@@ -394,12 +394,6 @@ class IPower {
   // no torna.
   virtual bool take_the_restart() { return false; }
 
-  // **Si el vidre d'aquesta placa desperta un son lleuger, i com se sap** (0.190.72): la pregunta que decideix si una espera es pot fer
-  // llarga. Una becaina només pot durar més que la resposta que una persona espera si el seu dit és capaç de tornar el xip; si no ho és,
-  // dormir un segon és deixar el tàctil mort un segon. La resposta no es declara, es **guanya**: la placa mira si un son l'ha despertat
-  // la línia del panell, i fins que no ho ha vist no ho promet (docs/50, docs/95). False per defecte: una placa que no ho sap no fa
-  // esperes llargues.
-  virtual bool the_glass_wakes_the_chip() const { return false; }
   virtual bool nap(int32_t max_ms) {
     (void)max_ms;
     return false;

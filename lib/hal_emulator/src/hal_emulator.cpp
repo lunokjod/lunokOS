@@ -735,9 +735,6 @@ class FakePower : public IPower {
   // la resposta és la de sempre i el sistema espera despert com abans (docs/50, docs/85).
   bool can_nap() const override { return emu::options().delays; }
 
-  // **I a l'emulador el vidre sí que desperta el xip**: la finestra es bombeja mentre dorm i un clic és una interrupció del panell, o
-  // sigui que la resposta és la del model quan té panell i temps de debò (0.190.72, docs/85).
-  bool the_glass_wakes_the_chip() const override { return emu::model().touch && emu::options().delays; }
 
   // **La pregunta del reinici, que el nucli fa des del camí de la baixada** (0.190.68): true una vegada quan el darrer son profund
   // ha estat una arrencada, i el fals quan el model és el de salt (el rellotge que salta, que és el de la suite) perquè allà el que

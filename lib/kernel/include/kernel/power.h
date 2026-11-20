@@ -87,10 +87,6 @@ int32_t nap_ms();
 // say how long it lasted and what brought the chip back. És com se sap si una tecla o un dit desperten un son lleuger en una placa
 // (docs/50, docs/95).
 bool nap_now(int32_t ms);
-// **Si el vidre d'aquesta placa ha despertat mai una becaina** (0.190.72), que és el que permet una espera llarga, i **quants
-// mil·lisegons pot esperar un dit** mentre no ho ha provat: quaranta, que és el que no es nota (docs/50, docs/95).
-bool the_glass_wakes_the_chip();
-int32_t nap_slice_ms();
 void note_the_nap_end(bool something_happened);
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);

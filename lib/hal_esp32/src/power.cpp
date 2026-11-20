@@ -63,8 +63,6 @@ bool Esp32Power::arm_the_doors() {
 // **Cada porta s'ha d'armar aquí i desarmar-se en sortir**: l'IDF guarda els despertars en una estructura estàtica que el son profund
 // també llegeix, o sigui que una becaina que deixi la consola armada acabaria despertant un son profund per una tecla que ja no és
 // (docs/50).
-bool Esp32Power::the_glass_wakes_the_chip() const { return g_glass_is_a_door; }
-
 bool Esp32Power::can_nap() const {
   // Una tecla o el vidre: una placa sense cap de les dues només tindria el temporitzador i la consola, i el que s'hi guanya no paga
   // el que costa perdre-hi una tecla (docs/95).

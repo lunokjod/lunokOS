@@ -892,24 +892,15 @@ void poll() {
   // less than a press that arrives now. A board with no key and no glass —the T-Koala— keeps the long wait, because there
   // is no hand to miss (docs/30, docs/50).
   //
-  // **I la mà mana sobre la becaina** (0.190.71): the turn is ten milliseconds when the board has a key or a glass, and it stays that
-  // way —unless the board can take a light sleep, and then the turn is the **slice a finger can wait**: forty milliseconds that the
-  // chip spends asleep and that a touch either ends at once (if the glass is a door) or is read at the next turn (if it is not). La
-  // 0.190.70 va treure el topall del tot i el Paper va quedar a un segon per torn amb el tàctil mort: el que es pot esperar no és el
-  // que la placa sap, és el que una persona no nota (docs/30, docs/50, docs/95).
+  // **I la mà mana sobre la becaina, sempre** (0.190.73): the turn is ten milliseconds when the board has a key or a glass, and it stays
+  // that way **whatever the chip can do with a light sleep**. Tres vegades s'ha provat d'allargar aquesta espera amb el xip adormit —un
+  // segon a la 0.190.70, quaranta mil·lisegons a la 0.190.72— i tres vegades el tàctil del Paper s'ha quedat mort: una placa que no pot
+  // respondre a un dit no pot dormir, i el que no es pot provar no es programa (docs/30, docs/50, docs/95).
   bool hand = button::available();
 #if LUNOK_GLASS
   hand = hand || touch::available();
 #endif
-  if (hand) {
-    int32_t most = kInputPeriodMs;
-    if (power::nap_on() && power::can_nap()) {
-      // **Una espera llarga només si el vidre ha demostrat que desperta el xip** (0.190.72): la placa contesta si ho ha vist, i fins que
-      // no ho ha vist el que es dorma és una engruna de quaranta mil·lisegons (docs/50, docs/95).
-      most = power::the_glass_wakes_the_chip() ? kIdleTimeoutMs : power::nap_slice_ms();
-    }
-    if (wait > most) wait = most;
-  }
+  if (hand && wait > kInputPeriodMs) wait = kInputPeriodMs;
 
   // **Què ha despertat la volta** (0.189.85): a turn that came back because something happened and a turn that came back
   // because its ten milliseconds were over are two different lives for the board, and the wait is measured apart from the
