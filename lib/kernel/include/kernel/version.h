@@ -10514,7 +10514,15 @@ namespace kernel {
 // cas `test_two_qualities_are_two_paints` ho deia i el vaig trencar al 0.190.28—. La pàgina que neix segueix anant d'una passada
 // **quan tots els seus forats són la mateixa tinta**, que és el cas que l'amo va veure al Broken App Test i al pany (docs/30,
 // docs/50). I la versió del `library.json` del nucli, que s'havia quedat a la 0.190.57 mentre el codi anava fins a la 0.190.60.
-static const char kVersion[] = "0.190.61";
+// **Una tanda de mostres perduda es torna a posar al dia en silenci** (0.190.62, l'amo: *«revisa Meteo i Battery… veig que al sortir de
+// sleep manualment passen les dues apps com si tinguessin alarmes atrassades»*). `alarms::take_due` ja deixava una alarma repetida al
+// seu lloc següent quan el sistema s'havia menjat voltes senceres, però el lliurament li obria **una finestra**: la pàgina de la persona
+// s'apartava, l'app es carregava, el sensor es llegia i la pàgina tornava. Amb dues apps de cada deu minuts, una placa que ha estat
+// callada una estona les passa totes dues seguides per una mostra que val el mateix d'aquí a deu minuts. Ara una alarma que ha perdut
+// **períodes sencers** i que ningú no ha demanat veure (`raise` fals) es torna a armar i **no obre cap pàgina**: es diu al registre
+// quantes voltes s'ha perdut i l'app pren la mostra la propera vegada que s'obre, que és el que ja fa a l'arrencar la pàgina. Una
+// alarma d'una persona (`raise`, com les del `Clock`) es continua ensenyant encara que la placa hagi estat dies parada (docs/30, docs/60).
+static const char kVersion[] = "0.190.62";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

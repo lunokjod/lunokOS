@@ -169,6 +169,17 @@ o sigui que **una pàgina que no és de l'amo de l'alarma es repinta unes dotze 
 un dia el repintat fa nosa, el que s'ha de moure és el pas d'aquestes alarmes de fons o el fet d'apartar una pàgina que algú
 està mirant; el que no s'ha de fer és treure l'apartada, que és el que va fer que les mostres existissin.
 
+**I una tanda perduda no obre cap finestra** (0.190.62, l'amo: *«veig que al sortir de sleep manualment passen les dues apps com
+si tinguessin alarmes atrassades»*). `take_due` torna a deixar una alarma repetida al seu lloc següent quan la placa s'ha menjat
+**períodes sencers**, i el lliurament li obria la finestra igualment: amb la `battery` i la `meteo` a deu minuts, una placa que
+ha estat callada una hora passava les dues apps seguides —apartar la pàgina, carregar l'app, llegir el sensor i tornar-la a
+obrir— per una mostra que val el mateix d'aquí a deu minuts. Ara una alarma així, que a més **no demana el primer pla** (`raise`
+fals), es re-arma **en silenci**: el registre diu `#N for meteo was missed K time(s) while the board was down: it is re-armed and
+no page is opened`, i l'app pren la mostra la propera vegada que s'obre —totes dues ho fan a l'arrencar la pàgina—. Una alarma
+d'una persona, que porta `raise`, es continua ensenyant encara que la placa hagi estat dies parada. **Que una alarma es perdi és
+una altra pregunta**, i la contesta el registre del despert: `power: woke on the timer` o `… on the clock chip` vol dir que la
+placa sí que es va llevar a l'hora; una placa que s'ha llevat per la tecla quan la cua tenia una hora és la que cal mirar.
+
 Dins de la finestra: `console.is_foreground()` és `false` i escriure a la consola no fa res (queda al
 log). **Cap crida no dona `E_NOTFOREGROUND`**: el codi no el produeix enlloc i la taula d'errors de
 `docs/30` el té marcat com a reservat.

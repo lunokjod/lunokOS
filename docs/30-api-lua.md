@@ -1074,7 +1074,11 @@ hora:minut dia/mes/any»*):
   la cua, desa l'hora i torna a adormir-se amb la resta, sense obrir l'app (docs/60).
 
 `meta` que rep `on_alarm` és `{late_ms, missed}`: quant tard s'ha entregat i quantes repeticions
-s'han perdut mentre el sistema era apagat.
+s'han perdut mentre el sistema era apagat. **I una repetició perduda del tot pot no arribar** (0.190.62): una alarma que ha
+perdut períodes sencers i que **no demana el primer pla** (`raise` fals) es re-arma en silenci quan la placa torna —el
+registre diu quantes voltes s'ha perdut— perquè obrir la pàgina d'una app per una mostra que val el mateix d'aquí a deu minuts
+no és el que ningú ha demanat; l'app la pren quan s'obre. Una alarma amb `raise` (una del `Clock`, un avís d'una persona)
+s'entrega igualment (docs/60).
 
 **Una promesa que ja hi és no es torna a armar** (0.189.172, l'amo: *«les alarmes de les apps es multipliquen, fes que el
 sistema pugui avisar a l'app de que ja te una alarma amb aquesta configuració. L'app podrà decidir si esborrar-la i crear-ne

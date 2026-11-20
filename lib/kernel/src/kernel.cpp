@@ -380,6 +380,19 @@ void deliver_alarms() {
       shell::raise_app(entry.app, &entry, late);
       // **I el que s'havia apartat no torna**: el vidre és de l'app que ha pujat (docs/60).
       parked[0] = '\0';
+    } else if (!owner_running && entry.missed > 0) {
+      // **Una tanda de mostres perduda no obre cap pàgina** (0.190.62, l'amo: *«veig que al sortir de sleep manualment passen les
+      // dues apps com si tinguessin alarmes atrassades… Se suposa que el DeepSleep està atent a interrupcions d'rtc, de botons
+      // físics, i opcionalment de tàctil»*). A repeating alarm that lost **whole** periods is the housekeeping of an app —a
+      // sample of the battery, one of the weather— and `take_due` has already put it back at its next occurrence, o sigui que el
+      // que queda és una finestra: tancar la pàgina de la persona, carregar l'app, llegir el sensor i tornar-la a obrir, per una
+      // mostra que val el mateix d'aquí a deu minuts. **La placa va estar callada i el que ha de fer és tornar-se a posar al dia
+      // en silenci**; l'app pren la mostra igualment la propera vegada que s'obre (les dues ho fan a l'arrencar la pàgina), i el
+      // registre diu quantes voltes s'ha perdut. **Una alarma d'una persona no és això**: porta `raise`, i una que s'ha perdut
+      // s'ensenya encara que la placa hagi estat dies parada (docs/30, docs/60).
+      log_printf(pal::kLogInfo, "ALARM",
+                 "#%u for %s was missed %u time(s) while the board was down: it is re-armed and no page is opened",
+                 static_cast<unsigned>(entry.id), entry.app, static_cast<unsigned>(entry.missed));
     } else if (!owner_running) {
       // Nobody has the app loaded: it gets a window, and the page in front steps
       // aside for it and comes back when the windows are done (docs/30, docs/60).

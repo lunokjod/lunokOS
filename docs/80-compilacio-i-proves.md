@@ -216,7 +216,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   `lib/hal_t5s3` va arribar amb el seu propi HAL, que inclou `esp32/i2c.h`, `Arduino.h` i `driver/i80.h`, i la llista dels
   fitxers no el deixava fora: el pas fallava amb quatre `fatal error: file not found`, que és el mateix vermell que la
   0.177.3 va treure de la llista dels directoris;
-- les **753 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, el 16/11 en 6 min 9 s, el 17/11 en 6 min 25 s, el 18/11 en 5 min 49 s, el 19/11 en 6 min 35 s i el 20/11 en 6 min 31 s): les dotze de la 0.169.0 eren quatre
+- les **753 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, el 16/11 en 6 min 9 s, el 17/11 en 6 min 25 s, el 18/11 en 5 min 49 s, el 19/11 en 6 min 35 s i el 20/11 en 6 min 44 s): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
