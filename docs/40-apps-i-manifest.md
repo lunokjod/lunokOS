@@ -779,7 +779,7 @@ pàgina de l'error no arribava mai. Ara compara dues taules, que sí que és un 
 passar desapercebuda (docs/30, docs/80).
 
 Les altres apps —`about`, **`agenda` (0.189.171)**, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
-`home_eink`, `life`, **`meteo` (0.189.169)**, **`minesweeper` (0.190.76)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i
+**`gradient` (0.190.86)**, `home_eink`, `life`, **`meteo` (0.189.169)**, **`minesweeper` (0.190.76)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i
 `rainbow`, amb **`brokenapp`**— segueixen la
 mateixa convenció,
 amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
@@ -787,7 +787,8 @@ amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
 pàgina de les apps es dibuixés, i aquell dia és el llançador, que les posa a la seva graella (docs/30, docs/85).
 
 **Les apps de prova porten el lunokhod** (0.169.4, l'amo: *«una icona del lunokhod estaria molt guay»*): una
-app que existeix per mesurar o per provar el sistema —avui `luaperf`— no dibuixa una icona pròpia, sinó que
+app que existeix per mesurar o per provar el sistema —avui `luaperf` i **`gradient`**, que és el full de proves dels setze
+nivells del vidre (0.190.86)— no dibuixa una icona pròpia, sinó que
 comparteix un sol dibuix, el del rover que dona nom al sistema. El mestre és **fora de l'app**, a
 `tools/icons/Lunokhod.png` (448×448, 2 888 B), perquè és el mateix per a totes, i el que el manifest nomenja
 surt d'ell amb la recepta de sempre:

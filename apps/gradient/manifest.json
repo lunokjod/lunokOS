@@ -1,0 +1,9 @@
+{
+  "title": "Gradient",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "gradient.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "The sixteen levels of this glass, drawn as a test card: sixteen labelled steps, a smooth ramp across the width and down the height, five big patches and two halves. A page at a time, with the ink it is painted in named on the bar — `gc16`, `gl16` and `du` — so the same picture can be compared in the three waveforms a panel can have.\nIt is the page a person opens when the greys do not look right: counting the steps that can be told apart is the measurement, and the number of the level is written inside its own bar."
+}

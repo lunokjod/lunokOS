@@ -692,9 +692,15 @@ void boot(hal::IPlatform& platform) {
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot, g_tz_minutes / 60,
              (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60, g_leap_years ? kOn : kOff, g_dst ? kOn : kOff,
              (g_week_start == 7) ? kSunday : kMonday);
-  log_printf(pal::kLogInfo, "CFG", "the page: turn %u, sort apps by usage %s, cursor delay %d ms, cpu allows %s, nap %s",
+  // **I la velocitat de la CPU, que es deia a mitges** (0.190.86): the line said which steps are allowed and nothing about
+  // the two things that decide what the board actually does —whether the scaling is on, and which step a person chose—, o sigui
+  // que una placa amb l'escala apagada i la CPU pujant a 240 era exactament el cas que no es podia veure d'aquesta línia (i el
+  // `cpu allows` hi sortia sense l'espai, que és el senyal que la línia ja anava curta) (docs/50, docs/60).
+  log_printf(pal::kLogInfo, "CFG",
+             "the page: turn %u, sort apps by usage %s, cursor delay %d ms, cpu %s (allows %s, speed %u), nap %s",
              static_cast<unsigned>(luabind::turn_budget()), g_sort_by_usage ? kOn : kOff,
-             static_cast<int>(luabind::caret_blink_ms()), freq_words, g_nap_on ? kOn : kOff);
+             static_cast<int>(luabind::caret_blink_ms()), power::cpu_auto() ? kOn : kOff, freq_words,
+             static_cast<unsigned>(power::resting_cpu_mhz()), g_nap_on ? kOn : kOff);
   log_printf(pal::kLogInfo, "CFG", "the apps a person chose: home %s, settings %s, lock %s; the lock is %s and waits %u min",
              (g_home[0] != '\0') ? g_home : "none", (g_settings[0] != '\0') ? g_settings : "none",
              (g_lock[0] != '\0') ? g_lock : "none", g_lock_on ? kOn : kOff, static_cast<unsigned>(g_lock_after));

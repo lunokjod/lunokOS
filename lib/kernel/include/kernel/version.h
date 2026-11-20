@@ -10763,7 +10763,13 @@ namespace kernel {
 //     (`cpuauto`, `cpuspeed`) i l'arrencada els respecta.
 //   - **I amb l'escala apagada la placa s'hi ha de baixar**: el rellotge d'un ESP32-S3 arrenca a 240, o sigui que no n'hi ha prou de
 //     deixar de pujar-lo; `power::boot` baixa al pas triat quan l'escala està apagada (docs/50, docs/60, docs/95).
-static const char kVersion[] = "0.190.85";
+// **I una pàgina per mirar els grisos, i la línia de `cfg` que diu la veritat de la CPU** (0.190.86). The app `gradient` is the test
+// card of this glass: sixteen labelled steps, a ramp across and another down (the panel writes the ink row by row), five big patches
+// and two halves —four tests, perquè cada una diu una cosa diferent— i **la tinta es tria** (`gc16`/`gl16`/`du`), amb el nom a la barra
+// perquè una foto del vidre sigui una mesura i no una opinió. I `cfg` ja diu la política sencera del processador —`cpu on (allows
+// 80,160,240, speed 160)`—: abans deia només quins passos es permetien i callava les dues coses que decideixen què fa la placa, o
+// sigui que «l'escala apagada però la CPU a 240» no es podia veure enlloc (docs/30, docs/50, docs/60).
+static const char kVersion[] = "0.190.86";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
