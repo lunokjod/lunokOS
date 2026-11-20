@@ -62,6 +62,13 @@ const char kCauseKey[] = "cause";
 // the boot that comes back from a sleep and not the next one, and this is what tells the two apart. It is written on the way
 // down and read —and erased— by `coming_back_from_a_sleep` (docs/60, docs/75).
 const char kSleptKey[] = "slept";
+// **Les dues decisions d'una persona sobre la velocitat, desades** (0.190.85, l'amo: *«He desactivat l'scaling de CPU, perqué
+// surt aquest missatge? ... Tot ha de passar per l'scaling, si no, la cpu va al màxim per defecte, o la velocitat marcada a
+// Settings -> CPU -> Speed»*). Fins avui el commutador i el pas triat vivien **només a la RAM**: al primer reinici el sistema
+// tornava a l'escala automàtica i a 240, o sigui que la persona apagava l'escala i la placa la tornava a encendre sola (docs/50,
+// docs/60, docs/95).
+const char kCpuAutoKey[] = "cpuauto";
+const char kCpuSpeedKey[] = "cpuspeed";
 
 // The idle policy. Two numbers, and both are a decision rather than a measurement:
 //
@@ -458,8 +465,24 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   g_idle_allowed = cfg::sleep_on();
   // **Un boot torna a la seva política** (0.179.38): the resting step is the system's again and no window of the boot
   // before is owed, or a board that reboots would carry the two hundred and forty of the last app it ran.
+  //
+  // **I el que una persona va triar es torna a posar** (0.190.85): `Speed:` i el commutador de l'escala automàtica viuen al
+  // magatzem des d'avui, i una arrencada els ha de respectar; si no hi són, mana el que hi havia (escala encesa, pas de repòs). El
+  // que no pot passar és el que passava: apagar l'escala, reiniciar, i trobar-se la placa a 240 per una pàgina de text (docs/50).
   g_cpu_rest_mhz = kRestingMhz;
   g_cpu_busy_until_ms = 0;
+  char kept[8] = {0};
+  if (read_in(kNs, kCpuSpeedKey, kept, sizeof(kept))) {
+    const unsigned speed = static_cast<unsigned>(atoi(kept));
+    if (speed == kIdleMhz || speed == kRestingMhz || speed == kBusyMhz) g_cpu_rest_mhz = speed;
+  }
+  char scaling[8] = {0};
+  const bool it_was_said = read_in(kNs, kCpuAutoKey, scaling, sizeof(scaling));
+  const bool scaling_on = !it_was_said || strcmp(scaling, "off") != 0;
+  set_policy(scaling_on);
+  // **I amb l'escala apagada, la placa arrenca a la velocitat triada i no a la del xip** (0.190.85): el rellotge d'un ESP32-S3
+  // arrenca a 240, o sigui que no n'hi ha prou de deixar de pujar-lo; s'hi ha de baixar (docs/50, docs/60).
+  if (!scaling_on) move_to(g_cpu_rest_mhz, "the speed a person chose");
   // **El comptador de la quietud arrenca amb aquesta arrencada** (0.190.9): nothing has been typed at it yet, and the person
   // who chose five minutes gets five minutes from the boot and not from the first turn that happened to look. **I una arrencada no és
   // una mà** (0.190.18): the flag is what tells «nobody has touched it since it came back» —the wake for an alarm and the stage of a long
@@ -1365,6 +1388,8 @@ bool cpu_auto() { return policy_is_auto(); }
 
 void set_cpu_auto(bool on) {
   set_policy(on);
+  // **I es desa** (0.190.85): una decisió que no sobreviu a un reinici no és una decisió, és una casualitat del run.
+  write_in(kNs, kCpuAutoKey, on ? "on" : "off");
   if (on) {
     // **Tornar-la a encendre comença un minut nou**: the samples of before are the samples of a board that was being told what
     // to do by a person, and a trend measured across that boundary is a trend of nothing (docs/60).
@@ -1489,6 +1514,13 @@ bool set_cpu_mhz(uint32_t mhz) {
   // is not owed any more, because the next step to take is this one.
   g_cpu_rest_mhz = mhz;
   g_cpu_busy_until_ms = 0;
+  // **I el pas triat també es desa** (0.190.85): `power cpu 160` o la fila `Speed:` de Settings són una elecció de la persona i
+  // la placa ha d'arrengar-se-hi la propera vegada (docs/50, docs/60).
+  {
+    char number[8];
+    snprintf(number, sizeof(number), "%u", static_cast<unsigned>(mhz));
+    write_in(kNs, kCpuSpeedKey, number);
+  }
   // **Un pas demanat a mà para la política automàtica** (0.189.94): a person who fixed a step did it to measure something,
   // and a governor that undoes it two hundred and fifty milliseconds later is a governor nobody can measure against.
   set_policy(false);
@@ -1499,6 +1531,11 @@ bool set_cpu_mhz(uint32_t mhz) {
 
 void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why) {
   if (g_power == nullptr || mhz < 80 || mhz > 240) return;
+  // **I amb l'escala apagada, una empenta no mou la placa** (0.190.85): `hold_cpu` era l'única porta de la velocitat que no
+  // preguntava res, i per ella hi passaven l'arrencada (`kernel::boot`) i l'inici d'una app —o sigui que amb l'escala apagada la
+  // CPU pujava a 240 igualment i el missatge del log era la resposta d'un camí que havia de callar—. El que mana una persona amb
+  // `Speed:` és la velocitat i prou; el que ve després es queda allà on ella l'ha posat (docs/50, docs/60).
+  if (!policy_is_auto()) return;
   move_to(mhz, why);
   // **The window is the caller's and its end is the system's**: nothing has to keep a clock for it, because `poll` is a
   // turn of this system and a turn that is not taken is a board that is off.

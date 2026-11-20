@@ -9121,6 +9121,15 @@ void test_a_burst_of_the_processor_gives_its_step_back(void) {
   TEST_ASSERT_TRUE_MESSAGE(kernel::power::set_cpu_mhz(160), "the board did not take its resting step back");
   TEST_ASSERT_EQUAL_UINT32(160, kernel::power::resting_cpu_mhz());
 
+  // **I amb l'escala apagada una empenta no mou res** (0.190.85, l'amo: *«Tot ha de passar per l'scaling»*): `set_cpu_mhz` apaga
+  // l'escala automàtica a propòsit, o sigui que el que acaba de passar és el cas que l'amo va veure —una pàgina de text pujant la
+  // CPU a 240 quan la persona havia fixat la velocitat— i aquí es mira que no passi.
+  kernel::power::hold_cpu(kernel::power::kBusyMhz, 120, "a case that is heavy");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(160, kernel::power::cpu_mhz(),
+                                   "a hold moved the processor with the automatic scaling off");
+
+  // **I amb l'escala encesa sí**, que és el que la finestra vol dir: el cim per a la feina que ve.
+  kernel::power::set_cpu_auto(true);
   capture_begin();
   kernel::power::hold_cpu(kernel::power::kBusyMhz, 120, "a case that is heavy");
   // **La finestra no mou la velocitat de repòs**: what the system goes back to is still the one it was working at.
@@ -9130,9 +9139,15 @@ void test_a_burst_of_the_processor_gives_its_step_back(void) {
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(240, kernel::power::cpu_mhz(), "the window of the burst ended before its time");
   pump_turns(140);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_EQUAL_UINT32_MESSAGE(160, kernel::power::cpu_mhz(), "the burst never gave its step back");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cpu 240 MHz"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "(a case that is heavy)"), g_out);
+  // **I el pas de repòs és el que la persona va triar** (0.190.85): amb l'escala apagada el que queda és aquest, i el log ho diu
+  // pel seu nom; amb l'escala encesa el que queda és el que digui la càrrega, que és el que aquesta política vol dir (docs/60).
+  kernel::power::set_cpu_auto(false);
+  capture_begin();
+  kernel::power::rest_cpu("the load is over");
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(160, kernel::power::cpu_mhz(), "the burst never gave its step back");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "(the load is over)"), g_out);
 }
 

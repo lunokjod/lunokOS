@@ -950,6 +950,18 @@ crida duplicada, cada fila costava quatre vegades el que tocava: una finestra de
 duplicada s'ha tret (canvi local marcat dins de `lib/epdiy`), i `panel bus <mhz>` mou el rellotge en calent perquè sigui la
 placa qui digui si aguanta els vint.
 
+**I la velocitat de la CPU, tota per l'escala** (0.190.85). L'amo va apagar `Automatic scaling` i va veure igualment
+`cpu 240 MHz from 80 (the glyphs of a page)`. Tres forats:
+
+- **`hold_cpu` no preguntava res**: era l'única porta de la velocitat fora de la política, i per ella hi passaven
+  l'arrencada (`kernel::boot`, a 240) i l'inici d'una app (`shell`, a 240). Amb l'escala apagada, la CPU pujava igual i
+  el log deia la raó d'un camí que havia de callar. Ara una empenta no mou res si l'escala està apagada.
+- **El commutador i el pas no es desaven**: `Automatic scaling` i `Speed:` vivien només a la RAM, o sigui que al primer
+  reinici la placa tornava a l'escala automàtica i a 240. Ara es desen a la NVS (`cpuauto`, `cpuspeed`) i l'arrencada els
+  respecta.
+- **I amb l'escala apagada s'hi ha de baixar**: el rellotge d'un ESP32-S3 arrenca a 240, o sigui que no n'hi ha prou de
+  deixar de pujar-lo; `power::boot` baixa al pas triat.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |

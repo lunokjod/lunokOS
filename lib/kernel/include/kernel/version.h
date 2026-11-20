@@ -10751,7 +10751,19 @@ namespace kernel {
 // rellotge per dos cada cop**. Amb les dues crides, cada fila costava quatre vegades el que havia de costar (una finestra de 48x540 es
 // pagava en 1661 ms). La duplicada s'ha tret de la còpia de la llibreria, marcant-ho com a canvi local, i ara `panel bus <mhz>` pot
 // moure el rellotge en calent perquè la placa digui si aguanta més (docs/50, docs/95).
-static const char kVersion[] = "0.190.84";
+// **I la velocitat de la CPU, tota per l'escala** (0.190.85, l'amo: *«He desactivat l'scaling de CPU, perqué surt aquest missatge?
+// Revisa bé a tot arreu on es canvii la velocitat de cpu. Tot ha de passar per l'scaling, si no, la cpu va al màxim per defecte, o la
+// velocitat marcada a Settings -> CPU -> Speed»*). Three holes, and the first two are why the message appeared at all:
+//
+//   - **`hold_cpu` no preguntava res**: era l'única porta de la velocitat fora de la política, i per ella hi passaven l'arrencada
+//     (`kernel::boot`, 240) i l'inici d'una app (`shell`, 240). Amb l'escala apagada la CPU pujava igualment, i el log deia la raó
+//     d'un camí que havia de callar. Ara, amb l'escala apagada, una empenta no mou la placa.
+//   - **El commutador i el pas no es desaven**: `Automatic scaling` i `Speed:` vivien només a la RAM, o sigui que al primer reinici la
+//     placa tornava a l'escala automàtica i a 240 i la persona veia exactament el missatge que l'havia fet apagar-la. Ara es desen
+//     (`cpuauto`, `cpuspeed`) i l'arrencada els respecta.
+//   - **I amb l'escala apagada la placa s'hi ha de baixar**: el rellotge d'un ESP32-S3 arrenca a 240, o sigui que no n'hi ha prou de
+//     deixar de pujar-lo; `power::boot` baixa al pas triat quan l'escala està apagada (docs/50, docs/60, docs/95).
+static const char kVersion[] = "0.190.85";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
