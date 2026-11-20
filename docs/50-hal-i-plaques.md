@@ -1358,6 +1358,9 @@ paper. El que fa ara el sistema:
   ajunta les caixes en una sola regió **quan aquesta és la primera passada de la pàgina** (`g_updates == 0`, el comptador de
   passades de tinta, que torna a zero cada vegada que la pàgina es dona o un rentat sencer hi puja). La resta de la vida de la
   pàgina segueix amb les seves caixes: una animació vol enviar només el que ha canviat (docs/30, docs/50, docs/95);
+  **i només si tots els forats són la mateixa tinta** (0.190.61, trobat per la suite el 20/11): ajuntar-los pren la qualitat
+  més forta, o sigui que una foto que demana `du4` i la línia de text que demana `gc16` haurien pujat juntes amb el mode del
+  text i la foto hauria perdut el seu. Dues qualitats són dos pintats, i és el que `test_two_qualities_are_two_paints` diu;
 - **i un deute sencer ja és el rentat** (0.190.27): quan el sistema deu la pàgina —un despert per una alarma que aixeca una
   app, la imatge d'una splash—, el primer present de l'app la pinta **sencera i neta** (`present_all(kGc16)`), o sigui que
   rentar la pàgina blanca a `attach` era pagar dues vegades el mateix vidre: al log del 19/11, `799 ms` d'un `gld16` de blanc

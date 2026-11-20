@@ -8788,6 +8788,19 @@ hal::UpdateMode quality_of_the_damage() {
   return any ? named : quality_of_the_page(the_damage_is_the_whole_view());
 }
 
+// **La tinta amb què anirà al vidre una caixa** (0.190.61): the quality the app named when it named one, and the quality of the page
+// for the inks that are the system's to choose —a control draws with `du` because it is the cheap one and not because it is making a
+// promise about the panel— (0.179.5, docs/30, docs/50). Una sola definició, perquè la pregunta «són totes la mateixa tinta?» i el
+// bucle que les escriu han de dir el mateix.
+hal::UpdateMode the_ink_of(const Damage& region, hal::UpdateMode page_mode) {
+  if (region.named) return region.mode;
+  if (region.mode == hal::UpdateMode::kDu || region.mode == hal::UpdateMode::kDu4 ||
+      region.mode == hal::UpdateMode::kA2) {
+    return page_mode;
+  }
+  return region.mode;
+}
+
 bool present() {
   if (!g_attached || root().bits == nullptr) {
     // **A present with no page behind it** (0.118.6): the app drew into a canvas the system has already given back, and
@@ -8825,7 +8838,16 @@ bool present() {
     // La resta de la vida de la pàgina segueix amb les seves caixes, que és el que una animació vol.
     const bool first_pass = (g_updates == 0);
     const hal::UpdateMode mode = quality_of_the_damage();
-    if (whole || first_pass) {
+    // **I només si tots els forats són la mateixa tinta** (0.190.61, trobat per la suite el 20/11): la primera passada d'una pàgina
+    // s'ajuntava en una sola regió amb la qualitat més forta de les que hi havia, i **dues qualitats són dos pintats** —la foto que
+    // demana `du4` i la línia de text que demana `gc16` no són la mateixa tinta, i ajuntar-les puja la foto amb el mode del text
+    // (docs/30)—. La pàgina que neix segueix anant d'una passada quan els seus controls no demanen res, que és el cas que l'amo va
+    // veure (el Broken App Test i el pany).
+    bool one_ink = true;
+    for (uint8_t i = 1; i < root().damage_count && one_ink; ++i) {
+      if (the_ink_of(root().damage[i], mode) != the_ink_of(root().damage[0], mode)) one_ink = false;
+    }
+    if (whole || (first_pass && one_ink)) {
       merge_all(root(), mode, /*one_region=*/true);
       // **And the page is clean again**: a wash is the whole page and it is what the inks of the page owed, so the budget
       // of quick paints and the levels the wash between two apps reads start again from here (docs/50).
@@ -8838,12 +8860,7 @@ bool present() {
       // one the page deserves; **a quality the app named is the app's** and stays —a `du4` of its own is a wish and the
       // system has no business overruling it— (docs/30, docs/50).
       for (uint8_t i = 0; i < root().damage_count; ++i) {
-        Damage& region = root().damage[i];
-        if (region.named) continue;
-        if (region.mode == hal::UpdateMode::kDu || region.mode == hal::UpdateMode::kDu4 ||
-            region.mode == hal::UpdateMode::kA2) {
-          region.mode = mode;
-        }
+        root().damage[i].mode = the_ink_of(root().damage[i], mode);
       }
     }
   }

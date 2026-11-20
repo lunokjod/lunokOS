@@ -212,8 +212,11 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   `epub`, `zip` i `hal` —tres que l'amfitrió compila— no les mirava ningú, que és exactament la trampa que ja
   havia passat amb els directoris. El que es deixa fora és la regla del `lib_ignore` de l'emulador —les
   identitats de placa i les meitats d'ESP32, que no són cosa de l'amfitrió— i **Lua, perquè és C**: el pas fa
-  `clang++` i l'intèrpret com a C++ no és el mateix programa;
-- les **753 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, el 16/11 en 6 min 9 s, el 17/11 en 6 min 25 s, el 18/11 en 5 min 49 s i el 19/11 en 6 min 35 s): les dotze de la 0.169.0 eren quatre
+  `clang++` i l'intèrpret com a C++ no és el mateix programa — **i des de la 0.190.61 el HAL de la setena placa tampoc**:
+  `lib/hal_t5s3` va arribar amb el seu propi HAL, que inclou `esp32/i2c.h`, `Arduino.h` i `driver/i80.h`, i la llista dels
+  fitxers no el deixava fora: el pas fallava amb quatre `fatal error: file not found`, que és el mateix vermell que la
+  0.177.3 va treure de la llista dels directoris;
+- les **753 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 17 s, el 16/11 en 6 min 9 s, el 17/11 en 6 min 25 s, el 18/11 en 5 min 49 s, el 19/11 en 6 min 35 s i el 20/11 en 6 min 31 s): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum

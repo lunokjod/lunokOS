@@ -10503,7 +10503,18 @@ namespace kernel {
 // l'exemple de grisos fa **`epd_clear()` abans** de `MODE_GC16`, perquè la taula de setze grisos compta des de paper blanc. Les dues
 // coses són seves i ara també són nostres. I `panel vcom <mv>` perquè la VCOM —1560 mV per defecte a la seva NVS, ajustable des del
 // seu menú de fàbrica— es pugui moure sense flaishar (docs/50, docs/95).
-static const char kVersion[] = "0.190.60";
+// **El que la revisió del 20/11 va trobar en aquesta tongada** (0.190.61), i són tres coses que el CI hauria refusat:
+// **(1)** les quatre bandes sense vidre **no enllaçaven**: `shell::command_panel` crida `display::present`, `gate_ns`,
+// `set_gate_ns`, `vcom_mv` i `set_vcom_mv`, que són dins `#if LUNOK_GLASS`, i `no_glass.cpp` —que és l'única resposta que aquestes
+// bandes tenen— no les tenia; el m5-atom, la matrix, el devkit i la koala es paraven a l'enllaç amb cinc «undefined reference»
+// (docs/50, docs/75). **(2)** la passa de CI que mira el codi mort amb `clang++` s'aturava a `lib/hal_t5s3`: els seus quatre
+// fitxers inclouen `esp32/i2c.h`, `Arduino.h` i `driver/i80.h`, que no són en aquell camí d'includes (docs/80). **(3)** i
+// **dues qualitats tornaven a ser un sol pintat**: la primera passada d'una pàgina ajuntava tots els forats en una regió amb la
+// qualitat més forta, o sigui que una foto que demana `du4` i el text que demana `gc16` pujaven junts amb el mode del text —el
+// cas `test_two_qualities_are_two_paints` ho deia i el vaig trencar al 0.190.28—. La pàgina que neix segueix anant d'una passada
+// **quan tots els seus forats són la mateixa tinta**, que és el cas que l'amo va veure al Broken App Test i al pany (docs/30,
+// docs/50). I la versió del `library.json` del nucli, que s'havia quedat a la 0.190.57 mentre el codi anava fins a la 0.190.60.
+static const char kVersion[] = "0.190.61";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

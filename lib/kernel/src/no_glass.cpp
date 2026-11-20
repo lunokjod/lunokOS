@@ -168,6 +168,23 @@ void set_the_glass_asleep(bool) {}
 
 bool the_glass_is_asleep() { return false; }
 
+// **I el mateix per a la porta de la fila i la VCOM** (0.190.61): the two knobs of the wave (`panel gate` and `panel vcom`) are asked
+// by the same command on every board, and a glass with no controller answers zero and refuses the change —which is what this build
+// says about a panel it does not have— instead of a link that does not close (docs/50, docs/75). El que falta aquí és el que va
+// deixar les quatre bandes sense vidre sense enllaçar el 19/11: `display.cpp` sencer viu dins `#if LUNOK_GLASS` i aquest fitxer és
+// l'única resposta que tenen.
+uint16_t vcom_mv() { return 0; }
+
+bool set_vcom_mv(uint16_t) { return false; }
+
+uint32_t gate_ns() { return 0; }
+
+bool set_gate_ns(uint32_t) { return false; }
+
+// **I una pintada que no va enlloc diu que sí** (0.189.162): a board with no glass has nothing to send and nothing to refuse, and the
+// callers of `present` are the ones that paint a page —`panel bars`, the card of the system—, which such a board does not have.
+bool present(hal::UpdateMode) { return false; }
+
 }  // namespace display
 
 // **La pàgina d'una app que s'ha mort no té on pintar-se** (0.189.162): the page of `app_error.cpp` is inside `LUNOK_GLASS` with the
