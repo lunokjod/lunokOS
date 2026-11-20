@@ -139,6 +139,21 @@ bool Gt911::probe() {
   return true;
 }
 
+// **La línia, tornada a posar com era** (0.190.74): a light sleep of the chip arms the GPIO of the panel as a **level** wake
+// (`gpio_ll_wakeup_enable` writes the pin's `int_type`) and disarming it does not put the falling edge back. The consequence was measured by
+// the owner on the Paper: after the first nap the glass stopped answering and the board crawled. This is the same configuration `probe()`
+// installs —an input with its pull-up and a falling edge— and the handler is already the core's, so it is not added twice (docs/50, docs/95).
+void Gt911::rearm() {
+  if (int_pin_ < 0) return;
+  gpio_config_t line = {};
+  line.pin_bit_mask = 1ULL << int_pin_;
+  line.mode = GPIO_MODE_INPUT;
+  line.pull_up_en = GPIO_PULLUP_ENABLE;
+  line.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  line.intr_type = GPIO_INTR_NEGEDGE;
+  gpio_config(&line);
+}
+
 void Gt911::release() {
   // Writing a zero to the status is what tells the chip the frame has been taken; it is called for a frame that is
   // there and for nothing else (0.174.4, docs/50).

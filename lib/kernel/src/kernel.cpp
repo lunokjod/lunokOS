@@ -892,15 +892,18 @@ void poll() {
   // less than a press that arrives now. A board with no key and no glass —the T-Koala— keeps the long wait, because there
   // is no hand to miss (docs/30, docs/50).
   //
-  // **I la mà mana sobre la becaina, sempre** (0.190.73): the turn is ten milliseconds when the board has a key or a glass, and it stays
-  // that way **whatever the chip can do with a light sleep**. Tres vegades s'ha provat d'allargar aquesta espera amb el xip adormit —un
-  // segon a la 0.190.70, quaranta mil·lisegons a la 0.190.72— i tres vegades el tàctil del Paper s'ha quedat mort: una placa que no pot
-  // respondre a un dit no pot dormir, i el que no es pot provar no es programa (docs/30, docs/50, docs/95).
+  // **I la mà mana sobre la becaina** (0.190.71): the turn is ten milliseconds when the board has a key or a glass, i el que pot esperar
+  // és **el que un dit no nota**: quaranta mil·lisegons si la placa dorma entre voltes, deu si no. La 0.190.70 va deixar l'espera en un
+  // segon i el tàctil es va morir de latència; la 0.190.72 la va deixar en quaranta i es va morir igual —perquè el que el matava no era
+  // l'espera sinó la línia del panell que la becaina deixava girada (0.190.74, `touch::rearm`)— (docs/30, docs/50, docs/95).
   bool hand = button::available();
 #if LUNOK_GLASS
   hand = hand || touch::available();
 #endif
-  if (hand && wait > kInputPeriodMs) wait = kInputPeriodMs;
+  if (hand) {
+    const int32_t most = (power::nap_on() && power::can_nap()) ? power::nap_slice_ms() : kInputPeriodMs;
+    if (wait > most) wait = most;
+  }
 
   // **Què ha despertat la volta** (0.189.85): a turn that came back because something happened and a turn that came back
   // because its ten milliseconds were over are two different lives for the board, and the wait is measured apart from the
@@ -917,6 +920,11 @@ void poll() {
     const bool slept = power::nap(wait);
     woke = pal::system().queue()->pop(ev, slept ? 0 : wait);
     power::note_the_nap_end(woke);
+#if LUNOK_GLASS
+    // **I la línia del panell torna a ser una vora de baixada** (0.190.74): the nap arms that GPIO as a level wake and the chip leaves it
+    // that way; without this the glass answers nothing after the first nap —which is exactly what happened twice on the Paper— (docs/50).
+    if (slept) touch::rearm();
+#endif
   }
   if (woke) {
     ++g_turns_with_event;

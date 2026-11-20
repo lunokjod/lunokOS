@@ -669,6 +669,11 @@ class ITouch {
   // "this line low" would wake at once, and again on every attempt. It is a read that hands nothing to anybody;
   // a glass with no such line answers false (docs/50).
   virtual bool flush() { return false; }
+  // **I el que cal fer després que el xip hagi dormit** (0.190.74): a light sleep, the GPIO the line is on is armed as a **level** wake and left
+  // that way —`gpio_ll_wakeup_enable` writes the pin's interrupt type and `gpio_wakeup_disable` does not put it back—, o sigui que la vora de
+  // baixada que aquesta línia tenia deixa de ser una vora i el panell deixa de respondre (el que va deixar el tàctil del Paper mort dues
+  // vegades). Aquesta crida li torna a posar la configuració que tenia: una línia que no ho necessita no fa res (docs/50, docs/95).
+  virtual void rearm() {}
 };
 
 // Where a key sits, said the same way on every board: the board is a box and a

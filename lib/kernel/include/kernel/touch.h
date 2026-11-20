@@ -30,6 +30,10 @@ bool available();
 // Asked in every turn of the kernel: this is where a frame becomes a gesture.
 void poll();
 
+// **Tornar-li la línia al panell després que el xip hagi dormit** (0.190.74): a light sleep arms that GPIO as a level wake and the edge the
+// driver installed does not come back by itself; this puts it back, and a glass with no line does nothing (docs/50, docs/95).
+void rearm();
+
 // **Quantes vegades s'ha preguntat i quantes ha respost** (0.189.85): the glass is asked once a turn and answers a frame only
 // when there is a finger. The two numbers apart are the difference between «the interrupt is doing its job» and «the driver
 // asks the bus fifty times a second for nothing», and that is the first question the energy work has to answer (docs/50,

@@ -6,6 +6,8 @@
 #include <esp_timer.h>
 
 #include <driver/gpio.h>
+#include <hal/gpio_ll.h>
+#include <soc/gpio_struct.h>
 
 // The core's own speed control: it is the one that also moves the APB and the
 // FreeRTOS tick when the frequency changes (read on disk, docs/50).
@@ -117,11 +119,21 @@ bool Esp32Power::nap(int32_t max_ms) {
   // el sistema i la propera volta la trobarà (docs/50).
   int lines[3] = {wake_pin_, second_wake_pin_, glass_pin_};
   int armed[3] = {-1, -1, -1};
+  // **El tipus d'interrupció que la línia tenia abans** (0.190.74): `gpio_wakeup_enable` escriu el `int_type` del pin —l'arma pel **nivell**— i
+  // `gpio_wakeup_disable` no el torna enrere. El que hi havia era una vora de baixada, o sigui que després de la primera becaina la línia del
+  // panell deixava de ser una vora: el tàctil del Paper va quedar mort dues vegades per això, i el que es desa aquí és el que es torna a posar
+  // en sortir (docs/50, docs/95).
+  gpio_dev_t* hw = &GPIO;
+  int saved_type[3] = {-1, -1, -1};
   bool a_button = false;
   for (int i = 0; i < 3; ++i) {
     if (lines[i] < 0) continue;
     if (gpio_get_level(static_cast<gpio_num_t>(lines[i])) == 0) continue;
-    if (gpio_wakeup_enable(static_cast<gpio_num_t>(lines[i]), GPIO_INTR_LOW_LEVEL) != ESP_OK) continue;
+    saved_type[i] = static_cast<int>(hw->pin[lines[i]].int_type);
+    if (gpio_wakeup_enable(static_cast<gpio_num_t>(lines[i]), GPIO_INTR_LOW_LEVEL) != ESP_OK) {
+      saved_type[i] = -1;
+      continue;
+    }
     armed[i] = lines[i];
     a_button = true;
   }
@@ -187,7 +199,13 @@ bool Esp32Power::nap(int32_t max_ms) {
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   esp32_note_wake_cleared();
   for (int i = 0; i < 3; ++i) {
-    if (armed[i] >= 0) gpio_wakeup_disable(static_cast<gpio_num_t>(armed[i]));
+    if (armed[i] < 0) continue;
+    gpio_wakeup_disable(static_cast<gpio_num_t>(armed[i]));
+    // **I la línia torna a ser el que era** (0.190.74): sense això, el pin queda amb una interrupció de nivell que va tornar boig el registre
+    // del panell —la vora de baixada del GT911— i el tàctil no responia més (docs/50, docs/95).
+    if (saved_type[i] >= 0) {
+      gpio_ll_set_intr_type(hw, static_cast<gpio_num_t>(armed[i]), static_cast<gpio_int_type_t>(saved_type[i]));
+    }
   }
   return ok;
 }

@@ -86,6 +86,11 @@ class Gt911 : public ITouch {
   // the chip lets it go, and a warning that finds no frame costs the driver twenty milliseconds of waiting. Zero is a line
   // that only falls for a finger (docs/50, docs/95).
   uint32_t false_warnings() const override;
+  // **Tornar-li la línia** (0.190.74): the nap of the chip arms GPIO36 as a level wake, and the interrupt type this driver installed —a falling
+  // edge— is what the chip leaves behind. This puts the same configuration back, with its pull-up and its edge, which is what makes the
+  // glass answer again after a light sleep (docs/50, docs/95).
+  void rearm() override;
+
   uint8_t read(TouchPoint* out, uint8_t capacity) override;
   // **La línia es deixa anar sense lliurar cap frame** (M5Unified #91): the GT911 holds INT low while it has a frame
   // nobody has taken, and this is the read that takes it and writes the status back, which is what lifts the line. The

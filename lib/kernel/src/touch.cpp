@@ -359,6 +359,12 @@ void counters(uint32_t& asks, uint32_t& frames, uint32_t& false_warnings) {
   false_warnings = (g_glass != nullptr) ? g_glass->false_warnings() : 0;
 }
 
+// **I després d'una becaina, la línia del panell es torna a posar** (0.190.74): the chip arms that pin as a level wake and leaves it that way;
+// the glass is asked to put its own falling edge back, which is what keeps a touch alive across a light sleep (docs/50, docs/95).
+void rearm() {
+  if (g_glass != nullptr) g_glass->rearm();
+}
+
 void poll() {
   if (g_glass == nullptr) return;
   const int32_t now = now_ms();

@@ -458,10 +458,11 @@ no hi ha cap transacció a mitges i on una becaina que surt malament costa un to
 - **La mà mana sobre la becaina, i el topall de deu mil·lisegons es queda** (0.190.71). La 0.190.70 el va treure donant per fet que la
   tecla i el dit despertarien el son lleuger; **al Paper no ho van fer** i la placa va quedar a un segon per torn amb el tàctil llegit un
   cop per segon. Una placa que no pot respondre a un dit no pot dormir.
-- **I al Paper no dorma mai sol** (0.190.73). Tres intents i tres vegades el tàctil va quedar mort: una espera d'un segon dormida
-  (0.190.70), una de quaranta mil·lisegons (0.190.72) i el panell deixa de respondre. No és el topall de la resposta ni l'escala, és el
-  son mateix: **una placa que no pot respondre a un dit no pot dormir**. El torn torna a esperar deu mil·lisegons quan hi ha tecla o vidre
-  i no hi ha cap camí que el faci dormir sol; el que queda per mirar-s'ho és `power nap`, que demana una persona (docs/50, docs/95).
+- **El tàctil no moria de latència: moria perquè la becaina li girava la línia** (0.190.74). `gpio_wakeup_enable()` escriu el **`int_type`
+  del pin** —l'arma pel nivell— i `gpio_wakeup_disable()` no el torna enrere, o sigui que la vora de baixada del GT911 quedava convertida en
+  una interrupció de nivell. Era el mateix a un segon (0.190.70) que a quaranta mil·lisegons (0.190.72): no era l'espera, era la línia. Ara
+  cada línia armada es desa amb el seu tipus i es torna a posar en sortir, i després d'una becaina el panell es torna a armar
+  (`ITouch::rearm`). El torn espera **quaranta mil·lisegons** dormint, que és el que un dit no nota.
 - **I per això hi ha `power nap [ms]`**: demana un son lleuger d'un segon i diu què l'ha tornat (`a nap of 987 ms ended by a key or the
   glass`, o que el xip no l'ha pres). És l'instrument que diu si el vidre d'aquesta placa és una porta del son lleuger, que és el que
   decideix si el torn pot esperar-lo. I una tanda de becaines **es diu sola cada deu segons de son** (`250 nap(s), 41000 ms asleep, and
@@ -479,8 +480,10 @@ no hi ha cap transacció a mitges i on una becaina que surt malament costa un to
   tres vegades deixa de preguntar dient-ho una vegada: `no more light sleeps in this run: the waits are spent awake` (docs/50, docs/95).
 - **I cap armat no sobreviu a la becaina**: en sortir es desfan totes les portes i el compte del temporitzador, perquè el son profund
   arma el que vol i no ha d'heretar res (docs/50).
-- **I al registre es veu** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»*). Tres línies i cap d'elles per torn, perquè una
-  becaina per segon ompliria el registre del sistema:
+- **I al registre es veu, i des de la 0.190.74 es veu sol**: la línia de l'arrencada diu si la placa dorma, `a nap of 987 ms ended by a key
+  or the glass` diu quant ha durat i què l'ha tallat, i cada **cinc segons de son** surt `250 nap(s), 10000 ms asleep, and nothing has
+  happened` — el que abans només es deia quan una mà tancava la tanda, i una placa quieta no la tancava mai (l'amo: *«VULL SABER QUAN HI HA
+  LIGHTSLEEP AL SISTEMA I EL MOTIU»*). Tres línies i cap d'elles per torn, perquè una becaina per segon ompliria el registre del sistema:
 
   ```
   [I][POWER] light sleep instead of wait: the waits are spent asleep, and a key, the glass or the console wakes the chip

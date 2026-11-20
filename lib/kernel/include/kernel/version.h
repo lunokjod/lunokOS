@@ -10660,7 +10660,20 @@ namespace kernel {
 // (`esp_sleep_get_wakeup_cause` i el temps viscut), les portes que només s'armen si són tancades, el sostre de cent mil·lisegons del
 // `flush` de la consola, la línia cada deu segons de son i la baixada que no dorm. **Una placa que no pot respondre a un dit no pot
 // dormir**, i el tàctil mana sobre l'estalvi (docs/50, docs/60, docs/95).
-static const char kVersion[] = "0.190.73";
+// **El tàctil no moria de latència: moria perquè la becaina li girava la línia** (0.190.74). `gpio_wakeup_enable()` no és una crida
+// innocent: escriu el **`int_type` del pin** —l'arma pel nivell— i `gpio_wakeup_disable()` només apaga el bit del despert, o sigui que la
+// vora de baixada que el driver del GT911 hi havia instal·lat es quedava convertida en una interrupció de nivell. Després de la primera
+// becaina el panell deixava de respondre i la placa anava lenta (una interrupció de nivell amb la línia baixa torna una vegada i una altra),
+// i era el mateix a un segon que a quaranta mil·lisegons —perquè no era l'espera, era la línia—.
+//
+// Ara **cada línia que s'arma es desa amb el seu tipus d'interrupció i es torna a posar en sortir** (`gpio_ll_set_intr_type`), i després
+// d'una becaina el nucli li demana al panell que es torni a armar (`ITouch::rearm`, `touch::rearm`), que és el que li torna el pull-up i la
+// vora. Amb això la becaina pot tornar al torn: **quaranta mil·lisegons** (`nap_slice_ms`), que és el que un dit no nota.
+//
+// **I es veu**: la línia de l'arrencada diu si la placa dorma, `a nap of 987 ms ended by a key or the glass` diu quant ha durat i per què
+// s'ha acabat quan algú el trenca, i cada **cinc segons de son** el registre diu els comptes (`250 nap(s), 10000 ms asleep, and nothing has
+// happened`), que és el que l'amo demanava: quan hi ha light sleep, quant dura i per què (docs/50, docs/60, docs/95).
+static const char kVersion[] = "0.190.74";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -720,6 +720,9 @@ bool can_wake_on_touch() { return (g_power != nullptr) && g_power->can_wake_on_t
 // és la de sempre i el que s'estalvia és l'estona en què no hi havia ningú (docs/60, docs/95).
 const int32_t kNapFirstMs = 40;
 const int32_t kNapMostMs = 1000;
+// **El que pot esperar un dit** (0.190.74): quaranta mil·lisegons és el que no es nota, tant si el vidre desperta el xip com si el contacte
+// es llegeix al torn següent. El torn del nucli no espera més que això mentre la placa dorma entre voltes (docs/50, docs/95).
+const int32_t kNapSliceMs = 40;
 
 // El que s'ha de poder dormir perquè valgui la pena entrar-hi: per sota, el camí de sortida costa més que l'espera.
 const int32_t kNapLeastMs = 20;
@@ -736,7 +739,7 @@ int64_t g_nap_run_ms = 0;
 // quieta —la que dorm de debò— no en deia mai cap. El que es compara és el comptador amb l'últim que es va dir, perquè la línia
 // surti cada deu segons i no a cada becaina (docs/60, docs/95).
 int64_t g_nap_said_ms = 0;
-const int64_t kNapSayEveryMs = 10000;
+const int64_t kNapSayEveryMs = 5000;
 // **Si el darrer `nap` ha estat un son de debò** (0.190.70): l'escala de la becaina només ha de créixer quan el xip ha dormit, i el
 // que la feia créixer era el torn i no el son —la línia del sostre deia «mil mil·lisegons per torn» en una placa que no havia dormit
 // mai— (docs/95).
@@ -753,6 +756,8 @@ bool set_nap_on(bool on) {
 }
 
 bool can_nap() { return (g_power != nullptr) && g_power->can_nap(); }
+
+int32_t nap_slice_ms() { return kNapSliceMs; }
 
 
 // **Una becaina demanada des del prompt** (0.190.71): the ladder and the switch are for the turn, and what a person wants to see is one
