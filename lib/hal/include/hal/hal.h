@@ -324,6 +324,38 @@ class INet {
 // from the session record (docs/30).
 enum class SleepMode : uint8_t { kLight = 0, kDeep = 1 };
 
+// **Per què s'ha reiniciat el xip, que és una cosa que només ell sap** (0.190.68, l'amo: *«recorda que l'esp32 te estats al arrencar, així
+// el firmware sabrà si ha despertat normal o d'un deep sleep»*). L'ESP32 respon `esp_reset_reason()` i el que en surt no és opinable:
+// power-on, deep sleep, un reinici de programari, un pànic, una caiguda de tensió. És el que fa que una placa sàpiga si l'arrencada és
+// la primera o una tornada, i el que cap marca desada pot saber del cert —una marca es pot perdre, i una placa que ha quedat sense
+// corrent just després d'escriure-la diria que ha dormit quan el que ha passat és que l'han desendollada— (docs/50, docs/60).
+enum class ResetCause : uint8_t {
+  kPowerOn = 0,    // el corrent ha tornat: el primer engegament, o la pila posada
+  kDeepSleep = 1,  // el xip s'ha despertat d'un son profund (ESP_RST_DEEPSLEEP)
+  kSoftware = 2,   // un reinici demanat pel sistema (ESP_RST_SW)
+  kPanic = 3,      // l'excepció, el gos o el watchdog del xip (ESP_RST_PANIC i companyia)
+  kBrownout = 4,   // la tensió ha caigut per sota del que el xip vol (ESP_RST_BROWNOUT)
+  kExternal = 5,   // el pin de reset (ESP_RST_EXT)
+};
+
+// **El nom de la causa, en una paraula**, que és el que una línia del registre pot dir.
+inline const char* reset_cause_word(ResetCause cause) {
+  switch (cause) {
+    case ResetCause::kDeepSleep:
+      return "a deep sleep";
+    case ResetCause::kSoftware:
+      return "a restart of the system";
+    case ResetCause::kPanic:
+      return "a panic";
+    case ResetCause::kBrownout:
+      return "a brownout";
+    case ResetCause::kExternal:
+      return "the reset pin";
+    default:
+      return "the power coming back";
+  }
+}
+
 class IPower {
  public:
   virtual ~IPower() {}
@@ -354,6 +386,13 @@ class IPower {
   // la pregunta —una placa que no pot escoltar res mentre dorm diu que no, i llavors el sistema espera despert com sempre— i una placa
   // que no en sap res no ha de fer res: la base respon que no i `nap` no dorm (docs/50, docs/60, docs/95).
   virtual bool can_nap() const { return false; }
+
+  // **Si la darrera baixada ha reiniciat el xip, i es pregunta una vegada** (0.190.68, docs/85): en una placa de debò un son profund no
+  // torna —el xip s'arrenca—, i el model de l'emulador sí que ha de tornar perquè el procés no pot reiniciar-se. El que fa aquesta
+  // pregunta és dir «aquest son ha estat una arrencada» i buidar-la, o sigui que el nucli que la llegeixi acabi el torn amb un
+  // `kernel::boot` i no segueixi amb el que hi havia a la RAM. False per a tota placa: allà la resposta no arriba mai perquè la crida
+  // no torna.
+  virtual bool take_the_restart() { return false; }
   virtual bool nap(int32_t max_ms) {
     (void)max_ms;
     return false;
@@ -776,6 +815,9 @@ class IPlatform {
   // takes longer than that to reach the platform, and a cable hides it because the cable is what is feeding it. The kernel
   // calls this **before anything else**, and a board whose power does not depend on a pin does nothing (docs/50).
   virtual void hold_the_power() {}
+  // **I per què s'ha reiniciat el xip** (0.190.68): el que respon l'ESP32 (`esp_reset_reason`) quan hi ha maquinari, i el que el model
+  // de l'emulador diu quan no n'hi ha. La base contesta «el corrent ha tornat», que és la veritat d'una placa que no ho sap dir.
+  virtual ResetCause reset_cause() const { return ResetCause::kPowerOn; }
   // **Si una pintada és feina o és espera, i ho diu la placa** (0.190.39). A glass with a controller paints from its own
   // memory: the chip hands the rectangle over and waits for ink it cannot hurry, o sigui que el pas de baix del processador és
   // el que li toca. A glass **without** a controller is the opposite: the chip is the driver —it turns the frame into the

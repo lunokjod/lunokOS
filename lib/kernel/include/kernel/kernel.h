@@ -11,6 +11,13 @@ void boot(hal::IPlatform& platform);
 // One turn of the main loop: wait for an event, dispatch it, drain the console.
 void poll();
 
+// **Si el darrer son ha estat una arrencada del xip, i es pregunta una vegada per torn** (0.190.68): a la placa un son profund no torna
+// —el xip es reinicia i qui ve després és un `boot`—, i el model de l'emulador no pot reiniciar el procés, o sigui que `poll` deixa el
+// torn quan això és cert i **qui porta l'executable fa el `boot` que el xip faria sol** (`main_host`; el flag el neteja el mateix `boot`).
+// El que això arregla és el forat que l'amo va assenyalar: un emulador que seguia amb el run d'abans d'un son profund no tornava a
+// llegir la marca del son, ni el rellotge, ni la sessió desada, i la pàgina de la persona no tornava mai (docs/50, docs/60, docs/85).
+bool the_chip_restarted();
+
 // **Què ha despertat la volta** (0.189.85): the two counts `stats` prints beside `kernel.loop`. A board that woke up twenty
 // times was doing something; one that woke up five thousand was asking five thousand times whether anything had happened
 // (docs/95).

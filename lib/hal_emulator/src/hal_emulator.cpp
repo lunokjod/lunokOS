@@ -17,6 +17,7 @@
 #include "emu/gui.h"
 #include "emu/memories.h"
 #include "emu/model.h"
+#include "emu/sleep.h"
 #include "emu/surface.h"
 #include "emu_nvs.h"
 #include "emu_storage.h"
@@ -172,14 +173,23 @@ namespace {
 // middle one, and keys 1 and 2 are the Paper's sides (docs/50, docs/85).
 const int kEmuKeys = 3;
 bool g_key_down[kEmuKeys] = {false, false, false};
+// **Les baixades comptades** (0.190.66): l'estat d'una tecla no és prou per a un xip adormit, que el que veu és un flanc.
+uint32_t g_key_presses = 0;
 }  // namespace
 
-void press_button(bool down) { g_key_down[0] = down; }
+// **La tecla de sempre passa pel mateix camí**: si no, una premsa feta amb `press_button` no comptaria i un xip adormit no es
+// despertaria amb el botó de l'ATOM (0.190.66, docs/85).
+void press_button(bool down) { press_key(0, down); }
 
 void press_key(int key, bool down) {
   if (key < 0 || key >= kEmuKeys) return;
+  // **Cada baixada compta** (0.190.66): a chip that is asleep does not see levels, it sees an edge, i una premsa i un alliberament
+  // dins d'una mateixa espera deixarien el nivell com era. El comptador és el que fa que aquella premsa existeixi (docs/85).
+  if (down && !g_key_down[key]) ++g_key_presses;
   g_key_down[key] = down;
 }
+
+uint32_t key_presses() { return g_key_presses; }
 
 bool button_down() { return g_key_down[0]; }
 
@@ -303,10 +313,25 @@ class HostClock : public IClock {
   const char* wake_keeper() const override { return keeper_; }
 
   WakeCause last_wake() override {
-    // On the Paper the alarm is the chip's, so a wake that was armed is the clock's; on the ATOMs
-    // there is no chip and the timer is the only thing that can have brought the board back
-    // (docs/50, docs/60). A sleep that stopped before its hour is neither: nothing says what ended
-    // it, which is exactly what a board whose supply blinked answers (docs/85).
+    // **El que ha despertat el xip, dit per qui l'ha dormit** (0.190.66): quan la baixada ha estat el model de debò, la causa la
+    // sap l'espera —l'hora, una tecla, el vidre o el corrent que torna— i no s'ha de deduir del rellotge. Al model de salt (i a
+    // una baixada que es va tallar abans d'hora) no hi ha cap espera que ho digui, o sigui que es mira el rellotge com sempre.
+    if (slept_by_known_) {
+      switch (slept_by_) {
+        case emu::WakeBy::kTimer:
+          // On the Paper the alarm is the chip's, so a wake that was armed is the clock's; on the ATOMs there is no chip and the
+          // timer is the only thing that can have brought the board back (docs/50, docs/60).
+          return emu::model().keeps_the_hour ? WakeCause::kClock : WakeCause::kTimer;
+        case emu::WakeBy::kKey:
+          return WakeCause::kOther;
+        case emu::WakeBy::kGlass:
+          return WakeCause::kTouch;
+        default:
+          // El corrent que torna, la finestra que es tanca o un run que no tenia porta: nothing says what ended it, which is
+          // exactly what a board whose supply blinked answers (docs/85).
+          return WakeCause::kPowerOn;
+      }
+    }
     const int64_t at = (slept_ > 0) ? slept_ : armed_;
     if (at > 0 && epoch_ms() >= at) {
       return emu::model().keeps_the_hour ? WakeCause::kClock : WakeCause::kTimer;
@@ -316,7 +341,28 @@ class HostClock : public IClock {
 
   // The sleep this band just did, told by the fake power: it is what makes the wake cause the timer's
   // when the hour was reached, and nothing's when it was not (docs/85).
-  void note_sleep(int64_t at_epoch_ms) { slept_ = at_epoch_ms; }
+  // **I amb el xip adormit de debò també diu què l'ha tornat** (0.190.66): the wait knows, and guessing it from the clock would
+  // answer «the timer» for a key that arrived two seconds before the hour.
+  void note_sleep(int64_t at_epoch_ms) {
+    slept_ = at_epoch_ms;
+    slept_by_known_ = false;
+  }
+  void note_sleep(int64_t at_epoch_ms, emu::WakeBy why) {
+    slept_ = at_epoch_ms;
+    slept_by_ = why;
+    slept_by_known_ = true;
+  }
+
+  // **I el comptador monòton torna a zero quan el xip s'ha reiniciat** (0.190.68): a la placa `esp_timer` arrenca amb el firmware, i
+  // `wake_error_ms` resta el temps des de l'arrencada precisament per això —el que es mesura d'un son és el rellotge i no el firmware—.
+  // Si aquest comptador seguís comptant, un son profund modelat mesuraria com a deriva tota l'estona que el procés ha viscut. **L'hora
+  // no es mou**: el que es desplaça és l'origen, i la base es recomposa perquè `epoch_ms()` no faci un salt enrere (docs/50, docs/60,
+  // docs/85).
+  void note_the_chip_restarted() {
+    const int64_t epoch = known_ ? (epoch_base_ + elapsed_ms()) : 0;
+    mono_start_ = mono_ms();
+    epoch_base_ = known_ ? epoch : 0;
+  }
 
   bool can_wake() const override { return true; }
 
@@ -346,6 +392,8 @@ class HostClock : public IClock {
   int64_t pinned_epoch_;
   int64_t armed_ = 0;
   int64_t slept_ = 0;
+  emu::WakeBy slept_by_ = emu::WakeBy::kTimer;
+  bool slept_by_known_ = false;
   // Where the last arming went, for the line of the log (0.189.149).
   const char* keeper_ = "none";
 };
@@ -576,26 +624,74 @@ class FakePower : public IPower {
 
   bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) override {
     (void)keep_the_panel;
-    host_clock().note_sleep(at_epoch_ms);
-    if (at_epoch_ms > 0) {
-      const int64_t now = host_clock().epoch_ms();
-      int64_t jump = (now > 0) ? (at_epoch_ms - now) : 0;
-      // An emulator told to come back early does it here, which is the button of the glass and the supply
-      // that blinked: the board lands before its hour and the kernel has to say so (docs/85).
-      const int64_t early = emu::options().wake_early_ms;
-      if (early > 0 && jump > early) jump -= early;
-      host_clock().advance_ms(jump);
+    const char* depth = (mode == SleepMode::kDeep) ? "deep" : "light";
+    // **Dos models, i el que mana és si aquest run paga el temps del maquinari** (0.190.66). Amb `--no-delay` —i a tota la suite—
+    // el rellotge salta fins a l'hora i el xip no s'atura: és el model de sempre i el que fa que una prova de deu minuts costi un
+    // mil·lisegon. Amb els temps de debò el xip **dorm**: el nucli no fa cap volta fins que una interrupció el torna, i el que el
+    // torna és l'hora, una tecla o el vidre (docs/50, docs/85).
+    if (!emu::options().delays) {
+      host_clock().note_sleep(at_epoch_ms);
+      if (at_epoch_ms > 0) {
+        const int64_t now = host_clock().epoch_ms();
+        int64_t jump = (now > 0) ? (at_epoch_ms - now) : 0;
+        // An emulator told to come back early does it here, which is the button of the glass and the supply
+        // that blinked: the board lands before its hour and the kernel has to say so (docs/85).
+        const int64_t early = emu::options().wake_early_ms;
+        if (early > 0 && jump > early) jump -= early;
+        host_clock().advance_ms(jump);
+      }
+      // To stderr and not to the console: it is this band talking about itself and
+      // it must not be mixed with what the system says to a person (docs/85).
+      if (at_epoch_ms > 0) {
+        fprintf(stderr, "power: %s sleep until %lld (the clock jumps; the PC does not sleep)\n", depth,
+                static_cast<long long>(at_epoch_ms));
+      } else {
+        // **Zero no és una hora, és la tecla** (0.190.15): the same words as the board, so two runs can be compared line by line.
+        fprintf(stderr, "power: %s sleep until a key of the board (the PC does not sleep)\n", depth);
+      }
+      return true;
     }
-    // To stderr and not to the console: it is this band talking about itself and
-    // it must not be mixed with what the system says to a person (docs/85).
+
+    // **El xip s'atura de debò**: la línia de la placa és la seva, i la de l'emulador diu què ha passat.
     if (at_epoch_ms > 0) {
-      fprintf(stderr, "power: %s sleep until %lld (the clock jumps; the PC does not sleep)\n",
-              (mode == SleepMode::kDeep) ? "deep" : "light", static_cast<long long>(at_epoch_ms));
+      fprintf(stderr, "power: %s sleep until %lld (the chip stops; the hour, a key or the glass wakes it)\n", depth,
+              static_cast<long long>(at_epoch_ms));
     } else {
-      // **Zero no és una hora, és la tecla** (0.190.15): the same words as the board, so two runs can be compared line by line.
-      fprintf(stderr, "power: %s sleep until a key of the board (the PC does not sleep)\n",
-              (mode == SleepMode::kDeep) ? "deep" : "light");
+      fprintf(stderr, "power: %s sleep until a key of the board (the chip stops)\n", depth);
     }
+    const emu::WakeBy why = emu::wait_while_asleep(at_epoch_ms, emu::options().wake_early_ms, wake_on_touch());
+    host_clock().note_sleep(at_epoch_ms, why);
+    // **I un son profund és un reinici del xip** (0.190.68): a la placa la crida no torna —el xip s'arrenca i el nucli fa un boot
+    // sencer, amb la pàgina de la persona tornant de la sessió—, i aquí el que es pot fer és dir-ho perquè el torn acabi amb aquest
+    // `kernel::boot`. La RTC RAM es queda (és el que fa el xip), o sigui que la marca de l'arrencada i l'hora hi són (docs/60, docs/85).
+    if (mode == SleepMode::kDeep) {
+      emu::note_the_reset(hal::ResetCause::kDeepSleep);
+      emu::note_the_restart();
+      host_clock().note_the_chip_restarted();
+    }
+    const char* how = "nothing";
+    switch (why) {
+      case emu::WakeBy::kTimer:
+        how = (emu::model().keeps_the_hour && mode == SleepMode::kDeep) ? "the clock chip" : "the RTC timer";
+        break;
+      case emu::WakeBy::kKey:
+        how = "a key of the board";
+        break;
+      case emu::WakeBy::kGlass:
+        how = "a finger on the glass";
+        break;
+      case emu::WakeBy::kSupply:
+        how = "the supply coming back before its hour";
+        break;
+      case emu::WakeBy::kClosing:
+        how = "the window being closed";
+        break;
+      default:
+        how = "nothing at all (this run has no hour and no window to press anything)";
+        break;
+    }
+    fprintf(stderr, "power: awake after %u turn(s) asleep, woken by %s\n",
+            static_cast<unsigned>(emu::sleep_turns()), how);
     return true;
   }
 
@@ -634,7 +730,24 @@ class FakePower : public IPower {
   // **La becaina no és cosa d'aquest banc** (0.190.63): the PC has no light sleep to take and a run that *stopped* for a few
   // milliseconds on purpose would only make every case slower than the model it is checking. The answer is the honest one —this
   // band cannot nap— and the system waits awake here exactly as it did before the setting existed (docs/50, docs/85).
-  bool can_nap() const override { return false; }
+  // **I la becaina sí que es pot modelar** (0.190.66): with the hardware's times on, a nap is the chip stopped for those
+  // milliseconds and a key, the glass or the timer bringing it back; with the clock skipped there is no time to sleep, o sigui que
+  // la resposta és la de sempre i el sistema espera despert com abans (docs/50, docs/85).
+  bool can_nap() const override { return emu::options().delays; }
+
+  // **La pregunta del reinici, que el nucli fa des del camí de la baixada** (0.190.68): true una vegada quan el darrer son profund
+  // ha estat una arrencada, i el fals quan el model és el de salt (el rellotge que salta, que és el de la suite) perquè allà el que
+  // el nucli espera és seguir el seu camí (docs/85).
+  bool take_the_restart() override { return emu::options().delays && emu::take_the_restart(); }
+
+  bool nap(int32_t max_ms) override {
+    if (!emu::options().delays) return false;
+    // **El vidre és una porta d'una becaina sempre que la placa en tingui** (0.190.66): the panel is powered while the board is
+    // awake —listening to its line costs nothing— and it is the difference between a tap that feels instant and one that waits a
+    // second for the nap to end. El commutador del dit (`cfg touchwake`) és una altra cosa: és la porta d'un son profund, que és el
+    // que costa corrent tota la nit (docs/50, docs/60).
+    return emu::wait_for_ms(max_ms, /*the_glass_is_a_door=*/true) != emu::WakeBy::kNothing;
+  }
 
   // The PC does not change its speed, and this band says so instead of pretending:
   // the value is remembered so the call and its refusals can be used and tested,
@@ -1275,6 +1388,11 @@ class EmulatorPlatform : public IPlatform {
   const char* id() const override { return board::id(); }
   const char* family() const override { return board::family(); }
   bool emulator() const override { return board::emulator(); }
+
+  // **L'estat de l'arrencada** (0.190.68, l'amo: *«recorda que l'esp32 te estats al arrencar»*): a la placa ho diu
+  // `esp_reset_reason()` i aquí ho diu el model del son —el corrent que arriba, un son profund o un reinici demanat—, o sigui que el
+  // nucli pot dir el mateix en un PC que a la placa (docs/50, docs/85).
+  ResetCause reset_cause() const override { return emu::the_reset(); }
 
   // **Un PC no té cap pin que aguanti la seva alimentació** (0.189.24): the call is counted so a case of this suite can say
   // that the boot asks for it, which is the half of the Paper's problem a host can check (docs/50, docs/85).

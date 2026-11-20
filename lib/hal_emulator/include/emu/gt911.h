@@ -54,6 +54,11 @@ class Gt911Panel : public hal::ITouch {
   // (docs/50).
   static uint32_t probe_us();
 
+  // **Quants contactes ha tingut el vidre en aquest run** (0.190.66): the line of this chip falls while a finger is on the glass
+  // and a chip that is asleep sees the edge and not the level, o sigui que el que compta és el nombre de contactes, que és el que
+  // mira l'espera del son per saber si un dit l'ha despertat (docs/50, docs/85).
+  uint32_t contacts() const { return contacts_; }
+
   // **How many frames the chip has handed over, and how many reads found the frame already taken.** A
   // second number that is not zero is a caller polling faster than the glass scans, which is the thing
   // this model exists to make visible (docs/85).
@@ -80,6 +85,7 @@ class Gt911Panel : public hal::ITouch {
   uint32_t taken_ms_ = 0xFFFFFFFFu;
   uint32_t frames_ = 0;
   uint32_t missed_ = 0;
+  uint32_t contacts_ = 0;
 };
 
 // The panel of this emulator, made the first time it is asked for (`--touch`), like the glass. The first

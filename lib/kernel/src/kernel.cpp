@@ -489,6 +489,10 @@ void boot(hal::IPlatform& platform) {
   meter::Scope boot_time(meter::kBoot);
   g_platform = &platform;
   g_running = true;
+  // **El run nou comença net** (0.190.68): un son profund que ha estat una arrencada del xip deixa el flag posat perquè el torn d'abans
+  // s'aturi, i aquesta línia és el que el torna a baixar —si no, el torn següent el llegiria i es tornaria a arrencar el nucli per sempre
+  // més— (docs/60, docs/85).
+  power::clear_the_restart();
   log_init();
   // **A call from an app into the system is counted from the first line an app runs**: the interpreter
   // asks for the clock and for a way to add, and knows nothing else about the kernel (docs/30).
@@ -969,6 +973,12 @@ void poll() {
   if (alarms::revision() != g_saved_revision) save_alarms();
   power::poll(next_alarm_epoch);
 
+  // **I un son profund que ha estat una arrencada del xip acaba el torn aquí mateix** (0.190.68): a la placa la crida no torna mai, o
+  // sigui que res del que ve després d'aquest punt s'executaria; a l'emulador el procés segueix viu i el que queda del torn seria feina
+  // d'un run que ja no hi és —una barra pintada, el cursor d'una app tancada, un byte de consola donat a un intèrpret que ha deixat de
+  // ser-hi—. El `kernel::boot` el fa qui porta l'executable, que és el que fa el xip sol (docs/50, docs/60, docs/85).
+  if (power::the_chip_restarted()) return;
+
   pal::IConsole* console = pal::system().console();
   if (console != nullptr) {
     char buf[64];
@@ -982,6 +992,9 @@ void poll() {
       n = console->read(buf, sizeof(buf));
     }
   }
+  // **I un `deepsleep` escrit al prompt és el mateix que la baixada de la política** (0.190.68): la línia ha adormit el xip, o sigui que
+  // el que queda del torn —l'app, el cursor, la barra— seria feina d'un run que ja s'ha acabat i el torn s'acaba aquí (docs/50, docs/60).
+  if (power::the_chip_restarted()) return;
 
   // The app gets its turn after the events and the console, so a byte that has
   // just arrived is already queued when it wakes up. **And it does not get it while the card of the system is out**
@@ -1033,6 +1046,8 @@ void poll() {
 }
 
 bool running() { return g_running; }
+
+bool the_chip_restarted() { return power::the_chip_restarted(); }
 
 void shutdown() { g_running = false; }
 

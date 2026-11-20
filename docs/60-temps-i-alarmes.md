@@ -264,13 +264,41 @@ El registre ho diu amb la seva paraula abans de qualsevol pintada:
 
 ```
 [I][BOOT] a new run: the power came back
-[I][BOOT] the chip restarted and the power never went away
-[I][BOOT] the board comes back from a deep sleep: the run goes on
+[I][BOOT] the chip restarted and the power never went away: a restart of the system
+[I][BOOT] back from a deep sleep, woken by the timer of the chip: an alarm, nobody in front, the glass is not touched
 ```
 
 **I una bateria baixa és l'excepció de la targeta**: una placa que torna d'un son amb la pila sota la marca sí que ensenya el
 dibuix, perquè és una cosa que la persona ha de saber i no una targeta de cortesia (docs/30, docs/50). El cicle de l'emulador i
 `--persist` són aquestes tres arrencades de mentida en un run de debò (docs/85).
+
+### I el xip també ho sap: el motiu del reset (0.190.68)
+
+L'amo: *«recorda que l'esp32 te estats al arrencar, així el firmware sabrà si ha despertat normal o d'un deep sleep»*. La marca de
+la RAM del RTC és **una pista del sistema** —el que la baixada va deixar escrit—, i n'hi ha una segona que és **del maquinari**:
+`esp_reset_reason()`, que el xip respon a cada arrencada i que no depèn de cap escriptura que hagi pogut fallar. El nucli la llegeix
+com a `hal::ResetCause` (`kPowerOn`, `kDeepSleep`, `kSoftware`, `kPanic`, `kBrownout`, `kExternal`) per
+`IPlatform::reset_cause()`, i les dues pistes es creuen en lloc de triar-ne una:
+
+| El xip diu | La marca `power/slept` | Què és aquesta arrencada |
+|---|---|---|
+| `kDeepSleep` | hi és | **una tornada**, i és el cas net: la placa no ha tallat el corrent (l'ATOM, la T-Koala, la T5, l'emulador) |
+| `kDeepSleep` | **no** hi és | **una tornada igualment**, i es diu al registre: l'escriptura de la baixada no va arribar i el maquinari ha salvat el run |
+| `kPowerOn` | hi és | **una tornada**: és el cas normal del Paper, que dorm **tallant el corrent** i torna com si l'endollessin (docs/50) |
+| `kPowerOn` | no hi és | el corrent ha tornat; si la RAM del RTC té la marca `LUNK`, un reinici sense son |
+| `kPanic`, `kBrownout`, `kSoftware`, `kExternal` | el que sigui | la línia del reinici porta el motiu: `the chip restarted and the power never went away: a panic` |
+
+O sigui que **la marca mana quan hi és i el xip mana quan la marca s'ha perdut**, que és exactament el forat que una marca sola
+deixava obert: una NVS que no va prendre l'escriptura no és una arrencada nova, perquè el que hi ha al vidre i al disc és el run de
+la persona. Quan les dues pistes no diuen el mateix, la que salva el run és la del xip i el registre ho diu:
+
+```
+[W][BOOT] the chip came back from a deep sleep and the mark of the sleep is not in the store: this boot is a return anyway
+```
+
+El motiu del reset **no substitueix** la marca, però, i això és el que fa que les dues coses siguin necessàries: al Paper el son
+profund és un tall de corrent (el seu rellotge de quars torna a engegar la placa), i allà `esp_reset_reason()` contesta `power on`
+a una tornada tan bona com qualsevol altra.
 
 **I despertar-se per una alarma no és despertar-se per a una persona** (0.189.182). La placa que torna d'un son perquè el xip
 l'ha cridada —`last_wake` contesta `clock` o `timer`— es troba el vidre sense ningú al davant: la pàgina que hi havia espera. Per
@@ -411,13 +439,14 @@ corrent se'n va abans i la tecla PWR és la del xip de potència, que és com aq
 
 L'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*. El sistema passa mitja vida esperant, i esperar amb el
 processador despert és el corrent més fàcil d'estalviar d'aquesta placa. Amb el commutador **Light sleep instead of wait** de la
-pestanya Battery encès —`cfg.nap on|off`, `cfg.nap()`, i ve de sèrie—, cada espera prou llarga és un **son lleuger**:
+pestanya Battery encès —`cfg.nap on|off`, `cfg.nap()`, i ve de sèrie—, l'espera del **torn del nucli** (`kernel::poll`, el que
+arribi a la cua fins a un segon quan no hi ha cap app) és un **son lleuger**, i el que el desfà és una tecla, el dit, la consola o el
+temporitzador.
 
-| on | què s'hi espera | qui el desfà |
-|---|---|---|
-| el torn del nucli (`kernel::poll`) | el que arribi a la cua, fins a un segon quan no hi ha cap app | una tecla, el dit, la consola o el temporitzador |
-| la tinta del vidre (`splash::settle`) | que el panell acabi de moure la imatge, en tandes de vint mil·lisegons | el temporitzador (i una tecla, si algú prem) |
-| el marge de la targeta (`power::settle_before_leaving`) | els dos segons que la targeta necessita abans que el corrent marxi | el temporitzador, en tandes d'un segon |
+**I només és aquí** (0.190.69): the ink of the glass (`splash::settle`) and the card's margin (`power::settle_before_leaving`) went
+back to being awake waits. Those are the last seconds before the current goes and a wait with a frame or a write in flight, and the
+night of the 20/11 the Paper hung on its way down with exactly one of them behind it. El torn del nucli és on la placa passa l'estona, on
+no hi ha cap transacció a mitges i on una becaina que surt malament costa un torn (docs/50, docs/75).
 
 - **El son és lleuger i no un reset**: la RAM, l'intèrpret, la pàgina i el `state` hi són en tornar, o sigui que no s'ha de desar res ni
   tornar a obrir cap app; el que s'atura són els rellotges.
@@ -429,6 +458,12 @@ pestanya Battery encès —`cfg.nap on|off`, `cfg.nap()`, i ve de sèrie—, cad
   son lleuger l'aturaria; a l'emulador tampoc, perquè el PC no dorm (docs/50).
 - **La consola és la porta que no es pot perdre**: si el xip no la pot prendre (`esp_sleep_enable_uart_wakeup`), no es dorm. Una
   becaina que es menja el que una persona escriu és pitjor que no estalviar res.
+- **I només s'arma una porta que ara és tancada** (0.190.69, el registre de l'amo del 20/11: *«the chip did not take the nap (259) … I
+  es queda penjada»*). El 259 era `ESP_ERR_SLEEP_REJECT`: una porta de nivell que ja és baixa fa que el xip **refusi** la becaina
+  sencera, i la línia del GT911 queda baixa mentre hi ha un contacte —o sigui que la becaina es refusava una vegada i una altra sense
+  dormir mai—. Ara es mira el nivell abans d'armar (`gpio_get_level`), el resultat el diu `esp_sleep_get_wakeup_cause()` i el temps
+  viscut —el número que torna `esp_light_sleep_start()` **no** és un `ESP_OK`, és el motiu del despert—, i una placa que ha dit que no
+  tres vegades deixa de preguntar dient-ho una vegada: `no more light sleeps in this run: the waits are spent awake` (docs/50, docs/95).
 - **I cap armat no sobreviu a la becaina**: en sortir es desfan totes les portes i el compte del temporitzador, perquè el son profund
   arma el que vol i no ha d'heretar res (docs/50).
 - **I al registre es veu** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»*). Tres línies i cap d'elles per torn, perquè una
@@ -496,6 +531,12 @@ Per què, amb els números a la mà i els que falten:
   sobre el rellotge. Va sortir al vidre el 31/10: un son de 300 s va tornar als 56 s amb la causa
   sense amo i el nucli ho va presentar com una deriva de `−243 530 ms`, que és el que sembla una placa
   trencada i era una placa que no havia arribat a provar res.
+  **I una persona que torna no és un tall** (0.190.67): una tecla o un dit al vidre és la porta que la
+  placa té per a una persona i no un defecte, o sigui que `kOther` i `kTouch` diuen
+  `a button/glass woke the board, N ms before its hour, and nothing is measured` i **no apunten res a
+  `power last`**, perquè el rellotge no havia de provar res. El registre de l'emulador del 20/11 amb el
+  xip adormit de debò és el que ho va ensenyar: `the sleep was cut short by the glass, 69347 ms before
+  the hour it was given` per una placa que havia fet exactament el que se li havia demanat.
 - **L'arrencada no és part de l'error del rellotge** (`hal::wake_error_ms`, 31/10). Una placa que es
   reinicia no informa en el moment de despertar-se: abans hi ha el carregador d'arrencada, el
   banner, la flash, la targeta i els ajustos, i això és **al voltant d'un segon de firmware**. Al

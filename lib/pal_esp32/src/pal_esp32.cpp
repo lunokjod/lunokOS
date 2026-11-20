@@ -212,7 +212,29 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   // The UART keeps a FIFO and a shift register after write() returns, and both stop when
   // the chip sleeps: without this wait the last line before a sleep arrives cut in half
   // (docs/50, docs/60).
-  void flush() override { Serial.flush(); }
+  //
+  // **I amb un sostre, perquè una placa que s'ha d'adormir no es pot quedar esperant un fil** (0.190.69): `Serial.flush()` espera
+  // que l'FSM del UART estigui idle en un bucle sense temps límit, i la nit del 20/11 la placa es va quedar penjada exactament aquí
+  // —sense consola, sense tàctil i sense anar-se'n a dormir, perquè el camí de la baixada no torna mai i el torn no avança—. El que
+  // es perd si el fil no s'acaba és mitja línia del registre; el que es perdia sense el sostre era la placa (docs/50, docs/60).
+  void flush() override {
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    // **Amb la consola al USB no hi ha cap UART del xip a esperar** (0.190.30): the bytes go out through the USB peripheral and its
+    // own stack, so the bound below is about a wire this board does not have —and UART0 here is the GPS of that board and the
+    // interrupt line of its touch (docs/50).
+    Serial.flush();
+#else
+    // **Cent mil·lisegons és el sostre d'aquesta espera**: a 115200 bauds una línia del registre són nou mil·lisegons, i una placa que
+    // ha de tallar el corrent no pot esperar més que això per una línia de text. És un sostre i no una espera: un UART sa el compleix
+    // en microsegons (docs/50, docs/60).
+    const uint32_t kFlushMostMs = 100;
+    const uint32_t started = millis();
+    while (!uart_ll_is_tx_idle(UART_LL_GET_HW(0))) {
+      if (millis() - started >= kFlushMostMs) return;
+      delay(1);
+    }
+#endif
+  }
 
   size_t read(void* data, size_t len) override {
     uint8_t* out = static_cast<uint8_t*>(data);

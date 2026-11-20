@@ -147,6 +147,11 @@ bool g_for_an_alarm = false;
 // perquè `power::boot` arriba després i la pregunta és de l'arrencada i no de la porta (docs/50, docs/60).
 bool g_woke_by_an_alarm = false;
 
+// **Si el darrer son ha estat una arrencada del xip** (0.190.68): el posa `sleep` quan la placa diu que la crida de dalt no ha tornat
+// —el model de l'emulador ho sap i una placa de debò no arriba mai aquí— i el neteja `kernel::boot`, que és on comença el run nou.
+// És al costat de les altres coses d'aquest fitxer que són d'una arrencada i no d'un torn.
+bool g_the_chip_restarted = false;
+
 int64_t mono_now() {
   // The RTC chip, read once a turn (docs/30, docs/50).
   meter::Scope scope(meter::kClockMono);
@@ -311,10 +316,21 @@ void report_wake(bool restarted) {
          static_cast<long long>(epoch - at));
     return;
   }
-  // Everything else that comes back before its hour **did not run its sleep to the end**: a finger
-  // on the button, a cable plugged in, a supply that blinked. The number is how early it was cut
-  // short, and calling it a drift was a lie about the clock —the board never got to prove
-  // anything— so it is said as what it is and the last measurement keeps the word `short` (docs/60).
+  // **Una persona que torna no és un son tallat** (0.190.67, el registre de l'emulador del 20/11: *«power: the sleep was cut short by
+  // the glass, 69347 ms before the hour it was given»*). A key or a finger on the glass is the board doing exactly what it was told
+  // to do —the door a person has—, and calling that a sleep that was cut short is a sentence about a fault for the one case that is
+  // not one. **No es mesura res**: the clock had nothing to prove, because the board was not waiting for its hour.
+  if (woke == hal::WakeCause::kOther || woke == hal::WakeCause::kTouch) {
+    log_printf(pal::kLogInfo, "POWER", "%s woke the board %lld ms before its hour, and nothing is measured",
+               how, static_cast<long long>(at - epoch));
+    sayf("power: %s woke the board, %lld ms before the hour it was given\r\n", how,
+         static_cast<long long>(at - epoch));
+    return;
+  }
+  // Everything else that comes back before its hour **did not run its sleep to the end**: a cable
+  // plugged in, a supply that blinked. The number is how early it was cut short, and calling it a
+  // drift was a lie about the clock —the board never got to prove anything— so it is said as what it
+  // is and the last measurement keeps the word `short` (docs/60).
   const int64_t early = at - epoch;
   char marked[24];
   snprintf(marked, sizeof(marked), "%s, cut short", cause);
@@ -535,6 +551,10 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // (docs/30, docs/50).
   meter::Scope scope(meter::kSleep);
   if (g_power == nullptr) return false;
+  // **I un run que ja ha reiniciat el xip no torna a baixar** (0.190.68): el flag vol dir que aquest run s'ha acabat i que el que ve
+  // després és un `kernel::boot`; una segona crida —la política d'oci mirant el torn des de dins, el pany demanant la seva hora— no ha
+  // de dormir una placa que ja no hi és, perquè el que faria és encadenar sons abans que el nucli torni a arrencar (docs/60, docs/85).
+  if (g_the_chip_restarted) return false;
   if (!can_sleep(mode)) return false;
   // **L'hora de la baixada és la que la placa ha de saber**, i es decideix aquí i enlloc més: la més propera entre la que s'ha demanat i la
   // propera alarma (0.190.15, vegeu `the_hour_of_a_sleep`).
@@ -589,6 +609,12 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // write returns, and both sleeps stop its clock, so the last thing a person reads would
   // be a word cut in half. It is done here and not in each board's sleep because the
   // console belongs to the system and not to the chip (docs/50, docs/60).
+  //
+  // **I es diu abans, perquè aquesta és la línia on la placa es va quedar el 20/11** (0.190.69): a board that hangs on its way down
+  // leaves a log that ends in the middle, and that night the last line was the margin —so the stop was in the console, in the picture
+  // or in the chip, and nobody could tell which—. Dues línies de depuració són el que converteix «s'ha penjat» en «s'ha penjat aquí»
+  // (docs/50, docs/60).
+  if (mode == hal::SleepMode::kDeep) log_printf(pal::kLogDebug, "POWER", "the way down: the console first");
   pal::IConsole* console = pal::system().console();
   if (console != nullptr) console->flush();
 
@@ -613,6 +639,7 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // **And the ink of the picture is over before the chip stops** (0.165.1): the deep sleep cuts the clocks where the call
   // found them, so a picture asked for and not waited on is a picture that nobody sees (docs/50).
   if (mode == hal::SleepMode::kDeep) splash::wait();
+  if (mode == hal::SleepMode::kDeep) log_printf(pal::kLogDebug, "POWER", "the way down: the picture is on the glass, and now the chip");
   // **Una baixada que no ha tocat el vidre no baixa els rails del panell** (0.190.19): a wake for an alarm runs with nobody in front and
   // the glass keeps the picture it had, o sigui que el controlador ha de quedar-se amb el seu estat i la imatge que ensenya (docs/50).
   const bool back = g_power->sleep(mode, until, g_for_an_alarm);
@@ -626,6 +653,13 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
       save_deadline(0);
     }
     return false;
+  }
+  // **I un son que ha estat una arrencada no té camí de tornada** (0.190.68): a la placa el que ve després és un `kernel::boot` i no
+  // aquesta línia, o sigui que aquí no es mesura res, no es diu cap despert i no es toca el pany —el run que hi havia s'ha acabat i el
+  // que el substitueix és un de nou, amb el seu propi `power::boot` (docs/60, docs/85).
+  if (mode == hal::SleepMode::kDeep && g_power->take_the_restart()) {
+    g_the_chip_restarted = true;
+    return true;
   }
   // **Sense hora no hi ha res a mesurar** (0.190.15): a board that came back on a key was not early and not late, and a drift written
   // for it would be a number `power last` shows and nobody asked for (docs/60).
@@ -744,27 +778,6 @@ void note_the_nap_end(bool something_happened) {
     log_printf(pal::kLogDebug, "POWER", "the nap is at its ceiling: %d ms a turn while nothing happens", kNapMostMs);
   }
   g_nap_ms = (g_nap_ms >= kNapMostMs / 2) ? kNapMostMs : g_nap_ms * 2;
-}
-
-// **Esperar becainant, i despert si la placa no en sap** (0.190.63): the same wait a caller asked for, spent asleep when that is possible.
-// A board that cannot nap —the emulator, the one whose console is a USB— waits exactly as it did before, o sigui que res d'aquí canvia
-// el que aquestes plaques ja feien (docs/50, docs/85).
-void wait_napping(int32_t ms) {
-  if (ms <= 0) return;
-  if (!g_nap_on || g_power == nullptr || !g_power->can_nap()) {
-    pal::delay_us(static_cast<uint32_t>(ms) * 1000U);
-    return;
-  }
-  int64_t left = ms;
-  while (left > 0) {
-    const int32_t step = (left > kNapMostMs) ? kNapMostMs : static_cast<int32_t>(left);
-    if (!nap(step)) {
-      // La placa ha dit que no a mig camí: el que queda es passa despert, que és el pitjor que pot passar.
-      pal::delay_us(static_cast<uint32_t>(left) * 1000U);
-      return;
-    }
-    left -= step;
-  }
 }
 
 bool can_deep_sleep() {
@@ -1404,12 +1417,28 @@ BootKind note_the_boot(hal::IPlatform& platform) {
   // diu el son (docs/30, docs/60).
   g_touched_since_boot = false;
   g_a_page_on_the_glass = false;
-  if (nvs != nullptr && coming_back_from_a_sleep(*nvs)) {
+  // **I les dues pistes de què és aquesta arrencada, creuades** (0.190.68, l'amo: *«recorda que l'esp32 te estats al arrencar, així el
+  // firmware sabrà si ha despertat normal o d'un deep sleep»*): la marca que el sistema va deixar al magatzem abans de baixar i el motiu
+  // que el xip porta al registre de reset. **La marca mana quan hi és** —el Paper talla el corrent per dormir, o sigui que la seva
+  // tornada és un `power on` de manual i el xip no pot distingir-la d'un endollament—, i **el xip mana quan la marca s'ha perdut**: una
+  // NVS que no va prendre l'escriptura no és una arrencada nova, perquè el que hi ha al vidre i al disc és el run de la persona
+  // (docs/50, docs/60, docs/75).
+  const hal::ResetCause reset = platform.reset_cause();
+  const bool the_mark_says_a_sleep = (nvs != nullptr) && coming_back_from_a_sleep(*nvs);
+  const bool the_chip_says_a_sleep = (reset == hal::ResetCause::kDeepSleep);
+  if (the_mark_says_a_sleep || the_chip_says_a_sleep) {
     g_boot_kind = BootKind::kSleep;
   } else if (the_rtc_remembers(rtc)) {
     g_boot_kind = BootKind::kRestart;
   } else {
     g_boot_kind = BootKind::kNew;
+  }
+  // **I quan les dues pistes no diuen el mateix, es diu** (0.190.68): una marca sense un xip que vingui d'un son és el Paper fent la
+  // seva feina i no té res a explicar; un xip que ve d'un son **sense** marca sí, perquè vol dir que l'escriptura de la baixada no hi
+  // era i que aquesta arrencada s'ha salvat pel maquinari (docs/50, docs/60).
+  if (the_chip_says_a_sleep && !the_mark_says_a_sleep) {
+    log_printf(pal::kLogWarn, "BOOT",
+               "the chip came back from a deep sleep and the mark of the sleep is not in the store: this boot is a return anyway");
   }
   // **I la marca es deixa per a la propera arrencada**, sigui quina sigui aquesta: una RAM que ja la té vol dir que el corrent no
   // ha marxat, i una de buida que la pila s'ha desconnectat (docs/50, docs/70).
@@ -1447,7 +1476,16 @@ BootKind note_the_boot(hal::IPlatform& platform) {
       }
       break;
     case BootKind::kRestart:
-      log_printf(pal::kLogInfo, "BOOT", "the chip restarted and the power never went away");
+      // **I amb el motiu que el xip hi ha posat, quan en té un de propi** (0.190.68): a restart with the power on is a button, a
+      // `reboot` or a fault, and the difference between a person and a panic is exactly what a person reading the log wants to know.
+      // Un xip que diu que el corrent ha tornat o que ve d'un son no hi afegeix res —el primer és una contradicció amb la marca que
+      // aquesta mateixa línia ja explica, i el segon seria una tornada i no un reinici—, o sigui que la línia es queda com era (docs/60).
+      if (reset == hal::ResetCause::kPowerOn || reset == hal::ResetCause::kDeepSleep) {
+        log_printf(pal::kLogInfo, "BOOT", "the chip restarted and the power never went away");
+      } else {
+        log_printf(pal::kLogInfo, "BOOT", "the chip restarted and the power never went away: %s",
+                   hal::reset_cause_word(reset));
+      }
       break;
     default:
       log_printf(pal::kLogInfo, "BOOT", "a new run: the power came back");
@@ -1455,6 +1493,10 @@ BootKind note_the_boot(hal::IPlatform& platform) {
   }
   return g_boot_kind;
 }
+
+bool the_chip_restarted() { return g_the_chip_restarted; }
+
+void clear_the_restart() { g_the_chip_restarted = false; }
 
 // **El repòs abans de tallar el corrent** (0.189.18): the number is one and it starts at the two seconds the owner asked
 // for. A test that cuts the supply sets it to zero and a board that one day wants another number changes it here.
@@ -1508,10 +1550,11 @@ Leaving settle_before_leaving(const char* why) {
   if (done.margin_ms > 0) {
     log_printf(pal::kLogInfo, "POWER", "a margin of %u ms before the current goes (a card finishes writing after the last sector)",
                static_cast<unsigned>(done.margin_ms));
-    // **I aquesta estona es passa dormint si la placa en sap** (0.190.63): two seconds of a card finishing its own write are two seconds
-    // with nothing to compute, o sigui que el xip els pot fer amb els rellotges aturats; a una placa que no fa becaines li queda
-    // l'espera de sempre (docs/50, docs/75).
-    wait_napping(static_cast<int32_t>(done.margin_ms));
+    // **I aquesta estona no es dorm** (0.190.69): the margin is the last thing before the current goes and it must not depend on a
+    // mechanism that is still being proven. La nit del 20/11, al Paper, la becaina que s'hi va intentar va deixar la placa sense
+    // consola i sense arribar a baixar mai; el que s'hi guanya són dos segons cada moltes hores i el que s'hi pot perdre és la baixada
+    // sencera (docs/50, docs/75).
+    pal::delay_us(static_cast<uint32_t>(done.margin_ms) * 1000U);
   }
   return done;
 }

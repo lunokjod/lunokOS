@@ -448,6 +448,8 @@ void gui_pump() {
 
 bool gui_close_requested() { return g_close_requested; }
 
+bool gui_showing() { return g_window != nullptr; }
+
 uint8_t gui_scale() { return (g_window != nullptr) ? g_scale : 0; }
 
 void gui_close() {

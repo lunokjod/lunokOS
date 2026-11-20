@@ -22,6 +22,7 @@
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "esp32/power.h"
+#include "esp32/reset.h"
 #include "esp32/rtc_memory.h"
 #include "esp32/sd_card.h"
 #include "esp32/storage.h"
@@ -84,6 +85,11 @@ class TKoalaPlatform : public IPlatform {
   const char* id() const override { return board::id(); }
   const char* family() const override { return board::family(); }
   bool emulator() const override { return board::emulator(); }
+
+  // **Per què s'ha reiniciat el xip** (0.190.68, l'amo: *«recorda que l'esp32 te estats al arrencar, així el firmware sabrà si ha
+  // despertat normal o d'un deep sleep»*): ho respon el maquinari i no una marca desada, que és el que fa que una arrencada es
+  // pugui dir encara que la NVS s'hagi perdut (docs/50, docs/60).
+  ResetCause reset_cause() const override { return esp32_reset_cause(); }
 
   const Caps& caps() const override {
     if (!built_) {

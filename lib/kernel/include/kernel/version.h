@@ -10546,7 +10546,75 @@ namespace kernel {
 // segon). I una de sola quan l'escala arriba al sostre (`the nap is at its ceiling: 1000 ms a turn while nothing happens`). El comptador de
 // la tanda es desa a `power` i el motiu del despert surt del xip (`esp_sleep_get_wakeup_cause`), que és l'única cosa que sap si ha estat
 // el temporitzador o una tecla (docs/50, docs/60, docs/95).
-static const char kVersion[] = "0.190.64";
+// **La finestra d'una alarma diu que viu, i el que l'app hi diu va al registre** (0.190.65, l'amo: *«Perqué no es veu l'app? l'app
+// no hauría de dir alguna cosa? (lua carregant-lo, la crida, el tancament…) No veig que l'app sigui avisada de res!»*). `run_window`
+// carregava el text de l'app, muntava la màquina de Lua, cridava `on_alarm` i la destruïa **sense dir res al registre**: l'única línia
+// era la del sistema, `1 delivered to battery in a window`. I el que deia l'app no s'hi veia perquè dins una finestra `console.print`
+// anava al terminal, entremig del prompt, i es perdia. Ara la finestra diu que s'obre (`a window opens for battery (1655 ms late):
+// loading it`), què ha contestat (`battery answered the alarm`, o `did not answer`, o `did not load: the window has no hook to call`) i
+// que es tanca (`the window of battery closes`); **i mentre dura, la seva consola va al registre del sistema** (`set_console_attached(false)`
+// i el mateix `console_away` que una app enviada al darrere amb `&`), que és el que docs/30 ja deia d'una finestra i no feia. Fora de la
+// finestra la consola torna a ser del prompt (docs/30, docs/60).
+// **L'emulador sap dormir** (0.190.66, l'amo: *«L'emulador ha de poder simular LightSleep i DeepSleep de l'esp32 per poder provar l'rtc o
+// els gpio dels botons físics o el panell táctil enviant interrupcions al SoC adormit»*). Fins ara una baixada d'aquest emulador no
+// dormia gens: `FakePower::sleep` movia el rellotge fins a l'hora i tornava, o sigui que el nucli seguia fent voltes i el que es podia
+// provar era el camí del despert i no el son. Ara, amb els temps del maquinari engegats, el xip **s'atura de debò** (`emu::wait_while_asleep`):
+// el nucli no fa cap volta, el rellotge de la placa segueix comptant i el que el torna és una **interrupció** —el temporitzador del RTC,
+// una tecla (`press_key` o un clic a la finestra) o la línia del panell tàctil quan el dit és una porta—, o el corrent que torna abans
+// d'hora (`--wake-early`). La finestra es continua bombejant mentre dorm, o sigui que un clic és una tecla premuda **al xip adormit**, i
+// el que ha passat es llegeix a la línia de l'emulador (`power: awake after 1823 turn(s) asleep, woken by a key of the board`).
+// `last_wake()` respon la causa que l'espera ha vist i no la que es dedueix del rellotge, i **la becaina també es modela**: amb els
+// temps engegats `can_nap()` diu que sí i `nap(max_ms)` atura el xip amb les mateixes portes. Amb `--no-delay` —i a tota la suite— el
+// model és el de sempre i el rellotge salta, que és el que fa que una prova de deu minuts costi un mil·lisegon (docs/50, docs/85).
+// **Una persona que torna no és un son tallat** (0.190.67, el registre de l'emulador del 20/11 amb el xip adormit de debò: *«power: the
+// sleep was cut short by the glass, 69347 ms before the hour it was given»*). Una tecla o un dit al vidre és la placa fent exactament el
+// que se li ha demanat —la porta que té una persona—, i dir-ne «un son que s'ha tallat» és una frase de defecte per al cas que no ho és;
+// i pitjor, el número anava a `power last` com si el rellotge hagués fallat quan el rellotge no havia de provar res. Ara `kOther` i
+// `kTouch` diuen `a button/glass woke the board, N ms before its hour, and nothing is measured` i **no toquen la mesura**: el que es
+// mesura és un son que va fins a la seva hora, i un cable que torna abans sí que és això (docs/60).
+// **El xip diu per què s'ha reiniciat, i un son profund és un reinici del xip** (0.190.68, l'amo: *«fes-ho i recorda que l'esp32 te
+// estats al arrencar, així el firmware sabrà si ha despertat normal o d'un deep sleep»*). Dues meitats que són una: el motiu del reset
+// surt del maquinari (`esp_reset_reason` → `hal::ResetCause`, `IPlatform::reset_cause()`) i el model de l'emulador reinicia el nucli
+// quan el seu son és profund, que és el que fa el xip de debò i el que faltava perquè la pàgina de la persona tornés en un PC.
+//
+// **El motiu del reset no substitueix la marca del son: la creua.** `note_the_boot` llegeix les dues pistes i decideix amb les dues —
+// la marca mana quan hi és (el Paper dorm **tallant el corrent** i en tornar contesta `power on`, o sigui que allà el xip no pot saber
+// res) i el xip mana quan la marca s'ha perdut (una NVS que no va prendre l'escriptura no és una arrencada nova, perquè el que hi ha al
+// vidre i al disc és el run de la persona)—, i quan no diuen el mateix ho diu el registre: `the chip came back from a deep sleep and
+// the mark of the sleep is not in the store: this boot is a return anyway`. La línia del reinici porta el motiu quan no és cap de les
+// dues coses (`… the power never went away: a panic`), que és el que fa que un pànic o una caiguda de tensió es puguin llegir en lloc
+// de semblar una arrencada qualsevol (docs/50, docs/60).
+//
+// **I a l'emulador el son profund torna a arrencar el sistema.** A la placa la crida de `sleep` no torna mai; al PC el procés segueix
+// viu, i fins ara el nucli continuava amb el run d'abans d'un son profund: no es tornava a llegir la marca, ni el rellotge, ni la
+// sessió desada, i la pàgina de la persona no tornava. Ara `IPower::take_the_restart()` diu que aquesta baixada ha estat una
+// arrencada, `power::sleep` no fa el camí de tornada, el torn s'acaba a `kernel::poll` i el `kernel::boot` el fa qui porta
+// l'executable —`main_host`—, que és el lloc que fa de xip i que paga el temps del boot com el paga la primera arrencada. Amb el model
+// de salt (`--no-delay`, la suite) no es marca mai: allà el nucli ha de poder seguir i una prova de deu minuts no pot costar un boot
+// (docs/60, docs/85).
+// **La becaina no es menjava res i la placa s'hi quedava** (0.190.69, el registre de l'amo del 20/11 al Paper: *«[W][POWER] the chip did
+// not take the nap (259) … I es queda penjada sense tàctil ni res… I per cert, continuo sense veure els LightSleep»*). Tres coses, totes
+// tres del mateix camí:
+//
+// **1. El 259 era un rebuig i no un despert.** `esp_light_sleep_start()` no torna `ESP_OK`/error sinó el motiu del despert, i
+// `ESP_ERR_SLEEP_REJECT` (0x103 = 259) vol dir que el xip **no ha dormit**: una de les portes armades ja era oberta. La porta del dit
+// (la línia del GT911) queda baixa mentre hi ha un contacte, i la del botó si algú la té premuda, o sigui que la becaina es refusava
+// **una vegada i una altra**. Ara **només s'arma una porta que ara és tancada** (`gpio_get_level`) i el resultat el diu
+// `esp_sleep_get_wakeup_cause()` i el temps viscut, no el número de tornada; una placa que ha dit que no tres vegades deixa de
+// preguntar i ho diu una línia (`no more light sleeps in this run: the waits are spent awake`), que és el que fa que això no costi una
+// crida per torn (docs/50, docs/95).
+//
+// **2. I el camí de la baixada no dorm.** El marge de la targeta i la tinta de la imatge del son tornen a ser esperes despertes: són
+// l'últim que hi ha abans que el corrent marxi i no són lloc per provar un mecanisme nou. La becaina viu al **torn del nucli**, que és
+// on la placa passa l'estona i on no hi ha cap transacció a mitges (docs/50, docs/60).
+//
+// **3. I la placa no es pot quedar esperant un fil.** `Serial.flush()` espera que l'FSM del UART estigui idle en un bucle **sense temps
+// límit**; la placa es va quedar sense consola, sense tàctil i sense baixar, que és exactament el que passa quan algú es queda dins
+// del camí de la baixada —el torn no avança i no hi ha res més que pugui respondre—. La consola de l'ESP32 té ara un **sostre de cent
+// mil·lisegons** per a aquesta espera: el que es pot perdre és mitja línia del registre, i el que es perdia era la placa (docs/50, docs/60).
+// I la baixada diu on és (`the way down: the console first`, `… the picture is on the glass, and now the chip`) perquè la propera
+// vegada el registre ho digui tot (docs/50).
+static const char kVersion[] = "0.190.69";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

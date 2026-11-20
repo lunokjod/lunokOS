@@ -53,6 +53,11 @@ void gui_pump();
 // True once the person closed the window: the run ends as if three ESC had been typed.
 bool gui_close_requested();
 
+// **Hi ha una finestra oberta i algú que la pugui clicar** (0.190.66): it is the question a sleeping chip asks before it waits for
+// a key —a run with no window has nobody to press anything, and waiting for ever is not a model of the hardware but a hung
+// process— (docs/85).
+bool gui_showing();
+
 // **How many page pixels one pixel of the window stands for**: 1 when the page fitted the screen, 2 or
 // more when it had to be cut down to fit, so the run can say what a person is looking at (docs/85).
 uint8_t gui_scale();

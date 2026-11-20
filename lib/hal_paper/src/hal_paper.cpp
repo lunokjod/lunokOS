@@ -37,6 +37,7 @@
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "esp32/power.h"
+#include "esp32/reset.h"
 #include "esp32/rtc_clock.h"
 #include "esp32/rtc_memory.h"
 #include "esp32/sd_card.h"
@@ -438,6 +439,11 @@ class PaperPlatform : public IPlatform {
   // itself off half way through its own boot and only a cable could start it; the maker's own `M5EPD::begin()` enables the
   // main power as its very first instruction (docs/50, docs/75).
   void hold_the_power() override { hold_power(); }
+
+  // **Per què s'ha reiniciat el xip** (0.190.68, l'amo: *«recorda que l'esp32 te estats al arrencar, així el firmware sabrà si ha
+  // despertat normal o d'un deep sleep»*): ho respon el maquinari i no una marca desada, que és el que fa que una arrencada es
+  // pugui dir encara que la NVS s'hagi perdut (docs/50, docs/60).
+  ResetCause reset_cause() const override { return esp32_reset_cause(); }
 
   // Built on first use and never in the constructor: this object is constructed
   // before setup() runs, and the power hold wants the GPIO driver awake. Mounting

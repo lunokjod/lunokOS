@@ -78,6 +78,12 @@ const uint32_t kGuiSliceMs = 20;
 // board costs (docs/85).
 int32_t g_turn_us = 0;
 
+// **I el que costa tornar a engegar el xip** (0.190.68): the image out of the flash and the PSRAM test, which is what the boot of
+// this emulator paid once at the top of the run. A son profund que ha estat una arrencada ha de costar el mateix que la primera,
+// perquè a la placa el xip fa exactament aquest camí —i un run que el saltés seria un emulador més ràpid que la placa en el moment
+// que més es nota— (docs/75, docs/85).
+uint32_t g_boot_us = 0;
+
 // The UART of the board, in baud: the console of the emulator is a terminal and not a wire, but the
 // speed is part of what a person sees —a screen of text is a third of a second on the glass— so the
 // emulator waits the wire out instead of being faster than the board (docs/85).
@@ -779,6 +785,19 @@ bool host_pump(void*) {
   return emu::gui_close_requested();
 }
 
+// **I un son profund que ha estat una arrencada del xip és un boot** (0.190.68, l'amo: *«recorda que l'esp32 te estats al arrencar,
+// així el firmware sabrà si ha despertat normal o d'un deep sleep»*): a la placa el nucli no segueix després de dormir —el xip es
+// reinicia i el firmware arrenca de nou—, o sigui que el `kernel::boot` que li toca el fa **aquí**, que és el lloc que fa de xip en
+// aquest emulador. El que hi ha al disc (la marca del son, l'hora i la pàgina de la persona) és el que la baixada hi va deixar, i el
+// boot el llegeix com el llegiria a la placa: la marca li diu que aquesta arrencada és una tornada i `restore_session` torna a obrir
+// l'app on era (docs/50, docs/60, docs/85).
+void boot_again_if_the_chip_restarted(uint32_t& shown_frames) {
+  if (!kernel::the_chip_restarted()) return;
+  if (g_boot_us > 0) pal::delay_us(g_boot_us);
+  kernel::boot(hal::platform());
+  pump_gui(shown_frames);
+}
+
 // **One turn of the system, and what a turn costs on the board**: FreeRTOS switches, the drivers get
 // their look-in and the loop comes back a millisecond later, where this emulator comes back in a tenth of
 // one. The difference is paid here —after the turn, because a turn that has painted has already spent
@@ -787,6 +806,7 @@ bool host_pump(void*) {
 void turn(uint32_t& shown_frames) {
   kernel::poll();
   pump_gui(shown_frames);
+  boot_again_if_the_chip_restarted(shown_frames);
   if (g_turn_us > 0) pal::delay_us(static_cast<uint32_t>(g_turn_us));
 }
 
@@ -809,6 +829,10 @@ int run_script(const char* path, uint32_t& shown_frames) {
     // went on would be a script running on a board that is not there (docs/85). **And a person who closed the window of the
     // run is a run that ends**, which is the same answer the loop of a run with no script gives (0.190.3).
     if (!kernel::running() || emu::gui_close_requested()) break;
+    // **I una línia que ha adormit el xip deixa el guió en un boot** (0.190.68): `deepsleep` des d'un guió és la mateixa crida que la
+    // del botó, i el que ve després no és la línia següent del guió sinó el sistema tornant a arrencar —amb la seva marca i la seva
+    // pàgina— (docs/50, docs/60, docs/85).
+    boot_again_if_the_chip_restarted(shown_frames);
     // An app may be waiting for a promise, and a command may be waiting for the
     // radio: both have to finish before the next line, or the script would read
     // as if nothing had happened (`wifi add` followed by `http` found the radio
@@ -1004,7 +1028,8 @@ int main(int argc, char** argv) {
   // thing a board says, it is the first thing it says after the image has come out of the flash and the
   // PSRAM has been tested. It happens before the kernel so the prompt arrives when it arrives there, and now
   // after the window, so that the splash of the boot lands in it (0.174.6).
-  if (opts.delays) pal::delay_us(boot_us(hw));
+  g_boot_us = opts.delays ? boot_us(hw) : 0;
+  if (g_boot_us > 0) pal::delay_us(g_boot_us);
 
   // **La demo de la franja, abans del boot**: the strip is painted by `kernel::boot`, so the five icons have to be lit before it
   // runs or the first frame of the demo would be a bar without them (docs/50, docs/85).

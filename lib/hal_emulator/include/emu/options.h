@@ -224,6 +224,10 @@ void press_button(bool down);            // key 0
 void press_key(int key, bool down);      // 0, 1 or 2
 bool button_down();                      // key 0
 bool key_down(int key);
+// **Quantes vegades s'ha premut una tecla en aquest run** (0.190.66): the state of a key is not enough for a chip that is asleep
+// —a press and a release inside one wait would leave the level where it was—, o sigui que el que compta és el nombre de baixades,
+// que és el que mira l'espera del son per saber si una tecla l'ha despertat (docs/85).
+uint32_t key_presses();
 
 // What the fake light is showing. A test asks the band and not the kernel, so a
 // policy that never paints is caught (docs/85).

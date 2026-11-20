@@ -63,6 +63,9 @@ bool Gt911Panel::finger_down(uint8_t slot, uint16_t x, uint16_t y) {
   // A point that is not on the glass is not a finger: the emulator refuses it instead of putting it
   // somewhere and letting a test believe what it read (docs/85).
   if (x >= kFrameWidth || y >= kFrameHeight) return false;
+  // **Un contacte és un flanc de la línia** (0.190.66): the chip drives INT low while it has a frame nobody has taken, and a
+  // finger that comes down is that frame. És el que un xip adormit veu, i el que compta per saber si el vidre és una porta oberta.
+  if (!fingers_[slot].down) ++contacts_;
   fingers_[slot].down = true;
   fingers_[slot].x = x;
   fingers_[slot].y = y;

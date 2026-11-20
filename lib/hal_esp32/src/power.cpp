@@ -20,6 +20,18 @@ namespace hal {
 Esp32Power::Esp32Power(int wake_pin, int second_wake_pin, int glass_pin)
     : wake_pin_(wake_pin), second_wake_pin_(second_wake_pin), glass_pin_(glass_pin) {}
 
+namespace {
+
+// **El xip ha refusat la becaina, i quantes vegades** (0.190.69): a light sleep that the chip does not take is a call that returns
+// at once and leaves nothing slept. Asking once and finding out is information; asking on every turn of a board that has said no is
+// a system paying for a question whose answer is known. El comptador és del run i el que fa és deixar de preguntar després de tres
+// respostes iguals, dient-ho una vegada (docs/50, docs/95).
+uint8_t g_nap_refusals = 0;
+bool g_nap_refused = false;
+const uint8_t kNapRefusalsMost = 3;
+
+}  // namespace
+
 // **Dues portes alhora, quan el xip en sap** (0.190.29): `ext1` on a chip after the ESP32 has an «any of them low»
 // mode, and the two lines a board like the T5 E-Paper S3 Pro wires to it are exactly that —a button to ground and the
 // open-drain INT of a clock chip—, so one call arms both. **On the ESP32 that mode does not exist**: its two are «all
@@ -72,17 +84,26 @@ bool Esp32Power::nap(int32_t max_ms) {
   // Per sota d'aquest temps, entrar i sortir del son costa més que esperar despert.
   const int32_t kLeastMs = 20;
   if (max_ms < kLeastMs || !can_nap()) return false;
+  // **Una placa que ha dit que no no es torna a preguntar** (0.190.69, el registre del 20/11: *«el xip no ha pres la becaina (259)»*):
+  // 259 és `ESP_ERR_SLEEP_REJECT`, i el que fa és que el sistema pagui una crida que no dormeix a cada volta (docs/50, docs/95).
+  if (g_nap_refused) return false;
 
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(max_ms) * 1000ULL);
 
   // **Les tecles i el vidre, pel nivell**: en un son lleuger el `gpio_wakeup_enable` val per a qualsevol GPIO i no només pels del
   // domini RTC, que és el que fa possible escoltar la línia del tàctil (docs/50).
+  //
+  // **I només s'arma una porta que ara és tancada** (0.190.69): a level door that is already low makes the chip **refuse** the whole
+  // sleep (`ESP_ERR_SLEEP_REJECT`), and a touch line left low by the contact that has just ended —or a key still held— would turn
+  // every nap of the run into a refusal. La porta s'arma quan es pot obrir, que és quan és tancada; la que està oberta ja ha despertat
+  // el sistema i la propera volta la trobarà (docs/50).
   int lines[3] = {wake_pin_, second_wake_pin_, glass_pin_};
   int armed[3] = {-1, -1, -1};
   bool a_button = false;
   for (int i = 0; i < 3; ++i) {
     if (lines[i] < 0) continue;
+    if (gpio_get_level(static_cast<gpio_num_t>(lines[i])) == 0) continue;
     if (gpio_wakeup_enable(static_cast<gpio_num_t>(lines[i]), GPIO_INTR_LOW_LEVEL) != ESP_OK) continue;
     armed[i] = lines[i];
     a_button = true;
@@ -95,18 +116,32 @@ bool Esp32Power::nap(int32_t max_ms) {
   if (ok) {
     fflush(stdout);
     const int64_t before_us = esp_timer_get_time();
-    const esp_err_t slept = esp_light_sleep_start();
+    const esp_err_t asked = esp_light_sleep_start();
     const int64_t slept_ms = (esp_timer_get_time() - before_us) / 1000;
-    // **Un son que el xip no ha pres es diu**: la volta que ve el sistema no el tornaria a demanar i el que quedaria és una placa que
-    // diu que estalvia i no estalvia (docs/50).
-    if (slept != ESP_OK) {
-      hal::logf(pal::kLogWarn, "POWER", "the chip did not take the nap (%d)", static_cast<int>(slept));
+    // **El que diu el xip, i no el que torna la crida** (0.190.69): el valor de tornada d'`esp_light_sleep_start` no és un
+    // `ESP_OK`/error sinó el motiu del despert —el 259 del registre del 20/11 era un `ESP_ERR_SLEEP_REJECT`, o sigui una becaina
+    // que el xip no havia pres, però una becaina bona també en torna un número—. La pregunta honesta la contesta
+    // `esp_sleep_get_wakeup_cause()`: si diu que no sap per què s'ha despertat, és que no ha dormit (docs/50, docs/95).
+    // **I el temps viscut ho diu igual**: una becaina que ha durat un mil·lisegon no ha dormit ningú, i el motiu que hi hagi al
+    // registre seria el d'una altra (docs/95).
+    const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    if (cause == ESP_SLEEP_WAKEUP_UNDEFINED || slept_ms < 2) {
       ok = false;
+      ++g_nap_refusals;
+      if (g_nap_refusals == 1) {
+        hal::logf(pal::kLogWarn, "POWER",
+                  "the chip did not take the light sleep (%d): a door was already open, or this board cannot take one",
+                  static_cast<int>(asked));
+      }
+      if (g_nap_refusals >= kNapRefusalsMost) {
+        g_nap_refused = true;
+        hal::logf(pal::kLogWarn, "POWER", "no more light sleeps in this run: the waits are spent awake");
+      }
     } else {
+      g_nap_refusals = 0;
       // **I una becaina que no ha acabat el seu temps també es diu**: la que el temporitzador ha deixat anar és el cas normal i
       // no omple el registre, però la que ha tallat una tecla, el dit o la consola és la línia que explica per què la placa és
       // desperta abans d'hora (docs/50, docs/95).
-      const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
       if (cause != ESP_SLEEP_WAKEUP_TIMER) {
         hal::logf(pal::kLogDebug, "POWER", "a nap of %lld ms ended by %s", static_cast<long long>(slept_ms),
                   nap_cause_word(cause));

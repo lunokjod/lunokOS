@@ -788,6 +788,70 @@ paga la meitat no mesura res:
 marc que es dona una vegada hi són igual. El que s'estalvia és el rellotge i no el model, que és
 exactament el que vol una prova de píxels.
 
+## El son: un xip que s'atura i unes interrupcions que el tornen (0.190.66)
+
+L'amo: *«L'emulador ha de poder simular LightSleep i DeepSleep de l'esp32 per poder provar l'rtc o els gpio dels botons
+físics o el panell táctil enviant interrupcions al SoC adormit»*. Fins a la 0.190.65 una baixada **no dormia**: `FakePower::sleep`
+movia el rellotge fins a l'hora i tornava, o sigui que el nucli seguia fent voltes i el que es provava era el camí del despert i no
+el son.
+
+Amb els temps del maquinari engegats (el binari i `--gui`; **no** amb `--no-delay` ni a la suite) el xip **s'atura de debò**:
+
+| | què passa |
+|---|---|
+| **el nucli** | no fa cap volta: `FakePower::sleep` no torna fins que hi ha un motiu, i el bucle, les alarmes i l'app queden aturats com en un xip aturat |
+| **el rellotge de la placa** | segueix comptant (i amb `--time-scale` compta més de pressa, o sigui que deu minuts de son es poden mirar en deu segons) |
+| **la finestra** | es continua bombejant (`gui_pump`), perquè una finestra que no respon no és una finestra on es pugui prémer res |
+
+**Les portes són les del maquinari**, i totes quatre es poden provar des de la finestra:
+
+- **el temporitzador del RTC**: el rellotge de la placa arriba a l'hora que se li va donar → `WakeBy::kTimer` (i `kClock` si el model té xip de rellotge i la baixada és fonda, que és el corrent que se'n va);
+- **una tecla** (`ext0`, el GPIO38 de la Paper): un clic a un botó de la finestra, o `press_key` → `kKey`, i el nucli ho veu com `WakeCause::kOther`;
+- **el panell tàctil** (`ext1`, la línia del GT911): un dit a la finestra → `kGlass` (`WakeCause::kTouch`), **només si el commutador del dit és encès** —que és la regla de la placa—;
+- **el corrent que torna abans d'hora** (`--wake-early`) → `kSupply`, que és el que la placa diu quan el cable s'ha mogut.
+
+Un run **sense finestra i sense hora** no espera ningú: no hi ha manera de prémer res, i l'emulador ho diu (`kNothing`) en lloc de
+penjar el procés. I el que se sent a la línia de l'emulador és:
+
+```
+power: deep sleep until 1795170172654 (the chip stops; the hour, a key or the glass wakes it)
+power: awake after 1823 turn(s) asleep, woken by a key of the board
+```
+
+`sleep_turns()` és el número de voltes d'un mil·lisegon que ha costat el son, i és el que diu si allò ha dormit quan no hi ha
+finestra per mirar-s'ho.
+
+**I la becaina del sistema també es modela** (0.190.63): amb els temps engegats, `can_nap()` diu que sí i `nap(max_ms)` atura el
+xip aquells mil·lisegons amb les mateixes portes —una tecla, el vidre o el temporitzador—, o sigui que el commutador *Light sleep
+instead of wait* de la pestanya Battery es pot veure funcionar en un PC. Amb `--no-delay` la resposta és la de sempre (no s'hi pot
+dormir, perquè el rellotge no passa) i el sistema espera despert com abans (docs/50, docs/60, docs/95).
+
+### Un son profund és un reinici del xip, i l'emulador el fa (0.190.68)
+
+A una placa un son profund **no torna**: el xip es reinicia i el que ve després és un `kernel::boot` sencer, que llegeix la marca
+del son, l'hora i la sessió desada i torna a obrir la pàgina de la persona on era. A l'emulador el procés no es pot reiniciar, i
+fins a la 0.190.67 el que passava és que el nucli **seguia** després de la baixada: el run d'abans d'un son profund continuava viu,
+la marca del son no es tornava a llegir mai i la sessió no es restaurava. Ara el model ho diu i el `boot` es fa:
+
+- `FakePower::sleep` marca el reinici (`IPower::take_the_restart`) quan el son ha estat **profund** i el run paga els temps del
+  maquinari; amb el model de salt (`--no-delay`, la suite) no el marca mai, perquè allà el nucli ha de poder seguir el seu camí i una
+  prova de deu minuts no pot costar un boot;
+- `power::sleep` **no fa el camí de tornada** —ni mesura, ni diu el despert, ni toca el pany— i el torn del nucli s'acaba a
+  `kernel::poll`, que és el que faria el xip aturant-se;
+- i el `kernel::boot` el fa **qui porta l'executable** (`main_host`), que és el lloc que fa de xip: quan mira el flag, paga el
+  temps del boot (`boot_us`, la imatge de la flash i la prova de la PSRAM, el mateix que la primera arrencada) i arrenca el sistema
+  una altra vegada. La pàgina de la persona torna, perquè el que hi ha al disc és el que la baixada hi va deixar (docs/60, docs/75).
+
+**I el motiu de l'arrencada també és del model** (0.190.68): `EmulatorPlatform::reset_cause()` contesta `emu::the_reset()`, que és
+`kPowerOn` al primer arrencament i `kDeepSleep` després d'un son profund modelat —el que contestaria l'ESP32—, i `the_reset()` és
+també el que permet provar la cruïlla de pistes de docs/60 (una marca de son que hi és, una que s'ha perdut) sense maquinari.
+
+**I el comptador monòton torna a zero amb aquest reinici**, com `esp_timer` a la placa: si seguís comptant, la deriva que es mesura
+d'un son profund seria tota l'estona que el procés ha viscut. L'hora no es mou (l'origen es desplaça i la base es recomposa), o sigui
+que el run no fa cap salt enrere. El que **no** es buida és el llibre de la memòria del PC: el xip esborraria la RAM i aquí el que hi
+ha és un procés que segueix, o sigui que un run amb molts sons profunds ensenya un `mem` que no ha tornat a zero —una diferència de
+fidelitat i no un defecte del sistema— (docs/75, docs/85).
+
 ## El disc: cada dispositiu amb el seu temps (1/11)
 
 Un sol mil·lisegon per lectura era el número de l'emulador per a tot, i no és el d'enlloc: el disc del Paper

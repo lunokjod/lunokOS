@@ -4334,6 +4334,12 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
 
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
+  // **I la finestra diu que s'obre** (0.190.65, l'amo: *«Perqué no es veu l'app? l'app no hauría de dir alguna cosa? (lua
+  // carregant-lo, la crida, el tancament…) No veig que l'app sigui avisada de res!»*). A window ran a whole app —loaded the text,
+  // built the machine, called the hook and destroyed it— and the log only said `1 delivered to battery in a window`: el que la
+  // persona necessita és veure **la vida de la finestra** i el que l'app hi diu, i les dues coses es diuen aquí (docs/30, docs/60).
+  log_printf(pal::kLogInfo, "ALARM", "a window opens for %s (%lld ms late): loading it", id,
+             static_cast<long long>(late_ms));
   if (!luabind::start(boot, limit)) {
     drop_source();  // the text was read and nobody is going to compile it
     log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (no room for another interpreter)",
@@ -4353,6 +4359,10 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   // window is on the strip while the text of it is being compiled, and not after its page (docs/30, docs/60).
   bar::flush();
 
+  // **I el que l'app diu va al registre i no al prompt** (0.190.65): dins una finestra no hi ha ningú llegint la consola —el
+  // prompt és de la persona i el que hi hagués s'hi barrejaria—, i tirar les seves paraules és pitjor que portar-les al registre
+  // del sistema, que és el que aquesta casa fa amb una app que no és al davant des de la 0.160.0 (`console_away`, docs/30).
+  luabind::set_console_attached(false);
   bool ok = luabind::run_source(target.path, g_source, len);
   // **The text is the interpreter's now**, which has compiled it into its own state: the block goes back before
   // the app runs a single line (docs/20, docs/75).
@@ -4367,13 +4377,20 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
     // res** (0.190.19): un despert per una alarma de fons deixa la pantalla exactament com era, i apuntar-hi una pàgina faria que la
     // baixada hi tornés a pintar una imatge per res (docs/30, docs/60).
     if (ok && !display::the_glass_is_asleep()) power::note_a_page_on_the_glass();
+    log_printf(ok ? pal::kLogInfo : pal::kLogWarn, "ALARM", "%s %s the alarm", id,
+               ok ? "answered" : "did not answer");
+  } else {
+    log_printf(pal::kLogWarn, "ALARM", "%s did not load: the window has no hook to call", id);
   }
   luabind::stop();
+  // **I la consola torna a ser del prompt**: the next thing that writes to it is the person (docs/30).
+  luabind::set_console_attached(true);
   // **A window is an app too, for the glass** (0.136.0, docs/46 D1): whatever it asked for is given back when it goes,
   // because the page of a window is not a page anybody asked for and the bar is not its (docs/30, docs/60). **I el vidre no
   // es toca**: the page under it is the one of the app that stepped aside, and `give_back` frees the view without painting
   // (0.189.175).
   ui::give_back_the_glass();
+  log_printf(pal::kLogInfo, "ALARM", "the window of %s closes", id);
   return ok;
 }
 

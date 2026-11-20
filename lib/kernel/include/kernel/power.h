@@ -83,9 +83,6 @@ bool set_nap_on(bool on);
 bool can_nap();
 bool nap(int32_t wait_ms);
 int32_t nap_ms();
-// **`wait_napping(ms)`: la mateixa espera, passada dormint quan es pot** (0.190.63). És el que fa servir qui té una estona a perdre
-// —el marge de la targeta abans de tallar el corrent— i, en una placa que no fa becaines, és exactament l'espera de sempre.
-void wait_napping(int32_t ms);
 void note_the_nap_end(bool something_happened);
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);
@@ -299,6 +296,15 @@ const char* boot_kind_word(BootKind kind);
 // answer goes to the log with its own word, que és la primera cosa que una persona que llegeix un registre vol saber
 // (docs/50, docs/60, docs/75).
 BootKind note_the_boot(hal::IPlatform& platform);
+
+// **Un son profund que ha estat una arrencada del xip, i que el nucli ha de tornar a començar** (0.190.68). A la placa la crida de
+// `sleep` no torna: el xip es reinicia i el que ve després és un boot sencer —la marca del son, el rellotge i la sessió desada es
+// llegeixen i la pàgina de la persona torna—. El model de l'emulador no pot reiniciar el procés, o sigui que el que fa és dir-ho:
+// `sleep` marca el flag, el torn del nucli s'acaba aquí mateix (res més no s'executa en nom d'un run que ja no hi és) i **qui porta
+// l'executable** —`main_host` a l'emulador, el xip a la placa— fa el `kernel::boot` que el xip faria sol. `the_chip_restarted` no
+// esborra res: el flag el neteja `kernel::boot`, que és on comença el run nou (docs/50, docs/60, docs/85).
+bool the_chip_restarted();
+void clear_the_restart();
 
 // **Tot el que pot quedar a mig fer, acabat, i un repòs abans que el corrent es talli** (0.189.18, l'amo: *«Haurà donat
 // temps a gravar-ho tot al SD?? s'ha apagat tot molt ràpid. Fes flush a tots els dispositius que es puguin abans d'iniciar

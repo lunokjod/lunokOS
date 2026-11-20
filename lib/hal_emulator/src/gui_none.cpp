@@ -38,6 +38,8 @@ void gui_pump() {}
 
 bool gui_close_requested() { return false; }
 
+bool gui_showing() { return false; }
+
 uint8_t gui_scale() { return 0; }
 
 void gui_close() {}
