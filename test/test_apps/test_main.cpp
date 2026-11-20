@@ -21,6 +21,7 @@
 #include "emu/memories.h"
 #include "emu/model.h"
 #include "emu/options.h"
+#include "emu/sleep.h"
 #include "emu/surface.h"
 #include "hal/hal.h"
 #include "img/img.h"
@@ -14970,6 +14971,140 @@ void test_the_idle_sleep_is_a_switch(void) {
   TEST_ASSERT_FALSE(hal::platform().power()->deep_powers_off());
 }
 
+// **El que un cas de la becaina ha de deixar com era** (0.190.77): with the hardware's times on the emulator really stops the chip, and a
+// deep sleep of that model leaves a reset cause and a restart behind: the case after this one would run on a board that thinks it came back
+// from a deep sleep, and the suite is one process with one board (docs/80, docs/85).
+static void restore_the_light_sleep() {
+  emu::note_the_reset(hal::ResetCause::kPowerOn);
+  emu::Options opts = emu::options();
+  opts.delays = false;
+  opts.mono_skips_naps = false;
+  opts.display = false;
+  opts.board = nullptr;
+  emu::set_options(opts);
+  kernel::power::set_nap_on(true);
+  kernel::boot(hal::platform());
+}
+
+// **La becaina no es menja el comptador de la quietud** (0.190.77, l'amo del 20/11: *«Quan arriba el DeepSleep? Ho tinc marcat a 5 minuts
+// "Sleep when idle" i ja fa molt mes de 5 minuts! … el LightSleep fa que el bucle sigui molt mes lent i no compta les voltes o has fet
+// malament el conteig dels 5 minuts de timeout o esborres el idle counter del usuari quan entres en light Sleep?»*). El compteig és un
+// sol número i és l'única cosa que decideix el son profund: si una becaina el deixa quiet, la placa s'adorm cinc minuts després de
+// l'última becaina i no abans. Aquest cas fa tres voltes amb el xip aturat de debò i mira que el comptador les compti (docs/60, docs/95).
+void test_the_light_sleep_does_not_eat_the_idle_counter(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  alarms::reset();
+  kernel::cfg::set_home_app("");
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  // **Els temps del maquinari**: amb `--no-delay` la becaina no existeix i el que es provaria seria el camí d'abans (docs/85).
+  opts.delays = true;
+  // **I el rellotge d'aquesta IDF**, que és el que va fer que la placa de l'amo no arribés mai a la seva hora: una becaina mou l'hora i
+  // no el comptador del xip. Sense aquest model la prova no provaria res, perquè el rellotge d'aquest banc compta tot el que passa (docs/85).
+  opts.mono_skips_naps = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::can_nap(), "the paper does not take a nap with the times on");
+  TEST_ASSERT_TRUE(kernel::power::nap_on());
+  // **I el cas només té sentit amb una hora**: la quietud que sobreviu a la becaina és la de l'hora, i una placa sense hora no en té cap.
+  TEST_ASSERT_TRUE_MESSAGE(hal::platform().clock()->set_epoch_ms(1767225600000LL), "the board has no hour to count with");
+
+  const int64_t was_gate = kernel::power::console_in_use_ms();
+  kernel::power::set_console_in_use_ms(0);
+  const int64_t before = kernel::power::quiet_ms();
+  pump_captured(3, nullptr, 0);
+  const int64_t after = kernel::power::quiet_ms();
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, static_cast<int32_t>(emu::sleep_turns()), "the three turns did not stop the chip");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(before + 100, after, "the naps did not move the counter of the quiet");
+  // **La prova de què s'està provant**: el comptador del xip sí que s'ha quedat quiet, o sigui que el que ha crescut és l'hora (docs/85).
+  TEST_ASSERT_LESS_THAN_MESSAGE(60, static_cast<int32_t>(hal::platform().clock()->monotonic_ms() - 0),
+                                "the SoC counter counted the naps, and this case proves nothing");
+  kernel::power::set_console_in_use_ms(was_gate);
+  restore_the_light_sleep();
+}
+
+// **I amb la becaina encesa la placa s'adorm igualment** (0.190.77): the case of before proves the counter moves; this one proves the
+// policy arrives, which is the sentence the owner was asking about — a board that naps forever and never reaches its five minutes is a
+// board that has stopped having the feature (docs/60, docs/95).
+void test_the_idle_sleep_arrives_with_the_light_sleep_on(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  alarms::reset();
+  kernel::cfg::set_home_app("");
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.delays = true;
+  opts.mono_skips_naps = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::power::can_nap());
+  TEST_ASSERT_TRUE(hal::platform().clock()->set_epoch_ms(1767225600000LL));
+  kernel::power::set_idle_sleep_allowed(true);
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  const int64_t was_gate = kernel::power::console_in_use_ms();
+  // Cent cinquanta mil·lisegons de quietud i una porta de consola a zero: les voltes costen quaranta mil·lisegons cada una, o sigui que
+  // la vintena que ve és més de mig segon de placa quieta (docs/60, docs/80).
+  kernel::power::set_idle_quiet_ms(150);
+  kernel::power::set_console_in_use_ms(0);
+  pump_captured(20, g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "power: nothing to do for"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the board slept with a page in front");
+  kernel::power::set_console_in_use_ms(was_gate);
+  kernel::power::set_idle_quiet_ms(was_quiet);
+  while (alarms::count() > 0) alarms::cancel(alarms::at(0)->app, alarms::at(0)->id);
+  restore_the_light_sleep();
+}
+
+// **Una mà que trenca el compteig diu el seu nom** (0.190.77): the counter is the whole decision, o sigui que la cosa que el torna a zero
+// s'ha de poder llegir. Un dit al vidre és el cas que no es veia enlloc (docs/30, docs/60).
+void test_a_finger_says_it_starts_the_quiet_again(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  alarms::reset();
+  kernel::cfg::set_home_app("");
+  use_board_with_fingers("m5stack-paper");
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  const int64_t was_gate = kernel::power::console_in_use_ms();
+  kernel::power::set_idle_quiet_ms(30000);
+  kernel::power::set_console_in_use_ms(0);
+  capture_begin();
+  pump_turns(6);
+  TEST_ASSERT_TRUE(panel->finger_down(0, 270, 400));
+  pump_turns(6);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(6);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_STRING("a finger on the glass", kernel::power::hand_name(kernel::power::last_hand()));
+  TEST_ASSERT_LESS_THAN_MESSAGE(200, static_cast<int32_t>(kernel::power::quiet_ms()),
+                                "the finger did not start the count again");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle: the quiet starts again: a finger on the glass"), g_out);
+  kernel::power::set_console_in_use_ms(was_gate);
+  kernel::power::set_idle_quiet_ms(was_quiet);
+  use_board("m5stack-atom");
+  kernel::power::set_nap_on(true);
+}
+
+// **`power` diu la quietud, qui la va moure i quina alarma espera** (0.190.77): the owner's question was «quan arriba el DeepSleep?» and
+// the answer has to be one command away, no log and no five minutes (docs/30, docs/60).
+void test_the_power_command_says_the_quiet(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  alarms::reset();
+  use_board("m5stack-paper");
+  const int64_t was_quiet = kernel::power::idle_quiet_ms();
+  // Tres-cents **segons**, que és el que la línia diu en segons: amb tres-cents mil·lisegons la resposta seria «0 s de 0» (docs/30).
+  kernel::power::set_idle_quiet_ms(300 * 1000);
+  pump_captured(10, g_out, sizeof(g_out), "power idle");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle sleep: on"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the last hand was"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no alarm is waiting"), g_out);
+  pump_captured(10, g_out, sizeof(g_out), "power");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle: "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "of the 300 the policy asks"), g_out);
+  kernel::power::set_idle_quiet_ms(was_quiet);
+}
+
 // **La pàgina de casa no és ningú treballant** (0.189.182, l'amo: *«Perqué no ha despertat la placa? estava en deep sleep i ho
 // hauría d'haver fet»*): the idle policy refused to put the board down while *any* app was in front, and the board of this system
 // has its launcher there always —o sigui que una placa amb `cfg home` no dormia mai, i l'alarma que havia de despertar-la
@@ -20678,6 +20813,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_boot_knows_where_it_comes_from);
   RUN_TEST(test_a_wake_for_an_alarm_comes_up_with_nobody_in_front);
   RUN_TEST(test_the_idle_sleep_is_a_switch);
+  RUN_TEST(test_the_light_sleep_does_not_eat_the_idle_counter);
+  RUN_TEST(test_the_idle_sleep_arrives_with_the_light_sleep_on);
+  RUN_TEST(test_a_finger_says_it_starts_the_quiet_again);
+  RUN_TEST(test_the_power_command_says_the_quiet);
   RUN_TEST(test_the_home_page_does_not_keep_the_board_awake);
   RUN_TEST(test_an_alarm_closer_than_the_way_down_keeps_the_board_awake);
   RUN_TEST(test_a_finger_on_the_glass_and_the_card_of_the_panel_keep_the_board_awake);

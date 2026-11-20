@@ -125,6 +125,10 @@ struct Options {
   // `--gui` cost what the board costs. Off —`--no-delay`, and every test— the model is the same one and
   // only the clock is skipped, which is what a test that is not about time wants (docs/85).
   bool delays = false;
+  // **El monòton d'aquesta IDF no compta les becaines** (0.190.77): the model of the owner's board, where `esp_timer_get_time()`
+  // advances only by the cost of entering and leaving a light sleep. It is off by default —the clock of this band counts everything—
+  // and a run that wants the board's arithmetic turns it on (docs/50, docs/85, docs/95).
+  bool mono_skips_naps = false;
   // **A glass that says no like the panel of the Paper** (`--ink-refuse`, 0.118.2): the driver of the board refuses a
   // paint that arrives while another one is still moving ink (`wait_paint`, three seconds), and an emulator that always
   // waits cannot tell a caller that waits for the ink from one that gets lucky. On, `flush` answers false with the

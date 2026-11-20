@@ -9,6 +9,8 @@
 
 #include <stdint.h>
 
+#include "kernel/power.h"
+
 namespace kernel {
 namespace lock {
 
@@ -23,7 +25,10 @@ const char* boot();
 // **A hand on the board**: a key that goes down, a finger on the glass, a byte on the console. Every one of them starts the
 // counter of `lock after` again, which is the whole rule the owner asked for: *«Aquest comptador torna a començar quant
 // l'usuari deixa d'interactuar amb la placa, no toca botons físics ni pantalla durant aquest temps»* (docs/30, docs/60).
+// **I diu quina mà és** (0.190.77): el comptador és el de `power` i la línia que diu per què la placa no s'adorm necessita el nom
+// de la cosa que l'ha mogut (docs/60).
 void note_activity();
+void note_activity(power::Hand hand);
 
 // **A sleep has come back**: the page goes up at the next turn. It is a flag and not a call because a light sleep returns
 // inside `power::sleep`, with the kernel in the middle of a turn, and starting an app there would close the one in front

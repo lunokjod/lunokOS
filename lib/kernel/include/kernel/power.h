@@ -90,6 +90,15 @@ bool nap_now(int32_t ms);
 // **Quants mil·lisegons pot esperar un dit** (0.190.74): quaranta, que és el que no es nota ni quan el vidre no pot tornar el xip. És el
 // que el torn del nucli espera mentre la placa dorma entre voltes (docs/50, docs/95).
 int32_t nap_slice_ms();
+
+// **Els deu segons de silenci del port** (0.190.75): the quiet a board needs before it naps or before a hand that breaks a countdown
+// is worth a line (docs/60).
+int64_t console_in_use_ms();
+#if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
+// I el mateix número mogut per una prova (0.190.77): a case that had to wait ten seconds would be a suite ten seconds slower for a
+// nap that the case is not about (docs/60, docs/80).
+void set_console_in_use_ms(int64_t ms);
+#endif
 void note_the_nap_end(bool something_happened);
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);
@@ -108,10 +117,32 @@ void note_a_page_on_the_glass();
 // The kernel calls it in every turn, after the alarms and before the app's turn (docs/60).
 void poll(int64_t next_alarm_epoch_ms);
 
-// A person did something (a byte arrived on the console): the board is being used and
-// does not go to sleep yet. The kernel says it, and so does anything that turns the
-// policy back on (docs/60).
+// **Qui ha mogut el comptador de la quietud** (0.190.77, l'amo del 20/11: *«Quan arriba el DeepSleep? … esborres el idle counter del
+// usuari quan entres en light Sleep?»*). A countdown that starts again is the one thing that can keep a board awake for ever, o sigui
+// que cada mà que el mou deixa el seu nom i el registre el diu, i `power` el pot ensenyar en el moment (docs/30, docs/60).
+enum class Hand : uint8_t {
+  kBoot = 0,    // a boot: the counter starts here
+  kConsole = 1, // a byte at the console
+  kKey = 2,     // a key of the dial
+  kGlass = 3,   // a finger on the glass
+  kPolicy = 4,  // the policy itself: after a sleep, or when the switch is turned back on
+};
+
+// A person did something (a byte arrived on the console, a key went down, a finger is on the glass): the board is being used
+// and does not go to sleep yet. The kernel says it, and so does anything that turns the policy back on (docs/60).
 void note_activity();
+void note_activity(Hand hand);
+
+// **El nom de qui va moure el comptador l'última vegada** (0.190.77): the word of the log and of the `power` command, i el número que
+// diu quanta estona fa. És el que converteix «la placa no s'adorm» en «una cosa mou el comptador cada mig minut» (docs/30, docs/60).
+const char* hand_name(Hand hand);
+Hand last_hand();
+int64_t last_hand_ms();
+
+// **L'estat de la quietud en una línia** (0.190.77): la que escriu `power` i la que una prova llegeix. Diu quants segons fa que
+// ningú no toca la placa, quants en vol la política, i qui va ser l'última mà —o sigui el que cal per saber si el son arribarà i,
+// si no arriba, per què (docs/30, docs/60).
+bool idle_report(char* out, size_t cap);
 
 // The idle policy is a switch a person can turn off while working at the prompt:
 // `power idle off` keeps the board on the whole time (docs/30).

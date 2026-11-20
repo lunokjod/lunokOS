@@ -280,7 +280,11 @@ class HostClock : public IClock {
     }
     return known_ ? (epoch_base_ + elapsed_ms()) : 0;
   }
-  int64_t monotonic_ms() override { return elapsed_ms(); }
+  // **El monòton d'aquesta IDF no compta una becaina** (0.190.77): on the board `esp_timer_get_time()` advances only by what entering
+  // and leaving the sleep costs, and the `esp_timer_private_advance` that the IDF is supposed to do is not what this build of the core
+  // does — the owner's board made 4 002 naps and its quiet counter had not reached half a minute (docs/50, docs/95). El model d'aquest
+  // banc ho pot dir, i llavors el comptador de la quietud només pot ser honest si mira **també** l'hora (docs/85).
+  int64_t monotonic_ms() override { return elapsed_ms() - nap_skew_ms_; }
 
   bool set_epoch_ms(int64_t ms) override {
     if (ms < 0) return false;
@@ -362,6 +366,14 @@ class HostClock : public IClock {
     const int64_t epoch = known_ ? (epoch_base_ + elapsed_ms()) : 0;
     mono_start_ = mono_ms();
     epoch_base_ = known_ ? epoch : 0;
+    // **Un run nou té el comptador a zero**: el desplaçament de les becaines és d'aquest run i no del procés (docs/85).
+    nap_skew_ms_ = 0;
+  }
+
+  // **El que una becaina no compta, quan el model ho diu** (0.190.77): el que s'ha estat dormit es resta del monòton i no de l'hora, que
+  // és exactament el que fa aquesta IDF a la placa (docs/50, docs/95).
+  void skip_the_nap(int64_t ms) {
+    if (emu::options().mono_skips_naps && ms > 0) nap_skew_ms_ += ms;
   }
 
   bool can_wake() const override { return true; }
@@ -385,6 +397,7 @@ class HostClock : public IClock {
   int64_t elapsed_ms() const { return (mono_ms() - mono_start_) * static_cast<int64_t>(scale_); }
 
   int64_t mono_start_;
+  int64_t nap_skew_ms_ = 0;
   int64_t epoch_base_;
   uint32_t scale_;
   bool known_;
@@ -743,11 +756,16 @@ class FakePower : public IPower {
 
   bool nap(int32_t max_ms) override {
     if (!emu::options().delays) return false;
+    const int64_t was_mono = host_clock().monotonic_ms();
     // **El vidre és una porta d'una becaina sempre que la placa en tingui** (0.190.66): the panel is powered while the board is
     // awake —listening to its line costs nothing— and it is the difference between a tap that feels instant and one that waits a
     // second for the nap to end. El commutador del dit (`cfg touchwake`) és una altra cosa: és la porta d'un son profund, que és el
     // que costa corrent tota la nit (docs/50, docs/60).
-    return emu::wait_for_ms(max_ms, /*the_glass_is_a_door=*/true) != emu::WakeBy::kNothing;
+    const emu::WakeBy why = emu::wait_for_ms(max_ms, /*the_glass_is_a_door=*/true);
+    // **I el que ha durat es diu al rellotge, que és qui sap si el monòton l'ha de comptar** (0.190.77): `--mono-skips-naps` és el model
+    // de la IDF d'aquesta placa, i sense ell una prova de la quietud amb becaines no provaria res (docs/85).
+    host_clock().skip_the_nap(host_clock().monotonic_ms() - was_mono);
+    return why != emu::WakeBy::kNothing;
   }
 
   // The PC does not change its speed, and this band says so instead of pretending:

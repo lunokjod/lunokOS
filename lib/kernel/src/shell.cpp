@@ -3785,12 +3785,30 @@ bool command_power(const char* argument) {
     out("idle sleep: ");
     out(power::idle_sleep_allowed() ? "on" : "off");
     out(" (only with an alarm pending and a board that keeps the hour in a chip)\r\n");
+    // **I la quietud, que és el número de debò** (0.190.77): the switch says whether the policy may sleep and this says whether it
+    // is about to: quants segons fa que ningú no toca la placa, quants en vol la política i qui va ser l'última mà. És la línia que
+    // converteix «no s'adorm» en un subjecte, i el que l'amo va haver de preguntar el 20/11 amb dues mil sis-centes becaines al
+    // registre i cap son profund (docs/30, docs/60).
+    char report[128];
+    if (power::idle_report(report, sizeof(report))) {
+      out(report);
+      out("\r\n");
+    }
     return true;
   }
 
   if (count != 0) {
     usage_out("usage: power | power cpu [mhz] | power idle [on|off] | power last\r\n");
     return false;
+  }
+  // **`power` a seques diu també la quietud** (0.190.77): the first thing a person asks when the board does not go to sleep is how
+  // long it has been quiet, and the answer has to be one word away (docs/30, docs/60).
+  {
+    char report[128];
+    if (power::idle_report(report, sizeof(report))) {
+      out(report);
+      newline();
+    }
   }
   out("sleep: ");
   const bool light = power::can_sleep(hal::SleepMode::kLight);

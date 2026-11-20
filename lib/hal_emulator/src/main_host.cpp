@@ -179,6 +179,7 @@ void usage() {
   printf("  --lua-cpu <ns>    what one instruction of an app costs at 160 MHz (%d; 0 = free)\n",
          kLuaInstructionNs);
   printf("  --no-delay        no waiting at all: the model keeps the times, the clock does not pay them\n");
+  printf("  --mono-skips-naps the monotonic of this IDF: a light sleep moves the hour and not the SoC's counter\n");
   printf("  --persist         a board that was never unplugged: the RTC RAM and the hour of the\n");
   printf("                    run before are the ones this run starts with\n");
   printf("  --verbose         mirror the log to the console too\n");
@@ -249,6 +250,13 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--no-delay") == 0) {
       no_delay = true;
+      continue;
+    }
+    // **El rellotge d'aquesta IDF, que no compta les becaines** (0.190.77): `esp_timer_get_time()` only advances by what the entry and
+    // the exit of a light sleep cost, and that is what the owner's board measured —4 002 naps and the quiet counter under half a minute—.
+    // With this the emulator does the same arithmetic, and the countdown of the idle sleep has to survive it (docs/50, docs/85, docs/95).
+    if (strcmp(arg, "--mono-skips-naps") == 0) {
+      opts.mono_skips_naps = true;
       continue;
     }
     if (strcmp(arg, "--persist") == 0) {

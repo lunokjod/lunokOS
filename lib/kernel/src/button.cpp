@@ -312,7 +312,7 @@ void poll() {
       // the counter of the lock again, because a person pressing keys is a person using the board (docs/30, docs/60). **I el del
       // son és el mateix des de la 0.190.9**: `lock::note_activity` mou el comptador de `power`, o sigui que una tecla al dial
       // també compta per a l'adormida (docs/30, docs/60).
-      lock::note_activity();
+      lock::note_activity(power::Hand::kKey);
       g_long_sent[key] = false;
       if (key != 0) {
         // A side key has no gesture of the system on it: that one is the app's

@@ -393,7 +393,7 @@ void poll() {
     // glass —the panel of the system, a page of the launcher, the band of the keyboard— was a person the board could not see,
     // and the board powered off under the finger. **El comptador és un i el té `power`** (0.190.9): `lock::note_activity` ja el
     // mou, o sigui que aquí no s'ha de dir dues vegades (docs/30, docs/60).
-    lock::note_activity();
+    lock::note_activity(power::Hand::kGlass);
     // **A frame of a finger that is already gone is a tap that is over**, and it carries its own release: the chip
     // hands over the frame of its last scan and a finger that came and went between two reads is not on the glass any
     // more. The keyboard hears that release before the press, or the tap after one whose release was missed —while a

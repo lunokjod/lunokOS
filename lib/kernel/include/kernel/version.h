@@ -10686,7 +10686,27 @@ namespace kernel {
 // els falta quan les banderes del voltant són exactament el número; i una bandera en una casella equivocada **no** impedeix guanyar, perquè
 // una partida que no es pot acabar és una partida que es deixa. El camp és dada (`fs.data('game.txt')`, vuit línies) i el commutador que
 // diu què fa un toc és forma (`state`), i la pàgina es pinta casella a casella amb un sol `present` (docs/40, docs/45).
-static const char kVersion[] = "0.190.76";
+//
+// **El comptador de la quietud comptava amb un sol rellotge, i el son lleuger no el mou** (0.190.77, l'amo del 20/11: *«Quan arriba el
+// DeepSleep? Ho tinc marcat a 5 minuts "Sleep when idle" i ja fa molt mes de 5 minuts! … esborres el idle counter del usuari quan entres en
+// light Sleep?»*). El compteig del son profund era `mono_now() - g_last_activity_ms`, i en aquesta IDF una becaina **no fa avançar**
+// `esp_timer_get_time()`: la placa del registre havia fet 4 002 becaines de quaranta mil·lisegons (160 s de son) i el comptador només havia
+// sumat el que costa entrar i sortir, uns tres mil·lisegons per volta. O sigui que la quietud creixia a raó de tres mil·lisegons per volta en
+// comptes d'un segon, i les cinc minuts de la persona no arribaven mai — ni en un dia.
+//
+// Ara **la quietud es compta amb els dos rellotges i mana la més llarga**: el monòton (que a la majoria de les crides sí que compta el son) i
+// **l'hora** (el BM8563 de la Paper, el `gettimeofday` del nucli), que és l'únic que compta a través d'una becaina, d'un son profund i d'un
+// reinici. I el comptador té **testimoni**: cada mà que el mou deixa el seu nom (`power::Hand`: la consola, la tecla, el vidre, la política)
+// i, quan trenca una quietud que ja era llarga, el registre ho diu —`idle: the quiet starts again: a finger on the glass (it had 143 s of the
+// 300 the policy asks)`—. Les dues portes de la política que callaven (el commutador apagat i una placa el son profund de la qual no és una
+// baixada) també diuen el seu nom, i **`power`** escriu l'estat sencer en una línia: quants segons de quietud, quants en vol la política, qui
+// va ser l'última mà i quant falta per a la propera alarma. **Una alarma que ja ha tocat no és una hora** i deixa de comptar com a tal: una
+// promesa vençuda a la cua deixava la política mirant un instant passat i la placa no s'adormia mai (docs/30, docs/50, docs/60, docs/95).
+//
+// **I l'emulador pot tenir el rellotge d'aquesta IDF** (`--mono-skips-naps`, 0.190.77): amb aquest model una becaina mou l'hora i no el
+// comptador del xip, que és el que la placa va mesurar, i la suite té un cas que hi passa el compteig de la quietud i un altre que hi arriba
+// al son. Sense el model, aquesta prova no provava res (docs/80, docs/85).
+static const char kVersion[] = "0.190.77";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

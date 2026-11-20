@@ -1000,7 +1000,7 @@ void poll() {
       // A person is at the keyboard: the board is being used and does not put itself to
       // sleep until the prompt has been quiet for a while (docs/60). **Un comptador i prou**: `lock::note_activity` mou el de
       // `power` des de la 0.190.9 (docs/30, docs/60).
-      lock::note_activity();
+      lock::note_activity(power::Hand::kConsole);
       shell::feed(buf, n);
       n = console->read(buf, sizeof(buf));
     }

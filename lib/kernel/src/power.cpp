@@ -89,6 +89,15 @@ bool g_idle_allowed = true;
 bool g_touched_since_boot = false;
 bool g_a_page_on_the_glass = false;
 int64_t g_last_activity_ms = 0;
+// **El comptador de la quietud té dos rellotges i un testimoni** (0.190.77, l'amo del 20/11: *«Quan arriba el DeepSleep? … el LightSleep fa
+// que el bucle sigui molt mes lent i no compta les voltes o has fet malament el conteig dels 5 minuts o esborres el idle counter del usuari
+// quan entres en light Sleep»*). The countdown before a deep sleep is one number and it was kept with the SoC's monotonic alone, o sigui que
+// **qualsevol cosa que se la mengi —una becaina que no la compta, un rellotge que torna enrere— deixa la placa desperta per sempre i sense
+// dir res**. Ara es desen **les dues** marques (el monòton i l'hora) i la quietud és **la més llarga de les dues**, i cada moviment porta el
+// seu nom: qui l'ha mogut i quan. Un comptador que es reinicia sol i no ho diu és el que no es pot depurar (docs/30, docs/60, docs/95).
+int64_t g_last_activity_epoch_ms = 0;
+power::Hand g_last_hand = power::Hand::kBoot;
+int64_t g_last_hand_ms = 0;
 
 // **La velocitat de repòs i la finestra d'una feina pesada** (0.179.38): the step the system goes back to and the hour a
 // burst ends. `g_cpu_busy_until_ms` at zero is "no window is owed", which is the state of a system that is only working.
@@ -157,6 +166,13 @@ int64_t mono_now() {
   // The RTC chip, read once a turn (docs/30, docs/50).
   meter::Scope scope(meter::kClockMono);
   return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;
+}
+
+// **L'hora de la placa, que és l'altre rellotge de la quietud** (0.190.77): the hour of the RTC —the chip of the Paper, the `gettimeofday`
+// of the core— keeps counting while the chip naps and while it is off, and zero is a board that has never been told the hour (docs/60).
+int64_t epoch_now() {
+  meter::Scope scope(meter::kClockNow);
+  return (g_clock != nullptr) ? g_clock->epoch_ms() : 0;
 }
 
 // **Every line this file says to a person goes through the log** (0.179.55): the serial port is a copy of the ring, so a
@@ -442,6 +458,9 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   // una mà** (0.190.18): the flag is what tells «nobody has touched it since it came back» —the wake for an alarm and the stage of a long
   // wait go straight down because of it— from «somebody is using it», which is the counter (docs/60).
   g_last_activity_ms = mono_now();
+  g_last_activity_epoch_ms = epoch_now();
+  g_last_hand = Hand::kBoot;
+  g_last_hand_ms = g_last_activity_ms;
   // A stage of a longer wait belongs to one boot: `report_wake()` is what sets it again
   // (docs/60).
   g_coming_back_at = 0;
@@ -537,7 +556,11 @@ int64_t the_hour_of_a_sleep(int64_t at_epoch_ms) {
   int64_t alarm_epoch = 0;
   if (g_clock != nullptr) {
     const int64_t next = alarms::next_due_mono_ms();
-    if (next >= 0) {
+    // **Una alarma que ja toca no és una hora** (0.190.77): an alarm whose time has come is delivered in this same turn —`deliver_alarms`
+    // runs before the policy— o sigui que la que encara és a la cua amb l'hora passada és una promesa sense amo, i prendre-la per a l'hora
+    // de la baixada deixava la política mirant un instant que ja no arribarà: `hour - now <= 0`, que vol dir «l'alarma és a tocar», i la
+    // placa no s'adorm mai. És el mateix parany que el de la 0.190.14 i es tanca igual: només compta el que és al futur (docs/60).
+    if (next > g_clock->monotonic_ms()) {
       const int64_t epoch = g_clock->epoch_ms();
       if (epoch > 0) alarm_epoch = epoch + (next - g_clock->monotonic_ms());
     }
@@ -729,6 +752,21 @@ const int32_t kNapSliceMs = 40;
 // i una línia escrita a mà arriba tallada. Deu segons de silenci a la línia volen dir que no hi ha ningú escrivint; per sota d'això el que
 // mana és el port (docs/50, docs/95).
 const int64_t kConsoleInUseMs = 10000;
+#if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
+// **Els deu segons, moguts per una prova** (0.190.77): a case that had to wait them would be a suite ten seconds slower for a nap that
+// the case is not about, i el que es mira aquí és el comptador de la quietud amb becaines de debò (docs/60, docs/80).
+int64_t g_console_in_use_ms = kConsoleInUseMs;
+#endif
+
+// **El que la placa ha de tenir de quietud per fer res** (0.190.75, 0.190.77): deu segons sense ningú a la consola és el que diu que el
+// port no s'està fent servir, i és també la quietud que ja val la pena dir quan una mà la trenca.
+int64_t console_gate_ms() {
+#if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
+  return g_console_in_use_ms;
+#else
+  return kConsoleInUseMs;
+#endif
+}
 
 // El que s'ha de poder dormir perquè valgui la pena entrar-hi: per sota, el camí de sortida costa més que l'espera.
 const int32_t kNapLeastMs = 20;
@@ -765,6 +803,11 @@ bool can_nap() { return (g_power != nullptr) && g_power->can_nap(); }
 
 int32_t nap_slice_ms() { return kNapSliceMs; }
 
+#if defined(UNIT_TEST) || defined(PIO_UNIT_TESTING)
+void set_console_in_use_ms(int64_t ms) { g_console_in_use_ms = (ms < 0) ? 0 : ms; }
+#endif
+int64_t console_in_use_ms() { return console_gate_ms(); }
+
 
 // **Una becaina demanada des del prompt** (0.190.71): the ladder and the switch are for the turn, and what a person wants to see is one
 // sleep with a number —how long it lasted and what brought the chip back—. És l'instrument que diu si la tecla o el vidre desperten un
@@ -788,7 +831,7 @@ bool nap(int32_t wait_ms) {
   // arriben mentre el xip es lleva es perden — una línia escrita a mà surt tallada i el port és inutilitzable. Deu segons de silenci volen
   // dir que no hi ha ningú; i un port cedit a una app no dorma mai (docs/30, docs/50, docs/95).
   if (serial::claimed()) return false;
-  if (quiet_ms() < kConsoleInUseMs) return false;
+  if (quiet_ms() < console_gate_ms()) return false;
   // **La becaina no pot durar més del que qui espera ha demanat** i no creix més enllà del sostre: el temporitzador del xip és el que
   // ha de tornar la placa, i una espera curta no s'ha de convertir en una de llarga (docs/50, docs/60).
   int32_t asked = (wait_ms < g_nap_ms) ? wait_ms : g_nap_ms;
@@ -843,9 +886,78 @@ bool can_deep_sleep() {
   return the_hour_of_a_sleep(0) > 0;
 }
 
-void note_activity() {
-  g_last_activity_ms = mono_now();
+const char* hand_name(Hand hand) {
+  switch (hand) {
+    case Hand::kBoot:
+      return "the boot";
+    case Hand::kConsole:
+      return "a byte at the console";
+    case Hand::kKey:
+      return "a key of the dial";
+    case Hand::kGlass:
+      return "a finger on the glass";
+    case Hand::kPolicy:
+      return "the policy itself";
+  }
+  return "something";
+}
+
+// **Cada mà que mou el comptador deixa el seu nom i quants segons hi havia** (0.190.77): a countdown that starts again is the one thing
+// that can keep a board awake for ever, o sigui que **es diu**. Es diu quan la quietud que es perd ja era llarga (deu segons, que és el que
+// la placa ha de tenir per dormir una becaina) i com a molt un cop per mà i minut, perquè una línia a cada toc no la llegeix ningú
+// (docs/60, docs/95).
+void note_activity_with(Hand hand) {
+  const int64_t was = quiet_ms();
+  const int64_t now = mono_now();
+  // Un cop per mà i minut: la línia només serveix si es pot llegir, i una placa quieta pot rebre una mà cada deu mil·lisegons. El
+  // «ja s'ha dit» és una bandera i no un zero, perquè una placa que acaba d'arrencar té el rellotge a zero i la primera mà ha de sortir
+  // igual (docs/60, docs/80).
+  static bool g_said[5] = {false, false, false, false, false};
+  static int64_t g_said_ms[5] = {0, 0, 0, 0, 0};
+  const size_t at = static_cast<size_t>(hand);
+  if (was >= console_gate_ms() && at < 5 && (!g_said[at] || (now - g_said_ms[at]) >= 60000)) {
+    g_said[at] = true;
+    g_said_ms[at] = now;
+    log_printf(pal::kLogInfo, "POWER", "idle: the quiet starts again: %s (it had %lld s of the %lld the policy asks)",
+               hand_name(hand), static_cast<long long>(was / 1000),
+               static_cast<long long>(idle_quiet_ms() / 1000));
+  }
+  g_last_activity_ms = now;
+  g_last_activity_epoch_ms = epoch_now();
+  g_last_hand = hand;
+  g_last_hand_ms = now;
   g_touched_since_boot = true;
+}
+
+void note_activity() { note_activity_with(Hand::kPolicy); }
+void note_activity(Hand hand) { note_activity_with(hand); }
+
+Hand last_hand() { return g_last_hand; }
+int64_t last_hand_ms() { return g_last_hand_ms; }
+
+// **La línia de la quietud** (0.190.77): el número que decideix el son profund, el que la persona va triar, i el nom de l'última mà
+// amb l'estona que fa. És el que `power` escriu i el que una prova mira, perquè «no s'adorm» ha de poder ser una frase amb un subjecte
+// (docs/30, docs/60).
+bool idle_report(char* out, size_t cap) {
+  if (out == nullptr || cap == 0) return false;
+  const int64_t quiet = quiet_ms();
+  const int64_t now = mono_now();
+  const int64_t hand_age = (g_last_hand_ms > 0) ? (now - g_last_hand_ms) : -1;
+  // **I la propera alarma, que és l'altra meitat de la resposta** (0.190.77): a policy that says no says it because of the hour it
+  // would be woken at, o sigui que una línia que només digués la quietud deixaria la meitat del cas sense dir (docs/60).
+  char alarm[64] = {0};
+  const int64_t next = alarms::next_due_mono_ms();
+  if (next >= 0) {
+    const int64_t left = next - now;
+    snprintf(alarm, sizeof(alarm), ", and the next alarm is %lld s away", static_cast<long long>((left > 0) ? left / 1000 : 0));
+  } else {
+    snprintf(alarm, sizeof(alarm), ", and no alarm is waiting");
+  }
+  const int written = snprintf(out, cap, "idle: %lld s of the %lld the policy asks, the last hand was %s %lld s ago%s",
+                               static_cast<long long>(quiet / 1000),
+                               static_cast<long long>(idle_quiet_ms() / 1000), hand_name(g_last_hand),
+                               static_cast<long long>(hand_age / 1000), alarm);
+  return written > 0 && static_cast<size_t>(written) < cap;
 }
 
 void note_a_page_on_the_glass() { g_a_page_on_the_glass = true; }
@@ -853,17 +965,32 @@ void note_a_page_on_the_glass() { g_a_page_on_the_glass = true; }
 // **Quanta quietud mana** (0.190.9): the setting a person chose in Settings -> Battery —five, ten or fifteen minutes—, i una
 // suite que hagués d'esperar-los seria una suite de minuts més lenta, o sigui que on hi ha algú que mogui el número de la prova
 // mana el de la prova (docs/60, docs/80).
-// **L'única pregunta de la quietud** (0.190.9): seconds-ish of mono time since a person last did anything, and zero for the
-// first turn of a boot that has not stamped itself (which is a board that has just come up and not a board that has been quiet
+// **L'única pregunta de la quietud, i amb dos rellotges** (0.190.9, 0.190.77): seconds-ish since a person last did anything, and zero
+// for the first turn of a boot that has not stamped itself (which is a board that has just come up and not a board that has been quiet
 // for ever).
+//
+// **El compteig del son profund va ser l'únic que es va quedar amb un sol rellotge**, i el son lleuger el va deixar en dubte: la placa
+// del 20/11 va fer 2 600 becaines i el `Sleep when idle` de cinc minuts no va arribar mai (l'amo). El monòton d'aquest xip **sí** que
+// avança durant una becaina (`esp_light_sleep_start` crida `esp_timer_private_advance`), però això és una propietat de l'IDF i no
+// d'aquest sistema, i una placa no s'ha de quedar desperta perquè una crida de sota hagi canviat de parer. L'hora —el BM8563 de la
+// Paper, el `gettimeofday` del nucli— **compta a través de tot**, i quan la placa en té una es fa servir ella. La quietud és **la més
+// llarga de les dues**, que és la decisió honesta: una placa només s'ha de quedar desperta si les dues rellotges diuen que hi ha hagut
+// una mà, i un que s'atura (o que es corregeix enrere) no allarga mai la vetlla (docs/60, docs/95).
 int64_t quiet_ms() {
   const int64_t now = mono_now();
   if (g_last_activity_ms <= 0) {
     g_last_activity_ms = now;
+    g_last_activity_epoch_ms = epoch_now();
     return 0;
   }
-  const int64_t quiet = now - g_last_activity_ms;
-  return (quiet > 0) ? quiet : 0;
+  const int64_t mono_quiet = now - g_last_activity_ms;
+  int64_t quiet = (mono_quiet > 0) ? mono_quiet : 0;
+  const int64_t epoch = epoch_now();
+  if (epoch > 0 && g_last_activity_epoch_ms > 0) {
+    const int64_t epoch_quiet = epoch - g_last_activity_epoch_ms;
+    if (epoch_quiet > quiet) quiet = epoch_quiet;
+  }
+  return quiet;
 }
 
 int64_t idle_quiet_ms() {
@@ -923,8 +1050,18 @@ void say_the_verdict(int64_t quiet, const char* why) {
 }
 
 void idle_sleep(int64_t next_alarm_epoch_ms) {
-  if (!g_idle_allowed || g_power == nullptr || g_clock == nullptr) return;
-  if (!g_power->deep_powers_off()) return;
+  if (g_power == nullptr || g_clock == nullptr) return;
+  // **Les dues portes que callaven** (0.190.77): the switch of the policy and a board whose deep sleep is not a power off were two
+  // `return`s with no line, o sigui que una placa amb el commutador apagat —o amb un son profund que no és una baixada— es veia
+  // exactament igual que una placa que s'havia d'adormir i no ho feia. Ara diuen el seu nom com les altres (docs/30, docs/60).
+  if (!g_idle_allowed) {
+    say_the_verdict(quiet_ms(), "the switch of the idle sleep is off");
+    return;
+  }
+  if (!g_power->deep_powers_off()) {
+    say_the_verdict(quiet_ms(), "this board's deep sleep is not a power off");
+    return;
+  }
   // A stage of a longer wait has its hour already written down, and it is not in the queue, so
   // it is the one that counts (docs/60).
   const bool staging = g_coming_back_at > 0;

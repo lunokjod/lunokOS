@@ -107,8 +107,10 @@ const char* boot() {
   return id;
 }
 
-void note_activity() {
-  power::note_activity();
+void note_activity() { kernel::lock::note_activity(power::Hand::kPolicy); }
+
+void note_activity(power::Hand hand) {
+  power::note_activity(hand);
   // A hand on the board also says that the wake has been seen: a person who is already pressing keys does not want the page
   // of the lock coming up under the finger a turn later (docs/30).
   g_a_wake_is_owed = false;
