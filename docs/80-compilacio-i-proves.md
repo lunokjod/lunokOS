@@ -290,8 +290,10 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
 
 - **La imatge d'una placa no porta apps** (0.118.3, l'amo: *«cap placa ha de contenir apps al littlefs al
   flashejar»*): el disc de cada entorn el munta `tools/make_disk.py` a **`build/disk/<entorn>`** amb el `data/`
-  del sistema i res més. L'única excepció és la Paper, que des de la 0.179.16 diu `custom_apps_in_disk = yes` i
-  per tant **les porta totes les que nomenen la família `esp32`** —**18 apps, 80 fitxers i 847 997 B** mesurats el 16/11,
+  del sistema i res més. **Dues excepcions, i des de la 0.190.80**: la Paper, que des de la 0.179.16 diu
+  `custom_apps_in_disk = yes`, i el **T5S3**, que també —la seva imatge és la mateixa que la del Paper i per la
+  mateixa regla, perquè el seu vidre ja pinta i una placa amb pàgina i targeta vol el llançador i les apps—, o
+  sigui que les dues **porten totes les que nomenen la família `esp32`** —**18 apps, 80 fitxers i 847 997 B** mesurats el 16/11,
   amb la `battery` ja dins— en lloc de la llista escrita de deu. Un build que en vulgui portar les demana al seu
   `platformio.ini` —`custom_apps = id1,id2` per a una llista exacta, o `custom_apps_in_disk = yes` per a les que
   nomenen la placa per l'id o per la família `esp32`, que és la regla amb què el nucli refusa una app al `run`— i

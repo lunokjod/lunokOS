@@ -209,6 +209,34 @@ const char* key_icon(Key which) {
 // how many pages the app has on top —they are the system's, and the console that a close leaves behind has them too— and the
 // gear depends on `cfg settings` naming an app, perquè una roda que no obre res és una clau que diu el que no pot fer (docs/30,
 // docs/45).
+// **Un nom a `cfg` no és una app** (0.190.81, l'amo: *«Al menú desplegable de sistema surt "Lock" quan no hi ha app de lock.
+// Settings tampoc ha d'apareixer si no està definida i "Home" tampoc»*). `cfg lock` i `cfg settings` guarden **un nom**, i els
+// noms de sèrie són `device_lock` i `settings`: si l'app no és al disc —o no és d'aquesta placa—, la targeta pintava una clau
+// que no obre res. La pregunta honesta la contesta el portal, que és qui sap què és una app d'aquí (`apps::read` diu fals per a
+// una carpeta sense manifest, una entrada que no hi és o una llista de plaques que no nomena aquesta), i **es fa una vegada cada
+// cop que la targeta s'obre** perquè el pintat i el test del dit no hagin de llegir manifests a cada volta (docs/30, docs/40).
+struct Present {
+  bool home = false;
+  bool settings = false;
+  bool lock = false;
+};
+Present g_present;
+
+bool app_is_there(const char* id) {
+  if (id == nullptr || id[0] == '\0') return false;
+  apps::Entry entry = {};
+  return apps::read(id, entry);
+}
+
+void read_what_is_present() {
+  g_present.home = app_is_there(cfg::home_app());
+  g_present.settings = app_is_there(cfg::settings_app());
+  g_present.lock = app_is_there(cfg::lock_app());
+}
+
+// **I el que sempre hi és són les tres que paren la placa** (0.190.81): `Poweroff` i `Reboot` no depenen de cap app, i `Sleep`
+// depèn que la placa sàpiga dormir i prou. La creu i la fletxa depenen de la pàgina que hi hagi a sota, i les tres que porten a
+// una app depenen que l'app hi sigui (docs/30, docs/45).
 bool key_is_there(Key which) {
   if (which == Key::kClose) return shell::the_page_in_front_can_be_left();
   // **I sobre la pàgina d'inici la casa no hi és** (0.189.153, l'amo: *«No, el home si estem a home no ha de sortir, igual que el
@@ -216,24 +244,18 @@ bool key_is_there(Key which) {
   // and a person who is already looking at it has nothing to ask of it —a key that says where you are is a key that does what
   // the page is doing, que és la regla de la fletxa sense vista i de la creu sobre un llançador (docs/30, docs/45).
   if (which == Key::kHome) {
+    if (!g_present.home) return false;
     const char* home = cfg::home_app();
-    if (home == nullptr || home[0] == '\0') return false;
     return !(shell::app_running() && strcmp(shell::app_id(), home) == 0);
   }
   // **I la roda, quan hi ha una app de settings** (0.189.150, l'amo: *«Si alguna de les opcions es buida, el botó del panell
   // desplegable de sistema no mostrarà la icona corresponent»*): `cfg settings none` is a gear that opens nothing, and a key
   // that says it can do something it cannot is the thing the cross of a launcher already does not do (docs/30, docs/45).
-  if (which == Key::kSettings) {
-    const char* settings = cfg::settings_app();
-    return settings != nullptr && settings[0] != '\0';
-  }
+  if (which == Key::kSettings) return g_present.settings;
   // **I el candau, quan hi ha una app de bloqueig** (0.189.151): the same rule as the gear —`cfg lock none` is a padlock that
   // covers nothing, and the key is not painted— i la clau no mira el commutador: el commutador decideix els tres moments en què el
   // sistema es tapa sol, i aquesta clau és la persona demanant-ho ara (docs/30, docs/45, docs/60).
-  if (which == Key::kLock) {
-    const char* page = cfg::lock_app();
-    return page != nullptr && page[0] != '\0';
-  }
+  if (which == Key::kLock) return g_present.lock;
   if (which == Key::kBack) return apps::views() > 0;
   // **I el son amb les tecles vives, només si la placa en té una** (0.189.25): the same rule as the cross —a key that does
   // nothing says the system can do something it cannot— and it is asked of the board and not of the model of the glass
@@ -533,6 +555,9 @@ void press_the_key(Key which) {
 void pull_it_out() {
   if (g_open) return;
   g_open = true;
+  // **Es torna a preguntar què hi ha** (0.190.81): una app es pot haver instal·lat o esborrat des de l'última vegada que la targeta
+  // va sortir, i el que es pinta és el que hi ha ara i no el que hi havia (docs/30, docs/40).
+  read_what_is_present();
   // **The page is held before the card is painted** (0.179.22): a frame of the app that arrived between the two would be a
   // frame the card has to erase, and the e-ink would pay it twice (docs/30, docs/50).
   ui::hold_the_page(true);

@@ -149,7 +149,9 @@ void deselect_panel() {
 // why the two devices share one bus and the panel will join this host (docs/50). 10 MHz
 // and not the 20 MHz default: the wires are shared, nothing here is measured yet, and a
 // card driven too fast is a card that mounts and then times out.
-const SdPins kSdPins = {4, 14, 12, 13, SPI2_HOST, 10000};
+// **La targeta del Paper no comparteix el bus amb cap xip que calgui callar**: el panell d'aquesta placa hi és, però el seu CS
+// el governa el driver de l'IT8951 i no queda flotant (0.190.83, docs/50).
+const SdPins kSdPins = {4, 14, 12, 13, SPI2_HOST, 10000, nullptr, nullptr, 0};
 
 // The internal I2C of this board: the clock chip, the temperature sensor and the touch panel
 // hang on these two wires, so a driver of any of them asks for the one bus (docs/50).

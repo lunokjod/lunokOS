@@ -40,7 +40,7 @@ const char kDataPartition[] = "littlefs";
 // GPIO12. The four are printed as the HSPI group on the maker's pinout next to the slot; the card is the
 // device that group is for (docs/50). 10 MHz and not the 20 MHz default: nothing here has been measured on
 // a card yet, and a card driven too fast mounts and then times out on the first long read (docs/90).
-const SdPins kSdPins = {15, 14, 13, 12, SPI2_HOST, 10000};
+const SdPins kSdPins = {15, 14, 13, 12, SPI2_HOST, 10000, nullptr, nullptr, 0};
 
 // A light with one channel, driven by a GPIO: the painted frame becomes on or off. The colour is lost
 // because the hardware has no colour to lose, and `max_value` stays 255 so the system's own effects keep

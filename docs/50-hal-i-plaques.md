@@ -689,7 +689,7 @@ capacitats perquè seria la de l'ATOM amb guions a sobre, i diria dues vegades e
 | Entrada | La tecla BOOT del mòdul (GPIO0). El botó `S3` de la placa és a l'expansor PCA9535 i arribarà amb ell |
 | Llum | Cap |
 | Sensor | Cap (té LoRa SX1262 i GPS, sense driver) |
-| Rellotge | **PCF8563** (0x51) amb pila de botó, i el del SoC |
+| Rellotge | **PCF85063** (0x51) amb pila de botó, i el del SoC. El full del fabricant en diu PCF85063 i el seu exemple `rtc_pcf8563` en diu PCF8563: és el mateix mapa de registres, i el de la placa afegeix l'any de quatre xifres |
 | Bateria | **BQ27220** (0x55) d'indicador i **BQ25896** (0x6B) de càrrega, per I2C |
 | Consola | La UART0 del xip, **GPIO43/GPIO44**, que també van al GPS |
 
@@ -904,6 +904,15 @@ als seus modes (`kGc16`/`kInit` → `MODE_GC16`, `kGl16`/`kGlr16`/`kGld16` → `
 **I la llicència, dita clar**: epdiy és **LGPL-3** i viatja amb el seu `LICENSE` a `lib/epdiy/`, sense una
 línia tocada. No és codi d'aquest projecte i no s'ha de presentar com a tal.
 
+**I què és aquesta revisió de la placa, segons el fabricant** (0.190.80, el seu wiki): la fulla del producte diu que
+**la versió `H752-01` —la que tenim— afegeix el *refresc parcial* i la *VCOM ajustable***, que són precisament les dues
+coses que aquesta fitxa ha hagut de descobrir picant: la finestra d'epdiy (`epd_hl_update_area`) i el `panel vcom <mv>`.
+També confirma el que ja hi és: `qio_opi` (flash QIO 80 MHz i PSRAM OPI), USB en mode *Hardware CDC and JTAG*, el nucli i
+els events al nucli 1, i el mapa de pins exacte. **Dues coses del wiki no es poden prendre al peu de la lletra**: la
+llista de botons diu `RST + BOOT + IO48 + PWR`, i **IO48 és el `CKV` del panell** (el mapa de pins del repositori i el
+seu propi `epd_board_v7` ho diuen), o sigui que és una llista heretada de la revisió anterior; i l'esquema de particions
+de l'IDE és de 3 MB d'app i 9,9 MB de FAT, mentre que aquest projecte en fa 4 i 11,9 de LittleFS a propòsit (docs/70).
+
 **I el voltant de la pintada, que és el que faltava copiar** (0.190.60). El panell que inicialitzen —`epd_board_v7`,
 `ED047TC1`, `EPD_LUT_64K`, la forma d'ona de sèrie, i `EPD_ROT_INVERTED_PORTRAIT` com a gir— és exactament el que ja hi
 ha, i el gir és el mateix mapa de pàgina que fa aquest fitxer. El que faltava és el que fan **al voltant**:
@@ -913,6 +922,24 @@ ha, i el gir és el mateix mapa de pàgina que fa aquest fitxer. El que faltava 
 - l'exemple dels setze grisos fa **`epd_clear()` abans** de `MODE_GC16`, i és el que posa el paper blanc que la taula suposa;
 - la **VCOM** és 1560 mV a la seva NVS i **ajustable des del seu menú de fàbrica** (0 a 5,1 V, passos de 10 mV): és un
   número per unitat, i per això `panel vcom <mv>` l'exposa.
+
+**I el rentat del vidre sencer, fora** (0.190.82). La 0.190.60 va copiar el `epd_clear()` de l'exemple de setze
+grisos sense mirar què fa: neteja **tot el vidre**, i després es repintava només la finestra marcada — o sigui que cada
+pintada que netejava es pagava com una pantalla sencera (vint-i-cinc passades) i deixava blanc tot el que quedava fora.
+L'amo ho va veure de seguida: *«el redibuixat al T5S3 és un desastre, tota pantalla sencera, lentíssim»*. **I no calia**:
+el `MODE_GC16` d'aquest panell és una matriu de transició **16 × 16** —cada nivell té codi per a cada nivell de sortida,
+comprovat als 38 fotogrames de `epd_wp_ED047TC2_2_9_data`—, o sigui que sap portar un píxel de qualsevol gris a
+qualsevol altre. El rentat només fa falta als modes que compten des de paper blanc, que aquest sistema no demana.
+
+**I la targeta, que fallava un arrencada sí i una no** (0.190.83). El símptoma era exactament aquest: unes vegades
+`[SD] /sd mounted, 30436 MB` i unes altres `sdmmc_io_reset: unexpected return: 0x104` amb
+`sdmmc_card_init failed`. La causa és al **seu propi exemple** (`sd_card`, en un comentari): *«LORA、SD use the
+same spi, in order to avoid mutual influence; before powering on, all CS signals should be pulled high and in an
+unselected state»*. Nosaltres no tocàvem mai el **CS del LoRa (GPIO46)**: flotant, el SX1262 contesta per MISO i
+les ordres de la targeta tornen espatllades. Ara la placa declara els xips que comparteixen el bus
+(`kSdQuietPins = {46, 1}`, CS alt i reset baix) i el muntatge els posa així abans de la primera transferència. **I
+reintenta**: 10 MHz → 5 MHz → 400 kHz, tres intents, perquè una targeta que respon a la prova i llavors es rendeix
+és una targeta massa apressada i no un disc trencat.
 
 ## Fitxa: M5 Paper v1.0 i v1.1
 

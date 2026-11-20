@@ -85,8 +85,16 @@ const int kClockIntPin = 2;
 // this board will have when the sleep is taught to arm it (docs/50, docs/60).
 const uint8_t kClockAddress = 0x51;
 
+// **Els dos xips que comparteixen SPI2 amb la targeta** (0.190.83, i el seu exemple ho diu: *«LORA、SD use the same spi, in
+// order to avoid mutual influence; before powering on, all CS signals should be pulled high and in an unselected state»*): el
+// CS del LoRa i el seu reset, i tots dos han de quedar fora del bus abans de la primera transferència de la targeta. Sense
+// això el mòdul de ràdio, amb el CS flotant, responia per MISO i el muntatge fallava amb `sdmmc_io_reset: unexpected return:
+// 0x104` — un arrencada sí i una no (docs/50, docs/70).
+const int kSdQuietPins[] = {46, 1};        // LORA_CS, LORA_RST
+const uint8_t kSdQuietLevels[] = {1, 0};   // el CS alt i el reset baix: la ràdio no hi és
 // The card slot, on its own SPI bus —the panel is parallel and does not use it— (docs/50, docs/70).
-const SdPins kSdPins = {12, 14, 13, 21, SPI2_HOST, 10000};
+const SdPins kSdPins = {12, 14, 13, 21, SPI2_HOST, 10000, kSdQuietPins, kSdQuietLevels,
+                        sizeof(kSdQuietPins) / sizeof(kSdQuietPins[0])};
 
 // The label of the data partition in partitions_16mb.csv: the filesystem is found by it, never by
 // the core's default (docs/70).

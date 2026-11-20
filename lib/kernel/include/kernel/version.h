@@ -10706,7 +10706,46 @@ namespace kernel {
 // **I l'emulador pot tenir el rellotge d'aquesta IDF** (`--mono-skips-naps`, 0.190.77): amb aquest model una becaina mou l'hora i no el
 // comptador del xip, que és el que la placa va mesurar, i la suite té un cas que hi passa el compteig de la quietud i un altre que hi arriba
 // al son. Sense el model, aquesta prova no provava res (docs/80, docs/85).
-static const char kVersion[] = "0.190.77";
+// **I la forma d'ona del vidre és la del fabricant, no la genèrica** (0.190.78). El T5S3 portava `epdiy_ED047TC1`, la taula de 37 KB
+// amb **un sol** rang de temperatura (20-30 °C) i cinc modes; la que LilyGO publica per a aquest panell és la **TC2**, 266 KB, **set** rangs
+// de 0 a 48 °C, i epdiy ja la porta compilada —el seu `builtin_waveforms.c` diu d'on ve: *«Alternative Waveform added by Lilygo on Oct
+// 2021»*—. Comparada byte a byte amb `Waveform_header/ED047TC2.h` de la branca `H752` del repositori de la placa: **48 192 valors
+// idèntics**. El que faltava era triar-la, i és una línia (`epd_hl_init(&epdiy_ED047TC2)`). Costa 76 KB de flash (53,4 % → 54,8 %)
+// (docs/50, docs/95).
+//
+// **I el comptador de la quietud quan l'hora arriba tard o salta** (0.190.79). La 0.190.77 el va fer servir dos rellotges i el més llarg
+// dels dos, i li faltaven dues meitats: una placa que arrenca **sense hora** té la marca de l'hora a zero i la meitat de l'hora quedava
+// morta per sempre (o sigui que la becaina no movia el comptador, que és justament el que es volia arreglar), i un rellotge que **salta
+// endavant** —una hora posada a mà, una sincronització, el canvi d'horari— es llegia com «fa hores que no hi ha ningú» i adormia la placa
+// a sota de la mà que l'acabava de posar. Ara la marca de l'hora es posa continuant la quietud que ja hi havia, i un salt de més de cinc
+// segons es detecta i es torna a basar (docs/60, docs/95).
+//
+// **I la imatge del T5S3 és la del Paper** (0.190.80, l'amo: *«posa a la imatge del T5S3 els mateixos programes que l'm5paper»*). Fins
+// aquí aquesta placa portava **una** app, `luaperf`, perquè la seva identitat deia `LUNOK_GLASS 0` —no hi havia vidre— i ningú no podia
+// veure una pàgina. Amb el vidre conduit per epdiy la placa és una placa amb pàgina, o sigui que la seva imatge passa a dir
+// `custom_apps_in_disk = yes` i `LUNOK_HOME_APP=\"home_eink\"`, que és **la mateixa regla i no una llista**: cada carpeta d'`apps/` que
+// nomeni la família `esp32` hi entra, i una que no ho faci ho diu a la compilació (docs/40, docs/70, docs/80).
+// **I la targeta només ensenya les claus de les apps que hi són** (0.190.81, l'amo: *«Al menú desplegable de sistema surt "Lock" quan no
+// hi ha app de lock. Settings tampoc ha d'apareixer si no està definida i "Home" tampoc... Suposo que les úniques opcions que sempre hi
+// seran són Power, Reboot i Sleep»*). `cfg lock` i `cfg settings` guarden **un nom**, i els noms de sèrie són `device_lock` i `settings`:
+// amb una imatge que no portava apps, la targeta pintava un candau que no obria res. Ara la clau es pregunta al portal (`apps::read`),
+// una vegada cada cop que la targeta s'obre, i **una clau d'una app que no és al disc no es pinta** —ni una de definida que s'ha esborrat
+// després—. Les que sempre hi són són les tres que paren la placa: Poweroff, Reboot i Sleep (docs/30, docs/40, docs/45).
+// **I el rentat que netejava el vidre sencer, fora** (0.190.82, l'amo: *«el redibuixat al T5S3 és un desastre, tota pantalla sencera,
+// lentíssim! i sense la qualitat precisa»*). La 0.190.60 va copiar el `epd_clear()` del seu exemple de grisos sense mirar què fa:
+// **`epd_clear()` neteja tot el vidre**, i després es repintava només la finestra marcada, o sigui que cada pintada que neteja es pagava
+// com una pantalla sencera i deixava blanc tot el de fora. I no calia: el `MODE_GC16` d'aquest panell és una matriu de transició
+// **16 × 16** —ho he comprovat als 38 fotogrames de `epd_wp_ED047TC2_2_9_data`, cada nivell té codi per a cada nivell de sortida—, o
+// sigui que sap portar un píxel de qualsevol gris a qualsevol altre. El rentat només fa falta als modes que compten des de blanc, que
+// aquest sistema no demana (docs/50, docs/95).
+// **I la targeta SD del T5S3, que fallava un arrencada sí i una no** (0.190.83, l'amo: *«la targeta SD no es munta al T5S3? fes-ho!»*).
+// El seu exemple ho diu en un comentari i nosaltres no ho fèiem: *«LORA、SD use the same spi, in order to avoid mutual influence; before
+// powering on, all CS signals should be pulled high and in an unselected state»*. El CS del LoRa (GPIO46) quedava flotant, el mòdul
+// contestava per MISO i el comandament de la targeta tornava espatllat (`sdmmc_io_reset: unexpected return: 0x104`). Ara la placa diu
+// quins altres xips té al mateix bus i amb quin nivell es queden fora (`kSdQuietPins`), la muntanya els posa així abans de la primera
+// transferència, i el muntatge **reintenta tres cops amb el rellotge baixant** (10 MHz → 5 → 400 kHz) en lloc de rendir-se al primer
+// (docs/50, docs/70, docs/90).
+static const char kVersion[] = "0.190.83";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

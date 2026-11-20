@@ -251,7 +251,28 @@ bool take_bus(const SdPins& pins) {
   return true;
 }
 
+// **Els altres xips del bus, quiets abans de res** (0.190.83, l'amo: *«la targeta SD no es munta al T5S3? fes-ho!»*): on
+// the T5S3 the LoRa and the slot are on the same SPI2, and a radio whose CS is left floating drives MISO and corrupts the
+// card's own commands —the mount then fails with `sdmmc_io_reset: unexpected return: 0x104`, which is what the board was
+// doing one boot out of two—. El que fa això és el que diu el seu exemple: cada pin com a sortida, i al nivell que el deixa
+// fora del bus (docs/50, docs/70).
+void quiet_the_other_devices(const SdPins& pins) {
+  for (size_t i = 0; i < pins.quiet_count && pins.quiet != nullptr && pins.quiet_level != nullptr; ++i) {
+    const int pin = pins.quiet[i];
+    if (pin < 0) continue;
+    gpio_config_t line = {};
+    line.pin_bit_mask = 1ULL << pin;
+    line.mode = GPIO_MODE_OUTPUT;
+    line.pull_up_en = GPIO_PULLUP_DISABLE;
+    line.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    line.intr_type = GPIO_INTR_DISABLE;
+    gpio_config(&line);
+    gpio_set_level(static_cast<gpio_num_t>(pin), pins.quiet_level[i]);
+  }
+}
+
 bool mount_card(const char* mount, const SdPins& pins) {
+  quiet_the_other_devices(pins);
   if (!take_bus(pins)) return false;
 
   sdmmc_host_t host = SDSPI_HOST_DEFAULT();
@@ -269,12 +290,31 @@ bool mount_card(const char* mount, const SdPins& pins) {
   config.max_files = kMaxOpenFiles;
   config.allocation_unit_size = 16 * 1024;
 
+  // **Tres intents i el rellotge baixant** (0.190.83): a card that answers the probe and then gives up is a card driven too
+  // fast for these wires, i el que s'ha de fer és tornar-ho a provar més a poc a poc i no quedar-se sense disc tot el run. The
+  // first attempt is the board's clock, the second is half of it and the third is the probing one (400 kHz), which no card
+  // refuses (docs/70, docs/90).
   sdmmc_card_t* card = nullptr;
-  const esp_err_t err = esp_vfs_fat_sdspi_mount(mount, &host, &slot, &config, &card);
+  esp_err_t err = ESP_FAIL;
+  const int attempts = 3;
+  for (int i = 0; i < attempts; ++i) {
+    if (i == 1) host.max_freq_khz = (pins.max_khz > 0) ? (pins.max_khz / 2) : (SDMMC_FREQ_DEFAULT / 2);
+    if (i == 2) host.max_freq_khz = SDMMC_FREQ_PROBING;
+    // **Els altres xips tornen a quedar quiets a cada intent**: the first attempt may have left the radio's line in another
+    // state, and a retry that does not put it back is a retry of the same mistake (docs/50).
+    quiet_the_other_devices(pins);
+    err = esp_vfs_fat_sdspi_mount(mount, &host, &slot, &config, &card);
+    if (err == ESP_OK && card != nullptr) {
+      if (i > 0) hal::logf(pal::kLogInfo, "SD", "%s came up on attempt %d at %d kHz", mount, i + 1, host.max_freq_khz);
+      break;
+    }
+    card = nullptr;
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
   if (err != ESP_OK || card == nullptr) {
     // A slot with no card in it is not a failure of the system: the mount is simply not
     // there and the capability stays off (docs/70).
-    hal::logf(pal::kLogWarn, "SD", "no card mounted at %s (%s)", mount, esp_err_to_name(err));
+    hal::logf(pal::kLogWarn, "SD", "no card mounted at %s after %d attempts (%s)", mount, attempts, esp_err_to_name(err));
     return false;
   }
   const uint64_t bytes = static_cast<uint64_t>(card->csd.capacity) * card->csd.sector_size;

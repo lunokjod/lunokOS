@@ -18,8 +18,9 @@
 //     Its supply comes from a **TPS65185** (I2C 0x68) gated by a **PCA9535** (0x20), which is
 //     the other half of what this board's HAL has to do (docs/50, docs/90);
 //   - the same **GT911** touch controller as the Paper (0x5D), on other pins;
-//   - a **PCF8563** (0x51) with a coin cell, which is register-compatible with the BM8563 the
-//     Paper carries —the driver of `lib/hal_esp32` serves both— (docs/50);
+//   - a **PCF85063** (0x51) with a coin cell —el full del fabricant en diu PCF85063 i el seu exemple, `rtc_pcf8563`, en diu
+//     PCF8563: és el mateix mapa de registres, i el que el full afegeix és l'any de quatre xifres—, que és register-compatible
+//     amb la BM8563 del Paper, o sigui que el driver de `lib/hal_esp32` serveix els tres (docs/50);
 //   - a **BQ27220** gauge (0x55) and a **BQ25896** charger (0x6B) instead of a divider on an ADC;
 //   - a card slot on an SPI bus of its own, a SX1262 LoRa and a GPS module on UART0's pins,
 //     none of which this system has a driver for yet.

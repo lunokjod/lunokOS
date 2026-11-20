@@ -860,9 +860,11 @@ vegades).
 
 ## Com afegir apps a la imatge del disc
 
-**La imatge d'una placa no porta apps si no les demana** (0.118.3): qui la munta hi posa el sistema, i **dues plaques
-d'aquest arbre les demanen** —el Paper, totes les que el nomenen (0.179.16), i el Matrix, la demo del seu panell
-(0.179.19, l'amo: *«afegeix aquesta app al littlefs de només el Atom Matrix i l'emulador atom matrix»*)—. Un build que
+**La imatge d'una placa no porta apps si no les demana** (0.118.3): qui la munta hi posa el sistema, i **tres plaques
+d'aquest arbre les demanen** —el Paper, totes les que el nomenen (0.179.16); el Matrix, la demo del seu panell
+(0.179.19, l'amo: *«afegeix aquesta app al littlefs de només el Atom Matrix i l'emulador atom matrix»*); i el **T5S3**,
+totes les que el nomenen (0.190.80, l'amo: *«posa a la imatge del T5S3 els mateixos programes que l'm5paper»*), perquè el
+seu vidre ja pinta i una placa amb pàgina i targeta vol el llançador i les apps de dins—. Un build que
 ha de portar apps les demana, i res no es fa sol, perquè una imatge amb les apps de dins és una imatge que es queda
 vella el dia que es toca una app:
 
@@ -877,6 +879,14 @@ vella el dia que es toca una app:
 ; una placa que es queda sense targeta i ha de portar totes les apps que la nomenen
 custom_apps_in_disk = yes
 
+[env:lilygo-t5s3]
+; la mateixa imatge que el Paper: cada app que nomena la família esp32 (0.190.80), i el llançador de pàgina
+custom_apps_in_disk = yes
+; build_flags:
+-DLUNOK_HOME_APP=\"home_eink\"
+```
+
+```ini
 [env:m5-atom-matrix]
 ; la demo del panell, i només aquesta: el Lite no la porta (docs/40)
 custom_apps = rainbow

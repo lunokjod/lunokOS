@@ -64,7 +64,20 @@ bool Epd47::begin() {
   // glass and the built-in waveform. Epdiy owns the I2C, the PCA9535 and the TPS65185 from here on (docs/50).
   epd_init(&epd_board_v7, &ED047TC1, EPD_LUT_64K);
   epd_set_vcom(vcom_mv_);
-  g_state = epd_hl_init(EPD_BUILTIN_WAVEFORM);
+  // **I la forma d'ona és la del fabricant d'aquest vidre, no la genèrica** (0.190.78). Two files exist in the board's own repository
+  // and they are not the same thing:
+  //
+  //   - `waveforms/epdiy_ED047TC1.h`, 37 KB: the generic table, **one** temperature range (20-30 °C) and five modes. It is what
+  //     `ED047TC1` selects by default, and it is what we have been painting with.
+  //   - `waveforms/epdiy_ED047TC2.h`, 266 KB of text: **byte for byte** the file LilyGO ships in this board's older branch as
+  //     `lib/LilyGo-EPD47-esp32s3/Waveform_header/ED047TC2.h` (48 192 bytes of table, compared value by value), with **seven**
+  //     temperature ranges from 0 to 48 °C. Epdiy's own `builtin_waveforms.c` says where it comes from: *«Alternative Waveform added
+  //     by Lilygo on Oct 2021»*.
+  //
+  // O sigui que **la forma d'ona calibrada per a aquest panell és la TC2**, i epdiy ja la porta compilada: l'única cosa que faltava
+  // era triar-la. És el que fa aquesta línia, i és el que els seus exemples acaben fent servir quan el panell es declara com el que
+  // és (docs/50, docs/95).
+  g_state = epd_hl_init(&epdiy_ED047TC2);
   frame_ = epd_hl_get_framebuffer(&g_state);
   if (frame_ == nullptr) {
     error_ = "epdiy has no framebuffer for this panel";
@@ -75,7 +88,7 @@ bool Epd47::begin() {
   // **I el corrent no es queda obert** (0.190.60): their own firmware powers the supply **around every update** —`epd_poweron()`
   // … `epd_hl_update_screen()` … `epd_poweroff()`— i les tensions enceses tot el dia són una tinta que es mou quan no toca
   // (docs/50, docs/95).
-  logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass, the built-in waveform of this panel", "2.0.0",
+  logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass, the waveform of the maker (TC2, seven temperatures)", "2.0.0",
        static_cast<unsigned>(epd_width()), static_cast<unsigned>(epd_height()));
   return true;
 }
@@ -225,15 +238,16 @@ bool Epd47::flush(UpdateMode mode) {
     powered_ = true;
   }
   const enum EpdDrawMode draw = mode_of(mode);
-  // **I el rentat del seu exemple de grisos** (0.190.60): `epd_clear()` **abans** de la taula, perquè la de setze grisos compta des
-  // de paper blanc. És el que fa el seu `grayscale_test` —`epd_poweron(); epd_clear(); epd_hl_update_screen(MODE_GC16)`— i sense el
-  // rentat el que hi hagi al vidre es queda a sota i la pàgina surt bruta (docs/50, docs/95).
-  if (mode == UpdateMode::kInit || mode == UpdateMode::kGc16) {
-    const uint32_t wash = static_cast<uint32_t>(esp_timer_get_time());
-    epd_clear();
-    logf(pal::kLogDebug, "PANEL", "epdiy: the wash before the waveform took %u ms",
-         static_cast<unsigned>((static_cast<uint32_t>(esp_timer_get_time()) - wash) / 1000u));
-  }
+  // **I aquí NO hi ha cap rentat previ** (0.190.82, i la 0.190.60 el va posar malament). Their `grayscale_test` calls
+  // `epd_clear()` before `MODE_GC16`, i el que vaig fer va ser copiar-ho sense mirar què fa: **`epd_clear()` neteja el vidre
+  // SENCER**, i després el que es tornava a pintar era només la finestra marcada — o sigui que cada pintada que neteja es pagava
+  // com una pantalla sencera (vint-i-cinc passades de tot el vidre) i deixava blanc tot el que quedava fora de la finestra. Era
+  // exactament el que l'amo va veure: *«el redibuixat és un desastre, tota la pantalla sencera, lentíssim»*.
+  //
+  // **I no cal**: la forma d'ona d'aquest panell per al `MODE_GC16` és una matriu de transició **16 × 16** —cada nivell té codi
+  // per a cada nivell de sortida, comprovat als 38 fotogrames de `epd_wp_ED047TC2_2_9_data`—, o sigui que **sap portar un píxel de
+  // qualsevol gris a qualsevol altre** i no compta des de paper blanc. El rentat només fa falta amb els modes que sí que compten des
+  // de blanc (`MODE_EPDIY_WHITE_TO_GL16`), que aquest sistema no demana (docs/50, docs/95).
   // **El rectangle que ha canviat és el que es pinta** (0.190.40): epdiy can update an area, o sigui que una hora que canvia no ha
   // de costar la pàgina; i si no ha canviat res no es pinta (docs/50, docs/95).
   const bool nothing = (dirty_x0_ > dirty_x1_ || dirty_y0_ > dirty_y1_);

@@ -14300,13 +14300,15 @@ void test_the_nap_is_a_setting_and_a_ladder(void) {
   TEST_ASSERT_TRUE(kernel::power::nap_on());
   TEST_ASSERT_EQUAL_INT32(40, kernel::power::nap_ms());
 
-  // **L'escala**: quaranta, vuitanta, cent seixanta… fins a un segon, i una mà la torna al mínim.
+  // **L'escala només creix si el xip ha dormit, i això és una llei i no un detall** (0.190.79, revisat): una volta que no ha dormit no fa
+  // pujar el sostre, perquè el que creixeria seria el torn i la línia del sostre seria una mentida sobre una placa que no ha dormit mai.
+  // L'emulador **no pot dormir** sense els temps del maquinari, o sigui que el que aquest cas pot provar aquí és la llei en el seu costat
+  // fals —una volta sense son deixa l'escala al mínim— i la tornada, que és la resposta a una persona. El creixement de debò el prova
+  // `test_the_light_sleep_does_not_eat_the_idle_counter`, que sí que atura el xip (docs/60, docs/85, docs/95).
+  TEST_ASSERT_FALSE_MESSAGE(kernel::power::nap(100), "the emulator slept without the times of the hardware");
   kernel::power::note_the_nap_end(false);
-  TEST_ASSERT_EQUAL_INT32(80, kernel::power::nap_ms());
-  kernel::power::note_the_nap_end(false);
-  TEST_ASSERT_EQUAL_INT32(160, kernel::power::nap_ms());
-  for (int i = 0; i < 8; ++i) kernel::power::note_the_nap_end(false);
-  TEST_ASSERT_EQUAL_INT32(1000, kernel::power::nap_ms());
+  TEST_ASSERT_EQUAL_INT32_MESSAGE(40, kernel::power::nap_ms(), "the ladder grew on a turn that did not sleep");
+  // **I una mà la torna al mínim** quan ja havia pujat: la resposta a una persona és la de sempre.
   kernel::power::note_the_nap_end(true);
   TEST_ASSERT_EQUAL_INT32(40, kernel::power::nap_ms());
 
@@ -15013,12 +15015,17 @@ void test_the_light_sleep_does_not_eat_the_idle_counter(void) {
   const int64_t was_gate = kernel::power::console_in_use_ms();
   kernel::power::set_console_in_use_ms(0);
   const int64_t before = kernel::power::quiet_ms();
+  const int64_t mono_before = hal::platform().clock()->monotonic_ms();
   pump_captured(3, nullptr, 0);
   const int64_t after = kernel::power::quiet_ms();
+  const int64_t mono_after = hal::platform().clock()->monotonic_ms();
   TEST_ASSERT_GREATER_THAN_MESSAGE(0, static_cast<int32_t>(emu::sleep_turns()), "the three turns did not stop the chip");
   TEST_ASSERT_GREATER_THAN_MESSAGE(before + 100, after, "the naps did not move the counter of the quiet");
   // **La prova de què s'està provant**: el comptador del xip sí que s'ha quedat quiet, o sigui que el que ha crescut és l'hora (docs/85).
-  TEST_ASSERT_LESS_THAN_MESSAGE(60, static_cast<int32_t>(hal::platform().clock()->monotonic_ms() - 0),
+  // **I es mira el que ha passat entre les dues mirades i no el valor absolut** (0.190.79, revisat): el monòton d'aquest banc compta des
+  // que el procés va arrencar i no des d'aquest boot, o sigui que comparar-lo amb zero era comparar-lo amb el començament de la suite —
+  // passava per casualitat en un cas que arriba aviat i es va posar vermell quan un altre cas el va fer arribar més tard— (docs/85).
+  TEST_ASSERT_LESS_THAN_MESSAGE(60, static_cast<int32_t>(mono_after - mono_before),
                                 "the SoC counter counted the naps, and this case proves nothing");
   kernel::power::set_console_in_use_ms(was_gate);
   restore_the_light_sleep();
@@ -17309,6 +17316,102 @@ void test_a_touch_on_the_bar_does_not_press_the_page(void) {
   pump_captured(5, nullptr, 0);
   storage->remove("/apps/topmost/app.lua");
   storage->remove("/apps/topmost/manifest.json");
+}
+
+// **Una clau del sistema només hi és si la seva app hi és** (0.190.81, l'amo: *«Al menú desplegable de sistema surt "Lock" quan
+// no hi ha app de lock. Settings tampoc ha d'apareixer si no està definida i "Home" tampoc si no està definida. Suposo que les
+// úniques opcions que sempre hi seran són Power, Reboot i Sleep»*). `cfg lock`, `cfg settings` i `cfg home` guarden **un nom**, i
+// un nom no és una app: la clau es pregunta al portal (`apps::read`) cada cop que la targeta s'obre, i una clau d'una app que no
+// és al disc no es pinta. El que aquest cas mira és la tinta del quadre de la clau a la memòria del vidre, que és el que una
+// persona veu: amb l'app a la targeta hi ha tinta on va la clau, i amb l'app esborrada no n'hi ha cap.
+void test_a_key_of_the_card_needs_its_app_to_be_there(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  kernel::panel::boot();
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **Una pàgina a sota i les dues apps**: la que fa de pàgina i la que farà de candau.
+  TEST_ASSERT_TRUE(add_app(storage, "plate",
+                           "{\"title\":\"Plate\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "aloof",
+                           "{\"title\":\"Aloof\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  pump_captured(40, g_out, sizeof(g_out), "run plate");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  pump_captured(10, nullptr, 0, "cfg lock aloof");
+
+  // **El quadre de la clau del candau** (0.190.81): la fila de dalt són quatre claus de 104×88 amb 16 d'aire, centrades a la
+  // vista de 540, i el candau és la quarta; les files de la vista comencen sota la barra (docs/30, docs/45).
+  const uint16_t lock_left = 398;
+  const uint16_t lock_top = static_cast<uint16_t>(48 + 20);
+  auto ink_in_the_lock = [&]() {
+    emu::MemorySurface* glass = emu::memory_surface();
+    if (glass == nullptr) return -1;
+    int ink = 0;
+    for (uint16_t y = lock_top; y < static_cast<uint16_t>(lock_top + 88); ++y) {
+      for (uint16_t x = lock_left; x < static_cast<uint16_t>(lock_left + 104); ++x) {
+        if (glass->level_at(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
+  };
+  // **La targeta s'estira des de la barra i es tanca picant fora**, que són els dos gestos que té (docs/30).
+  auto pull_the_card = [&]() {
+    TEST_ASSERT_TRUE(panel->finger_down(0, 200, 20));
+    pump_turns(10);
+    for (int y = 60; y <= 200; y += 35) {
+      TEST_ASSERT_TRUE(panel->finger_move(0, 200, static_cast<uint16_t>(y)));
+      pump_turns(10);
+    }
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(400);
+  };
+  auto put_it_away = [&]() {
+    TEST_ASSERT_TRUE(panel->finger_down(0, 200, 400));
+    pump_turns(10);
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(400);
+  };
+
+  // **Amb l'app al disc la clau es pinta**: la tinta del quadre és el que una persona veu.
+  pull_the_card();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out");
+  const int with_the_app = ink_in_the_lock();
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20, with_the_app, "the padlock was not painted with its app on the disk");
+  put_it_away();
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap below the card did not put it away");
+
+  // **I amb l'app esborrada, el nom continua a `cfg` i la clau no hi és**: el quadre queda paper.
+  storage->remove("/apps/aloof/app.lua");
+  storage->remove("/apps/aloof/manifest.json");
+  storage->remove("/apps/aloof");
+  pull_the_card();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out again");
+  const int without_the_app = ink_in_the_lock();
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, without_the_app, "the padlock was painted for an app that is not on the disk");
+  put_it_away();
+  pump_captured(10, nullptr, 0, "cfg lock none");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/apps/plate/app.lua");
+  storage->remove("/apps/plate/manifest.json");
+  storage->remove("/apps/plate");
 }
 
 // **The cross of the panel closes the app** (0.179.23, and its button is a square since 0.179.26): a swipe down from the
@@ -21028,6 +21131,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_shelf_has_a_foot_of_its_own);
   RUN_TEST(test_the_shell_app_is_a_page_with_a_session_of_the_shell);
   RUN_TEST(test_the_shell_app_keeps_its_sessions_in_the_state);
+  RUN_TEST(test_a_key_of_the_card_needs_its_app_to_be_there);
   RUN_TEST(test_the_cross_of_the_panel_closes_the_app);
   RUN_TEST(test_the_gear_of_the_panel_opens_the_app_of_the_settings);
   RUN_TEST(test_the_arrow_of_the_panel_goes_back_one_view);

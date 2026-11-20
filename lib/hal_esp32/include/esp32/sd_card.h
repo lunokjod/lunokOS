@@ -11,6 +11,8 @@
 #ifndef LUNOK_ESP32_SD_CARD_H
 #define LUNOK_ESP32_SD_CARD_H
 
+#include <stddef.h>
+
 #include "hal/hal.h"
 
 namespace hal {
@@ -27,6 +29,15 @@ struct SdPins {
   // long: a card that mounts and then times out on a read is a card being driven too
   // fast, not a broken card (docs/90).
   int max_khz;
+  // **Els altres xips del mateix bus, i el que se'n fa abans de muntar** (0.190.83): a bus with
+  // two devices, the one that is not being talked to **must not be selected**, or it answers on
+  // MISO and the card's own conversation comes back wrong. On the T5S3 the radio and the slot
+  // share SPI2 and the vendor's own example says it: *«before powering on, all CS signals should
+  // be pulled high and in an unselected state»*. Cada pin es posa com a sortida i al nivell que
+  // diu `quiet_level` (alt per a un CS, baix per a un reset) abans de la primera transferència.
+  const int* quiet;
+  const uint8_t* quiet_level;
+  size_t quiet_count;
 };
 
 // The card at `mount` (the VFS asks for "/sd"), or nullptr when there is no card, it

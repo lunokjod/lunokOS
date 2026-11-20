@@ -98,6 +98,13 @@ int64_t g_last_activity_ms = 0;
 int64_t g_last_activity_epoch_ms = 0;
 power::Hand g_last_hand = power::Hand::kBoot;
 int64_t g_last_hand_ms = 0;
+// **El que l'hora deia l'última vegada que es va mirar, i el que deia el monòton** (0.190.79): dues marques per saber si el que s'ha mogut
+// entre dues mirades és el temps o el rellotge. Una hora posada a mà, una sincronització per xarxa o el canvi d'horari **salten** endavant o
+// enrere, i un salt no és quietud: llegit com a quietud, un rellotge posat endavant adorm la placa a sota de la mà que l'acaba de posar. El
+// llindar és de cinc segons perquè una becaina mou l'hora un segon com a molt i el monòton no la compta (docs/60, docs/95).
+int64_t g_seen_epoch_ms = 0;
+int64_t g_seen_mono_ms = 0;
+const int64_t kClockStepMs = 5000;
 
 // **La velocitat de repòs i la finestra d'una feina pesada** (0.179.38): the step the system goes back to and the hour a
 // burst ends. `g_cpu_busy_until_ms` at zero is "no window is owed", which is the state of a system that is only working.
@@ -978,18 +985,34 @@ void note_a_page_on_the_glass() { g_a_page_on_the_glass = true; }
 // una mà, i un que s'atura (o que es corregeix enrere) no allarga mai la vetlla (docs/60, docs/95).
 int64_t quiet_ms() {
   const int64_t now = mono_now();
+  const int64_t epoch = epoch_now();
   if (g_last_activity_ms <= 0) {
     g_last_activity_ms = now;
-    g_last_activity_epoch_ms = epoch_now();
+    g_last_activity_epoch_ms = epoch;
+    g_seen_epoch_ms = epoch;
+    g_seen_mono_ms = now;
     return 0;
   }
   const int64_t mono_quiet = now - g_last_activity_ms;
   int64_t quiet = (mono_quiet > 0) ? mono_quiet : 0;
-  const int64_t epoch = epoch_now();
-  if (epoch > 0 && g_last_activity_epoch_ms > 0) {
-    const int64_t epoch_quiet = epoch - g_last_activity_epoch_ms;
-    if (epoch_quiet > quiet) quiet = epoch_quiet;
+  if (epoch <= 0) return quiet;
+  // **Una hora que acaba d'arribar no es pot llegir com una quietud de dècades** (0.190.79, i és el cas de la placa de l'amo): una placa que
+  // arrenca sense hora —una pila esgotada, cap xarxa— té la marca de l'hora a zero, i sense això la meitat de l'hora del comptador quedava
+  // morta per sempre i el que sobrevivia a una becaina era només el monòton, que en aquest xip no la compta. La marca es posa **continuant
+  // la quietud que ja hi havia**, que és el que ha passat de debò (docs/60, docs/95).
+  if (g_last_activity_epoch_ms <= 0) {
+    g_last_activity_epoch_ms = epoch - quiet;
+  } else if (g_seen_epoch_ms > 0) {
+    // **I si el que s'ha mogut és el rellotge, el comptador es torna a basar en ell sense perdre el que tenia** (0.190.79).
+    const int64_t stepped = (epoch - g_seen_epoch_ms) - (now - g_seen_mono_ms);
+    if (stepped > kClockStepMs || stepped < -kClockStepMs) {
+      g_last_activity_epoch_ms = epoch - quiet;
+    }
   }
+  g_seen_epoch_ms = epoch;
+  g_seen_mono_ms = now;
+  const int64_t epoch_quiet = epoch - g_last_activity_epoch_ms;
+  if (epoch_quiet > quiet) quiet = epoch_quiet;
   return quiet;
 }
 
