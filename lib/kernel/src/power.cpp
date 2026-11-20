@@ -434,7 +434,19 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   if (g_power != nullptr) g_power->set_wake_on_touch(cfg::wake_on_touch());
   // **I la becaina, que és de la política i no del maquinari** (0.190.63): the switch is read here so that the board's answer
   // (`can_nap`) and the person's wish are both in force from the first turn (docs/30, docs/60).
+  // **I es diu al registre, que és l'únic que ho pot dir** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»*): una placa
+  // que dorm a trossos no ho ensenya enlloc més, i el commutador encès en una placa que no en fa és exactament el que una persona
+  // ha de poder veure d'una línia (docs/60, docs/95).
   set_nap_on(cfg::nap_on());
+  if (!nap_on()) {
+    log_printf(pal::kLogInfo, "POWER", "light sleep instead of wait is off: every wait of the board is spent awake");
+  } else if (can_nap()) {
+    log_printf(pal::kLogInfo, "POWER",
+               "light sleep instead of wait: the waits are spent asleep, and a key, the glass or the console wakes the chip");
+  } else {
+    log_printf(pal::kLogInfo, "POWER",
+               "light sleep instead of wait is on, and this board does not take one: the waits are spent awake");
+  }
 
   // What an app may ask for. Without a power interface the operations stay
   // absent, and power.* answers E_UNSUPPORTED instead of pretending (docs/30).
@@ -679,6 +691,13 @@ const int32_t kNapLeastMs = 20;
 
 bool g_nap_on = true;     // encès de sèrie, que és el que demana el commutador
 int32_t g_nap_ms = kNapFirstMs;
+// **Quantes becaines seguides i quants mil·lisegons s'hi ha estat** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»*):
+// el registre és l'únic instrument que hi ha per saber si la placa dorm de debò, i una línia per becaina ompliria el registre
+// del sistema a raó d'una per segon. El que es compta és la tanda, i s'escriu **quan s'acaba** —quan una mà, una tecla o la
+// consola tornen el xip— i quan l'escala arriba al sostre (docs/60, docs/75, docs/95).
+uint32_t g_nap_run = 0;
+int64_t g_nap_run_ms = 0;
+const int32_t kNapRunSayMs = 1000;  // una tanda d'un segon ja diu alguna cosa; per sota, no val una línia
 
 bool nap_on() { return g_nap_on; }
 
@@ -699,13 +718,30 @@ bool nap(int32_t wait_ms) {
   // ha de tornar la placa, i una espera curta no s'ha de convertir en una de llarga (docs/50, docs/60).
   int32_t asked = (wait_ms < g_nap_ms) ? wait_ms : g_nap_ms;
   if (asked > kNapMostMs) asked = kNapMostMs;
-  return g_power->nap(asked);
+  if (!g_power->nap(asked)) return false;
+  ++g_nap_run;
+  g_nap_run_ms += asked;
+  return true;
 }
 
+// **La tanda que s'acaba es diu** (0.190.64): quan una mà, una tecla o la consola tornen el xip, el registre escriu quantes
+// becaines seguides hi ha hagut i quants mil·lisegons ha estat adormida la placa. És el número que una persona mira a la placa
+// per saber si el commutador fa alguna cosa, i per sota d'un segon no val una línia (docs/60, docs/95).
 void note_the_nap_end(bool something_happened) {
   if (something_happened) {
+    if (g_nap_run_ms >= kNapRunSayMs) {
+      log_printf(pal::kLogDebug, "POWER", "%u nap(s) in a row, %lld ms asleep, and now something has happened",
+                 static_cast<unsigned>(g_nap_run), static_cast<long long>(g_nap_run_ms));
+    }
+    g_nap_run = 0;
+    g_nap_run_ms = 0;
     g_nap_ms = kNapFirstMs;
     return;
+  }
+  if (g_nap_ms < kNapMostMs && g_nap_ms >= kNapMostMs / 2) {
+    // **L'escala ha arribat al sostre**: una línia i prou, que és el que diu que la placa es pot passar hores dormint a trossos
+    // d'un segon (docs/95).
+    log_printf(pal::kLogDebug, "POWER", "the nap is at its ceiling: %d ms a turn while nothing happens", kNapMostMs);
   }
   g_nap_ms = (g_nap_ms >= kNapMostMs / 2) ? kNapMostMs : g_nap_ms * 2;
 }

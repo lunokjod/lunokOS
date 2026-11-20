@@ -431,6 +431,20 @@ pestanya Battery encès —`cfg.nap on|off`, `cfg.nap()`, i ve de sèrie—, cad
   becaina que es menja el que una persona escriu és pitjor que no estalviar res.
 - **I cap armat no sobreviu a la becaina**: en sortir es desfan totes les portes i el compte del temporitzador, perquè el son profund
   arma el que vol i no ha d'heretar res (docs/50).
+- **I al registre es veu** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»*). Tres línies i cap d'elles per torn, perquè una
+  becaina per segon ompliria el registre del sistema:
+
+  ```
+  [I][POWER] light sleep instead of wait: the waits are spent asleep, and a key, the glass or the console wakes the chip
+  [D][POWER] a nap of 37 ms ended by the console
+  [D][POWER] 12 nap(s) in a row, 4200 ms asleep, and now something has happened
+  ```
+
+  la primera és **una per arrencada** i diu si la placa fa becaines (o que el commutador és encès i la placa no en pren cap); la segona
+  surt **només quan una becaina s'acaba abans del seu temps** —una tecla, el dit o la consola— i diu quina porta ha estat i quants
+  mil·lisegons ha durat, que és el que explica un toc que sembla lent; i la tercera **tanca una tanda** quan una mà mou la placa, amb
+  quantes becaines seguides i quants mil·lisegons adormida (per sota d'un segon no es diu). Quan l'escala arriba al sostre surt una
+  línia sola: `the nap is at its ceiling: 1000 ms a turn while nothing happens`.
 
 ## Precisió
 

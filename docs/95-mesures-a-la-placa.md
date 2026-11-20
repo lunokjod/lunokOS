@@ -1232,7 +1232,9 @@ bucle sinó **treure aquella espera** (o un debounce a l'ISR), i després el pas
 3. ~~**La bacaina light** amb temporitzador de 40 ms que dobla fins a 1 s, desperta pel tàctil, les tecles i el rellotge, amb
    `power nap on|off`.~~ **Fet a la 0.190.63** (l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*):
    `IPower::nap` amb les portes de cada placa (tecles, la línia del tàctil i la consola) i el commutador a la pestanya Battery
-   (`cfg nap on|off`, `cfg.nap()`). **El que s'hi ha de mesurar**: (a) els **torns per segon** amb la placa quieta, que han de
+   (`cfg nap on|off`, `cfg.nap()`). **Tot això es llegeix al registre** (0.190.64): la línia de l'arrencada diu si la placa fa
+   becaines, `a nap of N ms ended by …` surt cada cop que una tecla, el dit o la consola tallen una becaina, i `N nap(s) in a row,
+   M ms asleep, and now something has happened` tanca cada tanda. **El que s'hi ha de mesurar**: (a) els **torns per segon** amb la placa quieta, que han de
    baixar cap a 1 i no quedar-se a ~70; (b) que **una tecla i un dit** tornin la placa en menys de cent mil·lisegons —el que
    es nota com un toc lent és aquest número—; (c) que **el que s'escriu al prompt mentre dorm no es perdi**, que és la porta que
    no es pot perdre; (d) la deriva de la bateria en mV/hora amb el commutador encès i apagat, que és l'única mesura de

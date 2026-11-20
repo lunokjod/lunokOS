@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include <esp_sleep.h>
+#include <esp_timer.h>
 
 #include <driver/gpio.h>
 
@@ -51,6 +52,22 @@ bool Esp32Power::can_nap() const {
   return wake_pin_ >= 0 || glass_pin_ >= 0;
 }
 
+// **Qui ha despertat la becaina, en una paraula** (0.190.64): el temporitzador és el cas normal i no diu res, però una becaina
+// que s'ha acabat abans d'hora és exactament el que una persona vol llegir quan el toc li sembla lent o quan una tecla no ha
+// arribat —o sigui que la línia diu quina porta s'ha obert i quants mil·lisegons ha durat (docs/50, docs/95).
+const char* nap_cause_word(esp_sleep_wakeup_cause_t cause) {
+  switch (cause) {
+    case ESP_SLEEP_WAKEUP_TIMER:
+      return "its own timer";
+    case ESP_SLEEP_WAKEUP_GPIO:
+      return "a key or the glass";
+    case ESP_SLEEP_WAKEUP_UART:
+      return "the console";
+    default:
+      return "something else";
+  }
+}
+
 bool Esp32Power::nap(int32_t max_ms) {
   // Per sota d'aquest temps, entrar i sortir del son costa més que esperar despert.
   const int32_t kLeastMs = 20;
@@ -77,12 +94,23 @@ bool Esp32Power::nap(int32_t max_ms) {
   bool ok = esp_sleep_enable_uart_wakeup(0) == ESP_OK;
   if (ok) {
     fflush(stdout);
+    const int64_t before_us = esp_timer_get_time();
     const esp_err_t slept = esp_light_sleep_start();
+    const int64_t slept_ms = (esp_timer_get_time() - before_us) / 1000;
     // **Un son que el xip no ha pres es diu**: la volta que ve el sistema no el tornaria a demanar i el que quedaria és una placa que
     // diu que estalvia i no estalvia (docs/50).
     if (slept != ESP_OK) {
       hal::logf(pal::kLogWarn, "POWER", "the chip did not take the nap (%d)", static_cast<int>(slept));
       ok = false;
+    } else {
+      // **I una becaina que no ha acabat el seu temps també es diu**: la que el temporitzador ha deixat anar és el cas normal i
+      // no omple el registre, però la que ha tallat una tecla, el dit o la consola és la línia que explica per què la placa és
+      // desperta abans d'hora (docs/50, docs/95).
+      const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+      if (cause != ESP_SLEEP_WAKEUP_TIMER) {
+        hal::logf(pal::kLogDebug, "POWER", "a nap of %lld ms ended by %s", static_cast<long long>(slept_ms),
+                  nap_cause_word(cause));
+      }
     }
   }
   // El que hagi quedat armat es desfà: el son profund arma el que vol i no ha d'heretar res d'aquí (docs/50). I el compte del

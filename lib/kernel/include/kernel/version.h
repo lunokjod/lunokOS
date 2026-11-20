@@ -10537,7 +10537,16 @@ namespace kernel {
 // menys i una que es fa servir no paga res. El commutador és **Light sleep instead of wait** de la pestanya Battery (`cfg nap on|off`,
 // `cfg.nap()`) i ve encès; a una placa que no en sap, l'ajust es desa i no fa res, que és la diferència entre ignorar un commutador i
 // refusar-lo (docs/30, docs/45, docs/50, docs/60, docs/95).
-static const char kVersion[] = "0.190.63";
+// **I la becaina s'ha de poder llegir al registre** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»* — i no, no s'hi veia:
+// només quan el xip refusava la becaina). Una placa que dorm a trossos no ho ensenya enlloc més, i el registre és l'únic instrument. Tres
+// línies i cap per torn: **una per arrencada** que diu si la placa fa becaines (`light sleep instead of wait: the waits are spent asleep, and
+// a key, the glass or the console wakes the chip`, o la seva meitat apagada, o `… is on, and this board does not take one`); **una quan
+// una becaina s'acaba abans del seu temps** (`a nap of 37 ms ended by the console`, amb la porta que l'ha tallada i quants mil·lisegons ha
+// durat); i **una per tanda acabada** (`12 nap(s) in a row, 4200 ms asleep, and now something has happened`, només si la tanda passa d'un
+// segon). I una de sola quan l'escala arriba al sostre (`the nap is at its ceiling: 1000 ms a turn while nothing happens`). El comptador de
+// la tanda es desa a `power` i el motiu del despert surt del xip (`esp_sleep_get_wakeup_cause`), que és l'única cosa que sap si ha estat
+// el temporitzador o una tecla (docs/50, docs/60, docs/95).
+static const char kVersion[] = "0.190.64";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
