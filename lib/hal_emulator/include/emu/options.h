@@ -205,6 +205,16 @@ struct Options {
   bool env_fail = false;
   float env_celsius;
   float env_humidity;
+  // **El ràdio de Bluetooth d'aquesta banda** (0.190.200, l'amo: *«així podrem medir tot en detall i fer l'emulador més realista»*): el
+  // model que porta el ràdio al build (l'ATOM, i el Matrix, que és el mateix firmware) en té un aquí, amb aparells inventats a l'aire.
+  // `--no-bt` és una placa sense ràdio, `--bt-fail` una pila que no arrenca, `--bt-scan` quants aparells troba una exploració (quatre,
+  // i zero és una habitació buida), `--bt-connected` un mòbil a l'altre cap del nostre teclat i `--bt-type` el que aquest mòbil escriu
+  // quan el vincle es fa —el camí sencer del report fins a l'editor de línia, sense un teclat de debò a la mà— (docs/50, docs/85).
+  bool bt_absent = false;
+  bool bt_fail = false;
+  int32_t bt_peers = 0;
+  bool bt_connected = false;
+  const char* bt_type = nullptr;
 
   Options();
 };

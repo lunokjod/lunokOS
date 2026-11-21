@@ -815,9 +815,10 @@ void test_an_app_runs_and_writes(void) {
 void test_the_commands_of_the_prompt_reach_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
   TEST_ASSERT_TRUE(run_captured("run words", g_out, sizeof(g_out)));
-  // **Cinquanta-dues i no cinquanta-una** (0.190.141): the list grew again with `heapguard`, the canaries of the memory, and
-  // the number is the one `kCommandNames` holds —the same table the prompt reads— (docs/30, docs/40).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 52"), g_out);
+  // **Cinquanta-tres** (0.190.141 hi va posar cinquanta-dues amb `heapguard`, i la llista ha tornat a créixer des d'aleshores):
+  // the number is the one `kCommandNames` holds —the same table the prompt reads— i el que aquest cas defensa és que la llista de
+  // l'app i la del prompt són la mateixa, no el número en si (docs/30, docs/40).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 53"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first help"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last history"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sessions true"), g_out);

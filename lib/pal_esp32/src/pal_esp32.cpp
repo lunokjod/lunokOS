@@ -48,13 +48,24 @@
 #define LUNOK_HAVE_USB_CONSOLE 0
 #endif
 
+// **La cua d'esdeveniments del UART** (0.190.190): la ISR del driver hi deixa un event per ràfega de bytes, i el fil lector del PAL
+// s'hi bloqueja. És d'aquí i no d'`EspSystem` perquè qui la crea és `LunokSerial::begin` —`uart_driver_install` vol la cua en mà— i qui
+// l'espera és el fil, o sigui que ha de viure entre tots dos (docs/50).
+// **Quants events del UART es poden acumular**: the reader empties it as fast as it can and the bytes stay in the driver's ring either
+// way, o sigui que vuit és molt més del que cal i prou perquè una ràfega no en perdi cap (docs/50).
+const int kUartEvents = 8;
+static QueueHandle_t g_uart_events = nullptr;
+
 class LunokSerial {
  public:
-  // **Ni el driver de la IDF ni una interrupció pròpia: la FIFO es buida quan es pregunta** (0.190.91, el primer flaix que no deixava
-  // teclejar). Amb el driver d'`esp_driver_usb_serial_jtag` la sortida hi era i l'entrada no —la placa parlava i no sentia—, i una
+  // **Al USB, ni el driver de la IDF ni una interrupció pròpia: la FIFO es buida quan es pregunta** (0.190.91, el primer flaix que no
+  // deixava teclejar). Amb el driver d'`esp_driver_usb_serial_jtag` la sortida hi era i l'entrada no —la placa parlava i no sentia—, i una
   // interrupció pròpia xoca amb l'enllaçador de l'xtensa quan el nostre `lib/` la posa a IRAM (`l32r: literal placed after use`). El que
-  // sí que encaixa amb aquesta casa és el que ja fa: el lector del PAL pregunta cada **cinc mil·lisegons**, i a 115 200 bauds això són
-  // cinquanta-set bytes en una FIFO de seixanta-quatre. Es buida sencera a l'anell i el torn llegeix d'allà (docs/30, docs/50).
+  // sí que encaixa amb aquesta casa és el que fa: el lector del PAL pregunta cada **mil·lisegon** (0.190.190), i a 115 200 bauds això són
+  // onze bytes en una FIFO de seixanta-quatre. Es buida sencera a l'anell i el torn llegeix d'allà (docs/30, docs/50).
+  //
+  // **I a l'UART, la cua del driver** (0.190.190): la ISR del perifèric hi deixa un event i el fil lector s'hi bloqueja, o sigui que
+  // aquesta banda no pregunta res i la tecla no espera cap sondeig (docs/50).
   bool begin(uint32_t baud) {
 #if LUNOK_HAVE_USB_CONSOLE
     (void)baud;
@@ -85,7 +96,10 @@ class LunokSerial {
 #else
     config.source_clk = UART_SCLK_DEFAULT;
 #endif
-    if (uart_driver_install(UART_NUM_0, 1024, 0, 0, nullptr, 0) != ESP_OK) return false;
+    // **La cua d'esdeveniments del driver és la interrupció** (0.190.190): with a queue, the UART's ISR posts `UART_DATA` and the
+    // reader thread waits on it instead of asking `available()` every few milliseconds; els bytes no es toquen, perquè l'event només diu
+    // que n'hi ha i qui els llegeix és el torn (docs/50).
+    if (uart_driver_install(UART_NUM_0, 1024, 0, kUartEvents, &g_uart_events, 0) != ESP_OK) return false;
     return uart_param_config(UART_NUM_0, &config) == ESP_OK;
 #endif
   }
@@ -190,7 +204,9 @@ namespace pal {
 namespace {
 
 const uint16_t kQueueLength = 16;
-const uint32_t kReaderPeriodMs = 5;
+// **El que queda de sondeig** (0.190.190): la banda del UART ja no en té (la cua del driver la desperta), i la del USB-Serial-JTAG
+// —que es llegeix a mà— mira la FIFO d'un en un. Cinc mil·lisegons eren un quart de dècima de segon de latència per tecla que no calia.
+const uint32_t kReaderPeriodMs = 1;
 
 // **The noise of this boot, taken once** (0.174.8). The chip's hardware RNG is a true one only while the radio is on
 // —on this family the number is read out of the Wi-Fi peripheral's register, `WDEV_RND_REG`, and the entropy is the RF
@@ -469,24 +485,29 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
 #endif  // LUNOK_HAVE_USB_CONSOLE
   }
 
-  bool ansi() const override { return true; }
-
  private:
   static void reader_trampoline(void* self) {
     static_cast<EspSystem*>(self)->reader_loop();
   }
 
+  // **El fil que avisa que hi ha una tecla** (0.190.190): it never reads a byte —the turn does—, it only says that there is something
+  // waiting. On the UART that means blocking on the driver's queue, which an interrupt fills; a banda del USB, que no en té, mira la
+  // FIFO cada mil·lisegon (docs/50).
   void reader_loop() {
     for (;;) {
-      const int waiting = LUNOK_SERIAL.available();
-      if (waiting > 0) {
-        Event ev;
-        ev.type = kEventConsoleRx;
-        ev.a = 0;
-        ev.b = static_cast<int32_t>(waiting);
-        push(ev, 0);
-      }
+#if LUNOK_HAVE_USB_CONSOLE
       vTaskDelay(pdMS_TO_TICKS(kReaderPeriodMs));
+#else
+      uart_event_t event = {};
+      if (xQueueReceive(g_uart_events, &event, portMAX_DELAY) != pdTRUE) continue;
+#endif
+      const int waiting = LUNOK_SERIAL.available();
+      if (waiting <= 0) continue;
+      Event ev;
+      ev.type = kEventConsoleRx;
+      ev.a = 0;
+      ev.b = static_cast<int32_t>(waiting);
+      push(ev, 0);
     }
   }
 

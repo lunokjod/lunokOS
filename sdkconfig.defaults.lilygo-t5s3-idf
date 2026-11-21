@@ -1,0 +1,15 @@
+# **El Bluetooth d'aquesta placa** (0.190.198, l'amo: *«al T5S3 pro està ficat el nimble?»* — i no hi era: al `sdkconfig` d'aquesta banda no
+# hi havia ni una línia `CONFIG_BT`, i el codi del ràdio compilava la seva meitat que diu «aquesta placa no en té»).
+#
+# **Aquest fitxer s'afegeix al `sdkconfig.defaults` i no el substitueix**: l'entorn el declara com el segon d'una llista, o sigui que el que
+# hi ha allà —la PSRAM octal, el USB-Serial-JTAG, el PM, la FAT amb noms llargs— es queda com és i aquí només hi ha el ràdio.
+#
+# **L'S3 només té BLE**: no hi ha meitat Classic i per tant no hi ha mode del controlador a triar com a l'ESP32 clàssic
+# (`CONFIG_BTDM_CTRL_MODE_BLE_ONLY`, que aquí no existeix), i el controlador i el host són els que la IDF té per a aquest xip.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+
+# **Els vincles s'han de desar** (0.190.197): sense això la botiga del ràdio viu a la RAM —el nom no dona cap error—, o sigui que el teclat
+# d'un mòbil s'ha de tornar a aparellar a cada reinici i `bt host reconnect` no pot trobar mai res. Els vincles van a la partició NVS que el
+# sistema ja té per als ajustos (docs/50, docs/70).
+CONFIG_BT_NIMBLE_NVS_PERSIST=y

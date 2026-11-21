@@ -12,7 +12,6 @@ struct CapEntry {
 // when it builds its table.
 const CapEntry kCaps[] = {
     {"console", kCapConsole},
-    {"ansi", kCapAnsi},
     {"display", kCapDisplay},
     {"input", kCapInput},
     {"led", kCapLed},

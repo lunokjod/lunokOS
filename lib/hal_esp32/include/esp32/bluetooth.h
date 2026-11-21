@@ -25,7 +25,28 @@ class Esp32Bluetooth : public IBluetooth {
   void keyboard_stop() override;
   bool keyboard_connected() const override;
   bool keyboard_tap(uint8_t mods, uint8_t usage) override;
+  const char* device_name() const override;
   bool wants_the_chip_awake() const override;
+  // **I l'altra direcció** (0.190.188, l'amo: *«Ja tenim bluetooth HID device, fem el Bluetooth HID Host»*): the same radio, the
+  // board as the host and somebody else's keyboard. El rol central de NimBLE ja és al `sdkconfig`, o sigui que el que hi ha és GATT a
+  // mà: explorar, connectar, demanar el boot protocol i subscriure's al report de vuit bytes (docs/50).
+  bool can_host() const override;
+  bool host_on() override;
+  void host_off() override;
+  bool host_is_up() const override;
+  uint8_t host_scan(uint32_t ms, Peer* out, uint8_t cap) override;
+  bool host_pair(uint8_t index) override;
+  bool host_reconnect() override;
+  bool host_connected() const override;
+  void host_forget() override;
+  void host_sink(HostSink sink) override;
+  uint8_t keyboard_leds() const override;
+  bool device_is_a_mouse() const override;
+  bool device_be(bool mouse) override;
+  bool mouse_move(int8_t dx, int8_t dy) override;
+  bool mouse_press(uint8_t buttons) override;
+  bool mouse_click(uint8_t buttons) override;
+  uint8_t mouse_buttons() const override;
 };
 
 // **La instància d'aquesta banda**, que cada placa torna des del seu `platform` (0.190.179): a board whose build has no radio gets the

@@ -151,7 +151,14 @@ Options::Options()
       env_fail(false),
       // A room, which is the reading an app that starts must survive.
       env_celsius(25.0f),
-      env_humidity(50.0f) {}
+      env_humidity(50.0f),
+      // **The radio the model carries is born on, with four devices in the air**: un emulador de l'ATOM sense la ràdio és una placa que
+      // no es ven, i una exploració buida no diu si el camí funciona (docs/50, docs/85).
+      bt_absent(false),
+      bt_fail(false),
+      bt_peers(4),
+      bt_connected(false),
+      bt_type(nullptr) {}
 
 const Options& options() { return g_options; }
 
@@ -1491,6 +1498,206 @@ class HostNet : public INet {
   char http_meta_path_[256] = {0};
 };
 
+// ---- el ràdio de mentida (0.190.200) ----
+//
+// **La ràdio que aquesta banda no té, feta de tres taules i un comptador.** NimBLE és una pila del xip i aquí no n'hi ha cap, o sigui
+// que al prompt no hi hauria ràdio i el teclat de l'aire no es podria mirar ni mesurar sense la placa a la mà (l'amo: *«així podrem
+// medir tot en detall i fer l'emulador més realista»*). El que aquesta mentida té d'honest: **qui decideix si hi ha ràdio és el build
+// del model** —l'ATOM la porta al seu `sdkconfig` i el Paper no, o sigui que un emulador del Paper segueix sense ràdio—, els aparells
+// de l'aire són una taula d'aquest fitxer i no una exploració de l'habitació de ningú, i les adreces són totes `C0:FF:EE:…` perquè qui
+// llegeixi la llista no es pensi que ha trobat un telèfon de debò (docs/50, docs/85).
+namespace {
+struct FakePeer {
+  const char* name;
+  uint16_t appearance;
+  uint16_t service;
+  int8_t rssi;
+  uint8_t addr[6];
+};
+
+// **Un de cada cosa que un anunci pot dir** (0.190.196): un teclat amb el servei HID, un ratolí, un telèfon, una televisió que es diu
+// com les del saló i un que no diu com es diu —que és el cas que va fer veure que el nom viatja a la resposta de l'escaneig—. És la
+// llista que es mira quan es toca `bt host scan` i la que les proves d'aquest camí poden fer servir (docs/50, docs/85).
+const FakePeer kPeers[] = {
+    {"Teclat de la casa", 0x03C1, 0x1812, -58, {0xC0, 0xFF, 0xEE, 0x00, 0x00, 0x01}},
+    {"Ratolí de la tauleta", 0x03C2, 0x1812, -71, {0xC0, 0xFF, 0xEE, 0x00, 0x00, 0x02}},
+    {"Pixel de la Marta", 0x0040, 0x180F, -66, {0xC0, 0xFF, 0xEE, 0x00, 0x00, 0x03}},
+    {"[TV] Samsung AU7025", 0x0C41, 0, -83, {0xC0, 0xFF, 0xEE, 0x00, 0x00, 0x04}},
+    {"", 0, 0, -90, {0xC0, 0xFF, 0xEE, 0x00, 0x00, 0x05}},
+};
+const uint8_t kPeerCount = static_cast<uint8_t>(sizeof(kPeers) / sizeof(kPeers[0]));
+
+// **Un caràcter i el seu Usage ID**: el report d'un teclat de boot són els modificadors, un byte que no s'usa i sis Usage IDs, i un
+// teclat de mentida que no sabés escriure seria un teclat que només es lliga (docs/50, docs/85).
+bool usage_of(char c, uint8_t& usage, uint8_t& mods) {
+  mods = 0;
+  if (c >= 'a' && c <= 'z') {
+    usage = static_cast<uint8_t>(0x04 + (c - 'a'));
+    return true;
+  }
+  if (c >= 'A' && c <= 'Z') {
+    usage = static_cast<uint8_t>(0x04 + (c - 'A'));
+    mods = 0x02;  // the left Shift of the HID
+    return true;
+  }
+  if (c >= '1' && c <= '9') {
+    usage = static_cast<uint8_t>(0x1E + (c - '1'));
+    return true;
+  }
+  switch (c) {
+    case '0': usage = 0x27; return true;
+    case ' ': usage = 0x2C; return true;
+    case '-': usage = 0x2D; return true;
+    case '_': usage = 0x2D; mods = 0x02; return true;
+    case '.': usage = 0x37; return true;
+    case '/': usage = 0x38; return true;
+    case ':': usage = 0x33; mods = 0x02; return true;
+    default: return false;
+  }
+}
+}  // namespace
+
+// **El ràdio fals sencer, els dos costats alhora**: el nostre teclat (que aquí no té ningú a l'altre cap llevat que el run ho digui) i
+// l'amfitrió, que explora la taula de dalt, s'hi lliga i rep el que el teclat d'aquell cap escriu. El que **no** fa és mentir sobre
+// l'estat: `keyboard_connected` i `host_connected` són falsos fins que el run o una comanda els hi fa certs, i el `bt` del prompt diu
+// el mateix que diria a la placa (docs/50, docs/85).
+class FakeBluetooth : public IBluetooth {
+ public:
+  // **La ràdio hi és si el model la porta**: el platform només reparteix aquest objecte quan el build de la placa la té, i per això
+  // aquestes dues responen sempre que sí —l'única manera de no tenir-ne és no tenir l'objecte (docs/50).
+  bool can_bluetooth() const override { return true; }
+  bool can_host() const override { return true; }
+
+  bool keyboard_start(const char* name) override {
+    if (emu::options().bt_fail) return false;
+    device_on_ = true;
+    snprintf(name_, sizeof name_, "%s", (name != nullptr && name[0] != '\0') ? name : "lunokOS");
+    return true;
+  }
+  void keyboard_stop() override { device_on_ = false; }
+  // **Un mòbil a l'altre cap només si el run el posa** (`--bt-connected`): un teclat que digués que hi ha algú quan no hi és enviaria
+  // caràcters al buit, que és el que aquesta pregunta existeix per impedir (docs/50).
+  bool keyboard_connected() const override { return emu::options().bt_connected; }
+  const char* device_name() const override { return name_; }
+
+  bool keyboard_tap(uint8_t mods, uint8_t usage) override {
+    (void)mods;
+    (void)usage;
+    return device_on_ && emu::options().bt_connected;
+  }
+  // **El pany del son, com el de la placa**: el ràdio vol el xip despert mentre el teclat és engegat o mentre hi ha algú lligat a
+  // l'altre costat (docs/50, docs/60).
+  bool wants_the_chip_awake() const override { return device_on_ || paired_ >= 0; }
+
+  bool host_on() override {
+    if (emu::options().bt_fail) return false;
+    host_on_ = true;
+    return true;
+  }
+  void host_off() override {
+    host_on_ = false;
+    paired_ = -1;
+  }
+  bool host_is_up() const override { return host_on_; }
+
+  uint8_t host_scan(uint32_t ms, Peer* out, uint8_t cap) override {
+    if (emu::options().bt_fail || out == nullptr || cap == 0) return 0;
+    // La placa encén la pila per explorar, i l'exploració bloqueja qui la demana: aquí són els segons que el prompt ha demanat, i
+    // `--no-delay` és un emulador que no paga el rellotge (docs/50, docs/85).
+    host_on_ = true;
+    if (emu::options().delays && ms > 0) usleep(static_cast<useconds_t>(ms) * 1000u);
+    uint8_t seen = 0;
+    for (uint8_t i = 0; i < kPeerCount && seen < cap; ++i) {
+      if (static_cast<int32_t>(i) >= emu::options().bt_peers) break;
+      Peer& peer = out[seen++];
+      memset(&peer, 0, sizeof peer);
+      memcpy(peer.addr, kPeers[i].addr, sizeof peer.addr);
+      peer.addr_type = 0;
+      snprintf(reinterpret_cast<char*>(peer.name), sizeof peer.name, "%s", kPeers[i].name);
+      peer.hid = (kPeers[i].service == 0x1812);
+      peer.rssi = kPeers[i].rssi;
+      peer.appearance = kPeers[i].appearance;
+      peer.service = kPeers[i].service;
+    }
+    return seen;
+  }
+
+  bool host_pair(uint8_t index) override {
+    if (emu::options().bt_fail) return false;
+    if (static_cast<int32_t>(index) >= emu::options().bt_peers || index >= kPeerCount) return false;
+    host_on_ = true;
+    paired_ = static_cast<int8_t>(index);
+    type_the_text_of_the_other_side();
+    return true;
+  }
+  bool host_connected() const override { return paired_ >= 0; }
+  // **Tornar-hi sols si hi ha un vincle**: la placa pregunta la botiga de la NVS i aquí el vincle és `paired_`, o sigui que un
+  // emulador acabat de néixer no té res a què tornar i ho diu (docs/50, docs/85).
+  bool host_reconnect() override {
+    if (emu::options().bt_fail || paired_ < 0) return false;
+    host_on_ = true;
+    return true;
+  }
+  void host_forget() override { paired_ = -1; }
+  // **Els llums del teclat virtual**: aquí ningú no els demana, i un zero és el que la placa diu quan no n'ha arribat cap. El que sí
+  // que és cert és que la pregunta existeix i que es pot provar el camí que la llegeix (docs/50).
+  uint8_t keyboard_leds() const override { return leds_; }
+
+  bool device_is_a_mouse() const override { return is_mouse_; }
+  bool device_be(bool mouse) override {
+    if (emu::options().bt_fail) return false;
+    is_mouse_ = mouse;
+    return true;
+  }
+  bool mouse_move(int8_t dx, int8_t dy) override {
+    (void)dx;
+    (void)dy;
+    return device_on_ && emu::options().bt_connected;
+  }
+  bool mouse_press(uint8_t buttons) override {
+    if (!device_on_ || !emu::options().bt_connected) return false;
+    buttons_ = buttons;
+    return true;
+  }
+  bool mouse_click(uint8_t buttons) override {
+    if (!mouse_press(buttons)) return false;
+    buttons_ = 0;
+    return true;
+  }
+  uint8_t mouse_buttons() const override { return buttons_; }
+
+  void host_sink(HostSink sink) override { sink_ = sink; }
+
+ private:
+  // **El que el teclat de l'altre cap escriu quan es lliga** (`--bt-type`): els vuit bytes d'un report de boot, una tecla cada cop, i
+  // el camí és el de debò —`host_sink` és `kernel::bt::keys_arrived` i d'allà va a `shell::feed`—, que és el que fa que aquesta opció
+  // sigui una prova del report i no una frase escrita al prompt (docs/50, docs/85). **El retorn de línia no s'hi fingeix**: una tecla
+  // que executés una comanda des de dins d'una altra comanda tornaria a entrar al shell, i el que es vol mirar aquí és el report.
+  void type_the_text_of_the_other_side() {
+    const char* text = emu::options().bt_type;
+    if (text == nullptr || sink_ == nullptr) return;
+    static uint8_t quiet[8] = {};
+    for (const char* c = text; *c != '\0'; ++c) {
+      if (*c == '\r' || *c == '\n') break;
+      uint8_t usage = 0;
+      uint8_t mods = 0;
+      if (!usage_of(*c, usage, mods)) continue;
+      const uint8_t pressed[8] = {mods, 0, usage, 0, 0, 0, 0, 0};
+      sink_(pressed, 8);
+      sink_(quiet, 8);
+    }
+  }
+
+  char name_[32] = "lunokOS";
+  bool device_on_ = false;
+  bool host_on_ = false;
+  bool is_mouse_ = false;
+  int8_t paired_ = -1;
+  uint8_t leds_ = 0;
+  uint8_t buttons_ = 0;
+  HostSink sink_ = nullptr;
+};
+
 class EmulatorPlatform : public IPlatform {
  public:
   const char* id() const override { return board::id(); }
@@ -1521,8 +1728,6 @@ class EmulatorPlatform : public IPlatform {
       built_for_ = model;
       caps_ = Caps();
       caps_.add(kCapConsole);
-      pal::IConsole* console = pal::system().console();
-      if (console != nullptr && console->ansi()) caps_.add(kCapAnsi);
       // /littlefs is mandatory: it is the directory <fs_dir>/littlefs.
       if (emu_storage("/littlefs") != nullptr) caps_.add(kCapLittlefs);
       // The card is advertised only when one is in the slot, the same rule as the board
@@ -1600,6 +1805,13 @@ class EmulatorPlatform : public IPlatform {
   INet* net() override {
     if (emu::options().wifi_absent) return nullptr;
     static HostNet instance;
+    return &instance;
+  }
+  // **La ràdio és del model i del seu build** (0.190.200): l'ATOM en porta i el Paper no, i una opció no pot fer aparèixer un maquinari
+  // que la placa no té —el que sí que pot és treure'l (`--no-bt`) o fer que la pila no arrenqui (`--bt-fail`)— (docs/50, docs/85).
+  IBluetooth* bluetooth() override {
+    if (!emu::model().bt || emu::options().bt_absent) return nullptr;
+    static FakeBluetooth instance;
     return &instance;
   }
   IPower* power() override {

@@ -12,6 +12,16 @@
 // **Cada cosa se suporta en la caixa que rep** —`kIconW`/`kIconH` and `kBatteryW`/`kBatteryH` are the boxes the drawings were
 // measured in, and every constant below is scaled by the box's width or height and never by a number of the glass—, so the
 // bar of this system paints them at the size of the paper project's and a shorter bar only decides where they sit.
+// **I aquests dibuixos només existeixen on hi ha franja** (0.190.183, l'amo: *«`bar_icons`, les icones de la franja del vidre <- això no fa
+// falta, ni la barra de sistema ni el panell desplegable»*). `bar.cpp` ja surt del build d'una placa sense vidre i aquest fitxer era l'única
+// cosa que se n'hi quedava: **tres mil bytes de taules de píxels** que ningú no podia pintar. El guard és el mateix `LUNOK_GLASS` que fa
+// desaparèixer la franja, perquè una icona sense barra és un dibuix sense paper (docs/30, docs/50).
+// `LUNOK_GLASS` viu a la identitat de la placa i aquest fitxer no la incloïa: sense això el guard seria sempre fals i la franja es quedaria
+// sense dibuixos a totes les plaques (docs/50).
+#include "board/identity.h"
+
+#if LUNOK_GLASS
+
 #include "bar_icons_art.h"
 #include "kernel/bar_icons.h"
 
@@ -354,3 +364,5 @@ void battery(hal::ISurface& surface, uint16_t x, uint16_t y, int level, bool cha
 
 }  // namespace bar_icons
 }  // namespace kernel
+
+#endif  // LUNOK_GLASS

@@ -143,11 +143,13 @@ void test_a_breath_goes_up_and_down(void) {
   const uint8_t quarter = level();
   TEST_ASSERT_TRUE_MESSAGE(quarter > 0 && quarter < 10, "a quarter of a breath is in between");
   step(250);
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(10, level(), "half a period is the top of the breath");
+  // **A un pas del cim i no exactament al cim**: the crest is one instant of a thousand milliseconds and the clock of the case is
+  // not that instant, o sigui que el que es prova és que arriba al nivell demanat i no que l'encerta al mil·lisegon (docs/85).
+  TEST_ASSERT_UINT8_WITHIN_MESSAGE(1, 10, level(), "half a period is the top of the breath");
   step(500);
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, level(), "one period is back to nothing");
   step(500);
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(10, level(), "and it comes up again");
+  TEST_ASSERT_UINT8_WITHIN_MESSAGE(1, 10, level(), "and it comes up again");
 }
 
 // The blink is half the period on and half off, which is what makes it read as a blink and
@@ -304,7 +306,8 @@ void test_the_board_breathes_white_when_it_boots(void) {
   TEST_ASSERT_TRUE(reboot());
   step(2500);  // half of the five-second breath
   // Twenty out of 255: the maker's dim level, which is where a breath stops (docs/30, docs/75).
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(20, level(), "half a breath is the top of the dim level");
+  // **A un pas del cim**: the crest is one instant of five thousand milliseconds and the clock of the case is not that instant (docs/85).
+  TEST_ASSERT_UINT8_WITHIN_MESSAGE(1, 20, level(), "half a breath is the top of the dim level");
   // The breath ramps from white towards a pale blue, so the blue end leads (docs/30).
   TEST_ASSERT_TRUE_MESSAGE(emu::led_blue() >= emu::led_red(), "the boot's ramp goes bluewards");
   // Four breaths and it is over.
@@ -324,18 +327,48 @@ void test_an_error_in_the_log_is_a_red_sos(void) {
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, emu::led_blue(), "and it has no blue in it");
 }
 
-// The radio says it is working in blue, and it says it while it works and not for ever: it
-// is the one state of the system layer, and it is the app that gives the light back
-// (docs/30).
-void test_the_radio_blinks_blue_while_it_works(void) {
+// The radio says it is working in blue, and it says it **breathing** and not blinking (0.190.182, l'amo: *«mentre el bluetooth
+// estigui actiu al M5Atom, vull que el led sigui blau i amb la sequencia "breathe", si el bluetooth es para, el led s'apaga»*):
+// a radio is a state that lasts as long as the keyboard does, and a light that blinks for hours is a light nobody looks at any
+// more. It is the one state of the system layer, and it is the app that gives the light back (docs/30).
+void test_the_radio_breathes_blue_while_it_works(void) {
   TEST_ASSERT_TRUE(boot_once());
-  TEST_ASSERT_TRUE(reboot());
+  // **La placa de debò**: the radio's light is one of the lights of a board and not the backlight of the glass —on the Paper the state is
+  // ignored, which `set_state` says—, so the case has to be on a board whose light is a light (docs/30, docs/50).
+  TEST_ASSERT_TRUE_MESSAGE(be_board("m5stack-atom"), "the light of this board is not a light");
   take_the_light();
+  // **El moment, tal com el sistema el té** (0.190.182): un respir, blau, de tres mil dos-cents mil·lisegons i sense final, i amb
+  // el nivell una mica més alt que la resta perquè és l'única cosa que diu que el teclat és engegat (docs/30, docs/75).
+  kernel::led::Effect radio{};
+  TEST_ASSERT_TRUE_MESSAGE(kernel::led::system_effect(kernel::led::Trigger::kRadio, radio), "the radio is not a moment of this board");
+  TEST_ASSERT_EQUAL_MESSAGE(static_cast<int>(kernel::led::EffectKind::kBreathe), static_cast<int>(radio.kind), "the radio breathes");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(255, radio.blue, "and it is blue");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, radio.red, "with nothing of red in it");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(3200, radio.period_ms, "one breath of three thousand two hundred milliseconds");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, radio.cycles, "and it does not end while the radio is up");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(48, radio.level, "a fifth of the brightness: a signal and not a lamp");
+  // **I el pintat arriba al cim de l'efecte** i no a un número de la casa: el que es prova és que el que el moment diu és el que es veu.
+  // Abans, el que el sistema tenia a dir del cas anterior —la respiració d'arrencada i l'SOS d'una fallada— s'ha d'haver acabat, o el
+  // que es pinta és això i no la ràdio (docs/30).
+  step(25000);
   kernel::led::set_state(kernel::led::State::kRadio);
-  step(100);
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(20, emu::led_blue(), "the first half of the blink is on");
-  step(500);
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, level(), "and the second half is off");
+  step(0);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, level(), "a breath that starts at the top is not a breath");
+  // **Un període sencer i el més alt**: the crest is one instant of three thousand two hundred milliseconds and the clock of the
+  // case is not that instant, o sigui que el que es prova és que el cim és el nivell del moment i no un número de la casa (docs/85).
+  uint8_t top = 0;
+  for (int i = 0; i < 32; ++i) {
+    step(100);
+    if (level() > top) top = level();
+  }
+  // **I aquesta placa no el pot ensenyar sencer**: el nivell del moment és quaranta-vuit de dos-cents cinquanta-cinc i el panell
+  // simulat té el sostre a vint, o sigui que el que es veu és el sostre —el que un LED de debò sí que ensenyaria (docs/30, docs/85).
+  TEST_ASSERT_TRUE_MESSAGE(radio.level > kernel::led::max_value(), "this case needs a level above the ceiling of the panel to mean anything");
+  TEST_ASSERT_UINT8_WITHIN_MESSAGE(2, kernel::led::max_value(), top, "the breath fills the panel and stops at its ceiling");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, emu::led_red(), "and the radio is blue and nothing else");
+  // **El període ha donat la volta**: trenta-dues mostres de cent mil·lisegons són els tres mil dos-cents del respir, o sigui que
+  // el que es pinta ara és el començament i no el cim.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, level(), "one period is back to nothing");
   kernel::led::set_state(kernel::led::State::kOff);
   step(0);
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, level(), "with the radio down there is nothing to say");
@@ -521,7 +554,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_one_light_of_the_strip_and_the_rest_is_dark);
   RUN_TEST(test_the_board_breathes_white_when_it_boots);
   RUN_TEST(test_an_error_in_the_log_is_a_red_sos);
-  RUN_TEST(test_the_radio_blinks_blue_while_it_works);
+  RUN_TEST(test_the_radio_breathes_blue_while_it_works);
   RUN_TEST(test_an_app_may_change_the_system_effects);
   RUN_TEST(test_the_names_of_the_effects_and_the_moments);
   RUN_TEST(test_a_period_below_the_floor_is_clamped);

@@ -158,6 +158,11 @@ void usage() {
   printf("  --env-celsius <C> what the fake air reads in temperature (25)\n");
   printf("  --env-humidity <pct>  and in humidity (50)\n");
   printf("  --env-fail        an ambient sensor that does not answer\n");
+  printf("  --no-bt           a board with no Bluetooth at all (the ATOM carries one)\n");
+  printf("  --bt-fail         the radio is there and the stack does not come up\n");
+  printf("  --bt-scan <n>     how many devices the fake radio sees (4; 0 is an empty room)\n");
+  printf("  --bt-connected    a phone on the other side of our keyboard\n");
+  printf("  --bt-type <text>  what the paired keyboard of the other side types into this console\n");
   printf("  --run <app>       start an app\n");
   printf("  --script <file>   batch mode: run and exit\n");
   printf("  --display         the glass of the board, which is there by itself: 960x540, four bits\n");
@@ -577,6 +582,31 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     // The air of this band, for a model with a sensor: the two numbers a person writes, because a
     // PC has no SHT30 and a room is not a test (docs/85).
+    // **El ràdio de Bluetooth d'aquesta banda** (0.190.200): el model que la porta al build en té un de fals, i aquestes quatre
+    // opcions són el que una persona en pot fer —treure-la, fer que no arrenqui, quants aparells hi ha a l'aire i si hi ha un mòbil a
+    // l'altre cap del nostre teclat—, més el text que aquell teclat escriu quan es lliga (docs/85).
+    if (strcmp(arg, "--no-bt") == 0) {
+      opts.bt_absent = true;
+      continue;
+    }
+    if (strcmp(arg, "--bt-fail") == 0) {
+      opts.bt_fail = true;
+      continue;
+    }
+    if (strcmp(arg, "--bt-connected") == 0) {
+      opts.bt_connected = true;
+      continue;
+    }
+    if (strcmp(arg, "--bt-scan") == 0) {
+      if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) return false;
+      opts.bt_peers = static_cast<int32_t>(number);
+      continue;
+    }
+    if (strcmp(arg, "--bt-type") == 0) {
+      if (!next_value(i, argc, argv, value)) return false;
+      opts.bt_type = value;
+      continue;
+    }
     if (strcmp(arg, "--env-fail") == 0) {
       opts.env_fail = true;
       continue;

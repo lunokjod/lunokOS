@@ -993,8 +993,13 @@ void boot(hal::IPlatform& platform) {
   // una app que escriu amb ell no hagi de demanar-ho cada cop. Una placa sense ràdio desa el commutador i no fa res, que és el que
   // `bt::start` contesta (docs/30, docs/50).
   if (g_bt_on && !bt::is_on()) {
-    if (!bt::start("lunokOS")) g_bt_on = false;
+    if (!bt::start(nullptr)) g_bt_on = false;
   }
+  // **I el teclat al qual aquesta placa es va lligar, de tornada** (0.190.191, l'amo: *«Em sembla bé reconnectar»*): the bonds are in
+  // the radio's store, o sigui que el que calia era preguntar-li-ho a l'arrencada en lloc d'esperar que una persona ho tornés a fer.
+  // Llança el link i no espera —el boot no ha de costar mig segon de prompt— i si el teclat no hi és, no passa res: l'`bt scan` hi és
+  // per quan en vulgui un altre (docs/50).
+  if (bt::can_host()) bt::host_reconnect();
 }
 
 const char* unit() { return g_unit; }
@@ -1060,7 +1065,7 @@ bool set_bt_on(bool on) {
   const bool was = g_bt_on;
   g_bt_on = on;
   if (on && !was) {
-    if (!bt::start("lunokOS")) g_bt_on = false;
+    if (!bt::start(nullptr)) g_bt_on = false;
   } else if (!on && was) {
     bt::stop();
   }

@@ -66,12 +66,18 @@ class Esp32Power : public IPower {
   // above do, so a band that has not been migrated keeps working.
   bool set_cpu_range(uint32_t min_mhz, uint32_t max_mhz) override;
   bool hold_cpu_top(bool on) override;
+  // **El lock de la son** (0.190.184): el `ESP_PM_NO_LIGHT_SLEEP`, agafat mentre la consola del cable té una sessió oberta, perquè un xip
+  // que s'adorm a trossos es menja els caràcters que arriben i fa esperar el despertar (docs/50, docs/60).
+  bool hold_no_light_sleep(bool on) override;
 
  private:
   // The chip's top-step lock, made the first time it is asked for: a board that never asks the processor for the top has no lock
   // and no bytes spent on it.
   void* top_lock_ = nullptr;
   bool top_taken_ = false;
+  // **I el de la son** (0.190.184): el `ESP_PM_NO_LIGHT_SLEEP` de la consola del cable, amb el mateix patró (es fa quan cal) (docs/60).
+  void* sleep_lock_ = nullptr;
+  bool sleep_taken_ = false;
 
  public:
 

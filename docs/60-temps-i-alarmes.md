@@ -442,6 +442,30 @@ al sostre pel seu compte de càrrega entre dos locks:
   - **La baixada és el que s'estalvia**: la placa que no fa res baixa a 80 en comptes de quedar-se a 160, que és on la deixava
     la política de les dues finestres (docs/95).
 
+## La consola del cable mana sobre la son (0.190.184)
+
+L'amo: *«La shell del lunokOS te un temporitzador d'inactivitat. Si fa 5 minuts que no teclejes res o es reb alguna cosa la sessió es tanca […]
+En aquest moment s'allibera el pany o el que sigui perquè idf pugui seguir fent lightsleeps»*, i *«es podia parar el lightsleep simplement amb un
+mutex o algo així oi?»*. Sí, i és el lock `ESP_PM_NO_LIGHT_SLEEP` de la gestió de potència: `IPower::hold_no_light_sleep`, amb comptador, agafat
+mentre la consola del cable té una sessió oberta i deixat anar quan es tanca.
+
+- **Per què calia**: un son lleuger atura els rellotges i el despertar per l'UART és lent, o sigui que **els caràcters que arriben mentre el xip
+  torna es perden** i una tecla «no arriba». I a sobre el registre s'omple de `5085 light sleep(s), 195673 ms in all`.
+- **El parany, i com es resol**: una sessió oberta vol dir un xip que no dorm mai, i el prompt existeix des de l'arrencada. Per això **el cable
+  arrenca amb la sessió tancada** —`the session is closed: press Enter to open one`— i el xip fa becaines de seguida; qui vol el prompt prem
+  Enter, i el pany es torna a agafar.
+- **El temporitzador és de cinc minuts** (`kConsoleSessionIdleMs`) i el mira el torn (`shell::poll_idle`). Una app al davant no compta com a
+  inactivitat. Al cap dels cinc minuts la sessió es tanca amb la línia de sempre i el lock es deixa anar.
+- **Només al cable**: `IConsole::virtual_terminal()` és cert a l'emulador i a la consola del vidre, que guarden els bytes en una cua i no en
+  perden cap. O sigui que el pany no s'hi agafa mai, i cap test no ha de començar prement Enter.
+- **I el gate de deu segons es queda** (`console_gate_ms`): és una altra cosa —el pany **del torn**, que decideix si una espera concreta es passa
+  dormint— i el lock és el de la sessió sencera.
+- **El registre ja no surt pel cable** (0.190.185, l'amo: *«fes que el log no s'envii al serie. per això está la comanda log»*): el mirall del
+  registre s'obre sol només on la consola no és el cable, i al port les línies es demanen amb `log` (el cercle) o amb `log follow` (en directe,
+  fins a Control+C o un sol Escape). És la mateixa decisió que el pany, presa amb el mateix predicat, i el motiu és el de sempre: **el cable és
+  d'una persona** i una traça al mig del que escriu és el que li fa perdre el que estava dient. Una línia `[E]` sí que hi arriba sempre; una
+  placa que no arriba a pintar el prompt no té cap `log` a qui preguntar.
+
 ## Les esperes es passen dormint (0.190.63)
 
 L'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*. El sistema passa mitja vida esperant, i esperar amb el
@@ -767,8 +791,9 @@ Com està avui:
 
    **I quants segons és «quietud» també es tria** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per
    fer el DeepSleep)»*): la fila **Sleep after** de la mateixa pestanya Battery és un desplegable del sistema amb **tres temps** —**5
-   minutes** (el de sèrie), **10 minutes** i **15 minutes**—, que és `cfg.idle` des de Lua i `cfg idle [300|600|900]` al
-   prompt. El número es desa, o sigui que el boot el torna a llegir, i la política el llegeix d'allà en lloc de la constant. **El
+   minutes** (el de sèrie), **10 minutes** i **15 minutes**—, que és `cfg.idle` des de Lua (en segons) i `cfg idle 5|10|15` al
+   prompt (0.190.186, que també accepta els segons de sempre, `300`, `600` i `900`: són el que escriu l'app, no el que escriu una
+   persona). El número es desa, o sigui que el boot el torna a llegir, i la política el llegeix d'allà en lloc de la constant. **El
    terra de vint segons no es mou** (era de deu fins a la 0.190.20): és una altra pregunta —si val la pena un cicle d'apagada
    quan l'alarma és a tocar— i barrejar-les faria que triar cinc minuts canviés quan la placa deixa de despertar-se per una
    alarma propera (docs/30, docs/50).

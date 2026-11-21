@@ -425,10 +425,6 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     return done + static_cast<size_t>(n);
   }
 
-  bool ansi() const override {
-    return isatty(STDOUT_FILENO) != 0 && getenv("TERM") != nullptr;
-  }
-
   // **The console of the emulator is a virtual terminal** (0.158.0) when the program that carries it says so: it is a
   // session somebody opened on a PC and can hang up, so `logout` ends the run. The default is a serial port, which
   // cannot hang up, and that is what a test wants —its console is a file and its case models the board— (docs/30,
@@ -840,6 +836,12 @@ HostExtraMemory g_extra;
 void the_terminal_back() { g_system.restore_terminal(); }
 
 bool init() {
+  // **Una prova comença amb una consola que és una sessió** (0.190.187): the default used to be a serial port —«which cannot hang up, and that
+  // is what a test wants»— and that stopped being true the day the cable started its session closed, held the sleep lock and kept the log
+  // off the wire: a case that sends keys and then looks for `login:` or for a line of the log in `g_out` was testing a board that is not the
+  // one it models. **El que vol modelar el cable ho diu** (`pal::set_virtual_terminal(false)`, com fan els casos de `logout` de
+  // `test_shell`), i la placa de debò no passa per aquí: el seu `IConsole` no és aquest i el default de la interfície és `false` (docs/30, docs/85).
+  g_virtual_terminal = true;
   if (!g_system.bring_up()) return false;
   static bool hooked = false;
   if (!hooked) {

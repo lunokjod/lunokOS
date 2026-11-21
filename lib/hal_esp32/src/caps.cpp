@@ -7,7 +7,6 @@ Caps esp32_caps() {
   Caps caps;
   // The console is the UART of the chip, and the PAL is what writes to it.
   caps.add(kCapConsole);
-  caps.add(kCapAnsi);
   // The epoch is the SoC's —the RTC domain of this chip, which is a timer and a piece
   // of memory and **not** a clock with a battery behind it— and it survives a deep
   // sleep; the RTC timer is what brings the board back (docs/60). A clock that survives

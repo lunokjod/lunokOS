@@ -73,13 +73,21 @@ bool below_the_level(const char* line, size_t len) {
   return at < static_cast<uint8_t>(g_level);
 }
 
+// **El cable només rep el que és una fallada** (0.190.185, l'amo: *«fes que el log no s'envii al serie. per això está la
+// comanda log»*): the mirror is shut on the wire, so the lines of a session are read with `log` or followed with `log
+// follow`. A `[E]` still goes out, and out of turn: the board that cannot reach its prompt has no shell to ask, and the
+// wire is the only window left (docs/30, docs/60).
+bool a_failure(const char* line, size_t len) {
+  return line != nullptr && len >= 3 && line[0] == '[' && line[1] == 'E' && line[2] == ']';
+}
+
 void emit(const char* line, size_t len) {
   if (below_the_level(line, len)) return;
   append(line, len);
   // **I mentre el port és cedit, el mirall calla** (0.189.20): `serial::console()` is nullptr and `write_line` already knows
   // what to do with a console that is not there; the ring keeps the line, so `log` still has it when the port comes back
   // (docs/30, docs/50).
-  if (g_echo) write_line(serial::console(), line, len);
+  if (g_echo || a_failure(line, len)) write_line(serial::console(), line, len);
 }
 
 // **I la porta de les línies que no es filtren** (0.190.114): the ring and the mirror, without the level in the middle —el que una persona
@@ -104,11 +112,12 @@ void log_init() {
   }
   g_head = 0;
   g_count = 0;
-  // **The log is mirrored to the console while the system comes up**, because the lines that say what
-  // the board found —the panel, the card, the finger— are the ones a person reads with the board in
-  // front of them and they cost nothing on a wire that is idle anyway. `verbose off` silences it
-  // (docs/30, docs/50).
-  g_echo = true;
+  // **El mirall és de la consola que no és el cable** (0.190.185, l'amo: *«fes que el log no s'envii al serie»*): on la consola
+  // és un emulador o el vidre, les línies que diuen què ha trobat la placa són el diagnòstic i s'hi veuen soles; al port sèrie
+  // són soroll al mig del que una persona escriu i es demanen (`log`, `log follow`). El filtre és el de sempre —el que la
+  // consola diu d'ella mateixa— i no una llista de plaques (docs/30, docs/60).
+  pal::IConsole* console = pal::system().console();
+  g_echo = console != nullptr && console->virtual_terminal();
   hal::set_log_sink(&sink);
 }
 

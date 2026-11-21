@@ -1045,8 +1045,10 @@ void note_the_nap_end(bool something_happened) {
   // nucli ha passat a la cua—, o sigui que «en total» i no «dormit» (docs/60, docs/95).
   if (g_nap_run_ms - g_nap_said_ms >= kNapSayEveryMs) {
     g_nap_said_ms = g_nap_run_ms;
+    /*
     log_printf(pal::kLogDebug, "POWER", "%u light sleep(s), %lld ms in all, and nothing has happened",
                static_cast<unsigned>(g_nap_run), static_cast<long long>(g_nap_run_ms));
+    */
   }
 }
 

@@ -13,6 +13,9 @@ namespace shell {
 
 void start();
 void prompt();
+// **La sessió del cable tanca sola als cinc minuts** (0.190.184): el torn la mira a cada volta, i si la persona no ha tocat res es tanca i el
+// xip torna a poder fer becaines (docs/30, docs/60).
+void poll_idle();
 
 // Bytes as they arrive from the console. Handles echo, backspace and newline.
 void feed(const char* data, size_t len);

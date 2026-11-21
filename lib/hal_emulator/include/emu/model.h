@@ -16,6 +16,10 @@ struct Model {
   uint32_t keys;         // one button, or the Paper's three
   bool imu;              // a sensor
   bool env;              // an ambient sensor: temperature and humidity (docs/50)
+  // **La ràdio de Bluetooth al build d'aquesta placa** (0.190.200): l'ATOM —i el Matrix, que és el mateix firmware— la porta, i el
+  // Paper i el T-Koala no. No hi ha cap `kCap` per a ella, perquè una placa pot ser un teclat i no un amfitrió: el que es pregunta
+  // és `IBluetooth::can_bluetooth`, i aquí només es diu si hi ha ràdio (docs/50, docs/85).
+  bool bt;
   // **The screen it draws on**: the IT8951 panel of the Paper, 960x540 and four bits per pixel. The
   // ATOMs of this family have no screen at all, and an emulator of one with a glass would be a board
   // nobody can buy (docs/50, docs/85).

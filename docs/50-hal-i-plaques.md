@@ -142,7 +142,7 @@ no diu quin dels dos valors és, perquè una placa nova que s'oblidi no es compi
 |---|---|---|
 | `kernel/ui.cpp`, `font.cpp`, `book.cpp`, `splash.cpp`, `display.cpp`, `bar.cpp`, `touch.cpp`, `orientation.cpp` | tot el fitxer | el fitxer és buit |
 | les llibreries `epub`, `zip`, `inflate`, `ttf` i `img` | al build | **no s'enllaça ni un byte** (`qr` sí: un QR s'imprimeix en text) |
-| el pont de Lua | `ui`, `canvas`, `keyboard`, `font` i `epub` | les taules **no existeixen** (`nil`), i `sys`, `fs`, `net`, `button`, `qr`, `json` i la resta queden |
+| el pont de Lua | totes les taules | **les mateixes taules, i contesten** (0.190.183): `ui.label(...)` torna `nil, {code = "E_UNSUPPORTED", message = "this board has no display"}` en lloc de no existir, perquè una API que desapareix diu una mentida sobre el sistema (l'amo: *«L'API hauría ser igual per tots, si no quina gracia té?»*) |
 | els comandaments de la consola | tots | tots, i els de la pàgina contesten el que és veritat: `splash` diu `no glass on this board` i `cfg keyboard` diu que aquest build no en porta cap; `lua`, `run`, `apps`, `mem`, `net` i la resta no canvien |
 
 **I el que el sistema encara crida d'una pàgina que no hi és, contesta des d'un sol fitxer** (`kernel/src/no_glass.cpp`):
@@ -158,7 +158,9 @@ on tornar amb la casa del panell— existeix al codi i **no té definició** en 
 **El preu, mesurat** (11/11, `pio run` de les cinc plaques, `firmware.bin`): l'ATOM Lite i l'ESP32 de DevKit passen de
 **2 302 464 B a 2 105 456 B** (−197 008 B, un 8,6 %), el Matrix de 2 302 576 a 2 105 536 i el T-Koala de 2 378 240 a
 2 172 960 (−205 280). La ranura de 2 621 440 B passa de **319 KB lliures a 516 KB**: la meitat del que ocupava la pàgina
-que aquestes quatre plaques no poden ensenyar (docs/75).
+que aquestes quatre plaques no poden ensenyar (docs/75). **I des de la 0.190.183 el pont de Lua no s'hi estalvia**: 79 KB de codi i
+840 B de RAM a l'ATOM tornen al build perquè les taules hi siguin i contestin, o sigui que l'estalvi de debò és la pàgina i no la seva API
+(docs/30).
 
 **I es pot veure al PC**: la identitat de l'emulador és `#ifndef LUNOK_GLASS / #define … 1`, o sigui que
 `PLATFORMIO_BUILD_FLAGS=-DLUNOK_GLASS=0 pio run -e emulator` fa un emulador sense pàgina —el mateix nucli, el mateix
@@ -398,7 +400,136 @@ connectar, hi ha caràcters a escriure. Per això no viu a `net` sinó a `hal::I
 - **El ràdio mana sobre la son**. Un son lleuger atura els rellotges que viu el link, o sigui que `wants_the_chip_awake()` és una de les
   portes de `power::open_the_sleep`: mentre el teclat és engegat el torn espera despert com abans de la 0.190.63, i el `bt on` ho diu.
 - **Les bandes que no en porten no paguen res**: tot el ràdio viu sota `CONFIG_BT_ENABLED` i la resta del fitxer són respostes que diuen
-  que no, o sigui que el Paper, la T5S3, el devkit i la T-Koala compilen igual i el prompt els diu `this board has no radio` (docs/30).
+  que no, o sigui que el Paper, el devkit i el T-Koala compilen igual i el prompt els diu `this board has no radio` (docs/30). Les
+  dues que en porten són l'**ATOM** i la **T5S3 Pro**, i des de la 0.190.198 la segona té el seu propi `sdkconfig.defaults`: no
+  heretava res del de l'ATOM i el `CONFIG_BT_ENABLED` no hi era enlloc (docs/85).
+
+### I l'altra direcció: el Bluetooth amfitrió (0.190.188)
+
+L'amo: *«Ja tenim bluetooth HID device, fem el Bluetooth HID Host»*. La mateixa ràdio, amb la placa **amfitriona** i el teclat d'algú
+altre. `esp_hid` té host, i és el de Bluedroid, que en aquest xip no hi cap; o sigui que el camí és el mateix que al device: **GATT a
+mà**, ara com a client.
+
+- **El rol ja hi era**: `CONFIG_BT_NIMBLE_ROLE_CENTRAL=y` és el default de NimBLE i ja viatjava al binari, o sigui que el GATT client i
+  el link central no costen ni una línia de `sdkconfig`. El que s'ha escrit és el client: explorar (`ble_gap_disc`), connectar
+  (`ble_gap_connect`), descobrir el servei **0x1812**, descobrir-ne les característiques i els descriptors, i subscriure's al report.
+- **El boot protocol és el que estalvia el parser**: s'escriu `0x00` al **Protocol Mode (0x2A4E)** i el teclat envia el report de
+  **vuit bytes** de tota la vida —modificadors, un byte de reserva i sis Usage IDs— en lloc del report que descriu el seu report map. Un
+  teclat que no l'accepta ho diu al registre i els seus reports es llegeixen igual, que és el que passa quan el report és el mateix de
+  vuit bytes.
+- **La lligadura, si el teclat la vol**: la subscripció es refusa amb `Insufficient Authentication` i el que es fa és
+  `ble_gap_security_initiate` i esperar l'event `ENC_CHANGE`, que és qui torna a demanar la subscripció. No es reintenta en bucle.
+- **Les tecles van pel camí del cable**: la ràdio dona els vuit bytes i prou; qui en fa text és `kernel::bt`, que tradueix Usage ID a
+  caràcter amb **la mateixa taula del device girada** (`key_of`, sense una segona taula que es desdigui) i crida **`shell::feed`**. O
+  sigui que el prompt, les apps, l'editor de línia, les fletxes, `Ctrl+D` i `Escape` són exactament els del port sèrie, i el teclat de
+  l'aire no inventa un segon dialecte de tecles.
+- **El que no fa**: no es reconnecta sol. L'amo ho va triar així (*«la persona tria»*): `bt scan` escolta tres segons i en fa la llista,
+  `bt pair <n>` es queda amb un, i `bt forget` esborra el vincle de les dues bandes. Un prompt que es lliga sol a un aparell que passava
+  per allà és un prompt que no pregunta.
+- **I el pany del son també mana per aquest costat**: `wants_the_chip_awake` és cert mentre hi ha un teclat lligat encara que el teclat
+  virtual d'aquesta placa estigui apagat, perquè un link que dorm no és un link.
+- **Quant costa**: **+8 192 B** de flash a l'ATOM (de 1 852 848 a 1 861 040 B, o sigui del 70,7 % al 71,0 % de la ranura). El heap d'un
+  link BLE és d'un parell de kilobytes i es paga quan hi ha un teclat, no a l'arrencada.
+- **I el que no s'ha pogut provar aquí**: la placa de debò. Des de la 0.190.200 l'emulador **sí que té ràdio** —una de mentida, amb una taula
+  d'aparells i un teclat de l'altre cap que escriu pel camí de debò— quan el model la porta al seu build, o sigui que `bt scan` i `bt pair`
+  es poden mirar al PC; el que segueix demanant un teclat a la mà és el maquinari: la pila de NimBLE, la lligadura amb un mòbil i el que aquell mòbil
+  en fa de veritat (docs/85).
+
+#### Els dos costats tenen nom (0.190.192)
+
+L'amo: *«si poso bt on només veig el teclat … Fem-ho bé»*. La ràdio té dos extrems que es deien amb una sola paraula, i ara es diuen per
+seu:
+
+```
+bt                       l'estat de les dues meitats, en tres o quatre línies
+bt dev [on|off]          aquesta placa com a dispositiu
+bt dev keyboard on|off   i el teclat tot sol
+bt dev mouse on|off      i un ratolí propi (encara no hi és: ho diu)
+bt host [on|off]         aquesta placa com a amfitriona, sense oferir-se a ningú
+bt host scan [segons]    qui hi ha a l'aire
+bt host pair <n>         quedar-se amb un
+bt host reconnect        tornar al que ja s'hi havia lligat
+bt host forget           esborrar els vincles
+bt type <text>           escriure a l'aparell de l'altre cap
+```
+
+**`bt` diu les dues meitats**: `this board is: a keyboard, offered` i `on the other side: a keyboard writing into this console` (o
+`free`).
+
+**I les paraules curtes es van haver de desdir** (0.190.194, l'amo: *«bt off ho apaga tot, bt on no encén ni dev ni host, que s'han
+d'activar a ma cadascun: bt dev on. Si es posen a off tant dev com host, bt ha de ser off»*): un `bt on` que ho encenia tot era el mateix
+embolic que el `bt on` vell, o sigui que **`bt on` no encén res** —di les dues portes que hi ha— i **`bt off` apaga el dispositiu i
+l'amfitrió**. I **`bt` diu `off` només quan ho són tots dos**: `on, a keyboard`, `on, a host`, `on, a keyboard and a host`, amb el que
+estigui connectat afegit a la frase. Per saber-ho calia una cosa que el HAL no tenia —**si el costat amfitrió s'ha demanat**, perquè la
+ràdio engegada pel dispositiu no vol dir que algú escolti— i és `host_is_up`: cert a `host_on`, a explorar, a aparellar i a tornar-hi, i
+fals a `host_off`.
+
+**`bt host off` baixa la ràdio només si el dispositiu també és fora**: les dues meitats comparteixen la pila de NimBLE i matar-la per una
+banda seria tancar l'altra.
+
+### I la placa també pot ser un ratolí (0.190.193)
+
+L'amo: *«opció B»*. Dues col·leccions en un sol servei HID voldrien **report ids** i renunciar al **boot protocol**, que és el que fa que
+aquest teclat escrigui a qualsevol lloc; o sigui que **la placa és un teclat o un ratolí, i es tria**:
+
+```
+bt dev mouse          què és ara
+bt dev mouse on       un ratolí, ofert com a "lunokOS"
+bt dev mouse off      un teclat una altra vegada
+bt dev mouse move 10 -5   moure el cursor
+bt dev mouse click [left|right|middle]
+```
+
+- **El servei GATT no es toca**: el que canvia és el **report map** que el host llegeix (`0x2A4B` es llegeix de nou a cada petició, o sigui
+  que el canvi és en calent), el **report** que s'envia —vuit bytes de teclat o tres de ratolí— i l'**aparença de l'anunci** (`0x03C1`
+  teclat, `0x03C2` ratolí), que obliga a tornar-se a anunciar.
+- **Cal tornar a aparellar des de l'altre cap**: el mòbil va llegir el mapa d'un teclat i no endevina el d'un ratolí. La comanda ho diu.
+- **El moviment és relatiu i el report torna a zero de seguida**, o el cursor se n'aniria sol; i el report d'un ratolí de boot porta de
+  **−127 a 127**, o sigui que un moviment més gran es fa en més d'un pas i la comanda ho diu en lloc de deixar que el signe es desbordi.
+- **El clic és pressió, trenta mil·lisegons i deixar anar**, la mateixa forma que una tecla: un botó premut per sempre és el que l'altre cap
+  veu si no es deixa anar.
+
+#### El que s'hi ha anat afegint (0.190.189 → 0.190.191)
+
+- **El nom d'aquesta placa porta l'adreça** (0.190.197): `lunokOS-A1B2` amb els dos últims bytes de la MAC del ràdio (`ESP_MAC_BT` de
+  l'eFuse, que es pot llegir abans que la pila sincronitzi), i `lunokA1B2` si el nom no cabés a la resposta de l'escaneig. Un nom igual a
+  totes les plaques és una llista de teclats que ningú no distingeix.
+- **I els vincles es desen de debò** (0.190.197): `CONFIG_BT_NIMBLE_NVS_PERSIST` no hi era, o sigui que la botiga del ràdio vivia a la RAM.
+  El símptoma no era cap error sinó dues coses que no funcionaven mai: el teclat d'un mòbil s'havia de tornar a aparellar a cada reinici, i el
+  `bt host reconnect` no podia trobar res. Ara els vincles van a la partició NVS que el sistema ja té per als ajustos.
+- **Els noms de la llista** (0.190.189). El nom d'un aparell no cap als trenta-un bytes de l'anunci: qui el porta és la **resposta de
+  l'escaneig**, que arriba com un segon event de la mateixa adreça. La fila s'actualitza en lloc de descartar-se, i l'exploració és
+  activa i sense filtre de duplicats. **Va ser un error meu** i l'amo el va veure des de la placa: *«0 (no name) 68:13:85:87:EE:3B other
+  … No hi han noms ?»*.
+- **`bt scan [segons]`** (0.190.191): tres segons de sèrie i fins a seixanta, perquè un aparell que dorm no es veu en tres segons.
+- **I la llista diu què és cada aparell** (0.190.196, l'amo: *«No em crec que no pesqui ni un sol nom! ni identificar el tipus, ni cap info
+  adicional (senyal batería… no sé alguna dada mes)»*). El que es llegia de l'anunci era el nom i prou; ara també se'n treuen tres coses que
+  hi són i que es llençaven: el **senyal** (`disc->rssi`, en dBm), l'**aparença** (`0x19` del registre del Bluetooth: telèfon, ordinador,
+  teclat, ratolí, televisió…) i el **primer servei de setze bits** que anuncia (`0x1812` és un HID, `0x110B` un aparell d'àudio). El tipus
+  és l'aparença, i si no n'hi ha el servei; i quan les taules no el saben, la línia de sota diu els números en lloc d'inventar-se'n un nom.
+  **El que no es pot tenir a l'scan, i es diu**: el nom d'un aparell que no l'anuncia només es pot llegir **connectant** (GAP Device Name,
+  `0x2A00`), i la bateria igual (`0x180F`); són les dues feines que queden en aquesta llista.
+- **Tornar-hi sol** (0.190.191): els vincles viuen a la botiga del ràdio, o sigui que `host_reconnect` pregunta
+  `ble_store_util_bonded_peers` i llança el link a l'arrencada, **sense esperar** —el boot no ha de costar mig segon de prompt.
+- **Els llums del teclat virtual** (0.190.191): el **report de sortida** del HID és el que el mòbil escriu per encendre el Caps Lock, i
+  ara es llegeix (l'`0x2A32` del boot i una característica **Report** `0x2A4D` de sortida per a qui parla el protocol de report) i es diu
+  al registre i a `bt`. La placa no té teclat físic: saber-ho és l'única cosa que en pot fer.
+- **El ratolí** (0.190.191): el mateix servei `0x1812` amb un report de **tres o quatre bytes** en lloc de vuit. Es distingeix per la
+  **mida** i es compta —on és i quins botons té, a `bt`—, i el clic va al registre quan canvia (un moviment no: un ratolí en fa desenes
+  per segon). **El cursor a la pàgina no hi és**: això és una feina de la UI i no d'aquest fitxer, i fer-la a mitges seria un ratolí que
+  mou un punter invisible.
+- **El que encara no hi és, i es diu**: la **bateria** del teclat (`0x180F`/`0x2A19`) vol una segona descoberta de serveis dins la
+  cadena de callbacks que fa que el teclat funcioni, i no s'ha volgut embolicar aquesta cadena per una dada de guarniment.
+- **I el que costa, fila a fila** (0.190.199, l'amo: *«la comanda stats s'està quedant enrere… no trobo el bluetooth i segur que hi han
+  molts més que falten, calen sondes per tot arreu»*). El ràdio i obrir una app eren les dues úniques feines que no tenien fila a `stats`,
+  i ara en tenen cinc: **`radio.up`** (encendre la pila, per la porta del dispositiu o la de l'amfitrió: el preu és el mateix i és el que
+  decideix si el ràdio cap en una placa sense PSRAM), **`radio.scan`**, **`radio.pair`** (lligar-se o tornar a un de conegut), **`radio.tap`**
+  (una tecla, amb l'espera de prémer i deixar anar a dins) i **`app.start`** (l'intèrpret i el primer torn, al voltant de `luabind::start`).
+  Cap d'elles no és dins el HAL: **el HAL no mesura res** —les sondes les posa el nucli al voltant de les crides—, que és la mateixa regla
+  que fa que un conductor no sàpiga que el `stats` existeix (docs/75).
+- **`keys_arrived` no es mesura, i s'ha de dir per què**: les tecles que arriben de l'aire es tracten al **fil de NimBLE** i no al torn, i
+  el metre no té pany. Una escriptura des d'allà es barallaria amb el `stats` del nucli, i un comptador que es trenca és pitjor que un de
+  fosc: el que es compta és el **torn que la tecla desvetlla**, que ja és a `kernel.loop` i a `queue.wait`.
 
 ## Una pàgina, amb TLS, sense parar el sistema
 `http_get_start` no baixa res: desa l'adreça i aixeca una tasca de **10 240 B** de pila, que és qui fa
@@ -599,6 +730,29 @@ FIFO o a l'anella del driver tampoc. Amb bateria, el pont de l'altra banda no t�
 queda flotant: l'espera li posa el pull-up intern, que és el que fa que «alta i quieta» sigui
 «ningú no parla».
 
+### Què triga una tecla a arribar al prompt (0.190.190)
+
+L'amo: *«podem fer mes responsiu el teclat al port serie? … suposo que el torn del nucli»*. No era el torn, i tampoc la becaina: el
+camí d'un byte té **quatre** estacions i les dues que pesaven s'han retallat.
+
+| Estació | Abans | Ara |
+|---|---|---|
+| El perifèric rep el byte | ISR del driver, ring de 1 024 B | igual |
+| **El fil del PAL s'assabenta** | preguntava `available()` **cada 5 ms** | **la cua d'esdeveniments del driver**: la ISR el desbloqueja |
+| El torn el recull | `pop` de la cua, despertat per l'event | igual |
+| **L'eco al terminal** | **la línia sencera a cada tecla**: `\r` + prompt + tota la línia | **un byte**, quan el cursor és al final |
+
+- **La cua del driver és la interrupció** que l'amo preguntava, i ja hi havia el perifèric per fer-la: `uart_driver_install` amb
+  `queue_size` fa que la ISR hi deixi un `UART_DATA` i el fil del PAL s'hi bloquegi amb `portMAX_DELAY`. **Els bytes no es toquen**:
+  l'event diu que n'hi ha i qui llegeix és el torn. I a la banda del **USB-Serial-JTAG**, que no té driver amb cua (es llegeix la FIFO a
+  mà), el sondeig baixa de cinc mil·lisegons a un.
+- **L'eco era el que més es notava**: [`redraw_line`](/home/sharek/code/lunokOS/lib/kernel/src/shell.cpp:423) reescrivia la línia sencera
+  per cada caràcter, o sigui que escriure una ordre de seixanta caràcters eren set bytes de prompt més seixanta **a cada tecla**, i el
+  cost creixia amb el que ja havies escrit. Amb el cursor a la dreta de tot, ara s'escriu el caràcter i prou; quan el cursor és al mig,
+  o hi ha espais a esborrar, es reescriu, que és quan el redibuix és el que cal.
+- **El que no s'ha tocat**: el `wait` del torn (fins a un segon quan no hi ha cap app) no canvia la latència, perquè l'event el desperta;
+  i la becaina no hi entra mentre tecleges, perquè cada byte renova el comptador de quietud i el gate és de deu segons.
+
 ## Interfícies de la PAL
 
 ```cpp
@@ -621,7 +775,7 @@ class IConsole {
   virtual size_t write(const void* data, size_t len) = 0;
   virtual size_t read(void* data, size_t len) = 0;   // el que hi hagi ara; no bloqueja
   virtual bool wait_quiet(uint32_t quiet_ms, uint32_t cap_ms);  // la línia ha callat; `cap_ms` és el sostre
-  virtual bool ansi() const = 0;
+  virtual bool virtual_terminal() const;  // si el que hi ha a l'altra banda és una sessió que es pot penjar
 };
 
 class ISystem {
@@ -647,7 +801,6 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | Capacitat | Lite | Matrix | Paper | Emulador | Notes |
 |---|---|---|---|---|---|
 | `console` | ✓ | ✓ | ✓ | ✓ | UART a 115200 / stdin-stdout cru |
-| `ansi` | ✓ | ✓ | ✓ | ✓ al PC | Depèn del terminal que hi hagi a l'altra banda |
 | `display` | — | — | ✓ amb l'IT8951 contestant | ✓ al model de la Paper (`Model::glass`), i `--no-display` el treu | El vidre: una app hi dibuixa i el nucli no hi pinta res de seu. S'anuncia quan `display()` no és nul —el controlador va contestar a l'arrencada—, i **a l'emulador el diu el model** (docs/50, docs/85) |
 | `input` | ✓ | ✓ | ✓ | ✓ | Un botó a l'ATOM, tres tecles a la Paper i, a l'emulador, les del model |
 | `touch` | — | — | ✓ amb el GT911 contestant | ✓ al model de la Paper (`Model::touch`), i `--no-touch` el treu | El dit que travessa el vidre. S'anuncia quan el xip contesta al probe (0x5D o 0x14): **a l'emulador quan el model en té** (la Paper; un ATOM no en té de cap manera), i el dit pot ser el **ratolí de la finestra** de `--gui`. El que l'emulador simula —la velocitat de mostra, el cost del bus i el marc que es pren— és a `docs/85` |
@@ -1630,11 +1783,21 @@ paga cada cosa:
 | `INet` | escaneig, connexió, desar i oblidar la xarxa | `net.wifi` |
 | | una pàgina | `net.http` |
 | | l'hora | `net.ntp` |
+| `IBluetooth` | encendre la pila, per qualsevol de les dues portes (`start`, `host_on`) | `radio.up` |
+| | un escaneig | `radio.scan` |
+| | lligar-se a un aparell (`pair`, i `reconnect` d'un de conegut) | `radio.pair` |
+| | una tecla enviada (`tap`) | `radio.tap` |
+| **El nucli** | obrir una app: l'intèrpret i el primer torn | `app.start` |
 
 **El que no es compta, i per què**: `count()`, `width()`, `height()`, `caps()`, `rotation()`,
 `max_value()`, `face`/`spot`/`kind`/`group`, `last_error()`, `wifi_state()` i `prov_provisioned()` són
 camps en memòria del conductor o de la placa, no viatges al maquinari: comptar-los ompliria la taula de
-files que sempre costen zero i amagaria les que no.
+files que sempre costen zero i amagaria les que no. Al ràdio li passa igual amb `state_word()`, `name()`,
+`host_connected()` i `host_is_up()`, que són preguntes a la memòria de la pila.
+
+**I una fila que només hi és si la placa ho pot fer** (0.190.199): `radio.up` no surt en una placa sense el Bluetooth al build, i
+`radio.scan`/`radio.pair` no surten en una que no faci d'amfitrió. Un zero que vol dir «aquesta placa no ho té» i un zero que vol dir
+«no s'ha fet mai» no es poden escriure igual, i `available()` és la porta que els separa.
 
 El conductor del panell no compta les seves crides una a una: el compte el porta el nucli, que és qui sap
 de qui és la crida i qui ho ha de poder ensenyar amb `stats` (docs/75).

@@ -28,6 +28,8 @@ Model model_of(const char* name) {
     // (docs/50).
     out.glass = true;
     out.touch = true;
+    // The Paper's build has no radio in it: `sdkconfig.defaults` of that board never asked for it (docs/50, docs/85).
+    out.bt = false;
     out.gauge = true;
     out.slot = true;
     out.fram = true;
@@ -66,6 +68,7 @@ Model model_of(const char* name) {
     out.env = false;
     out.glass = false;
     out.touch = false;
+    out.bt = false;
     out.gauge = false;
     out.slot = true;
     out.fram = false;
@@ -90,6 +93,8 @@ Model model_of(const char* name) {
     out.keys = 1;
     out.imu = true;
     out.env = false;
+    // **The Matrix is the ATOM's firmware with a panel on it**, o sigui que hi porta el mateix ràdio (docs/50, docs/85).
+    out.bt = true;
     out.glass = false;
     out.touch = false;
     out.gauge = false;
@@ -119,6 +124,9 @@ Model model_of(const char* name) {
   out.keys = 1;
   out.imu = false;
   out.env = false;
+  // **The ATOM's build carries the radio**: NimBLE and the HID device are in its `sdkconfig.defaults`, and this is the board the
+  // keyboard and the host are written for (docs/50, docs/85).
+  out.bt = true;
   out.glass = false;
   out.touch = false;
   out.gauge = false;

@@ -68,3 +68,8 @@ CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=2
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+# **Els vincles s'han de desar** (0.190.197): without this the bond store lives in RAM, o sigui que el teclat d'un mòbil s'havia de
+# tornar a aparellar a cada reinici i el `bt host reconnect` no podia trobar mai res —una funció que no pot funcionar és pitjor que no
+# tenir-la—. Amb la persistència, els vincles van a la partició NVS que el sistema ja té per als ajustos, i el que es va aparellar una
+# vegada segueix aparellat després d'apagar (docs/50, docs/70).
+CONFIG_BT_NIMBLE_NVS_PERSIST=y

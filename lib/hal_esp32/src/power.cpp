@@ -454,4 +454,32 @@ bool Esp32Power::hold_cpu_top(bool on) {
 #endif
 }
 
+// **El pany llarg de la son** (0.190.184): the same shape as `hold_cpu_top` — a lock created the first time it is needed, so a board that
+// never opens a console pays nothing for it. `ESP_PM_NO_LIGHT_SLEEP` is counted by the IDF itself, o sigui que dues coses el poden tenir
+// alhora i el xip només dorma quan baixa a zero (docs/50, docs/60).
+bool Esp32Power::hold_no_light_sleep(bool on) {
+#if defined(CONFIG_PM_ENABLE)
+  if (sleep_lock_ == nullptr) {
+    if (!on) return true;
+    esp_pm_lock_handle_t lock = nullptr;
+    if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "lunok-console", &lock) != ESP_OK) return false;
+    sleep_lock_ = lock;
+  }
+  esp_pm_lock_handle_t lock = static_cast<esp_pm_lock_handle_t>(sleep_lock_);
+  if (on) {
+    if (sleep_taken_) return true;
+    if (esp_pm_lock_acquire(lock) != ESP_OK) return false;
+    sleep_taken_ = true;
+    return true;
+  }
+  if (!sleep_taken_) return true;
+  if (esp_pm_lock_release(lock) != ESP_OK) return false;
+  sleep_taken_ = false;
+  return true;
+#else
+  (void)on;
+  return false;
+#endif
+}
+
 }  // namespace hal

@@ -24,7 +24,8 @@ namespace hal {
 
 enum Capability : uint32_t {
   kCapConsole = 1u << 0,
-  kCapAnsi = 1u << 1,
+  // **El bit 1 va ser `ansi` i no es torna a fer servir** (0.190.187): the system stopped speaking escape codes, i una
+  // capacitat que diu que el terminal en parla convida a escriure'ls. El número queda lliure i els altres no es mouen (docs/30, docs/50).
   kCapDisplay = 1u << 2,
   kCapInput = 1u << 3,
   kCapLed = 1u << 4,
@@ -348,6 +349,9 @@ class IBluetooth {
   virtual void keyboard_stop() {}
   // Si algú hi és connectat: un teclat que no ho diu envia caràcters al buit.
   virtual bool keyboard_connected() const { return false; }
+  // **El nom amb què aquesta placa s'anuncia**: el seu, amb els dos últims bytes de l'adreça del ràdio (`lunokOS-A1B2`), perquè dues
+  // plaques a prop no siguin dues vegades el mateix nom (0.190.197).
+  virtual const char* device_name() const { return "lunokOS"; }
   // Una tecla premuda i deixada anar, amb les de modificació del HID (`0x02` és Shift). Torna fals si no hi ha ningú a l'altre cap.
   virtual bool keyboard_tap(uint8_t mods, uint8_t usage) {
     (void)mods;
@@ -356,6 +360,91 @@ class IBluetooth {
   }
   // **Si el ràdio vol el xip despert**: verdader mentre el teclat és engegat, o sigui que el torn no obre el pany de la becaina.
   virtual bool wants_the_chip_awake() const { return false; }
+
+  // ---- el costat amfitrió (0.190.188) ----
+  //
+  // **La mateixa ràdio, l'altra direcció**: `bt scan` mira qui hi ha, `bt pair` es queda amb un i el que el teclat escriu arriba al
+  // sistema com si vingués del cable. The board is the **host** here and the keyboard is somebody else's, o sigui que les tres
+  // preguntes són les tres d'una connexió: qui hi ha, a qui ens hem lligat, i si la lligadura encara hi és (docs/30, docs/50).
+  //
+  // **La ràdio mana sobre la son igual que al device**: un link que dorm no és un link, i el pany del torn ja pregunta
+  // `wants_the_chip_awake` per als dos costats.
+  virtual bool can_host() const { return false; }
+  // **La ràdio per a l'amfitrió, sense ser un teclat** (0.190.192): `bt host on` encén la pila i prou; `off` tanca el link i, si el
+  // dispositiu d'aquesta placa també és apagat, baixa la ràdio sencera. Sense això, l'amfitrió només s'encenia quan algú explorava, i
+  // l'estat no deia de qui era la ràdio (docs/50).
+  virtual bool host_on() { return false; }
+  virtual void host_off() {}
+  // **Si el costat amfitrió s'ha demanat**: la ràdio pot ser engegada pel dispositiu i això no vol dir que algú escolti. És el que fa
+  // que `bt` pugui dir `off` quan els dos costats ho són, i `on` quan un dels dos viu (docs/30, docs/50).
+  virtual bool host_is_up() const { return false; }
+  // Un aparell que ha contestat a l'exploració, amb **tot** el que l'anunci porta (0.190.196, l'amo: *«No em crec que no pesqui ni un sol
+  // nom! ni identificar el tipus, ni cap info adicional (senyal batería… no sé alguna dada mes)»*): the signal it came with, the appearance
+  // the maker declared and the first service it announced, que és el que permet dir què és quan no diu com es diu (docs/50).
+  struct Peer {
+    uint8_t addr[6];
+    uint8_t addr_type;
+    uint8_t name[24];  // buit si l'anunci no en duia
+    bool hid;          // anuncia el servei 0x1812
+    int8_t rssi;       // el senyal, en dBm: més a prop de zero és més a prop
+    uint16_t appearance;  // 0 si no en declara cap
+    uint16_t service;     // el primer servei de setze bits que anuncia, 0 si no n'anuncia cap
+  };
+  // **Explorar i esperar**: omple `out` i torna quants n'hi ha. Bloqueja el que demana (uns segons), o sigui que el prompt ho diu
+  // abans de fer-ho; res del torn depèn d'això (docs/30).
+  virtual uint8_t host_scan(uint32_t ms, Peer* out, uint8_t cap) {
+    (void)ms;
+    (void)out;
+    (void)cap;
+    return 0;
+  }
+  // Lligar-se a un dels aparells de l'última exploració, per l'índex. Torna fals si l'aparell no hi és o si la ràdio no pot.
+  virtual bool host_pair(uint8_t index) {
+    (void)index;
+    return false;
+  }
+  // Si hi ha algú lligat i escrivint.
+  virtual bool host_connected() const { return false; }
+  // **Tornar amb el teclat que ja hi era** (0.190.191): the bonds are in the store, so the board can go back to the keyboard it was
+  // paired with without a person scanning anything. Llança el link i torna; el que arribi després ja ho diu `host_connected` (docs/50).
+  virtual bool host_reconnect() { return false; }
+  // **Els cinc llums del teclat virtual**, tal com els va deixar l'altre aparell (0.190.191). Zero en una placa sense ràdio.
+  virtual uint8_t keyboard_leds() const { return 0; }
+
+  // ---- el que aquesta placa és, no el que escolta (0.190.193) ----
+  //
+  // **Un teclat o un ratolí, i no les dues coses alhora** (l'amo: *«opció B»*). Two reports in one HID service mean report ids and
+  // giving up the boot protocol, que és el que fa que aquest teclat escrigui a qualsevol lloc; o sigui que la placa tria, i el que
+  // canvia és el report map que el host llegeix, el report que s'envia i l'aparença de l'anunci. El servei GATT és el mateix (docs/50).
+  virtual bool device_is_a_mouse() const { return false; }
+  virtual bool device_be(bool mouse) {
+    (void)mouse;
+    return false;
+  }
+  // Un moviment relatiu, i el report torna a zero de seguida perquè el cursor no se'n vagi.
+  virtual bool mouse_move(int8_t dx, int8_t dy) {
+    (void)dx;
+    (void)dy;
+    return false;
+  }
+  // Els botons que queden premuts: bit 0 esquerre, 1 dret, 2 mig.
+  virtual bool mouse_press(uint8_t buttons) {
+    (void)buttons;
+    return false;
+  }
+  virtual uint8_t mouse_buttons() const { return 0; }
+  // Un clic sencer: es prem, s'espera un moment i es deixa anar.
+  virtual bool mouse_click(uint8_t buttons) {
+    (void)buttons;
+    return false;
+  }
+  // **Desfer la lligadura**: el que el teclat té desat a l'altra banda també s'ha de poder esborrar, o un aparell que ja no hi és es
+  // queda lligat per sempre (docs/50).
+  virtual void host_forget() {}
+  // **On van les tecles**: el ràdio no sap què és un caràcter, només rep els bytes d'un report HID i els dona al sistema amb la seva
+  // mida —vuit per a un teclat, tres o quatre per a un ratolí—. El que en fa text és el nucli, que és qui sap de tecles (docs/30, docs/50).
+  typedef void (*HostSink)(const uint8_t* report, uint8_t len);
+  virtual void host_sink(HostSink sink) { (void)sink; }
 };
 
 // How deep the sleep is (docs/90, M6). `kLight` keeps the memory, the interpreter
@@ -489,6 +578,14 @@ class IPower {
   // without any of them having to know that the sleep exists (docs/50, docs/95).
   virtual bool open_the_nap_doors() { return false; }
   virtual void close_the_nap_doors() {}
+  // **El pany llarg: «mentre jo el tingui, no adormis el xip»** (0.190.184, l'amo: *«Es podia parar el lightsleep simplement amb un mutex o
+  // algo així oi?»* — i sí: és el lock `ESP_PM_NO_LIGHT_SLEEP` de la gestió de potència). És una cosa diferent del pany del torn: aquell obre
+  // les portes per a **una** espera, i aquest diu «no n'hi ha cap» mentre dura. **Compta**, o sigui que el poden agafar la consola, el teclat i
+  // una app alhora i el xip només dorma quan no el té ningú (docs/50, docs/60).
+  virtual bool hold_no_light_sleep(bool on) {
+    (void)on;
+    return false;
+  }
   // **Qui ha despertat la darrera becaina** (0.190.178): `nap` ho sap perquè és qui ha dormit; la becaina que fa el xip sola no torna per
   // la mateixa crida, o sigui que la pregunta és a part i la contesta la placa quan en sap. Null és «el xip no sap per què s'ha despertat»,
   // que vol dir que no ha dormit (docs/50, docs/95).

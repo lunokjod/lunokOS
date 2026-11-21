@@ -36,9 +36,9 @@ una app pot portar `"boards": ["ttgo-t-koala"]` i provar-se aquí abans de flash
 
 **El prompt s'edita** (2/11, 0.46.0): esquerra i dreta mouen el cursor per la línia, amunt i avall
 recorren les **vuit ordres** més recents (i baixar més enllà de la més nova torna el que s'estava
-escrivint), i Inici/Fi/Supr també hi són. La línia es redibuixa amb codis ANSI quan la consola els
-entén; si no, amb espais i retrocessos, o sigui que el terminal de la placa i un `TERM` sense ANSI
-fan el mateix amb mitjans diferents (docs/30, docs/75). Al prompt `lua>`, **Ctrl+D** tanca la sessió
+escrivint), i Inici/Fi/Supr també hi són. **La línia es redibuixa amb espais i retrocessos i prou**
+(0.190.92, i des de la 0.190.187 no queda cap codi d'escapament al sistema): el mateix dibuix que entén
+qualsevol port, el cable i el vidre inclosos (docs/30, docs/75). Al prompt `lua>`, **Ctrl+D** tanca la sessió
 de l'intèrpret igual que `exit`; la línia que s'estigués escrivint es descarta.
 
 **I al prompt del shell, `exit`, `logout` i Ctrl+D tanquen la sessió** (8/11, 0.158.0, demanat per l'amo), i
@@ -60,13 +60,9 @@ de l'intèrpret igual que `exit`; la línia que s'estigués escrivint es descart
 altra, `help repo install` és la d'aquella sintaxi, i un mot que només és el començament d'una comanda no ho és
 —`help pow` respon `no such command: pow` i diu on és la llista sencera— (docs/30).
 
-**I la consola té una paleta, i només si el terminal la va demanar** (3/11, 0.57.0): el prompt és el nom
-en verd i el `>` en gris; un error és vermell, un avís groc i una resposta bona verda; `ls` posa el tipus
-i la mida apagats i el directori en blau; `help` posa l'ordre en negreta, i el `log` pinta cada línia pel
-seu nivell (`W` groc, `E` vermell). **No en surt ni un byte si el terminal no va contestar la pregunta
-ANSI** del començament, i `ansi [on|off]` diu què s'ha detectat o ho força quan un pont sèrie se la menja
-—que és el cas d'un `clear` que ara no envia `ESC [ 2 J` a una línia que no ha dit que el sàpiga llegir
-(docs/30, docs/50).
+**I no hi ha paleta** (0.190.92, l'amo: *«esborra la comanda "ansi" i treu els textos ANSI del codi»*): el
+prompt, els errors, `ls`, `help` i `log` escriuen text pla, i el nivell d'una línia del registre es llegeix a
+`[W]` i a `[E]` i no en un color. `clear` neteja fent pujar el paper, que és el que entén tothom (docs/30, docs/50).
 
 **La pàgina de l'emulador és la de debò** (3/11, 0.61.0): `http <url>` al prompt i `http.get` d'una app
 baixen l'adreça de veritat. L'emulador la dona a `curl` en un procés seu —`-q`, sense `~/.curlrc`, fins a
@@ -138,6 +134,11 @@ Aquestes són les opcions del binari:
 | `--env-celsius <C>` | La temperatura que dona el **sensor d'ambient de mentida** (per defecte 25) |
 | `--env-humidity <%>` | I la humitat (per defecte 50) |
 | `--env-fail` | Un sensor d'ambient que hi és i no contesta: `env.read()` respon `E_IO`, que no és el mateix que una placa sense sensor |
+| `--no-bt` | **Una placa sense Bluetooth**: `IPlatform::bluetooth()` és `nullptr` i `stats` no té cap fila `radio.*` (docs/50) |
+| `--bt-fail` | **La ràdio hi és i la pila no arrenca**: `keyboard_start` i `host_on` contesten fals i el prompt ho diu amb el motiu del HAL |
+| `--bt-scan <n>` | Quants aparells veu la **ràdio de mentida** en una exploració (per defecte 4). Amb `0` és una habitació buida i `bt host scan` torna una llista de cap línia |
+| `--bt-connected` | **Un mòbil a l'altre cap del nostre teclat**: `keyboard_connected` és cert i `bt type` escriu en lloc de dir que no hi ha ningú |
+| `--bt-type <s>` | **El que aquell teclat escriu quan el vincle es fa**: els vuit bytes d'un report de boot, una tecla cada cop, pel camí de sempre (`host_sink` → `keys_arrived` → `shell::feed`). El retorn de línia no s'hi fingeix: una tecla que executés una comanda des de dins d'una altra tornaria a entrar al shell (docs/50) |
 | `--run <id>` | Arrenca una app pel mateix camí que `run <id>` de la shell i **surt** amb el resultat: `0` si l'app ha acabat bé i `1` si no s'ha pogut arrencar, ha mort amb un error o ha sortit amb un codi diferent de zero |
 | `--script <fitxer>` | Mode lot: executa ordres i surt |
 | `--display` | **El vidre del model, que hi és sol**: el panell del Paper, 960x540 i quatre bits per píxel, en un buffer d'aquest costat (`emu::MemorySurface`), **i la capacitat `display` amb ell** —`sys.caps().display` diu la veritat, que no deia fins a la 0.19.0: el vidre hi era i l'emulador deia que no—. Qui ho diu és el model (`Model::glass`): el Paper en té i els ATOM no, i un `--display` a un ATOM es refusa dient que aquella placa no té pantalla. La bandera serveix perquè un guió digui que necessita vidre; el que apaga és `--no-display` (docs/30, docs/50) |
@@ -910,6 +911,42 @@ llegeix 11 V.
   perquè l'emulador no dibuixa el consum de la placa —té una fila pròpia a la taula de fidelitat— i una
   bateria que baixa sola seria un número inventat.
 
+## El Bluetooth: un ràdio de mentida que ho diu (0.190.200)
+
+L'amo: *«així podrem medir tot en detall i fer l'emulador més realista»*. El ràdio era l'única cosa del sistema que aquesta banda no
+podia ensenyar: `bt` deia que aquella placa no en tenia i les cinc files de `stats` del ràdio —`radio.up`, `radio.scan`, `radio.pair`,
+`radio.tap` i el `app.start` que les acompanya— no es podien mirar enlloc sense la placa a la mà. Ara hi és, i el que se n'ha fet és el
+que un ràdio fa:
+
+```
+$ xvfb-run -a ./.pio/build/emulator/program --board m5stack-atom --no-gui --script guio.txt
+lunok> bt host scan 2
+bluetooth: listening for 2 second(s)...
+  0  Teclat de la casa        C0:FF:EE:00:00:01   -58 dBm  keyboard
+     appearance 0x03C1, service 0x1812, and it announces HID
+  1  Ratolí de la tauleta    C0:FF:EE:00:00:02   -71 dBm  mouse
+     appearance 0x03C2, service 0x1812, and it announces HID
+bluetooth: bt host pair <n> takes one of them
+lunok> bt host pair 0
+bluetooth: pairing...
+```
+
+- **Qui decideix si hi ha ràdio és el build del model, i no una opció**: `Model::bt` és cert a l'ATOM —i al Matrix, que és el mateix
+  firmware— i fals al Paper i al T-Koala, perquè el `sdkconfig` d'aquells dos no demana NimBLE. Un emulador del Paper amb ràdio seria
+  una placa que no es ven, que és la mateixa regla que fa que un `--display` a un ATOM es refusi (docs/50).
+- **Els aparells són una taula d'aquest binari**: un de cada cosa que un anunci pot dir —un teclat amb el servei HID, un ratolí, un
+  telèfon, una televisió que es diu com les del saló i un que no diu com es diu—, amb el senyal de cadascun. **Les adreces són totes
+  `C0:FF:EE:…`**: una mentida que es confon amb el maquinari és pitjor que no tenir-ne cap, i el registre diu que el ràdio és un model.
+- **L'exploració costa el que costa a la placa**: amb els temps engegats, `bt host scan 2` s'hi està dos segons i la fila `radio.scan`
+  ho diu; amb `--no-delay`, res.
+- **Un teclat que escriu de debò, i pel camí de sempre**: `--bt-type hola` fa que el teclat de l'altre cap enviï els vuit bytes d'un
+  report de boot, una tecla cada cop, quan el vincle es fa —`host_sink` és `kernel::bt::keys_arrived` i d'allà va a `shell::feed`, o
+  sigui que el que es prova és el report i no una frase escrita al prompt—. **El retorn de línia no s'hi fingeix**: una tecla que
+  executés una comanda des de dins d'una altra tornaria a entrar al shell, i això no és el que es vol mirar aquí.
+- **El que no fa**: no té pila de debò, no lliga res amb ningú de fora i no recorda els vincles entre dues execucions —`host_reconnect`
+  contesta que no fins que quelcom s'ha lligat en aquest mateix run—. Les proves del camí del report i de la llista de l'scan són aquí;
+  les del maquinari segueixen demanant un teclat a la mà.
+
 ## El rentat entre dues apps: el sistema mira què ha ensenyat la pàgina (1/11, 0.37.0)
 
 Quan una app marxa, la vista es posa blanca i **el vidre s'ha de quedar net**, i el que costa netejar-lo no és
@@ -935,48 +972,18 @@ sistema ho compta sol, i no ho pregunta a l'app, perquè **cap app sap què hi h
 - **Què es veu a l'emulador**: `docs/85` ja sap com costa cada qualitat; el que això afegeix és que el canvi d'app
   costa 290 ms i no 450 quan l'app era de text, i que una app que no hagi pintat res no costa res.
 
-## El terminal es pregunta, no s'endevina (2/11, 0.53.0)
+## El terminal no es pregunta (i des de la 0.190.187 no s'hi escriu res)
 
-La línia del prompt es redibuixa a cada tecla, i com es redibuixa depèn del terminal: amb **ANSI** es fa amb
-`ESC [ K` i `ESC [ n D` (esborrar i tornar enrere); sense, amb **espais i backspaces**, que és el mateix
-dibuix amb els codis que qualsevol port entén. Fins la 0.52.0 això es decidia **endevinant** (`isatty` i la
-variable `TERM` al PC, i «sempre sí» a la placa), i una placa amb un pont sèrie sense ANSI rebia caràcters
-d'escapament com a brossa.
+La línia del prompt es redibuixa a cada tecla amb **espais i retrocessos**: el mateix dibuix amb els codis que
+qualsevol port entén, i cap `ESC [ K` ni `ESC [ n D`.
 
-Ara, a l'arrencada, el shell **pregunta**: envia la consulta *Device Attributes* (`ESC [ c`) i busca la
-resposta `ESC [ ? … c` en el que arriba, amb un màxim de **400 ms**. Un terminal ANSI contesta, un de ximple
-no contesta i el sistema ho apunta:
-
-```
-[I][TERM] ansi
-[I][TERM] no ansi, spaces and backspaces
-[I][TERM] no terminal, ansi not asked
-```
-
-Tres detalls que són la diferència entre detectar i fer veure que es detecta:
-
-- **El que creu la plataforma és la porta.** Un console que ja diu que no és un terminal (una canonada, un
-  fitxer, la suite) **no es pregunta**: no hi ha ningú per contestar i 150 ms d'espera són un peatge per res.
-- **El que arriba mentre la pregunta és a l'aire no es llença**: si no és una resposta, s'entrega a la línia
-  quan el prompt ja hi és. La primera tecla d'una persona no se la menja l'arrencada.
-- **La regla és pura** (`kernel::shell::ansi_reply`) i la suite la prova amb la resposta d'un VT100
-  (`ESC [ ? 1 ; 2 c`), la d'un xterm, una fletxa, un informe de cursor, una tecla i un text qualsevol.
-- **I qui no va contestar a l'arrencada té una segona oportunitat** (0.190.91). Amb `pio device monitor` el port
-  s'obre quan el nucli ja ha parlat, o sigui que la primera pregunta cau al buit i el «no» es quedava per a tot el
-  run; el prompt la torna a fer **dues vegades més** (mai més de tres preguntes), i si aleshores hi ha resposta ho
-  diu amb una línia pròpia:
-
-  ```
-  [I][TERM] ansi, and it answered late: the terminal spoke when the prompt came back
-  ```
-
-  El que no es toca mai és el que la persona hagi escrit mentre la pregunta era a l'aire: això és de la línia
-  (docs/30). I si el terminal no parla mai —un fitxer, un port cru, el panell Serial Monitor de VS Code, que no és
-  un emulador de terminal—, queda el que hi ha: `ansi on` al prompt, que és una ordre i no una endevinalla.
-
-Mesurat a l'emulador: amb una canonada, `no terminal, ansi not asked`; dins d'un pseudo-terminal que no contesta,
-`no ansi, spaces and backspaces`; i donant-li la resposta pel seu `stdin`, `ansi`.
-
+Hi havia hagut una detecció —la consulta *Device Attributes*, `ESC [ c`, amb 400 ms d'espera i fins a tres
+preguntes— i una paleta de colors que en depenia, i les dues van marxar a la **0.190.92** (l'amo: *«esborra la
+comanda "ansi" i treu els textos ANSI del codi»*). El parser que les llegia, `shell::ansi_reply`, s'hi va quedar
+orfe fins a la **0.190.187**, que el va treure amb la resta de codis: el `clear` del prompt, les sis funcions de
+`term` de Lua i la capacitat `ansi`, que deia que el terminal entén els colors i era l'invitació a escriure'ls.
+**El que queda de codi amb un `0x1b` és llegir tecles**, que no és el mateix que escriure-les: una fletxa és
+`ESC [ A` i una tecla premuda arriba així (docs/30).
 ## Què mirar, i amb quina app (1/11)
 
 **A l'emulador, el maquinari del model hi és des de l'arrencada**: el vidre i el GT911 d'una Paper són allà sense cap bandera (i `--no-display` / `--no-touch` els treuen), o sigui que una app que dibuixa amb el dit va amb `--board m5stack-paper` i prou. **I amb `--gui` el dit és el ratolí**: es prem i s'arrossega damunt de la finestra. El que no hi és mai és el que el model no té: un `--display` a un ATOM es refusa dient que aquella placa no té pantalla.
@@ -1052,6 +1059,7 @@ provava cadascuna ho diuen les taules de docs/50 i docs/92.
 | Aire (`env.read`) | **De mentida i a la mà del test**: el model del Paper té sensor i els ATOM no, i les dues xifres són el que diuen `--env-celsius` i `--env-humidity`; `--env-fail` és un xip que hi és i no contesta, que és `E_IO` i no `E_UNSUPPORTED` | El SHT30 per la I2C interna: una comanda, sis bytes i dos CRCs (docs/50). **L'emulador no té bus**: no hi ha cap clock stretching que es pugui comptar, així que un sensor que l'emulador llegeix bé pot ser un sensor que la placa dona per mort (va passar l'1/11: `env yes` al PC i `env no` a la placa, docs/50) |
 | Tecles (`button.*`, `on_button`) | **De mentida i a la mà del test o del ratolí**: `emu::press_button(true/false)` prem la principal i `emu::press_key(n, true/false)` qualsevol de les tecles **del model** (fins a tres; una a l'ATOM i al Matrix, tres al Paper, cap al T-Koala), i amb `--gui` els botons de la finestra fan el mateix amb un clic. El temps que es compta és el del PC. La forma, però, encara és la de la Paper a tots els models: un dial compost a la cara **dreta** (`centre`, `up` i `down`), o sigui que una app que tria per posició es pot provar al PC. Fer que la forma segueixi el model és el que queda de M8 (docs/90) | El GPIO39 de l'ATOM i les tres de la Paper; el T-Koala només té RST, que no és una tecla, amb 10 ms de rebot |
 | Tàctil (`touch.*`) | **Un GT911 simulat** (`Model::touch`, `emu::Gt911Panel`): el marc de la pàgina, dos dits, la mida del contacte i les tres transaccions del bus a 100 kHz (**800, 1 830 i 2 550 µs** segons els dits). **Escombra sol i dona el marc una vegada**, o sigui que un lector més ràpid que el vidre llegeix «ningú» la meitat de les vegades (docs/85) | El GT911 de debò: el mateix protocol, i a sobre un bus que comparteix amb el rellotge, la FRAM i el SHT30, amb clock stretching de fins a 6 ms del sensor i NAKs possibles |
+| Bluetooth (`bt`, `bt host`) | **De mentida, i només on el build del model en té** (0.190.200): `Model::bt` és cert a l'ATOM i al Matrix i fals al Paper i al T-Koala, o sigui que l'emulador del Paper segueix dient que aquella placa no en té. Allà on n'hi ha, l'exploració troba una taula d'aparells d'aquest binari —un teclat, un ratolí, un telèfon, una televisió i un que no diu com es diu—, amb adreces `C0:FF:EE:…` que no existeixen enlloc, i `--bt-scan <n>` en tria quants. `--bt-connected` fingeix un mòbil a l'altre cap del nostre teclat i `--bt-type <s>` fa que aquell teclat escrigui pel camí de debò quan es lliga, que és l'única manera de provar el report HID sense un teclat a la mà (docs/50, docs/85) |
 
 **I el que sobreviu d'un run a l'altre, comprovat a l'emulador el 3/11 amb la 0.59.0** i el mateix
 `--state` a cada run: `wifi add mynet secret` deixa `nvs/lunoknet/ssid` (`mynet`) i

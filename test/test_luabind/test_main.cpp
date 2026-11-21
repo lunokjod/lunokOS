@@ -1000,26 +1000,23 @@ void test_sys_caps_matches_the_platform(void) {
   TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
   TEST_ASSERT_TRUE(run("local c = sys.caps()\n"
                        "assert(c.console == true, 'console')\n"
-                       "assert(c.ansi == true, 'ansi')\n"
+                       "assert(c.ansi == nil, 'ansi was taken out with the escape codes')\n"
                        "assert(c.littlefs == true, 'littlefs')\n"
                        "assert(c.display == false, 'display')\n"
                        "assert(c.net_wifi == false, 'net_wifi')"));
   luabind::stop();
 }
 
-// term: the colours are numbers, the size is the documented default, and using
-// them on a console that speaks ANSI does not raise.
-void test_term_speaks_when_the_console_does(void) {
+// term: the size is the documented default and there is nothing that escapes (0.190.187, l'amo: *«Encara queden coses amb
+// ansi! Busca per tot el codi restes d'ansi i treu-lo»*). The six functions that wrote `ESC [ ... m`, and the colour names that
+// only they used, are gone: a page of text asks how wide it is and never how to colour itself.
+void test_term_measures_a_page_and_escapes_nothing(void) {
   pal::init();
   TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
-  TEST_ASSERT_TRUE(run("assert(term.RED == 31 and term.BOLD == 1 and term.WHITE == 37)\n"
-                       "assert(term.width() == 80 and term.height() == 24)\n"
-                       "term.color(term.RED, term.BLACK)\n"
-                       "term.move(1, 1)\n"
-                       "term.hide_cursor()\n"
-                       "term.show_cursor()\n"
-                       "term.clear()\n"
-                       "term.reset()"));
+  TEST_ASSERT_TRUE(run("assert(term.width() == 80 and term.height() == 24)\n"
+                       "assert(term.clear == nil and term.color == nil and term.move == nil)\n"
+                       "assert(term.hide_cursor == nil and term.show_cursor == nil and term.reset == nil)\n"
+                       "assert(term.RED == nil and term.BOLD == nil)"));
   luabind::stop();
 }
 
@@ -1355,7 +1352,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_bang_bang_exit);
   RUN_TEST(test_the_lf_of_an_enter_does_not_answer_the_next_read);
   RUN_TEST(test_sys_caps_matches_the_platform);
-  RUN_TEST(test_term_speaks_when_the_console_does);
+  RUN_TEST(test_term_measures_a_page_and_escapes_nothing);
   RUN_TEST(test_a_hundred_waits_in_a_row_work);
   RUN_TEST(test_app_exit_ends_the_app_with_a_code);
   RUN_TEST(test_app_knows_its_id_and_its_file);

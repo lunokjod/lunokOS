@@ -53,21 +53,6 @@ namespace shell {
 // asks for it from inside `run_app` (0.179.48) and its body is with the rest of the ways out, further down (docs/30).
 bool start_the_one_that_asked();
 
-bool ansi_reply(const char* data, size_t len) {
-  if (data == nullptr || len < 4) return false;
-  for (size_t i = 0; i + 2 < len; ++i) {
-    if (data[i] != 0x1b || data[i + 1] != '[') continue;
-    // A reply is `ESC [ ?` and then digits and semicolons until a `c`. An arrow (`ESC [ A`) and a cursor
-    // report (`ESC [ 12 ; 40 R`) are not answers, and neither is anything a person typed.
-    size_t at = i + 2;
-    if (at >= len || data[at] != '?') continue;
-    ++at;
-    while (at < len && ((data[at] >= '0' && data[at] <= '9') || data[at] == ';')) ++at;
-    if (at < len && data[at] == 'c') return true;
-  }
-  return false;
-}
-
 namespace {
 
 const size_t kPrintCap = 1024;
@@ -141,6 +126,35 @@ bool g_lua = false;
 // the queue and the alarms meanwhile; what closes is the session and not the machine, which is what `poweroff`
 // does (docs/30, docs/50).
 bool g_session_open = true;
+
+// **`log follow` és un mode del prompt** (0.190.185, l'amo: *«Afegeix a log el paràmetre "follow". log follow mostra el log a temps
+// real fins que es polsa <Control>+<C> o <esc> (un sol cop)»*): while it lasts the wire is the log's and not the line editor's, which
+// is why the flag is here and not in the editor: the prompt has to stop asking for a line and the two stop keys have to be caught
+// before the escape parser sees them (docs/30).
+bool g_log_follow = false;
+
+// **La sessió del cable tanca sola, i mentre és oberta el xip no dorm** (0.190.184, l'amo: *«La shell del lunokOS te un temporitzador
+// d'inactivitat. Si fa 5 minuts que no teclejes res o es reb igna cosa la sessió es tanca […] En aquest moment s'allibera el pany o el que
+// sigui perquè idf pugui seguir fent lightsleeps. Si l'usuari vol entrar, polsa <enter> i es torna a obtenir el bloqueig de lightsleep»*).
+// Les dues meitats ja hi eren —`close_console_session()` és de la 0.158.0 i una sessió tancada es reobre amb un Enter— i el que faltava era
+// **el temps i el pany**: mentre hi ha una sessió oberta en un cable el xip no fa becaines, perquè un son lleuger es menja els caràcters que
+// arriben i fa esperar el despertar (l'amo: *«es perden tecles perqué l'esp32 està mig adormida o tornant»*) (docs/30, docs/50, docs/60).
+const int64_t kConsoleSessionIdleMs = 300000;  // cinc minuts
+int64_t g_last_wire_activity_ms = 0;
+
+// **Només el cable**: `virtual_terminal()` és cert a l'emulador i a la consola del vidre, que guarden els bytes en una cua i no en perden cap;
+// i el port sèrie d'una placa no és cap d'aquestes dues coses (docs/50).
+bool a_wire_console() {
+  pal::IConsole* console = pal::system().console();
+  return console != nullptr && !console->virtual_terminal();
+}
+
+// El pany, agafat o deixat en un sol lloc, o hi hauria dos camins que el toquen i un que se n'oblidaria.
+void sync_the_wire_lock() {
+  hal::IPower* power = hal::platform().power();
+  if (power == nullptr) return;
+  (void)power->hold_no_light_sleep(g_session_open && a_wire_console());
+}
 // ESC pressed in a row: three of them stop a command that is waiting, the same
 // way they leave an app (docs/30). An arrow or a function key is `ESC [ …` and is
 // one key press, so the parser below keeps its state between feeds.
@@ -278,8 +292,19 @@ void spaces(size_t count) {
 }
 
 // **Ni color ni detecció** (0.190.92, l'amo: *«esborra la comanda "ansi" i treu els textos ANSI del codi»*): el que escriu aquesta casa
-// és text pla. L'única cosa que queda amb codis és el que demana una persona o una app —`clear` i el mòdul `term` de Lua—, perquè allà el
-// codi és el que l'ordre vol dir (docs/30, docs/85).
+// és text pla. **I les dues excepcions que quedaven ja no hi són** (0.190.187, l'amo: *«Encara queden coses amb ansi! Busca per tot el
+// codi restes d'ansi i treu-lo»*): `clear` fa pujar el paper amb línies buides i el mòdul `term` de Lua es queda amb l'amplada i
+// l'alçada. Aquí no hi ha cap `ESC [` (docs/30, docs/85).
+
+// **Netejar és fer pujar el paper** (0.190.188, l'amo: *«igual que amb "clear" passes unes linies (passa'n mes!) fes el mateix amb
+// logout/exit»*): quaranta salts de línia són més que la pantalla de qualsevol terminal —24 és el que aquest sistema promet i 40 el
+// que en té un de debò— i el que hi havia a dalt marxa sol, sense cap codi que només entengui un emulador. Una constant i no dos números,
+// perquè `clear` i el comiat no poden netejar amb mesures diferents (docs/30, docs/85).
+const int kWipeLines = 40;
+
+void wipe_the_paper() {
+  for (int i = 0; i < kWipeLines; ++i) out("\r\n");
+}
 
 void error_out(const char* text) {
   // **A complaint is the other pipe of a session** (0.159.0): the flag lives for one line and `out_bytes` reads it,
@@ -482,8 +507,8 @@ void print_help(const char* only) {
   help_line("  apps info <id>    the manifest of an app of this disk, key by key", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
-  help_line("  cfg idle [300|600|900]  how much quiet before the board powers itself off until its next alarm,", only);
-  help_continuation("                    in seconds: five minutes (default), ten or fifteen", only);
+  help_line("  cfg idle [5|10|15]  the quiet before the board sleeps: five minutes (the", only);
+  help_continuation("                      default), ten or fifteen. With no alarm, a key wakes it", only);
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot,", only);
   help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
   help_line("  panel [edge|box]  where a partial paint starts: the edge of the image or the change", only);
@@ -535,6 +560,7 @@ void print_help(const char* only) {
   help_line("  hexdump <path>    the bytes of a file in hex and in visible letters", only);
   help_line("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)", only);
   help_line("  log               last lines of the log ring", only);
+  help_line("  log follow        the log as it is written; Control+C or Escape stops it", only);
   help_line("  stats [reset]     what each device cost: calls, time, last call", only);
   help_line("  verbose on|off    mirror the log to the console too", only);
   help_line("  clear             clear the screen", only);
@@ -754,6 +780,49 @@ void print_mem_himem() {
   out(line);
   out("  32 KB written and read back: ");
   out(platform().extra_memory_round_trip(hal::kExtraMemoryBlockBytes) ? "yes\r\n" : "no\r\n");
+}
+
+// **Què és un aparell de Bluetooth, pel que ell mateix declara** (0.190.196, l'amo: *«No em crec que no pesqui ni un sol nom! ni identificar
+// el tipus, ni cap info adicional (senyal batería… no sé alguna dada mes)»*). L'anunci porta l'**aparença** —una paraula de setze bits del
+// registre del Bluetooth— i els **serveis** que ofereix, i són la resposta a «què és això» quan l'aparell no diu com es diu. Les taules són
+// curtes a propòsit: el que no hi és no s'inventa (docs/50, docs/85).
+const char* appearance_name(uint16_t appearance) {
+  switch (appearance) {
+    case 0x0040: return "phone";
+    case 0x0080: return "computer";
+    case 0x00C0: return "watch";
+    case 0x0140: return "display";
+    case 0x0180: return "remote";
+    case 0x02C0: return "scanner";
+    case 0x0340: return "heart rate";
+    case 0x03C1: return "keyboard";
+    case 0x03C2: return "mouse";
+    case 0x03C3: return "joystick";
+    case 0x03C4: return "gamepad";
+    case 0x0900: return "pulse oximeter";
+    case 0x0940: return "weight scale";
+    case 0x0C41: return "television";
+    case 0x0C42: return "set-top box";
+    default: return nullptr;
+  }
+}
+
+const char* service_name(uint16_t service) {
+  switch (service) {
+    case 0x1800: return "access";
+    case 0x1801: return "gatt";
+    case 0x180A: return "device info";
+    case 0x180D: return "heart rate";
+    case 0x180F: return "battery";
+    case 0x1812: return "HID";
+    case 0x181A: return "environment";
+    case 0x1108: return "headset";
+    case 0x110A: return "audio source";
+    case 0x110B: return "audio sink";
+    case 0x111E: return "hands-free";
+    case 0x111F: return "phone";
+    default: return nullptr;
+  }
 }
 
 // **Els llibres de la memòria** (0.190.0, l'amo: *«podríem fer una llista de punter, tamany i qui l'ha demanat?»*): the blocks of the
@@ -1978,7 +2047,14 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   } else {
     log_printf(pal::kLogInfo, "APPS", "%s", boot.app_id);
   }
-  if (!luabind::start(boot, limit)) {
+  // **Obrir una app, mesurada**: the interpreter comes up and the chunk is compiled here, o sigui que el que una persona espera
+  // després de prémer una cel·la és aquesta fila i no el metre de l'app, que encara no corre (docs/30, docs/75).
+  bool the_interpreter;
+  {
+    meter::Scope metering(meter::kAppStart);
+    the_interpreter = luabind::start(boot, limit);
+  }
+  if (!the_interpreter) {
     drop_source();  // the text was read and nobody is going to compile it
     // **The view and the bar are already the app's here too** (0.151.17): an
     // interpreter that does not come up is a start that did not happen.
@@ -4180,6 +4256,15 @@ bool leave_lua() {
 // this is `close_console_session` and the other one is `close_session` of `kernel/shell.h`.
 bool close_console_session() {
   g_editor.reset();
+  // **I el follow no sobreviu a la sessió** (0.190.185): a mirror left open is a wire that starts getting the log again after the
+  // logout, which is the very thing this console stopped doing. The mirror goes back to what the console is, not to zero.
+  g_log_follow = false;
+  log_echo(!a_wire_console());
+  // **I el comiat deixa la pantalla com la deixa el `clear`** (0.190.188, l'amo: *«igual que amb "clear" passes unes linies (passa'n
+  // mes!) fes el mateix amb logout/exit»*): el paper puja abans del missatge, o sigui que l'últim que una persona llegeix és que la
+  // sessió s'ha tancat i com tornar-hi, i no el que hi havia a sota. Passa igual a les dues consoles —la del cable i la que es penja—
+  // perquè totes dues entenen els salts de línia (docs/30, docs/85).
+  wipe_the_paper();
   pal::IConsole* console = pal::system().console();
   if (console != nullptr && console->virtual_terminal()) {
     // **La sessió de consola s'acaba i les cachés es desen abans** (0.189.11): the run goes away with the program, and a
@@ -4195,6 +4280,9 @@ bool close_console_session() {
   g_session_open = false;
   out("logout: the session is closed; press Enter to open a new one\r\n");
   if (console != nullptr) console->flush();
+  // **I el pany es deixa anar aquí** (0.190.184): la sessió tancada és el que permet que el xip torni a fer becaines, i el despertar per la
+  // consola el torna a agafar quan una persona prem Enter (docs/60).
+  sync_the_wire_lock();
   return true;
 }
 
@@ -4452,7 +4540,14 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   // persona necessita és veure **la vida de la finestra** i el que l'app hi diu, i les dues coses es diuen aquí (docs/30, docs/60).
   log_printf(pal::kLogInfo, "ALARM", "a window opens for %s (%lld ms late): loading it", id,
              static_cast<long long>(late_ms));
-  if (!luabind::start(boot, limit)) {
+  // **Obrir una app, mesurada**: the interpreter comes up and the chunk is compiled here, o sigui que el que una persona espera
+  // després de prémer una cel·la és aquesta fila i no el metre de l'app, que encara no corre (docs/30, docs/75).
+  bool the_interpreter;
+  {
+    meter::Scope metering(meter::kAppStart);
+    the_interpreter = luabind::start(boot, limit);
+  }
+  if (!the_interpreter) {
     drop_source();  // the text was read and nobody is going to compile it
     log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (no room for another interpreter)",
                static_cast<unsigned>(entry.id), id);
@@ -4816,13 +4911,40 @@ bool poll_app() {
   return false;
 }
 
+// **El temporitzador de la sessió** (0.190.184, l'amo: *«si no s'utilitza durant 5 minuts el shell es tanca (logout/exit) i si volen el shell
+// haurán de polsar <enter>»*): el torn la mira, i només al cable. Una app al davant no compta com a inactivitat —el prompt no és el que la
+// persona està fent servir—, i una sessió que ja és tancada no té res a tancar (docs/30, docs/60).
+void poll_idle() {
+  if (!g_session_open || !a_wire_console() || g_app_alive) return;
+  if (g_last_wire_activity_ms == 0) {
+    g_last_wire_activity_ms = pal::system().millis();
+    return;
+  }
+  if (pal::system().millis() - g_last_wire_activity_ms < kConsoleSessionIdleMs) return;
+  close_console_session();
+}
+
 void start() {
   g_editor.clear();
   g_last_was_cr = false;
   g_app_alive = false;
   // **A start is a session** (0.158.0): a board that has just booted has its console open, whatever a session
   // before it did —an emulator that re-boots in a test would otherwise stay closed— (docs/30, docs/85).
-  g_session_open = true;
+  //
+  // **I en un cable no, i això és el que fa que el pany serveixi** (0.190.184, l'amo: *«El parany: «sessió oberta» és sempre <- Fes que al
+  // iniciar faci lo del <enter>»*). Si una placa arrenca amb la sessió oberta, el prompt existeix des del primer segon i el xip no podria fer
+  // mai una becaina: el pany es quedaria agafat per sempre i el temporitzador de cinc minuts només s'encendria per tornar-lo a agafar. O sigui
+  // que **el cable arrenca tancat** —el xip pot dormir de seguida, que és el que una placa amb el cable posat i ningú al davant ha de fer— i
+  // qui vol el prompt prem Enter. A l'emulador i a la consola del vidre no: no hi ha cable, no es perd cap caràcter i un run de prova no ha de
+  // començar prement Enter (docs/30, docs/50, docs/85).
+  g_session_open = !a_wire_console();
+  // **I el mirall del registre, al que és la consola i no al que és el cable** (0.190.185, l'amo: *«fes que el log no s'envii al serie»*).
+  // Es decideix aquí i no a `log_init()` perquè aquest és el moment en què hi ha consola de debò —un run de prova de l'emulador en té i una
+  // placa també— i perquè un `start()` que no deixés el mirall com toca el deixaria encès d'un run anterior (docs/30, docs/50).
+  g_log_follow = false;
+  log_echo(!a_wire_console());
+  g_last_wire_activity_ms = pal::system().millis();
+  sync_the_wire_lock();
   // **No app is detached at a start** (0.160.0), and the console of an app is the terminal's until one says
   // otherwise: the log is where a detached app's words go, and it is installed here because it is the shell who
   // knows what a console is (docs/30, docs/50).
@@ -4836,7 +4958,13 @@ void start() {
   // **No es pregunta res al terminal** (0.190.92): la línia es redibuixa amb espais i retrocessos i el registre va en text pla, o sigui
   // que el que hi hagi a l'altra banda no canvia el que aquesta casa escriu (docs/85).
   newline();
-  prompt();
+  if (g_session_open) {
+    prompt();
+  } else {
+    // **I es diu com s'entra** (0.190.184): the same sentence as a logout, perquè una consola en silenci que no contesta és el pitjor que li
+    // pot passar a una placa que només es pot fer servir per aquest cable (docs/30, docs/50).
+    out("the session is closed: press Enter to open one\r\n");
+  }
 }
 
 // cfg: the settings of the system and where the settings of the apps are kept. `/cfg` is a door and not a disk, so the
@@ -4889,13 +5017,18 @@ void say_boot_pictures() {
 }
 
 bool command_cfg(const char* argument) {
+  // **Una llista d'ús i no dues** (0.190.186): the settings door had two, and the one that answers a line too long had lost `idle` and `tz`
+  // while the other kept them — una llista que es contradiu amb ella mateixa i que la persona llegeix precisament quan la comanda no ha
+  // entès el que li han dit (docs/30).
+  static const char* const kUsage =
+      "usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|lock [<id>|none]|"
+      "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
+      "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [5|10|15]|nap [on|off]|cursor delay [<ms>]]\r\n";
   char words[3][kWordCap];
   size_t count = 0;
   if (!read_words(argument, words, 3, count)) return false;
   if (count > 3) {
-    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|lock [<id>|none]|"
-              "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-              "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|nap [on|off]|cursor delay [<ms>]]\r\n");
+    usage_out(kUsage);
     return false;
   }
   // **El parpalleig del cursor** (0.189.34, l'amo: *«Crea una opcio nova de cfg anomenada "cursor delay"… Aquest valor es
@@ -5464,26 +5597,26 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
-    // **El temps de quietud, triat** (0.190.9): the row of Settings -> Battery writes `cfg.idle` and so does this line, with the
-    // same three numbers and the same refusal —a number that is not one of them is a setting the page cannot show— (docs/30, docs/60).
+    // **Els tres temps, en minuts i sense traducció** (0.190.186, l'amo: el help deia *«in seconds: five minutes»*, o sigui que la porta demanava
+    // una cosa i el text n'explicava una altra): the three are the five, ten and fifteen of the row of Battery and the same three of `cfg
+    // lockafter`, and a person says them in minutes. **Els segons encara s'hi accepten** perquè són el que escriu `cfg.idle` des de Lua i
+    // el que ja tenen als dits qui van llegir el help vell (docs/30, docs/60).
     if (strcmp(words[0], "idle") == 0) {
       const int asked = atoi(words[1]);
-      if (asked != 300 && asked != 600 && asked != 900) {
+      const int seconds = (asked == 5 || asked == 10 || asked == 15) ? asked * 60 : asked;
+      if (seconds != 300 && seconds != 600 && seconds != 900) {
         out("cfg: the board sleeps after 5, 10 or 15 minutes of quiet\r\n");
         return false;
       }
-      const bool kept = cfg::set_idle_seconds(static_cast<uint16_t>(asked));
-      out("settings: idle sleep after ");
-      out_num(cfg::idle_seconds());
-      out(" s\r\n");
+      const bool kept = cfg::set_idle_seconds(static_cast<uint16_t>(seconds));
+      out("settings: the board sleeps after ");
+      out_num(static_cast<uint32_t>(cfg::idle_seconds() / 60));
+      out(" minutes of quiet\r\n");
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
-      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-                "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-                "settings [<id>|none]|lock [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [300|600|900]|"
-              "nap [on|off]|cursor delay [<ms>]]\r\n");
+      usage_out(kUsage);
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
@@ -5736,7 +5869,14 @@ bool command_lua() {
   boot.app_version = kVersion;
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
-  if (!luabind::start(boot, limit)) {
+  // **Obrir una app, mesurada**: the interpreter comes up and the chunk is compiled here, o sigui que el que una persona espera
+  // després de prémer una cel·la és aquesta fila i no el metre de l'app, que encara no corre (docs/30, docs/75).
+  bool the_interpreter;
+  {
+    meter::Scope metering(meter::kAppStart);
+    the_interpreter = luabind::start(boot, limit);
+  }
+  if (!the_interpreter) {
     error_out("cannot start the interpreter\r\n");
     return false;
   }
@@ -5857,49 +5997,336 @@ bool execute(char* line) {
   //   bt on [name]       offer the keyboard under that name (lunokOS by default)
   //   bt off             stop offering it and give the memory back
   //   bt type <text>     write that text into the device on the other end
+  // **El Bluetooth, amb els seus dos costats separats** (0.190.192, l'amo: *«si poso bt on només veig el teclat … Fem-ho bé: bt dev on/off,
+  // bt dev keyboard on/off, bt dev mouse on/off, bt host on/off, bt host pair <num>»*). The radio of this board has two ends and they are
+  // not the same thing: **`dev`** is what this board *is* for somebody else —a keyboard— and **`host`** is what it *listens to*
+  // —somebody else's keyboard and mouse—. Abans hi havia un sol `bt on` que ho barrejava, i el que sortia era un teclat que no deia res
+  // de l'altra meitat (docs/30, docs/50).
+  //
+  //   bt                       the two ends, in a few lines
+  //   bt dev [on|off]          this board as a device, whatever it offers
+  //   bt dev keyboard on|off   and the keyboard on its own
+  //   bt dev mouse on|off      and a mouse of its own (not written yet: it says so)
+  //   bt host [on|off]         this board as a host: the radio up and nothing offered
+  //   bt host scan [seconds]   who is there
+  //   bt host pair <n>         stay with one of them
+  //   bt host reconnect        go back to the one that was paired here
+  //   bt host forget           forget the bonds
+  //   bt type <text>           write into the device on the other end
   if (strncmp(line, "bt", 2) == 0 && (line[2] == '\0' || line[2] == ' ')) {
-    char words[2][kWordCap];
+    char words[5][kWordCap];
     size_t count = 0;
-    if (!read_words(line + 2, words, 2, count)) return false;
+    if (!read_words(line + 2, words, 5, count)) return false;
+    char buf[kPrintCap];
+
+    // ---- l'estat dels dos costats, que és el que `bt` sol demana ----
     if (count == 0 || strcmp(words[0], "status") == 0) {
-      char buf[kPrintCap];
-      snprintf(buf, sizeof(buf), "bluetooth: %s", bt::state_word());
-      out(buf);
+      // **Tres línies i prou** (0.190.195, l'amo: *«Podries ser mes clar: bluetooth: on/off, device: on/off, host: on/off»*): the whole
+      // radio first and then each end, que és el que una persona vol saber d'un cop d'ull; el detall de cadascun va darrere de la seva
+      // paraula, i no en una frase que barreja els dos costats (docs/30, docs/50).
+      if (!bt::available()) {
+        out("bluetooth: this board has no radio\r\n");
+        out("  device: off\r\n");
+        out("  host: off\r\n");
+        return true;
+      }
+      const bool device = bt::is_on();
+      const bool host = bt::host_is_up();
+      out(device || host ? "bluetooth: on\r\n" : "bluetooth: off\r\n");
+      out("  device: ");
+      out(device ? "on" : "off");
+      if (device) {
+        out(bt::is_a_mouse() ? ", a mouse" : ", a keyboard");
+        out(bt::connected() ? ", and a device is connected" : ", offered");
+      }
       newline();
-      if (bt::available()) {
-        snprintf(buf, sizeof(buf), "  the keyboard is %s%s", bt::is_on() ? "on" : "off",
-                 bt::connected() ? ", and a device is connected" : "");
-        out(buf);
-        newline();
+      out("  host: ");
+      out(host ? "on" : "off");
+      if (!bt::can_host()) {
+        out(" (this build has no host side)");
+      } else if (host) {
+        out(bt::host_connected() ? ", a keyboard is writing into this console" : ", free (bt host scan)");
+      }
+      newline();
+      // **Els detalls del que hi ha a l'altre cap**: the lights the host asked for and the mouse that is moving, which are two things a
+      // person cannot see any other way (docs/30, docs/50).
+      if (host && bt::host_connected()) {
+        if (bt::leds() != 0) {
+          snprintf(buf, sizeof(buf), "  the lights it was told: caps %s, num %s, scroll %s",
+                   (bt::leds() & 0x02) != 0 ? "on" : "off", (bt::leds() & 0x01) != 0 ? "on" : "off",
+                   (bt::leds() & 0x04) != 0 ? "on" : "off");
+          out(buf);
+          newline();
+        }
+        if (bt::mouse_seen()) {
+          snprintf(buf, sizeof(buf), "  a mouse: %d, %d and button(s) %u", static_cast<int>(bt::mouse_x()),
+                   static_cast<int>(bt::mouse_y()), static_cast<unsigned>(bt::mouse_buttons()));
+          out(buf);
+          newline();
+        }
       }
       return true;
     }
+
+    // **`bt on` no encén res** (0.190.194, l'amo: *«bt on no encén ni dev ni host, que s'han d'activar a ma cadascun»*): the radio has
+    // two ends and turning it on is a decision of each one —sigues un teclat per a algú, o escolta algú—, o sigui que aquesta paraula el
+    // que fa és dir les dues que hi ha (docs/30).
     if (strcmp(words[0], "on") == 0) {
-      if (!bt::available()) {
-        out("bluetooth: this board has no radio");
+      out("bluetooth: this board has two ends and each one is asked for itself:\r\n");
+      out("  bt dev on    be something for another device (a keyboard, or a mouse)\r\n");
+      out("  bt host on   listen to somebody else's keyboard or mouse\r\n");
+      return true;
+    }
+    // **I `bt off` els apaga tots dos** (l'amo: *«bt off ho apaga tot … Si es posen a off tant dev com host, bt ha de ser off»*).
+    if (strcmp(words[0], "off") == 0) {
+      bt::stop();
+      bt::host_off();
+      out("bluetooth: off\r\n");
+      return true;
+    }
+
+    // ---- el dispositiu: el que aquesta placa és per a un altre ----
+    if (strcmp(words[0], "dev") == 0) {
+      const char* which = (count > 1) ? words[1] : nullptr;
+      // **`bt dev keyboard on|off`**, que és el teclat i prou.
+      if (which != nullptr && strcmp(which, "keyboard") == 0) {
+        const char* how = (count > 2) ? words[2] : nullptr;
+        if (how == nullptr) {
+          out(bt::is_on() ? "bluetooth: the keyboard is on\r\n" : "bluetooth: the keyboard is off\r\n");
+          return true;
+        }
+        if (strcmp(how, "on") == 0) {
+          if (!bt::available()) {
+            out("bluetooth: this board has no radio\r\n");
+            return true;
+          }
+          if (bt::start(nullptr)) {
+            snprintf(buf, sizeof(buf), "bluetooth: the keyboard is offered as \"%s\"\r\n", bt::name());
+            out(buf);
+            out("  the waits of this board are spent awake while it is on\r\n");
+          } else {
+            out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
+          }
+          return true;
+        }
+        if (strcmp(how, "off") == 0) {
+          bt::stop();
+          out("bluetooth: the keyboard is off\r\n");
+          return true;
+        }
+        out("bluetooth: bt dev keyboard on|off\r\n");
+        return true;
+      }
+      // **El ratolí d'aquesta placa** (0.190.193, l'amo: *«opció B»*): the board is a keyboard **or** a mouse and never both, o sigui que
+      // el que fa `on` és canviar de cara —el report map, el report i l'aparença de l'anunci— i demanar que es torni a aparellar des de
+      // l'altre cap, que va llegir el mapa d'un teclat (docs/50).
+      if (which != nullptr && strcmp(which, "mouse") == 0) {
+        const char* how = (count > 2) ? words[2] : nullptr;
+        if (how == nullptr) {
+          out(bt::is_a_mouse() ? "bluetooth: this board is a mouse\r\n" : "bluetooth: this board is a keyboard\r\n");
+          return true;
+        }
+        if (strcmp(how, "on") == 0 || strcmp(how, "off") == 0) {
+          const bool mouse = (strcmp(how, "on") == 0);
+          if (!bt::available()) {
+            out("bluetooth: this board has no radio\r\n");
+            return true;
+          }
+          if (mouse && !bt::is_on() && !bt::start(nullptr)) {
+            out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
+            return true;
+          }
+          bt::be(mouse);
+          snprintf(buf, sizeof(buf), "bluetooth: this board is %s, offered as \"%s\"\r\n", mouse ? "a mouse" : "a keyboard",
+                   bt::name());
+          out(buf);
+          out("  pair it again from the other side: it read the map of the other one\r\n");
+          return true;
+        }
+        if (strcmp(how, "move") == 0) {
+          if (count < 5) {
+            out("bluetooth: bt dev mouse move <dx> <dy>\r\n");
+            return true;
+          }
+          if (!bt::is_a_mouse()) {
+            out("bluetooth: this board is a keyboard (bt dev mouse on)\r\n");
+            return true;
+          }
+          if (!bt::connected()) {
+            out("bluetooth: nobody is connected, so there is nowhere to move\r\n");
+            return true;
+          }
+          int dx = atoi(words[3]);
+          int dy = atoi(words[4]);
+          // **El report d'un ratolí de boot és de cent vint-i-set ençà**: un moviment més gran s'ha de fer a trossos, i el que es fa
+          // aquí és dir-ho en lloc de deixar que el signe es desbordi (docs/50).
+          if (dx < -127 || dx > 127 || dy < -127 || dy > 127) {
+            out("bluetooth: a report carries -127 to 127; ask for it in more than one move\r\n");
+            return true;
+          }
+          snprintf(buf, sizeof(buf), "bluetooth: moved by %d, %d\r\n", dx, dy);
+          out(buf);
+          bt::move(static_cast<int8_t>(dx), static_cast<int8_t>(dy));
+          return true;
+        }
+        if (strcmp(how, "click") == 0) {
+          if (!bt::is_a_mouse()) {
+            out("bluetooth: this board is a keyboard (bt dev mouse on)\r\n");
+            return true;
+          }
+          if (!bt::connected()) {
+            out("bluetooth: nobody is connected, so there is nothing to click\r\n");
+            return true;
+          }
+          const char* button = (count > 3) ? words[3] : "left";
+          uint8_t bits = 0x01;
+          if (strcmp(button, "right") == 0) bits = 0x02;
+          if (strcmp(button, "middle") == 0) bits = 0x04;
+          if (bits == 0x01 && strcmp(button, "left") != 0) {
+            out("bluetooth: bt dev mouse click [left|right|middle]\r\n");
+            return true;
+          }
+          bt::click(bits);
+          snprintf(buf, sizeof(buf), "bluetooth: clicked %s\r\n", button);
+          out(buf);
+          return true;
+        }
+        out("bluetooth: bt dev mouse [on|off|move <dx> <dy>|click [left|right|middle]]\r\n");
+        return true;
+      }
+      if (which != nullptr && (strcmp(which, "on") == 0 || strcmp(which, "off") == 0)) {
+        if (strcmp(which, "off") == 0) {
+          bt::stop();
+          out("bluetooth: this board offers nothing\r\n");
+          return true;
+        }
+        if (!bt::available()) {
+          out("bluetooth: this board has no radio\r\n");
+          return true;
+        }
+        if (bt::start(nullptr)) {
+          snprintf(buf, sizeof(buf), "bluetooth: this board is a keyboard, offered as \"%s\"\r\n", bt::name());
+          out(buf);
+          out("  the waits of this board are spent awake while it is on\r\n");
+        } else {
+          out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
+        }
+        return true;
+      }
+      if (which == nullptr) {
+        out(bt::is_on() ? "bluetooth: this board is a keyboard, offered\r\n" : "bluetooth: this board offers nothing\r\n");
+        return true;
+      }
+      out("bluetooth: bt dev [on|off|keyboard on|off|mouse [on|off|move <dx> <dy>|click]]\r\n");
+      return true;
+    }
+
+    // ---- l'amfitrió: el que aquesta placa escolta ----
+    if (strcmp(words[0], "host") == 0) {
+      if (!bt::can_host()) {
+        out("bluetooth: this board cannot be a host: no radio, or no central role in this build\r\n");
+        return true;
+      }
+      const char* which = (count > 1) ? words[1] : nullptr;
+      if (which == nullptr) {
+        snprintf(buf, sizeof(buf), "bluetooth: the host is %s",
+                 bt::host_connected() ? "a keyboard writing into this console" : "up and free");
+        out(buf);
         newline();
         return true;
       }
-      char buf[kPrintCap];
-      const char* name = (count > 1) ? words[1] : "lunokOS";
-      if (bt::start(name)) {
-        snprintf(buf, sizeof(buf), "bluetooth: the keyboard is offered as \"%s\"", name);
-        out(buf);
-        newline();
-        out("  the waits of this board are spent awake while it is on");
-        newline();
-      } else {
-        out("bluetooth: the radio did not come up, and the reason is in the log");
-        newline();
+      if (strcmp(which, "on") == 0) {
+        out(bt::host_on() ? "bluetooth: the host side is up; `bt host scan` looks for a keyboard\r\n"
+                          : "bluetooth: the radio did not come up\r\n");
+        return true;
       }
+      if (strcmp(which, "off") == 0) {
+        bt::host_off();
+        out("bluetooth: the host side is down\r\n");
+        return true;
+      }
+      // **Quants segons, i tres per defecte** (0.190.191, l'amo: *«Fes que l'scan bluetooth sigui una mica mes llarg afegeix un paràmetre
+      // a bt scan [segons]»*): three seconds is enough for a device that is advertising and not for one that is asleep, o sigui que el
+      // número és de la persona. Seixanta és el sostre (docs/30, docs/50).
+      if (strcmp(which, "scan") == 0) {
+        uint32_t seconds = 5;
+        if (count > 2) {
+          const int asked = atoi(words[2]);
+          if (asked < 1 || asked > 60) {
+            out("bluetooth: bt host scan [seconds], from one to sixty\r\n");
+            return true;
+          }
+          seconds = static_cast<uint32_t>(asked);
+        }
+        snprintf(buf, sizeof(buf), "bluetooth: listening for %u second(s)...\r\n", static_cast<unsigned>(seconds));
+        out(buf);
+        bt::Peer peers[8] = {};
+        const uint8_t found = bt::host_scan(seconds * 1000, peers, 8);
+        if (found == 0) {
+          out("bluetooth: nobody answered\r\n");
+          return true;
+        }
+        for (uint8_t i = 0; i < found; ++i) {
+          const bt::Peer& peer = peers[i];
+          // **Què és i amb quin senyal** (0.190.196): the appearance if it declared one, the service if not, and the signal always —una
+          // llista d'adreces no diu si el teclat és a mig metre o a l'altra punta de la casa, i el que no es diu no s'inventa (docs/50).
+          const char* what = (peer.appearance != 0) ? appearance_name(peer.appearance) : nullptr;
+          if (what == nullptr) what = (peer.service != 0) ? service_name(peer.service) : nullptr;
+          if (what == nullptr && peer.hid) what = "HID";
+          snprintf(buf, sizeof(buf), "  %u  %-24s %02X:%02X:%02X:%02X:%02X:%02X  %4d dBm  %s", static_cast<unsigned>(i),
+                   (peer.name[0] != '\0') ? peer.name : "(no name)", peer.addr[0], peer.addr[1], peer.addr[2],
+                   peer.addr[3], peer.addr[4], peer.addr[5], static_cast<int>(peer.rssi),
+                   (what != nullptr) ? what : "other");
+          out(buf);
+          newline();
+          // **I el que l'anunci no diu amb paraules**: the appearance and the service are printed as numbers when the tables above do not
+          // know them, perquè una dada que no s'entén és pitjor que una que no hi és (docs/50).
+          if ((peer.appearance != 0 && appearance_name(peer.appearance) == nullptr) || peer.service != 0) {
+            snprintf(buf, sizeof(buf), "     appearance 0x%04X, service 0x%04X%s", static_cast<unsigned>(peer.appearance),
+                     static_cast<unsigned>(peer.service), peer.hid ? ", and it announces HID" : "");
+            out(buf);
+            newline();
+          }
+        }
+        out("bluetooth: bt host pair <n> takes one of them\r\n");
+        return true;
+      }
+      if (strcmp(which, "pair") == 0) {
+        if (count < 3) {
+          out("bluetooth: bt host pair <n>, with the number of the list\r\n");
+          return true;
+        }
+        const int index = atoi(words[2]);
+        if (index < 0 || index >= 8) {
+          out("bluetooth: that is not a device of the list\r\n");
+          return true;
+        }
+        out("bluetooth: pairing...\r\n");
+        if (!bt::host_pair(static_cast<uint8_t>(index))) {
+          out("bluetooth: the keyboard did not take it; the reason is in the log\r\n");
+          return true;
+        }
+        out("bluetooth: the keyboard is yours, and what it writes comes to this console\r\n");
+        return true;
+      }
+      if (strcmp(which, "reconnect") == 0) {
+        if (bt::host_reconnect()) {
+          out("bluetooth: going back to the one that was paired here; `bt` says when it answers\r\n");
+        } else {
+          out("bluetooth: there is no bond to go back to (bt host scan)\r\n");
+        }
+        return true;
+      }
+      if (strcmp(which, "forget") == 0) {
+        bt::host_forget();
+        out("bluetooth: the bonds are gone\r\n");
+        return true;
+      }
+      out("bluetooth: bt host [on|off|scan [seconds]|pair <n>|reconnect|forget]\r\n");
       return true;
     }
-    if (strcmp(words[0], "off") == 0) {
-      bt::stop();
-      out("bluetooth: the keyboard is off");
-      newline();
-      return true;
-    }
+
+    // ---- el teclat virtual escrivint a l'altre aparell ----
     if (strcmp(words[0], "type") == 0) {
       // Everything after the verb, spaces included, is the text: a person writing into a keyboard writes a line, not a word.
       const char* text = line + 2;
@@ -5907,23 +6334,19 @@ bool execute(char* line) {
       if (strncmp(text, "type", 4) == 0) text += 4;
       while (*text == ' ') ++text;
       if (*text == '\0') {
-        out("bluetooth: nothing to write (bt type <text>)");
-        newline();
+        out("bluetooth: nothing to write (bt type <text>)\r\n");
         return true;
       }
       if (!bt::connected()) {
-        out("bluetooth: nobody is connected, so there is nowhere to write");
-        newline();
+        out("bluetooth: nobody is connected, so there is nowhere to write\r\n");
         return true;
       }
-      char buf[kPrintCap];
       snprintf(buf, sizeof(buf), "bluetooth: %u character(s) written", static_cast<unsigned>(bt::type(text)));
       out(buf);
       newline();
       return true;
     }
-    out("bluetooth: bt [on [name]|off|type <text>]");
-    newline();
+    out("bluetooth: bt [dev [on|off|keyboard on|off|mouse on|off]|host [on|off|scan [seconds]|pair <n>|reconnect|forget]|type <text>]\r\n");
     return true;
   }
   // **I els blocs, un a un** (0.190.0): `mem` diu els totals de cada casa i qui té quant; `mem blocks` baixa a la llista de
@@ -6141,6 +6564,16 @@ bool execute(char* line) {
     log_dump();
     return true;
   }
+  // **El registre en directe, i només quan es demana** (0.190.185, l'amo: *«fes que el log no s'envii al serie. per això está la comanda
+  // log»*, i *«log follow mostra el log a temps real»*): the mirror that a wire no longer gets is opened by hand, and the prompt stops
+  // taking lines until the two keys that stop anything here stop this —Control+C and one Escape— because a line typed in the middle
+  // of a stream is a line lost to the stream (docs/30).
+  if (strcmp(line, "log follow") == 0) {
+    log_echo(true);
+    g_log_follow = true;
+    out("log: following. Control+C or Escape stops it\r\n");
+    return true;
+  }
   // **What the system costs, counted at the door.** A count, a time and the moment of the last call for
   // every device the system has touched, and `stats reset` for a run that has to be measured from zero
   // (docs/30, docs/95).
@@ -6154,15 +6587,10 @@ bool execute(char* line) {
     return true;
   }
   if (strcmp(line, "clear") == 0) {
-    // **El codi només va a un terminal** (0.190.92): una canonada o una línia sèrie no reben `ESC [ 2 J`, que serien quatre caràcters de
-    // brossa al mig del seu fitxer. La pregunta és la de la plataforma —el console diu si és un terminal— i no la detecció que hi havia
-    // abans, perquè aquesta casa ja no pregunta res (docs/85).
-    pal::IConsole* console = pal::system().console();
-    if (console == nullptr || !console->ansi()) {
-      error_out("clear: this console is not a terminal\r\n");
-      return false;
-    }
-    out("\x1b[2J\x1b[H");
+    // **Un terminal sense codis es neteja fent pujar el paper** (0.190.187, l'amo: *«Encara queden coses amb ansi! Busca per tot el codi
+    // restes d'ansi i treu-lo»*): `ESC [ 2 J` només ho entén un terminal i és brossa a qualsevol altre lloc, i el que entén tothom —el
+    // cable, el vidre, una canonada— són els salts de línia (docs/30, docs/85).
+    wipe_the_paper();
     return true;
   }
   if (strcmp(line, "reboot") == 0) {
@@ -6318,6 +6746,9 @@ bool execute(char* line) {
 }
 
 void feed(const char* data, size_t len) {
+  // **Un byte és una persona al cable** (0.190.184): the clock of the session starts again with every byte, and what the turn asks is whether
+  // five minutes have gone by since this one (docs/60).
+  g_last_wire_activity_ms = pal::system().millis();
   // **Amb el teclat del cable, el que arriba pel port és de la caixa amb el focus** (0.189.21): the `serial` keyboard is a
   // claim on the wire and nothing on the glass, and every byte that arrives while a box that takes keys has the focus is a
   // key of that box —the same door the band uses—. Neither the prompt nor the console of the app sees it, which is the whole
@@ -6353,6 +6784,23 @@ void feed(const char* data, size_t len) {
       newline();
       out("login: a new session\r\n");
       prompt();
+      // **I el pany torna** (0.190.184): el despertar per la consola i aquest Enter són el mateix moment, o sigui que el xip no ha de poder
+      // tornar a adormir-se mentre la persona és al prompt (docs/60).
+      sync_the_wire_lock();
+      continue;
+    }
+
+    // **`log follow` té el teclat mentre dura** (0.190.185): the bytes of a person who is watching a stream are not the first
+    // letters of a line —the prompt is not asking for one—, so the only two that mean anything are the two that stop it:
+    // Control+C and **one** Escape, caught here before the escape parser turns them into a key of a sequence (docs/30).
+    if (g_log_follow) {
+      if (c == 0x03 || c == 0x1b) {
+        g_log_follow = false;
+        log_echo(!a_wire_console());
+        newline();
+        out("log: not following any more\r\n");
+        prompt();
+      }
       continue;
     }
 
@@ -6473,12 +6921,34 @@ void feed(const char* data, size_t len) {
       // The question of the selector is its own prompt: printing "lunok> " there
       // left the person answering after a prompt that belongs to the shell.
       // **And a detached app does not own the prompt**: it is the shell's, which is what `&` bought (0.160.0).
-      if ((!g_app_alive || g_app_detached) && !g_choosing && !native_running()) prompt();
+      if ((!g_app_alive || g_app_detached) && !g_choosing && !native_running() && !g_log_follow) prompt();
     } else if (c == 0x7f || c == 0x08) {
-      if (g_editor.backspace()) redraw_line();
+      // **Al final de la línia només marxa el caràcter** (0.190.190, l'amo: *«podem fer mes responsiu el teclat al port serie? … a vegades
+      // costa de teclejar»*): reescrivint la línia sencera per cada tecla, escriure una ordre llarga costa set bytes de prompt més tota la
+      // línia **a cada tecla**, i això creix amb el que has escrit. Amb el cursor a la dreta de tot, un `\b \b` és el mateix dibuix i
+      // tres bytes. Quan el cursor és al mig —o hi ha espais a esborrar— es reescriu, que és quan el redibuix és el que cal (docs/30, docs/85).
+      const bool at_the_end = (g_editor.cursor() == g_editor.length());
+      if (g_editor.backspace()) {
+        if (at_the_end) {
+          out("\b \b");
+          if (g_visible > g_prompt_len) --g_visible;
+        } else {
+          redraw_line();
+        }
+      }
     } else if (c >= 0x20 && c < 0x7f) {
       g_esc = 0;
-      if (g_editor.insert(c)) redraw_line();
+      const bool at_the_end = (g_editor.cursor() == g_editor.length());
+      if (g_editor.insert(c)) {
+        if (at_the_end) {
+          // **Un byte i prou**: the line grows to the right and the terminal already has the rest, o sigui que el que s'escriu és el
+          // caràcter que s'ha premut i no la línia (docs/30, docs/85).
+          out_bytes(&c, 1);
+          ++g_visible;
+        } else {
+          redraw_line();
+        }
+      }
     }
   }
 }

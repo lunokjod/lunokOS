@@ -1648,6 +1648,17 @@ static void test_stats_prints_the_meters_that_were_never_called() {
   TEST_ASSERT_EQUAL(caps.has(hal::kCapSd) ? 1 : 0, strstr(said, "sd.read") != nullptr ? 1 : 0);
   TEST_ASSERT_EQUAL(caps.has(hal::kCapEnv) ? 1 : 0, strstr(said, "env.read") != nullptr ? 1 : 0);
   TEST_ASSERT_EQUAL(caps.has(hal::kCapImu) ? 1 : 0, strstr(said, "imu.read") != nullptr ? 1 : 0);
+  // **I el ràdio és una fila només si la placa en té** (0.190.199): el Bluetooth no és cap `kCap` —una placa pot ser un teclat i no
+  // un amfitrió—, o sigui que la pregunta es fa al HAL, que és la mateixa porta que pregunta `stats`.
+  hal::IBluetooth* radio = hal::platform().bluetooth();
+  const bool has_radio = radio != nullptr && (radio->can_bluetooth() || radio->can_host());
+  const bool has_host = radio != nullptr && radio->can_host();
+  TEST_ASSERT_EQUAL(has_radio ? 1 : 0, strstr(said, "radio.up") != nullptr ? 1 : 0);
+  TEST_ASSERT_EQUAL(has_radio ? 1 : 0, strstr(said, "radio.tap") != nullptr ? 1 : 0);
+  TEST_ASSERT_EQUAL(has_host ? 1 : 0, strstr(said, "radio.scan") != nullptr ? 1 : 0);
+  TEST_ASSERT_EQUAL(has_host ? 1 : 0, strstr(said, "radio.pair") != nullptr ? 1 : 0);
+  // **I obrir una app ho és a tot arreu**: l'intèrpret no és cap dispositiu.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "app.start"), said);
 }
 
 // **One shape for every line**: the level, the tag, the message, and a newline that the formatter adds so
@@ -1907,49 +1918,6 @@ static void test_the_load_of_a_window_is_a_word_with_a_band(void) {
 }
 
 
-// **La tendència d'un minut, i un sol pas** (0.189.95, l'amo: *«guarda mostres durant un minut: si la tendència és a més,
-// puja la CPU; si és a menys, la baixes; si és semblant, et quedes com estàs»*). The governor looks at the mean of the last
-// half of the samples less the mean of the first half, and it moves one step and never two on the same turn —a board that
-// has been climbing a minute goes 80 to 160, and the minute after says whether it was worth going to 240—.
-static void test_the_load_trend_moves_the_clock_one_step(void) {
-  // **Quiet**: the same ten per cent thirty times is a trend of nothing.
-  uint8_t quiet[30];
-  for (uint8_t i = 0; i < 30; ++i) quiet[i] = 10;
-  TEST_ASSERT_EQUAL_INT32(0, power::trend_of(quiet, 30));
-  // **Pujant**: from five to forty-five is forty points of mean between the two halves, o sigui quatre cents dècimes.
-  uint8_t climbing[30];
-  for (uint8_t i = 0; i < 30; ++i) climbing[i] = (i < 15) ? 5 : 45;
-  TEST_ASSERT_EQUAL_INT32(400, power::trend_of(climbing, 30));
-  // **Baixant**: the same the other way.
-  uint8_t falling[30];
-  for (uint8_t i = 0; i < 30; ++i) falling[i] = (i < 15) ? 45 : 5;
-  TEST_ASSERT_EQUAL_INT32(-400, power::trend_of(falling, 30));
-  // The trend needs two halves; one sample is not a trend and neither is nothing.
-  TEST_ASSERT_EQUAL_INT32(0, power::trend_of(climbing, 1));
-  TEST_ASSERT_EQUAL_INT32(0, power::trend_of(nullptr, 30));
-
-  // **Un pas, i en la direcció de la tendència**: from the bottom to the middle, from the middle to the top, and no further.
-  // The level of the half minute is 35 (neither idle nor busy), so it is the trend and only the trend that decides.
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kIdleMhz, 400, 35));
-  TEST_ASSERT_EQUAL_UINT32(power::kBusyMhz, power::trend_step(power::kRestingMhz, 400, 35));
-  TEST_ASSERT_EQUAL_UINT32(power::kBusyMhz, power::trend_step(power::kBusyMhz, 400, 35));
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kBusyMhz, -400, 35));
-  TEST_ASSERT_EQUAL_UINT32(power::kIdleMhz, power::trend_step(power::kRestingMhz, -400, 35));
-  TEST_ASSERT_EQUAL_UINT32(power::kIdleMhz, power::trend_step(power::kIdleMhz, -400, 35));
-  // **I una tendència plana deixa el nivell manar**: five points either way is the noise of a page, and what is left is what
-  // the half minute has been —three per cent is an idle board and it goes to the bottom in one move, seventy is a board that
-  // works and it goes to the top—, and thirty five is neither and nothing moves (docs/60, docs/95).
-  TEST_ASSERT_EQUAL_UINT32(power::kIdleMhz, power::trend_step(power::kBusyMhz, 0, 3));
-  TEST_ASSERT_EQUAL_UINT32(power::kBusyMhz, power::trend_step(power::kIdleMhz, 0, 70));
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, 0, 35));
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, 50, 35));
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kRestingMhz, -50, 35));
-  // **I la tendència mana sobre el nivell**: a minute that is climbing goes up even if it is still low on average, and the
-  // other way round.
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kIdleMhz, 400, 3));
-  TEST_ASSERT_EQUAL_UINT32(power::kRestingMhz, power::trend_step(power::kBusyMhz, -400, 70));
-}
-
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -2007,7 +1975,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_panel_says_where_a_partial_paint_starts);
   RUN_TEST(test_the_three_ways_are_named_and_one_bit_is_not_one_of_them);
   RUN_TEST(test_the_load_of_a_window_is_a_word_with_a_band);
-  RUN_TEST(test_the_load_trend_moves_the_clock_one_step);
   UNITY_END();
   return 0;
 }

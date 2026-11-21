@@ -6,6 +6,7 @@
 #include "alarms/alarms.h"
 #include "hal/civil.h"
 #include "kernel/apps.h"
+#include "kernel/bluetooth.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
 #include "kernel/fs_ops.h"
@@ -671,6 +672,10 @@ void boot(hal::IPlatform& platform) {
   serial_ops.claimed = &serial::claimed;
   luabind::set_serial_ops(serial_ops);
   net::boot(platform);
+  // **I el camí de les tecles de l'aire** (0.190.188): the radio hands the eight bytes of a HID report to this system, and from here they
+  // are the same bytes as the wire's —`shell::feed`—, o sigui que el prompt i les apps no han de saber d'on vénen. S'instal·la sempre i no
+  // quan algú s'hi lliga: un punter instal·lat no costa res i el camí ja hi és el dia que el teclat truca (docs/30, docs/50).
+  bt::set_the_host_sink();
   // **The apps are not looked at here on purpose**: `/apps` is walked when a command asks for it
   // (`apps`, `ls`, `run`), so the boot does not depend on how many apps the disk carries (docs/10, docs/40).
 
@@ -1049,6 +1054,9 @@ void poll() {
   // just arrived is already queued when it wakes up. **And it does not get it while the card of the system is out**
   // (0.179.42, the pause above): the coroutine waits, the hooks wait, and the page under the card is left as it was.
   if (!the_card_is_out) shell::poll_app();
+  // **I la sessió del cable, que tanca sola** (0.190.184): five minutes without a byte is a person who is not there, and the session closing
+  // is what lets the chip sleep again (docs/30, docs/60).
+  shell::poll_idle();
 
   // **The caret of the keyboard blinks without the app** (0.92.0): the block of the box the keys go to is turned here,
   // between turns, and the box is painted with a `du`; an app that only waits still has a cursor (docs/30, docs/90).

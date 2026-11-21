@@ -77,6 +77,16 @@ enum Id : uint8_t {
   // The interpreter: **every call an app makes into the system**, counted and timed by the
   // interpreter's own hook (docs/30).
   kLuaCall,
+  // **El ràdio de Bluetooth** (0.190.199, l'amo: *«la comanda stats s'està quedant enrere… no trobo el bluetooth… calen sondes per tot
+  // arreu»*): encendre la pila —que és el que costa vint-i-nou kilobytes de heap—, explorar, lligar-se a un aparell i una tecla
+  // enviada, que són les quatre feines del ràdio i cap d'elles era mesurada enlloc (docs/50, docs/95).
+  kRadioUp,
+  kRadioScan,
+  kRadioPair,
+  kRadioTap,
+  // **I arrencar una app**, que és el que una persona espera quan prem una cel·la: crear l'intèrpret, compilar el tros i fer el primer
+  // torn. El metre de cada app diu el que gasta mentre corre; això diu el que costa obrir-la (docs/30, docs/75).
+  kAppStart,
   kCount,
 };
 

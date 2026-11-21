@@ -100,7 +100,7 @@ fitxer `cfg/console.json` encara no es llegeix.
 
 `sys.caps()` torna una taula plana. Cada clau és `true` o `false`:
 
-`console`, `ansi`, `display`, `input`, `led`, `imu`, `env`, `littlefs`, `sd`, `nvs`, `rtc`, `rtc_wake`,
+`console`, `display`, `input`, `led`, `imu`, `env`, `littlefs`, `sd`, `nvs`, `rtc`, `rtc_wake`,
 `net_wifi`, `net_http`, `net_prov`, `battery`, `sleep_light`, `sleep_deep`.
 
 `rtc` és el **domini RTC del xip** —el temporitzador i la memòria que sobreviu al son profund—, no un
@@ -115,8 +115,8 @@ La regla de la llista, perquè no s'hi busqui el que no hi ha:
 - **Hi ha interfícies i hi ha propietats d'una interfície.** `console`, `display`, `input`, `led`,
   `imu`, `env`, `littlefs`, `sd`, `nvs`, `rtc` i `net_wifi` són interfícies (una peça que pot ser
   `nullptr`); `rtc_wake`, `sleep_light`, `sleep_deep` i `battery` són propietats de les del rellotge i
-  de l'energia, i `net_http` i `net_prov` de la de xarxa. `ansi` és l'única que no és maquinari: és si
-  el terminal de l'altra banda entén els colors.
+  de l'energia, i `net_http` i `net_prov` de la de xarxa. **Totes són maquinari o una manera de
+  parlar-ne**: `ansi` va marxar amb els codis d'escapament (0.190.187).
 - **Els números i les formes no són capacitats, són dades**: quantes tecles hi ha i de quina mena és
   `button.list()`; quants llums, `led.count()`; quants bytes queden, `fs.space()` i `sys.heap()`. Una
   capacitat que digués «tres tecles» seria una segona veritat que es pot desdir de la primera.
@@ -466,27 +466,35 @@ Dues regles:
 - **Un nom desconegut no es pot ignorar.** Si `sys.board` no és cap dels que l'app entén, ho diu i
   surt; no es queda provant maquinari a cegues.
 
-### `ui`, `canvas`, `keyboard`, `font` i `epub` **no existeixen** en una placa sense pantalla (0.179.9)
+### L'API és la mateixa a totes les plaques, i és la crida qui diu que no (0.190.183)
 
-**A les quatre plaques sense vidre —els dos ATOM, l'ESP32 de DevKit i el T-Koala— aquestes cinc taules no hi són, i no
-hi són perquè el seu codi no s'ha compilat**: la pàgina sencera, el lector de llibres, les cares de la lletra i les
-llibreries que els donen suport (`epub`, `zip`, `inflate`, `ttf` i `img`) queden fora del build amb un sol
-`LUNOK_GLASS 0` de la identitat de la placa (docs/50, docs/75). Una app que les toqui no falla a mig fer: peta a la
-primera línia amb `attempt to index a nil value (global 'ui')`, que és el mateix que dir que en aquesta placa no hi ha
-pàgina.
+L'amo: *«Deixa lua com està, simplement retorna que no es possible. L'API hauría ser igual per tots, si no quina gracia té?»*. Fins a la
+0.190.182 les taules de la pàgina —`ui`, `canvas`, `keyboard`, `font`, `epub` i `term`— **no existien** en una placa sense vidre, perquè el
+seu codi no es compilava (0.179.9). El que veia una app era:
 
 ```lua
--- i per tant això no és una app d'aquest sistema sense una comprovació abans
-if not sys.caps().display then
-  console.print('aquest build no porta pàgina')
-  return
-end
+attempt to index a nil value (global 'ui')
 ```
 
-**El que sí que hi és sempre**: `sys`, `fs`, `net`, `http`, `json`, `qr` (un QR s'imprimeix en text i una placa sense
-pantalla el necessita per al provisioning), `button`, `led`, `serial`, `power`, `imu`, `env`, `alarm`, `time`, `apps`, `app`,
-`require` i la consola. La frontera és el **vidre** i no «el que dibuixa»: una placa amb pantalla i sense tàctil té `ui` i
-no té dit, i una sense pantalla no té cap de les dues (docs/50).
+i això és una mentida sobre l'API: diu «aquesta funció no és d'aquest sistema» quan el que passa és «aquesta placa no pot fer-ho». **Ara les
+taules hi són a totes les plaques i la crida contesta**:
+
+```lua
+local box, why = ui.label(120, 24)
+-- box = nil, why = { code = 'E_UNSUPPORTED', message = 'this board has no display' }
+```
+
+O sigui que una app es pot escriure una vegada i comprovar a la resposta, i no ha de preguntar de quina placa és abans de decidir si el codi
+pot existir. **`sys.caps().display` continua sent la manera de saber-ho abans de dibuixar res** —preguntar és més barat que provar—, però ja
+no és l'única porta: una crida que no es pot fer torna `nil, error` com qualsevol altra.
+
+**El que continua sense compilar-se és el maquinari**: la pàgina sencera del nucli (`ui.cpp`, `font.cpp`, `book.cpp`, `splash.cpp`,
+`display.cpp`, `bar.cpp`, `touch.cpp`) i les llibreries que els donen suport (`epub`, `zip`, `inflate`, `ttf`, `img`) queden fora del build
+amb un `LUNOK_GLASS 0`, i `no_glass.cpp` respon els mateixos símbols amb una resposta curta. El que canvia és el **pont de Lua**, que és el
+mateix a tot arreu: 79 KB de codi i 840 B de RAM a l'ATOM, que és el preu de tenir una sola API (docs/50, docs/75).
+
+**I el QR no s'hi inclou** (l'amo: *«jo no em desfaria de qr si te possibilitat de generar un text ASCII»*): `qr.encode` torna `modules`, la
+matriu de mòduls, o sigui que una placa sense vidre el pot imprimir en text pel port sèrie o en una pàgina d'un SoftAP.
 
 ## `apps`
 
@@ -697,19 +705,19 @@ console.print("has dit: " .. line)
 
 ## `term`
 
-Codis ANSI per fer interfícies de text. Si `sys.caps().ansi` és `false`, les funcions no fan res i
-no donen error (un terminal que no els entén no s'ha de trencar).
+**La mida d'una pàgina de text, i res que escapi** (0.190.187, l'amo: *«Encara queden coses amb ansi!
+Busca per tot el codi restes d'ansi i treu-lo»*). Hi havia `term.clear`, `reset`, `color`, `move` i els
+dos del cursor, i tots sis escrivien `ESC [ … m` al port: text que una persona no ha escrit, que el
+registre no ha de portar i que a una canonada o a la consola del vidre és brossa. Amb ells van marxar
+les constants de color, que només existien per a `term.color`.
 
 | Crida | Notes |
 |---|---|
-| `term.clear()` / `term.reset()` | Esborra la pantalla / torna a l'estat normal |
-| `term.color(fg[, bg])` | Colors de la taula de constants |
-| `term.move(row, col)` | Cursor (1,1 és a dalt a l'esquerra) |
-| `term.hide_cursor()` / `term.show_cursor()` | |
 | `term.width()` / `term.height()` | Amplada i alçada en caràcters, de `cfg/console.json`; per defecte 80×24 |
 
-Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `term.MAGENTA`,
-`term.CYAN`, `term.WHITE`, `term.BOLD`, `term.DIM`.
+El que una app vol fer amb una pàgina de text —esborrar-la, canviar de línia, pintar un títol— ho fa
+amb `console.print` i amb els espais que calgui: **el sistema no parla codis d'escapament**, i `clear`
+del prompt neteja fent pujar el paper (vint-i-quatre línies buides), que és el que entén tothom.
 
 ## `time`
 
@@ -860,7 +868,7 @@ consola no acceptaria (docs/30, docs/70).
 | `bt.connected()` | booleà | **Si hi ha un aparell connectat a l'altre cap** (0.190.180): un teclat que no ho diu envia caràcters al buit (docs/50) |
 | `bt.type(<text>)` | enter | **Escriure un text a l'aparell connectat** (0.190.180), caràcter a caràcter, i la resposta és quants n'han sortit. **Zero no és un error**: vol dir que el teclat és apagat o que no hi ha ningú a l'altre cap, i el que no ha sortit no s'inventa. La taula de caràcters és la del teclat dels EUA (lletres, dígits, espai, retorn de carro, tabulador i els símbols amb Shift); un caràcter que no hi és no envia res (docs/30) |
 | `cfg.loglevel([paraula])` | cadena o `nil, error` | **Quantes línies vol veure una persona** (0.190.89, `cfg loglevel debug\|info\|warn\|error` i la fila *Log level* de la pestanya System): el **llindar del registre del sistema** i no un filtre de l'app, o sigui que val igual per a les línies dels conductors, per a les del nucli i per a les frases. **`debug` és el de sèrie i vol dir tot** —el que el sistema ha escrit sempre—; `info` deixa fora les línies de feina, `warn` les que només diuen el que passa i `error` només les que fallen. Baixar-lo **no esborra res del que ja hi ha** al cercle, només fa que el que ve no hi arribi. Una paraula que no és cap de les quatre és `E_INVAL` i el llindar es queda com era; el valor torna com el que el registre obeeix i **es desa** (docs/50). **I hi ha línies que no filtra** (0.190.114): la del canvi de cada ajust (`[I][NVS] cfg/<clau> = <valor>`) i la que diu que la botiga s'ha escrit a la baixada, perquè són respostes a una cosa que una persona ha fet i no traces (docs/70) |
-| `cfg.idle([seconds])` | enter o `nil, error` | **Quanta quietud abans del son profund** (0.190.9, `cfg idle [300\|600\|900]` i la fila *Sleep after* de la pestanya Battery): els segons que la política espera sense cap mà a la placa abans d'apagar-la fins a la propera alarma. **Tres-cents, sis-cents o nou-cents —cinc, deu o quinze minuts, els mateixos tres del pany— i res més** —un altre número és `E_INVAL` i no es desa—, el de sèrie són cinc minuts, i el que torna és el que la política llegirà al pròxim torn, no el que la pàgina ha demanat (docs/30, docs/60) |
+| `cfg.idle([seconds])` | enter o `nil, error` | **Quanta quietud abans del son profund** (0.190.9, `cfg idle [5\|10\|15]` i la fila *Sleep after* de la pestanya Battery): els segons que la política espera sense cap mà a la placa abans d'apagar-la. **Tres-cents, sis-cents o nou-cents —cinc, deu o quinze minuts, els mateixos tres del pany— i res més** —un altre número és `E_INVAL` i no es desa—, el de sèrie són cinc minuts, i el que torna és el que la política llegirà al pròxim torn, no el que la pàgina ha demanat. **L'API és en segons i la comanda del prompt en minuts** (0.190.186): `cfg idle 5` i `cfg idle 300` són el mateix, perquè el que una persona diu és cinc minuts i el que escriu una app són segons (docs/30, docs/60) |
 
 - **Les de lectura i escriptura són la mateixa crida i el valor és la resposta**: `cfg.cursor()` diu el que hi ha i
   `cfg.cursor(600)` escriu i torna el que ha quedat, o sigui que una pàgina que ensenya el que ha demanat **no pot mentir**
@@ -870,6 +878,11 @@ consola no acceptaria (docs/30, docs/70).
 - **El que és de l'app no hi és**: `cfg` no té ni el tema d'una pàgina ni la pestanya on era una persona. Això és la sessió
   `state` (docs/30 § «La sessió `state`»), i la línia entre les dues és la de sempre: **una preferència del sistema és de
   `cfg` i el que la persona va deixar a mitges al vidre és de `state`**.
+- **L'amfitrió de Bluetooth no té API de Lua, i és a propòsit** (0.190.188): les comandes del prompt són l'única porta, perquè el
+  que fan és **lligar-se a un aparell que hi ha a l'aire** —una acció d'una persona en un moment, com endollar un teclat— i una app
+  que s'hi lligués sola seria una app decidint per qui té la placa a la mà. Des de la 0.190.192 els dos costats de la ràdio es diuen
+  per seu: **`bt dev ...`** és el que la placa **és** (el teclat, i un dia un ratolí) i **`bt host ...`** el que **escolta**
+  (`on|off|scan [segons]|pair <n>|reconnect|forget`). **El que el teclat escriu arriba a la consola com si vingués del cable** (docs/50).
 - **El que encara no hi és**: la llista blanca de freqüències de la CPU, la política de miniatures, les sessions al disc, el
   NTP a l'arrencada, el paper pintat de fons, el PIN i els temps de son no són a `cfg` perquè **el nucli encara no els té
   com a ajust**: una porta que no fa res és pitjor que una porta que no hi és (docs/45 § «El panell d'ajustos»).
@@ -4104,13 +4117,16 @@ fila que no existeix en aquesta placa, i una fila a zero és una fila que existe
   conductor o la part del sistema que parla —`PANEL`, `TOUCH`, `SD`, `I2C`, `WIFI`, `POWER`, `FS`,
   `VFS`, `APPS`, `UI`, `METER`…—. Una línia sense etiqueta no existeix, amb la sola excepció de les frases
   fetes per a una persona que diu el punt següent.
-- **El log es mira a la consola mentre el sistema arrenca** (`verbose off` el calla) i es queda al
-  **cercle de 2 KB** que `log` aboca. Els conductors no depenen del nucli i no poden cridar-lo: formategen
-  la línia i la donen a un *sink* que el nucli instal·la, i per això la línia d'un conductor acaba al
-  mateix cercle que les altres (docs/50, docs/85).
+- **El registre no es copia al cable** (0.190.185, l'amo: *«fes que el log no s'envii al serie. per això está la
+  comanda log»*): al port sèrie les línies del sistema són soroll al mig del que una persona escriu, o sigui que el
+  mirall només s'obre sol on la consola és un emulador o el vidre, i al cable es demana —`log` aboca el **cercle de
+  2 KB** i `log follow` el fa córrer fins que es prem Control+C o un sol Escape—. Una línia `[E]` hi passa sempre i
+  fora de torn: la placa que no arriba a pintar el prompt no té cap `log` per demanar-li res (docs/50, docs/85).
+- **Els conductors no depenen del nucli i no poden cridar-lo**: formategen la línia i la donen a un *sink* que el
+  nucli instal·la, i per això la línia d'un conductor acaba al mateix cercle que les altres (docs/50, docs/85).
 - **Una línia diu números**: quants bytes, quants mil·lisegons, quina adreça. Una frase sense cap número
   és una línia que no serveix per a res quan la placa és a la mà.
-- **el port sèrie és una còpia del cercle i no una segona sortida** (0.179.55): tot el que surt pel port
+- **el port sèrie, quan en rep, és una còpia del cercle i no una segona sortida** (0.179.55): tot el que surt pel port
   del sistema és al cercle, i `log` ho torna a ensenyar. Les línies que es van escriure directament al port
   i no al cercle —les tres pulsacions (`button: three taps, closing the app`) i el son (`power: woke on
   the timer…`)— ara hi passen amb `log_say`, que les desa **amb les seves paraules**: són frases per a una
@@ -4118,6 +4134,17 @@ fila que no existeix en aquesta placa, i una fila a zero és una fila que existe
   segona mena de log.
 - **qui no passa pel cercle és la shell i les apps**: el prompt i el que una app escriu amb `console.print`
   van al port (o a la seva sessió) i no al log, perquè són l'usuari del port i no el sistema (docs/40).
+
+Les tres maneres de mirar-lo, totes al prompt:
+
+| Comanda | Què fa |
+|---|---|
+| `log` | Aboca el cercle i torna |
+| `log follow` | El cercle **en directe**: la línia surt quan s'escriu. El teclat és del registre fins que es prem **Control+C** o **un sol Escape** —llavors torna el prompt— i el que s'hi escrigui mentrestant no és cap línia de comanda |
+| `verbose on` / `verbose off` | Deixa el mirall obert o tancat **per sempre**, que és el que `log follow` fa per una estona |
+
+El mirall es queda com el deixa `verbose`, i un `logout` el torna al que és la consola: obert a l'emulador i al
+vidre, tancat al cable (docs/60).
 
 ## `touch`
 

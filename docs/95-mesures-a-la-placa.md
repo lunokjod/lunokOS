@@ -53,7 +53,7 @@ exit
 
 I tot seguit **desendolla el cable USB** (si no el desendolles, la placa no cau i el que es mesura
 és el temporitzador del xip, no el quars). Passat el temps de *Sleep after* sense ningú a la consola
-—cinc minuts si no s'ha tocat el desplegable, i es pot abaixar a cop de `cfg idle 300`—, el nucli
+—cinc minuts si no s'ha tocat el desplegable, i es pot abaixar a cop de `cfg idle 5`—, el nucli
 s'apaga sol fins a l'alarma; al cap de deu minuts la placa s'ha d'encendre **tota sola**, arrencar i
 ensenyar `ALARM wake up … late N ms`.
 
@@ -824,6 +824,9 @@ lunok> stats
 | `lua.run` alt i `lua.own` baix | l'app passa el temps demanant coses, no calculant |
 | `turns` alt amb `kernel` baix | el nucli dona moltes voltes curtes: el que espera és un esdeveniment |
 | `lua.own` d'un bucle conegut | **el preu d'una instrucció d'aquest intèrpret**: un bucle de deu mil sumes i la fila `lua.own` dona els ns per instrucció que s'han de posar a `--lua-cpu` (avui el model en diu **60 ns a 160 MHz**, docs/85). Des de la 0.169.3 no cal escriure el bucle: **`run luaperf`** el mesura i diu el número |
+| `radio.up` amb un **total** alt i poques crides | la pila s'encén i s'apaga massa: cada encendre és el heap del ràdio i el que la placa no té si no hi ha PSRAM (docs/50) |
+| `radio.tap` a prop de **12 ms** de mitjana | no és lentitud: és l'espera entre prémer i deixar anar, i el terra d'escriure una tecla per l'aire |
+| `radio.scan` i `radio.pair` amb un **màxim** de segons | un aparell que no contesta o una lligadura que es refusa: es mira el registre, que diu quin dels dos |
 
 **I el número que decideix si el pressupost d'un torn és massa gran és el de `run luaperf`** (0.169.3): el bucle de
 tres instruccions que compta el bytecode —el mínim de tres tirades, amb el vidre quiet— i, després, mitja segona de

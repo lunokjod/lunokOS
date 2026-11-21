@@ -93,6 +93,18 @@ bool available(uint8_t id) {
       return caps.has(hal::kCapWifi);
     case kNetHttp:
       return caps.has(hal::kCapHttp);
+    // **El ràdio només té les files del que pot fer**: un ATOM sense el Bluetooth al build no ha d'ensenyar `radio.up` amb un zero,
+    // i una placa sense el rol central no ha d'ensenyar l'exploració (docs/50).
+    case kRadioUp:
+    case kRadioTap: {
+      hal::IBluetooth* radio = hal::platform().bluetooth();
+      return radio != nullptr && (radio->can_bluetooth() || radio->can_host());
+    }
+    case kRadioScan:
+    case kRadioPair: {
+      hal::IBluetooth* radio = hal::platform().bluetooth();
+      return radio != nullptr && radio->can_host();
+    }
     default:
       // The boot, the turns of the kernel, the interpreter and the processor: the build has them all.
       return true;
@@ -137,6 +149,11 @@ const char* const kNames[kCount] = {
     "net.http",
     "net.ntp",
     "lua.call",
+    "radio.up",
+    "radio.scan",
+    "radio.pair",
+    "radio.tap",
+    "app.start",
 };
 char g_app[32] = {0};
 Entry g_app_start = {0, 0, 0, 0, 0};

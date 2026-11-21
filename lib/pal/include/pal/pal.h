@@ -76,7 +76,6 @@ class IConsole {
     (void)cap_ms;
     return true;
   }
-  virtual bool ansi() const = 0;
   // **Whether this console is a session that can really end** (0.158.0): a **virtual terminal** —the console of
   // the emulator, which is a program on a PC that somebody started and can hang up— is a session, and `logout` ends
   // it. **The serial port of a board is not one**: nobody can hang it up and it is the only way into a board

@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "kernel/bluetooth.h"
 #include "kernel/cfg.h"
 #include "kernel/log.h"
 #include "kernel/power.h"
@@ -323,15 +324,24 @@ Effect default_effect(Trigger trigger) {
       e.cycles = 4;
       break;
     case Trigger::kRadio:
-      e.kind = EffectKind::kBlink;
+      // **Un respir blau i no un parpelleig** (0.190.182, l'amo: *«mentre el bluetooth estigui actiu al M5Atom, vull que el led sigui blau i amb
+      // la sequencia "breathe", si el bluetooth es para, el led s'apaga»*): the radio working is a **state** and not an event —it lasts as long
+      // as the keyboard does— and a state that lasts is said with a breath; the blink is for something that has to be noticed, and a light
+      // that blinks for hours is a light nobody looks at any more. **I és el moment de les dues ràdies**: el Wi-Fi i el teclat diuen el mateix
+      // amb el mateix dibuix, perquè el que una persona llegeix és «la ràdio treballa» i no quina de les dues (docs/30, docs/50).
+      e.kind = EffectKind::kBreathe;
       e.red = 0;
       e.green = 0;
       e.blue = 255;
       e.red2 = 0;
-      e.green2 = 140;
-      e.blue2 = 255;
-      e.period_ms = 800;
+      e.green2 = 55;
+      e.blue2 = 170;
+      e.period_ms = 3200;
       e.cycles = 0;  // as long as the radio is up
+      // **Una mica més que els altres i encara fluix**: aquest llum és l'única cosa que diu que el teclat és engegat —no hi ha pàgina ni
+      // consola que ho digui— i vint de dos-cents cinquanta-cinc no es veu en un LED de debò. Quaranta-vuit és una cinquena part de la
+      // brillantor i continua sent un llum de senyal i no una làmpada (docs/30, docs/75).
+      e.level = 48;
       break;
     case Trigger::kAlarm:
       e.kind = EffectKind::kBounce;
@@ -390,6 +400,21 @@ const Effect* system_now(int64_t now, uint32_t& elapsed) {
     const Effect& e = g_system[static_cast<uint32_t>(Trigger::kRadio)];
     if (e.kind != EffectKind::kNone) {
       elapsed = static_cast<uint32_t>(now - g_radio_start);
+      return &e;
+    }
+  }
+  // **I el Bluetooth és la mateixa ràdio que treballa** (0.190.182): the kernel asks the radio itself instead of the board telling it,
+  // o sigui que el `net` no ha de saber que el teclat existeix ni hi ha dos comptadors que puguin desquadrar-se. **Quan el Bluetooth es para
+  // aquesta capa desapareix i el llum s'apaga sol**, que és exactament el que l'amo ha demanat: cap crida d'apagada, cap color que quedi (docs/30,
+  // docs/50).
+  //
+  // **I els dos costats compten** (0.190.195, l'amo: *«perquè només salta el led de kRadio si està dev on… kRadio ha de saltar amb bt on/off i
+  // prou»*): being a keyboard for somebody and listening to somebody are both the radio working, i el llum no ha de distingir qui dels dos ho
+  // va demanar (docs/30).
+  if (bt::radio_is_working()) {
+    const Effect& e = g_system[static_cast<uint32_t>(Trigger::kRadio)];
+    if (e.kind != EffectKind::kNone) {
+      elapsed = static_cast<uint32_t>(now - bt::on_since_ms());
       return &e;
     }
   }
