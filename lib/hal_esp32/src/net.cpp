@@ -55,17 +55,11 @@
 #include "hal/log.h"
 #include "pal/pal.h"
 
-// Arduino releases the memory of the Bluetooth controller at boot **unless**
-// `btInUse()` says somebody wants it (`cores/esp32/esp32-hal-misc.c`:
-// `if (!btInUse()) esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);`). That function
-// has **two** definitions in the core and both are weak (`return false` in
-// esp32-hal-misc.c, `return true` in esp32-hal-bt.c), so which one ends up in the
-// binary is a coin flip of the link order. In this build it was the one that says
-// no: the memory went away and `esp_bt_controller_init` answered
-// `ESP_ERR_INVALID_STATE` (measured on the board, 31/10, and checked in the
-// firmware: `btInUse` is `movi.n a2, 0`). This is the hook the core documents for
-// exactly this case, and it is strong on purpose.
-extern "C" bool btInUse() { return true; }
+// **`btInUse` era del nucli d'Arduino i ja no hi és** (0.190.176): the core asked it at boot before
+// releasing the memory of the Bluetooth controller, and the hook made the answer a true one; the IDF does
+// not know that symbol and does not free that memory by itself, or sigui que el hook no tenia res a
+// protegir (mesurat a la placa el 31/10 amb el nucli: `btInUse` sortia com a `movi.n a2, 0` i
+// `esp_bt_controller_init` responia `ESP_ERR_INVALID_STATE`, docs/50).
 
 namespace hal {
 namespace {
@@ -155,9 +149,8 @@ esp_netif_t* g_ap_netif = nullptr;
 // `ESP_ERR_INVALID_ARG` from our `enable(BLE)` against a BTDM configuration, and
 // then `bt_mem_release of classic BT failed 259` followed by
 // `simple_ble_start enable controller failed 259`, because the controller was
-// already ours with another mode (measured on the board, 31/10). The one thing
-// that has to stay is `btInUse()` above: without it Arduino frees the BTDM memory
-// at boot and nothing can start afterwards.
+// already ours with another mode (measured on the board, 31/10). The `btInUse()`
+// that the core needed above went with the core (0.190.176).
 
 // The scheme frees Bluetooth when provisioning ends (as the header of scheme_ble
 // says to do), and this wraps it to remember that it did (docs/75).

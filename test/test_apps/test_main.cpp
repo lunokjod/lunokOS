@@ -6240,6 +6240,41 @@ void test_the_sessions_are_parked_before_the_board_goes_down(void) {
 // the one that would have to build its page again, and it is taken only when parking the others did not cover the ask. The
 // case is the order and nothing else —the bytes, the two passes and the block the ask is about staying where it is— because
 // that is what the allocator's relief does with the answer (docs/30, docs/75).
+// **Un bloc gran en una placa sense banc** (0.190.174): the launcher's `apps` is 32 KB, and from there up a block can live
+// in the memory behind the chip's bank switcher —where no pointer exists—, so `acquire` answers null and `open_session`
+// answers the block. A board with no bank (this emulator, the ATOM, the S3) makes it in the PSRAM as it always did, and the
+// bytes still go in and come out by offset: that is the path every cache of the system takes when the bank is not there or
+// is already taken (docs/30, docs/50, docs/75).
+void test_a_big_session_block_has_no_pointer_and_still_works(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-atom");
+  kernel::session::forget(nullptr);
+
+  size_t got = 0;
+  TEST_ASSERT_TRUE(kernel::session::open_session("probe", "big", 40000, got));
+  TEST_ASSERT_EQUAL_UINT32(40000, static_cast<uint32_t>(got));
+  // **The door that promises a pointer says there is none**, and the block is there all the same.
+  TEST_ASSERT_NULL(kernel::session::acquire("probe", "big", 40000, got));
+  TEST_ASSERT_EQUAL_UINT32(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::banked());
+
+  // **Els bytes entren i surten per offset**, que és el que l'app fa amb `block:write` i `block:read`.
+  TEST_ASSERT_EQUAL_UINT32(5, kernel::session::write_at("probe", "big", 1000, "hello", 5));
+  char text[8] = {};
+  TEST_ASSERT_EQUAL_UINT32(5, kernel::session::read_at("probe", "big", 1000, text, 5));
+  TEST_ASSERT_EQUAL_STRING_LEN("hello", text, 5);
+  // **I el que no hi ha és zero i no el passat del heap**: the block was zeroed when it was made.
+  char beyond[4] = {7, 7, 7, 7};
+  TEST_ASSERT_EQUAL_UINT32(4, kernel::session::read_at("probe", "big", 39000, beyond, 4));
+  TEST_ASSERT_EQUAL_UINT8(0, static_cast<uint8_t>(beyond[0]));
+  // **I un desament el torna sencer**, que és el que fa que el bloc gran sobrevisqui a un reinici.
+  TEST_ASSERT_TRUE(kernel::session::release("probe", "big"));
+  TEST_ASSERT_TRUE(kernel::session::open_session("probe", "big", 40000, got));
+  TEST_ASSERT_EQUAL_UINT32(5, kernel::session::read_at("probe", "big", 1000, text, 5));
+  TEST_ASSERT_EQUAL_STRING_LEN("hello", text, 5);
+  kernel::session::forget(nullptr);
+}
+
 void test_the_memory_is_short_and_the_other_apps_go_before_the_one_in_front(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
@@ -9164,27 +9199,32 @@ void test_a_burst_of_the_processor_gives_its_step_back(void) {
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(160, kernel::power::cpu_mhz(),
                                    "a hold moved the processor with the automatic scaling off");
 
-  // **I amb l'escala encesa sí**, que és el que la finestra vol dir: el cim per a la feina que ve.
+  // **I amb l'escala encesa sí**, que és el que el lock del sostre vol dir: la feina que ve, al cim del rang (0.190.175).
   kernel::power::set_cpu_auto(true);
   capture_begin();
   kernel::power::hold_cpu(kernel::power::kBusyMhz, 120, "a case that is heavy");
-  // **La finestra no mou la velocitat de repòs**: what the system goes back to is still the one it was working at.
+  // **El lock no mou la velocitat de repòs**: what a person chose is still there for when the automatic scaling goes off.
   TEST_ASSERT_EQUAL_UINT32(240, kernel::power::cpu_mhz());
   TEST_ASSERT_EQUAL_UINT32(160, kernel::power::resting_cpu_mhz());
   pump_turns(40);
-  TEST_ASSERT_EQUAL_UINT32_MESSAGE(240, kernel::power::cpu_mhz(), "the window of the burst ended before its time");
-  pump_turns(140);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(240, kernel::power::cpu_mhz(), "the lock of the top gave itself back");
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cpu 240 MHz"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "(a case that is heavy)"), g_out);
-  // **I el pas de repòs és el que la persona va triar** (0.190.85): amb l'escala apagada el que queda és aquest, i el log ho diu
-  // pel seu nom; amb l'escala encesa el que queda és el que digui la càrrega, que és el que aquesta política vol dir (docs/60).
-  kernel::power::set_cpu_auto(false);
+  // **I deixar-lo anar baixa al terra del rang**, que és el que el xip fa sol: with the locks gone the processor goes to
+  // `min_freq_mhz`, i el terra és el pas més baix que la persona permet. **El «repòs» de 160 ja no existeix amb l'escala encesa**:
+  // el xip tria entre el terra i el sostre i el número del mig no és cap ajust (docs/50, docs/60).
   capture_begin();
   kernel::power::rest_cpu("the load is over");
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_EQUAL_UINT32_MESSAGE(160, kernel::power::cpu_mhz(), "the burst never gave its step back");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(kernel::power::kIdleMhz, kernel::power::cpu_mhz(), "the lock never gave its top back");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "(the load is over)"), g_out);
+  // **I amb l'escala apagada el que queda és el que la persona va triar** (0.190.85), i el log ho diu pel seu nom.
+  capture_begin();
+  kernel::power::set_cpu_auto(false);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(160, kernel::power::cpu_mhz(), "the speed a person chose was not taken back");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "(the automatic scaling is off)"), g_out);
   // **I el cas deixa la placa com la va trobar** (0.190.87, trobat al run sencer): la política i el pas **es desen a la NVS**, o sigui
   // que un cas que els deixa girats fa caure el següent per una raó que no és seva —`test_an_app_asks_for_the_processor_speed` llegia
   // `cpu 160` en lloc de `cpu 240` perquè l'escala era apagada des d'aquí— (docs/80, docs/85).
@@ -21187,6 +21227,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page);
   RUN_TEST(test_a_session_goes_to_the_disk_and_comes_back);
   RUN_TEST(test_the_sessions_are_parked_before_the_board_goes_down);
+  RUN_TEST(test_a_big_session_block_has_no_pointer_and_still_works);
   RUN_TEST(test_the_memory_is_short_and_the_other_apps_go_before_the_one_in_front);
   RUN_TEST(test_sessions_destroy_forgets_one_app_or_all_of_them);
   RUN_TEST(test_the_picture_of_a_cell_is_turned_over_with_the_cell);

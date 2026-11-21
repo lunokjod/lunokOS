@@ -150,7 +150,7 @@ void set_apps_ops(const AppsOps& ops);
 // is one block for a launcher and another for the app after it. `acquire` answers the bytes it really has in `got`, and
 // nullptr when there is no room, which is an app without a cache and not a fault.
 struct SessionOps {
-  void* (*acquire)(const char* key, size_t bytes, size_t& got);
+  bool (*acquire)(const char* key, size_t bytes, size_t& got);
   bool (*release)(const char* key);
   // **La sessió també es pot llençar des de l'app** (0.189.16): `sys.session_destroy(key)` takes the block of that key out
   // of the memory **and** its file out of `/session/<id>/<key>`, which is what `release` (keeps the file) and `clear`
@@ -161,6 +161,13 @@ struct SessionOps {
   // not fit, and an object of the app that still points at one has to be refused instead of writing into freed memory
   // (docs/75).
   uint32_t (*generation)();
+  // **Els bytes d'un bloc, per offset** (0.190.174): a session of 32 KB or more can live in the memory behind the chip's
+  // bank switcher, where there is no pointer to hold —only a window is mapped at a time—, so the interpreter asks for the
+  // piece it needs instead of reading through `bytes`. `block:read`, `block:write` and `block:clear` go through these three
+  // and a system without them (no kernel behind) says `E_UNSUPPORTED` (docs/30, docs/50, docs/75).
+  uint32_t (*read)(const char* key, uint32_t offset, char* out, uint32_t cap);
+  uint32_t (*write)(const char* key, uint32_t offset, const char* in, uint32_t bytes);
+  bool (*clear)(const char* key);
 };
 
 void set_session_ops(const SessionOps& ops);
@@ -288,6 +295,10 @@ struct CfgOps {
   // the Battery tab. A board that cannot nap keeps the setting and does nothing with it, which is what `can_nap` answers (docs/30, docs/50).
   bool (*nap_on)();
   bool (*set_nap_on)(bool on);
+  // **El teclat de Bluetooth** (0.190.180): el commutador de la pàgina, que obre i tanca el ràdio de debò —mentre és encès la placa no
+  // fa becaines— i es desa com tots els altres (docs/30, docs/50).
+  bool (*bt_on)();
+  bool (*set_bt_on)(bool on);
   // **El nivell del registre** (0.190.89): the row of the System tab, a word of four —`debug`, `info`, `warn`, `error`— read by the ring
   // and by nobody else. The page shows what the system obeys and not what it asked for (docs/30, docs/50).
   const char* (*log_level)();
@@ -317,6 +328,18 @@ struct CfgOps {
 };
 
 void set_cfg_ops(const CfgOps& ops);
+
+// **El teclat de Bluetooth, que és una porta i no una xarxa** (0.190.180): what an app can do with the radio of the board —say whether
+// there is one, whether somebody is connected, and write characters into it—. It has no page and no session and nothing comes back, o
+// sigui que no hi ha cap `read` aquí: el que surt són caràcters (docs/30, docs/50).
+struct BtOps {
+  bool (*available)();
+  bool (*connected)();
+  // **Quants caràcters han sortit** dels que s'han demanat: un teclat sense ningú a l'altre cap no envia res i això no és un error, és una
+  // resposta (docs/30).
+  size_t (*type)(const char* text);
+};
+void set_bt_ops(const BtOps& ops);
 
 // **A session of the shell for an app** (0.159.0): the shell is the system's and not the wire's, so an app can ask
 // for one and talk to it through three pipes —the lines in, the answers out and the complaints out— with no console

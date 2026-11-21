@@ -93,9 +93,22 @@ bool g_running = false;
 // **The session memory of an app, asked from the interpreter** (0.179.0): the kernel is the one that knows which app is
 // running, so the key that arrives from Lua is paired with that id here and nowhere else —`"apps"` is one block for a
 // launcher and another for the app after it (docs/30, docs/75).
-void* session_acquire(const char* key, size_t bytes, size_t& got) {
-  return session::acquire(luabind::app_id(), key, bytes, got);
+bool session_acquire(const char* key, size_t bytes, size_t& got) {
+  return session::open_session(luabind::app_id(), key, bytes, got);
 }
+
+// **Els bytes d'un bloc, amb el nom de l'app posat aquí** (0.190.174): the same rule as `acquire` —the key is the app's and
+// the kernel is the one that knows which app is running— and the three doors the interpreter writes and reads a cache with,
+// which is the only shape a block of the bank can have (docs/30, docs/50, docs/75).
+uint32_t session_bytes_read(const char* key, uint32_t offset, char* out, uint32_t cap) {
+  return session::read_at(luabind::app_id(), key, offset, out, cap);
+}
+
+uint32_t session_bytes_write(const char* key, uint32_t offset, const char* in, uint32_t bytes) {
+  return session::write_at(luabind::app_id(), key, offset, in, bytes);
+}
+
+bool session_bytes_clear(const char* key) { return session::clear(luabind::app_id(), key); }
 
 bool session_release(const char* key) { return session::release(luabind::app_id(), key); }
 
@@ -646,6 +659,9 @@ void boot(hal::IPlatform& platform) {
   session_ops.release = &session_release;
   session_ops.destroy = &session_destroy;
   session_ops.generation = &session::generation;
+  session_ops.read = &session_bytes_read;
+  session_ops.write = &session_bytes_write;
+  session_ops.clear = &session_bytes_clear;
   luabind::set_session_ops(session_ops);
   // **I el port sèrie, que una app pot demanar per a ella** (0.189.20): `serial.claim()`, `serial.release()` i
   // `serial.claimed()` des de Lua, amb el nom de l'app posat aquí (docs/30, docs/50).
@@ -924,13 +940,17 @@ void poll() {
   bool woke = false;
   {
     meter::Scope waiting(meter::kQueueWait);
-    // **Esperar, o dormir?** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*). La volta del nucli
-    // espera pel que hi hagi a la cua fins a un segon quan no hi ha cap app, i tenir el processador despert per fer-ho és el corrent més
-    // fàcil d'estalviar: amb la becaina encesa el xip atura els rellotges i el temporitzador del RTC el torna, o una tecla, el dit o la
-    // consola abans d'hora —i tot el que hi hagués a la cua es llegeix tot seguit amb una espera de zero—. `nap` torna **sempre** i diu si
-    // ha dormit: a una placa que no en sap (l'emulador, la del USB com a consola) el camí és exactament el d'abans (docs/50, docs/60, docs/95).
-    const bool slept = power::nap(wait);
-    woke = pal::system().queue()->pop(ev, slept ? 0 : wait);
+    // **Esperar, o deixar que el xip dormi?** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*;
+    // 0.190.178, *«activem el lightsleep automàtic d'idf»*). La volta del nucli espera pel que hi hagi a la cua fins a un segon quan no
+    // hi ha cap app, i tenir el processador despert per fer-ho és el corrent més fàcil d'estalviar: `open_the_sleep` obre les portes de
+    // la placa —una tecla, el dit i la consola— i **deixa que la gestió de potència adormi el xip dins del `pop`**, que és qui sap
+    // quant falta pel proper temporitzador i qui compensa el tick quan el xip s'ha aturat. Torna zero quan aquesta volta no s'ha de
+    // dormir —el commutador apagat, un dit a sobre, el port en ús o cedit, una placa que no en sap— i llavors l'espera és exactament la
+    // d'abans (docs/50, docs/60, docs/95).
+    const int32_t napping = power::open_the_sleep(wait);
+    const int64_t waited_from_ms = pal::system().millis();
+    woke = pal::system().queue()->pop(ev, (napping > 0) ? napping : wait);
+    power::close_the_sleep(pal::system().millis() - waited_from_ms);
     power::note_the_nap_end(woke);
 #if LUNOK_GLASS
     // **I la línia del panell torna a ser una vora de baixada** (0.190.74): the nap arms that GPIO as a level wake and the chip leaves it
@@ -939,7 +959,7 @@ void poll() {
     // GPIO[36]| InputEn: 1 …` set vegades en quatre-cents mil·lisegons): amb *Wake on touch* apagat —que és com ve de sèrie— el nap no toca
     // aquell pin i el que cal no és refer-lo sinó no fer-hi res, o sigui que el que era una crida per torn és una crida al torn que en té
     // (docs/50, docs/60, docs/95).
-    if (slept && power::wake_on_touch()) touch::rearm();
+    if (napping > 0 && power::wake_on_touch()) touch::rearm();
 #endif
   }
   if (woke) {

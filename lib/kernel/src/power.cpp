@@ -118,17 +118,21 @@ int64_t g_seen_epoch_ms = 0;
 int64_t g_seen_mono_ms = 0;
 const int64_t kClockStepMs = 5000;
 
-// **La velocitat de repòs i la finestra d'una feina pesada** (0.179.38): the step the system goes back to and the hour a
-// burst ends. `g_cpu_busy_until_ms` at zero is "no window is owed", which is the state of a system that is only working.
-// The step a person asks for becomes the resting one, so `power cpu 80` is not undone by the next app that starts.
+// **La velocitat de repòs** (0.179.38): the step a person chose, which is what the board runs at when the automatic scaling is
+// off and what the range is made of when it is on. The window that used to be here —`g_cpu_busy_until_ms`, the clock of a
+// burst— **marxa amb la 0.190.175**: the chip's top-step lock counts its own takes, o sigui que la finestra és un comptador del
+// xip i no un rellotge del nucli (docs/50, docs/60).
 uint32_t g_cpu_rest_mhz = kRestingMhz;
-int64_t g_cpu_busy_until_ms = 0;
-// **La política i el sostre de les velocitats, en un sol byte** (0.189.94, 0.189.107): the automatic policy is the fourth
-// bit and the three steps the person allows are the low three. **The two used to be a bool and a byte**, which is eight bytes
-// of `.bss` with their padding in a build whose `dram0.bss` overflowed by eight the day the second one arrived (docs/75), and
-// a bit is a bit: the policy is on and the three steps are allowed until somebody says otherwise, which is the state this
-// byte starts in.
-const uint8_t kAllowedMask = 0x07;
+// **El rang que el xip té ara**, dit una vegada: `esp_pm_configure` is not a call to make on every turn, and a range that has
+// not moved is not configured again (docs/50).
+uint32_t g_range_low = 0;
+uint32_t g_range_high = 0;
+// **La política i el terra i el sostre, en un sol byte** (0.189.94, 0.189.107): the automatic policy is the fourth bit and the
+// steps the person allows are the low three. **Des de la 0.190.175 el del mig no s'usa** (l'amo: *«el toggle del mig, fora»*):
+// amb el DFS del xip el que hi ha és un terra i un sostre, i una freqüència entre els dos la tria el xip i no el nostre mask.
+// **The two used to be a bool and a byte**, which is eight bytes of `.bss` with their padding in a build whose `dram0.bss`
+// overflowed by eight the day the second one arrived (docs/75).
+const uint8_t kAllowedMask = 0x05;  // 80 and 240: the floor and the ceiling the chip is allowed to move between
 const uint8_t kAutoBit = 0x08;
 uint8_t g_cpu_policy = static_cast<uint8_t>(kAllowedMask | kAutoBit);
 
@@ -145,23 +149,25 @@ uint8_t allowed_bits() {
   const uint8_t mask = static_cast<uint8_t>(g_cpu_policy & kAllowedMask);
   return (mask != 0) ? mask : kAllowedMask;
 }
-// **Un minut de mostres i la meitat contra l'altra** (0.189.95): a sample every two seconds —thirty of them, thirty bytes—
-// and the comparison is the mean of the last fifteen against the mean of the fifteen before.
-const uint8_t kTrendSamples = 30;
-const uint32_t kTrendEveryMs = 2000;
-// **Deu punts és una tendència**: a mean that moved ten points between the two halves of the minute is the board doing
-// something else; less than that is the noise of a page that scrolls (docs/95).
-const uint32_t kTrendBandPct10 = 100;
-// **Els dos nivells d'una tendència plana** (0.189.95): under ten per cent of a half minute the board is idle and the bottom
-// step is enough; over fifty it is working and it may as well have the top one.
-const uint8_t kIdleMeanPct = 10;
-const uint8_t kBusyMeanPct = 50;
 
-// **Les mostres de la tendència** (0.189.95): thirty per cent of load, one every two seconds, which is a minute. They are
-// here and not beside the governor because the switch that turns the policy on is the one that throws them away.
-uint8_t g_trend[kTrendSamples];
-uint8_t g_trend_count = 0;
-uint32_t g_trend_ms = 0;
+// **El terra i el sostre del mask** (0.190.175): the two steps that are still a setting, and the middle one that the chip decides.
+uint32_t allowed_low() {
+  const uint8_t mask = allowed_bits();
+  if ((mask & 0x01) != 0) return kIdleMhz;
+  if ((mask & 0x04) != 0) return kBusyMhz;
+  return kRestingMhz;
+}
+
+uint32_t allowed_high() {
+  const uint8_t mask = allowed_bits();
+  if ((mask & 0x04) != 0) return kBusyMhz;
+  if ((mask & 0x01) != 0) return kIdleMhz;
+  return kRestingMhz;
+}
+// **La tendència i el governador de càrrega marxen** (0.190.175): thirty samples of two seconds, the mean of one half against
+// the other and the two levels were this system guessing what the chip now knows —`esp_pm` mira si hi ha tasques llestes a cada
+// canvi de tick i baixa o puja el rellotge ell mateix—. El que el DFS no pot saber és **la intenció**: que una espera de la
+// targeta no és feina i que una imatge sí, i això ho continua dient `work_cpu`/`wait_cpu` amb el lock del sostre (docs/50, docs/60).
 // The hour the board was woken early for. The clock reaches a day at most, so a longer wait is
 // armed in stages, and a stage is **not** the wake: the app must not come back until its hour
 // (docs/60).
@@ -394,31 +400,35 @@ void empty_the_line() {
   if (console != nullptr) console->flush();
 }
 
-// **Cada canvi de velocitat es diu a la consola i al registre** (0.179.38): a step of the processor is energy and time,
-// and a board whose speed changed without a line is a board nobody can measure. The line says what was asked, what the
-// board answered and why, so a step the chip does not have reads as itself and not as a silence. **Every call is a
-// line**, even the one that asks for the step it is already on: the boot at two hundred and forty is a fact of the
-// policy and not of the chip's default, and a log that hides it says the system booted at the resting step.
+// **El rang de velocitat, dit al xip** (0.190.175, l'amo: *«la cpu es pot escalar sola a esp_idf... activa la opció i adapta el
+// que tenim fet manualment d'scaling»*): with the automatic scaling on, the floor and the ceiling are the lowest and the highest
+// step the person allowed and the chip moves between them by its own load; with it off, the two are the speed the person chose.
+// **The chip keeps the tick and the PLLs in step when it moves**, i els drivers del vidre (SPI), del tàctil (I2C), del panell de la
+// T5S3 (I2S) i de la targeta (SDMMC) agafen el seu lock d'APB durant la transacció, o sigui que el que abans es trencava pel canvi de
+// baud i pel tick ja no es trenca (docs/50, docs/60).
 //
-// **I el pas que es demana s'acota a les velocitats permeses** (0.189.107): `hold_cpu` and `rest_cpu` ask for the three
-// constants of this file and the person may have forbidden one of them, so the clamp is here and not in the callers
-// (docs/50, docs/60).
-void move_to(uint32_t mhz, const char* why) {
-  mhz = allowed_step(mhz);
+// **I la línia del port encara s'buida abans**, perquè els bytes que ja són al FIFO surten al ritme d'abans: el motiu de 0.179.43 no
+// ha desaparegut, només ha deixat de ser nostre (docs/92).
+void apply_the_range(const char* why) {
   if (g_power == nullptr) return;
-  const uint32_t before = g_power->cpu_mhz();
-  // **Un pas que ja és el que hi ha no es mou i no es diu** (0.189.95): `hold_cpu` is asked for the top step by every paint and
-  // every app that starts, and half of those asks find the board already there —a line of the log that says `cpu 240 MHz from
-  // 240` is a line that says nothing and a call to the board for nothing (docs/50).
-  if (before == mhz) return;
+  uint32_t low = g_cpu_rest_mhz;
+  uint32_t high = g_cpu_rest_mhz;
+  if (policy_is_auto()) {
+    low = allowed_low();
+    high = allowed_high();
+  }
+  if (low == g_range_low && high == g_range_high) return;
   empty_the_line();
-  if (!g_power->set_cpu_mhz(mhz)) {
-    log_printf(pal::kLogWarn, "POWER", "the board did not take %u MHz (%s), it runs at %u", static_cast<unsigned>(mhz),
-               (why != nullptr) ? why : "?", static_cast<unsigned>(before));
+  const uint32_t before = g_power->cpu_mhz();
+  if (!g_power->set_cpu_range(low, high)) {
+    log_printf(pal::kLogWarn, "POWER", "the board did not take %u to %u MHz (%s), it runs at %u", static_cast<unsigned>(low),
+               static_cast<unsigned>(high), (why != nullptr) ? why : "?", static_cast<unsigned>(before));
     return;
   }
-  log_printf(pal::kLogInfo, "POWER", "cpu %u MHz from %u (%s)", static_cast<unsigned>(g_power->cpu_mhz()),
-             static_cast<unsigned>(before), (why != nullptr) ? why : "?");
+  g_range_low = low;
+  g_range_high = high;
+  log_printf(pal::kLogInfo, "POWER", "cpu %u to %u MHz, at %u now (%s)", static_cast<unsigned>(low), static_cast<unsigned>(high),
+             static_cast<unsigned>(g_power->cpu_mhz()), (why != nullptr) ? why : "?");
 }
 
 // **Les tres velocitats que la política pot fer servir** (0.189.107): the mask is the person's ceiling and `allowed_step` is
@@ -456,12 +466,9 @@ bool say_the_last_sleep_of_the_board(bool keep_it) {
 // or the biggest allowed one when nothing is above it— (docs/50, docs/60).
 void set_allowed_steps(uint8_t mask) {
   g_cpu_policy = static_cast<uint8_t>((g_cpu_policy & ~kAllowedMask) | ((mask == 0) ? kAllowedMask : (mask & kAllowedMask)));
-  // **I el que ja estava demanat s'hi acota ara mateix**: a ceiling that only applies to the next move would leave the board
-  // at a step the person has just forbidden, which is the one thing this setting is for (docs/50).
-  if (g_power == nullptr) return;
-  const uint32_t now = g_power->cpu_mhz();
-  const uint32_t step = allowed_step(now);
-  if (step != now) move_to(step, "the steps the person allows");
+  // **I el rang nou es diu al xip ara mateix**: a ceiling that only applies to the next move would leave the board at a step the
+  // person has just forbidden, which is the one thing this setting is for (docs/50, docs/60).
+  apply_the_range("the steps the person allows");
 }
 
 uint8_t allowed_steps() { return allowed_bits(); }
@@ -497,7 +504,8 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   // magatzem des d'avui, i una arrencada els ha de respectar; si no hi són, mana el que hi havia (escala encesa, pas de repòs). El
   // que no pot passar és el que passava: apagar l'escala, reiniciar, i trobar-se la placa a 240 per una pàgina de text (docs/50).
   g_cpu_rest_mhz = kRestingMhz;
-  g_cpu_busy_until_ms = 0;
+  g_range_low = 0;
+  g_range_high = 0;
   char kept[8] = {0};
   if (read_in(kNs, kCpuSpeedKey, kept, sizeof(kept))) {
     const unsigned speed = static_cast<unsigned>(atoi(kept));
@@ -507,9 +515,12 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   const bool it_was_said = read_in(kNs, kCpuAutoKey, scaling, sizeof(scaling));
   const bool scaling_on = !it_was_said || strcmp(scaling, "off") != 0;
   set_policy(scaling_on);
-  // **I amb l'escala apagada, la placa arrenca a la velocitat triada i no a la del xip** (0.190.85): el rellotge d'un ESP32-S3
-  // arrenca a 240, o sigui que no n'hi ha prou de deixar de pujar-lo; s'hi ha de baixar (docs/50, docs/60).
-  if (!scaling_on) move_to(g_cpu_rest_mhz, "the speed a person chose");
+  // **I el rang es diu al xip a l'arrencada** (0.190.175): with the scaling on it is the floor and the ceiling the person allows
+  // and the chip starts moving; with it off it is one step, because a clock of an ESP32-S3 boots at 240 i no n'hi ha prou de
+  // deixar de pujar-lo: s'hi ha de baixar (docs/50, docs/60).
+  g_range_low = 0;
+  g_range_high = 0;
+  apply_the_range(scaling_on ? "the boot, the steps a person allows" : "the speed a person chose");
   // **El comptador de la quietud arrenca amb aquesta arrencada** (0.190.9): nothing has been typed at it yet, and the person
   // who chose five minutes gets five minutes from the boot and not from the first turn that happened to look. **I una arrencada no és
   // una mà** (0.190.18): the flag is what tells «nobody has touched it since it came back» —the wake for an alarm and the stage of a long
@@ -830,12 +841,13 @@ bool can_wake_on_touch() { return (g_power != nullptr) && g_power->can_wake_on_t
 
 // ---------------------------------------------------------------- la becaina
 
-// **Quaranta mil·lisegons i doblar mentre no passi res, fins a un segon** (0.190.63): the first nap is the shortest that pays the entry
-// and the exit of a light sleep, and the ladder is what makes an idle board cost hundreds of times less without making a busy one pay
-// for every turn: a hand on the glass, a key or a byte at the prompt puts it back to the bottom, o sigui que la resposta a una persona
-// és la de sempre i el que s'estalvia és l'estona en què no hi havia ningú (docs/60, docs/95).
-const int32_t kNapFirstMs = 40;
-const int32_t kNapMostMs = 1000;
+// **L'escala de la becaina ja no hi és** (0.190.181, l'amo veient el registre de l'ATOM: *«No haviem quedat que aixó era cosa del
+// pasat? […] Que ara esp_idf gestionava el lightSleep?»* — i tenia raó). La 0.190.63 va néixer amb una escala —quaranta mil·lisegons i
+// doblar fins a un segon— perquè llavors era el nucli qui demanava la dormida i havia de triar-ne la durada. Des de la 0.190.178 la
+// dormida la fa la gestió de potència del xip dins del `pop`, i la durada la donen dues coses que no són aquesta escala: **el `wait`
+// del torn** i el proper temporitzador que la IDF mira. O sigui que l'escala no decidia res i continuava pujant, i la seva línia del
+// sostre deia «mil mil·lisegons per torn» en una placa que fa voltes de quaranta: **una mentida que el registre de l'amo va ensenyar
+// en dues línies seguides** (163 becaines, 5026 ms, i el sostre dient mil) (docs/60, docs/95).
 // **El que pot esperar un dit** (0.190.74): quaranta mil·lisegons és el que no es nota, tant si el vidre desperta el xip com si el contacte
 // es llegeix al torn següent. El torn del nucli no espera més que això mentre la placa dorma entre voltes (docs/50, docs/95).
 const int32_t kNapSliceMs = 40;
@@ -864,7 +876,7 @@ int64_t console_gate_ms() {
 const int32_t kNapLeastMs = 20;
 
 bool g_nap_on = true;     // encès de sèrie, que és el que demana el commutador
-int32_t g_nap_ms = kNapFirstMs;
+
 // **Quantes becaines seguides i quants mil·lisegons s'hi ha estat** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»*):
 // el registre és l'únic instrument que hi ha per saber si la placa dorm de debò, i una línia per becaina ompliria el registre
 // del sistema a raó d'una per segon. El que es compta és la tanda, i s'escriu **quan s'acaba** —quan una mà, una tecla o la
@@ -880,6 +892,11 @@ const int64_t kNapSayEveryMs = 5000;
 // que la feia créixer era el torn i no el son —la línia del sostre deia «mil mil·lisegons per torn» en una placa que no havia dormit
 // mai— (docs/95).
 bool g_napped = false;
+// **I si el pany del torn és obert** (0.190.178): el que separa «aquesta volta s'ha deixat dormir el xip» de «aquesta volta s'ha
+// esperat despert», que és la diferència entre comptar una becaina i comptar una espera (docs/50, docs/95).
+bool g_sleep_is_open = false;
+// El que s'havia demanat, per saber si la becaina s'ha acabat abans d'hora i qui l'ha tallada (0.190.178) (docs/95).
+int64_t g_sleep_asked_ms = 0;
 // **I un dit al vidre, que mana sobre la becaina i sobre el governador** (0.190.87): mentres és cert no es dorma i la velocitat no
 // baixa; el dit el lleva quan s'aixeca (docs/30, docs/50).
 bool g_a_finger_down = false;
@@ -889,8 +906,6 @@ bool nap_on() { return g_nap_on; }
 
 bool set_nap_on(bool on) {
   g_nap_on = on;
-  // El que dorm no es recorda entre dues vegades: una placa a la qual se li encén el commutador comença per la becaina curta.
-  g_nap_ms = kNapFirstMs;
   return true;
 }
 
@@ -917,7 +932,10 @@ bool nap_now(int32_t ms) {
   return g_napped;
 }
 
-int32_t nap_ms() { return g_nap_ms; }
+// **Quant pot durar l'espera d'un torn**, que és el que aquesta funció responia quan la durada la triava el nucli: ara és la meitat que
+// no nota un dit (`nap_slice_ms`) i el que la placa demana a `open_the_sleep`, o sigui que la resposta és aquesta i no una escala
+// (docs/60).
+int32_t nap_ms() { return kNapSliceMs; }
 
 bool nap(int32_t wait_ms) {
   g_napped = false;
@@ -930,15 +948,77 @@ bool nap(int32_t wait_ms) {
   // dir que no hi ha ningú; i un port cedit a una app no dorma mai (docs/30, docs/50, docs/95).
   if (serial::claimed()) return false;
   if (quiet_ms() < console_gate_ms()) return false;
-  // **La becaina no pot durar més del que qui espera ha demanat** i no creix més enllà del sostre: el temporitzador del xip és el que
-  // ha de tornar la placa, i una espera curta no s'ha de convertir en una de llarga (docs/50, docs/60).
-  int32_t asked = (wait_ms < g_nap_ms) ? wait_ms : g_nap_ms;
-  if (asked > kNapMostMs) asked = kNapMostMs;
-  if (!g_power->nap(asked)) return false;
+  // **La becaina dura el que qui espera ha demanat**, ni més ni menys: el temporitzador del xip és el que ha de tornar la placa, i una
+  // espera curta no s'ha de convertir en una de llarga (docs/50, docs/60).
+  if (!g_power->nap(wait_ms)) return false;
   g_napped = true;
   ++g_nap_run;
-  g_nap_run_ms += asked;
+  g_nap_run_ms += wait_ms;
   return true;
+}
+
+// **El pany del torn, i el xip que dorma sol** (0.190.178, l'amo: *«activem el lightsleep automàtic d'idf»*): les preguntes són les de
+// sempre —el commutador, el dit, el port cedit, els deu segons de silenci de la consola i una placa que en sàpiga—, però el que es fa
+// amb la resposta no és dormir: és **obrir les portes de la placa i marxar a la cua**. La gestió de potència del xip mira el pany abans
+// de cada son i, si és obert, atura els rellotges fins al proper despertar, compensant el tick que el son s'ha menjat (docs/50, docs/60).
+//
+// **I això protegeix el que abans s'havia de protegir a mà**: la tinta d'una pintada, un port que no ha callat prou i una app amb el port
+// cedit dormen fora del torn, quan el pany és tancat, o sigui que no hi ha cap lloc del sistema que hagi de saber que el son existeix
+// (docs/50, docs/95).
+int32_t open_the_sleep(int32_t wait_ms) {
+  g_napped = false;
+  g_sleep_is_open = false;
+  g_sleep_asked_ms = 0;
+  if (!g_nap_on || g_power == nullptr || wait_ms < kNapLeastMs) return 0;
+  // **I el ràdio mana sobre la becaina** (0.190.179): un son lleuger atura els rellotges que viu el link del teclat de Bluetooth, o
+  // sigui que mentre és engegat la placa espera desperta i ho diu el ràdio, no una llista de condicions d'aquí (docs/50, docs/60).
+  {
+    hal::IBluetooth* radio = hal::platform().bluetooth();
+    if (radio != nullptr && radio->wants_the_chip_awake()) return 0;
+  }
+  if (g_a_finger_down) return 0;
+  if (serial::claimed()) return 0;
+  if (quiet_ms() < console_gate_ms()) return 0;
+  if (!can_nap()) return 0;
+  // **El temps el dona qui espera** (0.190.181): el `pop` del torn ja ve retallat pel que un dit no nota i pel que falta per la propera
+  // alarma, i la gestió de potència el torna a retallar contra el seu temporitzador. Una espera curta no s'ha de convertir en una de
+  // llarga i una de llarga no s'ha de convertir en una de curta (docs/50, docs/60).
+  const int32_t asked = wait_ms;
+  if (!g_power->open_the_nap_doors()) {
+    // **Una placa que no adorm el xip sola encara pot demanar la becaina** (0.190.178): el pany és la porta de la dormida automàtica, i una
+    // placa que no en té —l'emulador, una banda sense el tickless, un xip que ha dit que no— fa la becaina com l'ha feta sempre, demanada i
+    // esperada aquí mateix. El que torna és zero perquè el temps ja s'ha gastat, i el que qui espera llegeix a la cua és el que hagi passat
+    // mentre dormia (docs/50, docs/85).
+    if (!g_power->nap(asked)) return 0;
+    g_napped = true;
+    ++g_nap_run;
+    g_nap_run_ms += asked;
+    return 0;
+  }
+  g_sleep_is_open = true;
+  g_sleep_asked_ms = asked;
+  return asked;
+}
+
+void close_the_sleep(int64_t waited_ms) {
+  if (!g_sleep_is_open) return;
+  g_sleep_is_open = false;
+  g_power->close_the_nap_doors();
+  // Una espera que no arriba al mínim no ha dormit ningú, i comptar-la seria fer créixer l'escala d'una placa que no ha dormit mai
+  // (0.190.70) (docs/95).
+  if (waited_ms < kNapLeastMs) return;
+  // **I una becaina que no ha acabat el seu temps també es diu** (0.190.64, 0.190.178): la que el temporitzador ha deixat anar és el cas
+  // normal i no omple el registre, però la que ha tallat una tecla, el dit o la consola és la línia que explica per què la placa és
+  // desperta abans d'hora —i el toc que sembla lent—. El motiu el contesta la placa, que és qui l'ha viscut (docs/50, docs/95).
+  if (waited_ms + 5 < g_sleep_asked_ms) {
+    const char* why = g_power->the_word_of_the_last_nap();
+    if (why != nullptr) {
+      log_printf(pal::kLogDebug, "POWER", "a nap of %lld ms ended by %s", static_cast<long long>(waited_ms), why);
+    }
+  }
+  g_napped = true;
+  ++g_nap_run;
+  g_nap_run_ms += waited_ms;
 }
 
 // **La tanda que s'acaba es diu** (0.190.64): quan una mà, una tecla o la consola tornen el xip, el registre escriu quantes
@@ -947,36 +1027,27 @@ bool nap(int32_t wait_ms) {
 void note_the_nap_end(bool something_happened) {
   if (something_happened) {
     if (g_nap_run_ms >= kNapRunSayMs) {
-      log_printf(pal::kLogDebug, "POWER", "%u nap(s) in a row, %lld ms asleep, and now something has happened",
+      log_printf(pal::kLogDebug, "POWER", "%u light sleep(s) in a row, %lld ms in all, and now something has happened",
                  static_cast<unsigned>(g_nap_run), static_cast<long long>(g_nap_run_ms));
     }
     g_nap_run = 0;
     g_nap_run_ms = 0;
     g_nap_said_ms = 0;
-    g_nap_ms = kNapFirstMs;
     return;
   }
-  // **L'escala només creix si el xip ha dormit** (0.190.70): sinó, el que creix és el torn i la línia del sostre és una mentida sobre
-  // una placa que no ha dormit mai.
-  if (!g_napped) {
-    g_nap_ms = kNapFirstMs;
-    return;
-  }
-  // **I una tanda llarga de becaines es diu sola** (0.190.71, l'amo: *«CONTINUO SENSE VEURE AVISOS DE LIGHTSLEEP»*): fins ara l'única
-  // línia d'una tanda sortia quan passava alguna cosa, i una placa quieta —que és la que dorm— no ho feia mai. Cada deu segons de son es
-  // diu quant n'hi ha hagut i en quantes becaines, que és el que converteix «no en veig cap» en un número (docs/95).
+  if (!g_napped) return;
+  // **I una tanda llarga de dormides es diu sola** (0.190.71, l'amo: *«CONTINUO SENSE VEURE AVISOS DE LIGHTSLEEP»*): fins ara l'única
+  // línia d'una tanda sortia quan passava alguna cosa, i una placa quieta —que és la que dorm— no ho feia mai. Cada cinc segons de son es
+  // diu quant n'hi ha hagut i en quantes dormides, que és el que converteix «no en veig cap» en un número (docs/95).
+  //
+  // **I la línia diu el que ha passat i no una escala** (0.190.181): el xip s'ha aturat `g_nap_run` cops i el torn ha estat esperant
+  // `g_nap_run_ms` mil·lisegons amb el pany obert. El número és del torn i no del rellotge del xip —el que compta és el temps que el
+  // nucli ha passat a la cua—, o sigui que «en total» i no «dormit» (docs/60, docs/95).
   if (g_nap_run_ms - g_nap_said_ms >= kNapSayEveryMs) {
     g_nap_said_ms = g_nap_run_ms;
-    log_printf(pal::kLogDebug, "POWER", "%u nap(s), %lld ms asleep, and nothing has happened",
+    log_printf(pal::kLogDebug, "POWER", "%u light sleep(s), %lld ms in all, and nothing has happened",
                static_cast<unsigned>(g_nap_run), static_cast<long long>(g_nap_run_ms));
   }
-  if (g_nap_ms < kNapMostMs && g_nap_ms >= kNapMostMs / 2) {
-    // **L'escala ha arribat al sostre**: una línia i prou, que és el que diu que la placa es pot passar hores dormint a trossos
-    // d'un segon (docs/95).
-    log_printf(pal::kLogDebug, "POWER", "the nap is at its ceiling: %d ms a turn while nothing happens",
-               static_cast<int>(kNapMostMs));
-  }
-  g_nap_ms = (g_nap_ms >= kNapMostMs / 2) ? kNapMostMs : g_nap_ms * 2;
 }
 
 bool can_deep_sleep() {
@@ -1322,8 +1393,6 @@ bool request_sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   return true;
 }
 
-static void govern_cpu();
-
 // **El cable, anunciat una vegada** (0.190.165, l'amo: *«Afegeix un toggle a Settings->System "Announce charge" (per defecte true) que mostrarà
 // l' splash de "charging" quan es detecti que s'endolla. Fins que no es desendolla no es pot tornar a mostrar l'splash charging»*): the charger
 // is asked every two seconds while the switch says so, i el que es mira és **el flanc** —la placa que no tenia cable i ara en té— i no l'estat,
@@ -1364,21 +1433,10 @@ void announce_the_cable() {
 }
 
 void poll(int64_t next_alarm_epoch_ms) {
-  // **La finestra d'una feina pesada s'acaba aquí** (0.179.38): the boot and the start of an app take the top step for a
-  // few seconds, and the step back is not the caller's to watch —an app cannot be trusted with the clock of its own
-  // burst— so it is a turn of this system like the sleep is (docs/50, docs/60).
-  if (g_cpu_busy_until_ms > 0 && pal::system().millis() >= g_cpu_busy_until_ms) {
-    g_cpu_busy_until_ms = 0;
-    // **I el final d'una finestra no mou res** (0.189.95): with the automatic policy on, a window is a loan of the top step
-    // for as long as the work lasts and the governor is what decides after it, at its own samples —a step back to the
-    // resting one in the same turn the window closes is two moves for a paint and the third line of a log that a person
-    // reads as a board that cannot make up its mind— (the owner, with the log: *«és massa ràpid»*, docs/50, docs/60).
-    if (!policy_is_auto()) move_to(g_cpu_rest_mhz, "the load is over");
-  }
-  // **I a cada torn, la càrrega** (0.189.94): `load()` samples one window of 250 ms and answers the last one inside it, so
-  // this costs two reads of the meters on the turns that do not end a window, and the move happens only when the word
-  // changes (docs/30, docs/95).
-  govern_cpu();
+  // **Aquí hi havia la finestra i el governador** (0.179.38, 0.189.95): a heavy piece of work took the top step for a few
+  // seconds and the load of a minute decided the next one. Des de la 0.190.175 el xip compta els que volen el sostre (el seu
+  // lock) i decideix ell mateix la freqüència entre el terra i el sostre, o sigui que aquest torn no té res a dir de la
+  // velocitat (docs/50, docs/60).
   // **I el cable, que és una foto i no una llum** (0.190.165): two seconds of lag on a cable that a person has just put in, i el preu d'aquesta
   // línia és una lectura del gauge cada dos segons i només amb el commutador encès (docs/30, docs/50).
   announce_the_cable();
@@ -1557,104 +1615,19 @@ void set_cpu_auto(bool on) {
   set_policy(on);
   // **I es desa** (0.190.85): una decisió que no sobreviu a un reinici no és una decisió, és una casualitat del run.
   write_in(kNs, kCpuAutoKey, on ? "on" : "off");
-  if (on) {
-    // **Tornar-la a encendre comença un minut nou**: the samples of before are the samples of a board that was being told what
-    // to do by a person, and a trend measured across that boundary is a trend of nothing (docs/60).
-    g_trend_count = 0;
-    g_trend_ms = 0;
-    // **Tornar-la a encendre és una decisió que es pren ara i no al proper torn**: the board goes to the step its load says
-    // in the same line that turns the policy on, or a person would see the answer of a policy that has not run (docs/60).
-    govern_cpu();
-  }
+  // **Tornar-la a encendre és una decisió que es pren ara i no al proper torn** (0.190.175): the range is said to the chip in the
+  // same line that turns the policy on, or a person would see the answer of a policy that has not run (docs/60).
+  apply_the_range(on ? "the automatic scaling is on" : "the automatic scaling is off");
 }
 
-// ---- la tendència de la càrrega (0.189.95, l'amo) ----
+// ---- la velocitat, amb el PM del xip (0.190.175) ----
 //
-// *«No facis el canvi de freqüència tant sovint... Guarda mostres, durant un minut: si la tendència és a més, puja la CPU; si
-// és a menys, la baixes; si és semblant, et quedes com estàs.»*
+// *«No facis el canvi de freqüència tant sovint... Guarda mostres, durant un minut: si la tendència és a més, puja la CPU; si és a
+// menys, la baixes; si és semblant, et quedes com estàs.»* (l'amo, 0.189.95)
 //
-// **Un minut de mostres i la meitat contra l'altra**: a sample every two seconds —thirty of them, thirty bytes— and the
-// comparison is the mean of the last fifteen against the mean of the fifteen before. That is a **trend** and not a level: a
-// board that has been at ten per cent for a minute and a board that has just fallen from forty to ten read the same
-// instantaneous load and are not the same board, and the clock of the processor is a thing that costs more to move than to
-// leave where it is (docs/50, docs/60).
-void take_a_sample() {
-  const uint32_t now = pal::system().millis();
-  if (g_trend_ms == 0) g_trend_ms = now;
-  if (now - g_trend_ms < kTrendEveryMs) return;
-  g_trend_ms = now;
-  const uint32_t pct = load_percent10() / 10;
-  if (g_trend_count < kTrendSamples) {
-    g_trend[g_trend_count++] = static_cast<uint8_t>((pct > 100) ? 100 : pct);
-    return;
-  }
-  for (uint8_t i = 1; i < kTrendSamples; ++i) g_trend[i - 1] = g_trend[i];
-  g_trend[kTrendSamples - 1] = static_cast<uint8_t>((pct > 100) ? 100 : pct);
-}
-
-int32_t trend_of(const uint8_t* samples, uint8_t count) {
-  if (samples == nullptr || count < 2) return 0;
-  const uint8_t half = static_cast<uint8_t>(count / 2);
-  uint32_t was = 0;
-  uint32_t goes = 0;
-  for (uint8_t i = 0; i < half; ++i) was += samples[i];
-  for (uint8_t i = static_cast<uint8_t>(count - half); i < count; ++i) goes += samples[i];
-  return static_cast<int32_t>(goes - was) * 10 / static_cast<int32_t>(half);
-}
-
-uint32_t trend_step(uint32_t mhz, int32_t trend10, uint8_t recent_pct) {
-  // **La tendència mana**: a minute that went up is a board that is doing more, and it goes one step up —the minute after is
-  // the one that says whether it was worth going to the top—.
-  if (trend10 >= static_cast<int32_t>(kTrendBandPct10)) {
-    if (mhz < kRestingMhz) return kRestingMhz;
-    if (mhz < kBusyMhz) return kBusyMhz;
-    return mhz;
-  }
-  if (trend10 + static_cast<int32_t>(kTrendBandPct10) <= 0) {
-    if (mhz > kRestingMhz) return kRestingMhz;
-    if (mhz > kIdleMhz) return kIdleMhz;
-    return mhz;
-  }
-  // **I si la tendència és plana, el nivell**: a board that has done nothing for half a minute is idle and it goes to the
-  // bottom, and one that has been busy all along goes to the top, in one move and not two —the trend is the shape of the
-  // minute and this is what the minute is— (docs/60, docs/95).
-  if (recent_pct <= kIdleMeanPct && mhz > kIdleMhz) return kIdleMhz;
-  if (recent_pct >= kBusyMeanPct && mhz < kBusyMhz) return kBusyMhz;
-  return mhz;
-}
-
-// **El governador** (0.189.95): the trend of the load turned into one step of the processor, and nothing else. **low is 80,
-// normal 160, high 240**, and it moves **one step at a time in the direction of the trend**: a board that has been climbing a
-// minute goes from 80 to 160 and does not jump to 240 on the same turn it climbs, because the minute after that is what says
-// whether it was a page turning or a book being searched. A window somebody asked for —the boot, an app starting, a paint— is
-// not its business (docs/50, docs/60).
-static void govern_cpu() {
-  if (g_power == nullptr || !policy_is_auto()) return;
-  // **I un dit a sobre no és una càrrega baixa** (0.190.87): the governor reads the load and a finger held still on a panel that
-  // reports only a change is a board that looks idle —o sigui que baixaria la velocitat just quan la persona espera la resposta—.
-  // El que mana mentre el dit hi és ho ha dit `note_a_finger`, i el governador no hi té res a dir (docs/30, docs/50).
-  if (g_a_finger_down) return;
-  const uint8_t before = g_trend_count;
-  take_a_sample();
-  // **Una decisió per mostra i no per torn**: the samples are two seconds apart, so the clock can move at most once every two
-  // seconds however many turns the board takes in between, and a page that paints does not change its mind in the middle
-  // (docs/50, docs/60).
-  if (g_trend_count == before || g_trend_count == 0) return;
-  if (g_cpu_busy_until_ms != 0) return;
-  const uint32_t mhz = g_power->cpu_mhz();
-  const uint8_t half = static_cast<uint8_t>(g_trend_count / 2);
-  uint32_t recent = 0;
-  const uint8_t count = (half > 0) ? half : g_trend_count;
-  for (uint8_t i = static_cast<uint8_t>(g_trend_count - count); i < g_trend_count; ++i) recent += g_trend[i];
-  const uint32_t mean = (count > 0) ? (recent / count) : 0;
-  const int32_t trend = trend_of(g_trend, g_trend_count);
-  const uint32_t want = trend_step(mhz, trend, static_cast<uint8_t>(mean));
-  if (want == mhz) return;
-  const char* why = (trend >= static_cast<int32_t>(kTrendBandPct10)) ? "the load is climbing"
-                    : (trend + static_cast<int32_t>(kTrendBandPct10) <= 0) ? "the load is falling"
-                    : (want < mhz) ? "the load is low" : "the load is high";
-  move_to(want, why);
-}
+// **Aquestes tres funcions es van esborrar aquí**: `take_a_sample`, `trend_of`, `trend_step` i `govern_cpu` were this system
+// guessing the load of a minute with thirty bytes and two means, i el que han deixat és la part que el xip no pot saber —la
+// intenció de qui treballa—, que viu a `hold_cpu`, `work_cpu` i `wait_cpu` amb el lock del sostre (docs/50, docs/60).
 
 uint32_t cpu_mhz() { return (g_power != nullptr) ? g_power->cpu_mhz() : 0; }
 
@@ -1671,9 +1644,9 @@ bool set_cpu_mhz(uint32_t mhz) {
   // step the person forbade— and it was turning that refusal into a silent round up, which is what 0.189.112 undoes here
   // (docs/50, docs/60).
   if (mhz != kIdleMhz && mhz != kRestingMhz && mhz != kBusyMhz) return false;
-  // **El pas que demana una persona també s'acota** (0.189.107): asking for 240 on a board whose owner forbade it is an ask
-  // that lands on the biggest step allowed, and the line of the move says which one (docs/50).
-  mhz = allowed_step(mhz);
+  // **I des de la 0.190.175 no s'acota al mask**: `Speed:` i `power cpu N` són una decisió de la persona sobre el terra i el
+  // sostre alhora (un rang d'un sol valor), i el mask només mana quan l'escala automàtica és encesa —on el que hi ha és un terra i
+  // un sostre i no tres passos— (docs/50, docs/60).
   const uint32_t before = g_power->cpu_mhz();
   // The processor changes market: it is a call to the board and not a variable (docs/30). **And the port is emptied
   // before it**, or the line in flight comes out garbled (0.179.43, `empty_the_line`).
@@ -1684,7 +1657,8 @@ bool set_cpu_mhz(uint32_t mhz) {
   // choosing what the system works at, so the step is not undone by the next start that ends; and a window that was owed
   // is not owed any more, because the next step to take is this one.
   g_cpu_rest_mhz = mhz;
-  g_cpu_busy_until_ms = 0;
+  g_range_low = mhz;
+  g_range_high = mhz;
   // **I el pas triat també es desa** (0.190.85): `power cpu 160` o la fila `Speed:` de Settings són una elecció de la persona i
   // la placa ha d'arrengar-se-hi la propera vegada (docs/50, docs/60).
   {
@@ -1700,39 +1674,51 @@ bool set_cpu_mhz(uint32_t mhz) {
   return true;
 }
 
+// **Demanar el sostre i deixar-lo anar** (0.190.175): `mhz` is the step the caller has in mind and the chip only has two —the
+// floor and the ceiling of the range—, so a request at or above the top takes the lock of `ESP_PM_CPU_FREQ_MAX` and a request at
+// or below the bottom gives it back. **`hold_ms` ja no fa res**: the lock counts its takes, i una finestra que s'acabés en un torn
+// del nucli és el que el xip ja sap fer sol (docs/50, docs/60).
 void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why) {
+  (void)hold_ms;
   if (g_power == nullptr || mhz < 80 || mhz > 240) return;
   // **I amb l'escala apagada, una empenta no mou la placa** (0.190.85): `hold_cpu` era l'única porta de la velocitat que no
   // preguntava res, i per ella hi passaven l'arrencada (`kernel::boot`) i l'inici d'una app —o sigui que amb l'escala apagada la
   // CPU pujava a 240 igualment i el missatge del log era la resposta d'un camí que havia de callar—. El que mana una persona amb
   // `Speed:` és la velocitat i prou; el que ve després es queda allà on ella l'ha posat (docs/50, docs/60).
   if (!policy_is_auto()) return;
-  move_to(mhz, why);
-  // **The window is the caller's and its end is the system's**: nothing has to keep a clock for it, because `poll` is a
-  // turn of this system and a turn that is not taken is a board that is off.
-  g_cpu_busy_until_ms = (hold_ms > 0) ? (pal::system().millis() + hold_ms) : 0;
+  const bool top = (mhz >= kBusyMhz);
+  const uint32_t before = g_power->cpu_mhz();
+  if (!g_power->hold_cpu_top(top)) return;
+  const uint32_t now = g_power->cpu_mhz();
+  // **La línia és la mateixa d'abans i només surt quan el número s'ha mogut**: a board whose speed changed without a line is a board
+  // nobody can measure, and a line that says the same number says nothing (docs/50, docs/60).
+  if (now != before) {
+    log_printf(pal::kLogInfo, "POWER", "cpu %u MHz from %u (%s)", static_cast<unsigned>(now), static_cast<unsigned>(before),
+               (why != nullptr) ? why : "?");
+  }
 }
 
 void rest_cpu(const char* why) {
   if (g_power == nullptr) return;
-  // **I un dit a sobre no baixa la velocitat** (0.190.87): the frame of a finger renews the window, but a finger **held still** on
-  // a panel that only reports a change gives no new frame, o sigui que la finestra caducaria amb el dit a sobre i la pàgina es
-  // quedaria lenta just quan una persona l'està esperant (docs/30, docs/50).
+  // **I un dit a sobre no baixa la velocitat** (0.190.87): a finger held still on a panel that only reports a change keeps the top
+  // without asking for it again, which is the lock's own count and no longer a window that has to be renewed (docs/30, docs/50).
   if (g_a_finger_down) return;
-  g_cpu_busy_until_ms = 0;
-  if (policy_is_auto()) {
-    govern_cpu();
-    return;
+  if (!policy_is_auto()) return;
+  const uint32_t before = g_power->cpu_mhz();
+  if (!g_power->hold_cpu_top(false)) return;
+  const uint32_t now = g_power->cpu_mhz();
+  if (now != before) {
+    log_printf(pal::kLogInfo, "POWER", "cpu %u MHz from %u (%s)", static_cast<unsigned>(now), static_cast<unsigned>(before),
+               (why != nullptr) ? why : "?");
   }
-  move_to(g_cpu_rest_mhz, why);
 }
 
-// **Una feina vol el cim** (0.190.26): the top step for the length of the window, and the governor is told to stay out of it —
-// `hold_cpu` with a window is exactly that— because a decode that starts slow and ends fast is one piece of work and not a load
-// that climbed (docs/50, docs/60).
+// **Una feina vol el cim** (0.190.26): the lock of the top step, agafat, i el deixa anar el `wait_cpu` o el `rest_cpu` que ve
+// després. **Això és el que el DFS del xip no pot saber**: that a decode which starts slow and ends fast is one piece of work and
+// not a load that climbed, i que una espera de la targeta no és feina (docs/50, docs/60).
 void work_cpu(const char* why) {
   if (!policy_is_auto()) return;
-  hold_cpu(kBusyMhz, kWorkWindowMs, why);
+  hold_cpu(kBusyMhz, 0, why);
 }
 
 // **I una espera no vol res** (0.190.26): the bottom step, and **no window**, perquè el que ve després no és una espera i el

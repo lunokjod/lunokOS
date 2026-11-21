@@ -22,11 +22,17 @@ namespace {
 // which is a ceiling that has nothing to do with the memory of the board. A node is made when an app asks for a block and it
 // goes when the block goes, so the only limit is what the allocator answers —and it answers `nullptr`, which is an app
 // without a cache and not a page that cannot run— (docs/30, docs/75).
+// **Un bloc pot viure en dos llocs** (0.190.174): the extra memory —the PSRAM of the Paper—, where it is a pointer and a
+// `memcpy`, or the memory behind the chip's bank switcher, where it is a region that is read and written by offset because
+// the chip only has a 32 KB window of it mapped at a time. `bytes` and `banked` are never both: the first is the block and
+// the second is the region, and the rest of this file asks `store_*` for the bytes and does not care which (docs/50,
+// docs/75).
 struct Block {
   Block* next = nullptr;
   char app[kNameBytes];
   char key[kNameBytes];
   void* bytes = nullptr;
+  hal::IBankedMemory* banked = nullptr;
   size_t size = 0;
   // **La petjada dels bytes que el disc té d'aquest bloc** (0.189.53): the number of what was read from the file —or of the
   // zeros, when the file is not there— and of what was last written. A park whose bytes have this same number is a park
@@ -42,6 +48,13 @@ Block* g_blocks = nullptr;
 uint32_t g_held = 0;
 uint32_t g_generation = 1;
 
+// **A partir de quants bytes una caché va a la memòria del banc** (0.190.174): the caches of this system are between a few
+// kilobytes and a couple of megabytes, and the ones that matter are the launcher's `apps` (32 KB) and the index of an app
+// with a long list. From 32 KB up —the block the bank maps, and the size the launcher already asks for— the block goes to
+// the four megabytes behind the switcher, and the PSRAM is left for the faces, the fonts and the pictures, which is what it
+// was put there for (docs/50, docs/75).
+const size_t kBankFromBytes = 32 * 1024;
+
 // **Una petjada dels bytes del bloc, i prou** (0.189.53): FNV-1a of 32 bits over what the block holds, which is a
 // multiplication and an exclusive-or a byte —a kilobyte is a few microseconds and a thirty-two-kilobyte cache of the
 // launcher is less than a millisecond— against the eleven of a page program and the forty-five thousand of the sector an
@@ -51,6 +64,81 @@ uint32_t g_generation = 1;
 // number. What a collision would cost is one park that is not made over bytes that are not the block's —one in four
 // thousand million—, and the thing it would keep is a cache or a page that is already stale by a hair, which the next park
 // fixes.
+// **Els bytes d'un bloc, per la porta que hi hagi** (0.190.174): a block of the extra memory is copied with a `memcpy` and
+// a block of the bank asks its region for the piece. Nothing outside this file sees the difference, which is what let the
+// session memory keep its offsets —`block:read(offset, n)` and `block:write(offset, text)` were built that way on the first
+// day— while the place the bytes live changed (docs/30, docs/50, docs/75).
+const uint32_t kStoreChunk = 4096;
+
+// The footprint of a block of the extra memory is the same number a park compares (0.189.53); the door is defined below.
+uint32_t hash_of(const void* bytes, size_t size);
+
+uint32_t store_read(const Block& block, uint32_t offset, void* out, uint32_t bytes) {
+  if (offset >= block.size || bytes == 0) return 0;
+  if (bytes > block.size - offset) bytes = static_cast<uint32_t>(block.size - offset);
+  if (block.banked != nullptr) return block.banked->read(offset, out, bytes);
+  memcpy(out, static_cast<const uint8_t*>(block.bytes) + offset, bytes);
+  return bytes;
+}
+
+uint32_t store_write(Block& block, uint32_t offset, const void* in, uint32_t bytes) {
+  if (offset >= block.size || bytes == 0) return 0;
+  if (bytes > block.size - offset) bytes = static_cast<uint32_t>(block.size - offset);
+  if (block.banked != nullptr) return block.banked->write(offset, in, bytes);
+  memcpy(static_cast<uint8_t*>(block.bytes) + offset, in, bytes);
+  return bytes;
+}
+
+// **Els bytes que el bloc no cobreix són paper** (0.189.7): a region of the bank has no `memset` to call, so the zeros are
+// written in pieces like everything else (docs/75).
+void store_zero(Block& block, uint32_t from) {
+  if (from >= block.size) return;
+  if (block.banked == nullptr) {
+    memset(static_cast<uint8_t*>(block.bytes) + from, 0, block.size - from);
+    return;
+  }
+  static const uint8_t zeros[kStoreChunk] = {};
+  uint32_t at = from;
+  while (at < block.size) {
+    const uint32_t take = (block.size - at < kStoreChunk) ? static_cast<uint32_t>(block.size - at) : kStoreChunk;
+    if (block.banked->write(at, zeros, take) != take) break;
+    at += take;
+  }
+}
+
+// **I la regió es torna com es va demanar**: a block of the extra memory goes back to the allocator and a region of the bank
+// is closed, which is the only way the next block can have it (docs/75).
+void store_free(Block& block) {
+  if (block.banked != nullptr) {
+    hal::platform().close_banked_memory(block.banked);
+    block.banked = nullptr;
+  }
+  if (block.bytes != nullptr) {
+    pal::extra_memory().release(block.bytes);
+    block.bytes = nullptr;
+  }
+}
+
+// The footprint of a block, over its bytes wherever they are: the park that decides not to write asks this and not a flag
+// (0.189.53, docs/75).
+uint32_t store_hash(const Block& block) {
+  if (block.banked == nullptr) return hash_of(block.bytes, block.size);
+  uint8_t chunk[kStoreChunk];
+  uint32_t hash = 2166136261u;
+  uint32_t at = 0;
+  while (at < block.size) {
+    uint32_t take = (block.size - at < kStoreChunk) ? static_cast<uint32_t>(block.size - at) : kStoreChunk;
+    take = block.banked->read(at, chunk, take);
+    if (take == 0) break;
+    for (uint32_t i = 0; i < take; ++i) {
+      hash ^= chunk[i];
+      hash *= 16777619u;
+    }
+    at += take;
+  }
+  return hash;
+}
+
 uint32_t hash_of(const void* bytes, size_t size) {
   const uint8_t* it = static_cast<const uint8_t*>(bytes);
   uint32_t hash = 2166136261u;  // the offset basis of FNV-1a
@@ -136,10 +224,10 @@ bool file_of(const char* app, const char* key, char* out, size_t cap) {
 // a session that goes to the disk for four different motives —the app has ended, the memory is short, the board is going
 // down, a person asked with `sessions destroy`— is the same session and a log that cannot tell them apart cannot explain why
 // one came back and another did not (docs/30, docs/75).
-bool write_block(const char* app, const char* key, const void* bytes, size_t size, const char* why) {
+bool write_block(const Block& block, const char* why) {
   char folder[96];
   char path[128];
-  if (!folder_of(app, folder, sizeof(folder)) || !file_of(app, key, path, sizeof(path))) return false;
+  if (!folder_of(block.app, folder, sizeof(folder)) || !file_of(block.app, block.key, path, sizeof(path))) return false;
 
   hal::IStorage* storage = nullptr;
   char rel[128];
@@ -150,15 +238,58 @@ bool write_block(const char* app, const char* key, const void* bytes, size_t siz
 
   hal::FileSlot slot;
   if (!storage->open(rel, hal::OpenMode::kWrite, slot)) {
-    log_printf(pal::kLogWarn, "MEMORY", "%s cannot park '%s' on %s (%s)", app, key, path, why);
+    log_printf(pal::kLogWarn, "MEMORY", "%s cannot park '%s' on %s (%s)", block.app, block.key, path, why);
     return false;
   }
-  const int32_t written = storage->write(slot, bytes, static_cast<uint32_t>(size));
+  // **A trossos, perquè el bloc pot ser a la memòria que no té punter** (0.190.174): a region of the bank gives a piece at a
+  // time and the file takes it the same way, so a cache of two megabytes never needs two megabytes of the board's own RAM
+  // (docs/50, docs/70, docs/75).
+  uint8_t chunk[kStoreChunk];
+  bool ok = true;
+  uint32_t at = 0;
+  while (at < block.size) {
+    uint32_t take = (block.size - at < kStoreChunk) ? static_cast<uint32_t>(block.size - at) : kStoreChunk;
+    take = store_read(block, at, chunk, take);
+    if (take == 0) {
+      ok = false;
+      break;
+    }
+    if (storage->write(slot, chunk, take) != static_cast<int32_t>(take)) {
+      ok = false;
+      break;
+    }
+    at += take;
+  }
   storage->close(slot);
-  const bool ok = written >= 0 && static_cast<size_t>(written) == size;
-  log_printf(ok ? pal::kLogInfo : pal::kLogWarn, "MEMORY", "%s parks '%s': %u B to %s in %d ms (%s)", app, key,
-             static_cast<unsigned>(size), path, static_cast<int>(pal::system().millis() - started), why);
+  log_printf(ok ? pal::kLogInfo : pal::kLogWarn, "MEMORY", "%s parks '%s': %u B to %s in %d ms (%s)", block.app,
+             block.key, static_cast<unsigned>(block.size), path,
+             static_cast<int>(pal::system().millis() - started), why);
   return ok;
+}
+
+// **And back, the same way**: what the card has of a session, written into a block that the caller has already made. The
+// answer is how many bytes the block took, and a block bigger than the file keeps its zeros (docs/30, docs/75).
+size_t restore_block(const char* app, const char* key, Block& block) {
+  char path[128];
+  if (!file_of(app, key, path, sizeof(path))) return 0;
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) return 0;
+
+  hal::FileSlot slot;
+  if (!storage->open(rel, hal::OpenMode::kRead, slot)) return 0;
+  uint8_t chunk[kStoreChunk];
+  size_t done = 0;
+  while (done < block.size) {
+    const uint32_t room = (block.size - done < kStoreChunk) ? static_cast<uint32_t>(block.size - done) : kStoreChunk;
+    const int32_t got = storage->read(slot, chunk, room);
+    if (got <= 0) break;
+    const uint32_t wrote = store_write(block, static_cast<uint32_t>(done), chunk, static_cast<uint32_t>(got));
+    done += wrote;
+    if (wrote < static_cast<uint32_t>(got)) break;
+  }
+  storage->close(slot);
+  return done;
 }
 
 // The size of the file of a session, which is written below with the reader: a park asks it before it decides that it has
@@ -183,13 +314,13 @@ size_t disk_size(const char* app, const char* key);
 // `wrote` is what the caller counts: `false` is «el disc ja els tenia» and it is not a failure (docs/30, docs/75).
 bool park_block(Block& block, const char* why, bool& wrote) {
   wrote = false;
-  const uint32_t now = hash_of(block.bytes, block.size);
+  const uint32_t now = store_hash(block);
   if (now == block.seen && disk_size(block.app, block.key) == block.size) {
     log_printf(pal::kLogInfo, "MEMORY", "%s does not park '%s': the %u B on the disk are the ones it has (%s)", block.app,
                block.key, static_cast<unsigned>(block.size), why);
     return true;
   }
-  if (!write_block(block.app, block.key, block.bytes, block.size, why)) return false;
+  if (!write_block(block, why)) return false;
   block.seen = now;
   wrote = true;
   return true;
@@ -362,10 +493,17 @@ uint32_t remove_a_file(const char* app, const char* key) {
 }  // namespace
 
 void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
+  const bool there = open_session(app, key, bytes, got);
+  if (!there) return nullptr;
+  Block* held = find(app, key);
+  return (held != nullptr) ? held->bytes : nullptr;
+}
+
+bool open_session(const char* app, const char* key, size_t bytes, size_t& got) {
   // **L'amo d'un bloc de sessió és l'app que el demana**, que és el primer argument i no el que hi ha al vidre (docs/30, docs/75).
   pal::MemoryTag who_asks(pal::kMemorySession, app);
   got = 0;
-  if (app == nullptr || key == nullptr || app[0] == '\0' || key[0] == '\0') return nullptr;
+  if (app == nullptr || key == nullptr || app[0] == '\0' || key[0] == '\0') return false;
   char wanted_app[kNameBytes];
   char wanted_key[kNameBytes];
   copy_name(wanted_app, app);
@@ -378,12 +516,18 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
     // the block where it is: the app gets what it had and decides (docs/75).
     const size_t was = block.size;
     if (bytes > block.size) {
-      void* bigger = pal::extra_memory().resize(block.bytes, bytes, true);
-      if (bigger != nullptr) {
-        block.bytes = bigger;
-        // **The bytes that were not there before are zero**, so a cache that grows does not read the heap's past.
-        memset(static_cast<uint8_t*>(block.bytes) + block.size, 0, bytes - block.size);
-        block.size = bytes;
+      if (block.banked != nullptr) {
+        // **Una regió del banc no creix** (0.190.174): the chip gives one window and this block already has it, so the block
+        // stays the size it is and the app decides with the bytes it got —the same answer the allocator gives when it
+        // cannot move a block— (docs/75).
+      } else {
+        void* bigger = pal::extra_memory().resize(block.bytes, bytes, true);
+        if (bigger != nullptr) {
+          block.bytes = bigger;
+          // **The bytes that were not there before are zero**, so a cache that grows does not read the heap's past.
+          memset(static_cast<uint8_t*>(block.bytes) + block.size, 0, bytes - block.size);
+          block.size = bytes;
+        }
       }
     }
     // **And it says so** (0.179.3): an app that keeps memory for the session is the first thing that goes when the board
@@ -396,7 +540,7 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
                  static_cast<unsigned>(block.size));
     }
     got = block.size;
-    return block.bytes;
+    return true;
   }
 
   // **A session is a node and there is no table to be full of** (0.189.36): the only answer that is not a block is the
@@ -411,7 +555,7 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
   if (node == nullptr) {
     log_printf(pal::kLogWarn, "MEMORY", "%s asks for '%s': %u B, and there is no room for the row of a session",
                wanted_app, wanted_key, static_cast<unsigned>(bytes));
-    return nullptr;
+    return false;
   }
   // **I EL QUE HI HAVIA AL DISC ÉS EL QUE L'APP VA DESAR-HI L'ÚLTIMA VEGADA** (0.189.7): the file of this session is
   // asked for its size before the block is made, so a cache that grew last run comes back whole and one that asks for
@@ -419,21 +563,31 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
   // not the heap's past.
   const size_t on_disk = disk_size(wanted_app, wanted_key);
   const size_t want = (on_disk > bytes) ? on_disk : bytes;
+  // **Els blocs grans van a la memòria que no té punter** (0.190.174, l'amo: *«usa himem per les sessions»*): a cache of
+  // `kBankFromBytes` or more is the memory the PSRAM should keep for the faces, the fonts and the pictures, and it is the
+  // one shape the bank can hold —read and written by offset, which is what a session already was—. A board with no bank, or
+  // a bank that is already taken, answers `nullptr` and the block goes to the PSRAM as it always did (docs/50, docs/75).
+  hal::IBankedMemory* banked = nullptr;
+  if (want >= kBankFromBytes) {
+    banked = hal::platform().open_banked_memory(static_cast<uint32_t>(want));
+    if (banked != nullptr) {
+      log_printf(pal::kLogInfo, "MEMORY", "%s asks for '%s': %u B, and it is in the banked memory", wanted_app,
+                 wanted_key, static_cast<unsigned>(want));
+    }
+  }
   void* made = nullptr;
-  {
+  if (banked == nullptr) {
     meter::Scope scope(meter::kExtraAlloc);
     made = pal::extra_memory().allocate(want, true);
   }
   // **A block that does not fit is an app without a cache** and not a fault: the node goes back and the app is told by the
   // null it gets (docs/30).
-  if (made == nullptr) {
+  if (banked == nullptr && made == nullptr) {
     pal::extra_memory().release(node);
     log_printf(pal::kLogWarn, "MEMORY", "%s asks for '%s': %u B, and there is no room", wanted_app, wanted_key,
                static_cast<unsigned>(want));
-    return nullptr;
+    return false;
   }
-  memset(made, 0, want);
-  const size_t restored = (on_disk > 0) ? read_block(wanted_app, wanted_key, made, want) : 0;
   *node = Block();
   node->next = g_blocks;
   g_blocks = node;
@@ -442,10 +596,13 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
   copy_name(block.app, wanted_app);
   copy_name(block.key, wanted_key);
   block.bytes = made;
+  block.banked = banked;
   block.size = want;
+  store_zero(block, 0);
+  const size_t restored = (on_disk > 0) ? restore_block(wanted_app, wanted_key, block) : 0;
   // **El que el disc té d'aquest bloc, comptat ara** (0.189.53): the bytes just restored, or the zeros when there was no
   // file, are the state the disk is in —and the first park compares against them—.
-  block.seen = hash_of(made, want);
+  block.seen = store_hash(block);
   if (restored > 0) {
     log_printf(pal::kLogInfo, "MEMORY", "%s asks for '%s': %u B, restored %u B from the disk", wanted_app,
                wanted_key, static_cast<unsigned>(want), static_cast<unsigned>(restored));
@@ -454,7 +611,7 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
                static_cast<unsigned>(want));
   }
   got = want;
-  return made;
+  return true;
 }
 
 bool release(const char* app, const char* key) {
@@ -470,7 +627,7 @@ bool release(const char* app, const char* key) {
   park_block(block, "the app gave it back", wrote);
   log_printf(pal::kLogInfo, "MEMORY", "%s gives back '%s': %u B", block.app, block.key,
              static_cast<unsigned>(block.size));
-  pal::extra_memory().release(block.bytes);
+  store_free(block);
   free_node(held);
   ++g_generation;
   return true;
@@ -512,7 +669,7 @@ void relieve(const char* current, void* keep, size_t asked) {
     log_printf(pal::kLogInfo, "MEMORY", "%s gives back '%s': %u B, the memory is short", block->app, block->key,
                static_cast<unsigned>(block->size));
     freed_others += block->size;
-    pal::extra_memory().release(block->bytes);
+    store_free(*block);
     *link = block->next;
     pal::extra_memory().release(block);
     if (g_held > 0) --g_held;
@@ -544,7 +701,7 @@ void relieve(const char* current, void* keep, size_t asked) {
       log_printf(pal::kLogWarn, "MEMORY", "%s gives back '%s': %u B, its own cache, the memory is short", block->app,
                  block->key, static_cast<unsigned>(block->size));
       freed_mine += block->size;
-      pal::extra_memory().release(block->bytes);
+      store_free(*block);
       *link = block->next;
       pal::extra_memory().release(block);
       if (g_held > 0) --g_held;
@@ -662,12 +819,45 @@ uint32_t entries(Entry* out, uint32_t cap) {
 size_t copy(const char* app, const char* key, char* out, size_t cap) {
   if (app == nullptr || key == nullptr || out == nullptr || cap == 0) return 0;
   const Block* held = find(app, key);
-  if (held != nullptr) {
-    const size_t size = (held->size < cap) ? held->size : cap;
-    if (size > 0) memcpy(out, held->bytes, size);
-    return size;
-  }
+  if (held != nullptr) return store_read(*held, 0, out, static_cast<uint32_t>(cap));
   return read_block(app, key, out, cap);
+}
+
+// **Els bytes d'un bloc, per al qui n'és l'amo i per a l'app que ho és** (0.190.174): the two doors of a block that is read
+// and written with an offset. They are what the interpreter calls now —`block:read(at, n)`, `block:write(at, text)`,
+// `block:clear()`— because a block can live where no pointer reaches, and they are also the honest shape of a memory that
+// only maps a window at a time (docs/30, docs/50, docs/75).
+uint32_t read_at(const char* app, const char* key, uint32_t offset, void* out, uint32_t cap) {
+  if (app == nullptr || key == nullptr || out == nullptr || cap == 0) return 0;
+  const Block* held = find(app, key);
+  if (held == nullptr) return 0;
+  return store_read(*held, offset, out, cap);
+}
+
+uint32_t write_at(const char* app, const char* key, uint32_t offset, const void* in, uint32_t bytes) {
+  if (app == nullptr || key == nullptr || in == nullptr || bytes == 0) return 0;
+  Block* held = find(app, key);
+  if (held == nullptr) return 0;
+  return store_write(*held, offset, in, bytes);
+}
+
+bool clear(const char* app, const char* key) {
+  if (app == nullptr || key == nullptr) return false;
+  Block* held = find(app, key);
+  if (held == nullptr) return false;
+  store_zero(*held, 0);
+  return true;
+}
+
+// **Quants blocs viuen a la memòria del banc** (0.190.174): the prompt says it in the `sessions` summary, because where a
+// cache is answers a different question than how big it is —the PSRAM and the bank are two rooms and a person looking at a
+// board that is short of memory needs to know which one is full— (docs/30, docs/75).
+uint32_t banked() {
+  uint32_t held = 0;
+  for (const Block* block = g_blocks; block != nullptr; block = block->next) {
+    if (block->banked != nullptr) ++held;
+  }
+  return held;
 }
 
 // **Les cachés d'una app s'escriuen al disc quan la seva app s'acaba** (0.189.7): one app at a time is on this board, and
@@ -762,7 +952,7 @@ Forgotten forget(const char* app) {
                static_cast<unsigned>(block->size));
     gone.bytes += block->size;
     ++gone.blocks;
-    pal::extra_memory().release(block->bytes);
+    store_free(*block);
     *link = block->next;
     pal::extra_memory().release(block);
     if (g_held > 0) --g_held;
@@ -792,7 +982,7 @@ Forgotten forget(const char* app, const char* key) {
     gone.blocks = 1;
     log_printf(pal::kLogInfo, "MEMORY", "%s forgets '%s': %u B, cleared from the memory", wanted_app, wanted_key,
                static_cast<unsigned>(held->size));
-    pal::extra_memory().release(held->bytes);
+    store_free(*held);
     free_node(held);
     ++g_generation;
   }
@@ -822,7 +1012,7 @@ Forgotten forget_key(const char* key, bool say) {
                static_cast<unsigned>(block->size));
     gone.bytes += block->size;
     ++gone.blocks;
-    pal::extra_memory().release(block->bytes);
+    store_free(*block);
     *link = block->next;
     pal::extra_memory().release(block);
     if (g_held > 0) --g_held;

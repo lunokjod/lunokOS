@@ -1,5 +1,6 @@
 // Where the settings of an app are kept, and which unit is behind `/cfg`.
 #include "kernel/meter.h"
+#include "kernel/bluetooth.h"
 #include "kernel/cfg.h"
 
 #include <stdio.h>
@@ -88,6 +89,8 @@ const char kSleepKey[] = "sleep";
 const char kTouchWakeKey[] = "touchwake";
 // **La becaina** (0.190.63): the switch of the Battery tab that turns the light sleep of the waits on and off.
 const char kNapKey[] = "nap";
+// **El teclat de Bluetooth, que és una altra porta i un altre commutador** (0.190.180) (docs/30, docs/50).
+const char kBtKey[] = "bt";
 const char kUartWakeKey[] = "uartwake";
 const char kLastSleepKey[] = "lastsleep";
 const char kIdleKey[] = "idle";
@@ -160,6 +163,8 @@ bool g_wake_on_touch = false;
 // **La becaina, encesa de sèrie** (0.190.63, l'amo: *«[X] Light sleep instead of wait»*): waiting awake is current nobody asked for and a
 // light sleep keeps everything the system needs; a board that cannot nap ignores it, which is what `power::can_nap` says (docs/50, docs/60).
 bool g_nap_on = true;
+// **Apagat de sèrie** (0.190.180): encès, la placa és un teclat i no fa becaines; o sigui que el que no es demana no es paga (docs/60).
+bool g_bt_on = false;
 bool g_uart_wake = true;
 // **Una frase i prou** (0.190.152): the report of the last deep sleep, as the board wrote it. It is a note for a person and not a setting, o
 // sigui que no té valor per defecte ni es valida: el que hi hagi és el que la placa va dir (docs/50, docs/70).
@@ -364,6 +369,12 @@ bool remember_nap_on() {
   return keep(kNapKey, word);
 }
 
+bool remember_bt_on() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_bt_on ? kOn : kOff;
+  return keep(kBtKey, word);
+}
+
 bool remember_sleep_on() {
   if (g_nvs == nullptr) return false;
   const char* word = g_sleep_on ? kOn : kOff;
@@ -393,7 +404,9 @@ bool remember_lock_after() {
 bool remember_freq() {
   if (g_nvs == nullptr) return false;
   char text[kFreqCap] = {0};
-  if (!freq_text(text, sizeof(text), freq_mask())) return false;
+  // **I el que es desa són el terra i el sostre** (0.190.175): a mask written by an older build can carry the middle bit, and a rule that
+  // reads it back as if it were still a setting is a rule that lies about what the board does (docs/50, docs/60).
+  if (!freq_text(text, sizeof(text), static_cast<uint8_t>(freq_mask() & 0x05))) return false;
   return keep(kFreqKey, text);
 }
 
@@ -691,6 +704,16 @@ void boot(hal::IPlatform& platform) {
           log_printf(pal::kLogWarn, "CFG", "sleep '%s' is not on or off; the board keeps its own policy", raw_sleep);
         }
       }
+      char raw_bt[8] = {0};
+      size_t bt_len = 0;
+      if (g_nvs->get(kNamespace, kBtKey, raw_bt, sizeof(raw_bt) - 1, bt_len) && bt_len > 0 && bt_len < sizeof(raw_bt)) {
+        raw_bt[bt_len] = '\0';
+        if (same(raw_bt, kOn) || same(raw_bt, kOff)) {
+          g_bt_on = same(raw_bt, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "bt '%s' is not on or off; the keyboard stays off", raw_bt);
+        }
+      }
       char raw_note[sizeof(g_last_sleep)] = {0};
       size_t note_len = 0;
       if (g_nvs->get(kNamespace, kLastSleepKey, raw_note, sizeof(raw_note) - 1, note_len) && note_len > 0 &&
@@ -966,6 +989,12 @@ void boot(hal::IPlatform& platform) {
   }
   log_markf("NVS", "the store was read at the boot: %u setting(s) in '%s', and /cfg is on %s", static_cast<unsigned>(kept),
             kNamespace, (g_unit[0] != '\0') ? g_unit : "nowhere");
+  // **I el teclat s'obre aquí, si la persona el va deixar encès** (0.190.180): el ràdio puja abans que es pinti la primera pàgina, perquè
+  // una app que escriu amb ell no hagi de demanar-ho cada cop. Una placa sense ràdio desa el commutador i no fa res, que és el que
+  // `bt::start` contesta (docs/30, docs/50).
+  if (g_bt_on && !bt::is_on()) {
+    if (!bt::start("lunokOS")) g_bt_on = false;
+  }
 }
 
 const char* unit() { return g_unit; }
@@ -998,6 +1027,10 @@ bool set_wake_on_touch(bool on) {
 // board does in the same moment and not on the next boot (docs/30, docs/60).
 bool nap_on() { return g_nap_on; }
 
+// **I el teclat, que mana sobre la son mentre viu** (0.190.180): the switch does the real thing and not just a word, perquè la fila de
+// Settings ha de poder encendre el ràdio i no esperar la propera arrencada (docs/30, docs/50).
+bool bt_on() { return g_bt_on; }
+
 // **I la consola, que és una porta del maquinari com la del vidre** (0.190.147): the value of the page is the board's, so moving the switch
 // changes what the next nap does and not the next boot (docs/30, docs/60).
 bool uart_wake() { return g_uart_wake; }
@@ -1019,6 +1052,19 @@ bool set_nap_on(bool on) {
   g_nap_on = on;
   (void)power::set_nap_on(on);
   return remember_nap_on();
+}
+
+// **El teclat s'encén i s'apaga aquí mateix**: `bt::start` obre el ràdio i en diu el preu al registre, i una placa que no en té només
+// desa el commutador, que és el que fa que l'ajust no es refusi a una placa que no en sap (docs/30, docs/50).
+bool set_bt_on(bool on) {
+  const bool was = g_bt_on;
+  g_bt_on = on;
+  if (on && !was) {
+    if (!bt::start("lunokOS")) g_bt_on = false;
+  } else if (!on && was) {
+    bt::stop();
+  }
+  return remember_bt_on();
 }
 
 // **El llindar del registre** (0.190.89): the word of the row is the word of the ring, and the ring is told in the same line, or the
@@ -1227,6 +1273,10 @@ bool freq_allowed(uint32_t mhz) {
 }
 
 bool set_freq_allowed(uint32_t mhz, bool on) {
+  // **El pas del mig ja no és un ajust** (0.190.175, l'amo: *«el toggle del mig, fora»*): the chip's power management moves the processor
+  // between a floor and a ceiling and it decides the frequencies in between, so 160 cannot be forbidden or allowed —a mask with it would
+  // be a promise this system cannot keep—. The two that are a setting are 80 and 240, que són el terra i el sostre (docs/50, docs/60).
+  if (mhz == power::kRestingMhz) return false;
   uint8_t bit = 0;
   for (uint8_t candidate = 0x01; candidate <= 0x04; candidate = static_cast<uint8_t>(candidate << 1)) {
     if (freq_step_of(candidate) == mhz) bit = candidate;

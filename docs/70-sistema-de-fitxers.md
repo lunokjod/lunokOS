@@ -970,11 +970,11 @@ vella el dia que es toca una app:
 | `custom_apps_in_disk = yes` | **Les que nomenen la placa** per id o per família (`esp32`), que és la mateixa regla que fa servir el nucli per refusar una app al `run` (docs/40). A l'emulador i a les proves, que no tenen placa, són totes les d'`apps/` |
 
 ```ini
-[env:m5-paper]
+[env:m5-paper-idf]
 ; una placa que es queda sense targeta i ha de portar totes les apps que la nomenen
 custom_apps_in_disk = yes
 
-[env:lilygo-t5s3]
+[env:lilygo-t5s3-idf]
 ; la mateixa imatge que el Paper: cada app que nomena la família esp32 (0.190.80), i el llançador de pàgina
 custom_apps_in_disk = yes
 ; build_flags:
@@ -982,14 +982,14 @@ custom_apps_in_disk = yes
 ```
 
 ```ini
-[env:m5-atom-matrix]
+[env:m5-atom-matrix-idf]
 ; la demo del panell, i només aquesta: el Lite no la porta (docs/40)
 custom_apps = rainbow
 ```
 
 ```sh
-pio run -e m5-atom-matrix -t buildfs     # fa la imatge amb aquesta app a dins
-pio run -e m5-atom-matrix -t uploadfs    # i la puja
+pio run -e m5-atom-matrix-idf -t buildfs     # fa la imatge amb aquesta app a dins
+pio run -e m5-atom-matrix-idf -t uploadfs    # i la puja
 ```
 
 **Mesurat el 12/11**: `make_disk: build/disk/m5-atom-matrix is 29421 B in 7 files, 1 apps, linked to apps/, 26 files of

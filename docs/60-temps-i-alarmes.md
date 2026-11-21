@@ -367,14 +367,20 @@ corrent se'n va abans i la tecla PWR és la del xip de potència, que és com aq
 **La CPU és la mateixa decisió que el son** —energia— i es pren al nucli i no dins d'una app: la placa diu quins passos té
 (80, 160 i 240) i un altre número es refusa en comptes d'arrodonir-se.
 
-| Moment | Velocitat | Quant dura | Qui ho diu |
-|---|---|---|---|
-| Arrencada | **240** | fins que el sistema està carregat | `kernel::boot`, `power::hold_cpu(240, 0, "boot")` |
-| Sistema carregat | **160** | fins a la finestra següent | `power::rest_cpu("the system is loaded")` al final del boot |
-| Llançament d'una app de Lua | **240** | **3 s** (`kStartBusyMs`) | `shell::run_app`, `power::hold_cpu(240, 3000, "an app is starting")` |
-| Una imatge, una font, un epub | **240** | **600 ms** (`kWorkWindowMs`) | `power::work_cpu("a picture" / "a face" / "a book" / "a page of a book" / "the glyphs of a page")` |
-| Enviar al panell, esperar la tinta, escriure a la targeta | **80** | el que duri | `power::wait_cpu("a paint" / "the ink of the picture" / "the card")` |
-| La resta | **160** | — | la velocitat de repòs |
+**Des de la 0.190.175 el rellotge el mou el `esp_pm` del xip** (l'amo: *«la cpu es pot escalar sola a esp_idf... activa la opció i
+adapta el que tenim fet manualment d'scaling»*). El que aquest sistema diu no és un pas sinó **quan vol el sostre**, i el xip va del terra
+al sostre pel seu compte de càrrega entre dos locks:
+
+| Moment | Velocitat | Qui ho diu |
+|---|---|---|
+| Arrencada i començament d'una app | **el sostre del rang** (240 de sèrie) | `power::hold_cpu(kBusyMhz, …)` → el lock `ESP_PM_CPU_FREQ_MAX` |
+| Una imatge, una font, un epub | **el sostre**, mentre duri la feina | `power::work_cpu(…)`, el mateix lock |
+| Enviar al panell, esperar la tinta, escriure a la targeta | **el terra del rang** (80 de sèrie) | `power::wait_cpu(…)`, el lock deixat anar |
+| La resta | **el que el xip triï** entre el terra i el sostre | `esp_pm`, per la càrrega dels tasks |
+| Amb l'escala apagada | **`Speed:` i prou** | `esp_pm_configure({min = max = Speed})` |
+
+**El terra i el sostre són el que la persona permet**: `Allow 80 MHz` i `Allow 240 MHz` a Settings→CPU (el del mig va marxar a la
+0.190.175: el xip decideix les freqüències d'entremig, i una que no es pot permetre ni prohibir no és cap ajust).
 
 - **Dues portes i no una: la feina i l'espera** (0.190.26, l'amo: *«Si està habilitat el Automatic scaling: al carregar una imatge,
   puja a 240; al carregar un epub, 240; al carregar una font, 240; al enviar dades al eink usa 80»*). `power::work_cpu` és el que el
@@ -386,12 +392,13 @@ corrent se'n va abans i la tecla PWR és la del xip de potència, que és com aq
   tres vegades més a 80 (99 ms contra ~300 en una pàgina), però el panell triga 783 ms a tinta igualment i el corrent del pas de
   dalt no el paga ningú. El número de debò és a `docs/95` (D-5).
 
-- **La finestra té rellotge i no amo**: `power::hold_cpu(mhz, ms, why)` posa el pas ara i deixa escrit quan s'acaba; qui
-  el tanca és **`power::poll`**, un torn del sistema, o sigui que cap app no ha de vigilar la seva pròpia estona (ni pot
-  deixar-la oberta si penja).
-- **El que demana algú mana sobre el repòs**: `power cpu <mhz>` a la consola i `power.cpu(mhz)` de Lua fan que aquell pas
-  sigui **el que el sistema torna a posar** quan una finestra es tanca, i cancel·len la finestra que hi hagués. Així una
-  persona que baixa la placa a 80 per mesurar no es troba que la propera app la torna a pujar.
+- **La finestra és un comptador del xip i no un rellotge del nucli** (0.190.175): `hold_cpu(mhz, ms, why)` agafa o deixa anar el
+  lock `ESP_PM_CPU_FREQ_MAX`, i el xip compta els que el tenen. **El `ms` ja no fa res**: una finestra que havia de caducar en un
+  torn del nucli era un número que havia de ser prou gran per no baixar a mig decode i prou petit per no quedar-se a dalt per res,
+  i el que el tanca ara és el `rest_cpu` o el `wait_cpu` que ve després (docs/50).
+- **El que demana algú mana sobre el repòs**: `power cpu <mhz>` a la consola i `power.cpu(mhz)` de Lua fixen **el terra i el sostre
+  alhora** (un rang d'un sol valor) i apaguen l'escala automàtica. Així una persona que baixa la placa a 80 per mesurar no es troba
+  que la propera app la torna a pujar.
 - **Els canvis es veuen al registre**, tots i cada un, amb el número que hi havia abans i el motiu:
   `[I][POWER] cpu 240 MHz from 160 (an app is starting)`, i el tancament de la finestra
   `[I][POWER] cpu 160 MHz from 240 (the load is over)`. Una velocitat que el xip no accepta surt com a avís i diu a quina
@@ -443,18 +450,31 @@ pestanya Battery encès —`cfg.nap on|off`, `cfg.nap()`, i ve de sèrie—, l'e
 arribi a la cua fins a un segon quan no hi ha cap app) és un **son lleuger**, i el que el desfà és una tecla, el dit, la consola o el
 temporitzador.
 
-**I només és aquí** (0.190.69): the ink of the glass (`splash::settle`) and the card's margin (`power::settle_before_leaving`) went
-back to being awake waits. Those are the last seconds before the current goes and a wait with a frame or a write in flight, and the
-night of the 20/11 the Paper hung on its way down with exactly one of them behind it. El torn del nucli és on la placa passa l'estona, on
-no hi ha cap transacció a mitges i on una becaina que surt malament costa un torn (docs/50, docs/75).
+**I des de la 0.190.178 el xip dorma sol** (l'amo: *«activem el lightsleep automàtic d'idf»*): la dormida no la demana el nucli sinó la
+gestió de potència del xip, que atura el processador quan el planificador queda sense feina. **El que continua sent d'aquest sistema és la
+pregunta**: `esp_pm_register_skip_light_sleep_callback` crida el pany abans de cada son automàtic —`the_doors_are_shut()` a la placa—, i
+el pany només és obert quan `power::open_the_sleep` ha fet totes les preguntes de sempre i ha armat les portes de la placa. O sigui que la
+quietud la continua decidint `kernel::power` i el que canvia és qui fa la dormida: la IDF, que mira el proper temporitzador i **compensa el
+tick** que el son s'ha menjat (un `esp_light_sleep_start` cridat a mà el deixa enrere).
+
+**I el pany protegeix de franc el que abans s'havia de protegir a mà**: la tinta d'una pintada, una consola que encara no ha callat i un port
+cedit a una app esperen **fora del torn**, on el pany és tancat, o sigui que no hi ha cap d'ells que hagi de saber que el son existeix.
+
+**I només dorma al torn** (0.190.69): the ink of the glass (`splash::settle`) and the card's margin (`power::settle_before_leaving`) are
+awake waits, and now they are because the pany is shut and not because nobody sleeps there. Those are the last seconds before the current
+goes and a wait with a frame or a write in flight, and the night of the 20/11 the Paper hung on its way down with exactly one of them
+behind it. El torn del nucli és on la placa passa l'estona, on no hi ha cap transacció a mitges i on una becaina que surt malament costa un
+torn (docs/50, docs/75).
 
 - **El son és lleuger i no un reset**: la RAM, l'intèrpret, la pàgina i el `state` hi són en tornar, o sigui que no s'ha de desar res ni
   tornar a obrir cap app; el que s'atura són els rellotges.
-- **La becaina creix mentre no passa res**: quaranta mil·lisegons la primera, i el doble fins a un segon; una mà a la placa —una tecla,
-  un dit, un byte al prompt— la torna al mínim. És el que fa que una placa quieta costi unes quantes vegades menys sense que una placa
-  que es fa servir pagui res (docs/95).
-- **I l'escala només creix si el xip ha dormit** (0.190.70): la línia del sostre sortia en una placa que no havia dormit mai, perquè el
-  que pujava l'escala era el torn i no el son.
+- **I l'escala de la becaina ja no hi és** (0.190.181, l'amo veient el registre de l'ATOM: *«No haviem quedat que aixó era cosa del
+  pasat? […] Que ara esp_idf gestionava el lightSleep?»*). La 0.190.63 va néixer amb una escala —quaranta mil·lisegons i doblar fins a un
+  segon— perquè llavors era el nucli qui demanava la dormida i n'havia de triar la durada. Des de la 0.190.178 la dormida la fa la gestió
+  de potència dins del `pop`, i la durada la donen **el `wait` del torn** i el proper temporitzador que la IDF mira: l'escala no decidia
+  res —`min(wait, escala)` donava sempre el `wait`— i continuava pujant. El registre de l'amo ho va ensenyar en dues línies seguides:
+  `163 light sleep(s), 5026 ms in all` (trenta mil·lisegons cada una) i, a sota, `the nap is at its ceiling: 1000 ms a turn`. **La
+  segona era una mentida** i la línia del sostre ha marxat amb l'escala.
 - **La mà mana sobre la becaina, i el topall de deu mil·lisegons es queda** (0.190.71). La 0.190.70 el va treure donant per fet que la
   tecla i el dit despertarien el son lleuger; **al Paper no ho van fer** i la placa va quedar a un segon per torn amb el tàctil llegit un
   cop per segon. Una placa que no pot respondre a un dit no pot dormir.

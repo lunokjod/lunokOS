@@ -42,7 +42,7 @@ import sys
 
 try:
     # **What this run is building**: a short disk is a problem of the image and not of the firmware, and a
-    # plain `pio run -e m5-atom` must still compile (docs/80).
+    # plain `pio run -e m5-atom-idf` must still compile (docs/80).
     from SCons.Script import COMMAND_LINE_TARGETS
 
     TARGETS = set(COMMAND_LINE_TARGETS)

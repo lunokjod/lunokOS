@@ -21,6 +21,8 @@
 #include "board/identity.h"
 #include "esp32/caps.h"
 #include "esp32/clock.h"
+#include "esp32/extra_memory.h"
+#include "esp32/bluetooth.h"
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "esp32/power.h"
@@ -118,11 +120,26 @@ class TKoalaPlatform : public IPlatform {
   // and what is left (docs/50, docs/75).
   ExtraMemory extra_memory() const override {
     ExtraMemory out;
-    out.chip_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+    out.chip_bytes = esp32_chip_psram_bytes();
     out.total_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     out.free_bytes = static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    if (out.chip_bytes == 0) out.chip_bytes = out.total_bytes;
+    // **Els quatre de dalt, darrere el banc de commutació** (0.190.173): the same 8 MB of PSRAM as the
+    // Paper —four addressable and four behind the switcher— and they cannot be handed out as a pointer
+    // (docs/50, docs/75).
+    const ExtraMemory bank = esp32_extra_memory();
+    out.himem_bytes = bank.himem_bytes;
+    out.himem_free_bytes = bank.himem_free_bytes;
+    out.himem_window_bytes = bank.himem_window_bytes;
     return out;
   }
+
+  bool extra_memory_round_trip(uint32_t bytes) override { return esp32_extra_memory_round_trip(bytes); }
+
+  // **I les sessions hi poden viure** (0.190.174): the caches of the apps are the memory that is read and written in pieces,
+  // which is the one shape this memory has (docs/50, docs/75).
+  IBankedMemory* open_banked_memory(uint32_t bytes) override { return esp32_open_banked_memory(bytes); }
+  void close_banked_memory(IBankedMemory* block) override { esp32_close_banked_memory(block); }
 
   IClock* clock() override { return esp32_clock(); }
 
@@ -143,6 +160,9 @@ class TKoalaPlatform : public IPlatform {
 
   IKeyValue* nvs() override { return esp32_nvs(); }
   INet* net() override { return esp32_net(); }
+  // **I la ràdio que no és una xarxa** (0.190.179): the Bluetooth keyboard, which is an object that says it cannot on a
+  // band whose build has no radio in it (docs/50).
+  IBluetooth* bluetooth() override { return esp32_bluetooth(); }
   IPower* power() override { return &power_; }
   // No screen: this board has a serial port and a light, and that is its way in and out (docs/50).
   ISurface* display() override { return nullptr; }

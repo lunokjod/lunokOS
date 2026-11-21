@@ -11380,7 +11380,114 @@ namespace kernel {
 // comptava la PSRAM amb `esp_spiram_get_size` i la seva capçalera del nucli, i ara la compta al heap com el del Paper. I una cosa que el
 // Matrix ja havia ensenyat i que aquí es repeteix: **la identitat d'una placa i el seu HAL són dues llibres diferents** — el DevKit crida
 // l'`hal_atom.h` perquè és la HAL de la família ESP32, o sigui que `board_atom` va al `lib_ignore` i `hal_atom` no (docs/50, docs/80).
-static const char kVersion[] = "0.190.170";
+// **0.190.171 — els sis entorns d'Arduino marxen i les sis bandes queden en ESP-IDF** (l'amo: *«ara desfes-te dels env's d'arduino que ja
+// tenim a esp_idf: … Esborra els env del platformio.ini. No esborris cap fitxer per si les mosques»*). Cada placa va tenir dos entorns
+// mentre la migració es provava i el 5/12 els sis d'IDF compilaven en verd, o sigui que el que sobrava era la meitat: `m5-atom`,
+// `m5-atom-matrix`, `lilygo-t5s3`, `m5-paper`, `esp32-devkit` i `ttgo-t-koala` ja no són cap entorn i `-e m5-atom` respon `UnknownEnv`.
+// **No ha marxat cap fitxer**: les fitxes de `boards/`, els `lib/hal_*` i el camí d'Arduino de `src/main.cpp` es queden, perquè el codi que
+// les dues meitats compartien segueix sent el mateix i el que s'ha tret és una manera de compilar-lo. **El CI i la documentació deien els
+// noms vells**: el workflow compilava els sis d'Arduino i ara compila els sis d'IDF (amb una hora de marge, que la IDF fa cmake i ninja i no
+// un sol g++), i docs/80, el README i les ordres de docs/40, 50, 70, 85 i 92 diuen el nom que existeix. Els vuit entorns que queden:
+// les sis plaques, `emulator` i `test` (docs/50, docs/80).
+// **0.190.172 — la IDF sense color a les cinc bandes que no ho eren** (l'amo: *«Es pot treure l'ANSI?»*). El `␛[0;32m` del log no era del
+// nostre registre sinó de la IDF —el verd d'`ESP_LOGI`, el del seu bootloader—, i l'únic símbol que l'encén és `CONFIG_LOG_COLORS`; el
+// T5S3 ja el tenia apagat des de la 0.190.91, quan l'amo va preguntar el mateix, i les altres quatre configuracions no: ara totes sis
+// diuen `# CONFIG_LOG_COLORS is not set`. **I els generats s'han d'esborrar perquè valgui**: `kconfgen` no torna a aplicar un defecte sobre
+// un símbol que ja té valor al `sdkconfig.<entorn>`, que és el mateix parany que va deixar el flaix en DIO amb el QIO escrit (docs/80).
+// El color de la **nostra** consola és una altra cosa i es tria amb `cfg.ansi` (docs/30, docs/85).
+// **0.190.173 — el himem: els quatre megabytes que quedaven darrere el banc de commutació** (l'amo: *«Anem a activar el himem»*,
+// amb l'exemple `system/himem` de la IDF 5.5 al davant). A l'ESP32 la finestra d'RAM externa és de 4 MB, o sigui que la Paper i el
+// Koala —que en porten 8— tenien mitja PSRAM que el sistema no podia tocar. No calia activar res: `CONFIG_SPIRAM_BANKSWITCH_ENABLE`
+// és `default y` a la Kconfig i era al `sdkconfig.h` des del primer build d'IDF d'aquestes bandes, i el que faltava era fer-lo servir i
+// ensenyar-lo. `ExtraMemory` porta ara `himem_bytes`, `himem_free_bytes` i `himem_window_bytes`, `mem` els diu en una línia i **`mem
+// himem` escriu i rellegeix 32 KB de dalt de tot** —el bloc que el banc mapeja— i respon sí o no, que és la mateixa pregunta que fa
+// l'exemple de la IDF. **I la mida del xip torna a ser la del xip**: des de la 0.190.166 es preguntava al heap i `mem` deia 4 096 on el
+// datasheet, docs/75 i docs/95 diuen 8 192; ara és `esp_psram_get_size()` i el heap segueix dient el que s'adreça. El banc no es pot
+// donar a `pal::IExtraMemory` —mou els blocs sota el punter— i per això els números van apart (docs/50, docs/75).
+//
+// **I a la placa es va veure el que cap lectura del codi no deia** (21/11): `mem` va respondre `extra memory 2940 of 4096 KB usable,
+// of 8192 KB on the chip (psram)` i `himem 4352 of 4352 KB free, 256 KB of window (bank switching)`, que sumen **8 448** i no 8 192. Les
+// 256 KB de la finestra es compten dos cops: la IDF fa començar l'himem a `4 MB − finestra` i descompta la finestra del heap, però el
+// heap d'aquest build diu que en té 4 096 —i el símbol fort hi és al binari i la PSRAM el crida, vist amb `objdump` sobre el
+// `firmware.elf`—. Amb la dada a la mà, el sistema en diu i n'usa el que queda després de la finestra (4 096) i **la prova comença al
+// bloc 8**, perquè `esp_himem_alloc` numera des del principi i els vuit primers blocs són els de la finestra: escriure-hi seria
+// escriure dins del que el heap creu seu (docs/75).
+// **0.190.174 — les cachés de les sessions viuen a l'himem** (l'amo: *«usa himem per les sessions»*). Un bloc de 32 KB en amunt —el
+// `apps` del llançador és exactament de 32 KB— va a la memòria que hi ha darrere el banc de commutació del xip, i **el que la PSRAM
+// guarda és el que hi va néixer: les cares, les fonts i les imatges**. El bloc deixa de ser un punter: `Block` té `bytes` o
+// `banked`, i `store_read`/`store_write`/`store_zero`/`store_hash` són l'única porta als seus bytes, o sigui que el tros que es llegeix
+// es mapeja a la finestra, es copia i es desmapeja. **L'API de l'app no canvia**, perquè ja anava per offset des del primer dia:
+// `block:read(at, n)`, `block:write(at, text)` i `block:clear()` són les mateixes crides i el nucli les fa servir amb `read_at`,
+// `write_at` i `clear`. Les dues portes que sí que volien un punter —`cv:capture` i `cv:blit`— porten el tros a la memòria extra, el
+// fan servir i el tornen, i el desament al disc va a trossos de 4 KB, o sigui que una caché de dos megabytes no demana dos megabytes
+// de RAM pròpia. **Una regió alhora**, que el xip té una finestra i no dues: el segon bloc gran es queda a la PSRAM sense fallar. I
+// `acquire` segueix tornant punter per als blocs petits —els tests i el codi que copia un kilobyte no es toquen— amb `open_session`
+// com la porta que diu si el bloc hi és (docs/30, docs/50, docs/75).
+// **0.190.175 — el rellotge el mou el `esp_pm` del xip** (l'amo: *«la cpu es pot escalar sola a esp_idf... activa la opció i adapta el que
+// tenim fet manualment d'scaling. Abans d'esborrar res vull que m'informis»*, i després: opció A, *«el toggle del mig, fora»*). Les sis
+// bandes porten `CONFIG_PM_ENABLE`, i el que aquest sistema diu al xip no és un pas sinó un **rang**: `power::apply_the_range` li dona
+// el terra i el sostre que la persona permet i el xip es mou entre ells pel seu compte; `work_cpu`/`hold_cpu` agafen el lock
+// `ESP_PM_CPU_FREQ_MAX` i `wait_cpu`/`rest_cpu` el deixen anar, o sigui que **la intenció és nostra i la freqüència del xip**. El que
+// ha marxat: el **governador de càrrega** (trenta mostres de dos segons, la mitjana d'una meitat contra l'altra, `govern_cpu`), la
+// **finestra** (`g_cpu_busy_until_ms`, `kWorkWindowMs`, el seu `poll`) i el **pas de 160 com a ajust** —la llista `Speed` el conserva i
+// `cfg freq 160` el refusa—. El que s'ha guanyat: la IDF manté el tick, l'APB i els PLLs en pas, i els drivers de SPI, I2C, I2S i
+// SDMMC agafen el lock d'APB durant la transacció; **i el WS2812 no**, o sigui que el RMT de l'ATOM i del Matrix agafa
+// `ESP_PM_APB_FREQ_MAX` els set-cents cinquanta microsegons d'una trama. El light sleep automàtic queda apagat a propòsit: la quietud
+// la decideix aquest sistema (docs/50, docs/60).
+// **0.190.176 — el codi d'Arduino marxa del tot** (l'amo: *«treu tot el codi arduino que puguis si te equivalencia implementada en
+// esp_idf, si no te equivalencia desenvolupa la versió idf»*). Les vint-i-nou condicions `#if defined(ARDUINO)` de dotze fitxers, el punt
+// d'entrada de `src/main.cpp` i la clau `"arduino"` de les tres fitxes de `boards/`: **no en queda cap**. Cada branca que marxa té la
+// seva bessona d'IDF, i totes eren la que aquest projecte compilava des de la 0.190.171: el rellotge (`rtc_clk_cpu_freq_*`), la PSRAM
+// (`esp_psram_get_size`), el disc (`esp_littlefs` i les crides POSIX en lloc de l'objecte `LittleFS`), el RMT de la tira
+// (`rmt_config`/`rmt_write_items` en lloc de `rmtInit`/`rmtWriteBlocking`) i la consola del PAL (la UART0 o el USB-Serial-JTAG en lloc de
+// `Serial`). **I una cosa que no era codi viu sinó un parany**: la branca Arduino de `lunok_serial_begin` es cridava a si mateixa, una
+// recursió infinita que hauria petat el dia que es compilés. `src/main.cpp` queda com un símbol buit perquè `src/` no sigui buit, i el
+// punt d'entrada de debò és `src/main_idf.cpp`. Les fitxes diuen `"frameworks": ["espidf"]` i prou (docs/50, docs/80).
+// **0.190.177 — la consola no penja de l'APB** (el port de l'ATOM, 21/11: `lunok> [I][P��f␙�X] cpu 80 to␀␘L␓␘…`). El `esp_pm` que va
+// entrar a la 0.190.175 mou l'APB entre el terra i el sostre, i la UART de l'ESP32 treu el **baud del seu rellotge font**, que era
+// `UART_SCLK_DEFAULT` = l'APB: o sigui que el primer canvi de rang deixava el port en brossa fins que l'APB tornava. Ara la consola es
+// declara amb **REF_TICK** (1 MHz, que la IDF manté quan l'APB canvia) a l'ESP32 i amb el **cristall** a l'S3, i el divisor fraccionari
+// de 115 200 sobre 1 MHz és 8,68. **És exactament el parany que la 0.190.175 va deixar anotat** a la resposta d'aquell dia (docs/50,
+// docs/60).
+// **0.190.178 — el xip dorma sol, i el pany és de qui espera** (l'amo: *«activem el lightsleep automàtic d'idf i decidim que hem de fer amb
+// aquestes dues funcions: Esp32Power::sleep, power::nap_on»*). La 0.190.175 va deixar el son lleuger automàtic apagat a propòsit perquè el
+// tickless tindria la seva idea de quietud; ara n'hi ha prou amb **una pregunta abans de cada son**: `esp_pm_register_skip_light_sleep_callback`
+// demana a la placa si el vol, i la placa contesta amb el pany. `power::open_the_sleep` fa les preguntes de sempre —el commutador, el dit al
+// vidre, el port cedit, els deu segons de silenci de la consola i una placa que en sàpiga— i, si totes diuen que sí, **obre les portes**
+// (`open_the_nap_doors`: tecles, vidre i consola) i deixa que la gestió de potència adormi el xip **dins del `pop` del torn**, que és qui
+// sap quant falta pel proper temporitzador i qui **compensa el tick** que el son s'ha menjat. I el que abans s'havia de protegir a mà queda
+// protegit sol: la tinta d'una pintada, la consola que no ha callat i el port cedit dormen fora del torn, on el pany és tancat, o sigui que
+// cap d'ells no ha de saber que el son existeix (el comentari de `splash::settle` de la 0.190.69 és exactament el cas). **`Esp32Power::sleep`
+// no es toca**: és el son amb hora —la baixada, l'alarma, `power.sleep`— i no té res a veure amb una becaina. **I `power::nap_on` tampoc**:
+// el commutador de Battery continua decidint si la placa dorma, només que ara decideix si el pany s'obre (docs/50, docs/60, docs/95).
+// **0.190.179 — el Bluetooth, i és un teclat** (l'amo: *«afegeix bluetooth al projecte, anem a fer un experiment»*, i tot seguit *«Segur
+// que no te nimble?»* — i sí, en té). La ràdio d'aquest xip pot fer una sola cosa que aquest sistema necessiti: **ser un teclat** per a un
+// altre aparell, i no és una xarxa —no hi ha res a connectar— ni un aparell amb pàgina: és una porta per escriure caràcters (docs/30,
+// docs/50). **Amb NimBLE i no amb Bluedroid**: la pila del fabricant costa 684 KB de flash i uns 50-70 KB de heap (mesurat el 31/10,
+// docs/75) i en un xip sense PSRAM no hi són; amb NimBLE el binari passa d'1 516 693 B a **1 759 081 B** (+233 KB) i la RAM estàtica de
+// 71 124 B a **88 456 B**, o sigui que la ranura de 2,5 MB encara té 865 KB per créixer. El perfil HID s'escriu a `bluetooth.cpp` perquè
+// `esp_hid` d'aquesta IDF **només té transport per a Bluedroid** (el seu `CMakeLists.txt` enllaça `ble_hidd.c` sota
+// `CONFIG_BT_BLUEDROID_ENABLED`): el servei 0x1812 amb el seu report map de sis tecles, el report d'entrada, el protocol mode i el boot
+// report, i l'anunci amb l'aparença de teclat (0x03C1). **`kernel::bt`** és la política —el mapa de caràcters a Usage ID del HID i el
+// `bt type <text>` del prompt— i el ràdio **mana sobre la becaina** (`wants_the_chip_awake` tanca el pany del torn mentre el teclat viu),
+// que és el preu de ser un teclat i es diu (docs/50, docs/60, docs/75).
+// **0.190.180 — el teclat es pot encendre des de la pàgina** (l'amo, provant-ho a l'ATOM: *«arrenca i tot va bé»*, i el registre del `bt on`:
+// **169 364 B** d'heap intern abans, **139 820 B** després, o sigui **29 544 B** el teclat sencer). Amb aquesta mesura el diagnòstic de la
+// vigília canvia: els 43 156 B de la nota del Wi-Fi eren d'un moment amb la ràdio de la xarxa demanant la seva part, i el nucli en repòs en
+// té 169 KB. O sigui que la fila hi cap, i la fila hi és: **`cfg.bt on|off`** al prompt, `cfg.bt([true|false])` a Lua i *Bluetooth
+// keyboard* a la pestanya **Input** (una manera d'escriure, com les tecles i el vidre). **Ve apagada de sèrie**, i no pel que costa sinó
+// perquè mentre és encesa la placa **no fa becaines** (`wants_the_chip_awake` tanca el pany del torn): el que no es demana no es paga. I
+// les apps tenen la porta: **`bt.available()`**, **`bt.connected()`** i **`bt.type(<text>)`**, que torna quants caràcters han sortit —
+// zero vol dir que no hi havia ningú a l'altre cap, que no és un error (docs/30, docs/50, docs/60, docs/75).
+// **0.190.181 — l'escala de la becaina marxa, i el registre diu el que passa** (l'amo, amb el registre de l'ATOM a la mà: *«No haviem quedat
+// que aixó era cosa del pasat? […] Que ara esp_idf gestionava el lightSleep?»*). La 0.190.63 va néixer amb una escala de quaranta
+// mil·lisegons a un segon perquè llavors era el nucli qui demanava la dormida; des de la 0.190.178 la fa la gestió de potència dins del
+// `pop` i la durada la donen el `wait` del torn i el proper temporitzador. O sigui que `min(wait, escala)` donava sempre el `wait` i
+// l'escala només servia per escriure **«the nap is at its ceiling: 1000 ms a turn»** en una placa que fa voltes de quaranta —el registre
+// va ensenyar les dues frases seguides, 163 dormides de 30,8 ms i el sostre dient mil—. Fora `g_nap_ms`, `kNapFirstMs`, `kNapMostMs`, la
+// línia del sostre i el creixement; `nap_ms()` respon quaranta i no una escala; i els comptadors es queden amb les paraules del que són:
+// `163 light sleep(s), 5026 ms in all, and nothing has happened` (docs/60, docs/95).
+static const char kVersion[] = "0.190.181";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

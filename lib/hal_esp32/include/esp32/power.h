@@ -46,12 +46,34 @@ class Esp32Power : public IPower {
   // `can_nap` (docs/50, docs/60, docs/95).
   bool can_nap() const override;
   bool nap(int32_t max_ms) override;
+  // **El pany de la becaina que fa el xip sol** (0.190.178): obrir les portes permet que la gestió de potència adormi el xip mentre el
+  // nucli espera a la cua; tancar-les ho prohibeix i deixa el panell com era. Si obrir-les falla, no s'ha de dormir (docs/50, docs/60).
+  bool open_the_nap_doors() override;
+  void close_the_nap_doors() override;
+  // **Qui ha despertat la darrera becaina, si algú ho pregunta** (0.190.178): la becaina del torn ja no la dorm `nap()` sinó la gestió de
+  // potència, o sigui que el motiu no es pot llegir on es llegia. El registre continua dient quina porta ha tallat una espera —que és el que
+  // explica un toc que sembla lent— i aquesta és la paraula que li falta a la línia. Null vol dir que el xip no sap per què s'ha despertat,
+  // i aleshores no ha dormit ningú (docs/50, docs/95).
+  const char* the_word_of_the_last_nap() override;
 
   // Said by the wiring: the RTC timer for the alarms, and the key when there is one.
   const char* wakes() override;
 
   uint32_t cpu_mhz() override;
   bool set_cpu_mhz(uint32_t mhz) override;
+  // **El PM del xip, que és qui mou el rellotge des de la 0.190.175** (docs/50, docs/60): the range the chip may move between and the
+  // top-step lock. A build without `CONFIG_PM_ENABLE` falls back to `rtc_clk_cpu_freq_set_config`, which is what the two
+  // above do, so a band that has not been migrated keeps working.
+  bool set_cpu_range(uint32_t min_mhz, uint32_t max_mhz) override;
+  bool hold_cpu_top(bool on) override;
+
+ private:
+  // The chip's top-step lock, made the first time it is asked for: a board that never asks the processor for the top has no lock
+  // and no bytes spent on it.
+  void* top_lock_ = nullptr;
+  bool top_taken_ = false;
+
+ public:
 
  protected:
   // **La línia de la baixada, la mateixa a totes les baixades** (0.190.15): the idle policy, the card of the system and the `deepsleep`

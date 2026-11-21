@@ -220,13 +220,18 @@ pio run -e emulator      # binari per al PC
 # l'emulador es diu la placa que és: --board m5stack-atom (obligatori),
 # m5stack-atom-matrix, m5stack-paper o ttgo-t-koala. `sys.board` respon
 # aquest nom i `sys.emulator` continua cert
-pio run -e m5-atom           # firmware (el puja l'amo, mai una sessió automàtica)
-pio run -e m5-atom-matrix    # la placa del panell: 25 llums al mateix GPIO27
-pio run -e m5-paper          # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/50)
-pio run -e esp32-devkit      # el mínim: un ESP32 DevKit de 4 MB, sense PSRAM ni res a sobre
-pio run -e ttgo-t-koala      # la LilyGO T-Koala: WROVER-B, 4 MB de PSRAM mapejada, LED i SD
+pio run -e m5-atom-idf       # firmware (el puja l'amo, mai una sessió automàtica)
+pio run -e m5-atom-matrix-idf # la placa del panell: 25 llums al mateix GPIO27
+pio run -e m5-paper-idf      # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/50)
+pio run -e esp32-devkit-idf  # el mínim: un ESP32 DevKit de 4 MB, sense PSRAM ni res a sobre
+pio run -e ttgo-t-koala-idf  # la LilyGO T-Koala: WROVER-B, 4 MB de PSRAM mapejada, LED i SD
+pio run -e lilygo-t5s3-idf   # la T5 E-Paper S3 Pro: ESP32-S3, 16 MB i el panell ED047TC1
 pio test -e test             # proves natives
 ```
+
+**Les sis bandes són d'ESP-IDF i els noms vells no existeixen** (0.190.171): `-e m5-atom`, `-e m5-paper`, `-e
+esp32-devkit`, `-e ttgo-t-koala` i `-e lilygo-t5s3` responen `UnknownEnv`, i els fitxers dels seus HALs i les seves
+fitxes de `boards/` es queden al repositori (docs/80).
 
 `LUNOK_GUI=sdl`, `LUNOK_GUI=x11` o `LUNOK_GUI=none` força el backend de la finestra; sense cap
 d'ells, la build tria SDL2 si el troba, després X11, i finalment un emulador sense finestra.

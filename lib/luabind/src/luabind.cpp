@@ -1600,6 +1600,8 @@ SettingsOps g_settings_ops = {};
 
 // **Els ajustos que es poden escriure** (0.189.106): les portes de `cfg`, que és de què està fet el panell de Settings.
 CfgOps g_cfg_ops = {};
+// **Les portes del teclat de Bluetooth** (0.190.180): available, connected and type, i res més (docs/30, docs/50).
+BtOps g_bt_ops = {};
 // **A session of the shell for an app** (0.159.0), filled by the kernel: the shell is the system's, and this library
 // never includes the kernel (docs/20, docs/30).
 ShellOps g_shell_ops = {};
@@ -1629,7 +1631,10 @@ int push_nil_error(lua_State* L, const char* code, const char* message) {
 const char kSessionMeta[] = "lunokOS.Session";
 
 struct LuaSession {
-  uint8_t* bytes;
+  // **Ja no guarda cap punter** (0.190.174): a block of 32 KB or more can live in the memory behind the chip's bank switcher,
+  // where the only thing that exists is a window that is mapped while a piece is read; the object keeps the key and asks the
+  // kernel for the bytes with an offset. `held` is whether the kernel still keeps this block for this app (docs/30, docs/75).
+  bool held;
   size_t size;
   // **The table it came from** (0.179.0): the relief of the PAL gives every session memory back when a block does not fit,
   // so a number that only goes up is what tells an object of the app that the block under it is not there any more —the
@@ -1642,8 +1647,7 @@ struct LuaSession {
 
 LuaSession* session_check(lua_State* L, int idx) {
   LuaSession* block = static_cast<LuaSession*>(luaL_checkudata(L, idx, kSessionMeta));
-  if (block->bytes == nullptr || g_session_ops.generation == nullptr ||
-      g_session_ops.generation() != block->generation) {
+  if (!block->held || g_session_ops.generation == nullptr || g_session_ops.generation() != block->generation) {
     luaL_error(L, "the session memory was given back");
   }
   return block;
@@ -1657,7 +1661,7 @@ LuaSession* session_check(lua_State* L, int idx) {
 // (docs/30, docs/75).
 int l_session_alive(lua_State* L) {
   LuaSession* block = static_cast<LuaSession*>(luaL_checkudata(L, 1, kSessionMeta));
-  const bool mine = block->bytes != nullptr && g_session_ops.generation != nullptr &&
+  const bool mine = block->held && g_session_ops.generation != nullptr &&
                     g_session_ops.generation() == block->generation;
   lua_pushboolean(L, mine ? 1 : 0);
   return 1;
@@ -1672,7 +1676,19 @@ int l_session_read(lua_State* L) {
   }
   if (want < 0) want = 0;
   if (at + want > static_cast<lua_Integer>(block->size)) want = static_cast<lua_Integer>(block->size) - at;
-  lua_pushlstring(L, reinterpret_cast<const char*>(block->bytes + at), static_cast<size_t>(want));
+  if (g_session_ops.read == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no session memory");
+  }
+  if (want == 0) {
+    lua_pushliteral(L, "");
+    return 1;
+  }
+  // **The string is built where it is read** (0.190.174): a block of the bank is copied piece by piece into the buffer of
+  // the interpreter, so a cache of two megabytes costs one call and no temporary of ours (docs/30, docs/75).
+  luaL_Buffer text;
+  char* room = luaL_buffinitsize(L, &text, static_cast<size_t>(want));
+  const uint32_t got = g_session_ops.read(block->key, static_cast<uint32_t>(at), room, static_cast<uint32_t>(want));
+  luaL_pushresultsize(&text, static_cast<size_t>(got));
   return 1;
 }
 
@@ -1688,15 +1704,21 @@ int l_session_write(lua_State* L) {
   // cache knows where it stopped instead of finding half a record (docs/30).
   size_t room = block->size - static_cast<size_t>(at);
   if (length > room) length = room;
-  if (length > 0) memcpy(block->bytes + at, text, length);
-  lua_pushinteger(L, static_cast<lua_Integer>(length));
+  if (g_session_ops.write == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no session memory");
+  }
+  const uint32_t went =
+      (length > 0) ? g_session_ops.write(block->key, static_cast<uint32_t>(at), text, static_cast<uint32_t>(length)) : 0;
+  lua_pushinteger(L, static_cast<lua_Integer>(went));
   return 1;
 }
 
 int l_session_clear(lua_State* L) {
   LuaSession* block = session_check(L, 1);
-  memset(block->bytes, 0, block->size);
-  lua_pushboolean(L, 1);
+  if (g_session_ops.clear == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no session memory");
+  }
+  lua_pushboolean(L, g_session_ops.clear(block->key) ? 1 : 0);
   return 1;
 }
 
@@ -1715,7 +1737,7 @@ int l_session_release(lua_State* L) {
     return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no session memory");
   }
   const bool gone = g_session_ops.release(block->key);
-  block->bytes = nullptr;
+  block->held = false;
   block->size = 0;
   if (!gone) return push_nil_error(L, "E_INVAL", "that block was not the app's");
   lua_pushboolean(L, 1);
@@ -1726,14 +1748,14 @@ int l_session_gc(lua_State* L) {
   // **The block is the kernel's and it outlives the interpreter**: giving it back here would throw away the cache of the
   // app that is about to be started again, which is the whole point of a session memory (docs/30).
   LuaSession* block = static_cast<LuaSession*>(luaL_checkudata(L, 1, kSessionMeta));
-  block->bytes = nullptr;
+  block->held = false;
   block->size = 0;
   return 0;
 }
 
 int l_session_tostring(lua_State* L) {
   LuaSession* block = static_cast<LuaSession*>(luaL_checkudata(L, 1, kSessionMeta));
-  if (block->bytes == nullptr) {
+  if (!block->held) {
     lua_pushstring(L, "session (given back)");
   } else {
     char text[48];
@@ -1773,12 +1795,11 @@ int l_sys_session(lua_State* L) {
     return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no session memory");
   }
   size_t got = 0;
-  void* bytes = g_session_ops.acquire(key, static_cast<size_t>(wanted), got);
-  if (bytes == nullptr) {
+  if (!g_session_ops.acquire(key, static_cast<size_t>(wanted), got)) {
     return push_nil_error(L, "E_NOMEM", "there is no room for that block");
   }
   LuaSession* block = static_cast<LuaSession*>(lua_newuserdatauv(L, sizeof(LuaSession), 0));
-  block->bytes = static_cast<uint8_t*>(bytes);
+  block->held = true;
   block->size = got;
   block->generation = g_session_ops.generation();
   snprintf(block->key, sizeof(block->key), "%s", key);
@@ -9473,6 +9494,26 @@ int l_canvas_image(lua_State* L) {
   return 1;
 }
 
+// **Un tros d'un bloc, portat on el pintor el vol** (0.190.174): a canvas captures into a buffer and paints from one, and a
+// session of 32 KB or more may live behind the bank switcher of the chip, where a pointer only exists while a window is
+// mapped. So the piece is copied to the extra memory, used and given back —the copy is the picture and never the whole cache
+// (docs/30, docs/50, docs/75).
+uint8_t* piece_borrowed(LuaSession* block, uint32_t at, uint32_t bytes) {
+  if (g_session_ops.read == nullptr || bytes == 0) return nullptr;
+  uint8_t* buffer = static_cast<uint8_t*>(pal::extra_memory().allocate(bytes, true));
+  if (buffer == nullptr) return nullptr;
+  if (g_session_ops.read(block->key, at, reinterpret_cast<char*>(buffer), bytes) != bytes) {
+    pal::extra_memory().release(buffer);
+    return nullptr;
+  }
+  return buffer;
+}
+
+uint8_t* piece_lent(uint32_t bytes) {
+  if (g_session_ops.write == nullptr || bytes == 0) return nullptr;
+  return static_cast<uint8_t*>(pal::extra_memory().allocate(bytes, true));
+}
+
 // **`cv:capture(session [, offset])`** (0.179.0): the pixels of this canvas into the memory of a session, which is how an
 // app keeps a picture it has already decoded —the file and the decoder are paid once and not at every paint—. The block
 // is four bits a pixel with the left one in the high nibble, exactly what `cv:blit` takes back (docs/30, docs/75).
@@ -9487,11 +9528,23 @@ int l_canvas_capture(lua_State* L) {
   if (g_ui_ops.canvas_capture == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
+  const uint32_t room = static_cast<uint32_t>(block->size - static_cast<size_t>(at));
+  uint8_t* piece = piece_lent(room);
+  if (piece == nullptr) {
+    return push_nil_error(L, "E_NOMEM", "there is no room for the picture of this canvas");
+  }
   size_t wrote = 0;
-  if (!g_ui_ops.canvas_capture(canvas->slot, block->bytes + at, block->size - static_cast<size_t>(at), wrote)) {
+  const bool captured = g_ui_ops.canvas_capture(canvas->slot, piece, room, wrote);
+  uint32_t put = 0;
+  if (captured && wrote > 0) {
+    put = g_session_ops.write(block->key, static_cast<uint32_t>(at), reinterpret_cast<const char*>(piece),
+                              static_cast<uint32_t>(wrote));
+  }
+  pal::extra_memory().release(piece);
+  if (!captured) {
     return push_nil_error(L, "E_NOMEM", "the block is smaller than the canvas");
   }
-  lua_pushinteger(L, static_cast<lua_Integer>(wrote));
+  lua_pushinteger(L, static_cast<lua_Integer>(put));
   return 1;
 }
 
@@ -9522,9 +9575,15 @@ int l_canvas_blit(lua_State* L) {
   if (g_ui_ops.canvas_bitmap == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
-  if (!g_ui_ops.canvas_bitmap(canvas->slot, static_cast<int16_t>(x), static_cast<int16_t>(y),
-                              static_cast<uint16_t>(w), static_cast<uint16_t>(h), block->bytes + at,
-                              static_cast<uint16_t>(stride), mode, false)) {
+  uint8_t* piece = piece_borrowed(block, static_cast<uint32_t>(at), static_cast<uint32_t>(needed));
+  if (piece == nullptr) {
+    return push_nil_error(L, "E_NOMEM", "the picture of that block is not there");
+  }
+  const bool painted = g_ui_ops.canvas_bitmap(canvas->slot, static_cast<int16_t>(x), static_cast<int16_t>(y),
+                                              static_cast<uint16_t>(w), static_cast<uint16_t>(h), piece,
+                                              static_cast<uint16_t>(stride), mode, false);
+  pal::extra_memory().release(piece);
+  if (!painted) {
     return push_nil_error(L, "E_INVAL", "not a quality of this display");
   }
   lua_pushboolean(L, 1);
@@ -13008,6 +13067,55 @@ int l_cfg_nap(lua_State* L) {
   return 1;
 }
 
+// **`cfg.bt([true|false])`: el teclat de Bluetooth** (0.190.180). With no argument it answers whether the radio is offered; with one it
+// opens or closes it and answers what stands. **En aquesta placa la resposta no és només un gust**: mentre és encès el xip no fa becaines,
+// o sigui que la persona que l'encén canvia com es passa l'estona la placa (docs/30, docs/50, docs/60).
+int l_cfg_bt(lua_State* L) {
+  if (g_cfg_ops.bt_on == nullptr || g_cfg_ops.set_bt_on == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (!cfg_switch(L, 1, on) || !g_cfg_ops.set_bt_on(on)) {
+      return push_nil_error(L, "E_INVAL", "the keyboard of the board is on or off");
+    }
+  }
+  lua_pushboolean(L, g_cfg_ops.bt_on() ? 1 : 0);
+  return 1;
+}
+
+// **`bt.available()`**: si aquesta placa té ràdio i el build la porta a dins. Una pàgina que ho pregunta no ha d'ensenyar un control que no
+// pot fer res (docs/30, docs/50).
+int l_bt_available(lua_State* L) {
+  if (g_bt_ops.available == nullptr) {
+    lua_pushboolean(L, 0);
+    return 1;
+  }
+  lua_pushboolean(L, g_bt_ops.available() ? 1 : 0);
+  return 1;
+}
+
+// **`bt.connected()`**: si algú hi és a l'altre cap. Un teclat que no ho diu envia caràcters al buit (docs/30).
+int l_bt_connected(lua_State* L) {
+  if (g_bt_ops.connected == nullptr) {
+    lua_pushboolean(L, 0);
+    return 1;
+  }
+  lua_pushboolean(L, g_bt_ops.connected() ? 1 : 0);
+  return 1;
+}
+
+// **`bt.type(<text>)`: escriure a l'altre aparell**, i la resposta són quants caràcters han sortit. Un text que no hi cap o un teclat sense
+// ningú connectat tornen `0` i no un error: el que ha passat no és un problema de la crida, és que no hi havia on escriure (docs/30).
+int l_bt_type(lua_State* L) {
+  if (g_bt_ops.type == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
+  }
+  const char* text = luaL_checkstring(L, 1);
+  lua_pushinteger(L, static_cast<lua_Integer>(g_bt_ops.type(text)));
+  return 1;
+}
+
 // **`cfg.loglevel([<word>])`: quantes línies vol veure una persona** (0.190.89, l'amo: *«Afegeix "Log level" a Settings->System Amb els
 // nivells de log, per defecte Debug (com la comanda log)»*). With no argument it answers the word the ring obeys; with one it writes it and
 // answers what stands, like `cfg.keyboard`. Una paraula que no és cap de les quatre es refusa amb `E_INVAL` i no canvia res (docs/30, docs/50).
@@ -13277,6 +13385,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "touch_wake", l_cfg_touch_wake);
   set_function(L, "uart_wake", l_cfg_uart_wake);
   set_function(L, "nap", l_cfg_nap);
+  set_function(L, "bt", l_cfg_bt);
   set_function(L, "loglevel", l_cfg_loglevel);
   set_function(L, "touch_adaptive", l_cfg_touch_adaptive);
   set_function(L, "software_button", l_cfg_software_button);
@@ -13289,6 +13398,15 @@ void seal_globals(lua_State* L) {
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);
   lua_setglobal(L, "cfg");
+
+  // **`bt`: el teclat de Bluetooth, que és una porta** (0.190.180). It is a table of its own and not a corner of `cfg` perquè no és un
+  // ajust: és una cosa que una pàgina fa —escriure en un altre aparell— i el commutador que l'encén viu a `cfg.bt`, que és on viuen tots
+  // (docs/30, docs/50).
+  lua_createtable(L, 0, 3);
+  set_function(L, "available", l_bt_available);
+  set_function(L, "connected", l_bt_connected);
+  set_function(L, "type", l_bt_type);
+  lua_setglobal(L, "bt");
 
   // time: the wall clock. It can jump when somebody sets it; sys.time_ms() is
   // the one that never goes back (docs/60).
@@ -14316,6 +14434,7 @@ void set_stats_ops(const StatsOps& ops) { g_stats_ops = ops; }
 void set_settings_ops(const SettingsOps& ops) { g_settings_ops = ops; }
 
 void set_cfg_ops(const CfgOps& ops) { g_cfg_ops = ops; }
+void set_bt_ops(const BtOps& ops) { g_bt_ops = ops; }
 
 void set_app_ops(const AppOps& ops) { g_app_ops = ops; }
 void set_net_ops(const NetOps& ops) { g_net_ops = ops; }

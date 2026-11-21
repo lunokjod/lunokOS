@@ -13,6 +13,10 @@
 // WS2812 and the core's writer is 24 bits in 30 us. A strip is the same frame written
 // in one go, because a light at a time is a frame of its own and the strip would latch
 // every one of them (docs/50).
+// **I el DFS del xip no pot moure l'APB mentre una trama va al fil** (0.190.175): el divisor del RMT és el d'un APB de 80 MHz —vuit,
+// o sigui un tic de cent nanosegons— i amb el `esp_pm` engegat l'APB pot baixar, o sigui que la trama sortiria amb uns temps que no són
+// els del WS2812 i la tira faria pampallugues. El lock d'APB es té els set-cents cinquanta microsegons que dura un quadre i prou
+// (docs/50, docs/60).
 #ifndef LUNOK_ESP32_WS2812_H
 #define LUNOK_ESP32_WS2812_H
 
@@ -21,14 +25,15 @@
 #include <stdint.h>
 
 #include <esp_heap_caps.h>
-// **El mateix RMT, dit per qui el té** (0.190.168): amb el nucli d'Arduino l'escriptura d'un frame és `rmtWriteBlocking` i amb la IDF és
+// **El RMT de la IDF** (0.190.168, i l'únic des de la 0.190.176): l'escriptura d'un frame és
 // `rmt_write_items`; el que fa el mateix és el tic de cent nanosegons i els dos números de la trama, o sigui que el que canvia és la porta
 // i no el que s'hi escriu (docs/50, docs/80).
-#if defined(ARDUINO)
-#include <esp32-hal-rgb-led.h>
-#include <esp32-hal-rmt.h>
-#else
 #include <driver/rmt.h>
+
+// **El lock de l'APB, que és el que aguanta els temps del RMT amb el DFS del xip** (0.190.175): només existeix als builds que tenen el
+// power management encès; a la resta la trama surt com sempre (docs/50, docs/60).
+#if defined(CONFIG_PM_ENABLE)
+#include <esp_pm.h>
 #endif
 
 #include "hal/hal.h"
@@ -36,11 +41,7 @@
 namespace hal {
 
 // **L'ítem del RMT és el mateix a les dues bandes** —nivell i durada del primer mig tic i del segon— i el que canvia és el nom del tipus.
-#if defined(ARDUINO)
-using Ws2812Item = rmt_data_t;
-#else
 using Ws2812Item = rmt_item32_t;
-#endif
 
 constexpr float kWs2812TickNs = 100.0f;   // one RMT tick, the same the core sets
 constexpr uint32_t kWs2812TicksOne = 8;   // a one: 0,8 us high...
@@ -71,16 +72,8 @@ class Ws2812Strip : public ILed {
   // this board spends, and the kernel is what decides when it changes (docs/75).
   void show() override {
     if (kCount == 0) return;
-#if defined(ARDUINO)
-    if (kCount == 1) {
-      // The core's writer for one chip: 24 bits, 30 us, blocking, and there is
-      // nothing better to do with those 30 us (docs/50).
-      neopixelWrite(kPin, colours_[0], colours_[1], colours_[2]);
-      return;
-    }
-#endif
-    // **I a la IDF la trama d'un sol llum també passa pel mateix camí**: there is no `neopixelWrite` without the core, o sigui que el que
-    // el nucli fa per a un xip ho fa aquest fitxer per a tots (docs/50).
+    // **La trama d'un sol llum passa pel mateix camí que la de vint-i-cinc**: there is no shortcut through the core any more, so one
+    // light and twenty-five are one loop (docs/50).
     if (!ensure_rmt()) return;
     if (!ensure_wire()) return;
     for (uint32_t light = 0; light < kCount; ++light) {
@@ -102,10 +95,12 @@ class Ws2812Strip : public ILed {
     // Blocking: 750 us on the twenty-five lights, and it is one frame at a time on one
     // wire. The kernel paints at most once per turn and only when it changes
     // (docs/75).
-#if defined(ARDUINO)
-    const bool written = rmtWriteBlocking(rmt_, wire_, kCount * 24);
-#else
+#if defined(CONFIG_PM_ENABLE)
+    if (apb_lock_ != nullptr) esp_pm_lock_acquire(static_cast<esp_pm_lock_handle_t>(apb_lock_));
+#endif
     const bool written = rmt_write_items(channel_, wire_, kCount * 24, true) == ESP_OK;
+#if defined(CONFIG_PM_ENABLE)
+    if (apb_lock_ != nullptr) esp_pm_lock_release(static_cast<esp_pm_lock_handle_t>(apb_lock_));
 #endif
     if (!written) {
       printf("led: the RMT channel refused the frame; the strip is not painted\n");
@@ -134,16 +129,6 @@ class Ws2812Strip : public ILed {
   }
 
   bool ensure_rmt() {
-#if defined(ARDUINO)
-    if (rmt_ != nullptr) return true;
-    rmt_ = rmtInit(kPin, RMT_TX_MODE, RMT_MEM_64);
-    if (rmt_ == nullptr) {
-      printf("led: no RMT channel for the strip; the panel stays dark\n");
-      return false;
-    }
-    rmtSetTick(rmt_, kWs2812TickNs);
-    return true;
-#else
     // **El canal de la IDF, amb el mateix tic de cent nanosegons** (0.190.168): el rellotge del RMT és el de l'APB a 80 MHz i el divisor
     // vuit el deixa a deu, o sigui que un tic és el que aquest fitxer ja compta (docs/50).
     if (ready_) return true;
@@ -158,20 +143,24 @@ class Ws2812Strip : public ILed {
       printf("led: the RMT channel did not come up; the panel stays dark\n");
       return false;
     }
+#if defined(CONFIG_PM_ENABLE)
+    // **El mateix moment que el canal**: a lock that is not there is a frame at whatever the chip is running at, i el que el
+    // demana és que l'APB no es mogui mentre el RMT compta (docs/50).
+    esp_pm_lock_handle_t lock = nullptr;
+    if (esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "ws2812", &lock) == ESP_OK) apb_lock_ = lock;
+#endif
     ready_ = true;
     return true;
-#endif
   }
 
   // What the strip has to show, three bytes per light, and how it goes on the wire: 24 entries of four bytes per light,
   // which are the heap's when the first frame goes out.
   uint8_t colours_[kCount * 3] = {};
   Ws2812Item* wire_ = nullptr;
-#if defined(ARDUINO)
-  rmt_obj_t* rmt_ = nullptr;
-#else
   static constexpr rmt_channel_t channel_ = RMT_CHANNEL_0;
   bool ready_ = false;
+#if defined(CONFIG_PM_ENABLE)
+  void* apb_lock_ = nullptr;
 #endif
 };
 

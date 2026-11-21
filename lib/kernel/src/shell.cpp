@@ -24,6 +24,7 @@
 #include "json/json.h"
 #include "kernel/app_error.h"
 #include "kernel/apps.h"
+#include "kernel/bluetooth.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
 #include "kernel/display.h"
@@ -498,7 +499,7 @@ void print_help(const char* only) {
                     only);
   help_continuation("                    and `cfg cursor delay [<ms>]`, how long the block of ink lasts before it turns", only);
   help_continuation(
-      "                    and `cfg freq [<mhz> on|off|all]`, the steps of the processor the policy may use", only);
+      "                    and `cfg freq [<mhz> on|off|all]`, the floor and the ceiling of the processor", only);
   help_continuation("                    and `cfg settings [<id>|none]`, the app the gear of the panel opens", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
@@ -627,6 +628,14 @@ void print_sessions() {
     out(session::kDoor);
     out("\r\n");
   }
+  // **I quants viuen a la memòria del banc** (0.190.174): two rooms and not one —the PSRAM of the board and the four
+  // megabytes behind the chip's switcher—, and a person looking at a board that is short of memory needs to know which one
+  // is full (docs/30, docs/75).
+  if (session::banked() > 0) {
+    out("  ");
+    out_num(session::banked());
+    out(" of them are in the banked memory\r\n");
+  }
 }
 
 void print_mem() {
@@ -672,6 +681,19 @@ void print_mem() {
   } else {
     out("  extra memory       none on this board\r\n");
   }
+  // **Els megabytes que el xip té darrere el banc de commutació** (0.190.173): the other half of the
+  // Paper's and the Koala's 8 MB, which cannot be handed to an app as a pointer —the chip moves them
+  // in and out of a window— and for that reason they were not in the line above. `mem himem` proves
+  // that they hold what is written there (docs/50, docs/75).
+  if (extra.himem_bytes > 0) {
+    out("  himem              ");
+    out_num(extra.himem_free_bytes / 1024);
+    out(" of ");
+    out_num(extra.himem_bytes / 1024);
+    out(" KB free, ");
+    out_num(extra.himem_window_bytes / 1024);
+    out(" KB of window (bank switching)\r\n");
+  }
   // The last app, if one has run: what it asked for and what it was allowed.
   if (luabind::limit_bytes() > 0) {
     out("  lua peak / limit   ");
@@ -712,6 +734,26 @@ void print_mem() {
     out_num(pal::memory_lost());
     out(" ask(s) not written down\r\n");
   }
+}
+
+// **La prova del banc de commutació** (0.190.173): un bloc de 32 KB —la unitat que el banc mapeja— escrit i tornat a
+// llegir a la memòria que queda darrere el commutador del xip, que és la meitat de la PSRAM de la Paper i del Koala que no
+// es pot donar a ningú com un punter. Si el que torna no és el que hi va anar, el que falla és el maquinari i no la comanda
+// (docs/30, docs/50, docs/75).
+void print_mem_himem() {
+  const hal::ExtraMemory extra = platform().extra_memory();
+  if (extra.himem_bytes == 0) {
+    out("  himem              none on this board: this chip has no bank switcher\r\n");
+    return;
+  }
+  char line[128];
+  snprintf(line, sizeof(line),
+           "  himem              %u KB behind the bank switcher, %u KB free, %u KB of window\r\n",
+           static_cast<unsigned>(extra.himem_bytes / 1024), static_cast<unsigned>(extra.himem_free_bytes / 1024),
+           static_cast<unsigned>(extra.himem_window_bytes / 1024));
+  out(line);
+  out("  32 KB written and read back: ");
+  out(platform().extra_memory_round_trip(hal::kExtraMemoryBlockBytes) ? "yes\r\n" : "no\r\n");
 }
 
 // **Els llibres de la memòria** (0.190.0, l'amo: *«podríem fer una llista de punter, tamany i qui l'ha demanat?»*): the blocks of the
@@ -5189,6 +5231,24 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
+    // **`cfg bt on|off`**: el teclat de Bluetooth (0.190.180). És el mateix ajust que la fila de Settings, i el que fa és obrir o tancar el
+    // ràdio de debò; **mentre és encès la placa no fa becaines**, o sigui que la resposta ho diu (docs/30, docs/50, docs/60).
+    if (strcmp(words[0], "bt") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the keyboard of the board is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_bt_on(on);
+      out("settings: bluetooth keyboard ");
+      out(cfg::bt_on() ? "on" : "off");
+      newline();
+      if (!bt::available()) out("cfg: this board has no radio, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     // **`cfg uartwake on|off`**: si la consola del darrere desperta la becaina (0.190.147). És el mateix ajust que la fila `Wake from
     // UART` de la pestanya Battery, i la resposta diu també què en fa aquesta placa (docs/30, docs/50).
     if (strcmp(words[0], "uartwake") == 0) {
@@ -5325,8 +5385,8 @@ bool command_cfg(const char* argument) {
       if (count == 2 && (strcmp(words[1], "all") == 0 || strcmp(words[1], "auto") == 0)) {
         uint8_t mask = 0;
         cfg::parse_freq(words[1], mask);
-        const bool kept = cfg::set_freq_allowed(80, true) && cfg::set_freq_allowed(160, true) &&
-                          cfg::set_freq_allowed(240, true);
+        // **Dos i no tres** (0.190.175): el terra i el sostre; el mig el decideix el xip (docs/50, docs/60).
+        const bool kept = cfg::set_freq_allowed(80, true) && cfg::set_freq_allowed(240, true);
         cfg::freq_text(text, sizeof(text), cfg::freq_mask());
         out("settings: cpu allows ");
         out(text);
@@ -5789,10 +5849,94 @@ bool execute(char* line) {
     print_mem();
     return true;
   }
+  // **El teclat de Bluetooth, des del prompt** (0.190.179, l'amo: *«afegeix bluetooth al projecte, anem a fer un experiment»*): the
+  // radio is the one part of this system that has no page and no app, and the prompt is the way to turn it on, see whether a phone has
+  // found it, and write into it without a keyboard that works yet (docs/30, docs/50).
+  //
+  //   bt                 what this board knows about the radio, in a line
+  //   bt on [name]       offer the keyboard under that name (lunokOS by default)
+  //   bt off             stop offering it and give the memory back
+  //   bt type <text>     write that text into the device on the other end
+  if (strncmp(line, "bt", 2) == 0 && (line[2] == '\0' || line[2] == ' ')) {
+    char words[2][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 2, words, 2, count)) return false;
+    if (count == 0 || strcmp(words[0], "status") == 0) {
+      char buf[kPrintCap];
+      snprintf(buf, sizeof(buf), "bluetooth: %s", bt::state_word());
+      out(buf);
+      newline();
+      if (bt::available()) {
+        snprintf(buf, sizeof(buf), "  the keyboard is %s%s", bt::is_on() ? "on" : "off",
+                 bt::connected() ? ", and a device is connected" : "");
+        out(buf);
+        newline();
+      }
+      return true;
+    }
+    if (strcmp(words[0], "on") == 0) {
+      if (!bt::available()) {
+        out("bluetooth: this board has no radio");
+        newline();
+        return true;
+      }
+      char buf[kPrintCap];
+      const char* name = (count > 1) ? words[1] : "lunokOS";
+      if (bt::start(name)) {
+        snprintf(buf, sizeof(buf), "bluetooth: the keyboard is offered as \"%s\"", name);
+        out(buf);
+        newline();
+        out("  the waits of this board are spent awake while it is on");
+        newline();
+      } else {
+        out("bluetooth: the radio did not come up, and the reason is in the log");
+        newline();
+      }
+      return true;
+    }
+    if (strcmp(words[0], "off") == 0) {
+      bt::stop();
+      out("bluetooth: the keyboard is off");
+      newline();
+      return true;
+    }
+    if (strcmp(words[0], "type") == 0) {
+      // Everything after the verb, spaces included, is the text: a person writing into a keyboard writes a line, not a word.
+      const char* text = line + 2;
+      while (*text == ' ') ++text;
+      if (strncmp(text, "type", 4) == 0) text += 4;
+      while (*text == ' ') ++text;
+      if (*text == '\0') {
+        out("bluetooth: nothing to write (bt type <text>)");
+        newline();
+        return true;
+      }
+      if (!bt::connected()) {
+        out("bluetooth: nobody is connected, so there is nowhere to write");
+        newline();
+        return true;
+      }
+      char buf[kPrintCap];
+      snprintf(buf, sizeof(buf), "bluetooth: %u character(s) written", static_cast<unsigned>(bt::type(text)));
+      out(buf);
+      newline();
+      return true;
+    }
+    out("bluetooth: bt [on [name]|off|type <text>]");
+    newline();
+    return true;
+  }
   // **I els blocs, un a un** (0.190.0): `mem` diu els totals de cada casa i qui té quant; `mem blocks` baixa a la llista de
   // punters, tamanys i amos, que és la pregunta que es fa quan una xifra no quadra (docs/30, docs/75).
   if (strncmp(line, "mem blocks", 10) == 0 && (line[10] == '\0' || line[10] == ' ')) {
     print_mem_blocks();
+    return true;
+  }
+  // **`mem himem`, la prova del banc de commutació** (0.190.173, l'amo: *«Anem a activar el himem»*): the IDF's own
+  // `system/himem` example writes and reads back the memory that the chip keeps behind its bank switcher, and this is the
+  // same question asked from the prompt (docs/30, docs/50).
+  if (strncmp(line, "mem himem", 9) == 0 && (line[9] == '\0' || line[9] == ' ')) {
+    print_mem_himem();
     return true;
   }
   if (strncmp(line, "sessions", 8) == 0 && (line[8] == '\0' || line[8] == ' ')) {
@@ -6454,6 +6598,7 @@ const char* const kCommandNames[] = {
     "help",     "version",  "caps",     "mem",      "sessions", "apps",     "mounts",   "splash",
     "panel",    "cfg",      "run",      "stop",     "home",     "repo",     "lua",      "keys",
     "fonts",    "wifi",     "provision", "ntp",     "tz",       "date",     "alarm",    "sleep",
+    "bt",
     "load",
     "poweroff", "deepsleep", "reboot",   "battery",  "led",      "serial",   "imu",      "touch",    "buttons",  "log",
     "panic",    "stats",    "free",     "echo",     "cat",      "ls",       "cd",       "pwd",

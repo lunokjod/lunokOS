@@ -190,7 +190,7 @@ són així i no poden ser-ho: la seva imatge és el sistema sol, i la Paper nome
 LittleFS no hi caben (docs/70).
 **I durant el desenvolupament la targeta és el propi repositori** (0.118.3, quan la imatge de les plaques va
 deixar de portar apps): `--sd .` posa `apps/` de l'arrel a `/sd/apps` i l'emulador executa el que hi ha al
-repositori sense copiar res ni refer el disc —`--flash build/disk/m5-paper --sd .` i el lector arrenca
+repositori sense copiar res ni refer el disc —`--flash build/disk/m5-paper-idf --sd .` i el lector arrenca
 l'app del dia—. És el camí per provar una app a l'emulador quan el disc que es llegeix és el d'una placa, que no en
 porta cap (`repo install` i una targeta pròpia amb `--sd <dir>` són els altres dos, docs/70).
 A part del disc hi ha les memòries que **no són un volum**, i totes viuen en un sol directori
@@ -827,6 +827,10 @@ finestra per mirar-s'ho.
 xip aquells mil·lisegons amb les mateixes portes —una tecla, el vidre o el temporitzador—, o sigui que el commutador *Light sleep
 instead of wait* de la pestanya Battery es pot veure funcionar en un PC. Amb `--no-delay` la resposta és la de sempre (no s'hi pot
 dormir, perquè el rellotge no passa) i el sistema espera despert com abans (docs/50, docs/60, docs/95).
+**I aquest banc va pel camí de la becaina demanada** (0.190.178): el son automàtic del xip és cosa d'`esp_pm`, que aquí no hi és, i la
+placa diu que no a `open_the_nap_doors`; el que fa `power::open_the_sleep` és demanar la becaina a `nap()` i tornar zero, o sigui que el
+torn espera exactament com abans i els comptadors de la becaina es mouen igual. El pany que obre la dormida automàtica només es prova en
+una placa de debò (docs/50, docs/85).
 
 ### Un son profund és un reinici del xip, i l'emulador el fa (0.190.68)
 
@@ -1041,7 +1045,7 @@ provava cadascuna ho diuen les taules de docs/50 i docs/92.
 | Energia (`power.*`) | **De mentida i ho diu**: un model amb indicador (el Paper) contesta la bateria **sense que calgui res** —el `%` d'aquesta màquina passat per la corba de la cel·la, o 3 700 mV si la màquina no en té— i `--battery-mv` hi posa un número i mana; un model sense indicador (els ATOM) contesta `nil` sempre. I dormir vol dir que **el rellotge virtual salta** fins a l'hora demanada. El PC no s'atura. `poweroff` sí que és de debò en el que importa: **el model del Paper contesta que sí i el procés s'acaba** (l'estat de les memòries es desa en sortir, com en una apagada), i el model de l'ATOM contesta que no perquè no té control del seu corrent — l'emulador diu el que diu la placa | Bateria si la placa en té; el son és el de debò: `esp_light_sleep_start` i, en profund, la placa es reinicia; `poweroff` fa la seqüència del fabricant (GPIO23, GPIO5, GPIO2 i son profund) i la placa es queda sense corrent |
 | Els llibres de la memòria (0.190.0) | **La taula és de la memòria que l'emulador simula** i no del PC: surt de la PSRAM del model quan hi és i de la RAM quan no, o sigui que `--mem-cap` la veu i un run que mesura un sostre no veu vuit kilobytes de més. El que **no** imita és el temps de la cerca: la fila d'un bloc es troba passejant la taula, i aquí això no costa res (docs/75) | La taula és un bloc de la PSRAM de debò i la cerca costa el que costa fer-la |
 | Tornar d'un son profund | **No passa**: l'emulador no es reinicia enmig d'una crida, i per això les proves criden `kernel::power::restore_session()` a mà, que és exactament el que fa l'arrencada —i el despert per una alarma, que no la crida, es prova amb un `kernel::boot` sencer (0.189.182)—. **El que sí que és de debò és que la placa es pot deixar caure**: el model d'una placa amb xip de rellotge contesta `deep_powers_off()` que sí (0.189.182), o sigui que la política d'oci hi fa el seu camí sencer —`idle sleep`, el salt del rellotge, la finestra de l'alarma i una altra baixada— i un run sense `--gui` ho pot ensenyar | El xip es reinicia i arrenca: l'arrencada llegeix la nota del son i torna a obrir l'app amb `app.args.restore` |
-| Velocitat del processador | **De mentida en el rellotge i de debò en el preu**: el PC no canvia de marxa, però el número es desa (arrenca a **160** i accepta 80, 160 i 240) i **el codi de l'app es cobra a aquesta velocitat** (`--lua-cpu`, 60 ns per instrucció a 160 MHz): un bucle que al vidre dura un segon aquí dura un mil·lisegon amb el model apagat i el que toqui amb ell encès. I el **torn** també es cobra: 850 µs després de cada torn (vegeu la fila del rellotge de la CPU) | `setCpuFrequencyMhz` de debò, amb l'APB i el tick de FreeRTOS movent-se amb ell |
+| Velocitat del processador | **De mentida en el rellotge i de debò en el preu**: el PC no canvia de marxa, però el número es desa (arrenca a **160** i accepta 80, 160 i 240) i **el codi de l'app es cobra a aquesta velocitat** (`--lua-cpu`, 60 ns per instrucció a 160 MHz): un bucle que al vidre dura un segon aquí dura un mil·lisegon amb el model apagat i el que toqui amb ell encès. I el **torn** també es cobra: 850 µs després de cada torn (vegeu la fila del rellotge de la CPU). **I des de la 0.190.175 el model té el rang i el lock del xip** (`set_cpu_range` i `hold_cpu_top`): amb l'escala encesa el número va del terra al sostre amb el lock, igual que a la Paper, o sigui que un cas de la política veu la mateixa placa que el vidre | `esp_pm_configure` de debò a la placa (`CONFIG_PM_ENABLE`), amb l'APB i el tick de FreeRTOS movent-se amb ell |
 | Llum (`led.*`) | **De mentida**: el color es desa i el test el pot preguntar (`emu::led_red()`… i `emu::led_frames()`, que compta els frames). El **nombre de llums és el del model** (1 a l'ATOM, 25 al Matrix, cap al Paper) i el sostre del canal és **20**, el del panell, a tots tres; `emu::led_pixel(i, …)` en llegeix un: així una app escrita per al panell es pot provar al PC. Els efectes es proven **movent el rellotge a mà** (`emu::advance_ms`), que és la mateixa hora que llegeix el nucli: una respiració de cinc segons es mira en un mil·lisegon | El `neopixelWrite` i el frame d'RMT de debò, sobre el WS2812 o els 25 del panell a GPIO27 |
 | Apps i manifest (`boards`) | **L'emulador és una placa, la que se li diu i és obligatori dir-la**: `--board m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`, i respon **aquell** nom i la família `esp32`. Una app del seu model corre sense dir `emulator` al manifest; una d'un altre model hi surt llistada amb l'avís i `run` la refusa dient les plaques que vol i quina és aquesta. És el mateix criteri que a la placa, i per això provar-ho al PC vol dir alguna cosa (docs/40) | `apps` la llista amb el que necessita i `run` la refusa dient les plaques que vol i quina és aquesta |
 | Sensor (`imu.read`) | **De mentida i a la mà del test**: contesta el que diuen les opcions (`--imu-*`), i `--imu-fail` és un xip que no hi és. El que es prova aquí és el camí de la dada —de Lua al HAL i de tornada a l'app— i no la qualitat de la mesura, que només es pot veure al maquinari | L'MPU6886 per la I2C interna, amb les escales del full del fabricant (docs/50) |
@@ -1058,6 +1062,12 @@ RTC); al Paper hi és sempre. I l'hora: `--now 1700000000` al Paper i, al run se
 la línia és **`[CLOCK] source rtc epoch …`** i el número ha crescut amb el temps que l'emulador ha estat
 parat (la pila compta); a l'ATOM sense `--persist` torna a **`source none epoch 0`** i amb
 `--persist` a **`source soc`**.
+
+**I el banc de commutació del xip no es simula** (0.190.173): la Paper i el Koala tenen quatre megabytes
+més de PSRAM darrere el `himem`, i a l'emulador el model respon **zero** a `himem_bytes` —el banc és
+maquinari del xip, i un emulador que digués que en té i no pogués escriure-hi seria pitjor que un que no
+en té—: `mem` no en treu la línia i `mem himem` diu `this chip has no bank switcher`. A la placa, `mem`
+en dona el lliure, el total i la finestra i `mem himem` n'escriu i en rellegeix 32 KB (docs/50, docs/75).
 
 **Comprovat a l'emulador el 31/10 amb la 0.8.2**, amb `--board m5stack-paper --sd <dir>` i un guió:
 `mem` diu `extra memory 4096 of 4096 KB usable, of 8192 KB on the chip (psram)`, `mounts` diu

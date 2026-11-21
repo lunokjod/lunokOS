@@ -19,7 +19,11 @@ jobs:
   build-and-test:
     name: build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # **An hour since the six bands are the ESP-IDF ones** (0.190.171): each of them runs cmake and
+    # ninja over the whole `lib/` tree —the Arduino binaries came from a single g++ pass— and the
+    # first run of a cold cache has to download the IDF toolchain. Half an hour was the Arduino
+    # budget, and a timeout here is a red that says nothing about the code (docs/80).
+    timeout-minutes: 60
     steps:
       # The full history is what lets the version step walk the commits of this push or pull request.
       - uses: actions/checkout@v5
@@ -54,7 +58,8 @@ jobs:
         run: python3 tools/gen_about.py --check
 
       # One job and one cache: the five ESP32 environments share the same toolchain, so it is
-      # downloaded once and not five times.
+      # downloaded once and not five times. Since 0.190.171 each of them also keeps the ESP-IDF
+      # tools under `~/.platformio`, so that is what the key below is protecting.
       - name: cache PlatformIO
         uses: actions/cache@v4
         with:
@@ -118,27 +123,31 @@ jobs:
       - name: build emulator
         run: pio run -e emulator
 
+      # **The six bands are the ESP-IDF ones since 0.190.171**: the Arduino environments of the same
+      # six boards are gone from `platformio.ini` (the owner: *«ara desfes-te dels env's d'arduino que
+      # ja tenim a esp_idf»*), so this is the same safety net over the same hardware and the
+      # `sdkconfig.defaults.*` of every band is what gets compiled.
       - name: build atom
-        run: pio run -e m5-atom
+        run: pio run -e m5-atom-idf
 
       - name: build atom_matrix
-        run: pio run -e m5-atom-matrix
+        run: pio run -e m5-atom-matrix-idf
 
       - name: build paper
-        run: pio run -e m5-paper
+        run: pio run -e m5-paper-idf
 
       - name: build esp32
-        run: pio run -e esp32-devkit
+        run: pio run -e esp32-devkit-idf
 
       # **The sixth band, which this workflow never built** (0.177.3): `ttgo-t-koala` is an
       # environment of `platformio.ini` like the other five, and a board outside this job is a board
       # that can stop compiling without a red anywhere (docs/80).
       - name: build koala
-        run: pio run -e ttgo-t-koala
+        run: pio run -e ttgo-t-koala-idf
 
       # **The seventh, and the first one whose chip is not the ESP32-D0WDQ6** (0.190.29): the LilyGO
       # T5 E-Paper S3 Pro is an ESP32-S3, so a change that compiles on the other six and not here is a
       # change that hid behind the chip of the family —the S3's headers are their own, and the PSRAM,
       # the SPI hosts and the sleep sources are not the ESP32's— (docs/50, docs/80).
       - name: build lilygo-t5s3
-        run: pio run -e lilygo-t5s3
+        run: pio run -e lilygo-t5s3-idf

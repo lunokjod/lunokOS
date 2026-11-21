@@ -143,6 +143,27 @@ ha actualització per aire**; el firmware entra pel cable, que és el que es fa 
 Si algun dia OTA torna, el primer que ha de marxar és el provisioning per Bluetooth
 amb Bluedroid.
 
+**I amb NimBLE, el mateix Bluetooth costa una tercera part** (0.190.179, l'amo: *«afegeix bluetooth al projecte»* i *«Segur que no te
+nimble?»*). Mesurat a l'ATOM amb la taula de particions d'avui i el nucli sencer a sobre:
+
+| | Sense ràdio | Amb NimBLE (BLE-only) |
+|---|---|---|
+| Flash | 1 516 693 B (57,9 % de 2 621 440) | **1 759 081 B (67,1 %)** — +242 388 B |
+| RAM estàtica | 71 124 B | **88 456 B** — +17 084 B |
+| Heap intern abans/després d'obrir el teclat | — | **169 364 B → 139 820 B**, o sigui **29 544 B** |
+
+O sigui que la pila petita fa el mateix servei que la del fabricant per **+242 KB en lloc de +684 KB** de flash, i és el que fa que un
+teclat de Bluetooth capiga en un xip sense PSRAM. **I hi cap amb marge** (mesurat a l'ATOM el 21/11, amb el nucli sencer carregat):
+
+```
+lunok> bt on
+[I][BT] the keyboard is up as "lunokOS": 169364 B of internal memory before, 139820 B after (29544 B spent)
+```
+
+Els **43 156 B lliures** d'aquella nota del Wi-Fi eren d'un moment molt pitjor —amb la ràdio de la xarxa demanant la seva part— i no són el
+pressupost d'aquest xip: el nucli en repòs en té **169 KB**, i el teclat en gasta **29 KB**. El que queda després d'obrir-lo és el que ha de
+tenir una app que dibuixa, i per això el commutador (`cfg bt`) pot estar encès de sèrie (docs/50).
+
 El Bluetooth **no s'encén a l'arrencada**: `bt_ready()` el puja quan algú demana
 `provision` i l'esquema l'allibera en acabar (`WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM`).
 Una placa que no es provisiona mai no paga la pila en RAM, només el codi al binari.
@@ -529,6 +550,45 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   inútils quan es canvia de emulador. Una taula de Lua que visqués allà es trencaria al mapejar l'emulador
   següent, i per tant **no es pot fer transparent**: el que és transparent és el que la CPU pot
   adreçar, i aix. no arriba enlloc (docs/90).
+- **I el `himem` ja es veu i ja es prova** (0.190.173, l'amo: *«Anem a activar el himem»*, amb
+  l'exemple `system/himem` de la IDF al davant). No calia encendre'l: `CONFIG_SPIRAM_BANKSWITCH_ENABLE`
+  és `default y` a la Kconfig de la IDF i era al `sdkconfig.h` des del primer build d'IDF de la Paper
+  i del Koala; el que faltava era dir-ho i poder-ho comprovar. `IPlatform::extra_memory()` porta ara
+  **`himem_bytes`**, **`himem_free_bytes`** i **`himem_window_bytes`**, `mem` escriu la línia d'himem
+  sota la de la PSRAM, i **`mem himem` escriu i rellegeix 32 KB de dalt de tot** i respon `yes` o `no`,
+  que és la mateixa pregunta que fa l'exemple de la IDF. Segueix **sense ser un heap**: el que la
+  comanda demostra és que el maquinari hi és i que hi aguanta el que s'hi escriu, no que una app hi
+  pugui tenir una taula (docs/50).
+- **Mesurat a la placa el 21/11 (0.190.173, la Paper amb les apps i la targeta)**:
+  **`extra memory 2940 of 4096 KB usable, of 8192 KB on the chip (psram)`** i, sota seu,
+  **`himem 4352 of 4352 KB free, 256 KB of window (bank switching)`**. I els dos números no sumen el
+  del xip: **4 096 + 4 352 = 8 448 contra 8 192**, o sigui que **les 256 KB de la finestra es compten
+  dos cops**. La IDF comença l'himem a `4 MB − finestra` —«the reserved banks can't have an unity
+  mapping to be used by malloc anymore; we treat them as himem instead»— i descompta la finestra de la
+  regió del heap a `esp_psram.c`, **però el heap d'aquest build diu que en té 4 096**: el símbol fort
+  `esp_himem_reserved_area_size` hi és al binari i la PSRAM el crida (comprovat amb `objdump` sobre el
+  `firmware.elf`, no llegint el codi font). Amb la dada a la mà, **el que aquest sistema en diu i n'usa
+  és el que queda després de la finestra**: `mem` escriu **`4096 of 4096 KB free`** i la prova comença
+  al bloc 8 —`esp_himem_alloc` numera des del principi de l'himem, i els vuit primers blocs són els de
+  la finestra— per no escriure mai dins del que el heap creu seu. Si algun dia el heap baixa a 3 840 KB
+  tot sol, aquesta línia pot tornar a la de la IDF; el que es perd ara són 256 KB que igualment no es
+  podien fer servir sense risc.
+- **I qui hi viu són les cachés de les sessions** (0.190.174, l'amo: *«usa himem per les sessions»*). A session block
+  of **32 KB or more** —the launcher's `apps` is exactly 32 KB— is no longer a pointer: `Block` has `bytes` or `banked`, and
+  `store_read`/`store_write`/`store_zero`/`store_hash` are the only doors to its bytes, so the piece of the block that is
+  being read is mapped in the window, copied and unmapped (32 KB at a time, with the region's own window of one block). The
+  API of the app does not change, because it was already by offset: `block:read(at, n)` and `block:write(at, text)` are the
+  same calls, and `cv:capture`/`cv:blit` —which do need a pointer— bring the piece to the extra memory, use it and give it
+  back. The park to the disk also goes in pieces (`restore_block`, a 4 KB chunk at a time), so a two-megabyte cache never
+  needs two megabytes of the board's own RAM. What changes is what the PSRAM keeps for: **the faces, the fonts and the
+  pictures**, which is what it was put there for (docs/30, docs/50).
+  **Una regió alhora**, perquè el xip té una finestra i no dues: el segon bloc gran que es demani es queda a la PSRAM (**no**
+  falla, i la pàgina no ho nota), i el primer que la deixa la torna. I els blocs de menys de 32 KB segueixen sent punters, que
+  és el que fa que una caché petita no pagui cap mapeig.
+- **I la mida del xip torna a ser la del xip** (0.190.173): des de la migració a IDF (0.190.166) la
+  pregunta es feia al heap, i `mem` deia `of 4096 KB on the chip` on el full de dades, aquest document
+  i docs/95 diuen **8 192**. És `esp_psram_get_size()` (`esp_psram.h`) i el heap segueix responent el
+  que s'adreça.
 - **El sistema diu els tres números i no un de sol** (31/10), perquè el primer que es va veure a la
   placa va ser una contradicció: `mem` deia `extra memory 4067 of 8192 KB free`, que és una piscina
   de 4 MB comptada contra un xip de 8. `IPlatform::extra_memory()` torna ara

@@ -85,6 +85,10 @@ for i = 1, (14 + 12) + 1 do
 end
 
 local SPEEDS, SPEED_MHZ = { '80 MHz', '160 MHz', '240 MHz' }, { 80, 160, 240 }
+-- **Els dos passos que són un ajust** (0.190.175, l'amo: *«el toggle del mig, fora»*): el DFS del xip es mou entre un terra i
+-- un sostre i tria ell les freqüències del mig, o sigui que 80 i 240 són els dos únics toggles i la llista `Speed` segueix
+-- tenint els tres valors perquè amb l'escala apagada és una velocitat i prou (docs/50, docs/60).
+local STEP_MHZ = { 80, 240 }
 -- **Les tres marxes del torn, amb nom i no amb un número** (0.189.107, l'amo: *«Número d'instruccions per cicle …
 -- Cal fer mesures amb Lua per torn, donar velocitat lenta, normal, ràpida»*): a turn of the interpreter is the latency of the
 -- glass and the keys, so a person chooses how long a finger may wait and not how many instructions the hook counts. The
@@ -776,13 +780,14 @@ function build()
     end
   end)
 
-  -- ---- CPU: **la política, les tres velocitats i la marxa del torn** (0.189.107, l'amo: *«(desplegable) Velocitat …
-  -- [X] Frequency scaling allowed: [X] 80Mhz [X] 160Mhz [X] 240Mhz»*). The switch is the policy —on, the load decides the
-  -- step; off, the one below it— and the three boxes are the steps it may move between: a step that is not allowed is not
-  -- taken even for a paint, which is what makes the choice worth having (docs/50, docs/60).
+  -- ---- CPU: **la política, el terra i el sostre, i la marxa del torn** (0.189.107, 0.190.175; l'amo: *«(desplegable)
+  -- Velocitat … [X] Frequency scaling allowed: [X] 80Mhz [X] 160Mhz [X] 240Mhz»*, i després: *«el toggle del mig, fora»*).
+  -- The switch is the policy —on, the chip's power management moves the processor between the floor and the ceiling by its own
+  -- load; off, the board runs at `Speed` and nothing else— i les **dues** caselles són el terra i el sostre: `esp_pm` decideix les
+  -- freqüències del mig (160 inclosa) i per això no es poden permetre ni prohibir una a una (docs/50, docs/60).
   check_row(2, 'autospeed', 'Automatic scaling', function() return power.cpu_auto() end,
             function(on) power.cpu_auto(on) end)
-  for _, mhz in ipairs(SPEED_MHZ) do
+  for _, mhz in ipairs(STEP_MHZ) do
     check_row(2, 'freq' .. mhz, 'Allow ' .. mhz .. ' MHz', function() return allowed(mhz) end,
               function(on) cfg.freq(mhz, on) end)
   end
@@ -894,6 +899,26 @@ function build()
     local boots = cfg.boots() or {}
     choice_row(4, 'boot', 'Boot picture', boots, function() return index_of(boots, cfg.boot() or '') end,
                function(index) cfg.boot(boots[index]) end)
+  end
+  -- **I el teclat de Bluetooth** (0.190.180, l'amo: *«afegeix bluetooth al projecte, anem a fer un experiment»*): the board can be a
+  -- keyboard for a phone or a computer, and that is a way of typing like the keys and the glass, o sigui que la fila viu aquí i no a
+  -- System. **Una placa sense ràdio no té la fila**: una porta que no porta enlloc no s'ensenya (docs/30, docs/45, docs/50).
+  --
+  -- **I el que la fila ha de dir no és només un gust**: mentre és encès, el xip **no fa becaines** —un son lleuger atura els rellotges que
+  -- viu el link— i la frase ho diu quan s'encén, perquè el que una persona nota és que la placa gasta una mica més de bateria (docs/50, docs/60).
+  local ok_bt, has_bt = pcall(bt.available)
+  if ok_bt and has_bt == true then
+    check_row(4, 'bt', 'Bluetooth keyboard', function() return cfg.bt() == true end, function(on)
+      local asked = cfg.bt(on)
+      local standing = (asked == true)
+      if on and not standing then
+        say('The radio did not come up, and the reason is in the log')
+      else
+        say(standing and 'This board is offered as a keyboard' or 'The keyboard is off')
+      end
+      console.print(string.format('settings: bluetooth keyboard is %s%s', standing and 'on' or 'off',
+                                  standing and ', and the waits are spent awake' or ''))
+    end)
   end
 
   -- ---- System: **les tres apps que el sistema obre per una persona** (0.189.109, la tercera a 0.189.150): the one that comes

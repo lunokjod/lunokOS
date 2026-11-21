@@ -31,9 +31,11 @@
 #include "esp32/bm8563.h"
 #include "esp32/caps.h"
 #include "esp32/clock.h"
+#include "esp32/extra_memory.h"
 #include "esp32/fm24c02.h"
 #include "esp32/gpio_keys.h"
 #include "esp32/i2c.h"
+#include "esp32/bluetooth.h"
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "esp32/power.h"
@@ -510,14 +512,30 @@ class PaperPlatform : public IPlatform {
   // the other stays as the honest answer to "what does the datasheet say" (docs/50).
   ExtraMemory extra_memory() const override {
     ExtraMemory out;
-    // **La mida de la PSRAM, preguntada al heap i no a una capçalera del nucli** (0.190.166): `esp_spiram_get_size` viu a
-    // `esp32/spiram.h` amb el nucli d'Arduino i a una capçalera que la IDF de l'ESP32 no porta amb aquest nom; el recompte del heap diu el
-    // mateix número i el diu igual als dos builds (docs/50).
-    out.chip_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+    // **La mida del xip i la que s'adreça no són la mateixa** (0.190.173): `esp_psram_get_size()` answers the eight
+    // megabytes the chip carries and the heap answers the four that fit in the window; the two were the same number
+    // since 0.190.166, when the Arduino header went away and the heap was asked instead, and `mem` said 4096 where the
+    // datasheet says 8192 (docs/50, docs/75).
+    out.chip_bytes = esp32_chip_psram_bytes();
     out.total_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     out.free_bytes = static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    if (out.chip_bytes == 0) out.chip_bytes = out.total_bytes;
+    // **Els altres quatre megabytes, darrere el banc de commutació** (0.190.173): they cannot be handed
+    // out as a pointer —the chip moves them— so they are counted apart, and `mem` says both numbers
+    // (docs/50, docs/75).
+    const ExtraMemory bank = esp32_extra_memory();
+    out.himem_bytes = bank.himem_bytes;
+    out.himem_free_bytes = bank.himem_free_bytes;
+    out.himem_window_bytes = bank.himem_window_bytes;
     return out;
   }
+
+  bool extra_memory_round_trip(uint32_t bytes) override { return esp32_extra_memory_round_trip(bytes); }
+
+  // **I les sessions hi poden viure** (0.190.174): the caches of the apps are the memory that is read and written in pieces,
+  // which is the one shape this memory has (docs/50, docs/75).
+  IBankedMemory* open_banked_memory(uint32_t bytes) override { return esp32_open_banked_memory(bytes); }
+  void close_banked_memory(IBankedMemory* block) override { esp32_close_banked_memory(block); }
 
   IClock* clock() override { return paper_clock(); }
   // Two filesystems on this board: the flash and, when there is a card in the slot, the
@@ -547,6 +565,9 @@ class PaperPlatform : public IPlatform {
   // The same radio the ATOM has, because it is the chip's and not the board's: what is
   // missing here is trying it on this hardware, not the code (docs/90).
   INet* net() override { return esp32_net(); }
+  // **I la ràdio que no és una xarxa** (0.190.179): the Bluetooth keyboard, which is an object that says it cannot on a
+  // band whose build has no radio in it (docs/50).
+  IBluetooth* bluetooth() override { return esp32_bluetooth(); }
   IPower* power() override { return &power_; }
   ILed* led() override { return nullptr; }
   IInput* input() override { return &keys_; }

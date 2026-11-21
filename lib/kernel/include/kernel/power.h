@@ -76,13 +76,22 @@ bool can_deep_sleep_with_the_keys();
 // **La becaina** (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica lightSleep allá on puguis»*): el sistema passa mitja vida
 // esperant i esperar despert és corrent que no cal gastar. Amb el commutador encès, cada espera prou llarga dorm el xip amb un son
 // lleuger —la RAM i l'intèrpret hi són en tornar— que el temporitzador del RTC desfà, o una tecla, el dit o la consola abans d'hora.
-// `nap(wait_ms)` és el que crida qui espera: torna sempre, i diu si ha dormit. `nap_ms()` és quant pot durar la becaina següent, que
-// creix mentre no passa res (quaranta mil·lisegons fins a un segon) i torna al mínim quan una mà mou la placa (docs/50, docs/60, docs/95).
+// `nap(wait_ms)` és el que crida qui espera: torna sempre, i diu si ha dormit. **I quant pot durar l'espera d'un torn ho diu
+// `nap_slice_ms()`**, quaranta mil·lisegons, que és el que un dit no nota: **l'escala que creixia fins a un segon ja no hi és** (0.190.181),
+// perquè des de la 0.190.178 la dormida la fa la gestió de potència del xip i el que la limita és el `wait` del torn i el seu proper
+// temporitzador (docs/50, docs/60, docs/95).
 bool nap_on();
 bool set_nap_on(bool on);
 bool can_nap();
 bool nap(int32_t wait_ms);
 int32_t nap_ms();
+// **El pany, i el xip dorma sol** (0.190.178, l'amo: *«activem el lightsleep automàtic d'idf»*): `open_the_sleep` fa les mateixes
+// preguntes que `nap` —el commutador, el dit, el port cedit, el silenci de la consola i la placa que no en sap— i, si totes diuen que
+// sí, obre les portes de la placa i **deixa que la gestió de potència adormi el xip mentre el torn espera a la cua**. Torna quants
+// mil·lisegons es poden esperar (zero vol dir que aquesta volta no es dorma i el torn espera despert com sempre), i `close_the_sleep`
+// les tanca i apunta al registre el que ha durat. `nap` és per a les dormides que es demanen de debò (`power nap`) (docs/50, docs/60).
+int32_t open_the_sleep(int32_t wait_ms);
+void close_the_sleep(int64_t waited_ms);
 // **Una becaina demanada, per mirar-la** (0.190.71): one sleep of `ms` with no ladder and no switch, which is what `power nap` runs to
 // say how long it lasted and what brought the chip back. És com se sap si una tecla o un dit desperten un son lleuger en una placa
 // (docs/50, docs/95).
@@ -243,10 +252,9 @@ void rest_cpu(const char* why);
 // person who fixed a step fixed it on purpose, and a window that undoes it two hundred milliseconds later is the thing `power cpu`
 // exists to stop (docs/50, docs/60).
 //
-// **I el «quant» de la feina no és una mesura sinó una estona**: the window keeps the governor away while the work lasts and it is
-// not exact on purpose —a page that took longer leaves the chip at the top for the rest of the window, which is what the next thing
-// it does will want anyway— (docs/50, docs/60).
-const int32_t kWorkWindowMs = 600;
+// **I el «quant» de la feina ja no és una estona** (0.190.175): el sostre s'agafa amb el lock del xip i es deixa amb el
+// `wait_cpu` o el `rest_cpu` que ve després, i el xip compta els que el tenen. Una finestra era un rellotge del nucli que havia de
+// caducar bé: prou gran per no baixar a mig decode i prou petita per no quedar-se a dalt per res (docs/50, docs/60).
 void work_cpu(const char* why);
 void wait_cpu(const char* why);
 

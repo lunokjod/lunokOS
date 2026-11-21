@@ -1,10 +1,12 @@
-// **L'entrada del build d'ESP-IDF** (0.190.90): el mateix camí que `setup()`/`loop()` del build d'Arduino, amb el nom que demana la IDF.
+// **L'entrada del sistema** (0.190.90, i l'única des de la 0.190.176): `app_main`, que és el punt on la IDF deixa començar una aplicació.
 //
-// Aquest fitxer només existeix per a l'entorn `lilygo-t5s3-idf`, i hi és perquè el nucli d'Arduino **no** hi és: allà l'entrada la posa el
-// seu `main.cpp` i aquí la posa `app_main`, que és el punt on la IDF deixa començar una aplicació. El cos és el dels dos fitxers del
-// camí d'Arduino i no una còpia amb idees pròpies: el corrent de la placa abans que res, la PAL (consola i cua) i el nucli, i després el
-// torn del nucli per sempre (docs/50).
-#if defined(ESP_PLATFORM) && !defined(ARDUINO)
+// El cos és el de l'antic `setup()`/`loop()` del camí d'Arduino i no una còpia amb idees pròpies: el corrent de la placa abans que res, la
+// PAL (consola i cua) i el nucli, i després el torn del nucli per sempre. **Aquest fitxer és de totes les bandes de placa i no d'una**
+// (docs/50).
+//
+// **`ESP_PLATFORM` i no una altra cosa**: aquest fitxer no ha d'entrar als builds natius —l'emulador i les proves tenen el seu
+// `main` a `lib/hal_emulator/` i no tenen FreeRTOS—, i el que ho diu és la plataforma de la IDF (docs/50, docs/85).
+#if defined(ESP_PLATFORM)
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -46,4 +48,4 @@ extern "C" void app_main() {
   }
 }
 
-#endif  // ESP_PLATFORM && !ARDUINO
+#endif  // ESP_PLATFORM

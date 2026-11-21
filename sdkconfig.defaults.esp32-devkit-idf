@@ -19,8 +19,24 @@ CONFIG_BOOTLOADER_LOG_LEVEL_INFO=y
 # **Els avisos de la IDF i no les seves traces**, que el port d'aquesta placa és el del prompt del sistema
 CONFIG_LOG_DEFAULT_LEVEL_WARN=y
 
+# **I la IDF sense color**, com el T5S3 des de la 0.190.91 (0.190.172, l'amo: *«Es pot treure l'ANSI?»*): `LOG_COLORS` és l'únic símbol que
+# encén els codis d'escapament de les seves línies (`I (13) boot: …`, els avisos del bootloader). El color del **nostre** registre és una
+# altra cosa i es tria amb `cfg.ansi` (docs/30, docs/85).
+# CONFIG_LOG_COLORS is not set
+
 # El rellotge a 240 MHz, que és el que el governador del sistema mou després per la seva porta
 CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y
+
+# **La velocitat la governa el PM del xip** (0.190.175, l'amo: *«la cpu es pot escalar sola a esp_idf... activa la opció i adapta el
+# que tenim fet manualment d'scaling»*): `esp_pm` mou el rellotge de la CPU, l'APB i el tick alhora, i els drivers de SPI, I2C, I2S i
+# SDMMC agafen el seu lock d'APB durant la transacció, o sigui que el vidre i la targeta no noten el canvi (docs/50, docs/60).
+CONFIG_PM_ENABLE=y
+# **I el light sleep automàtic no s'encén**: el tickless idle faria becaines entre esdeveniments amb la seva idea de quietud, que és
+# exactament el que `kernel::power` ja decideix (el dit, la pàgina al vidre, els deu segons del port i els vint del son més curt).
+# **I el DFS no arrenca sol tampoc**: qui el configura és `power::boot` amb el rang que la persona ha permès, i un boot amb l'escala
+# apagada ha de poder deixar la placa a un sol pas (docs/50, docs/60).
+# CONFIG_PM_DFS_INIT_AUTO is not set
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
 # El torn del nucli compta mil·lisegons, i la pila del nucli és la dels 16 KB de l'Arduino (docs/75)
 CONFIG_FREERTOS_HZ=1000
@@ -41,3 +57,4 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # **La WiFi fora de la IRAM**: en un xip sense PSRAM i amb aquest build a sobre, el lloc de les instruccions és el que més falta fa
 CONFIG_ESP32_WIFI_IRAM_OPT=n
 CONFIG_ESP32_WIFI_RX_IRAM_OPT=n
+CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=2

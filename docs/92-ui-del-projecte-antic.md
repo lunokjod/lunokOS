@@ -846,7 +846,7 @@ vermella `test_the_two_symbols_of_the_band_are_one_piece_each` (la creu toca el 
 vermella per l'altra banda (el píxel que ha de ser tinta és paper); i **sense els gestors de senyal el terminal es
 queda cru**, mesurat amb un pty: `IT_WAS_RAW` i `TERMINAL_LEFT_RAW` contra `TERMINAL_BACK`.
 
-**El que queda llest per pujar**: `pio run -e m5-paper -t upload` (firmware) i `pio run -e m5-paper -t uploadfs` (el
+**El que queda llest per pujar**: `pio run -e m5-paper-idf -t upload` (firmware) i `pio run -e m5-paper-idf -t uploadfs` (el
 littlefs), que és el que fa l'amo i no l'assistent.
 
 ## 26. Una imatge als moments del sistema: la splash (0.111.0)

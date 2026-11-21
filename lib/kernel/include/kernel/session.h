@@ -25,9 +25,31 @@ const size_t kNameBytes = 16;
 
 // **The block of `key` for `app`, which is made the first time and found after that**: `bytes` is what is asked for and
 // `got` is what it really has —the block that was already there, or what the allocator gave—. A block that is made is
-// **zeroed**, so an app can tell "nothing was cached" from "this is my cache" with a word of its own. nullptr is "there
+// **zeroed**, so an app can tell "nothing was cached" from "this is my cache" with a word of its own. `false` is "there
 // is no room", which is not an error of the app: it goes on without a cache (docs/30).
+//
+// **Aquest sí que torna un punter, i per això només val per als blocs que en tenen** (0.190.174): a block of
+// `kBankFromBytes` (32 KB, session.cpp) or more can go to the memory behind the chip's bank switcher, where a pointer does
+// not exist —only a window mapped at a time—, and then this door answers `nullptr` with the block made. `open_session` is
+// the one that says whether the block is there, and `read_at`/`write_at` are for its bytes; this one stays for the small
+// blocks, the tests and the code that copies a kilobyte at a time (docs/50, docs/75).
 void* acquire(const char* app, const char* key, size_t bytes, size_t& got);
+
+// **El bloc hi és o no hi és** (0.190.174, l'amo: *«usa himem per les sessions»*): the same block as `acquire`, without the
+// promise of a pointer, which is what the interpreter asks because a cache of 32 KB or more is the memory the PSRAM should
+// keep for the faces, the fonts and the pictures. A board with no bank, or a bank that is already taken by another block,
+// keeps it in the PSRAM and answers the same (docs/50, docs/75).
+bool open_session(const char* app, const char* key, size_t bytes, size_t& got);
+
+// **The bytes of a block, by offset** (0.190.174): what the interpreter calls for `block:read` and `block:write`, and the
+// only shape that a block of the bank can have. They answer the bytes copied, which is less than what was asked when the
+// offset or the end of the block cuts it (docs/30).
+uint32_t read_at(const char* app, const char* key, uint32_t offset, void* out, uint32_t cap);
+uint32_t write_at(const char* app, const char* key, uint32_t offset, const void* in, uint32_t bytes);
+// **Zeroes the whole block**, wherever it lives (`block:clear()`, docs/30).
+bool clear(const char* app, const char* key);
+// **How many blocks live in the banked memory**, for `sessions` and for a test (docs/30, docs/75).
+uint32_t banked();
 
 // **The block is given back** by the app that owns it, for the case of an app that wants the memory back before it ends.
 // The system does not call this when an app stops: the whole point of a session memory is that the next run finds it.

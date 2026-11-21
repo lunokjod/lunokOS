@@ -14,9 +14,6 @@
 // i el tàctil, i cap pàgina.
 // **La capçalera del nucli d'Arduino, només quan el nucli hi és** (0.190.90): aquest fitxer no en fa servir res —la consola és del
 // PAL i el panell d'epdiy— i l'entorn d'ESP-IDF no la té (docs/50).
-#if defined(ARDUINO)
-#include <Arduino.h>
-#endif
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <driver/rtc_io.h>
@@ -24,11 +21,7 @@
 #include <esp_timer.h>
 // **La mida de la PSRAM, dita per qui la sap** (0.190.90): el nucli d'Arduino la porta a `esp32/spiram.h` i la IDF a `esp_psram.h`; el
 // número és el mateix i el que canvia és el nom de la crida (docs/50).
-#if defined(ARDUINO)
-#include <esp32/spiram.h>
-#else
 #include <esp_psram.h>
-#endif
 
 #include <cstdio>
 #include <cstring>
@@ -44,6 +37,7 @@
 #include "esp32/gpio_keys.h"
 #include "esp32/gt911.h"
 #include "esp32/i2c.h"
+#include "esp32/bluetooth.h"
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "esp32/power.h"
@@ -438,11 +432,7 @@ class T5Platform : public IPlatform {
 
   ExtraMemory extra_memory() const override {
     ExtraMemory out;
-#if defined(ARDUINO)
-    out.chip_bytes = static_cast<uint32_t>(esp_spiram_get_size());
-#else
     out.chip_bytes = static_cast<uint32_t>(esp_psram_get_size());
-#endif
     out.total_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     out.free_bytes = static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     return out;
@@ -456,6 +446,9 @@ class T5Platform : public IPlatform {
   }
   IKeyValue* nvs() override { return esp32_nvs(); }
   INet* net() override { return esp32_net(); }
+  // **I la ràdio que no és una xarxa** (0.190.179): the Bluetooth keyboard, which is an object that says it cannot on a
+  // band whose build has no radio in it (docs/50).
+  IBluetooth* bluetooth() override { return esp32_bluetooth(); }
   IPower* power() override { return &power_; }
   // **El vidre** (0.190.33): l'expansor obre les portes del panell i el TPS65185 li dona les tensions, o sigui que el
   // driver dels dos és el que el construeix. **I es pregunta de debò** (0.190.34): a panel whose bus or frame did not

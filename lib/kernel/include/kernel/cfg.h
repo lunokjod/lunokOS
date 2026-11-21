@@ -105,6 +105,13 @@ bool set_sleep_on(bool on);
 // moving it changes the board's next wait and not the next boot (docs/30, docs/60).
 bool nap_on();
 bool set_nap_on(bool on);
+// **El teclat de Bluetooth** (0.190.180, l'amo: *«afegeix bluetooth al projecte»*): the switch that offers this board as a keyboard to
+// another device, kept in the shop like every other one and read at the boot. **Off by default**, i no pas pel que costa —29 544 B de
+// heap, mesurats a la placa el 21/11 (docs/75)— sinó perquè mentre és encès el xip **no fa becaines** (`wants_the_chip_awake` tanca el
+// pany del torn): una placa que es queda a la prestatgeria no ha de pagar el preu d'un teclat que ningú fa servir (docs/30, docs/50,
+// docs/60).
+bool bt_on();
+bool set_bt_on(bool on);
 // **La consola com a porta de la becaina** (0.190.147, l'amo: *«Posa un toggle a Settings->Battery que doni la opció a "Wake from
 // UART"»*): encès de sèrie —el prompt és l'única manera de parlar amb una placa sense teclat— i apagat per a qui vulgui que les esperes
 // només les desfaci un dit (docs/30, docs/50, docs/60).

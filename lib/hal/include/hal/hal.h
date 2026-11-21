@@ -327,6 +327,37 @@ class INet {
   virtual void http_release(uint32_t op) = 0;
 };
 
+// **El Bluetooth, que en aquest sistema és un teclat** (0.190.179, l'amo: *«afegeix bluetooth al projecte, anem a fer un experiment»*).
+// The radio of an ESP32 can be a keyboard for a phone or a computer, and that is the one use this system has for it: it is not a
+// network —there is nothing to connect to— and it is not a device of its own —it has no page, no session and nothing to store—, o
+// sigui que el que hi ha és una porta: **escrivre caràcters a un altre aparell**. Les lletres hi són per Usage ID del HID (`0x04` és
+// la `a`, `0x28` el retorn), que és el que entén el teclat de qualsevol sistema (docs/30, docs/50).
+//
+// **I el ràdio mana sobre la son**: un son lleuger atura els rellotges que el link viu, o sigui que mentre això és engegat el xip no fa
+// becaines (`wants_the_chip_awake`). És el preu de ser un teclat i es diu, en lloc de deixar una connexió que cau sola (docs/50, docs/60).
+class IBluetooth {
+ public:
+  virtual ~IBluetooth() {}
+  // Si aquesta placa té la ràdio i el build la porta a dins. Una placa que diu que no no ha de rebre cap crida i el sistema ho diu.
+  virtual bool can_bluetooth() const { return false; }
+  // **Encendre el teclat amb el nom que veurà l'altre aparell**, i apagar-lo. Encendre'l dues vegades no és un error.
+  virtual bool keyboard_start(const char* name) {
+    (void)name;
+    return false;
+  }
+  virtual void keyboard_stop() {}
+  // Si algú hi és connectat: un teclat que no ho diu envia caràcters al buit.
+  virtual bool keyboard_connected() const { return false; }
+  // Una tecla premuda i deixada anar, amb les de modificació del HID (`0x02` és Shift). Torna fals si no hi ha ningú a l'altre cap.
+  virtual bool keyboard_tap(uint8_t mods, uint8_t usage) {
+    (void)mods;
+    (void)usage;
+    return false;
+  }
+  // **Si el ràdio vol el xip despert**: verdader mentre el teclat és engegat, o sigui que el torn no obre el pany de la becaina.
+  virtual bool wants_the_chip_awake() const { return false; }
+};
+
 // How deep the sleep is (docs/90, M6). `kLight` keeps the memory, the interpreter
 // and the console: the system goes on where it was. `kDeep` keeps only what the
 // RTC holds: the board restarts and boots again, and what was running comes back
@@ -446,6 +477,23 @@ class IPower {
     return false;
   }
 
+  // **El pany de la becaina que fa el xip sol** (0.190.178, l'amo: *«activem el lightsleep automàtic d'idf»*): `nap` és una dormida que
+  // el nucli demana i espera; aquest parell és la mateixa dormida **sense demanar-la** — obre les portes de la placa (una tecla, el vidre
+  // i la consola) i deixa que la gestió de potència del xip adormi mentre qui espera és a la cua. `open_the_nap_doors()` diu si les
+  // portes s'han pogut obrir; si diu que no, **no s'ha de dormir**, i el nucli espera despert com sempre. `close_the_nap_doors()` les
+  // tanca i torna la línia del panell al que era (docs/50, docs/60).
+  //
+  // **I el que no s'obre no dorma** (0.190.178): there is no lock to take and no flag for the kernel to forget, because the chip asks
+  // the board before every automatic sleep, and a closed pany answers no. That is what keeps the ink of a paint —twenty-millisecond
+  // slices the chip must not take (0.190.69)—, a console that has not been quiet, and a port lent to an app out of a light sleep,
+  // without any of them having to know that the sleep exists (docs/50, docs/95).
+  virtual bool open_the_nap_doors() { return false; }
+  virtual void close_the_nap_doors() {}
+  // **Qui ha despertat la darrera becaina** (0.190.178): `nap` ho sap perquè és qui ha dormit; la becaina que fa el xip sola no torna per
+  // la mateixa crida, o sigui que la pregunta és a part i la contesta la placa quan en sap. Null és «el xip no sap per què s'ha despertat»,
+  // que vol dir que no ha dormit (docs/50, docs/95).
+  virtual const char* the_word_of_the_last_nap() { return nullptr; }
+
   // Whether this board's deep sleep is a **full power off**: the board does not sleep,
   // it stops being powered and the clock chip's alarm turns it back on (docs/50). It is
   // the least current a board can draw, and it means the wake does not come from the
@@ -519,6 +567,26 @@ class IPower {
   // nearest one, because a rounded speed is a lie about what it costs (docs/50).
   virtual uint32_t cpu_mhz() = 0;
   virtual bool set_cpu_mhz(uint32_t mhz) = 0;
+  // **La velocitat la governa el `esp_pm` del xip** (0.190.175, l'amo: *«la cpu es pot escalar sola a esp_idf... activa la opció i
+  // adapta el que tenim fet manualment»*). A board with the chip's power management answers here and `set_cpu_mhz` is turned into a
+  // range of one value; a board without it —the emulator, a build with `CONFIG_PM_ENABLE` off— keeps moving the clock itself, which
+  // is what this family did until today (docs/50, docs/60).
+  //
+  // `min` and `max` are the floor and the ceiling the chip may move between, in MHz. **The chip keeps the tick and the PLLs in step
+  // when it changes** —the SPI, the I2C, the I2S and the SDMMC drivers take the `APB_FREQ_MAX` lock around their transactions, so
+  // the glass and the card do not care— and the frequency it is on is read with `cpu_mhz()` (docs/50).
+  virtual bool set_cpu_range(uint32_t min_mhz, uint32_t max_mhz) {
+    (void)min_mhz;
+    (void)max_mhz;
+    return false;
+  }
+  // **I quan el nucli vol el sostre i quan no** (0.190.175): `on` takes the chip's top-step lock and `off` gives it back, which is the
+  // whole of what `hold_cpu` and `rest_cpu` used to do by hand. The chip counts the takes, so asking twice and giving back once leaves
+  // it at the top —the same rule the old window had, without a clock to keep (docs/50, docs/60).
+  virtual bool hold_cpu_top(bool on) {
+    (void)on;
+    return false;
+  }
 
  protected:
   // **El commutador del dit, que és de tota placa** (0.190.17): kept here and not in each board, because the setting belongs to the system
@@ -948,10 +1016,50 @@ class IImu {
 // **4 MB**, so a board that carries 8 MB keeps four of them behind the bank switcher of the chip,
 // and memory that moves under a pointer cannot be given to an app (docs/50, docs/75). All zero on a
 // board with no extra memory, which is the truth about the hardware and not an error.
+//
+// **I darrere el banc de commutació hi ha els altres quatre** (0.190.173): `himem_bytes` és el que el
+// xip por fer servir pel `himem`, `himem_free_bytes` el que ningú no ha pres i `himem_window_bytes`
+// l'espai d'adreces que el banc té per mapejar-hi blocs —`CONFIG_SPIRAM_BANKSWITCH_RESERVE` pàgines de
+// 32 KB—. Zero als tres vol dir que aquest xip no té banc (l'ESP32-S3 no en té) o que no hi ha PSRAM,
+// que és la mateixa resposta per a qui ho pregunta (docs/50, docs/75).
 struct ExtraMemory {
   uint32_t chip_bytes;
   uint32_t total_bytes;
   uint32_t free_bytes;
+  uint32_t himem_bytes;
+  uint32_t himem_free_bytes;
+  uint32_t himem_window_bytes;
+
+  // **Un `ExtraMemory out;` que omple només els tres primers ha de dir zero a la resta**: the HALs that
+  // have no bank switcher ask for a reading and fill in what they have, and none of them has to
+  // remember every field that another board added (docs/50).
+  ExtraMemory()
+      : chip_bytes(0),
+        total_bytes(0),
+        free_bytes(0),
+        himem_bytes(0),
+        himem_free_bytes(0),
+        himem_window_bytes(0) {}
+};
+
+// **32 KB és el bloc del banc de commutació** (el `ESP_HIMEM_BLKSZ` de l'ESP32): la unitat més petita que el xip pot
+// mapejar-hi i, per tant, la de qualsevol adreça que hi passi. Viu aquí i no a la capçalera de l'ESP32 perquè el nucli
+// —que compila a l'emulador— ha de saber de quina mida és el bloc que demana provar (docs/50, docs/75).
+const uint32_t kExtraMemoryBlockBytes = 0x8000;
+
+// **La memòria que hi ha darrere el commutador de bancs del xip, com una regió que es llegeix i s'escriu per trossos**
+// (0.190.174). The chip can only have a window of it mapped at a time, so there is **no pointer to give**: the door takes
+// an offset and copies. That is why it is not `pal::IExtraMemory` —a heap promises a pointer that stays put— and why the
+// session memory, which was built around offsets from the first day (`block:read(offset, n)`), is what lives here: a cache
+// of a launcher does not need to be one piece, it needs to be able to give a piece at a time (docs/50, docs/75).
+class IBankedMemory {
+ public:
+  virtual ~IBankedMemory() {}
+  virtual uint32_t size() const = 0;
+  // **Els bytes que s'han copiat**, que són menys que `bytes` quan la regió s'acaba: a read that runs past the end is a
+  // read that answers what there was and not an error (docs/30).
+  virtual uint32_t read(uint32_t offset, void* out, uint32_t bytes) = 0;
+  virtual uint32_t write(uint32_t offset, const void* in, uint32_t bytes) = 0;
 };
 
 // The air around the board: how warm it is and how wet. It is not on every board —the Paper has an
@@ -1017,11 +1125,31 @@ class IPlatform {
   // The extra memory of the board, as the board sees it (docs/75). The interpreter puts its big
   // blocks there and an app is told what is left; it is the board that answers, so the emulator answers
   // what the model carries (docs/85).
-  virtual ExtraMemory extra_memory() const { return ExtraMemory{0, 0, 0}; }
+  virtual ExtraMemory extra_memory() const { return ExtraMemory(); }
+  // **Una prova i no una política** (0.190.173): escriu i torna a llegir `bytes` de la memòria que no és
+  // adreçable —els quatre megabytes de darrere el banc de commutació del xip— i diu si el que torna és el
+  // que hi va anar. És el mateix que fa l'exemple `system/himem` de la IDF. `false` vol dir «aquest xip no
+  // en té» o «no n'hi ha prou», que per a qui ho pregunta és la mateixa resposta, i per això la placa que
+  // no en té no ha de fer res: el valor d'aquí ja és el seu (docs/50, docs/75).
+  virtual bool extra_memory_round_trip(uint32_t bytes) {
+    (void)bytes;
+    return false;
+  }
+  // **Una regió del banc, comprada amb una mida i tornada en acabar** (0.190.174): `nullptr` vol dir que aquest xip no té
+  // banc de commutació o que no hi ha prou memòria lliure, i el qui ho demana es queda on era. El que torna és del HAL i no
+  // s'allibera: es torna amb `close_banked_memory`, que és el que fa que una regió no es quedi sense amo (docs/50, docs/75).
+  virtual IBankedMemory* open_banked_memory(uint32_t bytes) {
+    (void)bytes;
+    return nullptr;
+  }
+  virtual void close_banked_memory(IBankedMemory* block) { (void)block; }
   virtual IClock* clock() = 0;
   virtual IStorage* storage(const char* mount) = 0;
   virtual IKeyValue* nvs() = 0;
   virtual INet* net() = 0;
+  // **I la ràdio que no és una xarxa** (0.190.179): the keyboard of Bluetooth, which is null on every board that does not have the
+  // radio in its build —the emulator, and the bands that have not enabled it— (docs/50).
+  virtual IBluetooth* bluetooth() { return nullptr; }
   virtual IPower* power() = 0;
   virtual ISurface* display() = 0;
   virtual ILed* led() = 0;

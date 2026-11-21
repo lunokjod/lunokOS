@@ -828,11 +828,35 @@ class FakePower : public IPower {
   bool set_cpu_mhz(uint32_t mhz) override {
     if (mhz != 80 && mhz != 160 && mhz != 240) return false;
     cpu_mhz_ = mhz;
+    // **Un sol valor és un rang d'un sol valor** (0.190.175): the board's power management would answer the same, and a model of
+    // the chip that does not keep the floor and the ceiling in step is a model that lies about the next lock (docs/85).
+    low_mhz_ = mhz;
+    high_mhz_ = mhz;
+    return true;
+  }
+
+  // **El rang i el lock del sostre, com el xip els tindria** (0.190.175): the model moves the number between the floor and the
+  // ceiling with the top-step lock, so the cases of the policy see the same board the Paper does. With no range set —a case that
+  // never asks for one— the range is the step the model is on (docs/50, docs/85).
+  bool set_cpu_range(uint32_t min_mhz, uint32_t max_mhz) override {
+    if (min_mhz == 0 || min_mhz > max_mhz) return false;
+    low_mhz_ = min_mhz;
+    high_mhz_ = max_mhz;
+    cpu_mhz_ = top_taken_ ? high_mhz_ : low_mhz_;
+    return true;
+  }
+
+  bool hold_cpu_top(bool on) override {
+    top_taken_ = on;
+    cpu_mhz_ = on ? high_mhz_ : low_mhz_;
     return true;
   }
 
  private:
   uint32_t cpu_mhz_ = 160;
+  uint32_t low_mhz_ = 160;
+  uint32_t high_mhz_ = 160;
+  bool top_taken_ = false;
 };
 
 // The network of this band is a **fake** and docs/85 says so: it takes `--wifi`

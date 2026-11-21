@@ -2,6 +2,7 @@
 // processor.
 #include <cstdio>
 
+#include <esp_attr.h>
 #include <esp_sleep.h>
 #include <esp_timer.h>
 
@@ -13,10 +14,18 @@
 // FreeRTOS tick when the frequency changes (read on disk, docs/50).
 // **I sense el nucli d'Arduino la porta és la de l'IDF** (0.190.90): `rtc_clk_cpu_freq_*` és exactament el que fa servir el nucli per
 // dins, o sigui que el comportament és el mateix i el que canvia és qui ho diu (docs/50).
-#if defined(ARDUINO)
-#include <esp32-hal-cpu.h>
-#else
 #include <soc/rtc.h>
+
+// **El govern de la velocitat del xip** (0.190.175): `esp_pm` mou el rellotge, el tick i els PLLs alhora i porta el compte de qui
+// demana el sostre. Només hi és al build d'IDF i amb `CONFIG_PM_ENABLE`; a la resta mana el registre de sempre (docs/50, docs/60).
+#if defined(CONFIG_PM_ENABLE)
+#include <esp_pm.h>
+// **I el pany de la becaina automàtica** (0.190.178): la gestió de potència pregunta abans de cada son lleuger que fa ella sola, i
+// aquesta és la declaració de la pregunta. És un capçalera privada de l'IDF i la funció només existeix amb el tickless engegat, o
+// sigui que tot el que en depèn va sota el mateix `#if` (docs/50, docs/95).
+#if defined(CONFIG_FREERTOS_USE_TICKLESS_IDLE) && CONFIG_FREERTOS_USE_TICKLESS_IDLE
+#include <esp_private/pm_impl.h>
+#endif
 #endif
 
 #include "hal/log.h"
@@ -42,6 +51,60 @@ const uint8_t kNapRefusalsMost = 3;
 // que l'ha tornat és el GPIO del panell amb la línia del dit baixa, aleshores aquesta línia **és** una porta i una espera llarga ja no
 // deixa el tàctil mort. Fins que no s'ha vist això, la resposta és que no i el nucli no dorma més que una engruna (docs/50, docs/95).
 bool g_glass_is_a_door = false;
+
+// **El pany de la dormida automàtica** (0.190.178): obert vol dir que les portes de la placa estan armades i que el xip pot aturar els
+// rellotges si la gestió de potència ho demana; tancat vol dir que no. És `volatile` perquè el llegeix una secció crítica del
+// planificador i l'escriu el fil del nucli (docs/50, docs/95).
+volatile bool g_doors_open = false;
+// El que s'ha armat i el que hi havia a cada línia, perquè tancar-les torni el panell al que era (0.190.74: el tàctil del Paper va
+// quedar mort dues vegades per una interrupció de nivell que ningú no va desfer) (docs/50, docs/95).
+int g_armed_line[4] = {-1, -1, -1, -1};
+int g_saved_int_type[4] = {-1, -1, -1, -1};
+
+// **La pregunta que fa el xip abans d'adormir-se sol** (0.190.178): es crida dins d'una secció crítica i abans de cada son automàtic,
+// o sigui que només pot llegir un booleà —res de registres, res de logs, res que pugui esperar—. Un pany tancat és un `no`, i la
+// placa espera desperta com ha fet sempre (docs/50, docs/95).
+bool IRAM_ATTR the_doors_are_shut() { return !g_doors_open; }
+
+// **El desarmat, que no depèn del pany** (0.190.178): hi ha un camí que surt d'`open_the_nap_doors` sense haver-lo obert —la consola que no
+// s'ha pogut armar— i les línies ja estan armades; si el desarmat es guiés pel pany, el panell quedaria amb una interrupció de nivell per
+// sempre, que és el que va matar el tàctil del Paper dues vegades (0.190.74) (docs/50, docs/95).
+void rest_the_lines() {
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  // El compte del temporitzador es posa a zero amb ell, o el proper `disarm` demanaria a l'IDF que tragués un despertar que ja no hi és.
+  esp32_note_wake_cleared();
+  gpio_dev_t* hw = &GPIO;
+  for (int i = 0; i < 4; ++i) {
+    if (g_armed_line[i] < 0) continue;
+    gpio_wakeup_disable(static_cast<gpio_num_t>(g_armed_line[i]));
+    // **I la línia torna a ser el que era** (0.190.74): sense això, el pin queda amb una interrupció de nivell que va tornar boig el registre
+    // del panell —la vora de baixada del GT911— i el tàctil no responia més (docs/50, docs/95).
+    if (g_saved_int_type[i] >= 0) {
+      gpio_ll_set_intr_type(hw, static_cast<gpio_num_t>(g_armed_line[i]),
+                            static_cast<gpio_int_type_t>(g_saved_int_type[i]));
+    }
+    g_armed_line[i] = -1;
+    g_saved_int_type[i] = -1;
+  }
+}
+
+// **Si el xip escolta aquest pany** (0.190.178): el registre es fa una vegada i la resposta es desa, perquè `esp_pm_configure` la necessita
+// per encendre el son automàtic i `open_the_nap_doors` per saber si obrir-lo vol dir res. Una banda sense el tickless engegat diu que no,
+// i llavors la becaina es demana com s'ha demanat sempre (docs/50, docs/95).
+bool the_pany_holds() {
+#if defined(CONFIG_FREERTOS_USE_TICKLESS_IDLE) && CONFIG_FREERTOS_USE_TICKLESS_IDLE
+  static bool known = false;
+  static bool holds = false;
+  if (!known) {
+    known = true;
+    holds = esp_pm_register_skip_light_sleep_callback(the_doors_are_shut) == ESP_OK;
+    if (!holds) hal::logf(pal::kLogWarn, "POWER", "the chip did not take the pany of the sleep: the waits are spent awake");
+  }
+  return holds;
+#else
+  return false;
+#endif
+}
 
 }  // namespace
 
@@ -97,24 +160,19 @@ const char* nap_cause_word(esp_sleep_wakeup_cause_t cause) {
   }
 }
 
-bool Esp32Power::nap(int32_t max_ms) {
-  // Per sota d'aquest temps, entrar i sortir del son costa més que esperar despert.
-  const int32_t kLeastMs = 20;
-  if (max_ms < kLeastMs || !can_nap()) return false;
+bool Esp32Power::open_the_nap_doors() {
+  if (g_doors_open) return true;
   // **Una placa que ha dit que no no es torna a preguntar** (0.190.69, el registre del 20/11: *«el xip no ha pres la becaina (259)»*):
   // 259 és `ESP_ERR_SLEEP_REJECT`, i el que fa és que el sistema pagui una crida que no dormeix a cada volta (docs/50, docs/95).
   if (g_nap_refused) return false;
+  // I si el xip no escolta el pany, obrir-lo no adorm ningú: el que qui espera ha de fer és demanar la becaina (docs/50, docs/95).
+  if (!the_pany_holds()) return false;
 
-  // **I un dit que ja és a sobre no espera un segon** (0.190.70): si la línia del vidre ja és baixa, no s'arma —no pot despertar res que
-  // ja és despert— i el que torna el xip és el temporitzador; o sigui que la becaina s'escurça perquè el contacte es llegeixi sovint i el
-  // que una persona nota no sigui un dit que va a salts (docs/50, docs/30).
-  const int32_t kContactMs = 50;
-  if (glass_pin_ >= 0 && gpio_get_level(static_cast<gpio_num_t>(glass_pin_)) == 0 && max_ms > kContactMs) {
-    max_ms = kContactMs;
-  }
-
+  // El que hagi quedat armat per una dormida anterior es desfà abans d'armar: el son profund llegeix la mateixa estructura i no ha
+  // d'heretar res d'aquí (docs/50). I el compte del temporitzador es posa a zero amb ell, o el proper `disarm` demanaria a l'IDF que
+  // tragués un despertar que ja no hi és.
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
-  esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(max_ms) * 1000ULL);
+  esp32_note_wake_cleared();
 
   // **Les tecles i el vidre, pel nivell**: en un son lleuger el `gpio_wakeup_enable` val per a qualsevol GPIO i no només pels del
   // domini RTC, que és el que fa possible escoltar la línia del tàctil (docs/50).
@@ -124,23 +182,21 @@ bool Esp32Power::nap(int32_t max_ms) {
   // every nap of the run into a refusal. La porta s'arma quan es pot obrir, que és quan és tancada; la que està oberta ja ha despertat
   // el sistema i la propera volta la trobarà (docs/50).
   int lines[4] = {wake_pin_, second_wake_pin_, glass_pin_, more_pin_};
-  int armed[4] = {-1, -1, -1, -1};
   // **El tipus d'interrupció que la línia tenia abans** (0.190.74): `gpio_wakeup_enable` escriu el `int_type` del pin —l'arma pel **nivell**— i
   // `gpio_wakeup_disable` no el torna enrere. El que hi havia era una vora de baixada, o sigui que després de la primera becaina la línia del
   // panell deixava de ser una vora: el tàctil del Paper va quedar mort dues vegades per això, i el que es desa aquí és el que es torna a posar
   // en sortir (docs/50, docs/95).
   gpio_dev_t* hw = &GPIO;
-  int saved_type[4] = {-1, -1, -1, -1};
   bool a_button = false;
   for (int i = 0; i < 4; ++i) {
+    g_armed_line[i] = -1;
+    g_saved_int_type[i] = -1;
     if (lines[i] < 0) continue;
     if (gpio_get_level(static_cast<gpio_num_t>(lines[i])) == 0) continue;
-    saved_type[i] = static_cast<int>(hw->pin[lines[i]].int_type);
-    if (gpio_wakeup_enable(static_cast<gpio_num_t>(lines[i]), GPIO_INTR_LOW_LEVEL) != ESP_OK) {
-      saved_type[i] = -1;
-      continue;
-    }
-    armed[i] = lines[i];
+    const int saved = static_cast<int>(hw->pin[lines[i]].int_type);
+    if (gpio_wakeup_enable(static_cast<gpio_num_t>(lines[i]), GPIO_INTR_LOW_LEVEL) != ESP_OK) continue;
+    g_saved_int_type[i] = saved;
+    g_armed_line[i] = lines[i];
     a_button = true;
   }
   if (a_button) esp_sleep_enable_gpio_wakeup();
@@ -152,7 +208,7 @@ bool Esp32Power::nap(int32_t max_ms) {
   // **I només si la placa té una consola que un son lleuger no apagui** (0.190.152): the switch says whether the person wants the console
   // to be a door, and the board says whether a console can be one at all (docs/50, docs/30).
   const bool the_console = wake_from_uart() && the_console_can_wake();
-  bool ok = !the_console || esp_sleep_enable_uart_wakeup(0) == ESP_OK;
+  const bool ok = !the_console || esp_sleep_enable_uart_wakeup(0) == ESP_OK;
   // **I si el xip no pren la consola com a porta, es diu** (0.190.71): aquest `no` era mut, i una becaina que no es demana perquè la seva
   // porta no s'ha pogut armar és exactament el que una persona no pot distingir d'una placa que no dorm (docs/50).
   if (!ok) {
@@ -161,9 +217,46 @@ bool Esp32Power::nap(int32_t max_ms) {
       hal::logf(pal::kLogWarn, "POWER", "the console cannot be a door of the light sleep, so there is none");
     }
     g_nap_refused = true;
+    rest_the_lines();
+    return false;
   }
-  if (ok) {
-    fflush(stdout);
+  // El que hi hagi a mig escriure ha de sortir abans que el xip aturi els rellotges, o la línia que explica per què dorm no arriba mai.
+  fflush(stdout);
+  g_doors_open = true;
+  return true;
+}
+
+void Esp32Power::close_the_nap_doors() {
+  if (!g_doors_open) return;
+  g_doors_open = false;
+  rest_the_lines();
+}
+
+const char* Esp32Power::the_word_of_the_last_nap() {
+  const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) return nullptr;
+  return nap_cause_word(cause);
+}
+
+bool Esp32Power::nap(int32_t max_ms) {
+  // Per sota d'aquest temps, entrar i sortir del son costa més que esperar despert.
+  const int32_t kLeastMs = 20;
+  if (max_ms < kLeastMs || !can_nap() || g_nap_refused) return false;
+
+  // **I un dit que ja és a sobre no espera un segon** (0.190.70): si la línia del vidre ja és baixa, no s'arma —no pot despertar res que
+  // ja és despert— i el que torna el xip és el temporitzador; o sigui que la becaina s'escurça perquè el contacte es llegeixi sovint i el
+  // que una persona nota no sigui un dit que va a salts (docs/50, docs/30).
+  const int32_t kContactMs = 50;
+  if (glass_pin_ >= 0 && gpio_get_level(static_cast<gpio_num_t>(glass_pin_)) == 0 && max_ms > kContactMs) {
+    max_ms = kContactMs;
+  }
+
+  if (!open_the_nap_doors()) return false;
+  // **Aquesta becaina és la que el nucli demana i espera** (0.190.178): la que fa el xip sol no arma cap temporitzador, perquè el posa la
+  // gestió de potència segons el que queda a la cua; aquí el temps és el que ha demanat qui crida, o sigui que el temporitzador és nostre.
+  esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(max_ms) * 1000ULL);
+  bool ok = true;
+  {
     const int64_t before_us = esp_timer_get_time();
     const esp_err_t asked = esp_light_sleep_start();
     const int64_t slept_ms = (esp_timer_get_time() - before_us) / 1000;
@@ -205,19 +298,7 @@ bool Esp32Power::nap(int32_t max_ms) {
       }
     }
   }
-  // El que hagi quedat armat es desfà: el son profund arma el que vol i no ha d'heretar res d'aquí (docs/50). I el compte del
-  // temporitzador es posa a zero amb ell, o el proper `disarm` demanaria a l'IDF que tragués un despertar que ja no hi és.
-  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
-  esp32_note_wake_cleared();
-  for (int i = 0; i < 4; ++i) {
-    if (armed[i] < 0) continue;
-    gpio_wakeup_disable(static_cast<gpio_num_t>(armed[i]));
-    // **I la línia torna a ser el que era** (0.190.74): sense això, el pin queda amb una interrupció de nivell que va tornar boig el registre
-    // del panell —la vora de baixada del GT911— i el tàctil no responia més (docs/50, docs/95).
-    if (saved_type[i] >= 0) {
-      gpio_ll_set_intr_type(hw, static_cast<gpio_num_t>(armed[i]), static_cast<gpio_int_type_t>(saved_type[i]));
-    }
-  }
+  close_the_nap_doors();
   return ok;
 }
 
@@ -290,13 +371,9 @@ const char* Esp32Power::wakes() {
 }
 
 uint32_t Esp32Power::cpu_mhz() {
-#if defined(ARDUINO)
-  return getCpuFrequencyMhz();
-#else
   rtc_cpu_freq_config_t config;
   rtc_clk_cpu_freq_get_config(&config);
   return config.freq_mhz;
-#endif
 }
 
 // 240, 160 and 80 and nothing else. Below 80 the APB follows the CPU down and **no
@@ -306,16 +383,75 @@ uint32_t Esp32Power::cpu_mhz() {
 // A value the board does not do is refused and not rounded.
 bool Esp32Power::set_cpu_mhz(uint32_t mhz) {
   if (mhz != 80 && mhz != 160 && mhz != 240) return false;
-#if defined(ARDUINO)
-  if (!setCpuFrequencyMhz(mhz)) return false;
-#else
+  // **Amb el PM del xip engegat, una velocitat és un rang d'un sol valor** (0.190.175): `rtc_clk_cpu_freq_set_config` no s'ha de
+  // cridar quan el PM porta els PLLs i el tick, i la manera de deixar la placa a un pas i prou és dir-li que el terra i el sostre
+  // són aquell pas (docs/50, docs/60).
+#if defined(CONFIG_PM_ENABLE)
+  if (set_cpu_range(mhz, mhz)) return cpu_mhz() == mhz;
+#endif
   rtc_cpu_freq_config_t config;
   if (!rtc_clk_cpu_freq_mhz_to_config(mhz, &config)) return false;
   rtc_clk_cpu_freq_set_config(&config);
-#endif
   // A chip rated for 160 only answers 160 when asked for 240: the answer is what the
   // board is really running at, not what it was asked for.
   return cpu_mhz() == mhz;
+}
+
+// **El rang que el xip pot recórrer sol** (0.190.175): `esp_pm_configure` is the one call that turns dynamic frequency scaling on.
+// **I el son lleuger, que des de la 0.190.178 també és seu** (l'amo: *«activem el lightsleep automàtic d'idf»*): la gestió de potència
+// dorma el xip quan el planificador queda sense feina, i **demana abans de cada son** —`the_doors_are_shut`— si la placa el vol, o
+// sigui que la idea de quietud continua sent d'`kernel::power` (el dit, la pàgina al vidre, els deu segons del port i la becaina més
+// curta) i el que canvia és qui fa la dormida i qui compensa el tick (docs/50, docs/60).
+bool Esp32Power::set_cpu_range(uint32_t min_mhz, uint32_t max_mhz) {
+#if defined(CONFIG_PM_ENABLE)
+  if (min_mhz > max_mhz || min_mhz == 0) return false;
+  esp_pm_config_t config = {};
+  config.max_freq_mhz = static_cast<int>(max_mhz);
+  config.min_freq_mhz = static_cast<int>(min_mhz);
+  config.light_sleep_enable = the_pany_holds();
+  const bool ok = esp_pm_configure(&config) == ESP_OK;
+  // **I el pany es diu un cop, perquè és l'única cosa que explica una placa que no dorm** (0.190.178): el son automàtic no té cap crida
+  // que el vegi, i una placa que no l'ha engegat s'assembla molt a una que no en sap. Aquesta línia és la que ho separa (docs/50, docs/95).
+  if (ok && config.light_sleep_enable) {
+    static bool said = false;
+    if (!said) {
+      said = true;
+      hal::logf(pal::kLogInfo, "POWER",
+                "the chip sleeps on its own: the waits of the turn are spent asleep, and the pany is shut for everything else");
+    }
+  }
+  return ok;
+#else
+  (void)min_mhz;
+  (void)max_mhz;
+  return false;
+#endif
+}
+
+// **El sostre, agafat i deixat** (0.190.175): the lock of `ESP_PM_CPU_FREQ_MAX` is what makes the chip run at the top of the range, and
+// it counts its takes —the old `hold_cpu` window is this counter and nothing else—. The lock is made here the first time so that a
+// board that never needs the top does not pay for it (docs/50, docs/60).
+bool Esp32Power::hold_cpu_top(bool on) {
+#if defined(CONFIG_PM_ENABLE)
+  if (top_lock_ == nullptr) {
+    esp_pm_lock_handle_t lock = nullptr;
+    if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "lunok", &lock) != ESP_OK) return false;
+    top_lock_ = lock;
+  }
+  esp_pm_lock_handle_t lock = static_cast<esp_pm_lock_handle_t>(top_lock_);
+  if (on) {
+    if (esp_pm_lock_acquire(lock) != ESP_OK) return false;
+    top_taken_ = true;
+    return true;
+  }
+  if (!top_taken_) return true;
+  if (esp_pm_lock_release(lock) != ESP_OK) return false;
+  top_taken_ = false;
+  return true;
+#else
+  (void)on;
+  return false;
+#endif
 }
 
 }  // namespace hal

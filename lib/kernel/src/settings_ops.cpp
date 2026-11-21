@@ -6,6 +6,7 @@
 // of its own keeps it in its own session (docs/30, docs/75). What the launcher asked for is the first reader: whether it
 // sorts the apps by how many times they have been opened (docs/40).
 #include "kernel/apps.h"
+#include "kernel/bluetooth.h"
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
 #include "kernel/led.h"
@@ -188,6 +189,10 @@ void install_settings_ops() {
   // **I la becaina en lloc d'esperar** (0.190.63): the switch of the Battery tab that spends the waits of the board asleep.
   doors.nap_on = &cfg::nap_on;
   doors.set_nap_on = &cfg::set_nap_on;
+  // **I el teclat de Bluetooth** (0.190.180): el commutador de la pàgina que obre el ràdio, i que mentre és encès deixa la placa desperta
+  // (docs/30, docs/50).
+  doors.bt_on = &cfg::bt_on;
+  doors.set_bt_on = &cfg::set_bt_on;
   // **I quantes línies vol veure una persona** (0.190.89): the level of the log is a setting of the system like the keyboard, o sigui que
   // viu a `cfg` i el ring llegeix el que hi ha (docs/30, docs/50).
   doors.log_level = &cfg::log_level;
@@ -221,6 +226,15 @@ void install_settings_ops() {
   doors.idle_seconds = &cfg::idle_seconds;
   doors.set_idle_seconds = &cfg::set_idle_seconds;
   luabind::set_cfg_ops(doors);
+
+  // **I el teclat, que no és un ajust sinó una cosa que una pàgina fa** (0.190.180): what an app can ask of the radio —whether it is there,
+  // whether somebody listens, and to write into it—. El commutador que l'encén és a la taula de dalt, que és on viuen les decisions
+  // (docs/30, docs/50).
+  luabind::BtOps keys = {};
+  keys.available = &bt::available;
+  keys.connected = &bt::connected;
+  keys.type = &bt::type;
+  luabind::set_bt_ops(keys);
 }
 
 }  // namespace kernel

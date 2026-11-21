@@ -378,8 +378,29 @@ mateix i el nucli li diu l'hora al rellotge **una altra vegada** per la via de s
 (docs/60). Sense xarxa es refusa **a l'acte** amb `E_NONET`: un servidor de temps no contesta si no hi
 ha xarxa, i esperar el termini sencer per saber-ho és fer perdre el temps a qui ho demana.
 
-## Una pàgina, amb TLS, sense parar el sistema
+## El Bluetooth, que és un teclat (0.190.179)
 
+L'amo: *«afegeix bluetooth al projecte, anem a fer un experiment»*, i tot seguit *«Segur que no te nimble?»*. La ràdio d'aquest xip pot
+fer una sola cosa que aquest sistema necessiti —**ser un teclat** per a un mòbil o un ordinador—, i no és una xarxa: no hi ha res a
+connectar, hi ha caràcters a escriure. Per això no viu a `net` sinó a `hal::IBluetooth`, i la política viu a `kernel::bt`.
+
+- **NimBLE i no Bluedroid**. La pila del fabricant costa **684 KB de flash i uns 50-70 KB de heap** (mesurat el 31/10, docs/75) i en un
+  xip sense PSRAM no hi són —el Wi-Fi ja no arrenca amb 43 KB lliures—. Amb NimBLE el binari de l'ATOM passa d'**1 516 693 B a
+  1 759 081 B** (+233 KB) i la RAM estàtica de **71 124 B a 88 456 B**, o sigui que la ranura de 2,5 MB encara té 865 KB per créixer.
+  La ràdio s'inicialitza en **BLE-only** (`CONFIG_BTDM_CTRL_MODE_BLE_ONLY`), que és l'única cosa que un teclat necessita i estalvia la
+  meitat Classic del controlador.
+- **El perfil HID s'escriu aquí** perquè `esp_hid` d'aquesta IDF només té transport per a Bluedroid: el seu `CMakeLists.txt` enllaça
+  `ble_hidd.c` sota `CONFIG_BT_BLUEDROID_ENABLED`. A `lib/hal_esp32/src/bluetooth.cpp` hi ha el servei **0x1812** amb el report map de
+  sis tecles, el report d'entrada (0x2A4D), el protocol mode, el boot report i el descriptor de report; a l'anunci hi van el nom, el
+  servei i **l'aparença de teclat (0x03C1)**, que és el que fa que un mòbil ensenyi un teclat i no un «dispositiu desconegut».
+- **L'aparellament és Just Works amb bonding**: un teclat no té pantalla per ensenyar un número, i el vincle es desa a la NVS perquè
+  duri més enllà d'una apagada.
+- **El ràdio mana sobre la son**. Un son lleuger atura els rellotges que viu el link, o sigui que `wants_the_chip_awake()` és una de les
+  portes de `power::open_the_sleep`: mentre el teclat és engegat el torn espera despert com abans de la 0.190.63, i el `bt on` ho diu.
+- **Les bandes que no en porten no paguen res**: tot el ràdio viu sota `CONFIG_BT_ENABLED` i la resta del fitxer són respostes que diuen
+  que no, o sigui que el Paper, la T5S3, el devkit i la T-Koala compilen igual i el prompt els diu `this board has no radio` (docs/30).
+
+## Una pàgina, amb TLS, sense parar el sistema
 `http_get_start` no baixa res: desa l'adreça i aixeca una tasca de **10 240 B** de pila, que és qui fa
 la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a promesa.
 
@@ -420,10 +441,11 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
   al buffer del port, no quan ha sortit pel fil, i els dos sons aturen la UART: sense esperar, l'última
   línia que llegeix una persona arriba **tallada a mitges**. El nucli ho demana a la consola
   (`IConsole::flush()`) just abans de cridar el `sleep` de la placa, sigui quin sigui el so; a l'ESP32
-  això és `Serial.flush()`, que espera que la FIFO i el registre de desplaçament quedin buits. És al
-  nucli i no a cada placa perquè la consola és del sistema i no del xip.
-- **El processador arrenca a 160 MHz** i es pot dur a **240 o a 80**, mai per sota: `setCpuFrequencyMhz`
-  del core mou també l'APB i el tick de FreeRTOS, i per sota de 80 l'APB baixa i cap perifèric es
+  això és el `flush` del PAL, que espera que la FIFO i el registre de desplaçament de la UART quedin
+  buits (amb un sostre de cent mil·lisegons, 0.190.69). És al nucli i no a cada placa perquè la consola
+  és del sistema i no del xip.
+- **El processador arrenca a 160 MHz** i es pot dur a **240 o a 80**, mai per sota: el rellotge el mou
+  `esp_pm` des de la 0.190.175 —que manté l'APB i el tick en pas— i per sota de 80 l'APB baixa i cap perifèric es
   reconfigura —ni el port sèrie, que és l'única interfície d'aquesta placa. Un valor que no sigui un dels
   passos es refusa, no s'arrodoneix.
 - **I la línia s'ha buidat també abans de moure el processador** (0.179.43): la velocitat del port sèrie
@@ -433,21 +455,28 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
   ve després. Es va veure al registre de la placa: `[D][PANEL] paint 60,356 72x76 … (page 108lx␘␂����2,
   76 rows of 36 B)` amb `[I][POWER] cpu 160 MHz from 240` a la línia següent. `move_to` i `set_cpu_mhz`
   buiden la consola (`IConsole::flush()`) abans de cridar la placa, pel mateix motiu que el son.
-- **No hi ha DFS.** `CONFIG_PM_ENABLE` no està activat al framework precompilat, o sigui que pujar i
-  baixar sol queda fora i la velocitat és sempre una decisió de qui la demana.
-- **I les tres velocitats es poden limitar** (0.189.107, l'amo: *«[X] Frequency scaling allowed: [X] 80Mhz
-  [X] 160Mhz [X] 240Mhz»*): el governador tria entre les que la persona li deixa —`cfg freq 240 off` deixa el
-  sostre a 160 i `cfg freq 80,160` les deixa totes dues— i **el sostre val per a tothom**, també per a un
-  finestra que demana el pas de dalt per pintar, perquè un ajust que només és una suggerència no és un ajust.
-  L'aritmètica és una sola (`power::allowed_step`): **el pas permès més petit que no quedi per sota del que es
-  demana**, o el més gran dels permesos quan no n'hi ha cap per sobre. Un pas que no és cap dels tres es refusa
-  i l'última permetuda no se'n pot anar —una placa sense cap velocitat no torna de la resposta— (docs/30,
+- **I la consola no penja de l'APB** (0.190.177, vist a l'ATOM el 21/11: `lunok> [I][P��f␙�X] cpu 80 to␀␘L␓␘…`): la UART de l'ESP32 treu
+  el baud del seu rellotge font, i `UART_SCLK_DEFAULT` és l'**APB** — el mateix que el DFS mou. El PAL la declara amb **REF_TICK**
+  (1 MHz, que la IDF manté quan l'APB canvia) a l'ESP32 i amb el **cristall** a l'S3; 115 200 sobre 1 MHz és un divisor de 8,68 que el
+  perifèric accepta amb la part fraccionària (docs/60).
+- **I sí que hi ha DFS des de la 0.190.175** (abans aquesta línia deia el contrari): `CONFIG_PM_ENABLE` és a les sis bandes i el
+  rellotge el mou `esp_pm` entre un **terra** i un **sostre** que li diu `power::apply_the_range`. El xip manté el tick, l'APB i els
+  PLLs en pas quan canvia, i els drivers de **SPI master, I2C, I2S i SDMMC agafen el seu lock d'APB** durant la transacció, o sigui
+  que el vidre, el tàctil, el panell de la T5S3 i la targeta no noten el canvi. **I el son lleuger automàtic, des de la 0.190.178,
+  també hi és** —la 0.190.175 el va deixar apagat a propòsit i aquesta línia deia que el tickless tindria la seva idea de quietud:
+  el que faltava no era la idea sinó **la pregunta**. La gestió de potència crida `the_doors_are_shut()` abans de cada son, i aquest
+  pany només és obert mentre el torn del nucli espera a la cua amb les portes de la placa armades (`open_the_nap_doors`, docs/60).
+- **I el terra i el sostre es poden limitar** (0.189.107 i 0.190.175, l'amo: *«[X] Frequency scaling allowed: [X] 80Mhz
+  [X] 160Mhz [X] 240Mhz»*, i després *«el toggle del mig, fora»*): `Allow 80 MHz` i `Allow 240 MHz` són els dos únics ajustos i
+  són el `min_freq_mhz` i el `max_freq_mhz` que rep el xip —`cfg freq 240 off` baixa el sostre a 80 i `cfg freq all` els torna—
+  i **el sostre val per a tothom**, també per a una feina que demana el cim per pintar, perquè un ajust que només és una
+  suggerència no és un ajust. **El 160 no és cap ajust**: `cfg::set_freq_allowed(160, …)` respon que no, perquè el DFS pot passar
+  per qualsevol freqüència entre el terra i el sostre i una que no es pot permetre ni prohibir no ha de ser un toggle (docs/30,
   docs/60).
 - **I un dit al vidre vol el cim** (0.190.87, l'amo: *«Si el dit està tocant la pantalla i hi ha cpu scaling => 240mhz»*).
-  Mentre hi ha un contacte, `power::note_a_finger` posa la placa al pas de dalt **sense finestra** —el lleva el dit i no
-  el rellotge— i el governador queda fora del tot: la càrrega d'un dit quiet és la d'una placa avorrida, i el que aquell
-  dit espera és la resposta d'un control. **Passa pel mateix `hold_cpu` de sempre**, o sigui que amb l'escala apagada no
-  mou res i mana la fila `Speed:` (docs/60).
+  Mentre hi ha un contacte, `power::note_a_finger` agafa el lock del sostre —el lleva el dit i no un rellotge— i el xip no té res a
+  decidir: la càrrega d'un dit quiet és la d'una placa avorrida, i el que aquell dit espera és la resposta d'un control. **Passa pel
+  mateix `hold_cpu` de sempre**, o sigui que amb l'escala apagada no mou res i mana la fila `Speed:` (docs/60).
 
 ## Apagar tot el que es pot apagar
 
@@ -557,7 +586,7 @@ becaina que es mengi el que una persona escriu és pitjor que no estalviar res, 
 
 ## La consola
 
-Els primers bytes que surten per un terminal a 115200 **no són nostres**: abans de `Serial.begin()` el
+Els primers bytes que surten per un terminal a 115200 **no són nostres**: abans que el PAL obri la consola el
 xip ja ha imprès el que imprimeix la seva ROM (la línia de reset i l'`ets Jun 8 2016…`) a **74880
 bauds**, i un terminal a una altra velocitat en llegeix una pila de bytes `0x00`. El que sí que és nostre
 és netejar **l'entrada**: `pal::init()` buida el que hagi arribat i el nucli espera que la línia calli
@@ -686,7 +715,7 @@ sensor inercial i el vidre—. Comparteix `hal_esp32` (que és el HAL de la fam�
 que és seu és només la identitat, a `lib/board_esp32/`. El camí d'entrada i de sortida d'una app és la
 consola, i la sortida del llum no té xip que la rebi: `led.play` escriu a un pin que no va enlloc.
 
-Es mesura amb `pio run -e esp32-devkit` cada cop que es toca la memòria: **107 008 B de RAM estàtica de
+Es mesura amb `pio run -e esp32-devkit-idf` cada cop que es toca la memòria: **107 008 B de RAM estàtica de
 327 680 (32,7 %) i 2 081 225 B de flash de 3 145 728 (66,2 %)** (2/11). No té fila a la taula de
 capacitats perquè seria la de l'ATOM amb guions a sobre, i diria dues vegades el mateix.
 
@@ -1144,6 +1173,13 @@ portable. L'entorn `lilygo-t5s3-idf` (docs/80) construeix la mateixa placa amb *
 | La CPU | `setCpuFrequencyMhz` del nucli | `rtc_clk_cpu_freq_*`, que és exactament el que el nucli fa servir per dins |
 | mDNS i BLE | sempre | `__has_include` i `CONFIG_BT_ENABLED`: sense ells la provisió va per **SoftAP** i ho diu |
 | L'asm d'epdiy | `lut.S` | `lut_asm.S`: el builder d'espidf donava dos objectes al mateix nom |
+
+**I des de la 0.190.176 aquestes dues portes no hi són** (l'amo: *«treu tot el codi arduino que puguis si te equivalencia
+implementada en esp_idf»*): les vint-i-nou condicions `#if defined(ARDUINO)` de dotze fitxers, el `src/main.cpp` de `setup()`/`loop()`
+i la clau `"arduino"` de les tres fitxes de `boards/` van marxar, i cada branca tenia la seva bessona d'IDF que és la que ja es
+compilava. **I se'n va anar un parany**: la branca Arduino de `lunok_serial_begin` es cridava a si mateixa, una recursió infinita que
+hauria petat el dia que es compilés. El que **no** s'ha tocat és el guard `ESP_PLATFORM` de `src/main_idf.cpp`: no és codi d'Arduino,
+és el que evita compilar l'entrada de la IDF a l'emulador (docs/80, docs/85).
 
 **El que això compra**, mesurat: RAM **100 128 B contra 132 320 B** (30,6 % contra 40,4 %), flaix **1 863 941 B contra 2 295 113 B**
 (44,4 % contra 54,7 %), el disc idèntic (149 fitxers, 24 apps) i **`CONFIG_ESP32S3_DATA_CACHE_LINE_SIZE 64`** al
@@ -2376,7 +2412,7 @@ tres girs en surten, i no queda cap número per endevinar.
 |---|---|---|
 | ESP32-D0WDQ6-V3, 240 MHz, 520 KB de SRAM | **fet**: consola, disc, NVS, xarxa, son | — |
 | 16 MB de flash | **fet**: 2 108 973 B (50,3 %, mesurat amb la 0.13.0 l'1/11) i 11,9 MB de disc | — |
-| **8 MB de PSRAM** (4 MB mapejats) | **fet de codi i mesurat a la placa** (31/10): `extra_memory()` a la plataforma torna els tres números (xip, adreçable, lliure) i `pal::IExtraMemory` assigna a la PSRAM; l'intèrpret hi posa els blocs de 4 KB en amunt i el sostre de les apps és la PSRAM **mapejada** (4 096 KB). `mem` diu `extra memory 4067 of 4095 KB usable, of 8192 KB on the chip (psram)` i `sys.heap()` en dona els bytes. Els altres 4 MB necessiten el `himem` amb bancs i **no poden ser transparents** (docs/90) | comprovar que una app d'1 MB hi cap (docs/95, E-4) |
+| **8 MB de PSRAM** (4 MB mapejats) | **fet de codi i mesurat a la placa** (31/10): `extra_memory()` a la plataforma torna els tres números (xip, adreçable, lliure) i `pal::IExtraMemory` assigna a la PSRAM; l'intèrpret hi posa els blocs de 4 KB en amunt i el sostre de les apps és la PSRAM **mapejada** (4 096 KB). `mem` diu `extra memory 4067 of 4095 KB usable, of 8192 KB on the chip (psram)` i `sys.heap()` en dona els bytes. Els altres 4 MB són al **`himem`** (`mem` en diu el lliure, el total i la finestra, i `mem himem` n'escriu i en rellegeix 32 KB, 0.190.173) i **no són transparents**: mouen els blocs sota el punter, i per això **hi viuen les cachés de sessió de 32 KB en amunt** (`read_at`/`write_at`, una regió alhora, 0.190.174) i el que hi ha a la PSRAM són les cares, les fonts i les imatges (docs/75, docs/90) | comprovar que una app d'1 MB hi cap (docs/95, E-4) |
 | **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **fet de codi i amb crida de Lua** (1/11): `ISurface` al HAL (una superfície de 4 bits amb el rectangle brut i un `flush` que no espera), el driver a `esp32/it8951.h` (trames de 16 bits, `GetDeviceInfo`, el bus de la targeta a **10 MHz** —la del fabricant— fins que el handshake es vegi al vidre, amb un sostre de 26,7 MHz per la matriu de GPIO, mesurat l'1/11—, els vuit modes) i, des de la 0.14.0, res de Lua que arribi al vidre directament: una app dibuixa a la seva vista (`ui.*`) i `ui.present` és el que compon. La capacitat **s'anuncia** quan el controlador contesta. **El sistema només pinta la barra**, les 48 files de dalt; la pàgina és sempre d'una app | **fet** (1/11, 0.13.0): la imatge arriba i surt recta; falten el sentit dels nivells i el temps d'un `gc16` (docs/95, E-7) i la política d'encesa de GPIO23. El **text** ja hi és per a la barra (una font de 5 × 7, 0.16.0) i no pas per a una app |
 | **GT911**, tàctil de dos dits amb gestos (I2C 0x14 o 0x5D, INT GPIO36) | **fet de codi i amb crida de Lua** (1/11): `ITouch` al HAL, el driver a `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua i una app que llegeixi el panell; el sistema en fa `tap`, `double`, `triple`, `long`, `drag` (amb un dit o dos), `two` i `pinch`. La capacitat **s'anuncia** quan el xip contesta (vegeu «El tàctil», a sota) | la **velocitat de mostra** (contar frames amb el dit, docs/95 E-6) i la política d'energia del pas 8; el marc ja està mesurat amb quatre tocs, un a cada cantonada (1/11) |
 | **SHT30** (I2C 0x44) | **fet i provat al xip** (1/11): `ISensor` al HAL (`read(celsius, humidity)`), el driver a `esp32/sht30.h` —la comanda, els dos CRCs i les dues fórmules del full de dades— i `env.read()` des de Lua. La capacitat s'anuncia **només si una mesura sencera arriba amb els dos CRCs bons**. El primer enviament a la placa (1/11, 0.10.0) va dir `env no` amb `i2c: read of 44 failed (ESP_ERR_TIMEOUT)`: **el bus només deixava 100 µs de clock stretching** i el xip n'aguanta sis mil·lisegons (vegeu «El bus ha de deixar…», a sota); amb la 0.10.1 la placa diu **`env yes`** i `env.read()` dona `21.1 C 63.5 %` (docs/95, E-5) | que la temperatura **quadri amb un termòmetre** de la mateixa sala (docs/95, E-5) |

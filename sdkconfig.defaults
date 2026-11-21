@@ -41,6 +41,17 @@ CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
 # El rellotge a 240 MHz, que és el que el governador del sistema mou després per la seva porta (docs/50)
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 
+# **La velocitat la governa el PM del xip** (0.190.175, l'amo: *«la cpu es pot escalar sola a esp_idf... activa la opció i adapta el
+# que tenim fet manualment d'scaling»*): `esp_pm` mou el rellotge de la CPU, l'APB i el tick alhora, i els drivers de SPI, I2C, I2S i
+# SDMMC agafen el seu lock d'APB durant la transacció, o sigui que el vidre i la targeta no noten el canvi (docs/50, docs/60).
+CONFIG_PM_ENABLE=y
+# **I el light sleep automàtic no s'encén**: el tickless idle faria becaines entre esdeveniments amb la seva idea de quietud, que és
+# exactament el que `kernel::power` ja decideix (el dit, la pàgina al vidre, els deu segons del port i els vint del son més curt).
+# **I el DFS no arrenca sol tampoc**: qui el configura és `power::boot` amb el rang que la persona ha permès, i un boot amb l'escala
+# apagada ha de poder deixar la placa a un sol pas (docs/50, docs/60).
+# CONFIG_PM_DFS_INIT_AUTO is not set
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+
 # I el C++ sense excepcions ni RTTI, com al build d'Arduino
 CONFIG_COMPILER_CXX_EXCEPTIONS=
 CONFIG_COMPILER_CXX_RTTI=
@@ -67,3 +78,4 @@ CONFIG_COMPILER_STACK_CHECK=y
 # FAT, que és on el porta ell, i les rutes de `/apps`, `/session` i `/data` deixen de tenir un sostre de vuit caràcters per tros (docs/50,
 # docs/70).
 CONFIG_FATFS_LFN_STACK=y
+CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=2

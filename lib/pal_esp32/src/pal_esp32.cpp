@@ -6,21 +6,16 @@
 // placa hi té connectat —el USB-Serial-JTAG a la T5 E-Paper S3 Pro, la UART0 a la resta— i el que aquest fitxer li demana són cinc
 // respostes: escriure, buidar, quants bytes hi ha, llegir-ne un i començar. La resta del fitxer no sap quina de les dues té a sota
 // (docs/30, docs/50).
-#if defined(ARDUINO)
-#include <Arduino.h>
-#include <Esp.h>
-#else
 #include <driver/uart.h>
 // **El USB-Serial-JTAG només existeix al xip que en té** (0.190.166): a l'ESP32 de tota la vida la consola és la UART0 i la capçalera
 // d'aquell perifèric no hi és, o sigui que s'inclou només quan l'entorn diu que la consola és el USB (docs/50).
-#if (defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT) || (defined(LUNOK_CONSOLE_USB) && LUNOK_CONSOLE_USB)
+#if defined(LUNOK_CONSOLE_USB) && LUNOK_CONSOLE_USB
 #include <hal/usb_serial_jtag_ll.h>
 #endif
 #include <esp_random.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 #include <freertos/semphr.h>
-#endif
 #include <stdio.h>
 
 #include <bootloader_random.h>
@@ -44,24 +39,15 @@
 // **La consola de la placa quan no hi ha el nucli d'Arduino** (0.190.90): les cinc respostes que aquest fitxer demana, sobre el
 // perifèric que la placa té. Els bytes que arriben es guarden en un anell petit perquè `available()` i `read()` —que és com aquest
 // fitxer llegeix— preguntin sense perdre res (docs/30, docs/50).
-// La consola és el USB quan el nucli d'Arduino ho diu (`ARDUINO_USB_CDC_ON_BOOT`) o quan l'entorn d'ESP-IDF ho demana
-// (`LUNOK_CONSOLE_USB`), i és la UART0 en tots els altres casos (docs/50).
-#if (defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT) || (defined(LUNOK_CONSOLE_USB) && LUNOK_CONSOLE_USB)
+// La consola és el USB quan l'entorn ho demana (`LUNOK_CONSOLE_USB`) i és la UART0 en tots els altres casos (docs/50).
+// **I des de la 0.190.176 no hi ha cap altra veu**: `ARDUINO_USB_CDC_ON_BOOT` era la del nucli d'Arduino que aquest projecte ja no
+// compila (docs/50).
+#if defined(LUNOK_CONSOLE_USB) && LUNOK_CONSOLE_USB
 #define LUNOK_HAVE_USB_CONSOLE 1
 #else
 #define LUNOK_HAVE_USB_CONSOLE 0
 #endif
 
-#if defined(ARDUINO)
-#define LUNOK_SERIAL ::Serial
-inline void lunok_delay_ms(uint32_t ms) { delay(ms); }
-inline uint32_t lunok_now_ms() { return static_cast<uint32_t>(millis()); }
-inline void lunok_reboot() { ESP.restart(); }
-inline bool lunok_serial_begin() {
-  if (!lunok_serial_begin()) return false;
-  return true;
-}
-#else
 class LunokSerial {
  public:
   // **Ni el driver de la IDF ni una interrupció pròpia: la FIFO es buida quan es pregunta** (0.190.91, el primer flaix que no deixava
@@ -87,7 +73,18 @@ class LunokSerial {
     config.parity = UART_PARITY_DISABLE;
     config.stop_bits = UART_STOP_BITS_1;
     config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+    // **El baud no pot sortir de l'APB** (0.190.177, la brossa al port de l'ATOM el 21/11): the UART takes its baud from its source
+    // clock, and `UART_SCLK_DEFAULT` is the **APB** — so the moment the chip's power management moved the APB the console printed
+    // rubbish until it moved back (`cpu 80 to 240 MHz` and the rest of the run garbled, seen on the board). **REF_TICK** is one
+    // megahertz derived from the APB and held there when the APB changes, which is exactly what a console wants, and the S3 has the
+    // crystal itself. The divisor of 115 200 on 1 MHz is 8,68 and the peripheral takes it with the fractional part (docs/50, docs/60).
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    config.source_clk = UART_SCLK_REF_TICK;
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    config.source_clk = UART_SCLK_XTAL;
+#else
     config.source_clk = UART_SCLK_DEFAULT;
+#endif
     if (uart_driver_install(UART_NUM_0, 1024, 0, 0, nullptr, 0) != ESP_OK) return false;
     return uart_param_config(UART_NUM_0, &config) == ESP_OK;
 #endif
@@ -188,7 +185,6 @@ inline void lunok_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms :
 inline uint32_t lunok_now_ms() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 inline void lunok_reboot() { esp_restart(); }
 inline bool lunok_serial_begin() { return g_lunok_serial.begin(115200); }
-#endif
 
 namespace pal {
 namespace {

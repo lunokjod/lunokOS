@@ -1,19 +1,21 @@
 # 80 · Compilació i proves
 
-## Sis entorns
+## Vuit entorns
+
+**Les sis bandes són d'ESP-IDF i prou** (0.190.171, l'amo: *«ara desfes-te dels env's d'arduino que ja tenim a esp_idf»*): cada placa
+va tenir el seu entorn d'Arduino i el seu d'IDF mentre la migració es provava, i el dia que els sis van compilar en verd els d'Arduino
+van marxar de `platformio.ini`. **No s'ha esborrat cap fitxer** —les fitxes de `boards/`, els `lib/hal_*` i el codi que les portes
+comparteixen es queden—, i els noms vells ja no són cap entorn: `-e m5-atom` respon `UnknownEnv`, i qui vulgui el mateix xip ha de dir
+`-e m5-atom-idf`. Queden doncs **vuit**: les sis plaques, l'emulador i les proves.
 
 | Entorn | Plataforma | Per a què |
 |---|---|---|
-| `M5 Atom` | espressif32 + Arduino | El firmware de la placa de proves |
-| `M5 Paper` | espressif32 + Arduino, placa pròpia | La M5 Paper (16 MB de flash, PSRAM i un panell e-ink): definició a `boards/m5stack-paper.json`, taula a `partitions_16mb.csv` (docs/50) |
-| `M5 Atom Matrix` | espressif32 + Arduino | La placa del panell de vint-i-cinc llums: mateix xip, mateixa taula i mateix `board =`, i el que canvia és el `-I` de la identitat (docs/50) |
-| `ESP32 DevKit` | espressif32 + Arduino | **La placa del mínim**: un ESP32 de DevKit (`esp32dev`, 4 MB, sense PSRAM), la més corrent que hi ha. No és cap fitxa de cap aparell: és la prova que el sistema cap en el xip pelat (docs/50) |
-| `lilygo-t5s3-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La T5 E-Paper S3 Pro amb el `sdkconfig` a les nostres mans** (0.190.90): 64 B de línia de memòria cau, que és el que fa que el vidre vagi a **20 MHz** en lloc de 10, el flaix en **QIO** com la guia del fabricant (0.190.99), i 600 KB menys de flaix i 30 KB menys de RAM que la mateixa placa amb Arduino. Conviu amb `lilygo-t5s3` i no el substitueix (docs/50) |
+| `lilygo-t5s3-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La T5 E-Paper S3 Pro amb el `sdkconfig` a les nostres mans** (0.190.90): 64 B de línia de memòria cau, que és el que fa que el vidre vagi a **20 MHz** en lloc de 10, el flaix en **QIO** com la guia del fabricant (0.190.99), i 600 KB menys de flaix i 30 KB menys de RAM que la mateixa placa amb Arduino. És l'única banda del projecte que no és un ESP32-D0WDQ6: el xip és un **ESP32-S3** (docs/50) |
 | `esp32-devkit-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La placa del mínim amb el `sdkconfig` a les nostres mans** (0.190.170): 4 MB, sense PSRAM, la mateixa configuració que l'ATOM. 21,7% de RAM i 57,7% de flash |
 | `ttgo-t-koala-idf` | espressif32 + **ESP-IDF** (5.1.2) | **El T-Koala amb el `sdkconfig` a les nostres mans** (0.190.170): WROVER-B amb **PSRAM QSPI** i el flaix en QIO, o sigui la configuració del Paper amb la taula de 4 MB. El HAL compta la PSRAM al heap, com el del Paper. 21,9% de RAM i 62,7% de flash |
-| `m5-atom-idf` | espressif32 + **ESP-IDF** (5.1.2) | **L'ATOM amb el `sdkconfig` a les nostres mans** (0.190.168): 4 MB de flaix, 327 KB de RAM i **cap PSRAM**, o sigui que la seva configuració no porta ni els canaris del heap ni el TLS a la PSRAM, i la WiFi va fora de la IRAM. El seu llum és una tira de WS2812 i la trama s'escriu amb el RMT de la IDF (`rmt_write_items`) quan el nucli d'Arduino no hi és. 21,7% de RAM i 57,7% de flash |
+| `m5-atom-idf` | espressif32 + **ESP-IDF** (5.1.2) | **L'ATOM amb el `sdkconfig` a les nostres mans** (0.190.168): 4 MB de flaix, 327 KB de RAM i **cap PSRAM**, o sigui que la seva configuració no porta ni els canaris del heap ni el TLS a la PSRAM, i la WiFi va fora de la IRAM. El seu llum és una tira de WS2812 la trama de la qual s'escriu amb el RMT de la IDF (`rmt_write_items`) quan el nucli d'Arduino no hi és. 21,7% de RAM i 57,7% de flash |
 | `m5-atom-matrix-idf` | espressif32 + **ESP-IDF** (5.1.2) | **El Matrix amb el `sdkconfig` de l'ATOM** (0.190.169): el mateix xip, la identitat de `board_matrix` i la demo `rainbow` al disc. **Escrit sencer i sense `extends`**: amb el pare, la compilació d'IDF ajunta els `-I` dels dos i `board_atom` va primer —el build deia `m5stack-atom` a `sys.board` i la tira era la de l'AIRE—, i `build_unflags` no el treu. El HAL és el de l'ATOM i el que canvia és qui diu quin board és |
-| `m5-paper-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La M5 Paper amb el `sdkconfig` a les nostres mans** (0.190.166, l'amo: *«Fes una placa nova, la m5-paper-idf, migrarem aquesta placa a esp_idf»*): el HAL del Paper ja parlava la IDF i el panell és el `esp32_it8951` del sistema, o sigui que el que canvia és l'entorn —`boards/m5stack-paper.json` declara els dos frameworks i la configuració és `sdkconfig.defaults.m5-paper-idf`, que no es pot confondre amb el generat `sdkconfig.m5-paper-idf`—. La WiFi va **fora de la IRAM** perquè aquest build no hi cabia per 624 bytes. Conviu amb `m5-paper` i no el substitueix (docs/50) |
+| `m5-paper-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La M5 Paper amb el `sdkconfig` a les nostres mans** (0.190.166, l'amo: *«Fes una placa nova, la m5-paper-idf, migrarem aquesta placa a esp_idf»*): el HAL del Paper ja parlava la IDF i el panell és el `esp32_it8951` del sistema, o sigui que el que canvia és l'entorn —`boards/m5stack-paper.json` declara els dos frameworks i la configuració és `sdkconfig.defaults.m5-paper-idf`, que no es pot confondre amb el generat `sdkconfig.m5-paper-idf`—. La WiFi va **fora de la IRAM** perquè aquest build no hi cabia per 624 bytes |
 | `emulator` | native | El mateix codi compilat per al PC |
 | `test` | native | Les proves natives (Unity) |
 
@@ -22,57 +24,89 @@
 default_envs = test
 boards_dir = boards        ; el Paper no és una placa que la plataforma conegui
 
-[env:m5-atom]
-platform = espressif32
+[env:m5-atom-idf]
+platform = espressif32@6.5.0
 board = m5stack-atom
-framework = arduino
+framework = espidf
 board_build.partitions = partitions.csv
 board_build.filesystem = littlefs
+custom_apps_in_disk = no
+extra_scripts =
+    pre:tools/make_disk.py
+    pre:tools/check_fs_names.py
 monitor_speed = 115200
 monitor_rts = 0
 monitor_dtr = 0
-build_flags = -std=gnu++11 -Ilib/board_atom/include
-             -DARDUINO_LOOP_STACK_SIZE=16384
-lib_ignore = hal_emulator, pal_host, board_matrix, board_paper, board_esp32,
-             WiFi, WiFiClientSecure, HTTPClient, ESPmDNS, WebServer,
-             DNSServer, WiFiProv
+; **La configuració d'aquesta placa i no la d'una altra**: `sdkconfig.defaults.<env>` és el que es
+; llegeix quan el `sdkconfig.<env>` generat encara no existeix (vegeu més avall).
+board_build.cmake_extra_args =
+    -DSDKCONFIG_DEFAULTS="${PROJECT_DIR}/sdkconfig.defaults.m5-atom-idf"
+build_flags =
+    -std=gnu++11
+    -Ilib/board_atom/include
+    -DLUNOK_HOME_APP=\"\"
+    -Wno-error=cpp                 ; els quatre `-Wno-error` són iguals a les sis bandes (docs/50)
+    -Wno-deprecated-declarations
+    -Wno-error=format
+    -Wno-error=volatile
+lib_ignore = board_t5s3, hal_t5s3, hal_emulator, pal_host, board_matrix, board_paper,
+             board_esp32, board_tkoala, hal_tkoala, hal_paper, …
+; i les de xarxa d'Arduino, que no són d'aquest build però que la plataforma ofereix igualment
 
-[env:m5-atom-matrix]
-extends = env:m5-atom
-build_flags = -std=gnu++11 -Ilib/board_matrix/include
-             -DARDUINO_LOOP_STACK_SIZE=16384
-lib_ignore = hal_emulator, pal_host, board_atom, board_paper, board_esp32, …
-; i les de xarxa, igual
+[env:m5-atom-matrix-idf]
+; **Escrit sencer i no `extends = env:m5-atom-idf`**: amb el pare, la compilació d'IDF ajunta els `-I`
+; dels dos i `board_atom` va primer, i `build_unflags` no el treu (0.190.169, docs/50).
+platform = espressif32@6.5.0
+board = m5stack-atom
+framework = espidf
+custom_apps = rainbow
+build_flags = -std=gnu++11 -Ilib/board_matrix/include …    ; la resta, com l'ATOM
 
-[env:m5-paper]
-platform = espressif32
-board = m5stack-paper
-framework = arduino
-board_build.partitions = partitions_16mb.csv
-extra_scripts = pre:tools/check_fs_names.py
-build_flags = -std=gnu++11 -Ilib/board_paper/include
-             -DARDUINO_LOOP_STACK_SIZE=16384
-lib_ignore = hal_emulator, pal_host, hal_atom, board_atom, board_matrix, …
-; hal_esp32 no s'ignora: és el que aquesta placa comparteix amb l'ATOM (docs/50)
-
-[env:esp32-devkit]
-platform = espressif32
+[env:esp32-devkit-idf]
+platform = espressif32@6.5.0
 board = esp32dev
-framework = arduino
+framework = espidf
 board_build.partitions = partitions.csv
-extra_scripts = pre:tools/check_fs_names.py
-build_flags = -std=gnu++11 -Ilib/board_esp32/include
-             -DARDUINO_LOOP_STACK_SIZE=16384
-lib_ignore = hal_emulator, pal_host, board_atom, board_matrix, board_paper, …
+board_build.cmake_extra_args =
+    -DSDKCONFIG_DEFAULTS="${PROJECT_DIR}/sdkconfig.defaults.esp32-devkit-idf"
+build_flags = -std=gnu++11 -Ilib/board_esp32/include …
+
+[env:ttgo-t-koala-idf]
+platform = espressif32@6.5.0
+board = ttgo-t-koala          ; boards/ttgo-t-koala.json: WROVER-B, PSRAM QSPI, QIO (docs/50)
+framework = espidf
+board_build.cmake_extra_args =
+    -DSDKCONFIG_DEFAULTS="${PROJECT_DIR}/sdkconfig.defaults.ttgo-t-koala-idf"
+build_flags = -std=gnu++11 -Ilib/board_tkoala/include …
+
+[env:lilygo-t5s3-idf]
+platform = espressif32@6.5.0
+board = lilygo-t5s3-epaper-pro
+framework = espidf
+board_build.partitions = partitions_16mb.csv   ; 4 MB d'app i 11,9 MB de disc (docs/70)
+board_build.filesystem = littlefs
+custom_apps_in_disk = yes
+build_flags = -std=gnu++11 -Ilib/board_t5s3/include -DLUNOK_CONSOLE_USB=1 …
+
+[env:m5-paper-idf]
+platform = espressif32@6.5.0
+board = m5stack-paper
+framework = espidf
+board_build.partitions = partitions_16mb.csv
+board_build.filesystem = littlefs
+board_build.cmake_extra_args =
+    -DSDKCONFIG_DEFAULTS="${PROJECT_DIR}/sdkconfig.defaults.m5-paper-idf"
+build_flags = -std=gnu++11 -Ilib/board_paper/include -DLUNOK_HOME_APP=\"home_eink\" …
+; hal_esp32 no s'ignora: és el que aquesta placa comparteix amb l'ATOM (docs/50)
 
 [env:emulator]
 platform = native
 build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
 build_flags = -std=c++11 -Ilib/hal_emulator/include
 ; SDL2 quan hi és, X11 de reserva, o cap finestra: ho tria aquest script (docs/85).
-extra_scripts = pre:tools/select_gui.py
-lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32,
-             board_atom, board_matrix, board_paper, board_esp32
+extra_scripts = pre:tools/make_disk.py, pre:tools/select_gui.py
+lib_ignore = hal_atom, hal_paper, hal_esp32, hal_t5s3, pal_esp32,
+             board_atom, board_matrix, board_paper, board_esp32, board_tkoala, hal_tkoala
 
 [env:test]
 platform = native
@@ -80,32 +114,31 @@ test_framework = unity
 test_build_src = yes
 build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
 build_flags = -std=c++11 -Ilib/hal_emulator/include
-lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32,
-             board_atom, board_matrix, board_paper, board_esp32
+lib_ignore = hal_atom, hal_paper, hal_esp32, hal_t5s3, pal_esp32,
+             board_atom, board_matrix, board_paper, board_esp32, board_tkoala, hal_tkoala
 ```
 
 El text de debò és a `platformio.ini`, amb un comentari per línia; aquí n'hi ha la forma. Les
 llibreries de xarxa d'Arduino són fora del build a posta (docs/50), i **cada entorn ignora les
-identitats de les altres tres plaques** perquè el build en vegi exactament una; l'emulador no en té cap
+identitats de les altres cinc plaques** perquè el build en vegi exactament una; l'emulador no en té cap
 de `lib/board_*` i porta la seva a `lib/hal_emulator/include/board/`.
 **L'emulador no enllaça res per a la xarxa**: la pàgina que demana `http` la baixa el `curl` d'aquesta
 màquina, en un procés fill, i un `curl` que no hi sigui no trenca el build — la petició respon
 `E_HTTP` i ho diu a la consola (docs/85).
-`extra_scripts = pre:tools/check_fs_names.py` és a tots els entorns de placa (`atom` —i el seu fill
-`atom_matrix`—, `paper` i `esp32`): l'eina de la imatge de LittleFS deixa caure en silenci qualsevol nom
-de `data/` més llarg de 32 caràcters i tot i així diu SUCCESS, i aquest script ho converteix en un build
-fallit (docs/70).
+`extra_scripts = pre:tools/check_fs_names.py` és a tots els entorns de placa, els sis: l'eina de la
+imatge de LittleFS deixa caure en silenci qualsevol nom de `data/` més llarg de 32 caràcters i tot i
+així diu SUCCESS, i aquest script ho converteix en un build fallit (docs/70).
 
 Sis coses que aquesta configuració fa complir:
 
-1. **C++11 a les dues bandes.** El nucli d'Arduino per a ESP32 compila amb `-std=gnu++11`; si el codi
-   del PC fa servir C++17, el projecte es trenca en silenci quan arribi a la placa. Es compila igual
-   a tot arreu i s'acaba el problema.
+1. **C++11 a tot arreu.** Els sis entorns de placa compilen amb `-std=gnu++11` —cada un ho torna a dir a `build_flags`— i el PC
+   amb `-std=c++11`; si el codi del PC fes servir C++17, el projecte es trencaria en silenci quan arribés a la placa. Es compila
+   igual a tot arreu i s'acaba el problema.
 2. **Els avisos són errors, però només els nostres.** A cada `library.json` hi ha
    `"build": {"flags": ["-Wall", "-Wextra", "-Werror"]}`. No es posa a `build_flags` perquè també
-   s'aplicaria al **framework d'Arduino**, que té avisos propis (un de conegut a `esp32-hal-uart.c`) i
-   no és feina d'aquest projecte arreglar-los. Així el build surt net i el nostre codi no en passa
-   ni un.
+   s'aplicaria a **la IDF**, que té avisos propis —les seves capçaleres (`driver/adc.h`, `uart_ll.h`) i els `printf` d'epdiy— i
+   no és feina d'aquest projecte arreglar-los: per això cada entorn de placa hi té els quatre `-Wno-error` (docs/50). Així el
+   build surt net i el nostre codi no en passa ni un.
 3. **`lib_ignore` i `src/board_link.cpp`.** Cada entorn no veu mai el codi de les altres plaques: ho
    diuen el `lib_ignore` i el camí d'inclusió (`-Ilib/board_<id>/include`), que és el que fa que
    `#include "board/identity.h"` i `#include "board/impl.h"` resolguin a la placa d'aquest entorn i no
@@ -120,10 +153,12 @@ Sis coses que aquesta configuració fa complir:
    només la de l'entorn: `hal_atom` serveix dues plaques, i dues capçaleres amb aquest nom al camí
    farien que l'ordre decidís, en silenci (docs/50). Fora de `lib/` no hi poden ser: el cercador de
    dependències només segueix capçaleres de llibreries (mesurat el 31/10, docs/50).
-4. **Dos punts d'entrada.** `src/main.cpp` compila només sota `ARDUINO` (a la resta és un stub, perquè
-   PlatformIO es nega a compilar un entorn el `src/` del qual queda buit) i el `main()` de l'emulador
-   viu a `lib/hal_emulator/`, tancat amb `#if !defined(UNIT_TEST) && !defined(PIO_UNIT_TESTING)` perquè
-   quan corre `pio test` mana el `main` de les proves.
+4. **Els punts d'entrada.** `src/main_idf.cpp` és el d'ara: `app_main` sota `ESP_PLATFORM && !ARDUINO`, amb el mateix cos que el
+   `setup()`/`loop()` de la placa i les capçaleres de la IDF que el nostre codi fa servir citades allà perquè el cercador de
+   dependències les vegi. `src/main.cpp` només compila sota `ARDUINO` —cap entorn no el defineix, o sigui que és un stub avui, i
+   es queda perquè PlatformIO es nega a compilar un entorn el `src/` del qual queda buit— i el `main()` de l'emulador viu a
+   `lib/hal_emulator/`, tancat amb `#if !defined(UNIT_TEST) && !defined(PIO_UNIT_TESTING)` perquè quan corre `pio test` mana el
+   `main` de les proves.
 5. **Qui depèn de qui ho diu `library.json`.** El cercador de dependències de PlatformIO segueix els
    `#include`, i això falla de dues maneres que ja han passat: `lib/luabind` no trobava `lauxlib.h`
    (el cercador no sap que `lua` és una llibreria fins que algú ho diu) i, quan el va trobar, els
@@ -143,24 +178,31 @@ Sis coses que aquesta configuració fa complir:
    camí d'inclusió de l'entorn. El preprocessador no decideix mai de quina placa és el codi, i per
    tant no hi ha cap branca morta que ningú no compila ni prova.
 
-`src/main.cpp` només existeix per a Arduino (el `setup()`/`loop()` el crida el framework). A
-l'emulador, el `main()` és a `lib/hal_emulator/`.
+`src/main_idf.cpp` és l'entrada de debò de les sis bandes (`app_main`, la posa la IDF) i `src/main.cpp` només existeix per al build
+d'Arduino, que ja no hi és: queda com a stub. A l'emulador i a les proves, el `main()` és a `lib/hal_emulator/`.
 ## Com es compila
 
 ```
 pio run -e emulator        # binari per al PC
-pio run -e m5-atom            # firmware; les proves de flashejar les fa l'amo
-pio run -e m5-atom-matrix     # la placa del panell: 25 llums al mateix GPIO27
-pio run -e esp32-devkit           # el mínim: un ESP32 de DevKit, sense res a sobre
-pio run -e ttgo-t-koala          # la LilyGO T-Koala: WROVER-B, PSRAM mapejada, LED i SD
 pio test                   # proves natives (i `pio test -e test`, el que fa el CI)
 
-# **La mateixa placa amb ESP-IDF** (0.190.90): l'app i el disc, que són dues imatges
-pio run -e lilygo-t5s3-idf            # el firmware; `.pio/build/lilygo-t5s3-idf/firmware.bin`
-pio run -e lilygo-t5s3-idf -t buildfs # el disc; `littlefs.bin`, 149 fitxers i 24 apps com el d'Arduino
+# **Les sis bandes** (0.190.171): totes són ESP-IDF i el nom ho diu; les proves de flashejar les fa l'amo
+pio run -e m5-atom-idf            # el firmware de la placa de proves
+pio run -e m5-atom-matrix-idf     # la placa del panell: 25 llums al mateix GPIO27
+pio run -e esp32-devkit-idf       # el mínim: un ESP32 de DevKit, sense res a sobre
+pio run -e ttgo-t-koala-idf       # la LilyGO T-Koala: WROVER-B, PSRAM mapejada, LED i SD
+pio run -e m5-paper-idf           # la M5 Paper: 16 MB, PSRAM i el panell IT8951
+pio run -e lilygo-t5s3-idf        # la T5 E-Paper S3 Pro: ESP32-S3 i el panell ED047TC1
+
+# **Cada placa són dues imatges**: l'app i el disc
+pio run -e lilygo-t5s3-idf            # `.pio/build/lilygo-t5s3-idf/firmware.bin`
+pio run -e lilygo-t5s3-idf -t buildfs # el disc; `littlefs.bin`, 149 fitxers i 24 apps com el de l'Arduino
 pio run -e lilygo-t5s3-idf -t upload  # bootloader + taula + app
 pio run -e lilygo-t5s3-idf -t uploadfs # el disc a 0x410000
 ```
+
+`-e m5-atom`, `-e m5-paper`, `-e esp32-devkit`, `-e ttgo-t-koala` i `-e lilygo-t5s3` **no són cap entorn des de la 0.190.171**:
+PlatformIO respon `UnknownEnv` i el que s'ha de dir és el mateix nom amb `-idf`.
 
 **I la velocitat amb què es grava és la del fabricant: 921600** (0.190.90). La guia de LilyGO per a aquesta placa diu `Upload Speed:
 921600` i `USB Mode: Hardware CDC and JTAG`, i el nostre projecte vell també hi gravava així; el que portàvem a
@@ -201,7 +243,7 @@ Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 **`pio test` sense `-e` corre a l'entorn de les proves** (0.179.56): `pio test` agafa `default_envs` quan no li
 diuen res, i des de la 0.179.56 aquest valor és **`test`** —l'entorn que té el disc propi, les apps copiades
 (`custom_apps_copied`) i `LUNOK_HOME_APP` buit—. Cada compilació d'aquest projecte diu el seu entorn (`pio run -e
-emulator`, `-e m5-paper`, …); l'única que no ho feia era la de les proves, i per això el valor per defecte és el
+emulator`, `-e m5-paper-idf`, …); l'única que no ho feia era la de les proves, i per això el valor per defecte és el
 seu. `[env:emulator]` diu `test_ignore = *`: no és un entorn de proves i no en pot ser, perquè una compilació de
 proves allà no enllaça el PAL i, sobretot, **escriu el binari de les suites al mateix `program`** que hom executa
 per mirar el vidre —el 13/11 va quedar-hi un binari de proves que contestava `43 Tests 0 Failures`, i `pio run -e
@@ -314,12 +356,14 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   —dues caixes, el focus en una i el bloc només a la del focus— (`test_apps`, 0.189.181), i la del 19/11 és **una alarma més a
   prop que la baixada i una arrencada**: la placa no dorm i el rellotge monotònic no salta (`test_apps`), i **una consola que no
   veu la seva línia diu que sí de seguida**, que és el valor per defecte de la porta nova (`test_pal`, 0.190.21);
-- les **set bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
-  `m5-paper`, `esp32-devkit`, `ttgo-t-koala` i **`lilygo-t5s3`**. **Els noms dels entorns són els de les plaques**, amb
-  guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`. **Les set les compila el CI**
-  (0.177.3): `ttgo-t-koala` no hi era, i una placa fora del job és una placa que pot deixar de compilar sense cap
-  vermell enlloc — la setena va arribar el 19/11 i és la primera **que no és un ESP32-D0WDQ6**: l'ESP32-S3 té els
-  seus propis caps de PSRAM, d'SPI i de despertar, i un canvi que compila a les altres sis pot no compilar-hi (docs/50).
+- les **vuit bandes**: `emulator` (amb SDL2, perquè també es compili la finestra) i les **sis plaques** —`m5-atom-idf`,
+  `m5-atom-matrix-idf`, `m5-paper-idf`, `esp32-devkit-idf`, `ttgo-t-koala-idf` i `lilygo-t5s3-idf`— més les proves, que
+  són l'entorn per defecte. **Els noms dels entorns són els de les plaques**, amb guions i no amb espais, i és el nom
+  sencer el que va a `-e`: `pio run -e m5-paper-idf`. **Les sis de placa les compila el CI** (0.177.3, i des de la
+  0.190.171 amb els noms d'IDF): `ttgo-t-koala` no hi era, i una placa fora del job és una placa que pot deixar de
+  compilar sense cap vermell enlloc — la darrera va arribar el 19/11 i és la primera **que no és un ESP32-D0WDQ6**:
+  l'ESP32-S3 té els seus propis caps de PSRAM, d'SPI i de despertar, i un canvi que compila a les altres cinc pot no
+  compilar-hi (docs/50).
 
 El CI **no flasheja cap placa ni pren cap mesura de camp**: això continua sent d'una persona (docs/95).
 
@@ -329,8 +373,8 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
 
 | Què | Ordre | On va |
 |---|---|---|
-| El firmware | `pio run -e m5-paper -t upload` | la partició `app0`, 4 MB (`partitions_16mb.csv`) |
-| El disc: els `res/` del sistema | `pio run -e m5-paper -t uploadfs` | la partició `littlefs`, 11,9 MB, amb el contingut de `build/disk/m5-paper` (**el sistema sol**: `res/`, `http/` i `data/`, **16 fitxers i 130 217 B** mesurats el 8/11) |
+| El firmware | `pio run -e m5-paper-idf -t upload` | la partició `app0`, 4 MB (`partitions_16mb.csv`) |
+| El disc: els `res/` del sistema | `pio run -e m5-paper-idf -t uploadfs` | la partició `littlefs`, 11,9 MB, amb el contingut de `build/disk/m5-paper-idf` (**el sistema sol**: `res/`, `http/` i `data/`, **16 fitxers i 130 217 B** mesurats el 8/11) |
 
 **`uploadfs` reescriu la partició sencera, i el que no és a la imatge s'hi perd.** El disc que escriu surt de `build/disk/<entorn>`, i el `data/` d'aquella imatge és el del sistema (el disc buit del repositori) i no el que la placa hi té: el registre de la bateria, les marques del rellotge, els events de l'agenda i les mostres del temps **desapareixien amb cada `uploadfs`** (trobat per l'amo el 18/11: *«perqué es perden les dades d'historic de Battery i TimeClock al pujar un firmware nou?»*). Des de la 0.190.8 **`/data` segueix el disc preferit** —`cfg auto|sd|littlefs`, la fila *Preferred disk* de la pestanya Disk— i amb `auto`, que és el de sèrie, `/data` és a la targeta quan n'hi ha una al slot: llavors cap flaix no la toca, perquè `uploadfs` és de la flash i la targeta és una altra unitat. `mounts` diu la unitat de la fila `/data` i `cfg` sense arguments ho diu amb paraules; **`cfg littlefs` la torna al flaix** i a partir d'aquí cada `uploadfs` s'endú el que hi hagi. La NVS (les alarmes i les claus de `cfg`) és una partició a part i no la toca cap de les dues ordres.
 
@@ -351,7 +395,7 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   sigui que l'emulador llegeix el que hi ha a `apps/` i no una còpia. Fins a l'8/11 en portava una, el llançador, i
   `apps` en un emulador acabat de fer deia `no apps`; ara diu dinou noms i la graella del llançador té dinou cel·les.
   Provar una app instal·lada continua sent el que fa la placa quan el disc que es llegeix és el d'una placa
-  (`--flash build/disk/m5-paper`, i llavors `repo install <app>` o `--sd`, docs/70, docs/85).
+  (`--flash build/disk/m5-paper-idf`, i llavors `repo install <app>` o `--sd`, docs/70, docs/85).
 - **I la targeta no la toca** (11/11, l'amo: *«treu les apps del SD per ara»*): entre el 10/11 i l'11/11 el mateix
   `make_disk` tenia una segona feina quan l'entorn deia `custom_card_apps = emulator/sd` —un enllaç per app dins de
   `emulator/sd/apps`—, i **s'ha tret**: una targeta és d'algú i el que hi hagi és el que hi ha, com la d'una placa.
