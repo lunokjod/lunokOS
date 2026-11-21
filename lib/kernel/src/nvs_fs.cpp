@@ -1,5 +1,7 @@
 #include "kernel/nvs_fs.h"
 
+#include "pal/pal.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -11,7 +13,21 @@ namespace {
 const size_t kValueCap = 1024;
 const size_t kNameCap = 64;
 
-char g_value[kValueCap];
+// **El kilobyte del valor es demana quan el primer fitxer de la NVS s'obre** (0.190.206, l'amo: *«aprofitar al màxim la PSRAM i fer
+// tot lo raonablement més dinàmic possible»*). It has to persist between the calls of one open file —`read` walks it with `g_pos`—
+// so it is not a block per call but a block that is taken once and kept, from the extra memory when the board has it. **The claim
+// that opening a file must not allocate** was the reason it was a `.bss` kilobyte; it is still true that opening does not allocate
+// *every* time, and one kilobyte taken from the board's own RAM for the life of the run to browse `/nvs` once is what stopped being
+// true (docs/70, docs/75).
+char* g_value = nullptr;
+
+char* the_value() {
+  if (g_value != nullptr) return g_value;
+  pal::MemoryTag who_asks(pal::kMemoryKernel);
+  g_value = static_cast<char*>(pal::extra_memory().allocate(kValueCap, true));
+  return g_value;
+}
+
 bool g_open = false;
 uint32_t g_size = 0;
 uint32_t g_pos = 0;
@@ -111,9 +127,11 @@ class NvsStorage : public hal::IStorage {
     char key[kNameCap];
     if (!split(rel, ns, key)) return false;
 
+    char* value = the_value();
+    if (value == nullptr) return false;
     size_t len = 0;
-    if (!store_->get(ns, key, g_value, sizeof(g_value), len)) return false;
-    if (len >= sizeof(g_value)) return false;  // too big to show, and not cut
+    if (!store_->get(ns, key, value, kValueCap, len)) return false;
+    if (len >= kValueCap) return false;  // too big to show, and not cut
 
     g_size = static_cast<uint32_t>(len);
     g_pos = 0;
@@ -125,7 +143,7 @@ class NvsStorage : public hal::IStorage {
 
   int32_t read(hal::FileSlot& slot, void* buf, uint32_t len) override {
     (void)slot;
-    if (!g_open || buf == nullptr) return -1;
+    if (!g_open || buf == nullptr || g_value == nullptr) return -1;
     if (g_pos >= g_size) return 0;
     size_t left = static_cast<size_t>(g_size - g_pos);
     if (left > len) left = len;
@@ -156,9 +174,11 @@ class NvsStorage : public hal::IStorage {
   // one buffer when no file is open, so the size of a file is never guessed.
   bool value_size(const char* ns, const char* key, size_t& len) {
     if (g_open) return false;
+    char* value = the_value();
+    if (value == nullptr) return false;
     len = 0;
-    if (!store_->get(ns, key, g_value, sizeof(g_value), len)) return false;
-    if (len >= sizeof(g_value)) return false;
+    if (!store_->get(ns, key, value, kValueCap, len)) return false;
+    if (len >= kValueCap) return false;
     return true;
   }
 

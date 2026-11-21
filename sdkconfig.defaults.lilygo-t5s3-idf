@@ -13,3 +13,20 @@ CONFIG_BT_NIMBLE_ENABLED=y
 # d'un mòbil s'ha de tornar a aparellar a cada reinici i `bt host reconnect` no pot trobar mai res. Els vincles van a la partició NVS que el
 # sistema ja té per als ajustos (docs/50, docs/70).
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
+
+# **El node de Bluetooth Mesh** (0.190.212, l'amo: *«pots posar algun mesh?»*): la pila d'Espressif damunt de la mateixa NimBLE que el
+# teclat, amb un element i el servidor de configuració, i res més. **Node i no provisionador**: el que ha de poder fer aquesta placa és
+# deixar-se afegir a una xarxa des del telèfon (nRF Mesh o l'app d'Espressif), i un provisionador és una altra pila i una altra feina.
+# La memòria de la pila és la interna (l'estratègia de sèrie), perquè el mesh toca cues i temporitzadors de debò; si algun dia no hi cap,
+# `CONFIG_BLE_MESH_MEM_ALLOC_MODE_EXTERNAL` és la porta, i demana `SPIRAM_USE_MALLOC` (docs/50, docs/75).
+CONFIG_BLE_MESH=y
+CONFIG_BLE_MESH_NODE=y
+CONFIG_BLE_MESH_PB_ADV=y
+CONFIG_BLE_MESH_PB_GATT=y
+CONFIG_BLE_MESH_GATT_PROXY_SERVER=y
+# **El node recorda la xarxa** on l'han posat: sense això, cada arrencada torna a ser un node verge i el provisionador l'ha de tornar a
+# afegir. Els seus bytes van a la NVS que el sistema ja té (no demana una partició pròpia).
+CONFIG_BLE_MESH_SETTINGS=y
+# **I l'anunci normal al costat del mesh**: és el que fa possible que el teclat i el node convisquin quan el mesh hi és; sense això el
+# mesh es queda l'anunciador per a ell tot sol (docs/50).
+CONFIG_BLE_MESH_SUPPORT_BLE_ADV=y

@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "hal/hal.h"
+#include "kernel/cfg.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/shell.h"
@@ -38,6 +39,9 @@ Key key_of(char c) {
     case '0': return {0x00, 0x27};
     case ' ': return {0x00, 0x2C};
     case '\n': return {0x00, 0x28};
+    // **El retrocés** (0.190.204, l'amo: *«el teclat gracies a un Textbox»*): a page that mirrors a box into somebody else's cursor needs
+    // the key that erases, i el `\b` és el caràcter que una caixa esborra quan en té un. Usage 0x2A és Backspace al HID (docs/50).
+    case '\b': return {0x00, 0x2A};
     case '\t': return {0x00, 0x2B};
     case '-': return {0x00, 0x2D};
     case '_': return {0x02, 0x2D};
@@ -97,6 +101,14 @@ bool start(const char* name) {
     // **I el ràdio mana sobre la son** (0.190.179): un son lleuger atura els rellotges que el link viu, o sigui que el torn rep la
     // resposta de `wants_the_chip_awake` i no obre el pany mentre això és engegat (docs/50, docs/60).
     log_printf(pal::kLogInfo, "BT", "the keyboard is on: the waits of this board are spent awake while it lasts");
+    // **I la placa torna a ser el que es va triar** (0.190.208): the mode is kept by `cfg` and the radio is born a keyboard, o sigui que el
+    // que s'aplica aquí és el de la botiga. Sense això una placa que es va deixar com a ratolí tornava com un teclat a cada arrencada, i el
+    // que deia el prompt era una cosa i el que oferia la ràdio una altra (docs/30, docs/50).
+    const char* wanted = cfg::bt_mode();
+    if (wanted != nullptr && wanted[0] != '\0' && strcmp(wanted, device_word()) != 0) {
+      (void)be(wanted);
+      log_printf(pal::kLogInfo, "BT", "and it is %s, as it was left", wanted);
+    }
   }
   return ok;
 }
@@ -258,6 +270,19 @@ void keys_arrived(const uint8_t* report, uint8_t len) {
 
 }  // namespace
 
+// **Si el ràdio té alguna cosa a què tornar, sense encendre'l per preguntar-ho** (0.190.203): la resposta és del HAL.
+bool host_remembers() {
+  hal::IBluetooth* radio = the_radio();
+  return radio != nullptr && radio->host_remembers();
+}
+
+// **Connectat i escoltat són dues coses** (0.190.208): the host writes the CCCD of the report it wants a moment after it connects, i
+// una pàgina que només mira `connected()` pot estar enviant tecles a un aparell que encara no les rep (docs/30, docs/50).
+bool reports_enabled() {
+  hal::IBluetooth* radio = the_radio();
+  return radio != nullptr && radio->reports_enabled();
+}
+
 bool can_host() {
   hal::IBluetooth* radio = the_radio();
   return radio != nullptr && radio->can_host();
@@ -340,18 +365,40 @@ void host_off() {
   if (radio != nullptr) radio->host_off();
 }
 
-bool is_a_mouse() {
+// **El que aquesta placa és, en una paraula** (0.190.204): `keyboard`, `mouse` o `both`, que és el mode que una pàgina necessita per
+// tenir un ratolí i un teclat alhora.
+const char* device_word() {
   hal::IBluetooth* radio = the_radio();
-  return radio != nullptr && radio->device_is_a_mouse();
+  if (radio == nullptr) return "keyboard";
+  switch (radio->device_is()) {
+    case hal::IBluetooth::Device::kMouse: return "mouse";
+    case hal::IBluetooth::Device::kBoth: return "both";
+    default: return "keyboard";
+  }
 }
 
-bool be(bool mouse) {
+bool has_a_mouse() {
   hal::IBluetooth* radio = the_radio();
-  if (radio == nullptr) return false;
-  const bool ok = radio->device_be(mouse);
-  if (ok) {
-    log_printf(pal::kLogInfo, "BT", "this board is %s now", mouse ? "a mouse" : "a keyboard");
+  return radio != nullptr && radio->device_is() != hal::IBluetooth::Device::kKeyboard;
+}
+
+// **Triar què és la placa** (0.190.204): the three words are the three modes, and a word this file does not know is a refusal and not
+// an «I did it» —a page that shows a mouse and finds itself a keyboard is worse than one that is told no (docs/30, docs/50).
+bool be(const char* what) {
+  hal::IBluetooth* radio = the_radio();
+  if (radio == nullptr || what == nullptr) return false;
+  hal::IBluetooth::Device mode;
+  if (strcmp(what, "mouse") == 0) {
+    mode = hal::IBluetooth::Device::kMouse;
+  } else if (strcmp(what, "both") == 0) {
+    mode = hal::IBluetooth::Device::kBoth;
+  } else if (strcmp(what, "keyboard") == 0) {
+    mode = hal::IBluetooth::Device::kKeyboard;
+  } else {
+    return false;
   }
+  const bool ok = radio->device_be(mode);
+  if (ok) log_printf(pal::kLogInfo, "BT", "the device of this board is %s now", device_word());
   return ok;
 }
 
@@ -363,6 +410,30 @@ bool move(int8_t dx, int8_t dy) {
 bool press(uint8_t buttons) {
   hal::IBluetooth* radio = the_radio();
   return radio != nullptr && radio->mouse_press(buttons);
+}
+
+// **Les dues portes d'una pàgina** (0.190.204): the HAL counts in signed bytes and a page counts in whatever a finger did, o sigui que
+// el que arriba més enllà de cent vint-i-set es fa a trossos i no es desborda el signe; i el botó és una paraula perquè una pàgina no
+// ha de saber què és el bit 0 d'un report (docs/30, docs/50).
+bool move_for_a_page(int dx, int dy) {
+  int left_x = dx;
+  int left_y = dy;
+  while (left_x != 0 || left_y != 0) {
+    const int step_x = (left_x > 127) ? 127 : ((left_x < -127) ? -127 : left_x);
+    const int step_y = (left_y > 127) ? 127 : ((left_y < -127) ? -127 : left_y);
+    if (!move(static_cast<int8_t>(step_x), static_cast<int8_t>(step_y))) return false;
+    left_x -= step_x;
+    left_y -= step_y;
+  }
+  return true;
+}
+
+bool click_for_a_page(const char* button) {
+  if (button == nullptr) return false;
+  if (strcmp(button, "right") == 0) return click(0x02);
+  if (strcmp(button, "middle") == 0) return click(0x04);
+  if (strcmp(button, "left") == 0) return click(0x01);
+  return false;
 }
 
 bool click(uint8_t buttons) {

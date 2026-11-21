@@ -373,14 +373,32 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     return xQueueSend(q_, &ev, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
   }
 
-  // **L'única empenta que ve d'una interrupció** (0.190.119): `xQueueSend` des d'una ISR no és legal i `xQueueSendFromISR` sí, amb el
-  // rendiment demanat en comptes de fet a l'aire (docs/50).
-  bool push_from_isr(const Event& ev) override {
+  // **L'empenta d'una interrupció, i aquesta sí que és una interrupció de debò** (0.190.206): all of it in IRAM —the object is reached
+  // through the global and not through a virtual table, and what is left (`xQueueSendFromISR`, `xTaskGetSchedulerState`) is already
+  // there in this IDF. **No virtual calls and no flash**: el gestor del tàctil és a la IRAM perquè pot arribar mentre la memòria cau
+  // de flash està apagada, i una crida a la flash en aquell moment no espera — executa brossa, i el xip acaba en un
+  // `Interrupt wdt timeout` amb la traça dins d'aquest mateix camí (docs/50, docs/95).
+  IRAM_ATTR bool wake_from_isr() override { return wake_an_isr_here(); }
+
+  // Non-virtual on purpose: the door below calls this one, so no table and no thunk can be reached from an interrupt (0.190.206).
+  IRAM_ATTR bool wake_an_isr_here() {
     if (q_ == nullptr) return false;
+    Event ev = {};
+    ev.type = kEventTouch;
     BaseType_t woken = pdFALSE;
     const bool ok = xQueueSendFromISR(q_, &ev, &woken) == pdTRUE;
-    if (woken == pdTRUE) portYIELD_FROM_ISR();
+    // **I el relleu només si el planificador el pot prendre**: una escriptura a la flash suspèn el planificador i tot seguit tanca les
+    // interrupcions que no són a la IRAM, i demanar-hi un canvi de context és demanar-lo dins d'una secció crítica. No es perd res: la
+    // tasca ja és a punt dins la cua i `xTaskResumeAll` fa el canvi que toca.
+    if (woken == pdTRUE && xTaskGetSchedulerState() != taskSCHEDULER_SUSPENDED) portYIELD_FROM_ISR();
     return ok;
+  }
+
+  // **L'antiga porta, que és la de les proves i la de qui no és una interrupció**: does the same and goes through the table, which is
+  // exactly what an interrupt must not do (docs/50).
+  bool push_from_isr(const Event& ev) override {
+    (void)ev;
+    return wake_from_isr();
   }
 
   bool pop(Event& out, int32_t timeout_ms) override {
@@ -812,6 +830,10 @@ void set_pump(bool (*fn)(void*), void* ctx) {
 }
 
 bool pump() { return false; }
+
+// **La porta de la interrupció, i tota a la IRAM** (0.190.206): `g_system` és un global —o sigui que no hi ha crida a `system()`— i el
+// que es crida a sota és un mètode no virtual. El que hi ha entre aquesta funció i `xQueueSendFromISR` no toca la flash.
+IRAM_ATTR void wake_the_kernel_from_isr() { g_system.wake_an_isr_here(); }
 
 ISystem& system() { return g_system; }
 

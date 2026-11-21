@@ -11638,7 +11638,264 @@ namespace kernel {
 // quan es fa el vincle. `--no-bt`, `--bt-fail`, `--bt-scan <n>`, `--bt-connected` i `--bt-type <text>` són el que una persona en pot fer.
 // **Les adreces són `C0:FF:EE:…` i el registre diu que el ràdio és un model**: una mentida que es confon amb el maquinari és pitjor que
 // no tenir-ne cap (docs/50, docs/85).
-static const char kVersion[] = "0.190.200";
+// **0.190.201 — la Paper també té ràdio, i això va costar vint-i-un kilobytes d'IRAM** (l'amo: *«i al M5Paper està posat el nimble?»*).
+// No hi era: el seu `sdkconfig.defaults` no tenia ni una línia `CONFIG_BT` i el codi del ràdio compilava la meitat que diu «aquesta placa
+// no en té». Engegar-lo no va ser posar quatre línies, perquè el Paper és un **ESP32 de tota la vida** —o sigui que el controlador sí que
+// té la meitat Classic a triar, `CONFIG_BTDM_CTRL_MODE_BLE_ONLY`, al revés que l'S3— i perquè l'enllaçador va dir **`region iram0_0_seg
+// overflowed by 21296 bytes`**. La causa era el projecte declarant la **revisió mínima 0** del xip: la IDF hi té una opció que en depèn,
+// `CONFIG_SPIRAM_CACHE_WORKAROUND` —l'arranjament del forat del rev 1 de la memòria cau de la PSRAM—, que a més a més demana que mitja
+// libc visqui a la IRAM. El xip d'aquesta placa està serigrafiat `ESP32-D0WDQ6-V3` i la documentació de la IDF diu d'aquell arranjament
+// que «no cal per al rev 3 i posteriors»: declarar la revisió 3 en va treure 18,3 KB i deixar-ne 2 940 de forat. Els 2 940 que faltaven els va
+// donar **`-Os` a la IDF** (`CONFIG_COMPILER_OPTIMIZATION_SIZE`), que no toca ni una línia del nostre codi perquè els `lib/` els compila
+// PlatformIO amb les seves banderes. **La imatge surt més petita que abans del ràdio** (2 006 397 B contra 2 053 488 B, 47,8 % de la
+// ranura) i l'emulador del Paper passa a tenir ràdio també, o seria un emulador que menteix (docs/50, docs/85).
+// **I la primera imatge que en va sortir va petar a l'arrencada, amb un pànic que no era del codi**: `assert failed:
+// s_prepare_reserved_regions memory_layout_utils.c:94 (reserved[i + 1].start > reserved[i].start)`. Dues regions reservades que
+// comencen a la mateixa adreça —`rom_bt_em` a `0x3ffb0000`, del controlador, i `dram_data` a `0x3ffb0000` també— perquè el
+// **`memory.ld` generat s'havia quedat enrere**: `dram0_0_seg` comença a `0x3FFB0000 + CONFIG_BTDM_RESERVE_DRAM`, o sigui que
+// encendre el Bluetooth mou `.data` quaranta-sis kilobytes i mig més amunt, i el script vell el deixava a sobre de la memòria
+// d'intercanvi del controlador. Esborrar el `sdkconfig` va refer el `sdkconfig.h` i no el script d'enllaç; el remei és
+// `rm -rf .pio/build/<entorn>` i queda escrit a docs/80 amb la manera de veure-ho sense la placa (la taula del
+// `.reserved_memory_address` del `elf` ha de tenir les catorze adreces d'inici pujant).
+// **0.190.202 — tretze kilobytes i mig de taules fixes que només servien de vegades** (l'amo: *«busca coses allotjades estàticament i
+// fes-les dinàmiques, passa a psram tot el que puguis»*). El que la placa pagava a l'arrencada per a feines que moltes vegades no es fan
+// mai: **el símbol del QR del provisioning** (2 025 B), **els mòduls de `qr.encode` de Lua** (4 096 B), **els tres blocs de treball del
+// codificador** (3 577 B) i **els zeros d'esborrar un bloc del `himem`** (4 096 B, que ara són cent vint-i-huit a la pila). Els tres
+// primers es demanen a `pal::extra_memory()` —PSRAM quan la placa en té, la memòria de casa quan no— i es tornen en acabar; el
+// codificador és una llibreria pura i els seus els presta amb `malloc`, amb un `Scratch` que els dona per qualsevol camí de sortida i que
+// **comparteix el bloc si ja n'hi ha un** (perquè `data_modules` dibuixa sobre el mateix mapa sense codificar, i oblidar-ho va ser un
+// `SIGSEGV` de la suite del QR). **Mesurat a l'ATOM: `.bss` 61 796 → 52 100 B, `.data` 385 697 → 381 617 B**, o sigui 9 696 B menys de
+// RAM estàtica que compta la plataforma (27,5 % → 24,5 %). El que **no** s'hi ha posat té la seva raó escrita al costat: la cua de la
+// xarxa i el valor de la NVS són el camí pel qual la ràdio arrenca i el motiu pel qual obrir un fitxer no assigna, i el lector del
+// llistat protegeix una pila de setze kilobytes (docs/30, docs/50, docs/75).
+// **0.190.203 — tornar a un teclat que no hi és no encén el ràdio, i no el baixa a mitges** (trobat a l'arrencada de la Paper, al
+// registre que va portar l'amo: `phy_init: failed to load RF calibration data (0x1102), falling back to full calibration` a 5,4 s de
+// rellotge). `host_reconnect` pujava la pila per preguntar la botiga de vincles —l'única manera de preguntar-la— i, quan la botiga era
+// buida, sortia deixant `g_host_wanted` a cert: `bt` deia `host: on` sense que ningú ho hagués demanat i el controlador es quedava
+// corrent per a un vincle que no existia.
+//
+// **El primer remei va ser pitjor que la malaltia**: baixar el ràdio allà mateix amb `host_off`. A la placa va sortir un
+// `Guru Meditation Error … LoadProhibited` amb la traça a `ble_hs_event_start_stage2 → ble_hs_start → ble_hs_sync →
+// npl_freertos_callout_is_active` i `EXCVADDR 0x0`, i el registre l'anunciava cada dos segons amb `NimBLE: Host not enabled. Dropping
+// the packet!`. **Un `nimble_port_deinit()` just després de `nimble_port_freertos_init()` deixa la tasca del host corrent amb les seves
+// estructures ja alliberades**, o sigui que desfer-se de la pila només és segur quan la pila ha acabat de néixer; el lloc on això es
+// fa és el `bt off` del prompt i no el camí d'una arrencada.
+//
+// El remei de debò és **no encendre-la**: una marca d'un byte a la NVS (`bt/paired`, escrita al `ENC_CHANGE` sense error i esborrada a
+// `bt host forget`) contesta `host_remembers()` sense obrir la pila, i l'arrencada només reconnecta si diu que sí. Una placa verge no
+// toca el ràdio, i la primera calibració del PHY ja no es paga per res. El `bt host reconnect` del prompt passa per sobre de la marca,
+// perquè allà ho ha demanat una persona (docs/50, docs/60, docs/70).
+// **0.190.204 — la placa pot ser un teclat i un ratolí alhora, i hi ha una pàgina que ho fa servir** (l'amo: *«fem una app lua, una app
+// per aixicar un bluetooth HID device amb un teclat i un mouse. En quan algú es conecti es passa a la seguent vista, una panalla
+// totalment buida serà el mouse i es trasmitrà amb el dit. A la mateixa vista. El teclat gracies a un Textbox. Tot el que rebi el
+// textbox s'ha d'enviar amb keystrokes al host connectat»*). Un teclat de boot i un ratolí de boot en un sol vincle no existeixen: dues
+// col·leccions en un mapa volen **report IDs** i un aparell amb IDs no pot servir el boot protocol. El que la 0.190.193 va triar com a
+// `opció B` es queda com és i se li afegeix el tercer mode, **`both`**: el mapa porta el teclat amb l'ID 1 i el ratolí amb el 2, el
+// servei té **dues** característiques de report d'entrada (cadascuna amb el seu handle i la seva subscripció) i el descriptor de
+// referència diu l'ID del mode. **El preu és el boot protocol**, i la comanda i la pàgina el diuen.
+//
+// **I el que una pàgina necessita per fer-ho**: `bt.device([mode])`, `bt.name()`, `bt.move(dx, dy)` i `bt.click([button])`, amb el
+// `\b` del teclat com a retrocés. La prova les apunta totes quatre (`bt` → `BtOps`) i la del prompt les creua amb el ràdio del model.
+// **L'app és `apps/bthid`**: dues vistes —esperar el nom amb què s'anuncia, i la pàgina buida que és el ratolí amb la caixa de text a
+// baix que és el teclat—, el dit que camina mou el cursor de l'altre aparell i el que no camina clica, i el que s'escriu marxa com a
+// tecles amb la diferència amb el que ja ha sortit (el que s'esborra són retrocessos). **Res es pinta mentre el dit camina**: el cursor
+// és a l'altre aparell, i el ratolí d'aquesta pàgina no costa ni una passada de tinta (docs/30, docs/50).
+//
+// **I una cosa que estava malament de la 0.190.193**: `bt dev mouse on` deia «this board is a mouse» i el seu costat `off` deia «a
+// keyboard» **encara que la placa no fos cap de les dues coses**; ara els dos diuen el que la placa és de debò.
+// **0.190.205 — un dit que arriba mentre s'escriu una pàgina, i una sessió que no hi era** (les dues coses van sortir del registre de
+// la Paper, que és on es veuen: *«on_pause: [string "bthid.lua"]:64: attempt to get length of a nil value (upvalue 'typed')»* i, a
+// sota, un `Interrupt wdt timeout on CPU0`).
+//
+// **La primera és de l'app i era meva**: `read_state()` torna `nil` quan el bloc de la sessió és buit —el primer cop, sempre—, i jo
+// posava aquell `nil` a `typed`; el `#typed` del desament petava, i amb ell els tres ganxos de sortida de la pàgina. El que es llegeix
+// es mira abans de fer-lo servir, i una sessió que no hi és és la primera vegada i no una pausa perduda.
+//
+// **La segona és del camí de la interrupció del tàctil**: la traça és `gpio_intr_service → on_the_line → push_from_isr →
+// xQueueSendFromISR` amb el watchdog d'interrupcions mort i l'EPC1 dins de `uart_hal_write_txfifo` —l'avís sortint pel port—. Una
+// escriptura a la flash suspèn el planificador i tot seguit tanca les interrupcions que no són a la IRAM: entre una cosa i l'altra hi
+// ha una finestra de poques instruccions on una interrupció entra igual, i demanar-hi `portYIELD_FROM_ISR()` és demanar un canvi de
+// context dins d'una secció crítica, que és el que fa petar `vTaskSwitchContext`. El relleu es demana ara només si el planificador el
+// pot prendre, i no es perd res: la tasca ja és a punt dins la cua i `xTaskResumeAll` fa el canvi que toca (docs/50).
+// **0.190.206 — la interrupció del tàctil que deia ser a la IRAM i no ho era, i una ràdio que es diu quan s'obre** (l'amo, després
+// de veure el `Interrupt wdt timeout` un altre cop: *«No toquis la interrupció! troba perqué falla»*, i tot seguit: *«quan obris
+// bluetooth i tota la pesca espero que ho notifiquis al log o a la vista de l'app (amb text a tamany decent!)»*).
+//
+// **On era el defecte, i es pot demostrar amb `nm`**: `on_the_line` és a la IRAM (0x40088ed0) precisament perquè una interrupció pot
+// arribar mentre es llegeix la flash, i totes les seves crides menys una eren **a la flash**: `pal::system()` (0x4010526c), `queue()`
+// (0x4022cd80), el thunk virtual `_ZThn4_…push_from_isr` (0x40104a70) i `EspSystem::push_from_isr` (0x40104a0c). Amb la memòria cau
+// apagada —l'escriptura d'una pàgina, la de la sessió, una font— una crida a la flash no espera: executa el que hi hagi, i el xip se'n
+// va a un bucle dins d'una interrupció que el watchdog mata. La finestra és petita (entre `vTaskSuspendAll` i
+// `esp_intr_noniram_disable`) però un dit que hi caigui la troba, i per això el crac era reproduïble i no pas constant.
+//
+// **El que s'ha fet no és treure l'empenta, és fer-la certa**: `pal::wake_the_kernel_from_isr()` és una funció lliure que no passa per
+// cap taula de mètodes virtuals —l'objecte és el global de la plataforma— i que crida un mètode **no virtual** de `EspSystem`
+// (`wake_an_isr_here`, també `IRAM_ATTR`); al darrere només hi queden `xQueueSendFromISR`, `xTaskGetSchedulerState` i
+// `_frxt_setup_switch`, que la IDF ja té a la IRAM, i `memset`, que és a la ROM. Comprovat al firmware de la Paper: 0x40088ed0 →
+// 0x400817d8 → 0x40081760 → 0x40097244/0x40098938/0x400997fc, tots dins de la IRAM (0x40080404–0x4009e77c). I una empenta per
+// fotograma: la línia cau un cop per escombrat i el fotograma el llegeix el torn, o sigui que una segona vora abans que el torn
+// llegeixi la primera no té res a dir.
+//
+// **La ràdio es diu**: obrir bluetooth i la ràdio de debò triga, i una pàgina que no diu res mentre passa és una pàgina que sembla
+// penjada. Ara cada pas surt per consola —«bringing the radio up», «radio up, this board is 'lunokOS'», «keyboard and mouse in one
+// device: both», «a device is connected, the page is the pad», «the device went away, waiting again»— i la línia d'estat de la
+// pàgina va amb la font del cos i no amb la petita (l'amo ho va demanar amb aquestes paraules: *«amb text a tamany decent!»*). El
+// compte de tecles, que passa a cada lletra, es queda a la pàgina i no al log.
+// **0.190.207 — el que estava a la `.bss` i no calia que hi fos, i dos stubs trencats** (l'amo, després de veure que tres bandes no
+// compilaven: *«si veus que és perquè falta memòria, rebusquem al codi, segur que trobem mes declaracions de cues estàtiques. Quan
+// podem aprofitar al màxim la PSRAM i fer tot lo raonablement més dinàmic possible...»*).
+//
+// **No era falta de memòria.** Les tres bandes que petaven —l'ATOM Matrix, el devkit i la T-Koala— tenien un **stub trencat**: la
+// 0.190.204 va renombrar les portes del dispositiu HID (`device_is`/`device_be(hal::IBluetooth::Device)`) i el camí «aquest build no
+// porta ràdio» es va quedar amb els noms vells (`device_is_a_mouse`, un `DeviceMode` nu) i, després, sense `host_remembers`. Cap placa
+// amb ràdio compila aquell camí, o sigui que el trencament era invisible des d'on jo mirava. És exactament el que la regla del
+// projecte diu: una porta nova al nucli sense la seva resposta al stub és un enllaç trencat que l'IDF no ensenya.
+//
+// **I tot i així la pregunta era bona, i la resposta són 7 136 bytes de la Paper** (105 860 → 98 724 B de RAM), sense tocar res que
+// estigui a la vora del foc:
+//
+//   - **la cua de peticions de xarxa**, 4 064 B — vuit `Request` de mig kilobyte que una placa sense ràdio no omple mai i una amb
+//     ràdio omple de dos en dos. Ara `the_queue()` els pren de `extra_memory()` la primera vegada que una petició hi entra, i les vuit
+//     entrades es **construeixen** al bloc (placement new): un bloc de la memòria extra no arriba a zero i `page_pending` llegeix el
+//     `kind` d'una entrada que ningú ha escrit;
+//   - **el manifest d'una app**, 1 024 B — era un `static` del carregador des de la 0.120.0 per no ser a la pila; ara és un
+//     `pal::Scratch`, que és la mateixa porta amb la tornada a dins, i `load` té nou sortides;
+//   - **el manifest d'`apps info`**, 1 024 B — el mateix, i el mateix motiu;
+//   - **el valor d'un fitxer de la NVS**, 1 024 B — aquest no pot ser un bloc per crida (el `read` el camina amb `g_pos` entre
+//     crides), o sigui que es pren un cop i es queda.
+//
+// **`pal::Scratch` és nou** i és l'eina que faltava: demana amb una marca —el bloc surt amb amo a `mem blocks`— i el torna al
+// destructor, i un bloc que no s'ha pogut prendre és `false` en lloc d'un punter que mata. **El que NO s'ha mogut, i és a posta**: el
+// taller del rasteritzador de ttf (`g_edges`, `g_points`, `g_crossing`, 10 944 B) i les files de l'antialiàsing (`g_aa_rows`,
+// 1 152 B) són el bucle interior d'una lletra —cada fila d'un glif recorre les seves arestes— i la PSRAM de l'ESP32 es llegeix per la
+// **mateixa** memòria cau que el codi de la flash: moure'l allà és canviar tinta per velocitat de pintada, i una pàgina amb text és
+// el que aquesta placa fa tota l'estona. I `zip::g_window` (1 024 B) es queda perquè la seva fitxa diu «with no allocation of its
+// own» i això és una propietat de la llibreria i no un accident (docs/75).
+// **0.190.208 — el ratolí que no movia res, i com es tria ser un ratolí** (l'amo, amb la placa a la mà: *«arrenca, i connecta, pero encara
+// no envia bé sembla. Com escullo el mouse? vull usar el panell tàctil com a mouse blutooth»*).
+//
+// **El «connecta però no envia» tenia una causa concreta i era meva**: en un mode d'un sol report —ratolí sol o teclat sol— el mapa declara
+// **un** report i cap ID, o sigui que les dues característiques d'entrada del servei porten la mateixa Report Reference (ID zero, tipus
+// entrada) i descriuen els mateixos bytes. A quina de les dues es subscriu l'amfitrió és cosa seva, i jo enviava sempre a la que tocava
+// segons el mode: el ratolí anava a la segona i un aparell que s'havia subscrit a la primera no rebia res, mentre la placa deia
+// «connectat». Ara **un mode d'un sol report empenta el report a totes dues** (`send_report_to_every_char`) —la que ningú ha demanat es
+// descarta— i el mode compost continua enviant cada report a la seva, perquè allà l'ID del davant és el que diu de qui és.
+//
+// **I connectat no és escoltat**: fins ara res mirava el CCCD, o sigui que la placa podia dir «connectat» mentre l'altre aparell encara no
+// havia encès cap report. `BLE_GAP_EVENT_SUBSCRIBE` ara es llegeix i **es diu al registre** («the other side asked for the mouse report»),
+// i hi ha `reports_enabled()` al HAL, `bt::reports_enabled()` al nucli i **`bt.ready()`** a Lua: una pàgina pot dir «connectat, però
+// l'altre aparell encara està encenent els reports» en comptes de deixar una persona escrivint al buit.
+//
+// **I com es tria**: `cfg.btmode keyboard|mouse|both`, desat a la botiga —la sessió d'una app només arriba fins al son, perquè el nucli
+// esborra les pàgines a cada arrencada, i una tria que s'ha de fer cada cop no és una tria—, amb `cfg.btmode` sol per preguntar-ho, i el
+// mateix lloc per a tothom: els tres botons de l'app `bthid` (Keyboard / Mouse / Both), `cfg.btmode` del prompt i `cfg.btmode(word)` a
+// Lua. `bt::start` **aplica el mode desat quan la ràdio arrenca**, o sigui que una placa que es va deixar com a ratolí torna com a ratolí
+// i el que diu el prompt és el que la ràdio ofereix. `bt dev mouse on|off` i `bt dev both on|off` també ho desen.
+//
+// **I l'app**: la pàgina d'espera diu què és la placa i porta els tres botons a baix; la vista viva és el pad sol quan és un ratolí (sense
+// caixa, perquè un ratolí no té teclat) i el pad amb la caixa quan és les dues coses; en mode teclat la pàgina ho diu en lloc de deixar un
+// pad que no fa res. El `...` del botó d'Enter era que la paraula no hi cabia: 58 píxels no són «Enter» i 96 sí.
+// **I un parany de Lua, un altre cop el mateix**: `layout` col·locava els botons nous a través d'un `choices` que es declarava més avall, o
+// sigui que llegia un global `nil` i la pàgina petava amb `attempt to get length of a nil value (global 'choices')` —el comentari del
+// capdamunt del fitxer avisa exactament d'això, i és la segona vegada que hi caic (docs/45).
+// **0.190.209 — res no s'encén sol, i els botons que ho fan són més alts** (l'amo, amb l'app ja oberta: *«També un botó per encendre i apagar el
+// bluetooth. Que no ho faci l'app automátic a l'arrencar. I configurar-se com a dev tampoc sense que hagi escollit si un o l'altre o ambdós»*, i
+// tot seguit *«fes els botons una mica mes alts, tots i separa'ls una mica mes entre ells»*).
+//
+// **Obrir una pàgina no és una decisió.** La 0.190.206 va fer que l'app obrís la ràdio d'entrada —perquè la pàgina d'espera no s'anunciava
+// mai i no hi havia res a aparellar— i la 0.190.208 li va fer demanar el mode; les dues coses alhora volen dir que obrir `bthid` obtenia
+// trenta kilobytes de heap i canviava el que l'altre aparell veu sense que ningú hagués premut res. Ara la pàgina **s'obre i diu com està el
+// món** (la ràdio encesa o apagada, què seria aquesta placa, el nom amb què s'anuncia) i no toca res fins que un dit prem un botó: ni
+// `cfg.bt(true)` ni `bt.device(...)` a l'arrencada.
+//
+// **I la tria és de debò una tria**: `cfg.bt_mode()` torna la cadena **buida** quan la clau no hi és, i això vol dir «encara no s'ha triat»;
+// el valor de sèrie que hi havia (`both`) era una decisió que la placa prenia tota sola. `bt::start` només aplica una tria que existeixi, i
+// la pàgina diu «Not chosen yet» fins que algú tria. Encendre el Bluetooth sense haver triat **no fa res i ho diu**.
+//
+// **Els controls de la pàgina d'espera són dos i es veuen**: una fila sencera per al commutador de la ràdio —el títol diu què farà, «Turn
+// Bluetooth on» o «Turn Bluetooth off»— i, a sota, els tres modes amb el que hi ha triat a la línia del damunt. **Els botons són més alts
+// (58 píxels) i més separats (12)**, tots: els tres modes, el commutador, la caixa i el «Enter» de la vista viva —i el forat és el mateix a la
+// fila i entre files, o sigui que la pàgina es llegeix com una graella. I el pad s'acaba **on comença la fila dels controls**: la suma d'abans
+// deixava el marc del pad creuant-se amb la caixa i era la caixa blanca qui el tapava, que és una línia que no hi és fins que les dues coses
+// es mouen (docs/30, docs/50).
+//
+// **I el bucle mira el món**: la ràdio la pot encendre o apagar una altra cosa —el prompt, `cfg`, una pausa— i un aparell pot arribar o
+// marxar, o sigui que cada dos-cents mil·lisegons es compara el que hi ha pintat amb el que hi ha i només es repinta quan no coincideixen
+// (aquest vidre cobra cada passada). Si el Bluetooth s'apaga amb la vista viva oberta, la pàgina torna enrere i ho diu, perquè un pad que
+// envia a algú que ja no hi és és una pàgina que menteix (docs/30). **I una ràdio encesa sense tria no diu «esperant»**: `cfg.bt` és el
+// commutador del teclat i el que ofereix és el teclat de sèrie de la ràdio, o sigui que la pàgina diu «Bluetooth is on, and nothing has been
+// chosen» en comptes de fer veure que espera una cosa que no ha decidit; i el «pair it again» només surt si hi havia un vincle, perquè
+// acabar d'encendre la ràdio no és tornar a aparellar res.
+// **0.190.210 — «keyboar», o el buffer d'una paraula que no hi cap** (el registre de l'amo, que és on es veuen aquestes coses: *«bthid: this
+// board will be a keyboar; turn Bluetooth on when you want it»* i tot seguit *«on_click: [string "bthid.lua"]:125: attempt to concatenate a
+// table value (local 'text')»*).
+//
+// **«keyboard» són vuit caràcters i el zero del final, o sigui nou bytes, i jo hi havia posat un `char[8]`** —i el mateix buffer de vuit a la
+// lectura de l'arrencada—, o sigui que la paraula es desava com a «keyboar», `bt.device('keyboar')` no era cap de les tres, i la clau es
+// descartava a cada arrencada amb un avís que deia que no era cap de les tres paraules. Dotze bytes a tots dos llocs: un buffer d'una paraula
+// porta la paraula sencera o no la porta, i no hi ha cap paraula d'aquesta casa que passi d'onze.
+//
+// **I la segona és de l'app**: el segon valor d'un error de Lua en aquest sistema és una **taula** (`{code, message}`) i no una cadena, i jo el
+// concatenava —`'this board cannot be a ' .. why`—, o sigui que la pàgina petava just quan havia d'explicar per què no podia fer el que li
+// demanaven. El que es diu ara és el que la pàgina sap, amb el codi de l'error al costat, i el camí dolent que abans petava és el que ara
+// s'aguanta.
+// **0.190.211 — l'enllaç que cau tot sol: el motiu, i tres coses que el podien fer caure** (l'amo, amb el registre a la mà: *«a device is
+// connected» → *«the device went away»*, una vegada i una altra, i *«No es realitza la conexio :-()»*).
+//
+// **El primer que faltava era el motiu**: `BLE_GAP_EVENT_DISCONNECT` porta un codi i el tiràvem, o sigui que el registre deia «the device
+// went away» i prou. Ara diu el número (`0x08` és un temps esgotat, `0x13` que l'altre cap l'ha tancat, `0x05`/`0x3D`/`0x3E` són
+// autenticació i MIC —un vincle que no lliga—, `0x16` és l'altre cap tancant per un motiu seu), i també es diu **amb quins paràmetres** ha
+// arribat la connexió (interval, latència, supervisor) i **cada accés** al servei (`the other side asks 0x2A4B (read)`, a nivell de feina):
+// una connexió que es trenca és una conversa que s'atura, i el registre ha de dir on.
+//
+// **I tres defectes de debò, que són els que la podien fer caure**:
+//
+//   - **la mida del report llegit era la del mode compost sempre**: a `keyboard` el mapa declara vuit bytes i la lectura en tornava nou; a
+//     `mouse`, tres i quatre. Un amfitrió que llegeix el valor abans de subscriure-s'hi i el compara amb el mapa veu una mida que no és la
+//     de cap report. La mida ara la diu el mode (`report_access`);
+//   - **una notificació a una característica que l'altre cap no ha encès**: `ble_gatts_notify_custom` no mira el CCCD i posa el paquet a
+//     l'aire igualment, i això és una violació del protocol que alguns amfitrions contesten tancant l'enllaç. `send_report` ara mira la
+//     subscripció —la que diu `BLE_GAP_EVENT_SUBSCRIBE`, que ja es llegia des de la 0.190.208— i no envia a qui no l'ha demanat;
+//   - **un mapa nou dins d'un vincle vell**: canviar de mode deixa un vincle que va llegir un altre mapa, i un mòbil que reconnecta amb
+//     aquest vincle encreua les claus i cau una vegada i una altra. `device_be` ara **esborra els vincles i tanca l'enllaç** quan el mode
+//     canvia de debò, que és el que la frase «pair it again from the other side» ja demanava i no feia.
+//
+// **I les claus que es reparteixen porten la identitat** (`ENC | ID`): un telèfon aparella amb la clau d'identitat i un vincle que només té
+// la d'encriptació és un vincle que pot decidir que no pot guardar (docs/50).
+// **0.190.212 — «pots posar algun mesh?», i el primer pas de debò** (l'amo, amb el Bluetooth a mig fer: *«pots posar algun mesh?»*, i quan li
+// vaig preguntar quin: *bluetooth-mesh*).
+//
+// **El que hi ha és un node, i prou**: la pila ESP-BLE-MESH (`CONFIG_BLE_MESH`) damunt de la mateixa NimBLE del teclat, amb **un element**
+// i el servidor de configuració, que és el mínim que tot node ha de tenir. El que això fa és el que es pot comprovar: la placa **apareix** a
+// l'app d'un provisionador (nRF Mesh o la d'Espressif), s'hi deixa provisionar pels dos portadors —l'anunciant i el GATT— i **recorda**
+// l'adreça que li donen, perquè la pila la desa a la NVS. `mesh [on|off]` al prompt ho diu tot: qui s'hi connecta, quan queda provisionat i
+// amb quina adreça (`0x%04X`).
+//
+// **El que no hi és, i és a posta**: cap model de més. Un model és una promesa —un llum que la placa no té, un relé que no hi és— i el que
+// aquest node sap fer és existir, tenir adreça i respondre al provisionador. Els models són la feina següent, i es trien amb l'amo (docs/50).
+//
+// **I el mesh i el teclat no són alhora**: the stack is the same and the advertiser is **one**, o sigui que `mesh on` amb el teclat de
+// Bluetooth enlaire es refusa i diu per què (`cfg bt off` primer). És el mateix motiu pel qual `bt dev` i `bt host` es diuen per separat des
+// de la 0.190.192: dues coses que es disputen el mateix aire s'han de veure a la cara (docs/50).
+//
+// **On és**: `IMesh` al HAL (`can_mesh`, `start`, `stop`, `is_up`, `provisioned`, `address`), `Esp32Mesh` a `hal_esp32/src/mesh.cpp`, el
+// tauler que el dóna (`hal_paper`, `hal_t5s3`), `kernel::mesh` i l'ordre del prompt. Una placa el build de la qual no porta la pila contesta
+// que no i no engega res, que és el que fa l'emulador i les bandes sense `CONFIG_BLE_MESH`. **La pila és un cost de debò** —desenes de
+// kilobytes de RAM interna quan arrenca—, o sigui que el que s'ha de mirar després de gravar-lo és `mem` amb el node apagat i amb `mesh on`
+// (docs/50, docs/75).
+// **0.190.213 — el mateix mesh a l'ATOM Lite, que és on no hi ha PSRAM** (l'amo: *«vaig a posarlo al atom lite»*).
+//
+// Res de nou al codi del node: el que canvia és que el tauler d'aquesta placa també el dóna i que el seu `sdkconfig.defaults` porta la pila.
+// **I és la placa on el cost es veu de debò**: 73 240 B de RAM estàtica abans, ~83 000 amb la pila a dins, i a sobre el que el mesh demana
+// quan arrenca —desenes de kilobytes del heap intern, que aquí no té PSRAM on anar-se'n—, o sigui que el número que s'ha de mirar és `mem`
+// amb el node apagat i amb `mesh on`. El flaix no és el problema: la ranura de l'app és de 2 621 440 B i la imatge amb mesh hi cap amb uns
+// quatre-cents mil bytes de marge (docs/50, docs/75).
+//
+// **I el parany que gairebé fa que no hi sigui, un altre cop**: `sdkconfig.m5-atom-idf` viu a l'arrel del projecte i l'IDF només llegeix els
+// `sdkconfig.defaults` **quan el genera**. Esborrar `.pio/build/<env>` no toca aquell fitxer, o sigui que la clau es queda fora i el que
+// s'enllaça és el node que diu que no —sense cap avís, amb el `defaults` dient que sí—. És el mateix que va passar amb el `memory.ld` de la
+// 0.190.201 (docs/80).
+static const char kVersion[] = "0.190.213";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

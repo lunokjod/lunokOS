@@ -28,8 +28,9 @@ Model model_of(const char* name) {
     // (docs/50).
     out.glass = true;
     out.touch = true;
-    // The Paper's build has no radio in it: `sdkconfig.defaults` of that board never asked for it (docs/50, docs/85).
-    out.bt = false;
+    // **The Paper's build carries the radio too** (0.190.201): its `sdkconfig.defaults` asks for NimBLE now, o sigui que aquest
+    // emulador ha de dir el mateix que la placa i no el que deia ahir (docs/50, docs/85).
+    out.bt = true;
     out.gauge = true;
     out.slot = true;
     out.fram = true;

@@ -336,6 +336,28 @@ class INet {
 //
 // **I el ràdio mana sobre la son**: un son lleuger atura els rellotges que el link viu, o sigui que mentre això és engegat el xip no fa
 // becaines (`wants_the_chip_awake`). És el preu de ser un teclat i es diu, en lloc de deixar una connexió que cau sola (docs/50, docs/60).
+// **Una xarxa de Bluetooth Mesh** (0.190.212, l'amo: *«pots posar algun mesh?»*): the board as a **node** of a mesh, o sigui que un
+// provisionador —el telèfon amb l'app de nRF Mesh o la d'Espressif— el descobreix, li dóna una adreça i el deixa dins la xarxa. **No és el
+// teclat**: el mesh fa servir l'anunci i la connexió per als seus portadors propis, o sigui que és una altra manera d'encendre la mateixa
+// ràdio i no una cosa que es posa a sobre del HID (docs/50).
+class IMesh {
+ public:
+  virtual ~IMesh() {}
+  // Whether this build carries the stack at all: a board whose build has no `CONFIG_BLE_MESH` says no and the prompt says so.
+  virtual bool can_mesh() const { return false; }
+  // The stack up and the node offering itself to a provisioner. **La ràdio ha d'estar lliure**: si el teclat de Bluetooth és enlaire això
+  // contesta que no i ho diu, perquè dos anunciadors alhora no hi caben (docs/50).
+  virtual bool start(const char* name) {
+    (void)name;
+    return false;
+  }
+  virtual void stop() {}
+  virtual bool is_up() const { return false; }
+  // What the provisioner left: the unicast address of the first element of this node, and whether it is in a mesh yet.
+  virtual bool provisioned() const { return false; }
+  virtual uint16_t address() const { return 0; }
+};
+
 class IBluetooth {
  public:
   virtual ~IBluetooth() {}
@@ -405,6 +427,16 @@ class IBluetooth {
   }
   // Si hi ha algú lligat i escrivint.
   virtual bool host_connected() const { return false; }
+  // **Si aquesta placa ha aparellat mai res** (0.190.203): preguntar-ho a la botiga del ràdio vol la pila a dalt, i engegar la pila
+  // d'una placa verge només perquè et digui que no hi ha res —amb la calibració del PHY que se'n va darrere la primera vegada— és el
+  // que aquesta pregunta estalvia. Un ràdio que no ho sap diu que sí: el defecte és l'antic comportament, i equivocar-se cap a
+  // «intenta-ho» no trenca res (docs/50, docs/60).
+  // **Si l'altre cap ha encès els reports** (0.190.208): un aparell es connecta i tot seguit escriu el CCCD de cada característica
+  // d'entrada que vol rebre, i fins que no ho fa una notificació no arriba enlloc. És la diferència entre «connectat» i «connectat i
+  // escoltat», i una pàgina que ho sap ho pot dir en comptes de deixar una persona prement tecles al buit (docs/50).
+  virtual bool reports_enabled() const { return false; }
+
+  virtual bool host_remembers() const { return true; }
   // **Tornar amb el teclat que ja hi era** (0.190.191): the bonds are in the store, so the board can go back to the keyboard it was
   // paired with without a person scanning anything. Llança el link i torna; el que arribi després ja ho diu `host_connected` (docs/50).
   virtual bool host_reconnect() { return false; }
@@ -416,9 +448,17 @@ class IBluetooth {
   // **Un teclat o un ratolí, i no les dues coses alhora** (l'amo: *«opció B»*). Two reports in one HID service mean report ids and
   // giving up the boot protocol, que és el que fa que aquest teclat escrigui a qualsevol lloc; o sigui que la placa tria, i el que
   // canvia és el report map que el host llegeix, el report que s'envia i l'aparença de l'anunci. El servei GATT és el mateix (docs/50).
-  virtual bool device_is_a_mouse() const { return false; }
-  virtual bool device_be(bool mouse) {
-    (void)mouse;
+  //
+  // **I des de la 0.190.204 hi ha un tercer mode, que és el que una pàgina necessita** (l'amo: *«fem una app lua... un bluetooth HID device
+  // amb un teclat i un mouse»*): `kBoth` és el teclat i el ratolí alhora, en un sol vincle i amb **report IDs** —el teclat és l'1 i el
+  // ratolí el 2—, perquè dues col·leccions en un mateix mapa sense IDs no existeixen. **El preu és el boot protocol**: un aparell amb
+  // report IDs no el pot servir, i és exactament el que l'`opció B` de la 0.190.193 protegia; o sigui que `kKeyboard` i `kMouse` es
+  // queden com eren (amb el seu report de vuit i de tres bytes, i el boot protocol), i qui vol les dues coses tria `kBoth` i sap què
+  // deixa (docs/50).
+  enum class Device : uint8_t { kKeyboard = 0, kMouse = 1, kBoth = 2 };
+  virtual Device device_is() const { return Device::kKeyboard; }
+  virtual bool device_be(Device what) {
+    (void)what;
     return false;
   }
   // Un moviment relatiu, i el report torna a zero de seguida perquè el cursor no se'n vagi.
@@ -1247,6 +1287,8 @@ class IPlatform {
   // **I la ràdio que no és una xarxa** (0.190.179): the keyboard of Bluetooth, which is null on every board that does not have the
   // radio in its build —the emulator, and the bands that have not enabled it— (docs/50).
   virtual IBluetooth* bluetooth() { return nullptr; }
+  // **I el mesh, que és una xarxa i no un teclat** (0.190.212): null on every board whose build does not carry it.
+  virtual IMesh* mesh() { return nullptr; }
   virtual IPower* power() = 0;
   virtual ISurface* display() = 0;
   virtual ILed* led() = 0;

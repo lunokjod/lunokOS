@@ -1,6 +1,6 @@
 {
   "name": "hal_emulator",
-  "version": "0.1.31",
+  "version": "0.1.34",
   "description": "Board support for the PC emulator: same kernel, host console, host disk.",
   "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
 }

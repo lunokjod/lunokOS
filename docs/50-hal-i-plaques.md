@@ -400,9 +400,10 @@ connectar, hi ha caràcters a escriure. Per això no viu a `net` sinó a `hal::I
 - **El ràdio mana sobre la son**. Un son lleuger atura els rellotges que viu el link, o sigui que `wants_the_chip_awake()` és una de les
   portes de `power::open_the_sleep`: mentre el teclat és engegat el torn espera despert com abans de la 0.190.63, i el `bt on` ho diu.
 - **Les bandes que no en porten no paguen res**: tot el ràdio viu sota `CONFIG_BT_ENABLED` i la resta del fitxer són respostes que diuen
-  que no, o sigui que el Paper, el devkit i el T-Koala compilen igual i el prompt els diu `this board has no radio` (docs/30). Les
-  dues que en porten són l'**ATOM** i la **T5S3 Pro**, i des de la 0.190.198 la segona té el seu propi `sdkconfig.defaults`: no
-  heretava res del de l'ATOM i el `CONFIG_BT_ENABLED` no hi era enlloc (docs/85).
+  que no, o sigui que el devkit i el T-Koala compilen igual i el prompt els diu `this board has no radio` (docs/30). Les
+  que en porten són **tres**: l'**ATOM** (i el Matrix, que és el mateix firmware), la **T5S3 Pro** i la **Paper**. Les dues últimes
+  no heretaven res del `sdkconfig.defaults` de l'ATOM i el `CONFIG_BT_ENABLED` no hi era enlloc: el T5S3 el va tenir a la 0.190.198 i
+  la Paper a la 0.190.201 (docs/85).
 
 ### I l'altra direcció: el Bluetooth amfitrió (0.190.188)
 
@@ -489,6 +490,80 @@ bt dev mouse click [left|right|middle]
 - **El clic és pressió, trenta mil·lisegons i deixar anar**, la mateixa forma que una tecla: un botó premut per sempre és el que l'altre cap
   veu si no es deixa anar.
 
+#### Les dues coses alhora: el mode `both` (0.190.204)
+
+L'amo: *«fem una app lua, una app per aixicar un bluetooth HID device amb un teclat i un mouse… la pantalla buida serà el mouse i es
+trasmetrà amb el dit. El teclat gracies a un Textbox»*. Un teclat de boot i un ratolí de boot en un sol vincle no existeixen: dues
+col·leccions en un mapa volen **report IDs**, i un aparell amb IDs no pot servir el boot protocol. O sigui que el que la 0.190.193 va
+triar com a `opció B` es queda com és i se n'hi afegeix un tercer, amb el preu escrit a la cara:
+
+| Mode | Mapa | Report | Boot protocol |
+|---|---|---|---|
+| `keyboard` (de sèrie) | el del teclat, sense IDs | 8 bytes per la característica del teclat | **sí** |
+| `mouse` | el del ratolí, sense IDs | 3 bytes per la del ratolí | sí |
+| **`both`** | el del teclat **i** el del ratolí, amb `Report ID 1` i `2` | 9 i 4 bytes, l'ID al davant | **no** |
+
+- **El servei GATT és el mateix en els tres**: info, mapa, **dues** característiques de report d'entrada (teclat i ratolí, cadascuna amb
+  el seu handle i la seva subscripció), la del boot, la de sortida dels llums, la de sortida del report, el control point i el protocol
+  mode. El que canvia és el mapa que es llegeix (`0x2A4B`, a cada petició), l'**ID que diu el descriptor de referència** (`0x2908`: 0
+  als dos modes d'un sol report, 1 i 2 al compost) i el report que s'envia. Engegar i apagar una característica a cada canvi de mode
+  voldria tornar a registrar el servei, i el servei és el mateix.
+- **Els dos UUIDs repetits es distingeixen per l'adreça**: `hid_access` i `report_access` reben l'`arg` i no el valor, o sigui que hi ha
+  dos `ble_uuid16_t` de `0x2A4D` i dos de `0x2908` i la comparació és de punter.
+- **Els llums del teclat** (`0x2A32` i el report de sortida) arriben amb l'ID al davant al mode compost, i qui els llegeix salta el
+  primer byte.
+- **L'aparença de l'anunci** és el teclat (0x03C1) al mode compost: el Bluetooth no té cap paraula per a «les dues coses», i el que
+  aquesta placa fa sobretot és escriure.
+- **I l'altre aparell ha de tornar a aparellar-se un cop**: va llegir el mapa d'un teclat i no endevina un altre mapa. La comanda ho diu
+  i la pàgina també.
+
+**I per què un ratolí sol no movia res** (0.190.208, l'amo: *«connecta, pero encara no envia bé sembla»*). En un mode d'un sol report el mapa
+declara **un** report i cap ID, o sigui que les dues característiques d'entrada porten la **mateixa** Report Reference (ID zero, tipus entrada)
+i descriuen els mateixos bytes: a quina de les dues es subscriu l'amfitrió és cosa seva. El codi enviava el ratolí sempre a la segona i el
+teclat sempre a la primera, i un aparell subscrit a l'altra no rebia res mentre la placa deia «connectat». Ara `send_report_to_every_char`
+empenta el report **a totes dues** quan el mode és d'un sol report (la que ningú ha demanat es descarta), i el mode compost continua enviant
+cada report a la seva, perquè allà l'ID del davant és el que diu de qui és.
+
+**I connectat no és escoltat**: el CCCD de cada característica d'entrada és el que decideix si una notificació arriba, i fins ara no es mirava.
+`BLE_GAP_EVENT_SUBSCRIBE` es llegeix i es diu al registre —*«the other side asked for the mouse report»*—, i `IBluetooth::reports_enabled()`
+(amb `bt::reports_enabled()` i **`bt.ready()`** a Lua) diu si l'altre aparell ja hi sent. L'entremig és el que una persona veu com «connecta
+però no envia».
+
+**I la tria es desa**: `cfg.btmode keyboard|mouse|both` viu a la botiga perquè la sessió d'una app només arriba fins al son, i `bt::start`
+aplica el mode desat quan la ràdio arrenca —una placa que es va deixar com a ratolí torna com a ratolí (docs/30)—.
+
+**I per què l'enllaç queia tot sol** (0.190.211, l'amo: *«a device is connected» → «the device went away»*, una vegada i una altra, *«No es
+realitza la conexio»*). Tres coses, totes tres de protocol:
+
+| Què passava | Per què fa caure un enllaç | Què s'ha fet |
+|---|---|---|
+| La lectura del report tornava **sempre** la mida del mode compost (9 i 4) | a `keyboard` el mapa en declara vuit i a `mouse` tres; un amfitrió que compara el valor amb el mapa veu una mida que no és la de cap report | `report_access` contesta la mida del mode d'ara |
+| `send_report` enviava a **tot arreu**, i `ble_gatts_notify_custom` **no mira el CCCD** | una notificació en una característica que l'altre cap no ha encès és una violació del protocol, i alguns amfitrions la contesten tancant | `send_report` mira `g_report_subscribed`/`g_mouse_subscribed`, que ja es llegien des de la 0.190.208 |
+| Canviar de mode deixava el **vincle vell** | l'altre cap va llegir un altre mapa i en reconnectar encreua les claus (MIC) | `device_be` esborra els vincles i **tanca l'enllaç** quan el mode canvia |
+
+I el que faltava per poder-ho veure: **el motiu de la desconnexió**. `BLE_GAP_EVENT_DISCONNECT` porta un codi (`0x08` temps esgotat, `0x13`
+l'altre cap l'ha tancat, `0x05`/`0x3D`/`0x3E` autenticació i MIC, `0x16` l'altre cap per un motiu seu) i es llençava; ara surt al registre amb
+els paràmetres de la connexió (interval, latència, supervisor) i amb **cada accés** al servei a nivell de feina. I les claus que es
+reparteixen porten la identitat (`ENC | ID`), que és el que un telèfon espera d'un teclat de debò.
+
+#### El mesh: la placa com a node (0.190.212)
+
+L'amo: *«pots posar algun mesh?»*, i és **Bluetooth Mesh**. El que hi ha és el primer pas de debò i no una demo: la pila ESP-BLE-MESH
+(`CONFIG_BLE_MESH`) damunt de la **mateixa NimBLE** del teclat, amb **un element** i el servidor de configuració —el mínim que tot node ha de
+tenir—, i res més. `mesh on` encén la ràdio sense oferir-se com a teclat, i el node s'anuncia pels dos portadors de provisió (l'anunciant i el
+GATT), o sigui que l'app d'un telèfon —nRF Mesh o la d'Espressif— el troba, el provisiona i li dóna una adreça, que la pila **desa a la NVS** i
+que `mesh` ensenya (`this node is 0x00A1 of a network`). Cada pas de la provisió és una línia del registre (`a provisioner is talking to this
+node`, `provisioned: this node is 0x…`, `the mesh forgot this node`).
+
+- **El mesh i el teclat no són alhora**: the stack is shared and the advertiser is one, o sigui que `mesh on` amb el teclat enlaire es refusa i
+  diu què fer (`cfg bt off`). És el mateix criteri de la 0.190.192: dues coses que es disputen el mateix aire es diuen per separat.
+- **Cap model de més**: un model és una promesa (un llum, un relé) i aquesta placa encara no n'ha triat cap. El node sap existir, tenir adreça i
+  respondre al provisionador, i els models són la feina següent.
+- **On és**: `IMesh` a `hal/hal.h`, `Esp32Mesh` a `hal_esp32/src/mesh.cpp`, el tauler que el dóna (`hal_paper`, `hal_t5s3`), `kernel::mesh` i
+  l'ordre `mesh` del prompt. Una banda sense `CONFIG_BLE_MESH` contesta que no i no engega res.
+- **I costa**: la pila demana desenes de kilobytes de RAM interna quan arrenca, o sigui que el número que s'ha de mirar després de gravar-lo és
+  `mem` amb el node apagat i amb `mesh on` (docs/75).
+
 #### El que s'hi ha anat afegint (0.190.189 → 0.190.191)
 
 - **El nom d'aquesta placa porta l'adreça** (0.190.197): `lunokOS-A1B2` amb els dos últims bytes de la MAC del ràdio (`ESP_MAC_BT` de
@@ -511,6 +586,24 @@ bt dev mouse click [left|right|middle]
   `0x2A00`), i la bateria igual (`0x180F`); són les dues feines que queden en aquesta llista.
 - **Tornar-hi sol** (0.190.191): els vincles viuen a la botiga del ràdio, o sigui que `host_reconnect` pregunta
   `ble_store_util_bonded_peers` i llança el link a l'arrencada, **sense esperar** —el boot no ha de costar mig segon de prompt.
+- **I si no hi ha res a què tornar, el ràdio no s'encén per preguntar-ho** (0.190.203). El camí de la botiga buida sortia deixant
+  `g_host_wanted` a cert i la pila encesa, i això es veia a la Paper a cada arrencada: `bt` deia `host: on` sense que ningú ho hagués
+  demanat, i el controlador —i el PHY amb ell— corria per a un vincle que no existia. La primera arrencada d'una placa que mai no ha
+  aparellat res s'ho emportava tot, i el registre ho diu amb dues línies que no semblen del mateix assumpte: `W (861) esp_psram: … 4MB
+  is mapped` i, dos segons i mig més tard, `W (5480) phy_init: failed to load RF calibration data (0x1102), falling back to full
+  calibration` —la partició `phy_init` era buida perquè en aquest build el ràdio no havia corregut mai, i la calibració sencera del PHY
+  és el que hi havia entremig—.
+- **I el remei no és baixar la pila allà mateix, i això es va aprendre amb un pànic**: la primera versió d'aquest arreglament cridava
+  `host_off` tot just després d'haver pujat la pila, i la placa va contestar `Guru Meditation Error … LoadProhibited` amb la traça a
+  `ble_hs_event_start_stage2 → ble_hs_start → ble_hs_sync → npl_freertos_callout_is_active` i `EXCVADDR 0x0`, anunciat cada dos segons
+  amb `NimBLE: Host not enabled. Dropping the packet!`. **Un `nimble_port_deinit()` just després de `nimble_port_freertos_init()` deixa
+  la tasca del host corrent amb les seves estructures ja alliberades.** Desfer-se de la pila només és segur quan la pila ha acabat de
+  néixer, i el lloc on es fa és el `bt off` del prompt.
+- **La resposta bona és no encendre-la**: una marca d'un byte a la NVS (`bt/paired`, escrita al `ENC_CHANGE` sense error i esborrada a
+  `bt host forget`) contesta `host_remembers()` sense obrir la pila, i l'arrencada només reconnecta si diu que sí. Una placa verge no
+  toca el ràdio i no paga la calibració del PHY per res; el `bt host reconnect` del prompt passa per sobre de la marca, perquè allà ho
+  ha demanat una persona. La marca diu la veritat en els dos sentits: si diu que sí i la botiga és buida —l'altre cap ens ha
+  oblidat—, la marca s'esborra i el que queda és el que hi ha (docs/50, docs/60, docs/70).
 - **Els llums del teclat virtual** (0.190.191): el **report de sortida** del HID és el que el mòbil escriu per encendre el Caps Lock, i
   ara es llegeix (l'`0x2A32` del boot i una característica **Report** `0x2A4D` de sortida per a qui parla el protocol de report) i es diu
   al registre i a `bt`. La placa no té teclat físic: saber-ho és l'única cosa que en pot fer.
@@ -1504,6 +1597,25 @@ encès, nivell diferent de zero i el dim no l'ha apagada) i el torna al terra qu
 només escriu al xip quan el règim canvia. **I la vora desvetlla el nucli**: l'ISR hi empenta un `pal::kEventTouch` amb
 `IQueue::push_from_isr` (`xQueueSendFromISR` a l'ESP32), de manera que el torn no espera els seus deu mil·lisegons —ni els quaranta d'una
 becaina— per mirar el vidre; el marc es continua llegint del torn i no de la interrupció (docs/30, docs/50, docs/95).
+
+**I la interrupció deia ser a la IRAM i no ho era** (0.190.206, l'amo, després del segon `Interrupt wdt timeout`: *«No toquis la interrupció!
+troba perqué falla»*). `on_the_line` era `IRAM_ATTR` amb aquest comentari al costat —*«una interrupció pot arribar mentre es llegeix la flash»*— i
+**tres de les seves quatre crides eren a la flash**: l'accessor `pal::system()` (0x4010526c), `queue()` (0x4022cd80) i el `push_from_isr` virtual
+amb el seu thunk (0x40104a0c i 0x40104a70). Amb la memòria cau de flash apagada —una pàgina de la sessió, una font, una pintada— una crida a la
+flash **no espera**: executa el que hi hagi, i el xip se'n va a un bucle dins d'una interrupció que el watchdog d'interrupcions mata. La finestra és
+petita (entre `vTaskSuspendAll` i `esp_intr_noniram_disable`, `spi_flash/cache_utils.c`) però un dit que hi caigui la troba, i és per això que el
+crac era reproduïble tocant el vidre i no pas constant.
+
+**El que s'ha fet no és treure l'empenta, és fer-la certa**: `pal::wake_the_kernel_from_isr()` és una funció lliure —cap taula de mètodes virtuals
+pel camí— que crida un mètode **no virtual** de `EspSystem` (`wake_an_isr_here`, també `IRAM_ATTR`) i que empenta `kEventTouch` a la cua; al darrere
+només hi queden `xQueueSendFromISR`, `xTaskGetSchedulerState` i `_frxt_setup_switch`, que aquesta IDF ja té a la IRAM, i `memset`, que és a la ROM.
+`push_from_isr` continua existint per a la plataforma de l'emulador i per a qui no és una interrupció, però l'ISR ja no la crida. I la línia aixeca el
+flag i empenta **un cop per fotograma**: el xip la baixa un cop per escombrat i el fotograma el llegeix el torn, o sigui que una segona vora abans que
+el torn llegeixi la primera no té res a dir. La interrupció és de nivell 1 compartida (`gpio_install_isr_service(0)` → `ESP_INTR_FLAG_SHARED` →
+`LEVEL1`), que és la condició perquè `portYIELD_FROM_ISR` sigui legal; i el relleu es demana només si el planificador el pot prendre, perquè la
+finestra de l'escriptura el té suspès. **Comprovat al binari de la Paper** amb `nm`/`objdump`: `on_the_line` 0x40088ed0 → `wake_the_kernel_from_isr`
+0x400817d8 → `wake_an_isr_here` 0x40081760 → `xQueueGenericSendFromISR` 0x40097244 / `xTaskGetSchedulerState` 0x40098938 / `_frxt_setup_switch`
+0x400997fc, tots dins de la IRAM (0x40080404–0x4009e77c), i `memset` 0x4000c44c a la ROM (docs/50, docs/95).
 
 **I el que costa una pintada es pregunta a la placa, amb `panel bench`** (0.190.123, l'amo: *«Mes cosetes per la pantalla eink! Vull que facis possible això
 dels 60hz»*). La forma d'ona d'aquest panell —la TC2 que el build porta compilada— té **vint-i-dues fases pel `du`** i **trenta-vuit pel `gc16`** a la

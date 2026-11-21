@@ -860,6 +860,16 @@ bool init() {
 
 void shutdown() { g_system.restore_terminal(); }
 
+// The host has no interrupt and no cache to lose, so this is the plain queue. It exists because the glass's interrupt handler is
+// written once for every platform (0.190.206).
+void wake_the_kernel_from_isr() {
+  pal::IQueue* queue = g_system.queue();
+  if (queue == nullptr) return;
+  pal::Event ev = {};
+  ev.type = kEventTouch;
+  queue->push_from_isr(ev);
+}
+
 ISystem& system() { return g_system; }
 
 IExtraMemory& extra_memory() { return g_extra; }

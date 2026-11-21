@@ -1374,3 +1374,77 @@ Ara:
 - **Mesurat a l'emulador**: `[I][UI] the list of stops: 256 of 2849 slots, 8192 B` surt **una sola vegada** per
   app; la caché del llançador es recupera del disc (`asks for 'apps': 32768 B, restored 32768 B from the disk`) i
   s'hi queda (`home: cache kept`); i un toc a la cel·la del 2048 obre l'app amb la caché calenta i amb la freda.
+
+## El que es pagava sempre i només servia de vegades (0.190.202)
+
+L'amo, mirant una nota seva sobre el Wi-Fi que no arrencava en un ATOM: *«busca coses allotjades estàticament i fes-les dinàmiques, passa a
+psram tot el que puguis»*. La nota deia `ESP_ERR_NO_MEM; 43156 B free, largest 32756 B` —un heap amb quaranta-tres kilobytes i cap forat de
+trenta-dos— i el que hi havia darrere eren **tretze kilobytes i mig de taules fixes** que la placa pagava a l'arrencada per a feines que
+moltes vegades no es fan mai:
+
+| Què | Bytes | Quan es fa servir | Què se n'ha fet |
+|---|---|---|---|
+| El símbol del QR del provisioning | **2 025** | una vegada a la vida, si algú provisiona per codi | es demana a `pal::extra_memory()` i es torna en dibuixar-lo |
+| Els mòduls de `qr.encode` de Lua | **4 096** | quan una app dibuixa un QR | el mateix, per a aquesta crida i prou |
+| Els tres blocs de treball del codificador | **3 577** | el mateix moment | un `Scratch` que els demana en entrar a `encode` i els dona en sortir, per qualsevol camí |
+| Els zeros d'esborrar un bloc del banc | **4 096** | quan un bloc de sessió viu al `himem` | cent vint-i-huit bytes a la pila, en comptes de quatre mil noranta-sis a la `.bss` |
+
+**Mesurat a l'ATOM, amb el mateix codi i el mateix `sdkconfig`** (`xtensa-esp32-elf-size` sobre el `firmware.elf`):
+
+| | abans | després |
+|---|---|---|
+| `.bss` | 61 796 B | **52 100 B** |
+| `.data` | 385 697 B | **381 617 B** |
+| RAM estàtica que compta la plataforma | 89 976 B (27,5 %) | **80 280 B (24,5 %)** |
+
+- **La porta és la de sempre i no una de nova**: `pal::extra_memory()` ja dona PSRAM quan la placa en té i la memòria de casa quan no, i
+  els blocs surten a `mem blocks` amb el seu amo, o sigui que una fuita d'aquests es veu com qualsevol altra.
+- **El codificador del QR és pur i no en sap res, de la PSRAM**: `lib/qr` no depèn de `pal` i no hi ha d'afegir la dependència per un
+  bloc de treball. Els seus tres blocs es presten amb `malloc`/`free` dins d'`encode`, i el que es queda és el que és una taula i no un
+  bloc: els dos logaritmes del cos de Galois (768 B), que es calculen una vegada.
+- **El bloc es presta i no es parteix**: `data_modules()` dibuixa sobre el mateix mapa de mòduls de funció i es pot cridar mentre
+  `encode` treballa, o sigui que el seu `Scratch` rep el bloc que ja hi és i no en demana un segon. Això va ser un `SIGSEGV` de la
+  suite del QR la primera vegada —la funció que dibuixa sense codificar no demanava res—, i és el motiu pel qual la prova hi és.
+- **El que es va deixar com era en aquesta passada, i per què**: la cua de peticions de la xarxa (4 064 B) i el valor d'una clau de la NVS
+  (1 024 B) es van quedar a la `.bss` perquè fer-los dinàmics *per crida* els trauria d'on són per posar-los al mateix lloc un instant
+  després —i perquè el valor de la NVS ha de sobreviure entre les crides d'un mateix fitxer obert—. **Dues versions més tard es van moure
+  igualment, però no per crida sinó un cop i es queda** (vegeu la secció de la 0.190.207). El lector del llistat (2 264 B) té el seu
+  propi comentari i la seva raó —la pila del bucle són setze kilobytes i un lector de dos i mig a sobre va petar una vegada—, i no s'hi
+  ha tocat.
+
+## El que la `.bss` tenia per a feines d'un cop (0.190.207)
+
+L'amo va tornar a la càrrega: *«si veus que és perquè falta memòria, rebusquem al codi, segur que trobem mes declaracions de cues
+estàtiques. Quan podem aprofitar al màxim la PSRAM i fer tot lo raonablement més dinàmic possible...»*. **No era falta de memòria** —tres
+bandes no compilaven per un *stub* trencat, i això és un enllaç i no un pressupost—, però la pregunta era bona i la resposta són **7 136
+bytes** de la Paper:
+
+| Què | Bytes | Quan es fa servir | Què se n'ha fet |
+|---|---|---|---|
+| La cua de peticions de la xarxa | **4 064** | vuit peticions de mig kilobyte que una placa sense ràdio no omple mai | `the_queue()` les pren de `extra_memory()` la primera vegada que una petició hi entra, i les vuit entrades es construeixen al bloc |
+| El manifest d'una app | **1 024** | cada vegada que el sistema llegeix una app | `pal::Scratch` a `apps::load`: es demana en entrar i es torna en sortir, per qualsevol de les nou sortides |
+| El manifest d'`apps info` | **1 024** | quan una persona escriu la comanda | el mateix, amb `pal::kMemoryShell` |
+| El valor d'un fitxer de la NVS | **1 024** | quan una app navega el `/nvs` com a fitxers | un bloc que es pren un cop i es queda, perquè el `read` el camina amb `g_pos` entre crides |
+
+| | abans | després |
+|---|---|---|
+| RAM de la Paper (`pio run -e m5-paper-idf`) | 105 860 B | **98 724 B** |
+| RAM de l'ATOM (`pio run -e m5-atom-idf`) | 80 280 B | **73 208 B** |
+
+I la resta de bandes, amb el mateix canvi: **Matrix 55 436 B**, **devkit 55 364 B**, **T-Koala 56 000 B** i **T5S3 93 024 B** (aquestes
+quatre no porten la ràdio i el que hi guanyen és la cua, que mai omplen).
+
+- **`pal::Scratch` és nou i és l'eina que faltava**: `pal::extra_memory()` amb la tornada dins del destructor, amb una marca (el bloc
+  surt amb amo a `mem blocks`) i amb un `false` quan el bloc no s'ha pogut prendre en lloc d'un punter que mata. Una funció amb nou
+  sortides ja no ha de recordar-se de tornar un kilobyte.
+- **Un bloc de la memòria extra no arriba a zero, i la `.bss` sí**: les vuit peticions de la cua es construeixen amb placement new, no
+  amb `memset` —`Request` té valors de sèrie i el compilador té raó a refusar l'escombrat—, perquè `page_pending` llegeix el `kind`
+  d'una entrada que ningú ha escrit encara.
+- **El que NO s'ha mogut, i és a posta**: el taller del rasteritzador de ttf (`g_edges` 6 144 B, `g_points` 3 072 B, `g_crossing`
+  1 536 B, més la direcció de cada aresta) i les files de l'antialiàsing (`g_aa_rows`, 1 152 B) són **el bucle interior d'una lletra**:
+  cada fila d'un glif recorre les seves arestes, i això passat per la PSRAM d'un ESP32 —que es llegeix per la **mateixa** memòria cau
+  que el codi de la flash— és canviar tinta per velocitat de pintada en una placa que pinta text tota l'estona. `zip::g_window`
+  (1 024 B) es queda perquè la fitxa de la llibreria diu «with no allocation of its own» i això és una propietat, no un accident.
+- **I el que queda a la llista, amb el número a la mà**: els tres blocs del ttf i el de l'antialiàsing són **12 096 B** i són l'única
+  cosa gran que queda que sigui nostra; moure'ls demana abans una mesura de quant costa pintar una pàgina amb text quan el taller és a
+  la PSRAM, i aquesta mesura encara no hi és.

@@ -31,6 +31,9 @@ class Esp32Bluetooth : public IBluetooth {
   // board as the host and somebody else's keyboard. El rol central de NimBLE ja és al `sdkconfig`, o sigui que el que hi ha és GATT a
   // mà: explorar, connectar, demanar el boot protocol i subscriure's al report de vuit bytes (docs/50).
   bool can_host() const override;
+  // **Si aquesta placa ha aparellat mai res** (0.190.203): una marca a la NVS, que no vol la pila a dalt com la botiga del ràdio.
+  bool reports_enabled() const override;
+  bool host_remembers() const override;
   bool host_on() override;
   void host_off() override;
   bool host_is_up() const override;
@@ -41,8 +44,8 @@ class Esp32Bluetooth : public IBluetooth {
   void host_forget() override;
   void host_sink(HostSink sink) override;
   uint8_t keyboard_leds() const override;
-  bool device_is_a_mouse() const override;
-  bool device_be(bool mouse) override;
+  hal::IBluetooth::Device device_is() const override;
+  bool device_be(hal::IBluetooth::Device what) override;
   bool mouse_move(int8_t dx, int8_t dy) override;
   bool mouse_press(uint8_t buttons) override;
   bool mouse_click(uint8_t buttons) override;
@@ -52,6 +55,11 @@ class Esp32Bluetooth : public IBluetooth {
 // **La instància d'aquesta banda**, que cada placa torna des del seu `platform` (0.190.179): a board whose build has no radio gets the
 // object that answers that it cannot, o sigui que el nucli no ha de recordar cap punter nul (docs/50).
 IBluetooth* esp32_bluetooth();
+
+// **La ràdio per a qui no és el teclat** (0.190.212): the stack of NimBLE is one and the same for the HID and for the mesh, o sigui que el
+// mesh ha de poder encendre'l sense oferir-se com a teclat (`bring_up_the_radio` i prou). False when the radio refused to come up.
+bool esp32_radio_for(const char* why);
+bool esp32_radio_is_up();
 
 }  // namespace hal
 

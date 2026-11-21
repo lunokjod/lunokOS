@@ -52,6 +52,9 @@ CONFIG_COMPILER_CXX_RTTI=
 
 # **El TLS allotja a la PSRAM**, i els noms llargs de la targeta encesos (les mateixes dues raons que al `sdkconfig.defaults`)
 CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+# **`FATFS_LONG_FILENAMES` no és un booleà**: a la Kconfig és el nom de l'*elecció* —els tres membres són `LFN_NONE`,
+# `LFN_HEAP` i `LFN_STACK`—, o sigui que no existeix cap línia `CONFIG_FATFS_LONG_FILENAMES=y` enlloc: la línia de sota
+# **és** el seu «sí», amb la memòria del nom a la pila i no al heap (docs/70).
 CONFIG_FATFS_LFN_STACK=y
 
 # La taula de particions és la de l'entorn d'Arduino d'aquesta placa

@@ -1210,6 +1210,75 @@ void test_sys_settings_answers_what_the_prompt_prints(void) {
 // **I un sistema que no en sap diu per què** (0.189.13): a launcher that reads this table has to be able to go on with the
 // order the door gave it, so the answer is `nil` and a code and not a table of zeroes that would look like a setting of the
 // person (docs/30).
+namespace {
+
+// **La porta del ràdio, apuntada** (0.190.204): the four doors a page of `bt` has on the device side record what they were told,
+// perquè el que es mira sigui que la paraula i els dos números arriben sencers i no que la pàgina s'ho inventi.
+const char* g_bt_word = "keyboard";
+char g_bt_asked[16] = {};
+int g_bt_dx = 0;
+int g_bt_dy = 0;
+char g_bt_button[8] = {};
+
+const char* fake_bt_device() { return g_bt_word; }
+bool fake_bt_be(const char* what) {
+  if (what == nullptr) return false;
+  if (strcmp(what, "both") != 0 && strcmp(what, "mouse") != 0 && strcmp(what, "keyboard") != 0) return false;
+  snprintf(g_bt_asked, sizeof(g_bt_asked), "%s", what);
+  g_bt_word = (strcmp(what, "both") == 0) ? "both" : ((strcmp(what, "mouse") == 0) ? "mouse" : "keyboard");
+  return true;
+}
+const char* fake_bt_name() { return "lunokOS-TEST"; }
+bool fake_bt_move(int dx, int dy) {
+  g_bt_dx = dx;
+  g_bt_dy = dy;
+  return true;
+}
+bool fake_bt_click(const char* button) {
+  snprintf(g_bt_button, sizeof(g_bt_button), "%s", (button != nullptr) ? button : "");
+  return true;
+}
+
+}  // namespace
+
+// **`bt.device`, `bt.name`, `bt.move` i `bt.click`** (0.190.204, l'amo: *«una app lua... amb un teclat i un mouse»*): the four doors
+// a page needs to be the two things at once, i el que la prova guarda és l'acord sencer —la paraula que es demana, la que queda, el
+// nom amb què la placa s'anuncia i els dos números del moviment— perquè una pàgina que arrossega un dit i rep un cursor quiet no té
+// res més a preguntar (docs/30, docs/50).
+void test_bt_device_move_and_click_reach_the_radio(void) {
+  pal::init();
+  luabind::BtOps ops = {};
+  ops.device = &fake_bt_device;
+  ops.be = &fake_bt_be;
+  ops.name = &fake_bt_name;
+  ops.move = &fake_bt_move;
+  ops.click = &fake_bt_click;
+  luabind::set_bt_ops(ops);
+  g_bt_word = "keyboard";
+  g_bt_asked[0] = '\0';
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("assert(bt.device() == 'keyboard', tostring(bt.device()))\n"
+                       "local now = bt.device('both')\n"
+                       "assert(now == 'both', tostring(now))\n"
+                       "assert(bt.name() == 'lunokOS-TEST', tostring(bt.name()))\n"
+                       "assert(bt.move(12, -8) == true)\n"
+                       "assert(bt.click() == true)\n"
+                       "assert(bt.click('right') == true)\n"
+                       "local bad, err = bt.device('mouse-and-toaster')\n"
+                       "assert(bad == nil, tostring(bad))\n"
+                       "assert(type(err) == 'table' and err.code == 'E_INVAL', tostring(err and err.code))\n"
+                       "local far, why = bt.move(400, 0)\n"
+                       "assert(far == nil, tostring(far))\n"
+                       "assert(type(why) == 'table' and why.code == 'E_INVAL', tostring(why and why.code))\n"
+                       "local which, e2 = bt.click('toaster')\n"
+                       "assert(which == nil and type(e2) == 'table' and e2.code == 'E_INVAL', tostring(e2 and e2.code))"));
+  TEST_ASSERT_EQUAL_STRING("both", g_bt_asked);
+  TEST_ASSERT_EQUAL_INT(12, g_bt_dx);
+  TEST_ASSERT_EQUAL_INT(-8, g_bt_dy);
+  TEST_ASSERT_EQUAL_STRING("right", g_bt_button);
+  luabind::stop();
+}
+
 void test_sys_settings_without_a_door_says_unsupported(void) {
   pal::init();
   luabind::set_settings_ops(luabind::SettingsOps());
@@ -1361,6 +1430,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_rle_packs_and_unpacks_a_text_of_lua);
   RUN_TEST(test_sys_settings_answers_what_the_prompt_prints);
   RUN_TEST(test_sys_settings_without_a_door_says_unsupported);
+  RUN_TEST(test_bt_device_move_and_click_reach_the_radio);
   RUN_TEST(test_sys_session_destroy_says_how_much_went);
   RUN_TEST(test_an_alarm_that_is_already_there_is_named_and_not_added);
   UNITY_END();

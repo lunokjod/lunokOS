@@ -1,0 +1,12 @@
+{
+  "title": "Bluetooth",
+  "author": "@lunokjod",
+  "version": "0.1.5",
+  "entry": "bthid.lua",
+  "boards": [
+    "m5stack-paper",
+    "lilygo-t5s3-epaper-pro"
+  ],
+  "icon": "res/icon.png",
+  "description": "This board as a Bluetooth keyboard and a mouse for another device: the empty page is the pointer —a finger that walks moves it, a tap clicks— and the box at the bottom is the keyboard, where what is typed goes out as keys.\nIt waits with the name to pair with, and it says when the device arrives and when it leaves. The two reports travel in one device, so the other side has to pair again once: it read the map of a plain keyboard."
+}

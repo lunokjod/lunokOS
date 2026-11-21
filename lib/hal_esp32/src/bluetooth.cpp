@@ -14,6 +14,7 @@
 #include "sdkconfig.h"
 
 #include "esp32/bluetooth.h"
+#include "esp32/nvs.h"
 
 #if defined(CONFIG_BT_ENABLED) && CONFIG_BT_ENABLED
 
@@ -54,6 +55,34 @@ namespace hal {
 namespace {
 
 const char* kTag = "BT";
+// **La marca que diu si aquesta placa ha aparellat mai res** (0.190.203): un byte a la NVS que el sistema ja té, i no una lectura de la
+// botiga del ràdio —que vol la pila a dalt i és exactament el que la marca estalvia—. Es desa quan una lligadura s'acaba de debò (el
+// `ENC_CHANGE` sense error) i s'esborra a `bt host forget`, perquè una marca que sobreviu al vincle que descrivia torna a encendre el
+// ràdio per a un teclat que ja no hi és (docs/50, docs/70).
+const char kMarkNamespace[] = "bt";
+const char kMarkKey[] = "paired";
+
+bool this_board_has_paired() {
+  hal::IKeyValue* store = esp32_nvs();
+  if (store == nullptr) return true;  // sense magatzem no hi ha marca i el que toca és intentar-ho, com abans
+  char one = 0;
+  size_t len = 0;
+  if (!store->get(kMarkNamespace, kMarkKey, &one, sizeof one, len)) return false;
+  return len == 1 && one == '1';
+}
+
+void remember_that_it_paired() {
+  hal::IKeyValue* store = esp32_nvs();
+  if (store == nullptr) return;
+  if (store->set(kMarkNamespace, kMarkKey, "1", 1)) store->commit();
+}
+
+void forget_that_it_paired() {
+  hal::IKeyValue* store = esp32_nvs();
+  if (store == nullptr) return;
+  if (store->erase(kMarkNamespace, kMarkKey)) store->commit();
+}
+
 
 // **El descriptor del teclat, que és el que l'altre aparell llegeix per saber què és això**: the standard six-key keyboard report with
 // its modifiers, its five LEDs and eight bytes of report. It is written out because it is the one thing a host trusts, and a byte
@@ -126,17 +155,101 @@ const uint8_t kMouseReportMap[] = {
     0xC0,        // End Collection
 };
 
+// **El mapa de les dues coses alhora** (0.190.204, l'amo: *«una app... amb un teclat i un mouse»*): the same two collections in one
+// map, and the only difference that matters is the two `Report ID` items —the keyboard is 1 and the mouse is 2—, perquè un mapa amb
+// dues col·leccions d'entrada **ha** de portar IDs. És el mapa que es llegeix quan la placa és `kBoth`, i el que se'n perd és el boot
+// protocol: un aparell amb IDs no el pot servir, i un mòbil o un ordinador no el demanen (el llegeixen el mapa i prou) (docs/50).
+const uint8_t kBothReportMap[] = {
+    0x05, 0x01,  // Usage Page (Generic Desktop)
+    0x09, 0x06,  // Usage (Keyboard)
+    0xA1, 0x01,  // Collection (Application)
+    0x85, 0x01,  //   Report ID (1)
+    0x05, 0x07,  //   Usage Page (Keyboard/Keypad)
+    0x19, 0xE0,  //   Usage Minimum (Left Control)
+    0x29, 0xE7,  //   Usage Maximum (Right GUI)
+    0x15, 0x00,  //   Logical Minimum (0)
+    0x25, 0x01,  //   Logical Maximum (1)
+    0x75, 0x01,  //   Report Size (1)
+    0x95, 0x08,  //   Report Count (8)
+    0x81, 0x02,  //   Input (Data,Var,Abs) — the modifiers
+    0x95, 0x01,  //   Report Count (1)
+    0x75, 0x08,  //   Report Size (8)
+    0x81, 0x01,  //   Input (Const) — reserved
+    0x95, 0x05,  //   Report Count (5)
+    0x75, 0x01,  //   Report Size (1)
+    0x05, 0x08,  //   Usage Page (LEDs)
+    0x19, 0x01,  //   Usage Minimum (Num Lock)
+    0x29, 0x05,  //   Usage Maximum (Kana)
+    0x91, 0x02,  //   Output (Data,Var,Abs) — the LEDs
+    0x95, 0x01,  //   Report Count (1)
+    0x75, 0x03,  //   Report Size (3)
+    0x91, 0x01,  //   Output (Const) — padding
+    0x95, 0x06,  //   Report Count (6)
+    0x75, 0x08,  //   Report Size (8)
+    0x15, 0x00,  //   Logical Minimum (0)
+    0x25, 0x65,  //   Logical Maximum (101)
+    0x05, 0x07,  //   Usage Page (Keyboard)
+    0x19, 0x00,  //   Usage Minimum (0)
+    0x29, 0x65,  //   Usage Maximum (101)
+    0x81, 0x00,  //   Input (Data,Array) — the six keys
+    0xC0,        // End Collection
+    0x05, 0x01,  // Usage Page (Generic Desktop)
+    0x09, 0x02,  // Usage (Mouse)
+    0xA1, 0x01,  // Collection (Application)
+    0x85, 0x02,  //   Report ID (2)
+    0x09, 0x01,  //   Usage (Pointer)
+    0xA1, 0x00,  //   Collection (Physical)
+    0x05, 0x09,  //     Usage Page (Buttons)
+    0x19, 0x01,  //     Usage Minimum (1)
+    0x29, 0x03,  //     Usage Maximum (3)
+    0x15, 0x00,  //     Logical Minimum (0)
+    0x25, 0x01,  //     Logical Maximum (1)
+    0x95, 0x03,  //     Report Count (3)
+    0x75, 0x01,  //     Report Size (1)
+    0x81, 0x02,  //     Input (Data,Var,Abs)
+    0x95, 0x01,  //     Report Count (1)
+    0x75, 0x05,  //     Report Size (5)
+    0x81, 0x03,  //     Input (Cnst,Var,Abs)
+    0x05, 0x01,  //     Usage Page (Generic Desktop)
+    0x09, 0x30,  //     Usage (X)
+    0x09, 0x31,  //     Usage (Y)
+    0x15, 0x81,  //     Logical Minimum (-127)
+    0x25, 0x7F,  //     Logical Maximum (127)
+    0x75, 0x08,  //     Report Size (8)
+    0x95, 0x02,  //     Report Count (2)
+    0x81, 0x06,  //     Input (Data,Var,Rel)
+    0xC0,        //   End Collection
+    0xC0,        // End Collection
+};
+
 // **Què és aquesta placa ara mateix**: a keyboard (the default) or a mouse. El que canvia és el report map que el host llegeix, el
 // report que s'envia i l'aparença de l'anunci; el servei GATT és el mateix, o sigui que el canvi no demana reinicialitzar la pila (docs/50).
-enum class DeviceMode : uint8_t { kKeyboard, kMouse };
+using DeviceMode = hal::IBluetooth::Device;
 DeviceMode g_device_mode = DeviceMode::kKeyboard;
+
+// **Els report IDs del mode compost**: el teclat és l'1 i el ratolí el 2, i en els altres dos modes no n'hi ha cap (docs/50).
+const uint8_t kKeyboardReportId = 0x01;
+const uint8_t kMouseReportId = 0x02;
 
 // HID Information: version 1.11, no country code, and the two flags a keyboard has —remote wake and normally connectable—.
 const uint8_t kHidInformation[] = {0x11, 0x01, 0x00, 0x03};
-// Report Reference of the input report: report 0, type 1 (input).
-const uint8_t kReportReference[] = {0x00, 0x01};
+// Report Reference of an input report: el seu ID i el tipus 1 (input). **L'ID depèn del mode** —zero als dos modes d'un sol report,
+// 1 i 2 al compost—, o sigui que el descriptor el llegeix una funció i no una taula fixa (0.190.204, docs/50).
+uint8_t report_id_of(bool mouse) {
+  if (g_device_mode != DeviceMode::kBoth) return 0;
+  return mouse ? kMouseReportId : kKeyboardReportId;
+}
+
+// **Si l'altre cap ha encès els reports** (0.190.208): un amfitrió es connecta i tot seguit escriu el CCCD de cada característica
+// d'entrada que vol rebre, i fins que no ho fa les notificacions no arriben enlloc. Fins ara això no es mirava i la placa podia dir
+// «connectat» mentre l'altre aparell encara no rebia res —que és exactament el que una persona veu com «connecta però no envia»—.
+bool g_report_subscribed = false;
+bool g_mouse_subscribed = false;
 
 uint16_t g_report_handle = 0;
+// **La segona característica de report, la del ratolí** (0.190.204): existeix sempre i el mapa del mode diu si algú l'ha de fer
+// servir; engegar-la i apagar-la a cada canvi de mode voldria tornar a registrar el servei, i el servei és el mateix (docs/50).
+uint16_t g_mouse_report_handle = 0;
 uint16_t g_boot_handle = 0;
 uint16_t g_connection = BLE_HS_CONN_HANDLE_NONE;
 // **Els botons del ratolí d'aquesta placa** (0.190.193): el que està premut ara mateix, que és el que el report diu a cada moviment.
@@ -191,6 +304,11 @@ int take_the_lights(struct ble_gatt_access_ctxt* ctxt) {
   if (OS_MBUF_PKTLEN(ctxt->om) < 1 || os_mbuf_copydata(ctxt->om, 0, 1, &leds) != 0) {
     return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
   }
+  // **Al mode compost el report de sortida porta l'ID al davant** (0.190.204): the keyboard's output report is `[id, leds]`, o sigui que
+  // el que compta és el segon byte i el primer només hi és per dir de qui és (docs/50).
+  if (g_device_mode == DeviceMode::kBoth && OS_MBUF_PKTLEN(ctxt->om) >= 2) {
+    if (os_mbuf_copydata(ctxt->om, 1, 1, &leds) != 0) return BLE_ATT_ERR_UNLIKELY;
+  }
   if (leds == g_leds) return 0;
   g_leds = leds;
   hal::logf(pal::kLogInfo, "BT", "the host set the lights of the keyboard: caps %s, num %s, scroll %s",
@@ -198,10 +316,30 @@ int take_the_lights(struct ble_gatt_access_ctxt* ctxt) {
   return 0;
 }
 
+// **Els UUIDs del perfil, com els vol NimBLE**: a descriptor and a characteristic point at a `ble_uuid_t`, so each one is a small
+// struct of its own and the callback reads which one it is from the value it is handed (docs/50).
+ble_uuid16_t g_hid_information_uuid = BLE_UUID16_INIT(0x2A4A);
+ble_uuid16_t g_report_map_uuid = BLE_UUID16_INIT(0x2A4B);
+ble_uuid16_t g_control_point_uuid = BLE_UUID16_INIT(0x2A4C);
+ble_uuid16_t g_protocol_mode_uuid = BLE_UUID16_INIT(0x2A4E);
+ble_uuid16_t g_report_uuid = BLE_UUID16_INIT(0x2A4D);
+ble_uuid16_t g_boot_input_uuid = BLE_UUID16_INIT(0x2A22);
+ble_uuid16_t g_boot_output_uuid = BLE_UUID16_INIT(0x2A32);
+ble_uuid16_t g_report_reference_uuid = BLE_UUID16_INIT(0x2908);
+// **Els mateixos valors i adreces diferents** (0.190.204): the callbacks are handed the `arg` pointer and not the value, o sigui que la
+// segona característica de report i el seu descriptor es distingeixen per l'adreça i no per l'UUID (docs/50).
+ble_uuid16_t g_mouse_report_uuid = BLE_UUID16_INIT(0x2A4D);
+ble_uuid16_t g_mouse_reference_uuid = BLE_UUID16_INIT(0x2908);
+ble_uuid16_t g_hid_service_uuid = BLE_UUID16_INIT(0x1812);
+
 int hid_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt* ctxt, void* arg) {
   (void)conn_handle;
   (void)attr_handle;
   const uint16_t uuid = reinterpret_cast<const ble_uuid16_t*>(arg)->value;
+  // **Cada pregunta de l'altre cap, dita** (0.190.211): an interrupted pairing is a conversation that stops somewhere, i el registre ha de
+  // dir on. És nivell `debug` perquè són poques línies i perquè el que una persona mira és el motiu de la desconnexió (docs/50, docs/95).
+  hal::logf(pal::kLogDebug, "BT", "the other side asks 0x%04X (%s)", static_cast<unsigned>(uuid),
+            (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) ? "write" : "read");
   switch (uuid) {
     case 0x2A4A:
       return write_to_client(kHidInformation, sizeof kHidInformation, ctxt);
@@ -209,6 +347,7 @@ int hid_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_acces
       // **El mapa del que aquesta placa és**, i es llegeix nou a cada petició: és el que permet canviar de teclat a ratolí sense
       // reinicialitzar el servei (docs/50).
       if (g_device_mode == DeviceMode::kMouse) return write_to_client(kMouseReportMap, sizeof kMouseReportMap, ctxt);
+      if (g_device_mode == DeviceMode::kBoth) return write_to_client(kBothReportMap, sizeof kBothReportMap, ctxt);
       return write_to_client(kReportMap, sizeof kReportMap, ctxt);
     case 0x2A4E:
       if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
@@ -224,8 +363,10 @@ int hid_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_acces
     case 0x2A32:  // Boot Keyboard Output: the five lights, written by the host
     case 0x2A4D:  // and the same thing as a report, for a host that speaks the report protocol
       return take_the_lights(ctxt);
-    case 0x2908:
-      return write_to_client(kReportReference, sizeof kReportReference, ctxt);
+    case 0x2908: {
+      const uint8_t reference[2] = {report_id_of(arg == &g_mouse_reference_uuid.u), 0x01};
+      return write_to_client(reference, sizeof reference, ctxt);
+    }
     default:
       return BLE_ATT_ERR_UNLIKELY;
   }
@@ -235,22 +376,22 @@ int hid_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_acces
 int report_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt* ctxt, void* arg) {
   (void)conn_handle;
   (void)attr_handle;
-  (void)arg;
-  static const uint8_t empty[8] = {0};
-  return write_to_client(empty, sizeof empty, ctxt);
+  // **Cada característica té la mida del report d'ara, i no la del mode compost** (0.190.211): a keyboard-only el mapa declara vuit bytes
+  // i aquesta lectura en tornava nou —l'ID del mode compost— perquè les taules de zeros eren fixes; un amfitrió que llegeix el valor abans
+  // de subscriure-s'hi i el compara amb el mapa veu una mida que no és la de cap report, i un de seriós tanca l'enllaç (docs/50). La mida la
+  // diu `report_id_of` —que és qui sap si el mapa porta IDs— i no una taula.
+  static const uint8_t zeros[9] = {0};
+  const bool both = (g_device_mode == DeviceMode::kBoth);
+  const bool mouse = (arg == &g_mouse_report_uuid.u);
+  uint8_t len = 8;
+  if (mouse) {
+    len = both ? 4 : 3;
+  } else if (both) {
+    len = 9;
+  }
+  return write_to_client(zeros, len, ctxt);
 }
 
-// **Els UUIDs del perfil, com els vol NimBLE**: a descriptor and a characteristic point at a `ble_uuid_t`, so each one is a small
-// struct of its own and the callback reads which one it is from the value it is handed (docs/50).
-ble_uuid16_t g_hid_information_uuid = BLE_UUID16_INIT(0x2A4A);
-ble_uuid16_t g_report_map_uuid = BLE_UUID16_INIT(0x2A4B);
-ble_uuid16_t g_control_point_uuid = BLE_UUID16_INIT(0x2A4C);
-ble_uuid16_t g_protocol_mode_uuid = BLE_UUID16_INIT(0x2A4E);
-ble_uuid16_t g_report_uuid = BLE_UUID16_INIT(0x2A4D);
-ble_uuid16_t g_boot_input_uuid = BLE_UUID16_INIT(0x2A22);
-ble_uuid16_t g_boot_output_uuid = BLE_UUID16_INIT(0x2A32);
-ble_uuid16_t g_report_reference_uuid = BLE_UUID16_INIT(0x2908);
-ble_uuid16_t g_hid_service_uuid = BLE_UUID16_INIT(0x1812);
 
 struct ble_gatt_dsc_def kReportDescriptors[] = {
     {
@@ -259,6 +400,18 @@ struct ble_gatt_dsc_def kReportDescriptors[] = {
         .min_key_size = 0,
         .access_cb = hid_access,
         .arg = &g_report_reference_uuid.u,
+    },
+    {},
+};
+
+// El descriptor de la característica del ratolí: el mateix 0x2908 i la seva pròpia adreça, que és el que diu a `hid_access` de qui és.
+struct ble_gatt_dsc_def kMouseReportDescriptors[] = {
+    {
+        .uuid = &g_mouse_reference_uuid.u,
+        .att_flags = BLE_ATT_F_READ,
+        .min_key_size = 0,
+        .access_cb = hid_access,
+        .arg = &g_mouse_reference_uuid.u,
     },
     {},
 };
@@ -290,6 +443,17 @@ const struct ble_gatt_chr_def kHidCharacteristics[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .min_key_size = 0,
         .val_handle = &g_report_handle,
+    },
+    {
+        // **La del ratolí** (0.190.204): the second input report, with its own handle and its own subscription. Its value is four
+        // bytes in the composite map and three in the mouse-only map, i el mapa és qui diu quina de les dues coses s'hi espera.
+        .uuid = &g_mouse_report_uuid.u,
+        .access_cb = report_access,
+        .arg = &g_mouse_report_uuid.u,
+        .descriptors = kMouseReportDescriptors,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .min_key_size = 0,
+        .val_handle = &g_mouse_report_handle,
     },
     {
         .uuid = &g_boot_input_uuid.u,
@@ -359,16 +523,47 @@ int gap_event(struct ble_gap_event* event, void* arg) {
     case BLE_GAP_EVENT_CONNECT:
       if (event->connect.status == 0) {
         g_connection = event->connect.conn_handle;
-        hal::logf(pal::kLogInfo, "BT", "a device is connected: the keyboard has someone to write to");
+        // **Amb quins paràmetres ha vingut** (0.190.211): the interval, the latency and the supervision timeout are the three numbers a
+        // person never sees and that decide whether a link lives, o sigui que es diuen quan arriba i no quan ja ha marxat (docs/50).
+        struct ble_gap_conn_desc desc;
+        if (ble_gap_conn_find(event->connect.conn_handle, &desc) == 0) {
+          hal::logf(pal::kLogInfo, "BT", "a device is connected: every %u.%02u ms, latency %u, timeout %u ms",
+                    static_cast<unsigned>(desc.conn_itvl * 125 / 100 / 10),
+                    static_cast<unsigned>((desc.conn_itvl * 125 / 100) % 10), static_cast<unsigned>(desc.conn_latency),
+                    static_cast<unsigned>(desc.supervision_timeout * 10));
+        } else {
+          hal::logf(pal::kLogInfo, "BT", "a device is connected: the keyboard has someone to write to");
+        }
       } else {
+        hal::logf(pal::kLogWarn, "BT", "the connection did not happen (%d)", event->connect.status);
         advertise();
       }
       return 0;
     case BLE_GAP_EVENT_DISCONNECT:
       g_connection = BLE_HS_CONN_HANDLE_NONE;
-      hal::logf(pal::kLogInfo, "BT", "the device went away: the keyboard is being offered again");
+      g_report_subscribed = false;
+      g_mouse_subscribed = false;
+      // **Per què se n'ha anat** (0.190.211): a link that falls on its own leaves a reason in the event and we were throwing it away, o sigui
+      // que el registre deia «the device went away» i prou. `0x08` is a timeout, `0x13` the other side ending it, `0x3D`/`0x3E` are MIC
+      // failures (a bond that does not match) i `0x16`/`0x05` are the host refusing the parameters or the security (docs/50).
+      hal::logf(pal::kLogWarn, "BT", "the device went away (%d): the keyboard is being offered again",
+                static_cast<int>(event->disconnect.reason));
       advertise();
       return 0;
+    // **El moment en què l'altre aparell comença a escoltar** (0.190.208): the host writes the CCCD of each input report it wants,
+    // and this is the only way to know which one it chose —which is what decides whether a mouse report has anywhere to go—. It is
+    // said in the log because it is the line that tells a person «connected» from «connected and heard» (docs/50).
+    case BLE_GAP_EVENT_SUBSCRIBE: {
+      const bool on = event->subscribe.cur_notify != 0;
+      if (event->subscribe.attr_handle == g_report_handle) {
+        g_report_subscribed = on;
+        hal::logf(pal::kLogInfo, "BT", "the other side %s the keyboard report", on ? "asked for" : "left");
+      } else if (event->subscribe.attr_handle == g_mouse_report_handle) {
+        g_mouse_subscribed = on;
+        hal::logf(pal::kLogInfo, "BT", "the other side %s the mouse report", on ? "asked for" : "left");
+      }
+      return 0;
+    }
     case BLE_GAP_EVENT_ADV_COMPLETE:
       advertise();
       return 0;
@@ -437,12 +632,28 @@ void host_task(void* param) {
   nimble_port_freertos_deinit();
 }
 
-bool send_report(const uint8_t* report, uint8_t len) {
-  if (g_connection == BLE_HS_CONN_HANDLE_NONE || g_report_handle == 0 || report == nullptr || len == 0) return false;
+// **Un report va a una característica i no a «la del report»** (0.190.204): the keyboard's eight bytes and the mouse's three are two
+// subscriptions on the host's side when the board is both, o sigui que qui envia diu per quina porta (docs/50).
+bool send_report(uint16_t handle, const uint8_t* report, uint8_t len) {
+  if (g_connection == BLE_HS_CONN_HANDLE_NONE || handle == 0 || report == nullptr || len == 0) return false;
+  // **Ningú no rep el que no ha demanat** (0.190.211): a notification on a characteristic whose CCCD is off is a protocol violation and some
+  // hosts answer it by closing the link. La subscripció la diu l'esdeveniment del CCCD, i la del report de boot no compta perquè per allà no
+  // s'hi envia mai (docs/50).
+  if (handle == g_report_handle && !g_report_subscribed) return false;
+  if (handle == g_mouse_report_handle && !g_mouse_subscribed) return false;
   struct os_mbuf* om = ble_hs_mbuf_from_flat(report, len);
   if (om == nullptr) return false;
-  const int rc = ble_gatts_notify_custom(g_connection, g_report_handle, om);
+  const int rc = ble_gatts_notify_custom(g_connection, handle, om);
   return rc == 0;
+}
+
+bool send_report_to_every_char(const uint8_t* report, uint8_t len) {
+  // **Les dues característiques d'un mode d'un sol report són el mateix report** (0.190.208), i `send_report` ja deixa fora la que l'altre cap
+  // no ha encès (0.190.211): si no ha demanat res encara, res no surt —una tecla que no s'envia es pot tornar a demanar; una notificació que
+  // no tocava és una connexió que es perd (docs/50).
+  const bool first = send_report(g_report_handle, report, len);
+  const bool second = send_report(g_mouse_report_handle, report, len);
+  return first || second;
 }
 
 
@@ -760,6 +971,7 @@ int host_gap_event(struct ble_gap_event* event, void* arg) {
       // **La lligadura feta**: the subscription that the keyboard refused before the pairing is asked for now, and no other way round.
       if (event->enc_change.status == 0 && event->enc_change.conn_handle == g_host.conn) {
         hal::logf(pal::kLogInfo, "BT", "the keyboard is bonded: asking for the reports again");
+        remember_that_it_paired();
         host_write_the_cccd(g_host.conn);
       }
       return 0;
@@ -788,8 +1000,10 @@ bool bring_up_the_radio(const char* why) {
   ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
   ble_hs_cfg.sm_bonding = 1;
   ble_hs_cfg.sm_sc = 1;
-  ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
-  ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
+  // **Encara que resolgui adreces**: a phone pairs with the identity key as well, and a bond that only has the encryption key is a bond a
+  // phone may decide it cannot keep (0.190.211). És el que fa un teclat de debò (docs/50).
+  ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+  ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
   ble_svc_gap_init();
   ble_svc_gatt_init();
   const int rc = ble_gatts_count_cfg(kGattServices);
@@ -820,6 +1034,9 @@ bool bring_up_the_radio(const char* why) {
 }  // namespace
 
 bool Esp32Bluetooth::can_bluetooth() const { return true; }
+
+// **La pregunta de l'arrencada** (0.190.203): la marca, i no la botiga, perquè la botiga vol la pila a dalt.
+bool Esp32Bluetooth::host_remembers() const { return this_board_has_paired(); }
 
 bool Esp32Bluetooth::keyboard_start(const char* name) {
   if (g_started) return true;
@@ -856,17 +1073,37 @@ void Esp32Bluetooth::keyboard_stop() {
 
 bool Esp32Bluetooth::keyboard_connected() const { return g_connection != BLE_HS_CONN_HANDLE_NONE; }
 
+// **Escoltat, que no és el mateix que connectat** (0.190.208): a report only reaches the other side once it has written the CCCD of
+// the characteristic it wants, and the two can be a second apart (docs/50).
+bool Esp32Bluetooth::reports_enabled() const { return g_report_subscribed || g_mouse_subscribed; }
+
 bool Esp32Bluetooth::keyboard_tap(uint8_t mods, uint8_t usage) {
   if (!g_started) return false;
-  uint8_t report[8] = {0};
-  report[0] = mods;
-  report[2] = usage;
-  if (!send_report(report, sizeof report)) return false;
+  // **El report d'un teclat és de vuit bytes, i de nou al mode compost** (0.190.204): amb report IDs el primer byte és l'ID i els vuit
+  // del teclat van darrere; sense IDs, els vuit de sempre (docs/50).
+  const bool both = (g_device_mode == DeviceMode::kBoth);
+  uint8_t report[9] = {0};
+  uint8_t* keys = report;
+  uint8_t len = 8;
+  if (both) {
+    report[0] = kKeyboardReportId;
+    keys = report + 1;
+    len = 9;
+  }
+  keys[0] = mods;
+  keys[2] = usage;
+  const bool sent = both ? send_report(g_report_handle, report, len) : send_report_to_every_char(report, len);
+  if (!sent) return false;
   // **I es deixa anar la tecla**, o l'altre aparell la veu premuda per sempre: vint mil·lisegons és el que un teclat de debò hi posa
   // (docs/50).
   vTaskDelay(pdMS_TO_TICKS(12));
-  uint8_t released[8] = {0};
-  send_report(released, sizeof released);
+  uint8_t released[9] = {0};
+  if (both) released[0] = kKeyboardReportId;
+  if (both) {
+    send_report(g_report_handle, released, len);
+  } else {
+    send_report_to_every_char(released, len);
+  }
   return true;
 }
 
@@ -960,11 +1197,25 @@ bool Esp32Bluetooth::host_pair(uint8_t index) {
 // hi és, el seu report arribarà quan arribi (docs/50).
 bool Esp32Bluetooth::host_reconnect() {
   if (!bring_up_the_radio("the keyboard that was here")) return false;
-  g_host_wanted = true;
-  if (g_host.conn != BLE_HS_CONN_HANDLE_NONE || g_host.busy) return true;
+  if (g_host.conn != BLE_HS_CONN_HANDLE_NONE || g_host.busy) {
+    g_host_wanted = true;
+    return true;
+  }
   ble_addr_t bonded[kHostPeers] = {};
   int count = 0;
-  if (ble_store_util_bonded_peers(bonded, &count, kHostPeers) != 0 || count <= 0) return false;
+  // **I si la botiga diu que no, aquest ràdio no s'ha demanat** (0.190.203): abans aquest camí sortia deixant `g_host_wanted` a cert,
+  // o sigui que `bt` deia `host: on` sense que ningú ho hagués demanat. **El que no es fa és baixar la pila aquí**: hi ha una prova a
+  // la placa que això peta —`Guru Meditation` a `ble_hs_start` amb `npl_freertos_callout_is_active` i `EXCVADDR 0x0`—, perquè un
+  // `nimble_port_deinit()` just després de `nimble_port_freertos_init()` deixa la tasca del host corrent amb les seves estructures
+  // ja alliberades, i el registre n'és el testimoni (`NimBLE: Host not enabled. Dropping the packet!` cada dos segons). El que es fa
+  // és no haver-la pujada: `host_remembers()` és la pregunta que estalvia l'encesa quan aquesta placa no ha aparellat mai res, i aquí
+  // el ràdio es queda a dalt i en silenci, que el baixa el `bt off` del prompt quan la pila ja ha acabat de néixer (docs/50, docs/60).
+  if (ble_store_util_bonded_peers(bonded, &count, kHostPeers) != 0 || count <= 0) {
+    // La marca deia que sí i la botiga que no: l'altre cap ens ha oblidat, i la marca ha de dir la veritat una altra vegada.
+    forget_that_it_paired();
+    return false;
+  }
+  g_host_wanted = true;
   g_host.count = 0;
   for (int i = 0; i < count && g_host.count < kHostPeers; ++i) {
     IBluetooth::Peer& peer = g_host.peers[g_host.count++];
@@ -1005,6 +1256,7 @@ void Esp32Bluetooth::host_forget() {
   const int peer = ble_store_util_delete_all(BLE_STORE_OBJ_TYPE_PEER_SEC, nullptr);
   const int record = ble_store_util_delete_all(BLE_STORE_OBJ_TYPE_PEER_DEV_REC, nullptr);
   const int ours = ble_store_util_delete_all(BLE_STORE_OBJ_TYPE_OUR_SEC, nullptr);
+  forget_that_it_paired();
   hal::logf(pal::kLogInfo, "BT", "the bonds are gone (%d, %d, %d)", peer, record, ours);
 }
 
@@ -1014,43 +1266,81 @@ void Esp32Bluetooth::host_sink(HostSink sink) { g_host.sink = sink; }
 // hi ha un teclat lligat encara que el teclat virtual d'aquesta placa estigui apagat (docs/50, docs/60).
 // ---- el que aquesta placa és: un teclat o un ratolí (0.190.193) ----
 
-bool Esp32Bluetooth::device_is_a_mouse() const { return g_device_mode == DeviceMode::kMouse; }
+hal::IBluetooth::Device Esp32Bluetooth::device_is() const { return g_device_mode; }
 
 // **Canviar de teclat a ratolí, o al revés** (0.190.193, l'amo: *«opció B»*): the GATT service is the same and the report map is read
 // again on every request, o sigui que el que cal és canviar el mode, tornar a anunciar-se amb l'aparença nova i no tocar res més.
 // **El vincle del costat que hi havia s'ha de refer**: el host que va llegir el mapa d'un teclat no endevina el d'un ratolí (docs/50).
-bool Esp32Bluetooth::device_be(bool mouse) {
-  const DeviceMode mode = mouse ? DeviceMode::kMouse : DeviceMode::kKeyboard;
+bool Esp32Bluetooth::device_be(DeviceMode mode) {
+  if (mode != DeviceMode::kKeyboard && mode != DeviceMode::kMouse && mode != DeviceMode::kBoth) return false;
   if (g_device_mode == mode) return true;
   g_device_mode = mode;
   if (!g_started) return true;
+  // **Un mapa nou no cap en un vincle vell** (0.190.211): the host read the map it found when it paired, and a bond whose HID state belongs
+  // to another map is a link that pairs, encrypts and then falls —*«the device went away»* una vegada i una altra, que és exactament el que
+  // es veia—. El que es fa és el que la frase ja demanava: esborrar el vincle i **tancar l'enllaç**, perquè l'altre cap torni i aparelli de
+  // nou amb el mapa que hi ha. Amb un mòbil això és un segon; sense això, el bucle no s'acaba mai.
+  const int peer = ble_store_util_delete_all(BLE_STORE_OBJ_TYPE_PEER_SEC, nullptr);
+  const int record = ble_store_util_delete_all(BLE_STORE_OBJ_TYPE_PEER_DEV_REC, nullptr);
+  const int ours = ble_store_util_delete_all(BLE_STORE_OBJ_TYPE_OUR_SEC, nullptr);
+  forget_that_it_paired();
+  if (g_connection != BLE_HS_CONN_HANDLE_NONE) {
+    ble_gap_terminate(g_connection, BLE_ERR_REM_USER_CONN_TERM);
+    hal::logf(pal::kLogInfo, "BT", "the link is closed so the other side pairs again (%d, %d, %d bonds gone)", peer, record, ours);
+  }
   // **A anunciar-se de nou, amb la cara nova**: l'aparença viatja a l'anunci, i un anunci que diu «teclat» per a un ratolí és una
-  // llista d'aparells que menteix (docs/50).
+  // llista d'aparells que menteix. **El compost s'anuncia com un teclat** (0x03C1): el que fa sobretot és escriure, i l'aparença del
+  // Bluetooth no té cap paraula per a «les dues coses» (docs/50).
   ble_gap_adv_stop();
   ble_svc_gap_device_appearance_set((mode == DeviceMode::kMouse) ? 0x03C2 : 0x03C1);
   advertise();
-  hal::logf(pal::kLogInfo, "BT", "this board is now a %s: pair it again from the other side",
-            (mode == DeviceMode::kMouse) ? "mouse" : "keyboard");
+  hal::logf(pal::kLogInfo, "BT", "this board is now %s: pair it again from the other side",
+            (mode == DeviceMode::kBoth) ? "a keyboard and a mouse"
+                                        : ((mode == DeviceMode::kMouse) ? "a mouse" : "a keyboard"));
   return true;
 }
 
 // **Moure el ratolí**: the boot report is three bytes —the buttons, x and y, both relative and signed— and the light is put back to
 // rest right after, o sigui que un moviment no deixa el cursor anant-se'n sol (docs/50).
+// **El report del ratolí, amb l'ID al davant si el mapa en té** (0.190.204): three bytes of buttons and movement, four with the id.
+static uint8_t a_mouse_report(const uint8_t* buttons_and_movement, uint8_t* out) {
+  if (g_device_mode == DeviceMode::kBoth) {
+    out[0] = kMouseReportId;
+    memcpy(out + 1, buttons_and_movement, 3);
+    return 4;
+  }
+  memcpy(out, buttons_and_movement, 3);
+  return 3;
+}
+
 bool Esp32Bluetooth::mouse_move(int8_t dx, int8_t dy) {
-  if (g_device_mode != DeviceMode::kMouse) return false;
-  const uint8_t report[3] = {g_mouse_buttons, static_cast<uint8_t>(dx), static_cast<uint8_t>(dy)};
-  if (!send_report(report, sizeof report)) return false;
-  const uint8_t still[3] = {g_mouse_buttons, 0, 0};
-  send_report(still, sizeof still);
+  // **El ratolí hi és sol o acompanyat del teclat** (0.190.204): the two modes are the same report with a different header.
+  if (g_device_mode == DeviceMode::kKeyboard) return false;
+  const uint8_t body[3] = {g_mouse_buttons, static_cast<uint8_t>(dx), static_cast<uint8_t>(dy)};
+  uint8_t report[4];
+  const uint8_t len = a_mouse_report(body, report);
+  const bool both = (g_device_mode == DeviceMode::kBoth);
+  if (both ? !send_report(g_mouse_report_handle, report, len) : !send_report_to_every_char(report, len)) return false;
+  const uint8_t still_body[3] = {g_mouse_buttons, 0, 0};
+  uint8_t still[4];
+  const uint8_t still_len = a_mouse_report(still_body, still);
+  if (both) {
+    send_report(g_mouse_report_handle, still, still_len);
+  } else {
+    send_report_to_every_char(still, still_len);
+  }
   return true;
 }
 
 // **I un botó**, que es queda premut fins que es deixa anar: és el que fa un ratolí de debò.
 bool Esp32Bluetooth::mouse_press(uint8_t buttons) {
-  if (g_device_mode != DeviceMode::kMouse) return false;
+  if (g_device_mode == DeviceMode::kKeyboard) return false;
   g_mouse_buttons = static_cast<uint8_t>(buttons & 0x07);
-  const uint8_t report[3] = {g_mouse_buttons, 0, 0};
-  return send_report(report, sizeof report);
+  const uint8_t body[3] = {g_mouse_buttons, 0, 0};
+  uint8_t report[4];
+  const uint8_t len = a_mouse_report(body, report);
+  if (g_device_mode == DeviceMode::kBoth) return send_report(g_mouse_report_handle, report, len);
+  return send_report_to_every_char(report, len);
 }
 
 // **Un clic**: es prem, s'espera el que un dit hi posa i es deixa anar, o l'altre cap veu un botó premut per sempre (docs/50).
@@ -1084,13 +1374,21 @@ bool Esp32Bluetooth::host_pair(uint8_t index) {
 bool Esp32Bluetooth::host_connected() const { return false; }
 void Esp32Bluetooth::host_forget() {}
 void Esp32Bluetooth::host_sink(HostSink sink) { (void)sink; }
+// **I si aquesta placa s'havia aparellat mai** (0.190.206): the mark of `bt/paired` is written by the radio, o sigui que una banda
+// sense ràdio no en té cap i contesta que no; la vtable el demana i sense aquesta resposta l'enllaç trenca (docs/50).
+bool Esp32Bluetooth::host_remembers() const { return false; }
+bool Esp32Bluetooth::reports_enabled() const { return false; }
 bool Esp32Bluetooth::host_reconnect() { return false; }
 bool Esp32Bluetooth::host_on() { return false; }
 void Esp32Bluetooth::host_off() {}
 bool Esp32Bluetooth::host_is_up() const { return false; }
-bool Esp32Bluetooth::device_is_a_mouse() const { return false; }
-bool Esp32Bluetooth::device_be(bool mouse) {
-  (void)mouse;
+// **The two doors of the device, answered by a board with no radio** (0.190.206): the names here had been left behind by the
+// composite mode of 0.190.204 —`device_is_a_mouse` and a bare `DeviceMode`— and this branch is the one no board with the radio
+// compiles, o sigui que el trencament era invisible per a totes les bandes que sí que tenen ràdio. A stub is a door like any
+// other and it compiles with the same names as the real one (docs/50, docs/80).
+hal::IBluetooth::Device Esp32Bluetooth::device_is() const { return hal::IBluetooth::Device::kKeyboard; }
+bool Esp32Bluetooth::device_be(hal::IBluetooth::Device what) {
+  (void)what;
   return false;
 }
 bool Esp32Bluetooth::mouse_move(int8_t dx, int8_t dy) {
@@ -1130,5 +1428,18 @@ IBluetooth* esp32_bluetooth() {
   static Esp32Bluetooth bt;
   return &bt;
 }
+
+// **La ràdio per a una cosa que no és el teclat** (0.190.212): the mesh needs the same NimBLE host and nothing offered, o sigui que aquesta
+// porta és `bring_up_the_radio` sense `keyboard_start` i sense anunciar-se com a teclat (docs/50).
+#if CONFIG_BT_ENABLED
+bool esp32_radio_for(const char* why) { return bring_up_the_radio(why); }
+bool esp32_radio_is_up() { return g_radio_up; }
+#else
+bool esp32_radio_for(const char* why) {
+  (void)why;
+  return false;
+}
+bool esp32_radio_is_up() { return false; }
+#endif
 
 }  // namespace hal

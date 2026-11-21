@@ -49,6 +49,9 @@ CONFIG_COMPILER_CXX_EXCEPTIONS=
 CONFIG_COMPILER_CXX_RTTI=
 
 # **Els noms llargs de la targeta encesos** (el mateix que el `sdkconfig.defaults` del projecte)
+# **`FATFS_LONG_FILENAMES` no és un booleà**: a la Kconfig és el nom de l'*elecció* —els tres membres són `LFN_NONE`,
+# `LFN_HEAP` i `LFN_STACK`—, o sigui que no existeix cap línia `CONFIG_FATFS_LONG_FILENAMES=y` enlloc: la línia de sota
+# **és** el seu «sí», amb la memòria del nom a la pila i no al heap (docs/70).
 CONFIG_FATFS_LFN_STACK=y
 
 # La taula de particions és la de l'entorn d'Arduino d'aquesta placa
@@ -73,3 +76,17 @@ CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
 # tenir-la—. Amb la persistència, els vincles van a la partició NVS que el sistema ja té per als ajustos, i el que es va aparellar una
 # vegada segueix aparellat després d'apagar (docs/50, docs/70).
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
+
+# **El node de Bluetooth Mesh, també en aquesta placa** (0.190.213, l'amo: *«vaig a posarlo al atom lite»*): la pila d'Espressif damunt de la
+# mateixa NimBLE del teclat, amb un element i el servidor de configuració, i res més. **Aquí és on es mira la RAM**: aquest xip no té PSRAM i
+# el heap lliure és el que decideix si el teclat, el Wi-Fi i el mesh hi caben alhora —o sigui que el número que compta és `mem` amb el node
+# apagat i amb `mesh on` (docs/50, docs/75). La imatge creix uns 206 KB i la ranura de 2,5 MB els té (docs/75).
+CONFIG_BLE_MESH=y
+CONFIG_BLE_MESH_NODE=y
+CONFIG_BLE_MESH_PB_ADV=y
+CONFIG_BLE_MESH_PB_GATT=y
+CONFIG_BLE_MESH_GATT_PROXY_SERVER=y
+# **El node recorda la xarxa** on l'han posat: sense això, cada arrencada torna a ser un node verge i el provisionador l'ha de tornar a afegir.
+CONFIG_BLE_MESH_SETTINGS=y
+# **I l'anunci normal al costat del mesh**: és el que fa possible que el teclat i el node convisquin (docs/50).
+CONFIG_BLE_MESH_SUPPORT_BLE_ADV=y

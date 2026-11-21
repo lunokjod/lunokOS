@@ -193,6 +193,8 @@ void install_settings_ops() {
   // (docs/30, docs/50).
   doors.bt_on = &cfg::bt_on;
   doors.set_bt_on = &cfg::set_bt_on;
+  doors.bt_mode = &cfg::bt_mode;
+  doors.set_bt_mode = &cfg::set_bt_mode;
   // **I quantes línies vol veure una persona** (0.190.89): the level of the log is a setting of the system like the keyboard, o sigui que
   // viu a `cfg` i el ring llegeix el que hi ha (docs/30, docs/50).
   doors.log_level = &cfg::log_level;
@@ -234,6 +236,14 @@ void install_settings_ops() {
   keys.available = &bt::available;
   keys.connected = &bt::connected;
   keys.type = &bt::type;
+  // **I el costat del ratolí i del mode** (0.190.204): una pàgina que vol ser un teclat i un ratolí alhora ho demana aquí, i el que
+  // contesta és el mateix `bt` que el prompt mana (docs/30, docs/50).
+  keys.device = &bt::device_word;
+  keys.be = &bt::be;
+  keys.name = &bt::name;
+  keys.move = &bt::move_for_a_page;
+  keys.click = &bt::click_for_a_page;
+  keys.ready = &bt::reports_enabled;
   luabind::set_bt_ops(keys);
 }
 

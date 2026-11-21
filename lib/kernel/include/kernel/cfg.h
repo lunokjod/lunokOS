@@ -112,6 +112,12 @@ bool set_nap_on(bool on);
 // docs/60).
 bool bt_on();
 bool set_bt_on(bool on);
+// **Què és aquesta placa com a aparell de Bluetooth** (0.190.208, l'amo: *«com escullo el mouse?»*): `keyboard`, `mouse` o `both`, desat a
+// la botiga. `set_bt_mode` contesta la paraula que ha quedat, o `nullptr` si no és cap de les tres —i llavors no canvia res, ni el que la
+// ràdio és ni el que hi ha desat (docs/30, docs/50).
+const char* bt_mode();
+const char* set_bt_mode(const char* word);
+bool bt_mode_is_a_word(const char* word);
 // **La consola com a porta de la becaina** (0.190.147, l'amo: *«Posa un toggle a Settings->Battery que doni la opció a "Wake from
 // UART"»*): encès de sèrie —el prompt és l'única manera de parlar amb una placa sense teclat— i apagat per a qui vulgui que les esperes
 // només les desfaci un dit (docs/30, docs/50, docs/60).

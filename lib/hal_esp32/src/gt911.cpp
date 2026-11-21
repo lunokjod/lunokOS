@@ -29,20 +29,26 @@ int32_t g_last_read_ms = -1000;
 // suspicion (docs/50, docs/95).
 uint32_t g_warnings_without_frame = 0;
 
-// The handler of an edge, which does one thing: raise the flag. It lives in IRAM because an interrupt can arrive while the
-// flash is being read —a paint of the glass, a page of a font— and a handler out of the flash would wait for the flash.
+// The handler of an edge, which does one thing: raise the flag and wake the kernel. It lives in IRAM because an interrupt can
+// arrive while the flash is being read —a paint of the glass, a page of a font, the session's own write— and a handler out of the
+// flash would not wait for the flash: with the cache off it fetches rubbish.
+//
+// **I per això aquí no hi ha res que visqui a la flash** (0.190.206). The handler was in IRAM but its three calls were not —the
+// `system()` accessor, `queue()`, and the virtual `push_from_isr` (both through the vtable and its thunk)— so the promise was
+// empty: the edge that arrived inside the few-instruction window of a flash write did exactly what the IRAM attribute was there
+// to prevent, and the board ended up in an `Interrupt wdt timeout on CPU0` with this frame at the bottom of the trace. What is
+// called now is one free function, all of it in IRAM, that pushes the event through an object it already holds (docs/50, docs/95).
 void IRAM_ATTR on_the_line(void* arg) {
   (void)arg;
+  // **Una empenta per fotograma i prou**: the chip pulls the line down once per scan and the frame is read on the turn, so a second
+  // edge that arrives before the turn has read the first has nothing new to say. It also bounds the queue to what a finger can
+  // really produce.
+  if (g_frame_ready) return;
   g_frame_ready = true;
   // **I el nucli es desperta aquí i no al proper torn** (0.190.119): the edge is the only moment this panel has news, and a turn that is
   // asleep for its ten milliseconds —or its forty, on a board that naps— is a tap the person has already made and cannot see. The frame
   // is still read from the turn and not from the interrupt: a bus is not an interrupt's business (docs/50, docs/95).
-  pal::IQueue* queue = pal::system().queue();
-  if (queue != nullptr) {
-    pal::Event ev = {};
-    ev.type = pal::kEventTouch;
-    queue->push_from_isr(ev);
-  }
+  pal::wake_the_kernel_from_isr();
 }
 
 // The four registers this driver touches, all of them two bytes wide (docs/50).

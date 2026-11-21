@@ -91,16 +91,23 @@ uint32_t store_write(Block& block, uint32_t offset, const void* in, uint32_t byt
 
 // **Els bytes que el bloc no cobreix són paper** (0.189.7): a region of the bank has no `memset` to call, so the zeros are
 // written in pieces like everything else (docs/75).
+//
+// **I els zeros no són quatre kilobytes de `.bss`** (0.190.202, l'amo: *«busca coses allotjades estàticament i fes-les dinàmiques»*):
+// hi havia una taula de quatre mil noranta-sis bytes de zeros guardada a la memòria de tota placa que enllaci el nucli, per a un camí
+// —el d'un bloc del banc— que la meitat de les plaques no té. Cent vint-i-vuit bytes a la pila fan la mateixa feina: el que es passa
+// al banc és una escriptura i prou, i el nombre d'escriptures d'un bloc de trenta-dos kilobytes passa de vuit a dues-centes
+// cinquanta-sis, que és el preu d'una mica de temps en una operació que ja és la lenta d'aquest fitxer.
 void store_zero(Block& block, uint32_t from) {
   if (from >= block.size) return;
   if (block.banked == nullptr) {
     memset(static_cast<uint8_t*>(block.bytes) + from, 0, block.size - from);
     return;
   }
-  static const uint8_t zeros[kStoreChunk] = {};
+  const uint32_t kZeros = 128;
+  const uint8_t zeros[kZeros] = {};
   uint32_t at = from;
   while (at < block.size) {
-    const uint32_t take = (block.size - at < kStoreChunk) ? static_cast<uint32_t>(block.size - at) : kStoreChunk;
+    const uint32_t take = (block.size - at < kZeros) ? static_cast<uint32_t>(block.size - at) : kZeros;
     if (block.banked->write(at, zeros, take) != take) break;
     at += take;
   }

@@ -15,7 +15,7 @@ comparteixen es queden—, i els noms vells ja no són cap entorn: `-e m5-atom` 
 | `ttgo-t-koala-idf` | espressif32 + **ESP-IDF** (5.1.2) | **El T-Koala amb el `sdkconfig` a les nostres mans** (0.190.170): WROVER-B amb **PSRAM QSPI** i el flaix en QIO, o sigui la configuració del Paper amb la taula de 4 MB. El HAL compta la PSRAM al heap, com el del Paper. 21,9% de RAM i 62,7% de flash |
 | `m5-atom-idf` | espressif32 + **ESP-IDF** (5.1.2) | **L'ATOM amb el `sdkconfig` a les nostres mans** (0.190.168): 4 MB de flaix, 327 KB de RAM i **cap PSRAM**, o sigui que la seva configuració no porta ni els canaris del heap ni el TLS a la PSRAM, i la WiFi va fora de la IRAM. El seu llum és una tira de WS2812 la trama de la qual s'escriu amb el RMT de la IDF (`rmt_write_items`) quan el nucli d'Arduino no hi és. 21,7% de RAM i 57,7% de flash |
 | `m5-atom-matrix-idf` | espressif32 + **ESP-IDF** (5.1.2) | **El Matrix amb el `sdkconfig` de l'ATOM** (0.190.169): el mateix xip, la identitat de `board_matrix` i la demo `rainbow` al disc. **Escrit sencer i sense `extends`**: amb el pare, la compilació d'IDF ajunta els `-I` dels dos i `board_atom` va primer —el build deia `m5stack-atom` a `sys.board` i la tira era la de l'AIRE—, i `build_unflags` no el treu. El HAL és el de l'ATOM i el que canvia és qui diu quin board és |
-| `m5-paper-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La M5 Paper amb el `sdkconfig` a les nostres mans** (0.190.166, l'amo: *«Fes una placa nova, la m5-paper-idf, migrarem aquesta placa a esp_idf»*): el HAL del Paper ja parlava la IDF i el panell és el `esp32_it8951` del sistema, o sigui que el que canvia és l'entorn —`boards/m5stack-paper.json` declara els dos frameworks i la configuració és `sdkconfig.defaults.m5-paper-idf`, que no es pot confondre amb el generat `sdkconfig.m5-paper-idf`—. La WiFi va **fora de la IRAM** perquè aquest build no hi cabia per 624 bytes |
+| `m5-paper-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La M5 Paper amb el `sdkconfig` a les nostres mans** (0.190.166, l'amo: *«Fes una placa nova, la m5-paper-idf, migrarem aquesta placa a esp_idf»*): el HAL del Paper ja parlava la IDF i el panell és el `esp32_it8951` del sistema, o sigui que el que canvia és l'entorn —`boards/m5stack-paper.json` declara els dos frameworks i la configuració és `sdkconfig.defaults.m5-paper-idf`, que no es pot confondre amb el generat `sdkconfig.m5-paper-idf`—. La WiFi va **fora de la IRAM** perquè aquest build no hi cabia per 624 bytes | **I des de la 0.190.201 aquest entorn porta el Bluetooth** —NimBLE, amb el controlador en mode BLE-only, que a l'ESP32 clàssic sí que existeix— i això es va pagar amb IRAM: `region iram0_0_seg overflowed by 21296 bytes` fins que es va declarar la **revisió 3** del xip (el `ESP32-D0WDQ6-V3` de docs/50), que treu el `CONFIG_SPIRAM_CACHE_WORKAROUND` i la mitja libc que se n'anava a la IRAM, i fins que la IDF es va compilar amb `-Os`. Avui la imatge és **més petita** que abans del ràdio: 2 006 397 B.
 | `emulator` | native | El mateix codi compilat per al PC |
 | `test` | native | Les proves natives (Unity) |
 
@@ -636,3 +636,30 @@ cd ../.. && pio run -e lilygo-t5s3-idf -t upload # i el sistema, per tornar-hi
 Porta la mateixa taula de particions que el sistema, o sigui que el flaix no s'ha de repartir de nou i el disc i la NVS no es toquen; el que sí
 que passa és que el banc **sobreescriu la partició de l'aplicació**, i per això el camí de tornada és un flaish del sistema i no un reinici
 (docs/70, docs/85, docs/95).
+
+**I el script d'enllaç també es genera, i és el que va fer petar la Paper** (0.190.201): `memory.ld` i `sections.ld` surten de
+`memory.ld.in` **preprocessat amb el `sdkconfig.h`**, i el que hi ha a dins que canvia amb la configuració no és cosí germà del
+que no: la línia de la DRAM és
+
+```
+dram0_0_seg (RW) : org = 0x3FFB0000 + CONFIG_BTDM_RESERVE_DRAM
+```
+
+o sigui que **encendre el Bluetooth mou on comença `.data`** (de `0x3ffb0000` a `0x3ffbdb60` en aquesta placa), perquè els primers
+quaranta-sis kilobytes i mig de DRAM són del controlador. El que va passar: esborrar el `sdkconfig` i recompilar **sí** que va
+refer el `sdkconfig.h`, però el `memory.ld` es va quedar amb el de la configuració anterior (`+ 0`), i el binari va quedar enllaçat
+amb `.data` a `0x3ffb0000` —la mateixa adreça que la regió que el controlador es reserva—. El símptoma no és d'enllaç sinó
+d'arrencada, i és del tot críptic:
+
+```
+W (860) esp_psram: Virtual address not enough for PSRAM, map as much as we can. 4MB is mapped
+
+assert failed: s_prepare_reserved_regions memory_layout_utils.c:94 (reserved[i + 1].start > reserved[i].start)
+```
+
+`reserved[i + 1].start > reserved[i].start` vol dir **dues regions reservades que comencen a la mateixa adreça**: `rom_bt_em`
+(0x3ffb0000, del controlador) i `dram_data` (`_data_start`, que amb el script vell era 0x3ffb0000 també). La manera de
+comprovar-ho sense la placa és llegir la taula del `.reserved_memory_address` del `elf` (catorze parells de vuit bytes) i veure
+que les adreces d'inici pugen totes; i el remei és **`rm -rf .pio/build/<entorn>`** quan es toca una opció que mou el mapa de
+memòria (`CONFIG_BTDM_RESERVE_DRAM`, `CONFIG_ESP32_TRACEMEM_RESERVE_DRAM`, el `himem`, la mida de la PSRAM). És la tercera
+vegada que una cosa generada es queda enrere i diu que sí (docs/80, §el generat mana).

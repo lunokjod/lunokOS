@@ -25,6 +25,7 @@
 #include "esp32/clock.h"
 #include "esp32/gpio_keys.h"
 #include "esp32/bluetooth.h"
+#include "esp32/mesh.h"
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "esp32/power.h"
@@ -192,6 +193,9 @@ class AtomPlatform : public IPlatform {
   // **I la ràdio que no és una xarxa** (0.190.179): the Bluetooth keyboard, which is an object that says it cannot on a
   // band whose build has no radio in it (docs/50).
   IBluetooth* bluetooth() override { return esp32_bluetooth(); }
+  // **I el mesh d'aquesta ràdio** (0.190.213, l'amo: *«vaig a posarlo al atom lite»*): the node of Bluetooth Mesh, que és el mateix xip i una
+  // altra manera d'usar el mateix aire (docs/50).
+  IMesh* mesh() override { return esp32_mesh(); }
   IPower* power() override { return &power_; }
   ISurface* display() override { return nullptr; }
   ILed* led() override { return &led_; }

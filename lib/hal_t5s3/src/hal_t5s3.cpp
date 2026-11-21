@@ -38,6 +38,7 @@
 #include "esp32/gt911.h"
 #include "esp32/i2c.h"
 #include "esp32/bluetooth.h"
+#include "esp32/mesh.h"
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "esp32/power.h"
@@ -449,6 +450,8 @@ class T5Platform : public IPlatform {
   // **I la ràdio que no és una xarxa** (0.190.179): the Bluetooth keyboard, which is an object that says it cannot on a
   // band whose build has no radio in it (docs/50).
   IBluetooth* bluetooth() override { return esp32_bluetooth(); }
+  // **I el mesh d'aquesta ràdio** (0.190.212): the node of Bluetooth Mesh, which is the same chip's and another way of using the radio.
+  IMesh* mesh() override { return esp32_mesh(); }
   IPower* power() override { return &power_; }
   // **El vidre** (0.190.33): l'expansor obre les portes del panell i el TPS65185 li dona les tensions, o sigui que el
   // driver dels dos és el que el construeix. **I es pregunta de debò** (0.190.34): a panel whose bus or frame did not

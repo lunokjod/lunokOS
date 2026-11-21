@@ -160,14 +160,19 @@ bool load(const char* id, Entry& out) {
     return false;
   }
 
-  // **The manifest is read into the one buffer of the walk** (0.120.0): a kilobyte on the stack of the task that runs
-  // an app, on top of the entry it is filling in (`on_entry` measured 1 104 B) and of the shell that asked for it
-  // (`execute`, 2 640 B), was the deepest chain of the project —6,7 KB of the eight the task has—. `load` is never
-  // re-entered: `read` and the walk are called one at a time, from the same task, and no visitor of `for_each` loads
-  // another manifest (docs/40, docs/75).
-  static char text[kManifestCap];
+  // **The manifest is read into a block of its own, and not into the `.bss`** (0.190.206, l'amo: *«aprofitar al màxim la PSRAM i fer
+  // tot lo raonablement més dinàmic possible»*): it is not on the stack —a kilobyte on top of the entry it is filling in, of the
+  // shell that asked for it and of the visitor of the walk was the deepest chain of the project— and it is not a static block of the
+  // board's own RAM either, which is what it had become. `pal::Scratch` is the door of `extra_memory()` with the return inside it, o
+  // sigui que les nou sortides d'aquesta funció no han de recordar-se de res (docs/40, docs/75).
+  pal::Scratch manifest(kManifestCap, pal::kMemoryKernel);
+  char* text = static_cast<char*>(manifest.get());
+  if (text == nullptr) {
+    log_printf(pal::kLogWarn, "APPS", "%s cannot be read: no memory for the manifest", id);
+    return false;
+  }
   size_t len = 0;
-  if (!vfs::read_file(path, text, sizeof(text) - 1, len)) {
+  if (!vfs::read_file(path, text, kManifestCap - 1, len)) {
     log_printf(pal::kLogWarn, "APPS", "%s has no readable manifest", id);
     return false;
   }

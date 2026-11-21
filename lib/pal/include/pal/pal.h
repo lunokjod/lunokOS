@@ -56,6 +56,12 @@ class IQueue {
     (void)ev;
     return false;
   }
+  // **I la porta que sí que serveix per a una interrupció de debò** (0.190.206): `push_from_isr` és virtual, i una crida virtual des
+  // d'una interrupció passa per una taula i per un thunk que viuen a la flash —el gestor del tàctil és a la IRAM justament perquè pot
+  // arribar mentre la memòria cau de flash està apagada, i amb la cau apagada una crida a la flash executa brossa (era el
+  // `Interrupt wdt timeout` de la Paper: vegeu `wake_the_kernel_from_isr`)—. Aquesta funció lliure és tota a la IRAM i no passa per
+  // cap taula de mètodes virtuals.
+  virtual bool wake_from_isr() { return false; }
   virtual uint16_t size() const = 0;
   virtual uint16_t capacity() const = 0;
 };
@@ -267,6 +273,12 @@ class IExtraMemory {
   virtual void open_the_books() {}
 };
 
+// **Despertar el nucli des d'una interrupció, i res més** (0.190.206). El que hi ha a sota d'aquesta crida és **tot a la IRAM**: la
+// plataforma és un global i no una crida, la cua es toca per un mètode no virtual, i el que queda (`xQueueSendFromISR`,
+// `xTaskGetSchedulerState`) la IDF ja ho té a la IRAM. El motiu és el que es va veure a la Paper: un gestor de la IRAM que crida codi
+// de la flash queda a mitges quan la cau s'apaga, i el xip se'n va a un `Interrupt wdt timeout` sense dir per què (docs/50, docs/95).
+void wake_the_kernel_from_isr();
+
 // Valid before and after init(): the object is a static of the platform, because the interpreter may
 // allocate before anybody brought the layer up.
 IExtraMemory& extra_memory();
@@ -321,6 +333,24 @@ class MemoryTag {
   void* books_;
   uint8_t was_owner_;
   char was_app_[16];
+};
+
+// **Un bloc que es torna sol** (0.190.206): the same door as `extra_memory()` with the way out of a function built in, perquè una
+// funció que té nou sortides i un kilobyte a la mà no n'ha de recordar de nou. Demana amb una marca —així el bloc surt amb amo a
+// `mem blocks` i no com «other»— i el torna al destructor. Un bloc que no s'ha pogut prendre és `false` i `get()` torna `nullptr`, o
+// sigui que el que el demana ho ha de mirar abans de fer-lo servir.
+class Scratch {
+ public:
+  explicit Scratch(size_t bytes, MemoryOwner who = kMemoryOther, bool prefer_extra = true);
+  ~Scratch();
+  Scratch(const Scratch&) = delete;
+  Scratch& operator=(const Scratch&) = delete;
+
+  void* get() const { return block_; }
+  explicit operator bool() const { return block_ != nullptr; }
+
+ private:
+  void* block_;
 };
 
 // **One row of the listing**: the pointer the caller has, the bytes it asked for, who asked, and the app that was in front when

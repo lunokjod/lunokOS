@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <new>
 #include <string.h>
 
 #include "kernel/fs_ops.h"
@@ -109,7 +110,27 @@ struct Request {
 };
 
 const uint8_t kQueueLen = 8;
-Request g_queue[kQueueLen];
+
+// **Els 4 064 bytes de la cua es demanen quan la primera petició hi entra** (0.190.206, l'amo: *«si veus que és perquè falta memòria,
+// rebusquem al codi… aprofitar al màxim la PSRAM i fer tot lo raonablement més dinàmic possible»*). Eight requests of half a kilobyte
+// each were a `.bss` of the board's own RAM for a queue that a board with no radio never fills and a board with one fills with at most
+// two things at a time —and the block is *cold*: only the shell and the loop of the kernel touch it, never an interrupt, never a DMA—,
+// o sigui que és exactament el que la memòria extra existeix per a. `extra_memory()` dona PSRAM quan la placa en té i la memòria de
+// casa quan no, i el que torna no és la PSRAM d'un `malloc` qualsevol: és el comptable d'aquesta casa, amb el bloc apuntat a `mem blocks`.
+//
+// **Un bloc d'aquesta porta no arriba a zero** i la `.bss` sí, o sigui que les vuit entrades es construeixen al bloc: `page_pending`
+// llegeix el `kind` d'una entrada que ningú ha escrit encara i el que hi hauria seria l'escombraria de l'última cosa que hi va viure.
+// Placement new i no `memset`, perquè `Request` té valors de sèrie i el compilador té raó a refusar l'escombrat (docs/30, docs/75).
+Request* g_queue = nullptr;
+
+Request* the_queue() {
+  if (g_queue != nullptr) return g_queue;
+  pal::MemoryTag who_asks(pal::kMemoryNet);
+  void* block = pal::extra_memory().allocate(sizeof(Request) * kQueueLen, true);
+  if (block == nullptr) return nullptr;
+  g_queue = new (block) Request[kQueueLen]();
+  return g_queue;
+}
 uint8_t g_head = 0;
 uint8_t g_count = 0;
 Request g_current;               // the one that is running
@@ -231,13 +252,19 @@ void build_payload(const char* pop, const char* service, hal::ProvTransport tran
 // payload is about 70, so this is twice what is needed and far from the 9 KB that
 // a symbol of version 20 would take from a board with 320 KB (docs/75).
 const uint32_t kQrSide = 45;
-uint8_t g_qr[kQrSide * kQrSide];
 
+// **Els 2 025 bytes del símbol es demanen quan es dibuixa i es tornen en acabar** (0.190.202, l'amo: *«busca coses allotjades
+// estàticament i fes-les dinàmiques, passa a psram tot el que puguis»*). Era una taula fixa a la `.bss` d'una placa de 320 KB per a
+// una funció que s'ha cridat una vegada a la vida —quan el provisioning ensenya el codi—, o sigui que el que es paga sempre és el que
+// no es fa servir mai. La porta és la de sempre, `pal::extra_memory()`, que dona PSRAM quan la placa en té i la memòria de casa quan no.
 void print_qr(const char* payload) {
   pal::IConsole* console = serial::console();
   if (console == nullptr) return;
+  uint8_t* modules = static_cast<uint8_t*>(pal::extra_memory().allocate(kQrSide * kQrSide, true));
+  if (modules == nullptr) return;
   qr::Info info;
-  if (!qr::encode(payload, qr::Level::kM, qr::Mode::kAuto, g_qr, sizeof(g_qr), info)) {
+  if (!qr::encode(payload, qr::Level::kM, qr::Mode::kAuto, modules, kQrSide * kQrSide, info)) {
+    pal::extra_memory().release(modules);
     // No QR is better than a wrong one: the payload goes out as text and the
     // person can type it into the app.
     const char kCannot[] = "the payload does not fit a QR; type it into the app:\r\n";
@@ -267,8 +294,8 @@ void print_qr(const char* payload) {
     size_t used = 0;
     for (uint32_t c = 0; c < quiet; ++c) line[used++] = ' ';
     for (uint32_t col = 0; col < side; ++col) {
-      const bool top = g_qr[row * side + col] != 0;
-      const bool bottom = (row + 1 < side) && g_qr[(row + 1) * side + col] != 0;
+      const bool top = modules[row * side + col] != 0;
+      const bool bottom = (row + 1 < side) && modules[(row + 1) * side + col] != 0;
       const char* glyph = " ";
       size_t len = 1;
       if (top && bottom) {
@@ -297,6 +324,7 @@ void print_qr(const char* payload) {
     line[used++] = '\n';
     console->write(line, used);
   }
+  pal::extra_memory().release(modules);
 }
 
 
@@ -402,7 +430,9 @@ bool push(const Request& request) {
   // would never be settled (docs/30). The FIFO is here so the system can chain its
   // own work and so the radio knows when there is nothing left to do.
   if (g_net == nullptr || g_phase != kIdle || g_count >= kQueueLen) return false;
-  g_queue[(g_head + g_count) % kQueueLen] = request;
+  Request* queue = the_queue();
+  if (queue == nullptr) return false;  // no memory for the queue is «later», not «no» (docs/30, docs/75)
+  queue[(g_head + g_count) % kQueueLen] = request;
   ++g_count;
   // It begins now and not in the next turn: a caller that asks how the radio is
   // right after asking has to hear the truth (measured in an app: `status off`
@@ -513,7 +543,9 @@ bool begin(Request& request) {
 
 void start_next() {
   while (g_phase == kIdle && g_count > 0) {
-    g_current = g_queue[g_head];
+    Request* queue = the_queue();
+    if (queue == nullptr) return;  // a queue that is not there holds nothing (docs/75)
+    g_current = queue[g_head];
     g_head = static_cast<uint8_t>((g_head + 1) % kQueueLen);
     --g_count;
     g_deadline_ms = (g_current.timeout_ms > 0) ? now_ms() + g_current.timeout_ms : 0;
@@ -593,9 +625,11 @@ bool ntp(const char* server, uint32_t timeout_ms) {
 // (docs/30, docs/75).
 bool page_pending() {
   if (g_phase != kIdle && g_current.kind == kReqHttp) return true;
+  Request* queue = the_queue();
+  if (queue == nullptr) return g_phase != kIdle && g_current.kind == kReqHttp;
   for (uint8_t i = 0; i < g_count; ++i) {
     const uint8_t at = static_cast<uint8_t>((g_head + i) % kQueueLen);
-    if (g_queue[at].kind == kReqHttp) return true;
+    if (queue[at].kind == kReqHttp) return true;
   }
   return false;
 }

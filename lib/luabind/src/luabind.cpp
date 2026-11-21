@@ -3111,7 +3111,6 @@ int l_net_caps(lua_State* L) {
 // handed over as a string of '0' and '1', one per module, row by row, because a
 // table of tables would cost the app an allocation per module (docs/30).
 const uint32_t kQrLuaLimit = 4096;  // modules: a 64x64 symbol, which is version 11
-uint8_t g_qr_modules[kQrLuaLimit];
 
 bool parse_qr_level(const char* name, qr::Level& out) {
   if (name == nullptr) return false;
@@ -3179,8 +3178,14 @@ int l_qr_encode(lua_State* L) {
     return push_nil_error(L, "E_TOOBIG", "that symbol is bigger than an app may hold");
   }
 
+  // **Els quatre kilobytes del símbol es demanen per a aquesta crida i es tornen en sortir** (0.190.202, l'amo: *«busca coses
+  // allotjades estàticament i fes-les dinàmiques, passa a psram tot el que puguis»*): una taula fixa per a una funció que una app
+  // pot no cridar mai és memòria que es paga sempre. La porta és la de la PSRAM quan la placa en té.
+  uint8_t* modules = static_cast<uint8_t*>(pal::extra_memory().allocate(kQrLuaLimit, true));
+  if (modules == nullptr) return push_nil_error(L, "E_NOMEM", "there is no memory for the symbol");
   qr::Info info;
-  if (!qr::encode(text, level, mode, g_qr_modules, sizeof(g_qr_modules), info)) {
+  if (!qr::encode(text, level, mode, modules, kQrLuaLimit, info)) {
+    pal::extra_memory().release(modules);
     return push_nil_error(L, "E_INVAL", "the symbol could not be drawn");
   }
 
@@ -3203,8 +3208,9 @@ int l_qr_encode(lua_State* L) {
   luaL_Buffer buffer;
   luaL_buffinit(L, &buffer);
   for (uint32_t i = 0; i < info.side * info.side; ++i) {
-    luaL_addchar(&buffer, g_qr_modules[i] != 0 ? '1' : '0');
+    luaL_addchar(&buffer, modules[i] != 0 ? '1' : '0');
   }
+  pal::extra_memory().release(modules);
   luaL_pushresult(&buffer);
   lua_setfield(L, -2, "modules");
   return 1;
@@ -13020,6 +13026,23 @@ int l_cfg_nap(lua_State* L) {
 // **`cfg.bt([true|false])`: el teclat de Bluetooth** (0.190.180). With no argument it answers whether the radio is offered; with one it
 // opens or closes it and answers what stands. **En aquesta placa la resposta no és només un gust**: mentre és encès el xip no fa becaines,
 // o sigui que la persona que l'encén canvia com es passa l'estona la placa (docs/30, docs/50, docs/60).
+// **`cfg.btmode([word])`** (0.190.208, l'amo: *«com escullo el mouse? vull usar el panell tàctil com a mouse bluetooth»*): `keyboard`,
+// `mouse` o `both`, i el que s'hi posa **es desa**. És el que fan els tres botons de l'app `bthid` i la comanda `cfg btmode` del prompt, i
+// és una lectura i escriptura com les altres: sense argument contesta què és aquesta placa, i amb una el canvia i contesta què ha quedat
+// (docs/30, docs/45).
+int l_cfg_btmode(lua_State* L) {
+  if (g_cfg_ops.bt_mode == nullptr || g_cfg_ops.set_bt_mode == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* word = luaL_checkstring(L, 1);
+    const char* now = g_cfg_ops.set_bt_mode(word);
+    if (now == nullptr) return push_nil_error(L, "E_INVAL", "this board is a keyboard, a mouse or both");
+  }
+  lua_pushstring(L, g_cfg_ops.bt_mode());
+  return 1;
+}
+
 int l_cfg_bt(lua_State* L) {
   if (g_cfg_ops.bt_on == nullptr || g_cfg_ops.set_bt_on == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
@@ -13063,6 +13086,65 @@ int l_bt_type(lua_State* L) {
   }
   const char* text = luaL_checkstring(L, 1);
   lua_pushinteger(L, static_cast<lua_Integer>(g_bt_ops.type(text)));
+  return 1;
+}
+
+// **`bt.device([<word>])`** (0.190.204): el que aquesta placa és com a aparell HID, i el que ha de ser. Sense argument contesta la
+// paraula; amb `'keyboard'`, `'mouse'` o `'both'` la canvia i contesta què ha quedat. Una paraula que no és cap d'aquestes tres, o una
+// placa sense ràdio, responen `nil, error`: una pàgina que ensenya un ratolí i es troba un teclat és pitjor que una que sap que no.
+int l_bt_device(lua_State* L) {
+  if (g_bt_ops.device == nullptr || g_bt_ops.be == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* what = luaL_checkstring(L, 1);
+    if (!g_bt_ops.be(what)) {
+      return push_nil_error(L, "E_INVAL", "this board is a keyboard, a mouse or both");
+    }
+  }
+  lua_pushstring(L, g_bt_ops.device());
+  return 1;
+}
+
+// **`bt.ready()`**: si l'altre cap ha encès els reports (0.190.208). `bt.connected()` diu que hi ha un aparell a l'altre costat; això
+// diu que a més a més escolta, que és el que fa que una tecla hi arribi. És la diferència que una pàgina ha de poder ensenyar, perquè
+// entremig les notificacions es descarten i sembla que la placa no enviï (docs/30, docs/50).
+int l_bt_ready(lua_State* L) {
+  if (g_bt_ops.ready == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
+  lua_pushboolean(L, g_bt_ops.ready() ? 1 : 0);
+  return 1;
+}
+
+// **`bt.name()`**: el nom amb què aquesta placa s'anuncia, que és el que una persona busca a la llista del telèfon.
+int l_bt_name(lua_State* L) {
+  if (g_bt_ops.name == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
+  lua_pushstring(L, g_bt_ops.name());
+  return 1;
+}
+
+// **`bt.move(dx, dy)`**: un moviment relatiu del ratolí, i el report torna a zero de seguida. El que no hi cap és del report i no de
+// la crida: un moviment més gran de cent vint-i-set s'ha de fer a trossos, i una pàgina que arrossega un dit de sis-cents píxels ho ha
+// de saber (docs/30, docs/50).
+int l_bt_move(lua_State* L) {
+  if (g_bt_ops.move == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no mouse");
+  const int dx = static_cast<int>(luaL_checkinteger(L, 1));
+  const int dy = static_cast<int>(luaL_checkinteger(L, 2));
+  if (dx < -127 || dx > 127 || dy < -127 || dy > 127) {
+    return push_nil_error(L, "E_INVAL", "a report carries -127 to 127; ask for it in more than one move");
+  }
+  lua_pushboolean(L, g_bt_ops.move(dx, dy) ? 1 : 0);
+  return 1;
+}
+
+// **`bt.click([<button>])`**: `left` per defecte, i `right` o `middle`. Prem, espera el que un dit hi posa i deixa anar: un botó premut
+// per sempre és el que l'altre cap veu si no es deixa anar (docs/30, docs/50).
+int l_bt_click(lua_State* L) {
+  if (g_bt_ops.click == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no mouse");
+  const char* button = luaL_optstring(L, 1, "left");
+  if (strcmp(button, "left") != 0 && strcmp(button, "right") != 0 && strcmp(button, "middle") != 0) {
+    return push_nil_error(L, "E_INVAL", "the button is left, right or middle");
+  }
+  lua_pushboolean(L, g_bt_ops.click(button) ? 1 : 0);
   return 1;
 }
 
@@ -13336,6 +13418,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "uart_wake", l_cfg_uart_wake);
   set_function(L, "nap", l_cfg_nap);
   set_function(L, "bt", l_cfg_bt);
+  set_function(L, "btmode", l_cfg_btmode);
   set_function(L, "loglevel", l_cfg_loglevel);
   set_function(L, "touch_adaptive", l_cfg_touch_adaptive);
   set_function(L, "software_button", l_cfg_software_button);
@@ -13355,7 +13438,12 @@ void seal_globals(lua_State* L) {
   lua_createtable(L, 0, 3);
   set_function(L, "available", l_bt_available);
   set_function(L, "connected", l_bt_connected);
+  set_function(L, "ready", l_bt_ready);
   set_function(L, "type", l_bt_type);
+  set_function(L, "device", l_bt_device);
+  set_function(L, "name", l_bt_name);
+  set_function(L, "move", l_bt_move);
+  set_function(L, "click", l_bt_click);
   lua_setglobal(L, "bt");
 
   // time: the wall clock. It can jump when somebody sets it; sys.time_ms() is

@@ -32,6 +32,7 @@
 #include "kernel/led.h"
 #include "kernel/line_editor.h"
 #include "kernel/log.h"
+#include "kernel/mesh.h"
 #include "kernel/meter.h"
 #include "kernel/net.h"
 #include "kernel/serial.h"
@@ -545,6 +546,10 @@ void print_help(const char* only) {
   help_line("  cfg sleep on|off      whether the board sleeps until its next alarm when nobody uses it", only);
   help_line("  cfg touchwake on|off  whether a finger on the glass wakes the board from a deep sleep", only);
   help_line("  cfg nap on|off        whether the waits of the board are spent in a light sleep", only);
+  help_line("  mesh [on|off]     the board as a node of a Bluetooth Mesh: it offers itself to a", only);
+  help_line("                    provisioner, and the address it is given is kept", only);
+  help_line("  cfg btmode [keyboard|mouse|both]  what this board is to another device, and it is", only);
+  help_line("                    kept: a mouse makes the glass the pointer of the other one", only);
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
   help_line("  power last        how far the last sleep was from the hour it was given", only);
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
@@ -786,6 +791,15 @@ void print_mem_himem() {
 // el tipus, ni cap info adicional (senyal batería… no sé alguna dada mes)»*). L'anunci porta l'**aparença** —una paraula de setze bits del
 // registre del Bluetooth— i els **serveis** que ofereix, i són la resposta a «què és això» quan l'aparell no diu com es diu. Les taules són
 // curtes a propòsit: el que no hi és no s'inventa (docs/50, docs/85).
+// **La paraula del mode, en una frase** (0.190.204): `bt::device_word()` answers `keyboard`, `mouse` or `both` perquè és el que una
+// pàgina llegeix i el que es compara; el que una persona llegeix al prompt és una frase, i «on, a both» no ho és.
+const char* device_phrase() {
+  const char* word = bt::device_word();
+  if (strcmp(word, "mouse") == 0) return "a mouse";
+  if (strcmp(word, "both") == 0) return "a keyboard and a mouse";
+  return "a keyboard";
+}
+
 const char* appearance_name(uint16_t appearance) {
   switch (appearance) {
     case 0x0040: return "phone";
@@ -3041,11 +3055,18 @@ bool apps_info(const char* id) {
   // could show more than the system reads would be showing something the board would not see (docs/40, docs/75).
   // **The buffer is the command's and not the stack's** (0.120.0): a whole manifest is a kilobyte, `apps info` is
   // inlined into `execute` —measured with `-fstack-usage`: 2 272 B became 2 640 B—, and one command runs at a time on
-  // the task of the console, so a static here is a kilobyte of RAM instead of a kilobyte of the stack that an app
-  // shares with everything else (docs/75).
-  static char text[1024];
+  // the task of the console, so a block of its own is better than a kilobyte of the stack that an app shares with
+  // everything else. **I no és un bloc estàtic** (0.190.206): was a `.bss` kilobyte of the board for a command a person
+  // types once; now it is `pal::Scratch`, que el pren de la memòria extra i el torna al sortir, amb una sola sortida per
+  // camí i sense res a recordar (docs/75).
+  pal::Scratch manifest(1024, pal::kMemoryShell);
+  char* text = static_cast<char*>(manifest.get());
+  if (text == nullptr) {
+    error_out("apps: no memory to read a manifest\r\n");
+    return false;
+  }
   size_t len = 0;
-  if (!vfs::read_file(path, text, sizeof(text) - 1, len)) {
+  if (!vfs::read_file(path, text, 1023, len)) {
     error_out("no such app: ");
     out(id);
     newline();
@@ -5067,6 +5088,37 @@ bool command_cfg(const char* argument) {
     return true;
   }
 
+  // **`cfg btmode [keyboard|mouse|both]`** (0.190.208, l'amo: *«com escullo el mouse? vull usar el panell tàctil com a mouse bluetooth»*):
+  // què és aquesta placa per a un altre aparell, dit pel prompt i **desat**, perquè és una tria de la placa i no d'una tarda. És el que fan
+  // els tres botons de l'app `bthid`, i ho mana el mateix lloc: `cfg::set_bt_mode` (docs/30, docs/50). **Va aquí i no dins del bloc de
+  // dues paraules** perquè preguntar-ho és una paraula sola, i un `cfg btmode` que no digués res seria una comanda que no contesta.
+  if (strcmp(words[0], "btmode") == 0 && count <= 2) {
+    if (count == 1) {
+      if (cfg::bt_mode()[0] == '\0') {
+        out("settings: nothing has been chosen for this board yet (btmode keyboard|mouse|both)\r\n");
+        return true;
+      }
+      out("settings: this board is ");
+      out(device_phrase());
+      out(" (btmode ");
+      out(cfg::bt_mode());
+      out(")\r\n");
+      return true;
+    }
+    if (!bt::available()) {
+      out("cfg: this board has no radio, and the choice is kept all the same\r\n");
+    }
+    if (cfg::set_bt_mode(words[1]) == nullptr) {
+      out("cfg: this board is a keyboard, a mouse or both\r\n");
+      return false;
+    }
+    out("settings: this board is ");
+    out(device_phrase());
+    newline();
+    out("  pair it again from the other side: it read the map of the other one\r\n");
+    return true;
+  }
+
   if (count == 2) {
     // **The app that comes up with the board** (0.119.0): it is checked against the door of the apps, which is what
     // knows whether there is such an app on this board, so a typo is refused here and not discovered at the next
@@ -6013,6 +6065,60 @@ bool execute(char* line) {
   //   bt host reconnect        go back to the one that was paired here
   //   bt host forget           forget the bonds
   //   bt type <text>           write into the device on the other end
+  // **`mesh [on|off]`** (0.190.212, l'amo: *«pots posar algun mesh?»*): la placa com a **node** d'una xarxa de Bluetooth Mesh. El que fa
+  // aquesta ordre és el primer pas de debò —la ràdio enlaire, el node oferint-se a un provisionador, i l'adreça que li donen desada a la
+  // NVS—, i ho diu tot: qui s'hi connecta, quan queda provisionat i amb quina adreça. **La ràdio és una**: si el teclat de Bluetooth hi és,
+  // això no el trenca i diu que cal apagar-lo (docs/30, docs/50).
+  if (strncmp(line, "mesh", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    char words[2][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 4, words, 2, count)) return false;
+    if (count == 2) {
+      usage_out("usage: mesh [on|off]\r\n");
+      return false;
+    }
+    if (!mesh::available()) {
+      out("mesh: this build has no Bluetooth Mesh in it\r\n");
+      return true;
+    }
+    if (count == 0) {
+      out(mesh::is_up() ? "mesh: the node is up\r\n" : "mesh: off\r\n");
+      if (mesh::provisioned()) {
+        char address[64];
+        snprintf(address, sizeof(address), "  this node is 0x%04X of a network\r\n",
+                 static_cast<unsigned>(mesh::address()));
+        out(address);
+      } else if (mesh::is_up()) {
+        out("  and no provisioner has taken it yet (nRF Mesh, or the app of Espressif)\r\n");
+      } else {
+        out("  mesh on brings it up and offers this node to a provisioner\r\n");
+      }
+      return true;
+    }
+    if (strcmp(words[0], "on") == 0) {
+      if (mesh::is_up()) {
+        out("mesh: the node is already up\r\n");
+        return true;
+      }
+      if (bt::is_on()) {
+        out("mesh: the Bluetooth keyboard has the radio; turn it off first (cfg bt off)\r\n");
+        return true;
+      }
+      if (!mesh::start()) {
+        out("mesh: the node did not come up, and the reason is in the log\r\n");
+        return true;
+      }
+      out("mesh: the node is up and offering itself; provision it from the other device\r\n");
+      return true;
+    }
+    if (strcmp(words[0], "off") == 0) {
+      mesh::stop();
+      out("mesh: the node is no longer offering itself\r\n");
+      return true;
+    }
+    usage_out("usage: mesh [on|off]\r\n");
+    return false;
+  }
   if (strncmp(line, "bt", 2) == 0 && (line[2] == '\0' || line[2] == ' ')) {
     char words[5][kWordCap];
     size_t count = 0;
@@ -6036,7 +6142,8 @@ bool execute(char* line) {
       out("  device: ");
       out(device ? "on" : "off");
       if (device) {
-        out(bt::is_a_mouse() ? ", a mouse" : ", a keyboard");
+        out(", ");
+        out(device_phrase());
         out(bt::connected() ? ", and a device is connected" : ", offered");
       }
       newline();
@@ -6123,7 +6230,8 @@ bool execute(char* line) {
       if (which != nullptr && strcmp(which, "mouse") == 0) {
         const char* how = (count > 2) ? words[2] : nullptr;
         if (how == nullptr) {
-          out(bt::is_a_mouse() ? "bluetooth: this board is a mouse\r\n" : "bluetooth: this board is a keyboard\r\n");
+          snprintf(buf, sizeof(buf), "bluetooth: this board is %s\r\n", device_phrase());
+          out(buf);
           return true;
         }
         if (strcmp(how, "on") == 0 || strcmp(how, "off") == 0) {
@@ -6136,9 +6244,10 @@ bool execute(char* line) {
             out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
             return true;
           }
-          bt::be(mouse);
-          snprintf(buf, sizeof(buf), "bluetooth: this board is %s, offered as \"%s\"\r\n", mouse ? "a mouse" : "a keyboard",
-                   bt::name());
+          // **I la tria es desa** (0.190.208): `bt dev` i els botons de l'app `bthid` són la mateixa decisió i han de deixar el mateix
+          // rastre a la botiga, o el que es tria amb una mà es perd quan la placa s'arrenca (docs/30, docs/50).
+          (void)cfg::set_bt_mode(mouse ? "mouse" : "keyboard");
+          snprintf(buf, sizeof(buf), "bluetooth: this board is %s, offered as \"%s\"\r\n", device_phrase(), bt::name());
           out(buf);
           out("  pair it again from the other side: it read the map of the other one\r\n");
           return true;
@@ -6148,8 +6257,8 @@ bool execute(char* line) {
             out("bluetooth: bt dev mouse move <dx> <dy>\r\n");
             return true;
           }
-          if (!bt::is_a_mouse()) {
-            out("bluetooth: this board is a keyboard (bt dev mouse on)\r\n");
+          if (!bt::has_a_mouse()) {
+            out("bluetooth: this board has no mouse (bt dev mouse on, or bt dev both on)\r\n");
             return true;
           }
           if (!bt::connected()) {
@@ -6170,8 +6279,8 @@ bool execute(char* line) {
           return true;
         }
         if (strcmp(how, "click") == 0) {
-          if (!bt::is_a_mouse()) {
-            out("bluetooth: this board is a keyboard (bt dev mouse on)\r\n");
+          if (!bt::has_a_mouse()) {
+            out("bluetooth: this board has no mouse (bt dev mouse on, or bt dev both on)\r\n");
             return true;
           }
           if (!bt::connected()) {
@@ -6192,6 +6301,42 @@ bool execute(char* line) {
           return true;
         }
         out("bluetooth: bt dev mouse [on|off|move <dx> <dy>|click [left|right|middle]]\r\n");
+        return true;
+      }
+      // **Les dues coses alhora** (0.190.204, l'amo: *«una app lua... amb un teclat i un mouse»*): the composite mode, with report ids
+      // and without the boot protocol. És el que una pàgina necessita per tenir un ratolí sota el dit i una caixa de text al costat, i
+      // el preu és el que la línia diu (docs/50).
+      if (which != nullptr && strcmp(which, "both") == 0) {
+        const char* how = (count > 2) ? words[2] : nullptr;
+        if (how == nullptr) {
+          snprintf(buf, sizeof(buf), "bluetooth: this board is a %s\r\n", bt::device_word());
+          out(buf);
+          return true;
+        }
+        if (strcmp(how, "on") == 0 || strcmp(how, "off") == 0) {
+          if (!bt::available()) {
+            out("bluetooth: this board has no radio\r\n");
+            return true;
+          }
+          if (strcmp(how, "on") == 0) {
+            if (!bt::is_on() && !bt::start(nullptr)) {
+              out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
+              return true;
+            }
+            (void)cfg::set_bt_mode("both");
+            snprintf(buf, sizeof(buf), "bluetooth: a keyboard and a mouse, offered as \"%s\"\r\n", bt::name());
+            out(buf);
+            out("  pair it again from the other side: it read the map of the one before\r\n");
+            out("  and this mode has report ids: the boot protocol is not served\r\n");
+          } else {
+            (void)cfg::set_bt_mode("keyboard");
+            snprintf(buf, sizeof(buf), "bluetooth: a keyboard again, offered as \"%s\"\r\n", bt::name());
+            out(buf);
+            out("  pair it again from the other side: the map has changed\r\n");
+          }
+          return true;
+        }
+        out("bluetooth: bt dev both on|off\r\n");
         return true;
       }
       if (which != nullptr && (strcmp(which, "on") == 0 || strcmp(which, "off") == 0)) {

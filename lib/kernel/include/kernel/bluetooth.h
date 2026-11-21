@@ -54,6 +54,9 @@ uint8_t host_scan(uint32_t ms, Peer* out, uint8_t cap);
 bool host_pair(uint8_t index);
 bool host_connected();
 // **Tornar amb el teclat que ja hi era**, sense explorar: els vincles són a la botiga del ràdio.
+bool host_remembers();
+// **Si l'altre cap ha encès els reports**: connectat no és escoltat, i el CCCD de cada característica d'entrada és el que ho diu.
+bool reports_enabled();
 bool host_reconnect();
 // **Encendre i apagar el costat amfitrió**, sense oferir-se com a teclat.
 bool host_on();
@@ -69,11 +72,15 @@ bool radio_is_working();
 // **Un teclat o un ratolí, i es tria** (l'amo: *«opció B»*): two reports in one HID service would mean report ids and giving up the boot
 // protocol, o sigui que la placa és una cosa o l'altra. `be(true)` la fa un ratolí —i demana tornar a aparellar des de l'altre cap,
 // perquè el mapa que aquell va llegir era el d'un teclat— i `be(false)` la torna a fer un teclat (docs/50).
-bool is_a_mouse();
-bool be(bool mouse);
+const char* device_word();
+bool has_a_mouse();
+bool be(const char* what);
 bool move(int8_t dx, int8_t dy);
 bool press(uint8_t buttons);
 bool click(uint8_t buttons);
+// Les dues portes que una pàgina de Lua té al ratolí (0.190.204).
+bool move_for_a_page(int dx, int dy);
+bool click_for_a_page(const char* button);
 uint8_t buttons();
 void host_forget();
 // **Els cinc llums del teclat virtual** (bit 0 num, 1 caps, 2 scroll, 3 compose, 4 kana), tal com els va deixar l'altre aparell.

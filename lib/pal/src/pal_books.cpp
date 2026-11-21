@@ -152,6 +152,16 @@ MemoryTag::~MemoryTag() {
   copy_the_name(head->app, was_app_);
 }
 
+Scratch::Scratch(size_t bytes, MemoryOwner who, bool prefer_extra) : block_(nullptr) {
+  if (bytes == 0) return;
+  MemoryTag who_asks(who);
+  block_ = extra_memory().allocate(bytes, prefer_extra);
+}
+
+Scratch::~Scratch() {
+  if (block_ != nullptr) extra_memory().release(block_);
+}
+
 void memory_books_begin(void* table, size_t bytes) {
   if (table == nullptr || bytes < sizeof(Head) + sizeof(Row)) return;
   Head* head = static_cast<Head*>(table);

@@ -1643,10 +1643,23 @@ class FakeBluetooth : public IBluetooth {
   // que és cert és que la pregunta existeix i que es pot provar el camí que la llegeix (docs/50).
   uint8_t keyboard_leds() const override { return leds_; }
 
-  bool device_is_a_mouse() const override { return is_mouse_; }
-  bool device_be(bool mouse) override {
+  // **La ràdio falsa escolta quan hi ha algú**: el que el model vol és que una pàgina es comporti igual que a la placa, i allà el CCCD
+  // arriba de seguida (0.190.208).
+  bool reports_enabled() const override { return keyboard_connected(); }
+
+  hal::IBluetooth::Device device_is() const override {
+    if (!is_mouse_) return hal::IBluetooth::Device::kKeyboard;
+    return both_ ? hal::IBluetooth::Device::kBoth : hal::IBluetooth::Device::kMouse;
+  }
+  bool device_be(hal::IBluetooth::Device what) override {
     if (emu::options().bt_fail) return false;
-    is_mouse_ = mouse;
+    if (what == hal::IBluetooth::Device::kKeyboard) {
+      is_mouse_ = false;
+      both_ = false;
+      return true;
+    }
+    is_mouse_ = true;
+    both_ = (what == hal::IBluetooth::Device::kBoth);
     return true;
   }
   bool mouse_move(int8_t dx, int8_t dy) override {
@@ -1692,6 +1705,7 @@ class FakeBluetooth : public IBluetooth {
   bool device_on_ = false;
   bool host_on_ = false;
   bool is_mouse_ = false;
+  bool both_ = false;
   int8_t paired_ = -1;
   uint8_t leds_ = 0;
   uint8_t buttons_ = 0;

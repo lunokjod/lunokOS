@@ -7,6 +7,7 @@
 #include "qr/qr.h"
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 namespace qr {
@@ -78,9 +79,42 @@ const uint32_t kMaxModules = kMaxSide * kMaxSide;
 
 // Function modules (finders, timing, alignment, format and version blocks) are
 // not data and are never masked. A bitmap of the whole symbol holds that.
-uint8_t g_fn[(kMaxModules + 7) / 8];
-uint8_t g_data[1200];  // the data codewords of the biggest version allowed
-uint8_t g_cw[1200];    // data and error correction, interleaved
+//
+// **Els tres blocs de treball es demanen per a la crida i es tornen en sortir** (0.190.202, l'amo: *«busca coses allotjades
+// estàticament i fes-les dinàmiques, passa a psram tot el que puguis»*): quinze-cents bytes de mapa i dos de mil dos-cents de
+// codewords eren una taula fixa de la `.bss` de qualsevol placa que enllaci aquesta llibreria, per a una funció que moltes no
+// criden mai. El que es queda és el que és una taula i no un bloc de treball: els dos logaritmes del cos de Galois, que es
+// calculen una vegada i són dos-cents cinquanta-sis bytes cada un.
+struct Work {
+  uint8_t fn[(kMaxModules + 7) / 8];
+  uint8_t data[1200];
+  uint8_t cw[1200];
+};
+
+// **El bloc de treball d'aquesta crida, i res més**: el codificador no és reentrant ni ho ha estat mai (les taules del cos de
+// Galois també són del fitxer), però el que sí que canvia és que el bloc es demana en entrar a `encode` i es torna en sortir, per
+// qualsevol camí —una variant d'aquesta feina que s'oblidés un `return` seria una fuita de tres kilobytes i mitjà per codi dibuixat.
+Work* g_work = nullptr;
+
+// **I el bloc es presta, no es parteix**: qui en demana un mentre un altre el té —`data_modules` calcula sobre el mapa de mòduls
+// de funció i ho pot fer mentre `encode` treballa— rep el que ja hi és i no en demana un segon. El que l'ha demanat és qui el
+// torna, i el destructor ho sap pel seu `mine`.
+struct Scratch {
+  Work* work;
+  bool mine;
+  Scratch() : work(g_work), mine(false) {
+    if (work == nullptr) {
+      work = static_cast<Work*>(malloc(sizeof(Work)));
+      mine = true;
+    }
+    if (work != nullptr) g_work = work;
+  }
+  ~Scratch() {
+    if (!mine) return;
+    free(work);
+    g_work = nullptr;
+  }
+};
 
 uint8_t g_exp[512];
 uint8_t g_log[256];
@@ -254,18 +288,18 @@ void write_payload(Mode mode, const char* text, uint32_t len, Bits& w) {
 uint32_t idx(uint32_t side, uint32_t row, uint32_t col) { return row * side + col; }
 
 void clear_fn(uint32_t side) {
-  memset(g_fn, 0, (side * side + 7) / 8);
+  memset(g_work->fn, 0, (side * side + 7) / 8);
 }
 
 void mark(uint32_t side, uint32_t row, uint32_t col) {
   if (row >= side || col >= side) return;
-  g_fn[idx(side, row, col) / 8] = static_cast<uint8_t>(g_fn[idx(side, row, col) / 8] |
+  g_work->fn[idx(side, row, col) / 8] = static_cast<uint8_t>(g_work->fn[idx(side, row, col) / 8] |
                                                        (1u << (idx(side, row, col) % 8)));
 }
 
 bool is_fn(uint32_t side, uint32_t row, uint32_t col) {
   if (row >= side || col >= side) return true;
-  return (g_fn[idx(side, row, col) / 8] & (1u << (idx(side, row, col) % 8))) != 0;
+  return (g_work->fn[idx(side, row, col) / 8] & (1u << (idx(side, row, col) % 8))) != 0;
 }
 
 uint32_t format_bits(uint32_t level, uint32_t mask) {
@@ -355,11 +389,15 @@ void mark_patterns(uint32_t version) {
 }
 
 uint32_t count_function_modules(uint32_t version) {
+  // **Aquesta és l'única porta que dibuixa sense `encode`** —`data_modules` la fa servir per dir quants mòduls porten dades—, o
+  // sigui que aquí també s'ha de demanar el bloc (0.190.202).
+  Scratch scratch;
+  if (scratch.work == nullptr) return 0;
   mark_patterns(version);
   const uint32_t side = 17 + 4 * version;
   uint32_t count = 0;
   for (uint32_t i = 0; i < side * side; ++i) {
-    if ((g_fn[i / 8] & (1u << (i % 8))) != 0) ++count;
+    if ((g_work->fn[i / 8] & (1u << (i % 8))) != 0) ++count;
   }
   return count;
 }
@@ -532,7 +570,7 @@ uint32_t build_codewords(uint32_t version, Level level, uint32_t data_len) {
   for (uint32_t b = 0; b < blocks; ++b) {
     sizes[b] = short_len + ((b >= short_blocks) ? 1 : 0);
     starts[b] = offset;
-    rs_ecc(g_data + offset, sizes[b], ec[b], ec_len);
+    rs_ecc(g_work->data + offset, sizes[b], ec[b], ec_len);
     offset += sizes[b];
   }
   (void)data_len;
@@ -540,11 +578,11 @@ uint32_t build_codewords(uint32_t version, Level level, uint32_t data_len) {
   uint32_t at = 0;
   for (uint32_t i = 0; i <= short_len; ++i) {
     for (uint32_t b = 0; b < blocks; ++b) {
-      if (i < sizes[b]) g_cw[at++] = g_data[starts[b] + i];
+      if (i < sizes[b]) g_work->cw[at++] = g_work->data[starts[b] + i];
     }
   }
   for (uint32_t i = 0; i < ec_len; ++i) {
-    for (uint32_t b = 0; b < blocks; ++b) g_cw[at++] = ec[b][i];
+    for (uint32_t b = 0; b < blocks; ++b) g_work->cw[at++] = ec[b][i];
   }
   return at;
 }
@@ -593,13 +631,19 @@ bool encode(const char* text, Level level, Mode mode, uint8_t* out, uint32_t out
   const uint32_t side = 17 + 4 * version;
   if (out_cap < side * side) return false;
 
+  // **Els tres kilobytes i mig de treball, prestats i tornats**: `Scratch` és l'amo i el seu destructor els dona, o sigui que
+  // cap camí de sortida d'aquesta funció no se'ls pot deixar.
+  Scratch scratch;
+  if (scratch.work == nullptr) return false;
+  g_work = scratch.work;
+
   init_gf();
 
   // The data codewords: the mode, the length, the text, the terminator and the
   // padding the standard asks for.
   const uint32_t capacity = data_codewords(version, level);
-  memset(g_data, 0, sizeof(g_data));
-  Bits w = {g_data, sizeof(g_data), 0};
+  memset(g_work->data, 0, sizeof(g_work->data));
+  Bits w = {g_work->data, sizeof(g_work->data), 0};
   w.put(mode_indicator(used), 4);
   w.put(len, count_bits(version, used));
   write_payload(used, text, len, w);
@@ -621,14 +665,14 @@ bool encode(const char* text, Level level, Mode mode, uint8_t* out, uint32_t out
   uint32_t best_mask = 0;
   uint32_t best_score = 0xFFFFFFFF;
   for (uint32_t mask = 0; mask < 8; ++mask) {
-    draw(version, level, g_cw, cw_len, mask, out);
+    draw(version, level, g_work->cw, cw_len, mask, out);
     const uint32_t score = penalty(out, side);
     if (score < best_score) {
       best_score = score;
       best_mask = mask;
     }
   }
-  draw(version, level, g_cw, cw_len, best_mask, out);
+  draw(version, level, g_work->cw, cw_len, best_mask, out);
 
   info.side = side;
   info.version = version;

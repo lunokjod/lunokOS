@@ -91,6 +91,13 @@ const char kTouchWakeKey[] = "touchwake";
 const char kNapKey[] = "nap";
 // **El teclat de Bluetooth, que és una altra porta i un altre commutador** (0.190.180) (docs/30, docs/50).
 const char kBtKey[] = "bt";
+// **Què és aquesta placa com a aparell de Bluetooth** (0.190.208, l'amo: *«com escullo el mouse? vull usar el panell tàctil com a mouse
+// bluetooth»*): `keyboard`, `mouse` o `both`, i **desat**, perquè triar-ho no és una cosa d'una tarda. La sessió d'una app només arriba
+// fins al son —el nucli esborra les pàgines a cada arrencada— i una tria que es perdés a cada reiniciada seria una tria que es fa cada cop.
+const char kBtModeKey[] = "btmode";
+
+// **I les dues funcions que la llegeixen i la desen són més avall**: la capçalera `kernel/cfg.h` les declara, o sigui que el codi de dalt
+// les pot cridar sense una declaració pròpia (docs/45).
 const char kUartWakeKey[] = "uartwake";
 const char kLastSleepKey[] = "lastsleep";
 const char kIdleKey[] = "idle";
@@ -165,6 +172,12 @@ bool g_wake_on_touch = false;
 bool g_nap_on = true;
 // **Apagat de sèrie** (0.190.180): encès, la placa és un teclat i no fa becaines; o sigui que el que no es demana no es paga (docs/60).
 bool g_bt_on = false;
+// **La paraula del mode, que és la que la ràdio ha de ser** (0.190.208): se serveix d'aquí i no de la ràdio perquè una placa sense ràdio
+// també ha de poder desar la tria, i el que val per a aquest run és el que aquesta variable diu (docs/30, docs/50).
+// **Dotze i no vuit** (0.190.210): «keyboard» són vuit caràcters i el zero del final, o sigui que en un `char[8]` el nom es quedava en
+// «keyboar» —i la placa va dir exactament això: *«this board will be a keyboar»*—, i després `bt.device('keyboar')` no era cap de les tres
+// paraules. Un buffer d'una paraula porta la paraula sencera o no la porta (docs/45).
+char g_bt_mode[12] = "";
 bool g_uart_wake = true;
 // **Una frase i prou** (0.190.152): the report of the last deep sleep, as the board wrote it. It is a note for a person and not a setting, o
 // sigui que no té valor per defecte ni es valida: el que hi hagi és el que la placa va dir (docs/50, docs/70).
@@ -343,6 +356,11 @@ bool remember_backlight() {
 bool remember_log_level() {
   if (g_nvs == nullptr) return false;
   return keep(kLogLevelKey, g_log_level);
+}
+
+bool remember_bt_mode() {
+  if (g_nvs == nullptr) return false;
+  return keep(kBtModeKey, g_bt_mode);
 }
 
 bool remember_announce_charge() {
@@ -714,6 +732,21 @@ void boot(hal::IPlatform& platform) {
           log_printf(pal::kLogWarn, "CFG", "bt '%s' is not on or off; the keyboard stays off", raw_bt);
         }
       }
+      // **I què és aquesta placa al Bluetooth** (0.190.208): the word is read here with all the others and given to the radio below, so
+      // una placa que es va deixar com a ratolí torna com a ratolí (docs/30, docs/50).
+      // **Dotze aquí també** (0.190.210): the buffer that reads the word has to hold «keyboard», o el que es llegia era «keyboar» i la clau es
+      // descartava a cada arrencada amb un avís que deia que no era cap de les tres paraules.
+      char raw_mode[12] = {0};
+      size_t mode_len = 0;
+      if (g_nvs->get(kNamespace, kBtModeKey, raw_mode, sizeof(raw_mode) - 1, mode_len) && mode_len > 0 &&
+          mode_len < sizeof(raw_mode)) {
+        raw_mode[mode_len] = '\0';
+        if (bt_mode_is_a_word(raw_mode)) {
+          snprintf(g_bt_mode, sizeof(g_bt_mode), "%s", raw_mode);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "btmode '%s' is not keyboard, mouse or both; nothing is offered", raw_mode);
+        }
+      }
       char raw_note[sizeof(g_last_sleep)] = {0};
       size_t note_len = 0;
       if (g_nvs->get(kNamespace, kLastSleepKey, raw_note, sizeof(raw_note) - 1, note_len) && note_len > 0 &&
@@ -999,7 +1032,12 @@ void boot(hal::IPlatform& platform) {
   // the radio's store, o sigui que el que calia era preguntar-li-ho a l'arrencada en lloc d'esperar que una persona ho tornés a fer.
   // Llança el link i no espera —el boot no ha de costar mig segon de prompt— i si el teclat no hi és, no passa res: l'`bt scan` hi és
   // per quan en vulgui un altre (docs/50).
-  if (bt::can_host()) bt::host_reconnect();
+  //
+  // **I només si aquesta placa ha aparellat alguna cosa alguna vegada** (0.190.203): preguntar-ho a la botiga del ràdio vol la pila a
+  // dalt, i engegar-la en una placa verge només per sentir que no hi ha res es paga amb el que costa un ràdio encès —i, la primera
+  // vegada, amb una calibració sencera del PHY—. `host_remembers` és un byte a la NVS i no obre la pila; el que sí que ho fa és el
+  // `bt host reconnect` del prompt, que passa per sobre d'aquesta línia perquè allà ho ha demanat una persona (docs/50, docs/60).
+  if (bt::can_host() && bt::host_remembers()) bt::host_reconnect();
 }
 
 const char* unit() { return g_unit; }
@@ -1035,6 +1073,29 @@ bool nap_on() { return g_nap_on; }
 // **I el teclat, que mana sobre la son mentre viu** (0.190.180): the switch does the real thing and not just a word, perquè la fila de
 // Settings ha de poder encendre el ràdio i no esperar la propera arrencada (docs/30, docs/50).
 bool bt_on() { return g_bt_on; }
+
+// **Les tres paraules del mode** (0.190.208): one place that says which words exist, o sigui que la botiga, el prompt i la ràdio no poden
+// discrepar de què vol dir `mouse`. **I la cadena buida vol dir que no s'ha triat mai** (0.190.208, l'amo: *«configurar-se com a dev tampoc
+// sense que hagi escollit si un o l'altre o ambdós»*): un valor per defecte és una tria que la placa ha fet tota sola, i el que ha de fer
+// una placa que no ha triat res és no oferir-se a ningú. És el que `cfg.bt_mode()` torna quan la clau no hi és.
+bool bt_mode_is_a_word(const char* word) {
+  return word != nullptr &&
+         (strcmp(word, "keyboard") == 0 || strcmp(word, "mouse") == 0 || strcmp(word, "both") == 0);
+}
+
+const char* bt_mode() { return g_bt_mode; }
+
+// **Triar què és aquesta placa és canviar el mapa del report, i això es diu** (docs/50): the radio is told the moment it is asked for and the
+// word is kept, perquè la propera arrencada no torni a ser un teclat sense que ningú ho hagi demanat.
+const char* set_bt_mode(const char* word) {
+  if (!bt_mode_is_a_word(word)) return nullptr;
+  snprintf(g_bt_mode, sizeof(g_bt_mode), "%s", word);
+  // **I s'aplica si la ràdio és enlaire, sigui qui sigui que l'ha encesa**: `bt dev mouse on` obre el ràdio sense passar pel commutador de
+  // `cfg`, o sigui que mirar `g_bt_on` deixaria la comanda canviant el que es desa i no el que la ràdio és (0.190.208).
+  if (bt::is_on()) (void)bt::be(g_bt_mode);
+  (void)remember_bt_mode();
+  return g_bt_mode;
+}
 
 // **I la consola, que és una porta del maquinari com la del vidre** (0.190.147): the value of the page is the board's, so moving the switch
 // changes what the next nap does and not the next boot (docs/30, docs/60).

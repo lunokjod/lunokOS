@@ -59,6 +59,9 @@ CONFIG_COMPILER_CXX_RTTI=
 
 # **El TLS allotja a la PSRAM**, i els noms llargs de la targeta encesos (les mateixes dues raons que al `sdkconfig.defaults`)
 CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+# **`FATFS_LONG_FILENAMES` no és un booleà**: a la Kconfig és el nom de l'*elecció* —els tres membres són `LFN_NONE`,
+# `LFN_HEAP` i `LFN_STACK`—, o sigui que no existeix cap línia `CONFIG_FATFS_LONG_FILENAMES=y` enlloc: la línia de sota
+# **és** el seu «sí», amb la memòria del nom a la pila i no al heap (docs/70).
 CONFIG_FATFS_LFN_STACK=y
 
 # **Els canaris de la memòria, els mateixos que al build del T5S3** (docs/75, docs/95)
@@ -76,3 +79,55 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_16mb.csv"
 CONFIG_ESP32_WIFI_IRAM_OPT=n
 CONFIG_ESP32_WIFI_RX_IRAM_OPT=n
 CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=2
+
+# **El Bluetooth d'aquesta placa** (0.190.201, l'amo: *«i al M5Paper està posat el nimble?»* — i no hi era: aquest fitxer no tenia ni una
+# línia `CONFIG_BT` i el codi del ràdio compilava la seva meitat que diu «aquesta placa no en té»). És un **ESP32 de tota la vida**, o
+# sigui que el controlador sí que té una meitat Classic a triar i sí que existeix `CONFIG_BTDM_CTRL_MODE_BLE_ONLY` —al revés que a l'S3,
+# que només sap fer BLE (docs/50) —. Amb NimBLE i no amb Bluedroid, per la mateixa raó que a l'ATOM: la pila del fabricant són 684 KB de
+# flaix i 50-70 KB de heap, i el teclat d'aquest sistema és un HID petit.
+#
+# **La RAM és el que es mira en aquesta placa i no el flaix** (2 053 488 B de imatge contra una ranura de 4 MB, o sigui que hi cap de
+# sobres): el controlador BLE reserva desenes de kilobytes de la interna, i aquesta és la placa amb menys heap lliure del projecte.
+# O sigui que el que s'ha de mesurar després de gravar-lo és `heap` al prompt amb el ràdio apagat i amb `bt dev on`.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+# **Els vincles s'han de desar** (0.190.197): sense això la botiga del ràdio viu a la RAM —i no dona cap error—, o sigui que el teclat
+# d'un mòbil s'ha de tornar a aparellar a cada reinici i `bt host reconnect` no pot trobar mai res (docs/50, docs/70).
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
+
+# **El node de Bluetooth Mesh** (0.190.212, l'amo: *«pots posar algun mesh?»*): la pila d'Espressif damunt de la mateixa NimBLE que el
+# teclat, amb un element i el servidor de configuració, i res més. **Node i no provisionador**: el que ha de poder fer aquesta placa és
+# deixar-se afegir a una xarxa des del telèfon (nRF Mesh o l'app d'Espressif), i un provisionador és una altra pila i una altra feina.
+# La memòria de la pila és la interna (l'estratègia de sèrie), perquè el mesh toca cues i temporitzadors de debò; si algun dia no hi cap,
+# `CONFIG_BLE_MESH_MEM_ALLOC_MODE_EXTERNAL` és la porta, i demana `SPIRAM_USE_MALLOC` (docs/50, docs/75).
+CONFIG_BLE_MESH=y
+CONFIG_BLE_MESH_NODE=y
+CONFIG_BLE_MESH_PB_ADV=y
+CONFIG_BLE_MESH_PB_GATT=y
+CONFIG_BLE_MESH_GATT_PROXY_SERVER=y
+# **El node recorda la xarxa** on l'han posat: sense això, cada arrencada torna a ser un node verge i el provisionador l'ha de tornar a
+# afegir. Els seus bytes van a la NVS que el sistema ja té (no demana una partició pròpia).
+CONFIG_BLE_MESH_SETTINGS=y
+# **I l'anunci normal al costat del mesh**: és el que fa possible que el teclat i el node convisquin quan el mesh hi és; sense això el
+# mesh es queda l'anunciador per a ell tot sol (docs/50).
+CONFIG_BLE_MESH_SUPPORT_BLE_ADV=y
+
+# **El xip d'aquesta placa és un rev 3, i amb això cauen vint-i-un kilobytes de la IRAM** (0.190.201). El projecte declarava la
+# revisió mínima **0**, i la IDF té una opció que en depèn: `CONFIG_SPIRAM_CACHE_WORKAROUND` —l'arranjament del forat de la memòria
+# cau del rev 1—, que a més a més demana que **mitja libc** (les matemàtiques, les cadenes, el `printf`, el `malloc`…) visqui a la
+# IRAM. Amb el Bluetooth a dins, l'enllaçador va dir `region iram0_0_seg overflowed by 21296 bytes`, i aquests vint-i-un kilobytes
+# eren exactament això.
+#
+# **El xip està serigrafiat `ESP32-D0WDQ6-V3`** —el mateix que diu docs/50 de la placa—, o sigui que la revisió mínima és la 3 i el
+# que la documentació de la IDF diu d'aquest arranjament és literalment «not required for ESP32 revision 3 and above». El preu és
+# que aquest firmware no arrenca en una Paper amb un xip rev 1 o 2, que no existeix: la placa és del 2021 i el rev 3 és del 2019.
+CONFIG_ESP32_REV_MIN_3=y
+
+# **L'optimització de la IDF, que aquí no és una preferència sinó el que fa que el ràdio hi càpiga** (0.190.201). El projecte compila
+# els seus components amb `-Og` (`CONFIG_COMPILER_OPTIMIZATION_DEBUG`, el defecte d'un build de desenvolupament) i el que queda a la
+# IRAM —les taules de vectors, el port de FreeRTOS, `esp_hw_support`, el `ringbuf` del driver d'SPI— és codi de la IDF: amb el
+# Bluetooth a dins, l'enllaçador encara es passava 2 940 B. `-Os` no toca ni una línia del nostre codi (els `lib/` els compila
+# PlatformIO amb les seves banderes) i la feina que es fa més lenta és la de la mateixa IDF: capçaleres i rutines de sistema, no el
+# bucle d'una app ni l'intèrpret.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y

@@ -77,5 +77,8 @@ CONFIG_COMPILER_STACK_CHECK=y
 # sessions de les apps no s'hi poden escriure. El nucli d'Arduino el porta amb `CONFIG_FATFS_LFN_STACK=y`; aquí el posem amb la pila de la
 # FAT, que és on el porta ell, i les rutes de `/apps`, `/session` i `/data` deixen de tenir un sostre de vuit caràcters per tros (docs/50,
 # docs/70).
+# **`FATFS_LONG_FILENAMES` no és un booleà**: a la Kconfig és el nom de l'*elecció* —els tres membres són `LFN_NONE`,
+# `LFN_HEAP` i `LFN_STACK`—, o sigui que no existeix cap línia `CONFIG_FATFS_LONG_FILENAMES=y` enlloc: la línia de sota
+# **és** el seu «sí», amb la memòria del nom a la pila i no al heap (docs/70).
 CONFIG_FATFS_LFN_STACK=y
 CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=2

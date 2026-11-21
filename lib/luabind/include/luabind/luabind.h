@@ -299,6 +299,10 @@ struct CfgOps {
   // fa becaines— i es desa com tots els altres (docs/30, docs/50).
   bool (*bt_on)();
   bool (*set_bt_on)(bool on);
+  // **Què és aquesta placa per a un altre aparell** (0.190.208): `keyboard`, `mouse` o `both`, desat a la botiga —la sessió d'una app només
+  // arriba fins al son, i una tria que s'ha de fer a cada arrencada no és una tria—. El que contesta és el que ha quedat (docs/30, docs/50).
+  const char* (*bt_mode)();
+  const char* (*set_bt_mode)(const char* word);
   // **El nivell del registre** (0.190.89): the row of the System tab, a word of four —`debug`, `info`, `warn`, `error`— read by the ring
   // and by nobody else. The page shows what the system obeys and not what it asked for (docs/30, docs/50).
   const char* (*log_level)();
@@ -338,6 +342,18 @@ struct BtOps {
   // **Quants caràcters han sortit** dels que s'han demanat: un teclat sense ningú a l'altre cap no envia res i això no és un error, és una
   // resposta (docs/30).
   size_t (*type)(const char* text);
+  // **I el que una pàgina necessita per ser un ratolí i un teclat alhora** (0.190.204): the word this board is (`keyboard`, `mouse`,
+  // `both`), which one it is to be, its own name to pair with, and the two calls of the pointer —a movement and a click—. Un mode que no
+  // es pot demanar torna fals i no un error: el que no hi ha és una placa sense ràdio (docs/30, docs/50).
+  const char* (*device)();
+  bool (*be)(const char* what);
+  const char* (*name)();
+  bool (*move)(int dx, int dy);
+  bool (*click)(const char* button);
+  // **Connectat i escoltat no són el mateix** (0.190.208): l'altre cap escriu el CCCD del report que vol rebre un moment després de
+  // connectar-se, i fins que no ho fa el que s'envia no arriba enlloc. Una pàgina que ho sap ho diu en comptes de deixar una persona
+  // escrivint al buit (docs/30, docs/50).
+  bool (*ready)();
 };
 void set_bt_ops(const BtOps& ops);
 
