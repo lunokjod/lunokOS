@@ -30,3 +30,14 @@ data/http/
 # Leftovers of an older layout, kept next to the repository and never built.
 OLD/
 DevelNotes.md
+
+# **El que la IDF descarrega per a cada entorn** (0.190.170): els components del registre són fitxers d'una altra gent i
+# `dependencies.lock` és el que fixa les versions que es tornen a baixar. Un `managed_components/` de dos megabytes al
+# repositori és una còpia que envelliria en silenci.
+managed_components/
+
+# **La configuració que la IDF escriu a cada build** (`sdkconfig.<entorn>`): es genera dels `sdkconfig.defaults.*`, que són
+# els que es guarden i els que diuen per què cada placa té el que té. El que la IDF escriu no s'edita a mà i no és font.
+sdkconfig.*
+!sdkconfig.defaults
+!sdkconfig.defaults.*

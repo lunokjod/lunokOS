@@ -23,6 +23,19 @@ struct KeySpot {
   uint32_t group;
 };
 
+// **Una tecla que no és un pin del xip** (0.190.98): a board may wire a button to something that is not a GPIO —the T5 E-Paper S3
+// Pro's own function button hangs from a PCA9535 over I²C—, and the debounce, the "a reading that does not hold is not a press"
+// and the place on the case are the same for both. The reader answers «is it pressed now»; it may be asked several times in one
+// turn, o sigui que qui el dona ha de portar la seva pròpia memòria si preguntar-li costa (docs/50).
+struct KeyElsewhere {
+  Face face;
+  Spot spot;
+  KeyKind kind;
+  uint32_t group;
+  bool (*pressed)(void* context);
+  void* context;
+};
+
 // Active low, no interrupt, and the 10 ms of debounce the maker's own libraries use:
 // the pin is read in every turn of the kernel and a reading that does not hold is not
 // a press (docs/50).
@@ -32,7 +45,11 @@ class GpioKeys : public IInput {
   // is a constant of the board library.
   GpioKeys(const KeySpot* table, uint32_t count, uint32_t debounce_ms = 10);
 
-  uint32_t count() override { return count_; }
+  // **I les que no són pins, després de la taula** (0.190.98): the order is the table's first and the others after it, so a board
+  // that adds one keeps the numbers of the keys it already had (docs/50).
+  bool add(const KeyElsewhere& key);
+
+  uint32_t count() override { return count_ + elsewhere_count_; }
   bool pressed(uint32_t key) override;
   int64_t held_ms(uint32_t key) override;
   Face face(uint32_t key) override;
@@ -52,6 +69,8 @@ class GpioKeys : public IInput {
   const KeySpot* table_;
   uint32_t count_;
   uint32_t debounce_ms_;
+  KeyElsewhere elsewhere_[kMaxKeys] = {};
+  uint32_t elsewhere_count_ = 0;
   bool ready_ = false;
   bool raw_[kMaxKeys] = {false};
   bool stable_[kMaxKeys] = {false};

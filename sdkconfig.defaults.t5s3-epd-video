@@ -1,0 +1,69 @@
+# **La configuració de la placa, en un fitxer que podem canviar** (0.190.90): això és el que el nucli d'Arduino no deixa tocar, i el que
+# ha portat aquest entorn. El primer símbol és el motiu de tot plegat.
+
+# La línia de la memòria cau de dades, que és la que epdiy mira abans de decidir el rellotge del vidre
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# 16 MB de flaix, i la PSRAM octal d'aquesta placa a 80 MHz
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+# **I el flaix en QIO, que és com el llegeix el fabricant** (0.190.99): la taula de configuració del seu README diu *Flash Mode QIO
+# 80MHZ*, i el build d'Arduino ho porta (`qio_opi`); el nostre naixia en **DIO**, que llegeix el flaix de dos en dos bits en lloc de quatre
+# en quatre —el mateix rellotge, la meitat de camí per cada vint-i-cinc microsegons de codi— i en una placa on cada mil·lisegon de pintada
+# es mesura això no és un detall. Va al `sdkconfig` perquè al build del nucli d'Arduino ve del paquet `qio_opi` i aquí no hi ha paquet
+# (docs/50, docs/80).
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
+
+# **La consola de la IDF engegada, i no apagada** (0.190.90, el primer flaix): amb `CONFIG_ESP_CONSOLE_NONE` la placa calla també el
+# bootloader de segona etapa i els panics, o sigui que un xoc i un penjament es veuen iguals —i el primer flaix es va quedar així, sense
+# una sola línia després de l'`entry`—. El perifèric és el **USB-Serial-JTAG** del xip, que és el que el port de la placa ja parlava amb
+# la ROM; el PAL fa servir el mateix driver per al seu anell i no n'instal·la un altre (docs/30, docs/50).
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_BOOTLOADER_LOG_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+# **I la IDF sense color** (0.190.91, l'amo: *«es pot desactivar la sortida ANSI de colors?»*): `LOG_COLORS` és l'únic símbol que encén els
+# codis d'escapament de les seves línies (`E (300) i2c: …`, els avisos del bootloader). El color del **nostre** registre és una altra cosa i
+# es tria amb `cfg.ansi` (docs/30, docs/85).
+# CONFIG_LOG_COLORS is not set
+
+# El torn del nucli compta mil·lisegons, i la pila del nucli és la mateixa dels 16 KB de l'Arduino (docs/75)
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+
+# El rellotge a 240 MHz, que és el que el governador del sistema mou després per la seva porta (docs/50)
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# I el C++ sense excepcions ni RTTI, com al build d'Arduino
+CONFIG_COMPILER_CXX_EXCEPTIONS=
+CONFIG_COMPILER_CXX_RTTI=
+
+# **El TLS allotja a la PSRAM** (0.190.90): `net.cpp` instal·la els ganxos de mbedTLS abans del primer client, i sense aquest símbol la
+# crida no existeix i la connexió cauria amb la RAM interna del xip (docs/75)
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+
+# **El verí del heap, encès una altra vegada** (0.190.101, l'amo: *«el problema d'overflow continua!... millor fem les proves que volies
+# fer amb els canaris i tota la pesca»*). El xoc dins del `tlsf` de la PSRAM ha tornat —`StoreProhibited` en un `free` d'un bloc de Lua
+# mentre `home_eink` arrenca— i aquesta vegada el que es busca no és una hipòtesi sinó l'escriptor. Amb això encès el `multi_heap` posa
+# un canari a cada bloc i el comprova **abans** de fusionar-lo, o sigui que el forat es diu amb el bloc i no amb una adreça morta; el
+# preu (vuit bytes per bloc i un `memset` sencer a cada `malloc`/`free`) és el d'un build de diagnòstic (docs/50, docs/75, docs/95).
+CONFIG_HEAP_POISONING_COMPREHENSIVE=y
+CONFIG_HEAP_POISONING_DISABLED=
+# **I el protector de la pila**, que és l'altra meitat del mateix dubte (0.190.101): a buffer overrun that comes from a local array would
+# land on the return address before it lands on the heap, i aquest el mira. Surt d'aquest build quan el forat estigui tapat (docs/95).
+CONFIG_COMPILER_STACK_CHECK_MODE_STRONG=y
+CONFIG_COMPILER_STACK_CHECK=y
+
+# **Els noms llargs de la targeta, que la IDF porta apagats** (0.190.96, el `errno 22` en desar una sessió): amb el FAT en 8.3 un nom de
+# nou caràcters com `home_eink` és un nom invàlid i `fopen` torna `FR_INVALID_NAME` → `EINVAL`, o sigui que la targeta es munta però les
+# sessions de les apps no s'hi poden escriure. El nucli d'Arduino el porta amb `CONFIG_FATFS_LFN_STACK=y`; aquí el posem amb la pila de la
+# FAT, que és on el porta ell, i les rutes de `/apps`, `/session` i `/data` deixen de tenir un sostre de vuit caràcters per tros (docs/50,
+# docs/70).
+CONFIG_FATFS_LFN_STACK=y

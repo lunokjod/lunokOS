@@ -15,7 +15,10 @@ namespace hal {
 
 class RtcClock : public IClock {
  public:
-  RtcClock(Bm8563* chip, IClock* inner) : chip_(chip), inner_(inner) {}
+  // **`chip` may be the name the board gives its own part** (0.190.153): the driver speaks the registers of a PCF8563 and of a
+  // BM8563 alike, o sigui que el model no el pot dir el codi que els parla sinó la placa que els té soldats (docs/50).
+  RtcClock(Bm8563* chip, IClock* inner, const char* chip_name = "")
+      : chip_(chip), inner_(inner), chip_name_(chip_name) {}
 
   // Reads the chip, once, at boot. A chip that lost its cell does not make the board believe
   // a number: the epoch stays unset and `source()` says so (docs/60).
@@ -73,6 +76,8 @@ class RtcClock : public IClock {
   bool can_wake() const override { return inner_->can_wake(); }
   bool set_epoch_ms(int64_t epoch_ms) override;
   const char* source() const override { return source_; }
+  const char* chip_name() const override { return chip_name_; }
+  const char* chip_state() const override { return chip_state_; }
 
   // Whether the chip's alarm is what started this boot —the board was powered off and the
   // clock brought it back—, said by the chip and not guessed: the flag is read once, at
@@ -86,6 +91,10 @@ class RtcClock : public IClock {
 
   Bm8563* chip_;
   IClock* inner_;
+  const char* chip_name_;
+  // What the chip said the last time it was asked: "none" without a part, "silent" when it does not answer, "lost" when it
+  // answers that its cell went, "ok" when it is keeping the hour (docs/30, docs/50).
+  const char* chip_state_ = "none";
   bool woke_by_alarm_ = false;
   // "rtc" while a battery-backed chip is the keeper of the hour, "soc" when the chip could
   // not be written and the hour is only in the RAM of the chip, "none" while nobody has set

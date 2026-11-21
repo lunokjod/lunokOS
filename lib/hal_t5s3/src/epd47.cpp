@@ -9,6 +9,9 @@
 // the ink (docs/50, docs/95).
 #include "t5s3/epd47.h"
 
+#include <esp_timer.h>
+#include <string.h>
+
 #include <cstring>
 
 #include "epd_highlevel.h"
@@ -95,9 +98,16 @@ bool Epd47::begin() {
   // **I el corrent no es queda obert** (0.190.60): their own firmware powers the supply **around every update** —`epd_poweron()`
   // … `epd_hl_update_screen()` … `epd_poweroff()`— i les tensions enceses tot el dia són una tinta que es mou quan no toca
   // (docs/50, docs/95).
-  logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass at %u MHz, the waveform of the maker (TC2, seven temperatures)", "2.0.0",
+  // **I el rellotge del bus, a vint-i-quatre i no a vint** (0.190.139, l'amo: *«panel bench peta la máquina...»* i, després de tornar-ho a
+  // mesurar, els números de 446 ms que eren els de vint megahertz). El panell aguanta fins a vint-i-sis —el fabricant va a 26,6 al seu exemple—
+  // i la placa ha pintat a vint-i-quatre sense cap línia partida: `panel bus 24` era una comanda que no es desa, o sigui que cada flaish tornava
+  // a vint i ningú no ho sabia fins que els mil·lisegons no quadraven. El que és una tria d'una persona es queda a `panel bus`; el que és un
+  // paràmetre del driver, aquí (docs/50, docs/95).
+  const uint32_t kGlassMhz = 24;
+  if (epd_lcd_pixel_clock_MHz() != static_cast<int>(kGlassMhz)) epd_lcd_set_pixel_clock_MHz(static_cast<int>(kGlassMhz));
+  logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass at %u MHz, the waveform of the maker (%s)", "2.0.0",
        static_cast<unsigned>(epd_width()), static_cast<unsigned>(epd_height()),
-       static_cast<unsigned>(epd_lcd_pixel_clock_MHz()));
+       static_cast<unsigned>(epd_lcd_pixel_clock_MHz()), waveform_);
   return true;
 }
 
@@ -237,6 +247,10 @@ bool Epd47::set_rotation(uint16_t degrees) {
   return true;
 }
 
+// **Dos segons de tensions enceses després de l'última pintada** (0.190.140): el temps que una persona triga a canviar de línia o a fer un
+// scroll curt, que és quan el TPS ja calent estalvia els cent mil·lisegons del `POWER_GOOD`.
+const uint32_t kKeepWarmMs = 2000;
+
 bool Epd47::flush(UpdateMode mode) {
   if (!begin()) return false;
   // **Les tensions, a cada pintada** (0.190.60), com el seu `screen_update()`: they come up, the page is written and they go down
@@ -285,14 +299,134 @@ bool Epd47::flush(UpdateMode mode) {
        static_cast<int>(area.y), area.width, area.height, static_cast<int>(draw), static_cast<unsigned>(took_ms),
        err == EPD_DRAW_SUCCESS ? "ok" : "with an error");
   forget_the_dirty();
-  // **I les tensions, avall** (0.190.60): the image stays because it is ink, and the rails do not (docs/50).
-  epd_poweroff();
-  powered_ = false;
+  // **Les tensions es queden, i això és el que estalvia cent mil·lisegons per pintada** (0.190.140, l'amo: *«sí, deixa-les enceses 2 s després de
+  // l'última pintada»*). El fabricant les puja i les baixa a cada update, o sigui que cada pintada paga el `POWER_GOOD` i la VCOM senceres; en una
+  // UI que pinta deu vegades seguides això era un segon de tensions i no de tinta. Les baixa `poll` quan el vidre fa dos segons que calla, i
+  // `rest` abans de dormir (docs/50, docs/95).
+  last_paint_ms_ = static_cast<uint32_t>(esp_timer_get_time() / 1000);
   if (err != EPD_DRAW_SUCCESS) {
     error_ = "epdiy did not finish that paint";
     return false;
   }
   return true;
+}
+
+// **Una àrea girada del dret i del revés, que és el seu propi desfer** (0.190.124): the two nibbles of a byte are two pixels and flipping them both is
+// the same as flipping the picture, o sigui que invertir-la dues vegades deixa el framebuffer exactament com era. L'àrea s'arrodoneix a bytes, que vol
+// dir que com a molt s'inverteix un píxel de més a cada punta —dins del vidre i tornat a girar tot seguit— (docs/50).
+void Epd47::flip_the_area(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  if (frame_ == nullptr || w == 0 || h == 0) return;
+  uint32_t left = x & ~1u;
+  uint32_t right = (static_cast<uint32_t>(x) + w + 1u) & ~1u;
+  if (right > kGlassW) right = kGlassW;
+  if (left >= right) return;
+  for (uint32_t row = y; row < static_cast<uint32_t>(y) + h && row < kGlassH; ++row) {
+    uint8_t* at = frame_ + row * kGlassStride + (left >> 1);
+    const uint32_t bytes = (right - left) >> 1;
+    for (uint32_t i = 0; i < bytes; ++i) at[i] = static_cast<uint8_t>(~at[i]);
+  }
+}
+
+// **Una pintada que només compta** (0.190.123): la mateixa via que `flush` —les tensions, la forma d'ona de la temperatura que el panell diu i la
+// baixada de les tensions— però amb l'àrea que demana qui mesura. **I hi ha d'haver un canvi de debò** (0.190.124): the first version of this asked
+// the panel to paint an area that was already painted, epdiy compared the two framebuffers, found nothing to do and answered **1 ms** —the owner's
+// `panel bench` said a thousand pictures a second for a strip of forty-eight rows—, i el que això mesura no era cap pintada. Ara l'àrea es gira, es
+// pinta i es torna a girar a la crida següent: cada crida té el seu canvi i la imatge del vidre acaba on va començar. Zero és un panell que no hi és
+// o una àrea que no cap (docs/50, docs/95).
+uint32_t Epd47::paint_for_the_count(uint16_t x, uint16_t y, uint16_t w, uint16_t h, UpdateMode mode) {
+  if (!begin()) return 0;
+  if (w == 0 || h == 0) return 0;
+  if (static_cast<uint32_t>(x) + w > kGlassW || static_cast<uint32_t>(y) + h > kGlassH) return 0;
+  flip_the_area(x, y, w, h);
+  if (!powered_) {
+    epd_poweron();
+    powered_ = true;
+  }
+  EpdRect area = {};
+  area.x = static_cast<int>(x);
+  area.y = static_cast<int>(y);
+  area.width = static_cast<int>(w);
+  area.height = static_cast<int>(h);
+  const uint32_t started = static_cast<uint32_t>(esp_timer_get_time());
+  (void)epd_hl_update_area(&g_state, static_cast<enum EpdDrawMode>(mode_of(mode)), the_temperature(), area);
+  const uint32_t took = static_cast<uint32_t>(esp_timer_get_time()) - started;
+  epd_poweroff();
+  powered_ = false;
+  return took / 1000u;
+}
+
+// **Les vuit taules d'epdiy, totes al binari** (0.190.135, l'amo: *«podries afegir tots els waveforms? els vull provar»*). `builtin_waveforms.c`
+// inclou cada taula que la llibreria porta i aquí només cal el nom per triar-ne una: el que decideix quina es fa servir és un punter de l'estat
+// (`state->waveform`), o sigui que **es canvien en calent** —sense reiniciar i sense tocar el que hi ha pintat— i la pintada següent consulta la
+// nova. Nomes dues són d'aquest panell (les ED047, de 4,7"); les altres sis són de vidres de sis, nou i tretze polzades i **no són per a aquesta
+// tinta**: es proven perquè el que es busca és entendre els grisos, i el que faran és pintar amb la forma d'ona d'un altre panell (docs/50, docs/95).
+extern "C" {
+extern const EpdWaveform epdiy_ED047TC1;
+extern const EpdWaveform epdiy_ED047TC2;
+extern const EpdWaveform epdiy_ED060SC4;
+extern const EpdWaveform epdiy_ED060SCT;
+extern const EpdWaveform epdiy_ED060XC3;
+extern const EpdWaveform epdiy_ED097OC4;
+extern const EpdWaveform epdiy_ED097TC2;
+extern const EpdWaveform epdiy_ED133UT2;
+}
+
+namespace {
+
+struct WaveformChoice {
+  const char* name;
+  const EpdWaveform* table;
+};
+
+// **Els noms del prompt, i el primer és l'àlies curt dels dos d'aquest panell**: `panel wave tc1` i `panel wave ed047tc1` són el mateix.
+const WaveformChoice kWaveforms[] = {
+    {"tc1", &epdiy_ED047TC1},
+    {"tc2", &epdiy_ED047TC2},
+    {"ed047tc1", &epdiy_ED047TC1},
+    {"ed047tc2", &epdiy_ED047TC2},
+    {"ed060sc4", &epdiy_ED060SC4},
+    {"ed060sct", &epdiy_ED060SCT},
+    {"ed060xc3", &epdiy_ED060XC3},
+    {"ed097oc4", &epdiy_ED097OC4},
+    {"ed097tc2", &epdiy_ED097TC2},
+    {"ed133ut2", &epdiy_ED133UT2},
+};
+const uint8_t kWaveformCount = static_cast<uint8_t>(sizeof(kWaveforms) / sizeof(kWaveforms[0]));
+// **Els noms que es poden demanar, sense repetir les dues àlies** (el llistat del prompt les ha de dir totes una vegada).
+const char* const kListed[] = {"ed047tc1", "ed047tc2", "ed060sc4", "ed060sct", "ed060xc3", "ed097oc4", "ed097tc2", "ed133ut2"};
+const uint8_t kListedCount = static_cast<uint8_t>(sizeof(kListed) / sizeof(kListed[0]));
+
+}  // namespace
+
+const char* Epd47::waveform_at(uint8_t index, uint8_t* modes, uint8_t* ranges) const {
+  if (index >= kListedCount) return nullptr;
+  const char* name = kListed[index];
+  const EpdWaveform* table = nullptr;
+  for (uint8_t i = 0; i < kWaveformCount; ++i) {
+    if (strcmp(name, kWaveforms[i].name) == 0) {
+      table = kWaveforms[i].table;
+      break;
+    }
+  }
+  if (table != nullptr) {
+    if (modes != nullptr) *modes = static_cast<uint8_t>(table->num_modes);
+    if (ranges != nullptr) *ranges = static_cast<uint8_t>(table->num_temp_ranges);
+  }
+  return name;
+}
+
+bool Epd47::set_waveform(const char* name) {
+  if (name == nullptr) return false;
+  for (uint8_t i = 0; i < kWaveformCount; ++i) {
+    if (strcmp(name, kWaveforms[i].name) != 0) continue;
+    g_state.waveform = kWaveforms[i].table;
+    waveform_ = (strncmp(name, "tc", 2) == 0) ? ((name[2] == '1') ? "ed047tc1" : "ed047tc2") : name;
+    logf(pal::kLogInfo, "PANEL", "the waveform is the %s (%d modes, %d temperature range(s))", waveform_,
+         g_state.waveform->num_modes, g_state.waveform->num_temp_ranges);
+    return true;
+  }
+  error_ = "this build carries the eight waveforms of epdiy and that is not one of them";
+  return false;
 }
 
 bool Epd47::set_vcom_mv(uint16_t mv) {
@@ -338,6 +472,20 @@ bool Epd47::set_bus_mhz(uint32_t mhz) {
   logf(pal::kLogInfo, "PANEL", "the pixels travel at %u MHz (asked for %u)", static_cast<unsigned>(bus_mhz()),
        static_cast<unsigned>(mhz));
   return true;
+}
+
+// **El torn del panell** (0.190.140): si les tensions són amunt i fa dos segons que ningú no pinta, avall. El número és el d'una persona que
+// llegeix una pàgina i canvia de línia: prou llarg perquè les pintades d'un scroll es trobin el TPS ja calent i prou curt perquè el repòs no
+// pagui el corrent d'una font encesa (docs/50, docs/60, docs/95).
+void Epd47::poll() {
+  if (!powered_ || last_paint_ms_ == 0) return;
+  const uint32_t now = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+  if ((now - last_paint_ms_) < kKeepWarmMs) return;
+  epd_poweroff();
+  powered_ = false;
+  last_paint_ms_ = 0;
+  // **I es diu**, perquè aquesta línia és la que separa una placa en repòs d'una que gasta una font encesa que ningú no ha demanat (docs/60).
+  logf(pal::kLogDebug, "PANEL", "the supply is down again: %u ms without a paint", static_cast<unsigned>(kKeepWarmMs));
 }
 
 bool Epd47::rest() {

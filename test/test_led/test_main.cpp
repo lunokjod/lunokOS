@@ -486,6 +486,26 @@ void test_the_default_level_is_twenty(void) {
   TEST_ASSERT_EQUAL_UINT8(20, level());
 }
 
+// **Un vidre que s'ha despertat per una alarma no s'il·lumina fins que hi ha una pàgina** (0.190.161, l'amo: *«Quan es desperta d'un
+// deepsleep per alarma no s'ha d'encendre el backlight i tornar a dormir ... Menys que l'app demani "raise"»*): the boot says so, i el
+// primer que té alguna cosa a ensenyar —una pàgina pintada o un dit— el torna a encendre (docs/30, docs/50, docs/60).
+void test_a_wake_for_an_alarm_keeps_the_glass_dark_until_there_is_a_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  kernel::led::boot(hal::platform(), /*the_glass_waits=*/true);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::led::the_glass_waits(), "the boot said the glass waits");
+  kernel::led::the_glass_is_wanted();
+  TEST_ASSERT_FALSE_MESSAGE(kernel::led::the_glass_waits(), "a page wants the glass and the wait is over");
+
+  // And a finger on a glass that waits does the same as on a glass the quiet put out: it lights it and it is the same answer.
+  kernel::led::boot(hal::platform(), /*the_glass_waits=*/true);
+  TEST_ASSERT_TRUE(kernel::led::wake_the_light());
+  TEST_ASSERT_FALSE(kernel::led::the_glass_waits());
+
+  // A plain boot has nothing to wait for.
+  TEST_ASSERT_TRUE(reboot());
+  TEST_ASSERT_FALSE(kernel::led::the_glass_waits());
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -509,5 +529,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_light_is_busy_while_a_moment_runs);
   RUN_TEST(test_the_second_colour_is_a_ramp);
   RUN_TEST(test_the_default_level_is_twenty);
+  RUN_TEST(test_a_wake_for_an_alarm_keeps_the_glass_dark_until_there_is_a_page);
   return UNITY_END();
 }

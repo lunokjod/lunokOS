@@ -106,6 +106,8 @@ Aquestes són les opcions del binari:
 | `--fs <dir>` | **Recanvi** del disc quan no hi ha `--flash`: `Options` hi cau si `flash_dir` és nul (`emu_storage.cpp`). El binari sempre acaba de posar `--flash` a `data`, o sigui que **des del binari no fa res**; el fan servir les proves, que es muntin les seves opcions |
 | `--sd <dir>` | **La targeta**: aquest directori n'és el volum i es munta a `/sd`. Per defecte `emulator/sd`, **que l'emulador crea sol si el model té ranura** (`make_slot`, i el mateix amb el directori que li diguin). **El que porta el decideix el directori, i el build no hi posa res** (11/11: el directori per defecte arrenca buit i les apps d'aquest emulador són les del disc de la flash), i qualsevol directori és el que hi hagi —una targeta buida és una ranura amb `apps` dient `no apps`, i un directori esborrat és una ranura buida (0.88.2, docs/70, docs/85) |
 | `--battery-mv <mv>` | **Una bateria de mentida**: el que llegeix `power.battery()`. **Mana sobre la de la màquina** (la del punt de sota), i el `%` no es posa: surt de la corba de `hal/battery.h`, la mateixa que fa servir el Paper. Un model **sense indicador** (els ATOM) dona `nil` encara que se li digui un número, que és el que faria la placa (docs/30) |
+| `--battery-ma <mA>` | **El corrent de la cel·la** (0.190.156, `power.battery().ma` i la potència de l'app Energy): negatiu mentre alimenta la placa, que és el signe que el comptador de coulombs de la T5 S3 Pro dona. Zero —el de sèrie— és una placa que no fa res, i el corrent que el carregador diu que hi entra surt d'aquest mateix número quan és positiu (docs/50, docs/85) |
+| `--battery-temp-c <C>` | **La temperatura que el sensor de la cel·la diria** (0.190.156, `power.battery().temp_c10` en dècimes): un model amb indicador i sense aquesta opció **no en diu cap**, perquè un número inventat al costat d'una mesura és pitjor que una absència (docs/50, docs/85) |
 | `--charging` | **La placa endollada** (0.189.56): el model de la bateria deia `charging = false` sempre —la Paper de debò no sap distingir el cable—, o sigui que el llamp de la figura de la bateria i la marca del port de la barra no tenien cap cas que es pogués mirar. Amb aquesta bandera el `battery()` de l'emulador diu que sí i no toca res més: la cel·la continua sent la de `--battery-mv` (docs/50, docs/85) |
 | `--flush <how>` | **Com arriben els píxels al vidre** (0.189.66): `rows` (el camí de la placa d'avui, 100 µs per fila), `burst` (el cable, una transacció per tros de 2 000 bytes) o `1bit` (un quart dels bytes). El vidre de l'emulador no té controlador i pinta el mateix amb els tres, però **cobra el que cobra la placa** —el model és el de sempre, amb la fila a 100 µs —comptada pel driver el 15/11, docs/95 E-11— i el cable a 800 ns per byte—, o sigui que un run amb `--flush burst` ensenya què s'estalviaria abans que el driver del Paper estigui mesurat. Es canvia en calent amb `panel flush` (docs/50, docs/85) |
 | `--signs` | **La franja d'una demostració** (0.189.57): les cinc icones de la barra enceses alhora —el ventall del wifi, la marca del port, la runa del Bluetooth, el rellotge de sorra i la campana de l'alarma—. Les del senyal no es poden encendre totes de debò en un sol run: la provisió vol el Bluetooth, l'NTP vol la xarxa, el cable és `--charging` i el temporitzador és una cua d'alarmes. Serveix per mirar-se la barra sencera d'un cop, que és el que es vol fer quan s'hi toca; a la placa no hi ha res que encengui una icona que no digui la veritat (docs/50, docs/85) |
@@ -938,7 +940,7 @@ variable `TERM` al PC, i «sempre sí» a la placa), i una placa amb un pont sè
 d'escapament com a brossa.
 
 Ara, a l'arrencada, el shell **pregunta**: envia la consulta *Device Attributes* (`ESC [ c`) i busca la
-resposta `ESC [ ? … c` en el que arriba, amb un màxim de **150 ms**. Un terminal ANSI contesta, un de ximple
+resposta `ESC [ ? … c` en el que arriba, amb un màxim de **400 ms**. Un terminal ANSI contesta, un de ximple
 no contesta i el sistema ho apunta:
 
 ```
@@ -955,6 +957,18 @@ Tres detalls que són la diferència entre detectar i fer veure que es detecta:
   quan el prompt ja hi és. La primera tecla d'una persona no se la menja l'arrencada.
 - **La regla és pura** (`kernel::shell::ansi_reply`) i la suite la prova amb la resposta d'un VT100
   (`ESC [ ? 1 ; 2 c`), la d'un xterm, una fletxa, un informe de cursor, una tecla i un text qualsevol.
+- **I qui no va contestar a l'arrencada té una segona oportunitat** (0.190.91). Amb `pio device monitor` el port
+  s'obre quan el nucli ja ha parlat, o sigui que la primera pregunta cau al buit i el «no» es quedava per a tot el
+  run; el prompt la torna a fer **dues vegades més** (mai més de tres preguntes), i si aleshores hi ha resposta ho
+  diu amb una línia pròpia:
+
+  ```
+  [I][TERM] ansi, and it answered late: the terminal spoke when the prompt came back
+  ```
+
+  El que no es toca mai és el que la persona hagi escrit mentre la pregunta era a l'aire: això és de la línia
+  (docs/30). I si el terminal no parla mai —un fitxer, un port cru, el panell Serial Monitor de VS Code, que no és
+  un emulador de terminal—, queda el que hi ha: `ansi on` al prompt, que és una ordre i no una endevinalla.
 
 Mesurat a l'emulador: amb una canonada, `no terminal, ansi not asked`; dins d'un pseudo-terminal que no contesta,
 `no ansi, spaces and backspaces`; i donant-li la resposta pel seu `stdin`, `ansi`.

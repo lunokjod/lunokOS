@@ -1,0 +1,10 @@
+## **El que la IDF no porta de sèrie** (0.190.90): el disc d'aquest sistema és LittleFS i la IDF només porta FAT i SPIFFS, o sigui que el
+## component és una dependència de debò i no una comoditat. La versió és la que el nucli d'Arduino porta a dins (2.4.x), perquè el format
+## del disc sigui el mateix que el que `tools/make_disk.py` escriu i el que la placa ja té a la flaix (docs/50, docs/70).
+##
+## **I el mDNS no hi és a propòsit**: el registre de components només en té una versió que demana IDF 5, i aquest entorn va amb la 4.4. El
+## sistema el fa servir per anunciar la provisió, o sigui que `net.cpp` mira si la capçalera hi és i, si no hi és, ho diu i segueix (docs/50).
+dependencies:
+  idf:
+    version: ">=4.4"
+  joltwallet/littlefs: "~1.9.0"

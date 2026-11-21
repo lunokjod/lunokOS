@@ -625,7 +625,8 @@ void epd_lcd_set_pixel_clock_MHz(int frequency) {
     // set pclk
     int flags = 0;
     uint32_t freq = lcd_hal_cal_pclk_freq(&lcd.hal, 240000000, lcd.config.pixel_clock, flags);
-    ESP_LOGI(TAG, "pclk freq: %d Hz", freq);
+    // **`freq` és `uint32_t` i el format deia `%d`** (0.190.90, canvi local nostre): la IDF 5 mira els formats i la 4.4 d'Arduino no.
+    ESP_LOGI(TAG, "pclk freq: %lu Hz", (unsigned long)freq);
     lcd.line_length_us =
         (lcd.lcd_res_h + lcd.config.le_high_time + lcd.config.line_front_porch - 1) * 1000000 /
             lcd.config.pixel_clock +

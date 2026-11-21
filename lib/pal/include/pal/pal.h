@@ -23,7 +23,11 @@ enum EventType : uint16_t {
   kEventAppExit = 6,
   kEventPower = 7,
   kEventSystem = 8,
-  kEventTypeCount = 9
+  // **El dit ha trucat** (0.190.119): the line of the panel fell, which is the only moment this board has news a person is waiting for.
+  // No hi ha res a llegir a l'event —el marc el pren `touch::poll` del torn— i el que fa és **despertar la cua**, perquè el torn que
+  // dormia els seus deu mil·lisegons (o els quaranta d'una becaina) no és un torn que arriba tard (docs/50, docs/95).
+  kEventTouch = 9,
+  kEventTypeCount = 10
 };
 
 struct Event {
@@ -46,6 +50,12 @@ class IQueue {
   virtual bool push(const Event& ev, uint32_t timeout_ms) = 0;
   // Blocks until an event or the timeout. timeout_ms < 0 means forever.
   virtual bool pop(Event& out, int32_t timeout_ms) = 0;
+  // **Des d'una interrupció** (0.190.119): the same push without the right to block, for the one caller that cannot —the line of the
+  // glass—. A platform whose queue is not an interrupt's business answers false and the world is as it was (docs/50).
+  virtual bool push_from_isr(const Event& ev) {
+    (void)ev;
+    return false;
+  }
   virtual uint16_t size() const = 0;
   virtual uint16_t capacity() const = 0;
 };
@@ -203,6 +213,12 @@ void set_memory_bytes(uint32_t home_bytes, uint32_t extra_bytes);
 // not running on, where the interpreter's instructions cost what they cost on the board (docs/85). On
 // the board it is the chip's own busy wait and nothing calls it with a number.
 void delay_us(uint32_t us);
+
+// **Esperar deixant córrer els altres** (0.190.137, l'amo: *«panel bench peta la màquina... el wathdog continua desactivat? no el desacivis»*). A
+// wait that gives the processor back, which is what the task watchdog of this board watches: `delay_us` is a busy wait and a command that
+// spends fourteen seconds painting inside the shell never lets the idle task run, o sigui que el watchdog fa el que ha de fer i mata la placa.
+// Un tick com a mínim, perquè és el que el sistema sap comptar (docs/50, docs/95).
+void delay_ms(uint32_t ms);
 
 // The extra memory of the board (PSRAM on the M5Paper) as a place to allocate from.
 //
@@ -362,6 +378,21 @@ void memory_book_released(void* block);
 // cache is the first thing to go and the last thing anyone misses. The function is not called from inside itself, so a
 // relief that frees through `release()` cannot recurse.
 void set_memory_relief(void (*relief)(void* keep, size_t bytes));
+
+// **Els canaris de la memòria** (0.190.101, l'amo: *«millor fem les proves que volies fer amb els canaris i tota la pesca»*). Un
+// bloc que surt de la porta d'`IExtraMemory` pot portar una **capçalera i una cua** amb una marca i la seva mida, i llavors qui
+// escriu més enllà del que va demanar deixa un rastre que es veu **al primer `release` o `resize` d'aquell bloc** —que és
+// exactament el moment en què el `tlsf` del xip cau amb un `StoreProhibited` sense dir per què—. És un build de diagnòstic i no de
+// vida: `LUNOK_MEMORY_GUARDS` l'encén, i el preu són trenta-dos bytes per bloc i una còpia a cada `resize` (docs/75, docs/95).
+//
+// **I `debug_watch_a_block_of` és la segona meitat**: quan els canaris ja han dit de quin bloc es tracta, aquesta porta arma un
+// **watchpoint de maquinari** damunt de la cua del següent bloc d'aquella mida, i el xoc deixa de ser al lloc on el mort es troba i
+// passa a ser al lloc on el mata —amb el seu `PC` i la seva pila— (docs/95).
+void debug_watch_a_block_of(size_t bytes);
+void debug_watch_off();
+uint32_t debug_guards_on();
+// La integritat dels dos munts de memòria, dita per qui els administra: la camina i diu **on** és el forat (docs/95).
+bool debug_heap_check();
 
 }  // namespace pal
 

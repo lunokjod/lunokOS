@@ -130,6 +130,15 @@ class IClock {
   // "soc" when it is the SoC's own counter, "none" when nobody has set it yet
   // and the epoch is 0. docs/60 is the rule; time.caps() repeats it to apps.
   virtual const char* source() const = 0;
+  // **Quin rellotge és, i si el pot portar** (0.190.153, l'amo: *«Afegeix l'informació a l'app Battery»*). `chip_name()` és el
+  // model del xip amb pila que aquesta placa té a la vora —**el nom el dona la placa i no el driver**, perquè el mateix codi
+  // parla amb un PCF8563 i amb un BM8563 i són xips diferents amb els mateixos registres— i és buit on no n'hi ha cap.
+  // `chip_state()` és el que aquell xip diu de si mateix: `"none"` que la placa no en té, `"silent"` que no contesta o que el
+  // que contesta no és una hora, `"lost"` que la seva pila el va deixar (el bit VL) i `"ok"` que la guarda de debò. Una app
+  // que viu d'una alarma vol saber-ho: una mostra que depèn d'un rellotge sense pila només arriba mentre la placa és encesa
+  // (docs/30, docs/50, docs/60).
+  virtual const char* chip_name() const { return ""; }
+  virtual const char* chip_state() const { return "none"; }
 };
 
 class IStorage {
@@ -362,6 +371,44 @@ class IPower {
   // The battery, when the board can tell. False is "this board has no gauge", not
   // "empty": the ATOM is powered by its cable and says it cannot tell (docs/50).
   virtual bool battery(int& mv, int& pct, bool& charging) = 0;
+  // **El que un indicador de càrrega sap i un divisor en un ADC no** (0.190.155, l'amo: *«Mira els exemples de batería (es el hardware
+  // que tenim?) ... Si ens serveixen, afegeix la informació a l'app battery»*). The T5 E-Paper S3 Pro carries a **BQ27220** that
+  // counts coulombs —the maker's own example reads its current, its capacities and its health—, i una placa amb un divisor només té
+  // dos números. `kUnknown` is «this part does not say» and is not zero: zero mA is a board doing nothing and not a board that
+  // cannot measure. The defaults answer false, o sigui que una placa sense indicador no paga res (docs/30, docs/50, docs/60).
+  static const int kUnknown = -32768;
+  struct BatteryDetail {
+    int current_ma = kUnknown;   // negative while the cell feeds the board
+    int full_mah = kUnknown;     // what the cell holds now that it is older
+    int left_mah = kUnknown;
+    int design_mah = kUnknown;   // what it was sold as
+    int temp_c10 = kUnknown;     // tenths of a degree Celsius, the cell's own sensor
+    int health = kUnknown;       // percent of the design capacity the gauge still trusts
+    int cycles = kUnknown;       // charge cycles it has counted
+  };
+  virtual bool battery_detail(BatteryDetail& out) {
+    (void)out;
+    return false;
+  }
+
+  // **El carregador, que és l'altre xip de la bateria** (0.190.156, l'amo: *«Tenim el PMU molt abandonat ... Busca quin model
+  // tenim al T5S3 Pro i implementa'l»*). The T5 E-Paper S3 Pro carries a **BQ25896** at 0x6B —the maker's README says so and its
+  // own driver reads these same registers— and what it adds to the gauge is the other half of the picture: whether a cable is in,
+  // what it is (a host or an adapter), how much current is going **into** the cell, the voltage of the input and the system rail.
+  // A board without one answers false and the page says nothing about a charger it does not have (docs/30, docs/50, docs/60).
+  struct ChargerDetail {
+    int vbus_mv = kUnknown;    // 0 with no cable, and the value of the supply with one
+    int ichgr_ma = kUnknown;   // what is going into the cell, and nothing while it is not charging
+    int vsys_mv = kUnknown;    // the rail the board itself runs on
+    int ntc_pct = kUnknown;    // the thermistor, as a percentage of REGN and not a temperature
+    const char* input = "";    // "no input", "USB host", "adapter" or "OTG"
+    const char* charge = "";   // "not charging", "pre-charge", "fast" or "done"
+    bool power_good = false;
+  };
+  virtual bool charger_detail(ChargerDetail& out) {
+    (void)out;
+    return false;
+  }
   // Sleeps until `at_epoch_ms` (0 = no deadline). **A deep sleep does not return**: the board restarts (docs/90). True when it came
   // back from a light sleep.
   //
@@ -419,6 +466,7 @@ class IPower {
   // capability of the wiring and not a way down of its own: **a board with a key sleeps with `sleep(kDeep, 0)`**, the same call as
   // every other way down (0.190.15), and the board arms the key there along with the hour when it has one (docs/50).
   virtual bool can_sleep_with_the_keys() const { return false; }
+
   // **Tornar d'un son profund amb el dit** (0.190.16, l'amo: *«del DeepSleep s'ha de poder tornar sempre a part de per les alarmes, també
   // els botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*): whether this board
   // can hear a finger while the chip is asleep. **Off by default and off on every board that does not say otherwise**: hearing a finger
@@ -437,6 +485,31 @@ class IPower {
     wake_on_touch_ = on;
     return true;
   }
+  // **La consola com a porta de la becaina** (0.190.147, l'amo: *«Posa un toggle a Settings->Battery que doni la opció a "Wake from
+  // UART"»*): a light sleep comes back on a key, on the glass and on the console, and the console is the door a board with no keyboard
+  // cannot lose —el prompt és l'única manera de parlar-hi—, però també és un cable, i qui té la placa en una prestatgeria pot voler que
+  // les esperes només les desfaci un dit. Encès de sèrie, que és el que aquest sistema feia abans de tenir el commutador (docs/50, docs/60).
+  // **Les portes de la darrera dormida, en una frase que el nucli pugui desar** (0.190.149, l'amo: *«quan entra en sleep perdo el serial
+  // ... no podrè veure mai el log»*). A deep sleep is a **reset**: the line that says which door was already open is gone by the time the
+  // cable is plugged back in, and that line is the whole explanation of a board that comes back at once. A board that can keep it in a
+  // memory that survives the sleep answers here, once, at the boot that follows it (docs/50, docs/60).
+  // **I qui la desa és el nucli, no la placa** (0.190.151, l'amo: *«el botó de power fa un reset i tot s'envà a la merda»*): the RTC RAM
+  // survives a reset of the chip and **not** a cycle of the power button, which on this board is the supply going away, o sigui que el
+  // text ha d'acabar a la botiga i la placa només ha de saber dir-lo (docs/50, docs/70).
+  virtual size_t describe_the_last_sleep(char* out, size_t cap) {
+    (void)out;
+    (void)cap;
+    return 0;
+  }
+  virtual bool wake_from_uart() const { return wake_from_uart_; }
+  virtual bool set_wake_from_uart(bool on) {
+    wake_from_uart_ = on;
+    return true;
+  }
+  // **Si la consola d'aquesta placa pot ser una porta del son lleuger** (0.190.152): a board whose console is the chip's own USB cannot,
+  // because a light sleep stops that peripheral and a byte typed while the chip naps is lost no matter what is armed (docs/50). The
+  // switch of the Battery tab is a wish of the person; this is a fact of the wiring, and the arming asks both.
+  virtual bool the_console_can_wake() const { return true; }
 
   // Where this board can be woken from: "timer", "button", "console" or "none".
   // Said by the board, because it is the wiring that decides it (docs/50).
@@ -451,6 +524,7 @@ class IPower {
   // **El commutador del dit, que és de tota placa** (0.190.17): kept here and not in each board, because the setting belongs to the system
   // and only the arming belongs to the wiring (docs/30, docs/50).
   bool wake_on_touch_ = false;
+  bool wake_from_uart_ = true;
 };
 
 // Reserved: implemented when a board with a screen exists (docs/50).
@@ -515,6 +589,28 @@ inline const char* mode_name(UpdateMode mode) {
   return "?";
 }
 
+// **El temps de tinta d'un mode, del full del fabricant** (docs/50): the ink is what a paint costs and the panel's own table says how long
+// it takes to move —120 ms for `du`, 450 for `gc16`—, and that wait is paid **per paint and not per pixel**. És la base del cost que un
+// vidre contesta i, quan el vidre no en diu res, la dels comptes del nucli (docs/50, docs/95).
+inline uint32_t ink_ms_of(UpdateMode mode) {
+  switch (mode) {
+    case UpdateMode::kDu:
+    case UpdateMode::kDu4:
+      return 120;
+    case UpdateMode::kA2:
+      return 290;
+    case UpdateMode::kGl16:
+    case UpdateMode::kGlr16:
+      return 350;
+    case UpdateMode::kGc16:
+    case UpdateMode::kGld16:
+      return 450;
+    case UpdateMode::kInit:
+      return 0;
+  }
+  return 0;
+}
+
 // A surface an app can draw on, and the paint that puts it on the glass. It is a **surface** and not a
 // streaming driver: what is drawn lives in the board's own memory, a rectangle remembers what changed,
 // and `flush` sends only that rectangle. An e-ink glass takes 120 to 450 ms to move its ink, so a
@@ -523,6 +619,11 @@ class ISurface : public IDisplay {
  public:
   virtual uint16_t width() const = 0;
   virtual uint16_t height() const = 0;
+  // **La pàgina i el vidre no són el mateix rectangle** (0.190.124): `width`/`height` are what an app draws in —this panel is a portrait page
+  // of 540×960 on a landscape glass of 960×540, and the driver turns it— i aquestes dues diuen la mida de la tinta. Una pintada de mesura parla de
+  // la del vidre, perquè és la que es paga (docs/50, docs/95).
+  virtual uint16_t glass_width() const { return width(); }
+  virtual uint16_t glass_height() const { return height(); }
   // 0 is black and 15 is white: the four bits of the panel, which is what every level here means
   // (docs/50).
   virtual void clear(uint8_t level) = 0;
@@ -546,6 +647,30 @@ class ISurface : public IDisplay {
   // a page nobody asked to be repainted is a page this system does not touch (docs/30, docs/50).
   virtual bool flush(UpdateMode mode) = 0;
   virtual bool idle() = 0;
+  // **El torn del panell** (0.190.140): what a glass has to do when nobody is painting it. Aquesta placa hi baixa les tensions del TPS quan fa
+  // estona que ningú no pinta —les que una pintada puja i que el fabricant baixa a cada update, pagant cent mil·lisegons per pintada que la UI
+  // no ha de pagar—. Un vidre que no té res a fer cada torn no ha de respondre res (docs/50, docs/95).
+  virtual void poll() {}
+  // **Una pintada que només compta** (0.190.123, l'amo: *«Vull que facis possible això dels 60hz»*): pinta aquesta àrea amb aquesta qualitat
+  // **sense tocar el que hi ha dibuixat** —el que costa una pintada és l'àrea i el mode, i no el contingut— i contesta els mil·lisegons que ha
+  // costat, o zero si aquest vidre no en sap fer una de mesura. És el que `panel bench` fa servir per dir quant costa cada mode amb els números
+  // d'aquest panell i no amb els d'un full de dades (docs/50, docs/95).
+  virtual uint32_t paint_for_the_count(uint16_t x, uint16_t y, uint16_t w, uint16_t h, UpdateMode mode) {
+    (void)x;
+    (void)y;
+    (void)w;
+    (void)h;
+    (void)mode;
+    return 0;
+  }
+  // **Quant costarà pintar aquest rectangle amb aquesta qualitat, en mil·lisegons, sense pintar-lo** (0.190.142): the answer the kernel
+  // needs before it decides whether the regions of a turn go up as one paint or as several. It is not a measurement and it must not block:
+  // és el compte del vidre —la tinta del mode, que es paga sencera, més el cable dels píxels— i cada controlador el fa amb el seu model.
+  // **Zero vol dir que aquest vidre no en sap res** i el nucli es queda amb la regla conservadora (docs/50, docs/95).
+  virtual uint32_t paint_cost_ms(uint16_t w, uint16_t h, UpdateMode mode) const {
+    // The panel's own ink time plus the wire, which is half a byte per pixel of the page at eight hundred nanoseconds a byte (docs/50).
+    return ink_ms_of(mode) + (static_cast<uint32_t>(w) * static_cast<uint32_t>(h)) / 2500u;
+  }
   // **Whether a partial paint may start where the change is, or has to start at the edge of the glass** (0.179.12):
   // the controller of the Paper was measured to show nothing for a rectangle that does not begin at the left edge
   // of its own image (0.118.7), and that measurement was taken while another fault was in the way —the panel was
@@ -578,6 +703,24 @@ class ISurface : public IDisplay {
   // **La VCOM del panell** (0.190.60), in millivolts: the common voltage of the ink, the number that decides how much of the drive
   // actually lands across the pigment and the only electrical knob a driver can turn. Cada panell el vol diferent —el firmware de
   // fàbrica el deixa ajustar des del seu menú— i un valor heretat d'una altra unitat és una pàgina cremada (docs/50, docs/95).
+  // **Quina forma d'ona porta el panell** (0.190.134, l'amo: *«pots canviar `epdiy_ED047TC2.h` i si provem la C1? Els colors a la C2 no
+  // semblen correctes del tot... els 2,4 i 8 colors es veuen bé, pero els 16 no tant»*). Cada panell té la seva taula i aquesta placa en
+  // porta dues de compilades: la **C2** —set temperatures i tres modes— i la **C1** —un sol rang i cinc modes, amb el monocrom i el
+  // `white_to_gl16` que l'altra no té—. Es pot canviar en calent perquè la taula és el que el driver consulta en cada pintada (docs/50, docs/95).
+  virtual const char* waveform() const { return "?"; }
+  // **El nom de la taula que hi ha en aquest índex, o res** (0.190.135): perquè el prompt pugui llistar-les totes sense saber-les.
+  // **I quants modes i quants rangs de temperatura té** (0.190.136): dues preguntes que el prompt imprimeix al costat del nom, perquè triar una
+  // taula d'una altra tinta sense saber què porta és endevinar (docs/50, docs/95).
+  virtual const char* waveform_at(uint8_t index, uint8_t* modes = nullptr, uint8_t* ranges = nullptr) const {
+    (void)index;
+    (void)modes;
+    (void)ranges;
+    return nullptr;
+  }
+  virtual bool set_waveform(const char* name) {
+    (void)name;
+    return false;
+  }
   virtual uint16_t vcom_mv() const { return 0; }
   virtual bool set_vcom_mv(uint16_t mv) {
     (void)mv;
@@ -674,6 +817,26 @@ class ITouch {
   // baixada que aquesta línia tenia deixa de ser una vora i el panell deixa de respondre (el que va deixar el tàctil del Paper mort dues
   // vegades). Aquesta crida li torna a posar la configuració que tenia: una línia que no ho necessita no fa res (docs/50, docs/95).
   virtual void rearm() {}
+  // **El vidre es pot apagar** (0.190.105): a touch controller that scans its glass by itself costs about a milliamp forever, and a
+  // deep sleep that is **not** listening for a finger has no reason to pay it. `sleep_now` is the chip's own sleep command and
+  // `wake_up` is its own way back —the manufacturer's driver does exactly this pair (`writeCommand(0x05)` and a pulse on the line,
+  // `TouchDrvGT911::sleep`/`wakeup`)—; a glass that has no such thing answers false and nothing is done (docs/50, docs/60).
+  virtual bool sleep_now() { return false; }
+  virtual bool wake_up() { return false; }
+  // **El règim dels escombrats** (0.190.107, l'amo: *«afegeix a Settings->Input un toggle que posi "Adaptative touch scan", aquesta opciò
+  // activa o desactiva el comportament del panell de baixar la sensibilitat i pujar-la quan hi ha dit. Deixant el panell a máxima velocitat
+  // mentre estigui el dispositiu despert»*): cert és el vidre que baixa el ritme quan no hi ha ningú i l'apuja amb un dit; fals és el que es
+  // queda al màxim mentre el sistema és despert. **Qui mana durant el son és el son** i no aquest commutador —cada mode configura el vidre
+  // com el necessita—, i un vidre que no en sap no fa res (docs/30, docs/50, docs/60).
+  virtual void set_adaptive_scan(bool on) { (void)on; }
+  // **I el règim més baix, demanat per qui ha de dormir** (0.190.107): a deep sleep that is listening for a finger wants the glass at its
+  // floor and not at the speed of a person who is awake, sigui quin sigui el commutador (docs/50, docs/60).
+  virtual void quiet_now() {}
+  // **El vidre amb la llum encesa** (0.190.119, l'amo: *«triga tant en respondre? sembla polling»*). Un panell que ningú no mira pot
+  // escombrar-se a poc a poc; un que té la llum encesa és un panell que una persona està mirant i que **espera mig escombrat i no un de
+  // sencer** per cada marc del dit. `brisk` demana el màxim de la taula (vint hertzs) i el deixa quan la llum s'apaga; i el que no en
+  // sap —un vidre que no es pot configurar— no fa res (docs/30, docs/50, docs/60).
+  virtual void set_brisk(bool on) { (void)on; }
 };
 
 // Where a key sits, said the same way on every board: the board is a box and a
@@ -723,12 +886,28 @@ class IInput {
   virtual uint32_t group(uint32_t key) = 0;
 };
 
+// **Què és una llum** (0.190.106, l'amo: *«Els leds es poden declarar com a "backlight", així el sistema pot identificar quin led usar-lo per
+// il·luminar la pantalla»*): a **light of the board** says things —the breath of the boot, the SOS of an error, the colour an app asks
+// for— and a **backlight** lights the glass and says nothing: what it does is a level a person chooses, not a message. The system needs
+// to tell them apart to know which one to leave on, i una placa ho diu al seu descriptor i no al codi del nucli (docs/30, docs/50).
+enum class LedRole : uint8_t {
+  kLight,
+  kBacklight,
+};
+
+inline const char* led_role_name(LedRole role) {
+  return (role == LedRole::kBacklight) ? "backlight" : "light";
+}
+
 // One light or a strip of them. The system paints **the whole light** with one
 // colour, so the driver of a board with one LED and the driver of a board with
 // twenty-five are the same interface and the policy grows nothing (docs/50).
 class ILed {
  public:
   virtual ~ILed() {}
+  // **El que aquesta llum és** (0.190.106): the board answers, and the default is the light that says things, which is what every board
+  // before this one has (docs/30, docs/50).
+  virtual LedRole role() const { return LedRole::kLight; }
   // How many lights the board has: one on the ATOM Lite, twenty-five on the Matrix.
   virtual uint32_t count() = 0;
   // The highest a channel may be driven at. It is a hardware limit and not a
@@ -847,6 +1026,19 @@ class IPlatform {
   virtual ISurface* display() = 0;
   virtual ILed* led() = 0;
   virtual IInput* input() = 0;
+
+  // **Si les tecles d'aquesta placa són per a la pàgina** (0.190.103, l'amo: *«en aquesta placa només tenim un botó físic real, no serveix
+  // per el focus. En aquesta placa no hi ha opció a focus per botons»*): a dial of three keys walks the ring and the middle one presses
+  // what has it, i això demana un joc de tecles pensat per a això. **Certa per defecte**, perquè és el que fa el Paper des del primer dia;
+  // una placa amb una tecla de debò —o amb el BOOT del xip— diu que no, i aleshores cada pulsació va a l'app com anava abans que hi
+  // hagués un anell: la promesa de `button.wait`, la cua de qui l'hagi presa o l'`on_button` (docs/30, docs/50).
+  virtual bool keys_are_for_the_page() const { return true; }
+
+  // **Si la caixa té un botó de sota el vidre** (0.190.110, l'amo: *«sota el panell hi ha un cercle que sembla ser un botó tàctil, i es fals. No
+  // es un botó, però es tant petit que quant el polses, amb la punta del dit toques el panell tàctil»*): some cases draw a circle under the screen
+  // that is not a button and is pressed through the glass, i això és una propietat de la caixa i no del tàctil —la Paper té el mateix vidre i
+  // **no** té cap cercle allà—. Fals per defecte: una placa ho diu i el sistema li fa la tecla (docs/30, docs/50).
+  virtual bool a_button_under_the_glass() const { return false; }
   virtual IImu* imu() = 0;
   // The ambient sensor, when the board has one. The default is nullptr because that is what a
   // board without it has to say, and a board that has it overrides this (docs/50). `const` because

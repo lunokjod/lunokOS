@@ -14,17 +14,6 @@ namespace shell {
 void start();
 void prompt();
 
-// **Whether a terminal answered the question that was asked of it.** The shell asks the Device Attributes
-// query (`ESC [ c`) once, at start, and what comes back is scanned for the reply `ESC [ ? ... c`: a terminal
-// that speaks ANSI answers and one that does not stays quiet (docs/85). It is a pure rule over the bytes that
-// arrived, so it can be tried without a port, and the answer is what `console_ansi()` and the redraw of the
-// line use from then on.
-bool ansi_reply(const char* data, size_t len);
-
-// **Whether the terminal gets the colours**: the answer to the question above, or what `ansi on|off` said.
-// A terminal that is a pipe or a file is not asked and does not get one escape byte (docs/30, docs/85).
-bool console_ansi();
-void set_ansi(bool on);
 // Bytes as they arrive from the console. Handles echo, backspace and newline.
 void feed(const char* data, size_t len);
 // Runs one command line (already null-terminated). Returns false on error.

@@ -27,6 +27,12 @@ struct Model {
   bool slot;             // a card slot
   bool fram;             // an FRAM chip, which is non-volatile memory
   bool keeps_the_hour;   // a clock chip with a coin cell behind it
+  // **El model d'aquell xip, quan n'hi ha** (0.190.153): the registers of a PCF8563 and of a BM8563 are the same and the model
+  // is not, o sigui que el nom el dona el model de la placa i no el codi que els parla. Buit on no hi ha xip (docs/50, docs/85).
+  const char* clock_chip = "";
+  // **La cel·la que el model porta soldada, en mAh** (0.190.155): the capacity of the battery, which is what a gauge counts
+  // against. Zero is a board whose cell nobody has written down, and the page then says nothing about mAh (docs/50, docs/85).
+  int cell_mah = 0;
   // A board that can cut its own supply: the Paper holds its power on a pin and letting it go is
   // the board stopping. The ATOMs have no hold and no way to switch themselves off between the cell
   // and the chip, so they answer no (docs/50, docs/85).

@@ -1,11 +1,11 @@
 {
   "title": "Battery",
   "author": "@lunokjod",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "entry": "battery.lua",
   "boards": [
     "esp32"
   ],
   "icon": "res/icon.png",
-  "description": "The battery of the last hours, in a chart.\nOne sample every ten minutes, taken by an alarm so it is written whether the page is in front or not: the percentage now, the volts and the cable, the line of what the cell did, the hours of the window and how fast it is going up or down. Three windows —one hour, six and a day— and nothing predicted."
+  "description": "The battery of the last hours, in a chart.\nOne sample every ten minutes, taken by an alarm so it is written whether the page is in front or not: the percentage now, the volts and the cable, the line of what the cell did, the hours of the window and how fast it is going up or down. Three windows —one hour, six and a day— and nothing predicted. Under the volts, the current that goes in or out of the cell and the capacity it has left, taken from the board's coulomb counter. The foot of the page names the clock chip that keeps the samples, and says so when its cell is gone and the samples only arrive while the board is awake."
 }

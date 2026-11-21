@@ -17,7 +17,8 @@
     "bluetooth"
   ],
   "frameworks": [
-    "arduino"
+    "arduino",
+    "espidf"
   ],
   "name": "M5Stack Paper (v1.0 and v1.1)",
   "upload": {

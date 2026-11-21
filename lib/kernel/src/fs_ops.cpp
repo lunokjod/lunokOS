@@ -436,6 +436,9 @@ int64_t write_atomic(const char* path, const char* data, size_t len, luabind::Fs
     // that goes exactly there loses the old file and leaves the `.tmp` next to it— i el preu de no fer-ho és una escriptura
     // que no arriba mai. The first attempt is kept for the disks that do replace (the flash of this board, the host of the
     // emulator), so nothing pays the window that does not need it (docs/70).
+    // **I des de la 0.190.154 aquesta branca ja no s'obre amb la targeta**: `SdCard::rename` fa el segon intent a dins quan
+    // FatFs contesta `EEXIST`, que és on es pot fer sense dir-ho dues vegades. El que hi ha aquí queda com a xarxa per a un
+    // disc que es comporti com FatFs i no ho sàpiga resoldre (docs/70).
     // **I el destí només es toca si hi és**: a rename that fails for another reason —a card that has gone— must not take the
     // good file away on its way to failing again (docs/70).
     hal::Stat there;

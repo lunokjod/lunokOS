@@ -38,6 +38,13 @@ bool set_rotation(uint16_t degrees);
 bool partial_from_the_box();
 bool set_partial_from_the_box(bool on);
 
+// **La forma d'ona del panell** (0.190.134): el nom de la taula que el driver consulta i el canvi, que és en calent perquè el que
+// decideix és un punter. `panel wave tc1|tc2` al prompt (docs/50, docs/95).
+const char* waveform();
+bool set_waveform(const char* name);
+// **El nom de la forma d'ona que hi ha en aquest índex, o res quan s'han acabat** (0.190.135): el prompt les llista amb això.
+const char* waveform_at(uint8_t index, uint8_t* modes = nullptr, uint8_t* ranges = nullptr);
+
 // **Com s'envien els píxels al controlador** (0.189.66): tres maneres —una transacció per fila, bursts, o un bit per píxel— que
 // el vidre tria i que el prompt canvia amb `panel flush`. La que el vidre no sàpiga fer es refusa i es diu (docs/50).
 hal::FlushStyle flush_style();
@@ -50,7 +57,10 @@ bool flush_style_of(const char* name, hal::FlushStyle& out);
 // canvas and `ui::present` is what composes it here, which is the only way the glass changes
 // (docs/30).
 hal::ISurface* surface();
-
+// **Quant costaria pintar aquest rectangle, en mil·lisegons** (0.190.142): the question the UI asks before deciding whether the regions of a
+// torn go up as one paint or as several, and the answer comes from the glass because only the glass knows whether the area or the paint is
+// what costs (docs/50, docs/95). Zero is a glass that does not know.
+uint32_t paint_cost(uint16_t w, uint16_t h, hal::UpdateMode mode);
 // The one place a quality name becomes what the controller does: the eight names of the panel's own
 // table, and nothing else. An unknown name is refused instead of rounded to a default that would look
 // like it worked (docs/30, docs/50).
@@ -98,6 +108,9 @@ bool set_bus_mhz(uint32_t mhz);
 const int32_t kPaintWindowMs = 400;
 void hold_for_a_paint();
 bool idle();
+// **El torn del panell** (0.190.140): el que un vidre ha de fer quan ningú no hi pinta —les tensions del TPS que es baixen quan fa estona que
+// calla—. El nucli la crida a cada volta, com la barra i el llum (docs/50).
+void poll();
 // Why the last paint was refused, in the panel's own words (docs/50).
 const char* last_error();
 

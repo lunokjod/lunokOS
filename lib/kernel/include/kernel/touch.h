@@ -34,6 +34,12 @@ void poll();
 // driver installed does not come back by itself; this puts it back, and a glass with no line does nothing (docs/50, docs/95).
 void rearm();
 
+// **El règim dels escombrats, aplicat a l'instant** (0.190.107): the switch of the Input tab says whether the glass drops its scans when
+// nobody is on it, and this is the door that tells the glass. Cert és el règim adaptatiu i fals el de sempre al màxim; un vidre que no en sap
+// no fa res (docs/30, docs/50).
+void set_adaptive_scan(bool on);
+bool adaptive_scan();
+
 // **Quantes vegades s'ha preguntat i quantes ha respost** (0.189.85): the glass is asked once a turn and answers a frame only
 // when there is a finger. The two numbers apart are the difference between «the interrupt is doing its job» and «the driver
 // asks the bus fifty times a second for nothing», and that is the first question the energy work has to answer (docs/50,

@@ -60,6 +60,10 @@ except ImportError:  # pragma: no cover - the message is the point
 ASCII = "U+0020-007E"
 LATIN1 = "U+0020-00FF,U+2013,U+2014,U+2018-201D,U+2026,U+2022,U+00A0"
 SIGNS = ASCII + ",U+00B1,U+00D7,U+00F7,U+2190-2193,U+232B"
+# **I el de recarregar no s'hi pot posar** (0.190.160): `U+21BB` would need three bytes in UTF-8 and a text of this system is
+# **one byte a character** (`font::runs` asks `glyph_of` for a `uint8_t`), o sigui que el glif hi seria al fitxer i la pàgina no el
+# podria demanar mai. L'arrow es demana al nucli com a marca (`ui.button` + `icon = 'reboot'`), que és el que dibuixa a la cara
+# del control (docs/30, docs/92).
 
 # What `lib/ttf` accepts, and the numbers are the reader's: a glyph of more points or contours than
 # this is refused with `kBadData` and the page would lose it.

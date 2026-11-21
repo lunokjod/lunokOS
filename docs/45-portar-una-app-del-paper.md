@@ -519,7 +519,8 @@ Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
 | `Timeclock` | `timeclock` | 0.2.2 |
 | `2048` | `2048` | 0.2.2 |
 | `Life` | `life` | 0.1.5 |
-| `Battery` | `battery` | 0.1.3 |
+| `Battery` | `battery` | 0.1.5 |
+| `Energy` | `energy` | 0.1.0 |
 | `Meteo` | `meteo` | 0.1.1 |
 | `Agenda` | `agenda` | 0.1.2 |
 

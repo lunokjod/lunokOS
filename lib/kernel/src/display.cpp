@@ -94,9 +94,21 @@ hal::FlushStyle flush_style() {
   return (g_surface != nullptr) ? g_surface->flush_style() : hal::FlushStyle::kRows;
 }
 
+uint32_t paint_cost(uint16_t w, uint16_t h, hal::UpdateMode mode) {
+  return (g_surface != nullptr) ? g_surface->paint_cost_ms(w, h, mode) : 0;
+}
+
+const char* waveform() { return (g_surface != nullptr) ? g_surface->waveform() : "none"; }
+bool set_waveform(const char* name) { return (g_surface != nullptr) && g_surface->set_waveform(name); }
+
+const char* waveform_at(uint8_t index, uint8_t* modes, uint8_t* ranges) {
+  return (g_surface != nullptr) ? g_surface->waveform_at(index, modes, ranges) : nullptr;
+}
+
 bool set_flush_style(hal::FlushStyle style) {
   return (g_surface != nullptr) && g_surface->set_flush_style(style);
 }
+
 
 const char* flush_style_name(hal::FlushStyle style) {
   switch (style) {
@@ -200,6 +212,10 @@ bool present(hal::UpdateMode mode) {
 bool idle() {
   meter::Scope scope(meter::kGlassIdle);
   return (g_surface != nullptr) && g_surface->idle();
+}
+
+void poll() {
+  if (g_surface != nullptr) g_surface->poll();
 }
 
 const char* last_error() { return (g_surface != nullptr) ? g_surface->last_error() : ""; }

@@ -26,7 +26,11 @@ class Esp32Power : public IPower {
   // does not exist —`ALL_LOW` asks for every pin at the same time— so there the one door is `wake_pin` and the
   // second is not armed. `-1` is the default and keeps every board that came before this one exactly as it was
   // (docs/50, docs/60).
-  explicit Esp32Power(int wake_pin, int second_wake_pin = -1, int glass_pin = -1);
+  // **I una quarta porta, que no és per al son profund** (0.190.99): the expander of the T5 E-Paper S3 Pro has an interrupt line of its
+  // own (GPIO38) and it goes low when any of its inputs moves —the board's button, the supply's good line and the supply's interrupt—.
+  // GPIO38 is not an RTC pin, o sigui que **no pot despertar el xip d'un son profund**, però sí d'un son lleuger, que és on aquesta
+  // placa passa la vida esperant. És la mateixa porta que la tecla i el vidre pel camí del `gpio_wakeup` (docs/50, docs/60).
+  explicit Esp32Power(int wake_pin, int second_wake_pin = -1, int glass_pin = -1, int more_pin = -1);
 
   // The chip has no fuel gauge of its own, and no board of this project reads one yet
   // —the Paper has the divider on GPIO35 and it is not calibrated—: what is not
@@ -58,7 +62,12 @@ class Esp32Power : public IPower {
   // **Les portes del despert, armades com la placa les té** (0.190.29): the one pin of `ext0`, the two of `ext1`, or
   // neither. True when at least one of them took the arming, which is what says whether a board with no hour has
   // anywhere to come back from (docs/50).
-  bool arm_the_doors();
+  //
+  // **I és de la placa i no del xip** (0.190.102, l'amo: *«segur? no desperta mai»*): waking from a deep sleep is a **reset**, i un
+  // pin que el xip mira en arrencar (un *strapping*) no pot ser la porta que el desperti si el dit que la desperta el deixa baix —
+  // arrencaria en un altre mode. The chip does not know which of its pins the board put a button on and which of them it also reads
+  // at boot, o sigui que la llista és de la placa (docs/50, docs/60).
+  virtual bool arm_the_doors();
 
  private:
   int wake_pin_;
@@ -68,6 +77,7 @@ class Esp32Power : public IPower {
   // controller falls while a finger is on the glass and rises when the frame is taken, so it is exactly the edge a light sleep
   // needs; it is not a door of the deep sleep because that one needs a level and this line pulses (docs/50).
   int glass_pin_;
+  int more_pin_;
 };
 
 }  // namespace hal

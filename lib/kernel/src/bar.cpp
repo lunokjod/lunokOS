@@ -442,10 +442,18 @@ void paint(hal::UpdateMode mode, const Status& status) {
   g_drawn = true;
 }
 
+// **El rellotge de la franja va amb la tinta barata, i la que neteja hi torna cada deu minuts** (0.190.94, l'amo: *«vull que les
+// pintades a pantalla siguin les mínimes necessàries i a la qualitat adequada per cada zona… aprofitant tot el potencial del
+// hardware»*). Mesurat al vidre: una passada costa els **fotogrames de la tinta i no la superfície** —`gld16` són quaranta-sis
+// passades de 7 ms (427 ms) i `a2` en són dues (117 ms), tant si el rectangle és de 33×273 com si és el vidre sencer—. Un dígit no
+// val quaranta-sis fotogrames, i el preu del barat és el fantasma del dígit vell: **cada deu tics el rellotge es neteja** amb la tinta
+// que sí que neteja, o sigui que el fantasma no passa mai de nou dígits i el tic mitjà baixa de 427 a uns 160 ms (docs/50, docs/95).
+const uint8_t kQuickTicksBeforeAClean = 10;
+uint8_t g_quick_ticks = 0;
+
 // **A box of the strip and not the strip** (0.85.2): a title that changes is the middle of the bar, and the hour is the
 // hour. The quality is **`gld16`, which cleans and does not blink**, and not `gc16`, which is two blinks over the whole
-// strip for a word that changed; `du` is not used at all, because it paints and does not clean and a digit of a minute
-// ago would stay on the glass. It is the rule the project already had written down: nothing that flickers reaches the
+// strip for a word that changed. It is the rule the project already had written down: nothing that flickers reaches the
 // glass, and cleaning is `gld16` (docs/50, docs/92, docs/95).
 void paint_boxes(hal::UpdateMode mode, const Status& status, bool time, bool title, bool charge, bool signs_dirty) {
   hal::ISurface* surface = display::surface();
@@ -603,7 +611,18 @@ void poll() {
   }
   // **And otherwise the boxes that changed, at the wash of two levels** (0.85.2): the hour is a digit and the title is
   // a word, and neither of them is worth two blinks of the whole strip (docs/50, docs/85).
-  paint_boxes(hal::UpdateMode::kGld16, g_read, minute_changed, g_title_changed, charge_changed, signs_changed);
+  // **I les caixes van amb `a2`, amb una passada que neteja cada deu** (0.190.94): un dígit o una paraula no paguen quaranta-sis
+  // fotogrames quan en costen dos; el que es paga és el fantasma del que hi havia, i per això la tinta que neteja hi torna cada
+  // `kQuickTicksBeforeAClean` canvis. Quan el que canvia és una icona, el títol té més o menys lloc i la franja es pinta sencera:
+  // això ja ha sortit abans per la porta de `signs_changed` (docs/50, docs/85).
+  hal::UpdateMode ink = hal::UpdateMode::kGld16;
+  if (g_quick_ticks + 1 < kQuickTicksBeforeAClean) {
+    ink = hal::UpdateMode::kA2;
+    ++g_quick_ticks;
+  } else {
+    g_quick_ticks = 0;
+  }
+  paint_boxes(ink, g_read, minute_changed, g_title_changed, charge_changed, signs_changed);
 }
 
 }  // namespace bar

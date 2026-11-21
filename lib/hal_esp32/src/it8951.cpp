@@ -480,7 +480,7 @@ bool It8951::join_bus() {
                                 reinterpret_cast<spi_device_handle_t*>(&device_));
   }
   if (joined != ESP_OK) {
-    snprintf(profile_, sizeof(profile_), "the panel did not join the bus at %d MHz", spi_hz_ / 1000000);
+    snprintf(profile_, sizeof(profile_), "the panel did not join the bus at %u MHz", static_cast<unsigned>(spi_hz_ / 1000000));
     return false;
   }
   return true;

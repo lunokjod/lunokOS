@@ -291,7 +291,7 @@ size_t dump(int64_t mono_now_ms, int64_t epoch_now_ms, char* buf, size_t cap) {
     const int written = snprintf(
         line, sizeof(line), "%s;%lld;%d;%d;%d;%s\n", entry.app,
         static_cast<long long>(entry.on_mono_ms - mono_now_ms + epoch_now_ms),
-        entry.repeat_ms, (entry.raise_to_front ? 1 : 0) | (entry.persist ? 2 : 0),
+        static_cast<int>(entry.repeat_ms), static_cast<int>((entry.raise_to_front ? 1 : 0) | (entry.persist ? 2 : 0)),
         static_cast<int>(entry.payload_kind), payload);
     if (written <= 0) continue;
     const size_t len = static_cast<size_t>(written);

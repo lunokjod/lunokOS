@@ -51,10 +51,9 @@ uint32_t boot_us(const emu::Model& hw) {
   return image_us + psram_us;
 }
 
-// **The cell of the model**, which is what an M5Paper carries: 1150 mAh at 3,7 V, full at 4,2 V
-// (docs/50). It is here for the line the emulator says when it lends the battery of the machine it runs
-// on: the voltage itself is the curve's business (`hal/battery.h`).
-const uint32_t kBoardMilliampHours = 1150;
+// **The cell of the model** is `emu::model().cell_mah` —1150 mAh on the Paper, which is what its case says— and it is written
+// in the model and not here since 0.190.155, perquè el comptador de la placa i la línia de l'emulador han de dir el mateix
+// número (docs/50, docs/85). The voltage itself is the curve's business (`hal/battery.h`).
 const int kCellFullMv = 4200;
 
 // **What one instruction of the interpreter costs at 160 MHz**, in nanoseconds: the model's number for
@@ -392,6 +391,17 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       opts.battery_mv = static_cast<int32_t>(number);
       continue;
     }
+    if (strcmp(arg, "--battery-ma") == 0) {
+      if (!next_value(i, argc, argv, value) || !parse_number(value, number)) return false;
+      opts.battery_ma = static_cast<int32_t>(number);
+      continue;
+    }
+    if (strcmp(arg, "--battery-temp-c") == 0) {
+      if (!next_value(i, argc, argv, value) || !parse_number(value, number)) return false;
+      // La opció es diu en graus i el camp en dècimes: el run diu «25» i el HAL rep «250» (docs/30, docs/85).
+      opts.battery_temp_c10 = static_cast<int32_t>(number * 10);
+      continue;
+    }
     if (strcmp(arg, "--charging") == 0) {
       opts.charging = true;
       continue;
@@ -709,7 +719,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
               opts.battery_mv, emu::kNominalCellPct);
     } else {
       fprintf(stderr, "battery: %d %% of this machine is %d mV of the cell of the board (%u mAh, %d full)%s\n",
-              host.percent, opts.battery_mv, kBoardMilliampHours, kCellFullMv,
+              host.percent, opts.battery_mv, static_cast<uint32_t>(emu::model().cell_mah), kCellFullMv,
               host.on_cable ? ", and this machine is on a cable, which the Paper cannot tell" : "");
     }
   } else if (opts.battery_from_host) {

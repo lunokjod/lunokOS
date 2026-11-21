@@ -25,7 +25,10 @@ class Bm8563 {
   // power-on reset leaves (the oscillator stopped), or when the **VL bit** says the chip
   // lost its supply: a clock that stopped is not a clock that says 1970, and reporting that
   // number as an epoch would be a lie (docs/60).
-  bool read_epoch_ms(int64_t& epoch_ms);
+  // `lost`, when asked for, says **why** a reading was refused: true when the chip answers and its VL bit says the cell is
+  // gone, false when it is the bus or the numbers that are not there. A person looking at the Battery tab needs that
+  // difference —a cell to change is not a wire to check— (docs/30, docs/50).
+  bool read_epoch_ms(int64_t& epoch_ms, bool* lost = nullptr);
 
   // Writes the hour and clears VL: from here on the chip is the truth and the next boot
   // reads it. False when the bus does not answer, and the caller says so.

@@ -49,6 +49,15 @@ struct Options {
   // report. The percentage is the curve of a cell and not a second number to set, so the
   // emulator cannot say 3,9 V and 100 % at once (docs/50, docs/85).
   int32_t battery_mv = 0;
+  // **El corrent de la cel·la, en mil·liamperes** (0.190.155, `--battery-ma`): negative while the cell feeds the board, which is
+  // the direction the gauge of the T5 S3 Pro counts and the number that explains the slope of the battery's chart. Zero is a
+  // board that is neither charging nor doing much — and it is the default, porque un corrent inventat seria un pendent inventat
+  // (docs/50, docs/85).
+  int32_t battery_ma = 0;
+  // **La temperatura de la cel·la, en dècimes de grau** (0.190.156, `--battery-temp-c`): the gauge of the T5 S3 Pro has a sensor on
+  // the cell and the emulator had no way to say it. Zero is «this run does not say», which is what a board without the part would
+  // answer too (docs/50, docs/85).
+  int32_t battery_temp_c10 = 0;
   // **A battery lent by the machine the emulator runs on** (`--battery-host`): its percentage on the curve
   // of the board's cell, which is 1150 mAh and full at 4,2 V (docs/85). Off by default, because a test
   // that changed its answer with the hardware of whoever runs it is not a test.

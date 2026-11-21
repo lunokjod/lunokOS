@@ -11,7 +11,13 @@
 
 // The core's own speed control: it is the one that also moves the APB and the
 // FreeRTOS tick when the frequency changes (read on disk, docs/50).
+// **I sense el nucli d'Arduino la porta és la de l'IDF** (0.190.90): `rtc_clk_cpu_freq_*` és exactament el que fa servir el nucli per
+// dins, o sigui que el comportament és el mateix i el que canvia és qui ho diu (docs/50).
+#if defined(ARDUINO)
 #include <esp32-hal-cpu.h>
+#else
+#include <soc/rtc.h>
+#endif
 
 #include "hal/log.h"
 #include "esp32/clock.h"
@@ -19,8 +25,8 @@
 
 namespace hal {
 
-Esp32Power::Esp32Power(int wake_pin, int second_wake_pin, int glass_pin)
-    : wake_pin_(wake_pin), second_wake_pin_(second_wake_pin), glass_pin_(glass_pin) {}
+Esp32Power::Esp32Power(int wake_pin, int second_wake_pin, int glass_pin, int more_pin)
+    : wake_pin_(wake_pin), second_wake_pin_(second_wake_pin), glass_pin_(glass_pin), more_pin_(more_pin) {}
 
 namespace {
 
@@ -117,16 +123,16 @@ bool Esp32Power::nap(int32_t max_ms) {
   // sleep (`ESP_ERR_SLEEP_REJECT`), and a touch line left low by the contact that has just ended —or a key still held— would turn
   // every nap of the run into a refusal. La porta s'arma quan es pot obrir, que és quan és tancada; la que està oberta ja ha despertat
   // el sistema i la propera volta la trobarà (docs/50).
-  int lines[3] = {wake_pin_, second_wake_pin_, glass_pin_};
-  int armed[3] = {-1, -1, -1};
+  int lines[4] = {wake_pin_, second_wake_pin_, glass_pin_, more_pin_};
+  int armed[4] = {-1, -1, -1, -1};
   // **El tipus d'interrupció que la línia tenia abans** (0.190.74): `gpio_wakeup_enable` escriu el `int_type` del pin —l'arma pel **nivell**— i
   // `gpio_wakeup_disable` no el torna enrere. El que hi havia era una vora de baixada, o sigui que després de la primera becaina la línia del
   // panell deixava de ser una vora: el tàctil del Paper va quedar mort dues vegades per això, i el que es desa aquí és el que es torna a posar
   // en sortir (docs/50, docs/95).
   gpio_dev_t* hw = &GPIO;
-  int saved_type[3] = {-1, -1, -1};
+  int saved_type[4] = {-1, -1, -1, -1};
   bool a_button = false;
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < 4; ++i) {
     if (lines[i] < 0) continue;
     if (gpio_get_level(static_cast<gpio_num_t>(lines[i])) == 0) continue;
     saved_type[i] = static_cast<int>(hw->pin[lines[i]].int_type);
@@ -141,7 +147,12 @@ bool Esp32Power::nap(int32_t max_ms) {
 
   // **I la consola**, que és la porta que no es pot perdre: aquesta placa no té teclat i el prompt és l'única manera de parlar-hi. Si
   // el xip no la pot prendre, no es dorm: una becaina que es menja el que una persona escriu és pitjor que no estalviar res (docs/50).
-  bool ok = esp_sleep_enable_uart_wakeup(0) == ESP_OK;
+  // **I només si la persona la vol** (0.190.147): with the switch off the console is not armed at all and the wait is a sleep that
+  // only a key or the glass undoes; with it on, a console that cannot be taken refuses the nap, which is what has always been here.
+  // **I només si la placa té una consola que un son lleuger no apagui** (0.190.152): the switch says whether the person wants the console
+  // to be a door, and the board says whether a console can be one at all (docs/50, docs/30).
+  const bool the_console = wake_from_uart() && the_console_can_wake();
+  bool ok = !the_console || esp_sleep_enable_uart_wakeup(0) == ESP_OK;
   // **I si el xip no pren la consola com a porta, es diu** (0.190.71): aquest `no` era mut, i una becaina que no es demana perquè la seva
   // porta no s'ha pogut armar és exactament el que una persona no pot distingir d'una placa que no dorm (docs/50).
   if (!ok) {
@@ -198,7 +209,7 @@ bool Esp32Power::nap(int32_t max_ms) {
   // temporitzador es posa a zero amb ell, o el proper `disarm` demanaria a l'IDF que tragués un despertar que ja no hi és.
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   esp32_note_wake_cleared();
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < 4; ++i) {
     if (armed[i] < 0) continue;
     gpio_wakeup_disable(static_cast<gpio_num_t>(armed[i]));
     // **I la línia torna a ser el que era** (0.190.74): sense això, el pin queda amb una interrupció de nivell que va tornar boig el registre
@@ -234,6 +245,11 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel)
   // either sleep. A board without one and without a deadline would be a board that is
   // gone until the cable is pulled, and the kernel refuses that on its own as well
   // (docs/60).
+  // **I el son profund no hereta cap porta de la becaina** (0.190.152, l'amo: *«Segur que no es continua enganxant a l'UART per
+  // despertar?»*): les fonts de despertar viuen en una estructura estàtica de l'IDF, així que un xip que ha fet una becaina abans en
+  // tornava per activitat al port en lloc de dormir. Es neteja **abans** d'armar, o el que s'esborraria serien les portes de debò
+  // (docs/50, docs/60).
+  if (mode == SleepMode::kDeep) esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   const bool a_door = arm_the_doors();
   if (at_epoch_ms > 0) {
     // The timer is armed in one place only, so that taking it down again knows whether it is
@@ -241,6 +257,15 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel)
     esp32_arm_timer_wake(at_epoch_ms);
   } else if (!a_door) {
     return false;
+  }
+  // **La consola és una porta del son lleuger, sigui quin sigui el camí que hi porta** (0.190.152, l'amo: *«l'UART si que ha de
+  // despertar el lightSleep, si no no es pot usar la shell per serial (es menja caràcters) pero no de DeepSleep»*). `nap()` l'armava i
+  // aquest camí no, o sigui que el son lleuger demanat de debò era l'únic que no escoltava el cable; i el son profund no la pren mai,
+  // perquè `arm_the_doors()` de cada placa neteja totes les fonts abans d'armar les seves (docs/50, docs/60).
+  if (mode == SleepMode::kLight && wake_from_uart() && the_console_can_wake()) {
+    if (esp_sleep_enable_uart_wakeup(0) != ESP_OK) {
+      hal::logf(pal::kLogWarn, "POWER", "the console cannot be a door of this light sleep");
+    }
   }
   say_the_way_down(mode, at_epoch_ms);
   // The chip goes quiet with the clocks: what is still in the UART has to leave
@@ -264,7 +289,15 @@ const char* Esp32Power::wakes() {
   return (wake_pin_ >= 0) ? "timer, button" : "timer";
 }
 
-uint32_t Esp32Power::cpu_mhz() { return getCpuFrequencyMhz(); }
+uint32_t Esp32Power::cpu_mhz() {
+#if defined(ARDUINO)
+  return getCpuFrequencyMhz();
+#else
+  rtc_cpu_freq_config_t config;
+  rtc_clk_cpu_freq_get_config(&config);
+  return config.freq_mhz;
+#endif
+}
 
 // 240, 160 and 80 and nothing else. Below 80 the APB follows the CPU down and **no
 // peripheral of the core reconfigures itself** (there is not one
@@ -273,10 +306,16 @@ uint32_t Esp32Power::cpu_mhz() { return getCpuFrequencyMhz(); }
 // A value the board does not do is refused and not rounded.
 bool Esp32Power::set_cpu_mhz(uint32_t mhz) {
   if (mhz != 80 && mhz != 160 && mhz != 240) return false;
+#if defined(ARDUINO)
   if (!setCpuFrequencyMhz(mhz)) return false;
+#else
+  rtc_cpu_freq_config_t config;
+  if (!rtc_clk_cpu_freq_mhz_to_config(mhz, &config)) return false;
+  rtc_clk_cpu_freq_set_config(&config);
+#endif
   // A chip rated for 160 only answers 160 when asked for 240: the answer is what the
   // board is really running at, not what it was asked for.
-  return getCpuFrequencyMhz() == mhz;
+  return cpu_mhz() == mhz;
 }
 
 }  // namespace hal

@@ -12,7 +12,11 @@
 # nothing else, the filesystem built on it is LittleFS.
 #
 # Name,     Type, SubType, Offset,   Size,     Flags
-nvs,        data, nvs,     0x9000,   0x4000,
+# **La botiga de claus té sis pàgines i no quatre** (0.190.109, l'amo: *«Sembla que hi ha problemes amb l'nvs?»*): the `nvs` partition was
+# 16 KB —four pages of four— and a store with four pages has no room to compact when the one in use fills up, o sigui que una escriptura que
+# arriba en mal moment torna `NOT_ENOUGH_SPACE` amb lloc de sobres dins del disc. 24 KB are six pages, i no es mou ni un byte de ningú: la
+# partició comença a `0x9000` i `phy_init` segueix a `0xf000`.
+nvs,        data, nvs,     0x9000,   0x6000,
 phy_init,   data, phy,     0xf000,   0x1000,
 app0,       app,  factory, 0x10000,  0x400000,
 littlefs,   data, spiffs,  0x410000, 0xBE0000,

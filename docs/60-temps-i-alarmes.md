@@ -475,6 +475,16 @@ no hi ha cap transacció a mitges i on una becaina que surt malament costa un to
 - **I amb una persona a la consola no es dorm** (0.190.75, l'amo: *«El port sèrie és inutilitzable si fa LightSleeps… Si el port sèrie està en
   ús no usar lightSleep»*). El primer byte desperta el xip, però els que arriben mentre es lleva es perden i una línia escrita a mà surt
   tallada: la becaina només es demana amb **deu segons de silenci** a la línia i amb el port no cedit a cap app (`serial::claimed()`).
+- **I amb un dit damunt del vidre no es dorma, passi el que passi** (0.190.87, l'amo: *«mentre el dit toqui la pantalla també has de
+  desactivar temporalment el LightSleep per evitar tenir problemes amb les lectures fins que el dit aixequi»*). Una porta armada només
+  diu que el xip es llevarà: el marc del tàctil arriba igualment quan el xip es lleva, i una lectura que cau dins del son es perd —i una
+  lectura perduda a sobre d'un dit és un toc que no arriba o que arriba dos cops—. `touch::poll` diu a `power` que hi ha un contacte
+  (`power::note_a_finger`) i la becaina calla fins que el vidre ha estat un escaneig sencer sense ningú (`note_a_finger(false)`), que és
+  el mateix senyal que aixeca el contacte. Val amb el Light sleep engegat i amb el DeepSleep polsat d'un app: el que mana és el dit
+  (docs/30, docs/50).
+- **I el dit també mana sobre la velocitat** (0.190.87): mentre hi és, el governador no hi té res a dir i la placa treballa al cim —un
+  dit quiet en un panell que només avisa dels canvis sembla una placa sense feina, i baixar-li la velocitat és fer-li esperar la pàgina
+  just quan l'està esperant—. Amb l'escala apagada no es mou res: mana el pas que la persona ha triat (docs/50).
 - **I només s'arma una porta que ara és tancada** (0.190.69, el registre de l'amo del 20/11: *«the chip did not take the nap (259) … I
   es queda penjada»*). El 259 era `ESP_ERR_SLEEP_REJECT`: una porta de nivell que ja és baixa fa que el xip **refusi** la becaina
   sencera, i la línia del GT911 queda baixa mentre hi ha un contacte —o sigui que la becaina es refusava una vegada i una altra sense
@@ -627,6 +637,14 @@ Com està avui:
    in front…`—. Els motius són els cinc de la llista de sobre, amb el seu nom: una app al davant o que ha demanat quedar-se despert,
    la targeta del sistema fora, la llum amb un quadre per pintar, la placa sense hora i l'alarma massa a prop perquè valgui un
    arrencada. Sense aquesta línia, un comptador que creix i una condició que falla es veuen exactament igual (docs/30, docs/95).
+
+   **I les condicions que no poden canviar no compten res** (0.190.88, l'amo: *«si la opció no està activada, perqué molestes amb
+   missatges irrellevants?»*). El commutador apagat i un vidre on un son profund no és una baixada són fets del run i no pas
+   condicions que es puguin complir més tard: en aquests dos casos la línia deixa el compte enrere, **baixa a `debug`** i diu el fet
+   una vegada —`idle: this board is not put down by the policy: this board's deep sleep is not a power off`—. El que no pot passar
+   no és una notícia: és la resposta a qui pregunti, i el registre normal no la torna a veure. El compte enrere es queda per als
+   cinc motius que sí que canvien, que és on el número vol dir alguna cosa; i la frase repetida cada minut en una placa que no es pot
+   baixar era exactament el soroll que l'amo va assenyalar (docs/30, docs/95).
 
    **I sense cap alarma la porta és la tecla** (0.190.12): la política no feia res quan la cua era buida —un `return` sense línia—,
    o sigui que una placa sense alarma no s'adormia mai i el commutador de Battery no feia res. Ara baixa **fins a la tecla**: la

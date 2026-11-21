@@ -52,14 +52,18 @@ bool Bm8563::start() {
   return bus_->write(address_, clear2, sizeof(clear2));
 }
 
-bool Bm8563::read_epoch_ms(int64_t& epoch_ms) {
+bool Bm8563::read_epoch_ms(int64_t& epoch_ms, bool* lost) {
+  if (lost != nullptr) *lost = false;
   if (bus_ == nullptr) return false;
   uint8_t raw[kTimeRegisters] = {0};
   if (!bus_->read(address_, kFirstTimeRegister, raw, sizeof(raw))) return false;
 
   // The chip lost its supply and its hour is whatever the registers said when it stopped.
   // Starting it again does not make the number true, so this is not a reading at all.
-  if ((raw[0] & 0x80) != 0) return false;
+  if ((raw[0] & 0x80) != 0) {
+    if (lost != nullptr) *lost = true;
+    return false;
+  }
 
   const int second = bcd_to_bin(static_cast<uint8_t>(raw[0] & 0x7F));
   const int minute = bcd_to_bin(static_cast<uint8_t>(raw[1] & 0x7F));

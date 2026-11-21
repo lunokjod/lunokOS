@@ -90,6 +90,8 @@ Options::Options()
       board(nullptr),
       sd_dir(nullptr),
       battery_mv(0),
+      battery_ma(0),
+      battery_temp_c10(0),
       battery_from_host(false),
       script(nullptr),
       run_app(nullptr),
@@ -378,6 +380,14 @@ class HostClock : public IClock {
 
   bool can_wake() const override { return true; }
 
+  // **El xip del model, i que el guarda** (0.190.153): the emulator of a board with a clock chip answers with the part that board
+  // carries, so a page that says which clock keeps the samples says the truth on both sides of the cable (docs/50, docs/85).
+  const char* chip_name() const override { return emu::model().clock_chip; }
+  const char* chip_state() const override {
+    const char* chip = emu::model().clock_chip;
+    if (chip == nullptr || chip[0] == '\0') return "none";
+    return emu::model().keeps_the_hour ? "ok" : "none";
+  }
   const char* source() const override {
     if (!known_) return "none";
     // `rtc` is an hour that a chip with a coin cell keeps; `soc` is the board's own counter. The
@@ -635,6 +645,49 @@ class FakePower : public IPower {
     return true;
   }
 
+  // **El que el comptador de coulombs diria** (0.190.155): the emulator of a board whose battery is a BQ27220 answers the two
+  // numbers that a divider on an ADC cannot —the current and the capacity—, i els treu de la pila que el run ha demanat i de la
+  // capacitat del model, que és el que el maquinari hi té soldat. `--battery-ma` is the current; zero is a board that is not
+  // charging and not doing much, which is not the same as a gauge that cannot say (docs/50, docs/85).
+  bool battery_detail(BatteryDetail& out) override {
+    if (emu::options().battery_mv <= 0 || !emu::model().gauge) return false;
+    out.current_ma = static_cast<int>(emu::options().battery_ma);
+    out.full_mah = static_cast<int>(emu::model().cell_mah);
+    // **La cel·la és nova en un emulador** (0.190.156): the one thing a fake board can say without lying more than it has to is that
+    // its cell is whole and has never been cycled; la temperatura només es diu si el run la demana, perquè un número inventat al
+    // costat d'una mesura és el pitjor dels dos (docs/50, docs/85).
+    out.design_mah = out.full_mah;
+    out.health = 100;
+    out.cycles = 0;
+    if (emu::options().battery_temp_c10 > 0) out.temp_c10 = static_cast<int>(emu::options().battery_temp_c10);
+    if (out.full_mah <= 0) return out.current_ma != 0;
+    out.left_mah = (out.full_mah * static_cast<int>(battery_percent(emu::options().battery_mv))) / 100;
+    return true;
+  }
+
+  // **I el carregador, que és el BQ25896 de la placa** (0.190.156): amb el cable, el que la placa veu és un adaptador carregant de
+  // pressa; sense, no hi ha entrada. El corrent que entra surt de `--battery-ma` quan és positiu, o sigui que el que el run demana
+  // per la cel·la i el que el carregador diu que hi posa són el mateix número (docs/50, docs/85).
+  bool charger_detail(ChargerDetail& out) override {
+    if (emu::options().battery_mv <= 0 || !emu::model().gauge) return false;
+    if (!emu::options().charging) {
+      out.input = "no input";
+      out.charge = "not charging";
+      out.ichgr_ma = 0;
+      out.vsys_mv = static_cast<int>(emu::options().battery_mv);
+      out.power_good = false;
+      return true;
+    }
+    out.input = "adapter";
+    out.charge = "fast";
+    out.power_good = true;
+    out.vbus_mv = 5100;
+    out.vsys_mv = static_cast<int>(emu::options().battery_mv) + 100;
+    const int32_t asked = emu::options().battery_ma;
+    out.ichgr_ma = (asked > 0) ? static_cast<int>(asked) : 350;
+    return true;
+  }
+
   bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) override {
     (void)keep_the_panel;
     const char* depth = (mode == SleepMode::kDeep) ? "deep" : "light";
@@ -862,6 +915,11 @@ class HostNet : public INet {
 
   bool wifi_stored_ssid(char* out, size_t cap) override {
     if (out == nullptr || cap == 0) return false;
+    // **Una placa sense ràdio no té cap xarxa guardada** (0.190.145): `--no-wifi` is a board with no radio at all, and this answered the
+    // network of the key-value store just the same —the one the fake provisioning left behind on an earlier run—, o sigui que una pàgina
+    // que preguntava si hi havia xarxa deia «casa» en una placa que no en pot tenir cap. Ho va trobar el botó de `Sync from the network`
+    // dels ajustos, que s'havia de veure deshabilitat i sortia ple (docs/30, docs/85).
+    if (emu::options().wifi_absent) return false;
     if (!provisioned_ && !recall()) return false;
     if (stored_ssid_[0] == '\0') return false;
     snprintf(out, cap, "%s", stored_ssid_);
@@ -919,6 +977,13 @@ class HostNet : public INet {
   }
 
   ProvState prov_state() override {
+    // **I una placa sense ràdio no es provisiona i no desa res** (0.190.145): the fake access point is a radio too, and with `--no-wifi`
+    // this wrote `casa` into the key-value store and answered `kDone`, which is how a board with no radio came back with a network in
+    // its memory (docs/85).
+    if (emu::options().wifi_absent) {
+      prov_running_ = false;
+      return ProvState::kOff;
+    }
     if (!prov_running_) return provisioned_ ? ProvState::kDone : ProvState::kOff;
     if (emu::options().prov_never) return ProvState::kRunning;
     if (mono_ms() - prov_started_ms_ < emu::options().prov_ms) return ProvState::kRunning;

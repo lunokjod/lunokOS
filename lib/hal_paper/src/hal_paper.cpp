@@ -20,7 +20,7 @@
 
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
-#include <esp32/spiram.h>
+
 #include <esp_heap_caps.h>
 #include <esp_sleep.h>
 #include <freertos/FreeRTOS.h>
@@ -181,7 +181,7 @@ Bm8563* paper_chip() {
 }
 
 IClock* paper_clock() {
-  static RtcClock clock(paper_chip(), esp32_clock());
+  static RtcClock clock(paper_chip(), esp32_clock(), "BM8563");
   static bool adopted = false;
   if (!adopted) {
     adopted = true;
@@ -510,7 +510,10 @@ class PaperPlatform : public IPlatform {
   // the other stays as the honest answer to "what does the datasheet say" (docs/50).
   ExtraMemory extra_memory() const override {
     ExtraMemory out;
-    out.chip_bytes = static_cast<uint32_t>(esp_spiram_get_size());
+    // **La mida de la PSRAM, preguntada al heap i no a una capçalera del nucli** (0.190.166): `esp_spiram_get_size` viu a
+    // `esp32/spiram.h` amb el nucli d'Arduino i a una capçalera que la IDF de l'ESP32 no porta amb aquest nom; el recompte del heap diu el
+    // mateix número i el diu igual als dos builds (docs/50).
+    out.chip_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     out.total_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     out.free_bytes = static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     return out;

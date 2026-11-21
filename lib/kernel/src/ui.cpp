@@ -152,6 +152,12 @@ uint16_t g_paints = 0;
 // every time the page goes up whole (docs/50).
 uint16_t g_updates = 0;
 
+// **Qui ha demanat aquesta pintada** (0.190.142): the six doors that end at `paint_root` —the app's `present`, the whole page, the boxes over a
+// picture, the wash between views, the attach, and the blink of the caret— all look the same in the log, and a person counting paints to find out
+// why a lock screen costs five of them cannot tell the app's box from the system's wash. It is the door's name and it goes on every `paint` line
+// of the turn (docs/30, docs/50).
+const char* g_door = "turn";
+
 // **The number of quick paints after which what is left is ghost**, which is what a panel shows after a few
 // dozen partial updates: past this a page of text needs the full wash too, and the number is one constant to
 // change after somebody counts it on the board (docs/50).
@@ -193,6 +199,29 @@ const uint16_t kMergeGap = 2;
 const int32_t kMergeWaste = 4;
 
 uint8_t clamped(uint8_t level) { return (level > 15) ? 15 : level; }
+
+// **Els modes que netegen el fantasma** i els que passen per sobre sense netejar-lo (docs/50): la diferència és el que fa que
+// ajuntar dues regions amb el mode d'una sigui correcte —el net pinta el resultat final de la ràpida i més— o un simple estalvi.
+bool cleans_glass(hal::UpdateMode mode) {
+  return mode == hal::UpdateMode::kGc16 || mode == hal::UpdateMode::kGl16 || mode == hal::UpdateMode::kGlr16 ||
+         mode == hal::UpdateMode::kGld16;
+}
+
+// **Una `du` no cobreix mai el vidre** (0.151.2, docs/50). The two-level waveform is a *partial* one, and this controller stops
+// answering on the bus when it is asked for the whole page in it: from that moment every word it hands back is `ffff`, every
+// paint is accepted by nobody, and the glass keeps the page it had for ever — that is the frozen board of the reader and of the
+// splash, *«no pinta res de res al eink i després ningú pot tocar la pantalla fins al reinici»* (measured on the board, 8/11,
+// docs/92 §33). And it is ghosting as well: a page that big is a wash, and a wash is `gc16`. The threshold is generous on
+// purpose —seven eighths of the glass— so a block of text that covers most of the view is still a `du` and the clock of the bar
+// is still a `du`. It is a question about a size and not about a paint, perquè qui vol saber-ho abans de pintar —l'ajuntament de
+// regions del torn— ho ha de poder preguntar sense pintar res.
+bool washed_by_size(hal::UpdateMode mode, int32_t w, int32_t h) {
+  if (mode != hal::UpdateMode::kDu && mode != hal::UpdateMode::kDu4 && mode != hal::UpdateMode::kA2) return false;
+  const hal::ISurface* surface = display::surface();
+  if (surface == nullptr) return false;
+  const uint32_t glass_area = static_cast<uint32_t>(surface->width()) * static_cast<uint32_t>(surface->height());
+  return (glass_area != 0) && (static_cast<uint32_t>(w) * static_cast<uint32_t>(h) >= (glass_area / 8u) * 7u);
+}
 
 // A quality name from an app, or `du` when it named none. False only when the name is not one of the
 // eight of this glass, which the caller is told instead of being rounded to another (docs/30).
@@ -717,10 +746,10 @@ bool paint(const Damage& region) {
   // lines together —this one and the `paint` of the panel— say whether what the page asked for is what the glass was
   // told (docs/50).
   const bool big = static_cast<uint32_t>(region.w) * region.h >= 10000u;
-  log_printf(big ? pal::kLogInfo : pal::kLogDebug, "UI", "paint %u,%u %ux%u mode %u %s",
+  log_printf(big ? pal::kLogInfo : pal::kLogDebug, "UI", "paint %u,%u %ux%u mode %u %s (%s)",
              static_cast<unsigned>(region.x), static_cast<unsigned>(region.y), static_cast<unsigned>(region.w),
              static_cast<unsigned>(region.h), static_cast<unsigned>(region.mode),
-             hal::mode_name(region.mode));
+             hal::mode_name(region.mode), g_door);
   const Canvas& view = root();
   int32_t x = static_cast<int32_t>(view.x) + region.x;
   int32_t y = static_cast<int32_t>(view.y) + region.y;
@@ -749,9 +778,7 @@ bool paint(const Damage& region) {
   // wash, and a wash is `gc16`. The threshold is generous on purpose —seven eighths of the glass— so a block of text
   // that covers most of the view is still a `du` and the clock of the bar is still a `du`.
   hal::UpdateMode mode = region.mode;
-  const uint32_t glass_area = static_cast<uint32_t>(surface->width()) * static_cast<uint32_t>(surface->height());
-  if ((mode == hal::UpdateMode::kDu || mode == hal::UpdateMode::kDu4 || mode == hal::UpdateMode::kA2) &&
-      glass_area != 0 && static_cast<uint32_t>(w) * static_cast<uint32_t>(h) >= (glass_area / 8u) * 7u) {
+  if (washed_by_size(mode, w, h)) {
     log_printf(pal::kLogDebug, "UI", "a %s of %u,%u %ux%u is the whole glass, and it goes up as a gc16",
                (mode == hal::UpdateMode::kA2) ? "a2" : "du", static_cast<unsigned>(x), static_cast<unsigned>(y),
                static_cast<unsigned>(w), static_cast<unsigned>(h));
@@ -907,10 +934,106 @@ bool g_painting = false;
 // reason that changes is said again.
 char g_last_refusal[96] = {0};
 
+// **Una pintada per torn, i no una per regió** (0.190.141, l'amo: *«device_lock pinta un per un¿? No entenc perqué... altres apps fan igual,
+// pinten un per un»*). L'àrea no és el que costa: el preu d'una pintada és **la tinta del mode** —una espera de 120 ms a 450 ms que es paga
+// sencera encara que la caixa sigui de tres píxels—, i un vidre com el d'epdiy ni tan sols mira l'àrea, perquè envia les 540 files sempre
+// (docs/95). O sigui que sis regions del damage no són sis sisenes d'una pintada: són **sis pintades**. Mesurat a l'emulador amb el pany de
+// `device_lock`, un sol `ui.present('gl16')` en feia sis —les dues frases, els tres punts i el candau—, i ara en fa una.
+//
+// La unió es pinta amb la qualitat **més neta** de les regions que hi entren, perquè la neta pinta el resultat final de la ràpida i més: si
+// hi ha una sola `gc16` entre sis caixes, la unió costa el que costava aquella i estalvia les altres cinc. Dues coses no s'ajunten:
+//
+// - **quan la unió faria escalar una ràpida a `gc16`** i hi ha poques regions perquè surti a compte: tres `du` de 128 ms són menys que un
+//   `gc16` de 414 (docs/95), i per això el llindar de les set vuitenes parts es pregunta **abans** d'ajuntar;
+// - **una `a2`**, que és el mode del motor de vídeo i una altra manera d'escriure el vidre (docs/50).
+
+// **Quantes regions fan que ajuntar amb una neta surti a compte** quan la unió faria escalar una ràpida (docs/95): three quick paints are
+// cheaper than the wash that would cover them on every panel this project runs on, and four are not.
+const uint8_t kJoinFrom = 4;
+
+void join_the_regions_of_one_paint() {
+  Canvas& view = root();
+  const uint8_t count = view.damage_count;
+  if (count < 2) return;
+  int32_t x0 = view.damage[0].x;
+  int32_t y0 = view.damage[0].y;
+  int32_t x1 = x0 + view.damage[0].w;
+  int32_t y1 = y0 + view.damage[0].h;
+  bool any_cleans = cleans_glass(view.damage[0].mode);
+  bool any_named = view.damage[0].named;
+  hal::UpdateMode strongest = view.damage[0].mode;
+  // **El mode de la unió és el més fort dels que netegen, i no el de més rang de la taula** (0.190.142): `a2` has a rank of its own and it is
+  // not a wash, so a strip that asked for `gld16` and a tile that asked for `a2` have to go up as the one that leaves the glass as the page is,
+  // or the strip of the system ends up with the quality of whatever was painted next to it (found by `test_bar`, 21/11) (docs/50).
+  hal::UpdateMode cleanest = cleans_glass(strongest) ? strongest : hal::UpdateMode::kInit;
+  for (uint8_t i = 0; i < count; ++i) {
+    const Damage& d = view.damage[i];
+    if (d.mode == hal::UpdateMode::kA2 || d.mode == hal::UpdateMode::kInit) return;
+    const int32_t dx1 = static_cast<int32_t>(d.x) + d.w;
+    const int32_t dy1 = static_cast<int32_t>(d.y) + d.h;
+    if (d.x < x0) x0 = d.x;
+    if (d.y < y0) y0 = d.y;
+    if (dx1 > x1) x1 = dx1;
+    if (dy1 > y1) y1 = dy1;
+    if (cleans_glass(d.mode)) {
+      any_cleans = true;
+      cleanest = cleans_glass(cleanest) ? stronger_mode(cleanest, d.mode) : d.mode;
+    }
+    if (d.named) any_named = true;
+    strongest = stronger_mode(strongest, d.mode);
+  }
+  const int32_t w = x1 - x0;
+  const int32_t h = y1 - y0;
+  const hal::UpdateMode mode = any_cleans ? cleanest : strongest;
+  // **El mode més fort de tots, i no el més car de la taula**: sis `gl16` es pinten amb `gl16`, perquè el que la unió ha de fer és
+  // sortir tan neta com la més neta de les seves parts i no més —un `gc16` on n'hi havia prou amb un `gl16` costa 642 ms contra 483
+  // a l'emulador (docs/95)— (docs/50).
+  // **I el preu el diu el vidre** (0.190.142): joining is worth it when the one paint of the union costs less than the paints it replaces,
+  // and that is a question for the panel —an emulator that charges the wire of every pixel says no where epdiy, that sends the whole frame
+  // whatever the box, says yes (docs/50, docs/95). A glass that cannot answer keeps the conservative rule of the seven eighths.
+  // **Una unió que afegeix mitja pàgina d'aire no és un torn: és pintar el món per un dit** (0.190.142). El cost sol no ho veu —una
+  // pintada de `du` de tot el vidre encara surt més barata que dues de petites— i el que paga no és el temps sinó el fantasma d'una
+  // passada ràpida sobre mitja pàgina: `test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops` ho diu amb el nom de la
+  // cel.la que el dit no ha tocat. Vuit vegades l'àrea del que ha canviat deixa passar un torn de sis caixes escampades i atura el
+  // d'una cel.la i el comptador de l'altra punta (docs/50, docs/95).
+  uint32_t changed_area = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    changed_area += static_cast<uint32_t>(view.damage[i].w) * static_cast<uint32_t>(view.damage[i].h);
+  }
+  if (changed_area != 0 && static_cast<uint32_t>(w) * static_cast<uint32_t>(h) > changed_area * 8u) return;
+  hal::UpdateMode priced = mode;
+  if (washed_by_size(mode, w, h)) priced = hal::UpdateMode::kGc16;
+  const uint32_t joined_ms = display::paint_cost(w, h, priced);
+  uint32_t apart_ms = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    const Damage& d = view.damage[i];
+    apart_ms += display::paint_cost(d.w, d.h, washed_by_size(d.mode, d.w, d.h) ? hal::UpdateMode::kGc16 : d.mode);
+  }
+  if (joined_ms != 0 && apart_ms != 0) {
+    if (joined_ms >= apart_ms) return;
+  } else if (!any_cleans && washed_by_size(mode, w, h) && count < kJoinFrom) {
+    return;
+  }
+  log_printf(pal::kLogDebug, "UI", "the %u regions of the turn are one paint of %d,%d %dx%d mode %s",
+             static_cast<unsigned>(count), static_cast<int>(x0), static_cast<int>(y0), static_cast<int>(w),
+             static_cast<int>(h), hal::mode_name(mode));
+  view.damage[0].x = static_cast<uint16_t>(x0);
+  view.damage[0].y = static_cast<uint16_t>(y0);
+  view.damage[0].w = static_cast<uint16_t>(w);
+  view.damage[0].h = static_cast<uint16_t>(h);
+  view.damage[0].mode = mode;
+  view.damage[0].named = any_named;
+  view.damage_count = 1;
+}
+
 bool paint_root() {
   if (g_painting) return false;
   g_painting = true;
   bool ok = true;
+  // **Una pintada per torn** (0.190.141, l'amo: *«Anem a fer millor refresc de les aplicacions en general... device_lock pinta un per
+  // un¿? No entenc perqué»*): the regions are joined before the loop, so the loop, the retry and the counters are exactly the ones that
+  // were here (docs/50, docs/95).
+  join_the_regions_of_one_paint();
   // Each region with its own quality, in the order the app drew them: the first paint of a page and the
   // last one after it are not the same kind of thing (docs/30).
   const uint8_t count = root().damage_count;
@@ -960,6 +1083,7 @@ void clean_the_glass(bool over_the_bar) {
   if (over_the_bar) levels = static_cast<uint16_t>(levels | (1u << 0) | (1u << 15));
   const hal::UpdateMode mode = cleaner_for(levels, g_updates);
   damage_add(root(), 0, 0, root().width, root().height, mode);
+  g_door = "wash";
   paint_root();
   g_levels = 0;
   g_paints = 0;
@@ -2378,6 +2502,7 @@ void attach_the_view(bool wash) {
     // a `du` over a page that has pixels in it keeps the ghost of them (docs/50).
     if (g_levels == 0) mode = hal::UpdateMode::kGl16;
     damage_add(root(), 0, 0, root().width, root().height, mode);
+    g_door = "attach";
     paint_root();
   }
   g_levels = 0;
@@ -8864,6 +8989,7 @@ bool present() {
       }
     }
   }
+  g_door = "present";
   const bool ok = paint_root();
   // **And now the ones that asked to go**: the page has been composed and the paint asked for, so the
   // buffers can be wiped and the slots given back without a ghost and without anything stale (docs/90).
@@ -8893,6 +9019,7 @@ bool present_all(hal::UpdateMode mode) {  if (!g_attached || root().bits == null
   }
   merge_all(root(), mode);
   keyboard_paint();
+  g_door = "page";
   const bool ok = paint_root();
   // **A whole page is a wash**: whatever the page owed is paid by the pass that covered it, so the budget of quick paints
   // and the levels the wash between two apps reads start again from here (0.179.5, docs/50).
@@ -8932,6 +9059,7 @@ bool present_over() {
   // aquí això és el contrari del que cal: la caixa que puja sobre la imatge és una barra de nou píxels, i una passada de dos
   // nivells la fa **parpallejar vuit vegades** (una per passa) sobre un tros de paper en blanc. El que l'app ha dibuixat va
   // amb la tinta que va demanar, i el rentat de la pàgina arriba igualment amb el present que paga el deute (docs/30, docs/50).
+  g_door = "over";
   const bool ok = paint_root();
   sweep_released();
   // **And the debt is not paid here**: `g_owe_all` stays as it was, which is the whole difference with `present()`.
@@ -8988,6 +9116,7 @@ bool present_each(hal::UpdateMode mode) {
     if (!page.damage[i].named) page.damage[i].mode = mode;
   }
   keyboard_paint();
+  g_door = "turn";
   const bool ok = paint_root();
   sweep_released();
   return ok;
@@ -9000,7 +9129,7 @@ bool idle() {
   // `wait_paint` every turn (docs/30, docs/50).
   // **And a page that is under a card is not painted here either** (0.179.22): a refused paint is owed to the glass, and the
   // card is over the page it belongs to, so it waits for the card to go the way every other frame does (docs/30, docs/50).
-  if (g_owed_paint && !g_painting && !g_page_held && !root().in_draw && display::idle()) paint_root();
+  if (g_owed_paint && !g_painting && !g_page_held && !root().in_draw && display::idle()) { g_door = "due"; paint_root(); }
   return display::idle();
 }
 

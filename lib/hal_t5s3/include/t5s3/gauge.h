@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "esp32/i2c.h"
+#include "hal/hal.h"
 
 namespace hal {
 
@@ -24,6 +25,17 @@ class T5Gauge {
   // **False is «this board cannot say»**, which is the honest answer of a gauge that does not reply:
   // zero volts and zero per cent are a board that is off, not one that cannot tell (docs/30, docs/50).
   bool read(int& mv, int& pct, bool& charging);
+
+  // **El que aquest indicador sap de més** (0.190.155): the BQ27220 counts coulombs, so it knows the current that is going in or
+  // out of the cell and the capacity it has left. The maker's own example prints all three (`getCurrent`, `getRemainingCapacity`,
+  // `getFullChargeCapacity`), o sigui que el que falta no és el xip sinó preguntar-l'hi. Cada camp que no passi el seu rang queda a
+  // `kUnknown` en lloc de fer-se passar per una mesura (docs/50, docs/95).
+  bool detail(IPower::BatteryDetail& out);
+
+  // **L'altre xip de la bateria** (0.190.156): the BQ25896 charges and is the one that knows whether a cable is in, what kind it is,
+  // how much of it is going into the cell and what the system rail is doing. El mapa és el del driver del fabricant
+  // (`PowersBQ25896.tpp`: REG0B per l'estat, REG0F el VSYS, REG11 el VBUS i REG12 el corrent), no una deducció (docs/50, docs/95).
+  bool charger(IPower::ChargerDetail& out);
 
   // **Tallar el corrent de debò** (0.190.33, el codi del fabricant: `LilyGoT5_Shutdown`): the only way to switch this
   // board off is the charger's `BATFET_DIS` bit —register 9, bit 0x20—, which opens the field-effect transistor between

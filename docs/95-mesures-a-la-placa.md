@@ -1244,6 +1244,37 @@ bucle sinó **treure aquella espera** (o un debounce a l'ISR), i després el pas
 **I el que no es pot dir sense mesurador**: els mA. Es pot mesurar el duty cycle (a sobre) i la **deriva de la bateria** en
 mV/hora amb la placa desendollada, que és l'única cosa que aquesta placa pot dir de la seva pròpia gana.
 
+## El xoc dins del `tlsf`, caçat amb canaris (20/11, 0.190.101)
+
+El `StoreProhibited` de `run home_eink &` va tornar, i aquesta vegada amb nom: `EXCVADDR 0x0000000b`, `PC` dins de `tlsf_free` →
+`block_absorb`, i la cadena de crides diu **què s'estava fent**:
+
+```
+savelineinfo → luaK_code → ...                      (el compilador de Lua creixent la taula de línies)
+luaM_growaux_ → luaM_saferealloc_ → luaM_realloc_
+counting_alloc → EspExtraMemory::resize → resize_raw → heap_caps_realloc
+heap_caps_malloc_base ... tlsf_free                 ← aquí cau
+```
+
+O sigui: `home_eink` arrenca, el seu codi es **compila**, la taula de línies es fa gran i el `realloc` del bloc vell mor perquè **el bloc
+que es dona té la capçalera trencada**. No és el compilador de Lua: és algú que ha escrit més enllà del que va demanar.
+
+**Les tres xarxes que hi ha ara al build** (0.190.101):
+
+- **els canaris de la memòria extra** (`LUNOK_MEMORY_GUARDS`, a `lib/pal_esp32`): cada bloc que surt de la porta porta una capçalera de
+  trenta-dos bytes (marca, marca de mida, mida) i una cua de setze (marca, mida, complement), i les dues es comproven **al `release` i al
+  `resize` d'aquell bloc**. Un bloc amb la cua trencada **no es dona i no es mou**: es deixa anar i el registre diu la mida i el byte. És
+  el mateix moment en què abans es moria sense dir res.
+- **el verí del `multi_heap`** (`CONFIG_HEAP_POISONING_COMPREHENSIVE`) i **el protector de la pila** (`CONFIG_COMPILER_STACK_CHECK_MODE_STRONG`),
+  per a un forat que no vingui de la porta de la memòria extra.
+- **dues ordres al prompt**: `heapguard <bytes>` arma un **watchpoint de maquinari** (`esp_cpu_set_watchpoint`) damunt de la cua del
+  següent bloc d'aquella mida, i llavors el xoc **no és a la víctima sinó a l'assassí** —el `PC` i la pila de qui hi escriu—; i
+  `heapguard check` camina els dos munts amb `heap_caps_check_integrity` i diu quin dels dos és trencat.
+
+**El que s'ha de veure a la placa**: una línia `[MEMORY] guard: the tail of a N B block at 0x… is broken at byte +M …`. Amb aquesta `N` es
+torna a arrencar amb `heapguard N` i el xoc següent dona l'escriptor. **El preu d'aquest build**: trenta-dos bytes per bloc, una còpia a
+cada `resize` i el verí a cada `malloc`; `mem` ensenyarà una mica més de memòria per bloc i el disc no canvia.
+
 ## Què **no** cal mesurar encara
 
 - **La velocitat de mostra del tàctil**: contar frames amb el dit (E-6). El marc ja està mesurat.
@@ -1257,3 +1288,27 @@ mV/hora amb la placa desendollada, que és l'única cosa que aquesta placa pot d
 2. Si el número **contradiu** el que deia el document, es canvia el document i s'apunta la
    contradicció en una línia (què deia, què diu el maquinari, per què).
 3. La fila d'aquest full es marca com a feta o s'esborra: aquest full només té coses per fer.
+
+## El vidre com a vídeo: seixanta imatges per segon, i quantes en queden (0.190.133)
+
+**La pregunta de l'amo**: *«Mes cosetes per la pantalla eink! Vull que facis possible això dels 60hz»*, amb l'exemple
+`epd_60fps_probe` del fabricant. La resposta, mesurada a la placa amb `tools/epd_video_probe` (un projecte germà que no arrenca
+lunokOS), en quatre números:
+
+| què | número | com |
+|---|---|---|
+| un frame de 540 files pel cable, a 24 MHz | **12 910 µs** | DMA, sense contingut: 77 imatges per segon |
+| el mateix frame amb el motor a sobre | **17,2 ms** | 58 imatges per segon |
+| un dibuix nou | cada **17 frames** | 2 de reset + 15 d'empenta, unes 3,4 imatges per segon |
+| la porta de cada fila | **2 µs** | quinze files fan 30 µs de camí, i el camí del panell és 13,5 µs |
+
+**Per què el waveform d'epdiy no hi pot arribar**: la forma d'ona d'aquest panell té **22 fases pel `du` i 38 pel `gc16`**, i cada
+fase envia **el frame sencer**; a 12,9 ms per frame això són 276 i 477 ms. No és el cable ni el DMA —el camí de sortida ja és el
+LCD_CAM amb `gdma`—: és que la tinta necessita moltes passades per moure's, i el drive directe el que fa és **posar la informació
+de cada passada en un sol frame** (dos bits per píxel: `0` no fer res, `1` cap al negre, `2` cap al blanc) i repetir-lo.
+
+**El que costa i el que trenca**: el reset ha de ser **per píxel** (dues empentes cap al rail del qual ve el píxel, com el
+`kFastToBlack = {2, 2, 1, 1, 1, 1}` d'aquest projecte) i no de tota la pàgina, o la imatge parpelleja cada cicle. I el frame que
+s'envia quinze cops ha de viure a la **RAM interna**: el DMA no llegeix la PSRAM, i la còpia de 129,6 KB per frame costava 7,5 ms
+dels 20 que trigava. **I el preu de tot plegat és el que el fabricant ja diu al seu README**: la imatge és de dues tintes (no hi ha
+grisos) i el drive directe deixa el fantasma que el `gc16` del nucli esborra.

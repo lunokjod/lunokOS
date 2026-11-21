@@ -19,29 +19,43 @@ GpioKeys::GpioKeys(const KeySpot* table, uint32_t count, uint32_t debounce_ms)
   if (debounce_ms_ == 0) debounce_ms_ = 1;
 }
 
+bool GpioKeys::add(const KeyElsewhere& key) {
+  if (elsewhere_count_ >= kMaxKeys || count_ + elsewhere_count_ >= kMaxKeys || key.pressed == nullptr) return false;
+  elsewhere_[elsewhere_count_++] = key;
+  return true;
+}
+
 bool GpioKeys::pressed(uint32_t key) {
   ensure_ready();
-  if (key >= count_) return false;
+  if (key >= count()) return false;
   sample();
   return stable_[key];
 }
 
 int64_t GpioKeys::held_ms(uint32_t key) {
-  if (key >= count_ || !stable_[key]) return 0;
+  if (key >= count() || !stable_[key]) return 0;
   return now_ms() - pressed_since_ms_[key];
 }
 
-Face GpioKeys::face(uint32_t key) { return (key < count_) ? table_[key].face : Face::kTop; }
+Face GpioKeys::face(uint32_t key) {
+  if (key < count_) return table_[key].face;
+  return (key < count()) ? elsewhere_[key - count_].face : Face::kTop;
+}
 
 Spot GpioKeys::spot(uint32_t key) {
-  return (key < count_) ? table_[key].spot : Spot::kCentre;
+  if (key < count_) return table_[key].spot;
+  return (key < count()) ? elsewhere_[key - count_].spot : Spot::kCentre;
 }
 
 KeyKind GpioKeys::kind(uint32_t key) {
-  return (key < count_) ? table_[key].kind : KeyKind::kSimple;
+  if (key < count_) return table_[key].kind;
+  return (key < count()) ? elsewhere_[key - count_].kind : KeyKind::kSimple;
 }
 
-uint32_t GpioKeys::group(uint32_t key) { return (key < count_) ? table_[key].group : 0; }
+uint32_t GpioKeys::group(uint32_t key) {
+  if (key < count_) return table_[key].group;
+  return (key < count()) ? elsewhere_[key - count_].group : 0;
+}
 
 void GpioKeys::ensure_ready() {
   if (ready_) return;
@@ -70,14 +84,16 @@ void GpioKeys::ensure_ready() {
 }
 
 bool GpioKeys::read_pin(uint32_t key) const {
-  return gpio_get_level(static_cast<gpio_num_t>(table_[key].pin)) == 0;
+  if (key < count_) return gpio_get_level(static_cast<gpio_num_t>(table_[key].pin)) == 0;
+  const KeyElsewhere& elsewhere = elsewhere_[key - count_];
+  return elsewhere.pressed(elsewhere.context);
 }
 
 // A reading that does not hold for the debounce is not a press. The clock of the
 // debounce starts again every time the pin moves.
 void GpioKeys::sample() {
   const int64_t now = now_ms();
-  for (uint32_t key = 0; key < count_; ++key) {
+  for (uint32_t key = 0; key < count(); ++key) {
     const bool raw = read_pin(key);
     if (raw != raw_[key]) {
       raw_[key] = raw;

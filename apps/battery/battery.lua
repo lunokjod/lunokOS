@@ -210,7 +210,23 @@ local function now_of_the_board()
   local t = -1
   local today = time.date()
   if today ~= nil then t = today.hour * 60 + today.min end
-  return t, battery.pct, battery.mv, battery.charging
+  -- **I el que el comptador de coulombs sap de més** (0.190.155, l'amo: *«Mira els exemples de batería (es el hardware que tenim?)
+  -- ... Si ens serveixen, afegeix la informació a l'app battery»*): the BQ27220 of this board counts coulombs, o sigui que també diu
+  -- el corrent que entra o surt de la cel·la i la càrrega que hi queda. Una placa amb un divisor en un ADC no té aquests camps i
+  -- la pàgina no els troba (`nil`), que és el que ha de fer una pàgina que no sap si el seu número és cert (docs/30, docs/50).
+  return t, battery.pct, battery.mv, battery.charging, battery.ma, battery.mah, battery.mah_full
+end
+
+-- **El rellotge que porta les mostres** (0.190.153, l'amo: *«Afegeix l'informació a l'app Battery»*). The alarm that takes a
+-- sample every ten minutes is worth exactly what the clock that keeps it is worth: a board whose chip is holding the hour
+-- samples with the board powered off, and one whose chip lost its cell —or has none— only samples while somebody is using it.
+-- `time.caps()` ja ho deia i no ho mirava ningú, o sigui que el gràfic podia quedar pla i semblar una bateria quieta.
+-- **El model el dona la placa** (`chip`: "PCF8563" aquí, "BM8563" al Paper, buit on no n'hi ha) i **l'estat el xip** (`cell`:
+-- "ok", "lost", "silent" o "none"), que és la diferència entre canviar una pila i buscar un cable (docs/30, docs/50, docs/60).
+local function clock_of_the_board()
+  local ok, one = pcall(time.caps)
+  if not ok or type(one) ~= 'table' then return nil end
+  return one
 end
 
 -- **Una mostra per minut com a molt**: dues lectures dins del mateix minut són la mateixa mostra, i el rellotge és el que
@@ -336,13 +352,21 @@ local function collect()
 end
 
 local function refresh()
-  local _, percent, mv, charging = now_of_the_board()
+  local _, percent, mv, charging, ma, mah, mah_full = now_of_the_board()
   if big ~= nil then
     big.text = (percent ~= nil) and string.format('%d%%', percent) or '--'
   end
   if detail ~= nil then
     local words = ''
     if mv ~= nil and mv > 0 then words = string.format('%.3f V', mv / 1000) end
+    -- **El corrent, amb el seu signe** (0.190.155): el que entra i el que surt són el mateix número amb dos signes, i és el que
+    -- explica el pendent del gràfic. **Les capacitats només hi caben en un vidre ample**: en un de petit el que es perd seria el
+    -- cable, i el cable és el que una persona mira quan la placa no carrega (docs/30, docs/92).
+    if ma ~= nil then words = words .. string.format('   %+d mA', ma) end
+    local wide = (wid <= 0) or (wid >= 400)
+    if wide and mah ~= nil and mah_full ~= nil and mah_full > 0 then
+      words = words .. string.format('   %d/%d mAh', mah, mah_full)
+    end
     if charging then words = words .. '   plugged in' end
     detail.text = words
   end
@@ -365,8 +389,25 @@ local function refresh()
       note.text = trouble
       if note2 ~= nil then note2.text = '' end
     else
-      note.text = 'A sample every ten minutes,'
-      if note2 ~= nil then note2.text = 'and a tap on the paper takes one now.' end
+      -- **La frase del peu diu qui compta les mostres** (0.190.153): el xip amb pila les porta amb la placa apagada, i el que
+      -- no la té —o l'ha perduda— només mentre la placa és desperta. És el que explica un gràfic que s'acaba quan s'apaga.
+      local clock = clock_of_the_board()
+      local chip = (clock ~= nil and type(clock.chip) == 'string') and clock.chip or ''
+      local cell = (clock ~= nil and type(clock.cell) == 'string') and clock.cell or 'none'
+      if cell == 'lost' or cell == 'silent' or cell == 'none' then
+        if cell == 'none' then
+          note.text = 'This board has no clock chip:'
+        elseif cell == 'lost' then
+          note.text = ((chip ~= '') and chip or 'The clock chip') .. ' lost its cell:'
+        else
+          note.text = ((chip ~= '') and chip or 'The clock chip') .. ' does not answer:'
+        end
+        if note2 ~= nil then note2.text = 'the samples stop while the board is off.' end
+      else
+        note.text = (chip ~= '') and string.format('A sample every ten minutes, on the %s.', chip)
+                                  or 'A sample every ten minutes,'
+        if note2 ~= nil then note2.text = 'A tap on the paper takes one now.' end
+      end
     end
   end
   -- **La finestra triada porta el marc gruixut**, que és el senyal que aquest sistema té per a «aquesta és la triada»: the

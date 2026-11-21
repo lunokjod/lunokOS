@@ -105,6 +105,62 @@ bool set_sleep_on(bool on);
 // moving it changes the board's next wait and not the next boot (docs/30, docs/60).
 bool nap_on();
 bool set_nap_on(bool on);
+// **La consola com a porta de la becaina** (0.190.147, l'amo: *«Posa un toggle a Settings->Battery que doni la opció a "Wake from
+// UART"»*): encès de sèrie —el prompt és l'única manera de parlar amb una placa sense teclat— i apagat per a qui vulgui que les esperes
+// només les desfaci un dit (docs/30, docs/50, docs/60).
+// **La darrera dormida, desada a la botiga** (0.190.152, l'amo: *«el botó de power fa un reset i tot s'envà a la merda»*): the board knows how
+// it armed the last deep sleep and the RTC RAM does not survive the power button, so the line is written here and read back when a person
+// asks —`power last`— with the cable already back on (docs/50, docs/70).
+bool keep_the_last_sleep(const char* text);
+const char* the_last_sleep();
+bool uart_wake();
+bool set_uart_wake(bool on);
+
+// **El nivell del registre** (0.190.89, l'amo: *«Afegeix "Log level" a Settings->System Amb els nivells de log, per defecte Debug»*):
+// `debug`, `info`, `warn` o `error`, desat com el commutador del costat i aplicat en el mateix moment. El de sèrie és `debug`, que és el
+// que el sistema ha fet sempre; una paraula que no és cap de les quatre es refusa i el registre es queda com era (docs/30, docs/50).
+// **El llum que s'apaga quan ningú mira** (0.190.118, l'amo: *«unaltre Toggle "Dim when idle" … en 1 minut que no es toqui l apantalla el
+// backlight s'apaga i es torna a encendre quan toquen el panell»*): cert vol dir que la llum del vidre baixa un minut després de l'últim dit,
+// tecla o byte de consola, i que el primer toc la torna a encendre sense clicar res (docs/30, docs/50).
+bool dim_when_idle();
+bool set_dim_when_idle(bool on);
+
+// **El vidre que respira mentre el cable carrega** (0.190.162, l'amo: *«Si el T5S3 està carregant batería vull el efecte "breathe" al backight
+// fins que deixa de carregar»*): cert vol dir que la llum del vidre fa el respir de la casa mentre el carregador diu que hi ha corrent cap a la
+// cel·la, i que s'atura quan el cable marxa o la cel·la està plena. És un ajust d'aquesta placa i no de la pàgina: qui no té retroil·luminació
+// el desa i no en fa res (docs/30, docs/50).
+bool breathe_while_charging();
+bool set_breathe_while_charging(bool on);
+
+// **L'avís de la càrrega** (0.190.165, l'amo: *«un toggle a Settings->System "Announce charge" ... que mostrarà l' splash de "charging" quan es
+// detecti que s'endolla»*): cert vol dir que el sistema ensenya la imatge del cable quan el carregador comença a donar corrent a la cel·la, i
+// **una vegada per cable**: fins que no es desendolla no torna a sortir (docs/30, docs/50).
+bool announce_charge();
+bool set_announce_charge(bool on);
+
+// **El botó de sota el vidre** (0.190.110, l'amo: *«Afegeix a Settings->Input un Toggle per habilitar-lo o deshabilitar-lo "Use software
+// button"»*): cert vol dir que el sistema fa servir la zona del tàctil de sota la pantalla com una tecla més —el segon botó de la placa, que
+// en realitat és un tros de vidre— i fals que la deixa a la pàgina (docs/30, docs/50).
+bool software_button();
+bool set_software_button(bool on);
+
+// **El règim del tàctil** (0.190.107, l'amo: *«afegeix a Settings->Input un toggle que posi "Adaptative touch scan"»*): cert vol dir que el
+// vidre baixa els escombats quan no hi ha ningú i els apuja quan hi ha un dit; fals, que es queda al màxim mentre la placa és desperta. El
+// son, en canvi, mana el seu règim a cada mode (docs/30, docs/50).
+bool touch_adaptive();
+bool set_touch_adaptive(bool on);
+
+// **La llum del vidre** (0.190.106, l'amo: *«Afegeix a Settings->System un toggle amb "Use backlight" i un selector desplegable amb tots els
+// valors possibles del backlight»*): whether the board lights its glass and with how much light. They are two keys because they are two
+// decisions: turning it off does not forget the level somebody chose (docs/30, docs/50).
+bool backlight();
+bool set_backlight(bool on);
+uint8_t backlight_level();
+bool set_backlight_level(uint8_t level);
+
+const char* log_level();
+bool set_log_level(const char* word);
+
 
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);

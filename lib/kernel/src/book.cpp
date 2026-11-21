@@ -827,7 +827,8 @@ bool thumbnail(const char* name, int32_t max) {
   const char* slash = strrchr(g.rel, '/');
   if (slash == nullptr) return false;
   const int32_t folder = static_cast<int32_t>(slash - g.rel) + 1;
-  const int32_t written = snprintf(path, sizeof(path), "%.*s.%s.cache.ics", folder, g.rel, slash + 1);
+  const int32_t written =
+      snprintf(path, sizeof(path), "%.*s.%s.cache.ics", static_cast<int>(folder), g.rel, slash + 1);
   if (written <= 0 || written >= static_cast<int32_t>(sizeof(path))) return false;
 
   hal::Stat there;
@@ -876,7 +877,8 @@ bool thumbnail(const char* name, int32_t max) {
   g.storage->close(slot);
 
   if (ok) {
-    log_printf(pal::kLogInfo, "BOOK", "the cache of the book is written at %s, %dx%d", path, width, height);
+    log_printf(pal::kLogInfo, "BOOK", "the cache of the book is written at %s, %dx%d", path,
+               static_cast<int>(width), static_cast<int>(height));
   } else {
     // **Half a cache is not a cache**: a flash that filled up in the middle of the write leaves the beginning of a
     // picture there, and it would be read as an `ICS1` that is cut. It goes, and the next open tries again (docs/46, C11).

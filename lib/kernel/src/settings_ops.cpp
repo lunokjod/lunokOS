@@ -8,6 +8,8 @@
 #include "kernel/apps.h"
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
+#include "kernel/led.h"
+#include "kernel/touch.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
 
@@ -114,6 +116,36 @@ uint8_t list_boots(const char** out, uint8_t capacity) {
   return copied;
 }
 
+// **Escriure el règim del tàctil és escriure'l i aplicar-lo** (0.190.107): the switch of the Input tab says how the glass spends its scans,
+// and the one who knows how to change it is the glass. Sense vidre no hi ha res a aplicar i el valor es queda desat igualment (docs/30, docs/50).
+bool write_touch_adaptive(bool on) {
+  const bool kept = cfg::set_touch_adaptive(on);
+  touch::set_adaptive_scan(on);
+  return kept;
+}
+
+// **Escriure la llum del vidre és escriure-la i encendre-la** (0.190.106): la pàgina dels ajustos no ha de saber res del maquinari, i el que
+// lliga el número amb el vidre és aquesta porta: es desa a `cfg` i s'aplica a `led` a l'instant (docs/30, docs/50).
+bool write_backlight(bool on) {
+  const bool kept = cfg::set_backlight(on);
+  led::apply_the_backlight();
+  return kept;
+}
+
+bool write_backlight_level(uint8_t level) {
+  const bool kept = cfg::set_backlight_level(level);
+  led::apply_the_backlight();
+  return kept;
+}
+
+// **Apagar el dim amb el dit encès no ha de deixar el vidre fosc** (0.190.118): si la llum era avall perquè ningú mirava i la persona acaba de
+// desfer el commutador, es torna a encendre en el mateix torn; encendre'l no fa res fins que passi el minut, que és el que diu el nom (docs/30).
+bool write_dim_when_idle(bool on) {
+  const bool kept = cfg::set_dim_when_idle(on);
+  if (!on) led::wake_the_light();
+  return kept;
+}
+
 }  // namespace
 
 void install_settings_ops() {
@@ -156,9 +188,35 @@ void install_settings_ops() {
   // **I la becaina en lloc d'esperar** (0.190.63): the switch of the Battery tab that spends the waits of the board asleep.
   doors.nap_on = &cfg::nap_on;
   doors.set_nap_on = &cfg::set_nap_on;
+  // **I quantes línies vol veure una persona** (0.190.89): the level of the log is a setting of the system like the keyboard, o sigui que
+  // viu a `cfg` i el ring llegeix el que hi ha (docs/30, docs/50).
+  doors.log_level = &cfg::log_level;
+  doors.set_log_level = &cfg::set_log_level;
+  // **I la llum del vidre** (0.190.106): the switch and the level of the System tab, kept in `cfg` like the log's word. La fila escriu i el
+  // nucli aplica el nivell a la llum de la placa, que és el que fa que el commutador es vegi al vidre i no només a la pàgina (docs/30, docs/50).
+  doors.software_button = &cfg::software_button;
+  doors.set_software_button = &cfg::set_software_button;
+  doors.touch_adaptive = &cfg::touch_adaptive;
+  doors.set_touch_adaptive = &write_touch_adaptive;
+  doors.backlight = &cfg::backlight;
+  doors.set_backlight = &write_backlight;
+  doors.backlight_level = &cfg::backlight_level;
+  doors.set_backlight_level = &write_backlight_level;
+  doors.dim_when_idle = &cfg::dim_when_idle;
+  doors.set_dim_when_idle = &write_dim_when_idle;
+  // **I el cable, que fa respirar el vidre** (0.190.162, l'amo: *«Afegeix un Toggle a l'app Settings->Battery que digui "Breathe while
+  // charging"»*): the switch of the Battery tab, que mana el respir del backlight mentre el carregador diu que hi ha corrent cap a la cel·la.
+  doors.breathe_while_charging = &cfg::breathe_while_charging;
+  doors.set_breathe_while_charging = &cfg::set_breathe_while_charging;
+  // **I la foto del cable** (0.190.165, l'amo: *«un toggle a Settings->System "Announce charge"»*): la imatge del carregador quan s'endolla.
+  doors.announce_charge = &cfg::announce_charge;
+  doors.set_announce_charge = &cfg::set_announce_charge;
   // **I el dit com a porta** (0.190.16): the third door of the way down, a switch of the Battery tab.
   doors.wake_on_touch = &cfg::wake_on_touch;
   doors.set_wake_on_touch = &cfg::set_wake_on_touch;
+  // **I la consola, que és l'altra porta de la becaina** (0.190.147): `Wake from UART` a la pestanya Battery.
+  doors.uart_wake = &cfg::uart_wake;
+  doors.set_uart_wake = &cfg::set_uart_wake;
   // **I quanta quietud abans de dormir** (0.190.9): the three times of the row under the switch, kept where the policy reads them.
   doors.idle_seconds = &cfg::idle_seconds;
   doors.set_idle_seconds = &cfg::set_idle_seconds;

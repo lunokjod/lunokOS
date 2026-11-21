@@ -8,6 +8,12 @@
 | `M5 Paper` | espressif32 + Arduino, placa pròpia | La M5 Paper (16 MB de flash, PSRAM i un panell e-ink): definició a `boards/m5stack-paper.json`, taula a `partitions_16mb.csv` (docs/50) |
 | `M5 Atom Matrix` | espressif32 + Arduino | La placa del panell de vint-i-cinc llums: mateix xip, mateixa taula i mateix `board =`, i el que canvia és el `-I` de la identitat (docs/50) |
 | `ESP32 DevKit` | espressif32 + Arduino | **La placa del mínim**: un ESP32 de DevKit (`esp32dev`, 4 MB, sense PSRAM), la més corrent que hi ha. No és cap fitxa de cap aparell: és la prova que el sistema cap en el xip pelat (docs/50) |
+| `lilygo-t5s3-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La T5 E-Paper S3 Pro amb el `sdkconfig` a les nostres mans** (0.190.90): 64 B de línia de memòria cau, que és el que fa que el vidre vagi a **20 MHz** en lloc de 10, el flaix en **QIO** com la guia del fabricant (0.190.99), i 600 KB menys de flaix i 30 KB menys de RAM que la mateixa placa amb Arduino. Conviu amb `lilygo-t5s3` i no el substitueix (docs/50) |
+| `esp32-devkit-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La placa del mínim amb el `sdkconfig` a les nostres mans** (0.190.170): 4 MB, sense PSRAM, la mateixa configuració que l'ATOM. 21,7% de RAM i 57,7% de flash |
+| `ttgo-t-koala-idf` | espressif32 + **ESP-IDF** (5.1.2) | **El T-Koala amb el `sdkconfig` a les nostres mans** (0.190.170): WROVER-B amb **PSRAM QSPI** i el flaix en QIO, o sigui la configuració del Paper amb la taula de 4 MB. El HAL compta la PSRAM al heap, com el del Paper. 21,9% de RAM i 62,7% de flash |
+| `m5-atom-idf` | espressif32 + **ESP-IDF** (5.1.2) | **L'ATOM amb el `sdkconfig` a les nostres mans** (0.190.168): 4 MB de flaix, 327 KB de RAM i **cap PSRAM**, o sigui que la seva configuració no porta ni els canaris del heap ni el TLS a la PSRAM, i la WiFi va fora de la IRAM. El seu llum és una tira de WS2812 i la trama s'escriu amb el RMT de la IDF (`rmt_write_items`) quan el nucli d'Arduino no hi és. 21,7% de RAM i 57,7% de flash |
+| `m5-atom-matrix-idf` | espressif32 + **ESP-IDF** (5.1.2) | **El Matrix amb el `sdkconfig` de l'ATOM** (0.190.169): el mateix xip, la identitat de `board_matrix` i la demo `rainbow` al disc. **Escrit sencer i sense `extends`**: amb el pare, la compilació d'IDF ajunta els `-I` dels dos i `board_atom` va primer —el build deia `m5stack-atom` a `sys.board` i la tira era la de l'AIRE—, i `build_unflags` no el treu. El HAL és el de l'ATOM i el que canvia és qui diu quin board és |
+| `m5-paper-idf` | espressif32 + **ESP-IDF** (5.1.2) | **La M5 Paper amb el `sdkconfig` a les nostres mans** (0.190.166, l'amo: *«Fes una placa nova, la m5-paper-idf, migrarem aquesta placa a esp_idf»*): el HAL del Paper ja parlava la IDF i el panell és el `esp32_it8951` del sistema, o sigui que el que canvia és l'entorn —`boards/m5stack-paper.json` declara els dos frameworks i la configuració és `sdkconfig.defaults.m5-paper-idf`, que no es pot confondre amb el generat `sdkconfig.m5-paper-idf`—. La WiFi va **fora de la IRAM** perquè aquest build no hi cabia per 624 bytes. Conviu amb `m5-paper` i no el substitueix (docs/50) |
 | `emulator` | native | El mateix codi compilat per al PC |
 | `test` | native | Les proves natives (Unity) |
 
@@ -148,7 +154,47 @@ pio run -e m5-atom-matrix     # la placa del panell: 25 llums al mateix GPIO27
 pio run -e esp32-devkit           # el mínim: un ESP32 de DevKit, sense res a sobre
 pio run -e ttgo-t-koala          # la LilyGO T-Koala: WROVER-B, PSRAM mapejada, LED i SD
 pio test                   # proves natives (i `pio test -e test`, el que fa el CI)
+
+# **La mateixa placa amb ESP-IDF** (0.190.90): l'app i el disc, que són dues imatges
+pio run -e lilygo-t5s3-idf            # el firmware; `.pio/build/lilygo-t5s3-idf/firmware.bin`
+pio run -e lilygo-t5s3-idf -t buildfs # el disc; `littlefs.bin`, 149 fitxers i 24 apps com el d'Arduino
+pio run -e lilygo-t5s3-idf -t upload  # bootloader + taula + app
+pio run -e lilygo-t5s3-idf -t uploadfs # el disc a 0x410000
 ```
+
+**I la velocitat amb què es grava és la del fabricant: 921600** (0.190.90). La guia de LilyGO per a aquesta placa diu `Upload Speed:
+921600` i `USB Mode: Hardware CDC and JTAG`, i el nostre projecte vell també hi gravava així; el que portàvem a
+`boards/lilygo-t5s3-epaper-pro.json` era **460800**, i va ser on es va quedar el primer upload d'aquest entorn —`Changing baud rate to
+460800` i tot seguit `No serial data received`, que és l'stub d'`esptool` perdent el port en el canvi—. Amb 921600 l'stub es queda, que
+és com ho fa el fabricant. Si un upload falla igualment, la seva FAQ diu el mateix que la física d'aquesta placa: **BOOT premut, RST
+prémer i deixar anar, i tornar a gravar** (docs/50).
+
+**I el `sdkconfig` es toca al fitxer de defectes, i el generat mana** (0.190.99): `sdkconfig.defaults` és el que es llegeix **quan el
+`sdkconfig.<entorn>` encara no existeix**, i `kconfgen` no torna a aplicar un defecte sobre un símbol que ja té valor al fitxer generat.
+O sigui que afegir-hi una línia i compilar **no fa res** si el fitxer ja hi era —em va passar amb el flaix en QIO: el defecte hi era, el
+build deia `[SUCCESS]` i la imatge seguia en DIO—. La manera de fer-ho és esborrar el generat i deixar que es refaci, perquè el fitxer és
+del build i no del projecte (no és al git):
+
+```
+rm sdkconfig.lilygo-t5s3-idf && pio run -e lilygo-t5s3-idf
+```
+
+Després el que val és el que diu el generat (`grep FLASHMODE sdkconfig.lilygo-t5s3-idf`), i a la placa, la línia `SPI Mode` del
+bootloader, que la escriu ell mateix (docs/50).
+
+**I la primera vegada, `pkg_resources`** (0.190.90): el constructor del framework d'ESP-IDF de la plataforma 6.5.0
+importa `pkg_resources`, que el Python 3.14 de `~/.platformio/penv` ja no porta —`setuptools` no hi és— i la
+compilació mor amb `ModuleNotFoundError` abans de començar. Es resol amb una línia i no és cap canvi del projecte:
+
+```
+~/.platformio/penv/bin/python -m pip install "setuptools==70.0.0"
+```
+
+**La versió és 70 i no la darrera, i és a propòsit** (0.190.90): a partir de la 78 el mateix `pkg_resources` ja escup
+`UserWarning: pkg_resources is deprecated as an API` a **cada** compilació d'aquest entorn; a la 70 l'avís encara és un
+`DeprecationWarning`, que Python no ensenya fora de `__main__`, o sigui que el build calla. Cap de les dues coses és del
+projecte: és el constructor de la plataforma, i desapareixerà el dia que la plataforma porti un `espidf.py` que no demani
+`pkg_resources` (docs/80).
 
 Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 
@@ -531,3 +577,18 @@ kernel::boot(hal::platform());          // `hal::platform().display()` is null u
 Sense això, `hal::platform().display()` és `nullptr` i `emu::memory_surface()` dona una pàgina que no s'ha pintat mai: la prova llegeix paper a tot arreu i la imatge que diu comprovar no hi és. Dues proves del torn 0.118.0 fallaven així i no pel codi que provaven (docs/85, docs/92 §33).
 
 **I una app que la prova ha de veure a la pantalla s'ha de quedar viva** (`while true do sys.delay(20):await() end`), perquè quan una app s'acaba el sistema neteja el vidre (`ui::attach`, 0.37.0) i el que la prova vol llegir ja no hi és (docs/30).
+
+**I el banc de proves del vidre és un projecte germà, no un entorn** (0.190.127, l'amo: *«Vull que facis possible això dels 60hz»*). El
+`CMakeLists.txt` d'aquest projecte globa `src/` i no respecta cap `src_dir`, o sigui que qualsevol entorn nou del `platformio.ini` arrencaria
+lunokOS sencer amb el `main` del banc a sobre. Per això viu a `tools/epd_video_probe`, amb el seu `platformio.ini`, el seu `CMakeLists.txt` i el
+seu `sdkconfig.defaults` (copiat del de dalt: PSRAM octal, flaix QIO de 16 MB i la consola al USB-Serial-JTAG), i **no comparteix ni una línia amb
+`src/` ni amb `lib/`**. Es compila i es grava des de la seva carpeta:
+
+```
+cd tools/epd_video_probe && pio run -t upload    # el banc
+cd ../.. && pio run -e lilygo-t5s3-idf -t upload # i el sistema, per tornar-hi
+```
+
+Porta la mateixa taula de particions que el sistema, o sigui que el flaix no s'ha de repartir de nou i el disc i la NVS no es toquen; el que sí
+que passa és que el banc **sobreescriu la partició de l'aplicació**, i per això el camí de tornada és un flaish del sistema i no un reinici
+(docs/70, docs/85, docs/95).

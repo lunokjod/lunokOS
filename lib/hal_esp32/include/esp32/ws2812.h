@@ -21,12 +21,26 @@
 #include <stdint.h>
 
 #include <esp_heap_caps.h>
+// **El mateix RMT, dit per qui el té** (0.190.168): amb el nucli d'Arduino l'escriptura d'un frame és `rmtWriteBlocking` i amb la IDF és
+// `rmt_write_items`; el que fa el mateix és el tic de cent nanosegons i els dos números de la trama, o sigui que el que canvia és la porta
+// i no el que s'hi escriu (docs/50, docs/80).
+#if defined(ARDUINO)
 #include <esp32-hal-rgb-led.h>
 #include <esp32-hal-rmt.h>
+#else
+#include <driver/rmt.h>
+#endif
 
 #include "hal/hal.h"
 
 namespace hal {
+
+// **L'ítem del RMT és el mateix a les dues bandes** —nivell i durada del primer mig tic i del segon— i el que canvia és el nom del tipus.
+#if defined(ARDUINO)
+using Ws2812Item = rmt_data_t;
+#else
+using Ws2812Item = rmt_item32_t;
+#endif
 
 constexpr float kWs2812TickNs = 100.0f;   // one RMT tick, the same the core sets
 constexpr uint32_t kWs2812TicksOne = 8;   // a one: 0,8 us high...
@@ -57,12 +71,16 @@ class Ws2812Strip : public ILed {
   // this board spends, and the kernel is what decides when it changes (docs/75).
   void show() override {
     if (kCount == 0) return;
+#if defined(ARDUINO)
     if (kCount == 1) {
       // The core's writer for one chip: 24 bits, 30 us, blocking, and there is
       // nothing better to do with those 30 us (docs/50).
       neopixelWrite(kPin, colours_[0], colours_[1], colours_[2]);
       return;
     }
+#endif
+    // **I a la IDF la trama d'un sol llum també passa pel mateix camí**: there is no `neopixelWrite` without the core, o sigui que el que
+    // el nucli fa per a un xip ho fa aquest fitxer per a tots (docs/50).
     if (!ensure_rmt()) return;
     if (!ensure_wire()) return;
     for (uint32_t light = 0; light < kCount; ++light) {
@@ -72,7 +90,7 @@ class Ws2812Strip : public ILed {
                                   colours_[light * 3 + 2]};
       for (uint32_t colour = 0; colour < 3; ++colour) {
         for (uint32_t bit = 0; bit < 8; ++bit) {
-          rmt_data_t& item = wire_[(light * 24) + (colour * 8) + bit];
+          Ws2812Item& item = wire_[(light * 24) + (colour * 8) + bit];
           const bool one = (channel[colour] & (0x80u >> bit)) != 0;
           item.level0 = 1;
           item.duration0 = one ? kWs2812TicksOne : kWs2812TicksZero;
@@ -84,7 +102,12 @@ class Ws2812Strip : public ILed {
     // Blocking: 750 us on the twenty-five lights, and it is one frame at a time on one
     // wire. The kernel paints at most once per turn and only when it changes
     // (docs/75).
-    if (!rmtWriteBlocking(rmt_, wire_, kCount * 24)) {
+#if defined(ARDUINO)
+    const bool written = rmtWriteBlocking(rmt_, wire_, kCount * 24);
+#else
+    const bool written = rmt_write_items(channel_, wire_, kCount * 24, true) == ESP_OK;
+#endif
+    if (!written) {
       printf("led: the RMT channel refused the frame; the strip is not painted\n");
     }
   }
@@ -100,8 +123,8 @@ class Ws2812Strip : public ILed {
   // not the board's budget (docs/50, docs/75).
   bool ensure_wire() {
     if (wire_ != nullptr) return true;
-    const size_t bytes = sizeof(rmt_data_t) * static_cast<size_t>(kCount) * 24u;
-    wire_ = static_cast<rmt_data_t*>(heap_caps_malloc(bytes, MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
+    const size_t bytes = sizeof(Ws2812Item) * static_cast<size_t>(kCount) * 24u;
+    wire_ = static_cast<Ws2812Item*>(heap_caps_malloc(bytes, MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
     if (wire_ == nullptr) {
       printf("led: no memory for a frame of the strip; the panel stays dark\n");
       return false;
@@ -111,6 +134,7 @@ class Ws2812Strip : public ILed {
   }
 
   bool ensure_rmt() {
+#if defined(ARDUINO)
     if (rmt_ != nullptr) return true;
     rmt_ = rmtInit(kPin, RMT_TX_MODE, RMT_MEM_64);
     if (rmt_ == nullptr) {
@@ -119,13 +143,36 @@ class Ws2812Strip : public ILed {
     }
     rmtSetTick(rmt_, kWs2812TickNs);
     return true;
+#else
+    // **El canal de la IDF, amb el mateix tic de cent nanosegons** (0.190.168): el rellotge del RMT és el de l'APB a 80 MHz i el divisor
+    // vuit el deixa a deu, o sigui que un tic és el que aquest fitxer ja compta (docs/50).
+    if (ready_) return true;
+    rmt_config_t config = RMT_DEFAULT_CONFIG_TX(static_cast<gpio_num_t>(kPin), channel_);
+    config.clk_div = 8;
+    config.mem_block_num = 1;
+    if (rmt_config(&config) != ESP_OK) {
+      printf("led: no RMT channel for the strip; the panel stays dark\n");
+      return false;
+    }
+    if (rmt_driver_install(channel_, 0, 0) != ESP_OK) {
+      printf("led: the RMT channel did not come up; the panel stays dark\n");
+      return false;
+    }
+    ready_ = true;
+    return true;
+#endif
   }
 
   // What the strip has to show, three bytes per light, and how it goes on the wire: 24 entries of four bytes per light,
   // which are the heap's when the first frame goes out.
   uint8_t colours_[kCount * 3] = {};
-  rmt_data_t* wire_ = nullptr;
+  Ws2812Item* wire_ = nullptr;
+#if defined(ARDUINO)
   rmt_obj_t* rmt_ = nullptr;
+#else
+  static constexpr rmt_channel_t channel_ = RMT_CHANNEL_0;
+  bool ready_ = false;
+#endif
 };
 
 }  // namespace hal

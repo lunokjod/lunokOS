@@ -92,6 +92,28 @@ class Gt911 : public ITouch {
   void rearm() override;
 
   uint8_t read(TouchPoint* out, uint8_t capacity) override;
+
+  // **El consum del xip, en tres estats** (0.190.105, l'amo: *«Estalvía el maxim d'energia possible al panell... Manté el panell en un
+  // consum baix fins a detectar un dit, llavors pujes la poténcia del panell durant uns segons i la tornes a deixar en LOW_LEVEL_QUERY»*).
+  // The controller scans the glass by itself and that is what it costs: **how many scans a second** is a byte of its own configuration
+  // (`0x8056`, `5 + (byte & 0x0F)` hertz) and the **interrupt mode** is two bits of `0x804D` (rising, falling, low level, high level).
+  // The driver keeps it at the floor of the table —`kGt911QuietHz`, and the mode the manufacturer's example calls the low-power one,
+  // `LOW_LEVEL_QUERY`: the line stays low while a finger is there and the host does not have to ask— and **raises it to the rate the
+  // unit itself came with** for `kGt911HoldFastMs` after a finger, then puts it back (docs/50, docs/60, docs/95).
+  bool sleep_now() override;
+  bool wake_up() override;
+  // **Adaptatiu o sempre al màxim** (0.190.107): with the switch on —the default— the chip drops to `kGt911QuietHz` when nobody is on the
+  // glass and goes to the rate it came with while a finger is there; with it off it **never leaves that rate** while the board is awake. The
+  // mode that is in force is said on the boot line (docs/30, docs/50).
+  void set_adaptive_scan(bool on) override;
+  void quiet_now() override;
+  // **Vint hertzs mentre la llum del vidre és encesa** (0.190.119): the panel of this board is set to ten hertz by the maker and the floor
+  // this driver keeps is ten too, so the burst after a finger had nothing to raise —the boot line said it before the owner did: *«10 Hz
+  // quiet, 10 Hz awake»*—. A glass that is lit is a glass somebody is looking at, and half a scan is half a tap (docs/50, docs/95).
+  void set_brisk(bool on) override;
+  // What the chip is doing with its scans, for the boot line and `stats`: the hertz it is set to and whether it is asleep.
+  uint32_t hertz() const { return hertz_; }
+  bool asleep() const { return asleep_; }
   // **La línia es deixa anar sense lliurar cap frame** (M5Unified #91): the GT911 holds INT low while it has a frame
   // nobody has taken, and this is the read that takes it and writes the status back, which is what lifts the line. The
   // power asks it before arming a deep sleep on that line.
@@ -120,6 +142,29 @@ class Gt911 : public ITouch {
   // Whether the last frame the chip handed over had a finger on it (0.183.2). It starts as `true` because a chip that has
   // said nothing has said nothing about a lift either, and a contact is the safe answer (docs/50).
   bool down_ = true;
+  // **El ritme que el xip té ara i el que portava de fàbrica** (0.190.105): the value of the byte at `0x8056` (the hertz is five more)
+  // and the one this unit came with, which is the fast one of the burst (docs/50).
+  uint8_t quiet_rate_ = 0;
+  uint8_t unit_rate_ = 0;
+  // **El vidre està il·luminat i el dit no ha d'esperar** (0.190.119): while this is set the chip stays at `kGt911BriskHz` and `settle`
+  // does not take it down; it goes back when the light goes out, which on this board is the dim of the backlight (docs/30, docs/50).
+  bool brisk_ = false;
+  uint32_t hertz_ = 0;
+  // **Quan s'ha vist un dit per última vegada** (0.190.105): the fast rate is kept this long after it, perquè un dit que s'aixeca i
+  // torna no pagui dues configuracions del xip en mig segon (docs/50).
+  uint32_t last_finger_ms_ = 0;
+  // **Si el règim baixa sol o no** (0.190.107): true is the adaptive glass of `kGt911QuietHz`, false is the one that stays at the rate of
+  // the unit while the board is awake (docs/30, docs/50).
+  bool adaptive_ = true;
+  bool asleep_ = false;
+  // **Escriure un byte de la configuració i fer-lo seu** (0.190.105): the block is read, one byte is changed, the checksum is written
+  // and `0x8100` is set to one, which is the sequence the manufacturer's driver uses (`reloadConfig`) (docs/50).
+  bool set_config_byte(uint8_t offset, uint8_t value);
+  bool set_rate_byte(uint8_t value);
+  bool set_interrupt_mode(uint8_t mode);
+  void hold_the_line_as_output(bool level);
+  void settle(uint32_t now_ms);
+  bool find_it();
   // **Ninety-six and not sixty-four** (0.188.1): the boot line grew the rate of a scan, and the widest numbers a chip could
   // answer (a frame of 65535 and a rate of 4294967295) have to fit or the build refuses the `snprintf` (docs/50).
   char profile_[96] = {0};

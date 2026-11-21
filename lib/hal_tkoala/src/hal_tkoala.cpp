@@ -13,7 +13,9 @@
 
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
-#include <esp32/spiram.h>
+// **La PSRAM, comptada al heap i no preguntada a una capçalera del nucli** (0.190.170): `esp_spiram_get_size` viu a `esp32/spiram.h` amb
+// el nucli d'Arduino i a una capçalera que la IDF de l'ESP32 no porta amb aquest nom; el recompte del heap diu el mateix número i el diu
+// igual als dos builds (docs/50, docs/80).
 #include <esp_heap_caps.h>
 
 #include "board/identity.h"
@@ -109,14 +111,14 @@ class TKoalaPlatform : public IPlatform {
   // **The mapped PSRAM is the ceiling of an app**, and a WROOM-32 version of the board that answers zero
   // here keeps the kernel's own ceiling instead of promising memory the chip does not have (docs/75).
   uint32_t heap_limit_kb() const override {
-    return (esp_spiram_get_size() > 0) ? 4096 : 0;
+    return (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0) ? 4096 : 0;
   }
 
   // The three numbers of the extra memory: what the chip says it has, what the ESP32 can address of it,
   // and what is left (docs/50, docs/75).
   ExtraMemory extra_memory() const override {
     ExtraMemory out;
-    out.chip_bytes = static_cast<uint32_t>(esp_spiram_get_size());
+    out.chip_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     out.total_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     out.free_bytes = static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     return out;

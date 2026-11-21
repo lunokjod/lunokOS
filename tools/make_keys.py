@@ -20,6 +20,16 @@ word, and it is the same road —the glyph of the clipart, rasterised by the fac
 mark instead of five:
 
     python3 tools/make_keys.py --marks repeat=0x01 --family "lunokOS marks" --out apps/life/res/marks.ttf
+
+**And `--drop` when the mark has to sit in the middle of a button** (0.190.160): the line that a page centres a text against
+is `face.height * scale`, which for these faces is eleven pixels a step, while the glyphs are drawn at nine
+(`font::kOutlineBody`) — o sigui que tota marca d'aquestes surt dos píxels per pas de cos **per sobre** del mig de la seva
+caixa. Un desplaçament del dibuix cap avall, en unitats de la font, la torna al mig sense tocar el lector ni el nucli:
+
+    python3 tools/make_keys.py --marks refresh=0x01 --drop 350 --out apps/energy/res/keys.ttf
+
+El número depèn del cos amb què l'app dibuixa la marca (aquí un cos de quatre), i per això va escrit a la comanda i no
+amagat al fitxer.
 """
 
 import argparse
@@ -28,6 +38,7 @@ import os
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.cu2quPen import Cu2QuPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.ttLib.tables._g_l_y_f import GlyphCoordinates
 from fontTools.ttLib import TTFont
 
 # **Where the marks live, and why not where the original had them**: a text of this system is one byte a character, so a
@@ -50,7 +61,7 @@ DEFAULT_FAMILY = "lunokOS keys"
 MAX_ERROR = 1.0    # font units; the shapes are read at some 40 px and this is under a tenth of a pixel there
 
 
-def build(source, out_path, marks=GLYPHS, family=DEFAULT_FAMILY):
+def build(source, out_path, marks=GLYPHS, family=DEFAULT_FAMILY, drop=0):
     if not os.path.exists(source):
         raise SystemExit("%s is not here: apt install fonts-font-awesome" % source)
     src = TTFont(source)
@@ -74,7 +85,15 @@ def build(source, out_path, marks=GLYPHS, family=DEFAULT_FAMILY):
         # in the middle turns one into the other with an error under a tenth of a pixel at the size the app draws them.
         pen = TTGlyphPen(glyph_set)
         glyph_set[source_name].draw(Cu2QuPen(pen, MAX_ERROR, reverse_direction=True))
-        glyphs[name] = pen.glyph()
+        glyph = pen.glyph()
+        if drop:
+            # **The drawing goes down and its box with it**: the box is what the reader puts the ink against, o sigui que
+            # moure els punts i deixar el box vell seria moure la tinta i dir que no s'ha mogut (docs/30).
+            glyph.coordinates = GlyphCoordinates([(x, y - drop) for x, y in glyph.coordinates])
+            xs = [x for x, _y in glyph.coordinates]
+            ys = [y for _x, y in glyph.coordinates]
+            glyph.xMin, glyph.yMin, glyph.xMax, glyph.yMax = min(xs), min(ys), max(xs), max(ys)
+        glyphs[name] = glyph
         metrics[name] = hmtx[source_name]
         cmap[code] = name
 
@@ -141,11 +160,13 @@ def main():
     parser.add_argument("--source", default=DEFAULT_SOURCE, help="the font the marks of the original come from")
     parser.add_argument("--out", default="apps/timeclock/res/keys.ttf")
     parser.add_argument("--family", default=DEFAULT_FAMILY, help="the name of the face the file carries")
+    parser.add_argument("--drop", type=int, default=0,
+                        help="how far down the outlines go, in font units, to put the mark in the middle of a line")
     parser.add_argument("--marks", default=None,
                         help="glyph=code pairs of this face (`repeat=0x01`); without it, the five of the time clock")
     args = parser.parse_args()
     marks = GLYPHS if args.marks is None else parse_marks(args.marks)
-    made = build(args.source, args.out, marks, args.family)
+    made = build(args.source, args.out, marks, args.family, args.drop)
     print("%s: %d glyphs, %d bytes" % (made, len(marks) + 1, os.path.getsize(made)))
 
 

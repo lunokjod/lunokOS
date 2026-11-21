@@ -6,8 +6,10 @@
 #include "kernel/power.h"
 
 #include "kernel/cfg.h"
+#include "kernel/led.h"
 #include "kernel/lock.h"
 #include "kernel/splash.h"
+#include "kernel/ui.h"
 #include "kernel/vfs.h"
 
 #include <stdarg.h>
@@ -90,6 +92,9 @@ constexpr int64_t g_idle_quiet_ms = kIdleQuietMs;
 #endif
 
 bool g_idle_allowed = true;
+// **El fet que la política no pot canviar, dit una vegada** (0.190.88): viu aquí dalt perquè `boot()` i el commutador l'esborren, i
+// el que diu és que aquesta placa no es baixarà sola en aquest run (docs/60).
+const char* g_idle_fact_said = nullptr;
 // **Qui ha tocat la placa des d'aquest boot, i si el vidre té una pàgina que no és la del son** (0.190.18). The first is what makes a
 // wake for an alarm or a stage of a long wait go straight back down **and** what keeps it from going down under a finger; the second is
 // the window that painted over the picture (docs/30, docs/60).
@@ -423,6 +428,27 @@ bool can_sleep_op(uint8_t mode) { return can_sleep(mode_of(mode)); }
 
 bool sleep_op(uint8_t mode, int64_t at_epoch_ms) { return request_sleep(mode_of(mode), at_epoch_ms); }
 
+// **La darrera dormida, dita una sola vegada i per un sol camí** (0.190.152): the board is the one that knows which doors were armed
+// and which one was already open when the chip went down, and the shop is the only memory that survives the power button. `keep_it`
+// is true at the boot —the text is fresh and has to be stored before anything else resets the diagnosis— and false for `power last`,
+// which must not write the shop for a question (docs/50, docs/60, docs/70).
+bool say_the_last_sleep_of_the_board(bool keep_it) {
+  if (g_power != nullptr) {
+    char note[192] = {0};
+    if (g_power->describe_the_last_sleep(note, sizeof(note)) > 0 && note[0] != '\0') {
+      log_printf(pal::kLogInfo, "POWER", "%s", note);
+      if (keep_it) cfg::keep_the_last_sleep(note);
+      return true;
+    }
+  }
+  const char* stored = cfg::the_last_sleep();
+  if (stored != nullptr && stored[0] != '\0') {
+    log_printf(pal::kLogInfo, "POWER", "%s", stored);
+    return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 // **Les tres velocitats i el pas on cau una demanda** (0.189.107): the mask is the person's ceiling and `allowed_step` is the
@@ -463,6 +489,7 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   // **La política és una ajust i no una llei** (0.190.5): a person who turned the sleep off in the System tab gets a board that stays awake,
   // and the answer is read here so that a boot does not undo it (docs/30, docs/60).
   g_idle_allowed = cfg::sleep_on();
+  g_idle_fact_said = nullptr;
   // **Un boot torna a la seva política** (0.179.38): the resting step is the system's again and no window of the boot
   // before is owed, or a board that reboots would carry the two hundred and forty of the last app it ran.
   //
@@ -498,6 +525,26 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   // **I la porta del dit, que és un ajust i no una política** (0.190.16): the setting of the Battery tab is pushed into the board at every
   // boot, because the board is built before the settings are read (docs/30, docs/50).
   if (g_power != nullptr) g_power->set_wake_on_touch(cfg::wake_on_touch());
+  // **I la consola, que és el mateix camí** (0.190.147): el commutador de la pestanya Battery es llegeix aquí i baixa a la placa abans
+  // del primer torn, com el del vidre (docs/30, docs/50).
+  if (g_power != nullptr) g_power->set_wake_from_uart(cfg::uart_wake());
+  // **I si la placa no té la consola per porta, el commutador no hi té res a fer** (0.190.152): a switch that promises something the wiring
+  // cannot do is worse than no switch, perquè la persona el mou i no passa res (docs/30, docs/50).
+  if (g_power != nullptr && cfg::uart_wake() && !g_power->the_console_can_wake()) {
+    log_printf(pal::kLogInfo, "POWER",
+               "the console of this board is not a door of a nap: the switch has nothing to arm here");
+  }
+  // **I per què s'ha reiniciat el xip, que ningú no ho preguntava** (0.190.150): `IPower::reset_cause()` va arribar a la 0.190.68 perquè
+  // una placa distingeixi un pànicon d'una caiguda de tensió i d'un despertar de debò —`esp_reset_reason()` és un registre i no una opinió—
+  // i no hi havia ni una crida: una placa que es reiniciava sola deia «el corrent ha tornat» i s'acabava la investigació. Aquesta línia és
+  // la que diu si el problema és el codi o l'alimentació (l'amo, amb una dormida tallada 325 s abans de l'hora: *«No ho trolunok>»*).
+  log_printf(pal::kLogInfo, "POWER", "this boot is %s", hal::reset_cause_word(hal::platform().reset_cause()));
+  // **I el que la placa ha de dir d'una dormida que es va menjar el registre** (0.190.149, l'amo: *«quan entra en sleep perdo el serial
+  // ... no podrè veure mai el log»*): a deep sleep is a reset, so the line that says which door was already open dies with the boot that
+  // armed it. It is said here, before anything else can write over it, and it is **handed to the shop** (0.190.152) because the power
+  // button of this board takes the supply away and the RTC RAM goes with it (l'amo: *«el botó de power fa un reset i tot s'envà a la
+  // merda»*): `power last` has to answer after that, and only a stored line can (docs/50, docs/60).
+  say_the_last_sleep_of_the_board(true);
   // **I la becaina, que és de la política i no del maquinari** (0.190.63): the switch is read here so that the board's answer
   // (`can_nap`) and the person's wish are both in force from the first turn (docs/30, docs/60).
   // **I es diu al registre, que és l'únic que ho pot dir** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»*): una placa
@@ -521,6 +568,8 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
     ops.can_sleep = &can_sleep_op;
     ops.sleep = &sleep_op;
     ops.battery = &battery;
+    ops.battery_detail = &battery_detail;
+    ops.charger_detail = &charger_detail;
     ops.cpu_mhz = &cpu_mhz;
     ops.set_cpu_mhz = &set_cpu_mhz;
     ops.cpu_auto = &cpu_auto;
@@ -764,6 +813,19 @@ bool wake_on_touch() { return (g_power != nullptr) ? g_power->wake_on_touch() : 
 
 bool set_wake_on_touch(bool on) { return (g_power != nullptr) ? g_power->set_wake_on_touch(on) : false; }
 
+// **I la pregunta d'una persona, que no escriu res** (0.190.152): `power last` has to answer after the power button has emptied the
+// RTC RAM, so the stored line is the answer and the board's own is only the fresher one (docs/50, docs/60).
+void say_the_last_sleep() {
+  // **I una pregunta es contesta sempre** (0.190.152): a board that has never been to a deep sleep has nothing to say, but a prompt that
+  // answers with silence is indistinguishable from a command that does not exist.
+  if (!say_the_last_sleep_of_the_board(false)) {
+    log_printf(pal::kLogInfo, "POWER", "no sleep has been recorded on this board yet");
+  }
+}
+
+bool wake_from_uart() { return (g_power != nullptr) ? g_power->wake_from_uart() : false; }
+bool set_wake_from_uart(bool on) { return (g_power != nullptr) ? g_power->set_wake_from_uart(on) : false; }
+
 bool can_wake_on_touch() { return (g_power != nullptr) && g_power->can_wake_on_touch(); }
 
 // ---------------------------------------------------------------- la becaina
@@ -818,6 +880,9 @@ const int64_t kNapSayEveryMs = 5000;
 // que la feia créixer era el torn i no el son —la línia del sostre deia «mil mil·lisegons per torn» en una placa que no havia dormit
 // mai— (docs/95).
 bool g_napped = false;
+// **I un dit al vidre, que mana sobre la becaina i sobre el governador** (0.190.87): mentres és cert no es dorma i la velocitat no
+// baixa; el dit el lleva quan s'aixeca (docs/30, docs/50).
+bool g_a_finger_down = false;
 const int32_t kNapRunSayMs = 1000;  // una tanda d'un segon ja diu alguna cosa; per sota, no val una línia
 
 bool nap_on() { return g_nap_on; }
@@ -857,6 +922,9 @@ int32_t nap_ms() { return g_nap_ms; }
 bool nap(int32_t wait_ms) {
   g_napped = false;
   if (!g_nap_on || g_power == nullptr || wait_ms < kNapLeastMs) return false;
+  // **Amb un dit a sobre no es dorma** (0.190.87): the chip stops, the line of the glass and the scan stop with it, and a frame
+  // read that is lost under a finger is a tap that never arrives —or two that do— (docs/30, docs/50).
+  if (g_a_finger_down) return false;
   // **I si el port sèrie s'està fent servir, no es dorm** (0.190.75): una becaina atura el UART i el primer byte la desperta, però els que
   // arriben mentre el xip es lleva es perden — una línia escrita a mà surt tallada i el port és inutilitzable. Deu segons de silenci volen
   // dir que no hi ha ningú; i un port cedit a una app no dorma mai (docs/30, docs/50, docs/95).
@@ -905,7 +973,8 @@ void note_the_nap_end(bool something_happened) {
   if (g_nap_ms < kNapMostMs && g_nap_ms >= kNapMostMs / 2) {
     // **L'escala ha arribat al sostre**: una línia i prou, que és el que diu que la placa es pot passar hores dormint a trossos
     // d'un segon (docs/95).
-    log_printf(pal::kLogDebug, "POWER", "the nap is at its ceiling: %d ms a turn while nothing happens", kNapMostMs);
+    log_printf(pal::kLogDebug, "POWER", "the nap is at its ceiling: %d ms a turn while nothing happens",
+               static_cast<int>(kNapMostMs));
   }
   g_nap_ms = (g_nap_ms >= kNapMostMs / 2) ? kNapMostMs : g_nap_ms * 2;
 }
@@ -913,6 +982,10 @@ void note_the_nap_end(bool something_happened) {
 bool can_deep_sleep() {
   if (g_power == nullptr || !can_sleep(hal::SleepMode::kDeep)) return false;
   if (g_power->can_sleep_with_the_keys()) return true;
+  // **I el dit, si és una porta i una persona l'ha demanat** (0.190.105): a board that keeps its touch controller powered while the
+  // chip sleeps comes back with a finger on the glass, and that is a third way back —the one the T5 E-Paper S3 Pro has, because its
+  // only button cannot be a door of a deep sleep— (docs/50, docs/60).
+  if (g_power->can_wake_on_touch() && g_power->wake_on_touch()) return true;
   return the_hour_of_a_sleep(0) > 0;
 }
 
@@ -990,7 +1063,13 @@ bool idle_report(char* out, size_t cap) {
   return written > 0 && static_cast<size_t>(written) < cap;
 }
 
-void note_a_page_on_the_glass() { g_a_page_on_the_glass = true; }
+void note_a_page_on_the_glass() {
+  g_a_page_on_the_glass = true;
+  // **I la pàgina encén la llum** (0.190.161): a wake for an alarm leaves the glass dark until there is something to show, i el
+  // moment que hi és és aquest —el que s'ha pintat és una pàgina que algú ha demanat, un `raise` o una finestra que ha dibuixat—,
+  // o sigui que la llum l'ha de seguir (docs/30, docs/50).
+  led::the_glass_is_wanted();
+}
 
 // **Quanta quietud mana** (0.190.9): the setting a person chose in Settings -> Battery —five, ten or fifteen minutes—, i una
 // suite que hagués d'esperar-los seria una suite de minuts més lenta, o sigui que on hi ha algú que mogui el número de la prova
@@ -1059,6 +1138,8 @@ bool idle_sleep_allowed() { return g_idle_allowed; }
 
 void set_idle_sleep_allowed(bool on) {
   g_idle_allowed = on;
+  // **I un commutador que canvia torna a dir la seva** (0.190.88): el que s'ha dit una vegada és el que val per a aquell estat.
+  g_idle_fact_said = nullptr;
   // Turning the policy back on does not put the board down in the same millisecond: the
   // quiet count starts again here.
   note_activity();
@@ -1085,7 +1166,10 @@ void set_idle_sleep_allowed(bool on) {
 // motiu** i es torna a dir al minut, perquè un registre que es repeteix a cada torn no el llegeix ningú (docs/30, docs/60).
 const char* g_idle_said = nullptr;
 int64_t g_idle_said_ms = 0;
-
+// **I les que no poden canviar en aquest run es diuen una vegada i sense compte enrere** (0.190.88, l'amo: *«si la opció no està
+// activada, perqué molestes amb missatges irrellevants?»*). Un commutador apagat o un vidre que no és una baixada no són condicions
+// que es puguin complir més tard: comptar-hi els cent cinquanta segons de tres-cents és un número que no porta enlloc, i repetir-lo
+// cada minut omple el registre d'una cosa que la placa ja ha dit (docs/30, docs/60).
 void say_the_verdict(int64_t quiet, const char* why) {
   const int64_t now = mono_now();
   if (why == g_idle_said && (now - g_idle_said_ms) < 60000) return;
@@ -1095,17 +1179,27 @@ void say_the_verdict(int64_t quiet, const char* why) {
              static_cast<long long>(quiet / 1000), static_cast<long long>(idle_quiet_ms() / 1000), why);
 }
 
+// **El fet, una vegada, i no a la vista de tothom** (0.190.88, l'amo: *«si la opció no està activada, perqué molestes amb missatges
+// irrellevants?»*). The policy is not going to put this board down in this run and that does not depend on how long it has been quiet,
+// o sigui que **no és una notícia**: és la resposta a una pregunta que algú fa una vegada. Va a `debug` i es diu quan canvia la
+// resposta; el registre normal no la torna a veure mai més (docs/30, docs/60).
+void say_the_fact(const char* why) {
+  if (why == g_idle_fact_said) return;
+  g_idle_fact_said = why;
+  log_printf(pal::kLogDebug, "POWER", "idle: this board is not put down by the policy: %s", why);
+}
+
 void idle_sleep(int64_t next_alarm_epoch_ms) {
   if (g_power == nullptr || g_clock == nullptr) return;
   // **Les dues portes que callaven** (0.190.77): the switch of the policy and a board whose deep sleep is not a power off were two
   // `return`s with no line, o sigui que una placa amb el commutador apagat —o amb un son profund que no és una baixada— es veia
   // exactament igual que una placa que s'havia d'adormir i no ho feia. Ara diuen el seu nom com les altres (docs/30, docs/60).
   if (!g_idle_allowed) {
-    say_the_verdict(quiet_ms(), "the switch of the idle sleep is off");
+    say_the_fact("the switch of the idle sleep is off (Settings, Sleep when idle)");
     return;
   }
   if (!g_power->deep_powers_off()) {
-    say_the_verdict(quiet_ms(), "this board's deep sleep is not a power off");
+    say_the_fact("this board's deep sleep is not a power off");
     return;
   }
   // A stage of a longer wait has its hour already written down, and it is not in the queue, so
@@ -1230,6 +1324,45 @@ bool request_sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
 
 static void govern_cpu();
 
+// **El cable, anunciat una vegada** (0.190.165, l'amo: *«Afegeix un toggle a Settings->System "Announce charge" (per defecte true) que mostrarà
+// l' splash de "charging" quan es detecti que s'endolla. Fins que no es desendolla no es pot tornar a mostrar l'splash charging»*): the charger
+// is asked every two seconds while the switch says so, i el que es mira és **el flanc** —la placa que no tenia cable i ara en té— i no l'estat,
+// o sigui que la imatge surt una vegada per cable i no a cada torn. La primera lectura del run només recorda com està la placa: un despert amb
+// el cable ja posat no és un cable que s'ha endollat (docs/30, docs/50, docs/60).
+bool g_cable_known = false;
+bool g_cable_has_current = false;
+int64_t g_announce_asked_ms = -1;
+const int64_t kAnnounceEveryMs = 2000;
+
+void announce_the_cable() {
+  if (!cfg::announce_charge()) {
+    g_cable_known = false;
+    g_announce_asked_ms = -1;
+    return;
+  }
+  const int64_t now = mono_now();
+  if (g_cable_known && g_announce_asked_ms >= 0 && (now - g_announce_asked_ms) < kAnnounceEveryMs) return;
+  g_announce_asked_ms = now;
+  int mv = 0;
+  int pct = 0;
+  bool charging = false;
+  // **Un gauge que no contesta no és un cable que arriba**: el que no s'ha pogut llegir no canvia el que la placa creu (docs/50).
+  if (!battery(mv, pct, charging)) return;
+  const bool first = !g_cable_known;
+  const bool was = g_cable_has_current;
+  g_cable_known = true;
+  g_cable_has_current = charging;
+  if (first || !charging || was) return;
+  // **I la imatge, amb la pàgina de la persona al darrere**: the splash paints the whole glass, o sigui que el que hi havia es torna a deure
+  // sencer i el torn del nucli el paga (`ui::owes_paint` → `ui::idle`), perquè una app quieta no ha de fer res per tornar a la seva pàgina (docs/30).
+  if (splash::show(splash::kCharging)) {
+    ui::owe_the_page();
+    log_printf(pal::kLogInfo, "POWER", "the cable is in: the glass says the charge");
+  } else {
+    log_printf(pal::kLogDebug, "SPLASH", "no picture of the charge: %s", splash::last_error());
+  }
+}
+
 void poll(int64_t next_alarm_epoch_ms) {
   // **La finestra d'una feina pesada s'acaba aquí** (0.179.38): the boot and the start of an app take the top step for a
   // few seconds, and the step back is not the caller's to watch —an app cannot be trusted with the clock of its own
@@ -1246,6 +1379,9 @@ void poll(int64_t next_alarm_epoch_ms) {
   // this costs two reads of the meters on the turns that do not end a window, and the move happens only when the word
   // changes (docs/30, docs/95).
   govern_cpu();
+  // **I el cable, que és una foto i no una llum** (0.190.165): two seconds of lag on a cable that a person has just put in, i el preu d'aquesta
+  // línia és una lectura del gauge cada dos segons i només amb el commutador encès (docs/30, docs/50).
+  announce_the_cable();
   if (g_pending) {
     const bool from_app = g_pending_from_app;
     const hal::SleepMode mode = g_pending_mode;
@@ -1274,6 +1410,22 @@ bool battery(int& mv, int& pct, bool& charging) {
   meter::Scope scope(meter::kPowerBattery);
   if (g_power == nullptr) return false;
   return g_power->battery(mv, pct, charging);
+}
+
+// **El que el comptador de coulombs sap de més** (0.190.155): the current and the capacities, which the page of the battery asks
+// for when it draws the volts and the cable. A board without a part that counts answers false and the page says nothing, que és
+// el que ha de fer una placa que no ho sap (docs/30, docs/50).
+bool battery_detail(hal::IPower::BatteryDetail& out) {
+  meter::Scope scope(meter::kPowerBattery);
+  if (g_power == nullptr) return false;
+  return g_power->battery_detail(out);
+}
+
+// **I el carregador, que és el mateix bus i la mateixa pregunta** (0.190.156): what the cable is and what is going into the cell.
+bool charger_detail(hal::IPower::ChargerDetail& out) {
+  meter::Scope scope(meter::kPowerBattery);
+  if (g_power == nullptr) return false;
+  return g_power->charger_detail(out);
 }
 
 // **La bateria que s'ha acabat** (0.183.0): one question with one rule —a gauge that answers, no cable in the slot, and a
@@ -1386,6 +1538,21 @@ uint32_t load_percent10() { return g_load_pct10; }
 
 bool cpu_auto() { return policy_is_auto(); }
 
+// **El dit, dit per qui el veu** (0.190.87): `touch::poll` és l'únic que sap si hi ha un contacte, i aquest és el lloc on es tradueix
+// a les dues decisions que en depenen —la becaina i la velocitat— perquè el nucli no hagi de preguntar-ho a cada volta (docs/30).
+void note_a_finger(bool down) {
+  if (down == g_a_finger_down) return;
+  g_a_finger_down = down;
+  if (down) {
+    // Un dit és una feina que una persona espera: el cim, i sense finestra, perquè el que el lleva és el dit i no el rellotge.
+    hold_cpu(kBusyMhz, 0, "a finger on the glass");
+    return;
+  }
+  rest_cpu("the finger is up");
+}
+
+bool a_finger_is_down() { return g_a_finger_down; }
+
 void set_cpu_auto(bool on) {
   set_policy(on);
   // **I es desa** (0.190.85): una decisió que no sobreviu a un reinici no és una decisió, és una casualitat del run.
@@ -1463,6 +1630,10 @@ uint32_t trend_step(uint32_t mhz, int32_t trend10, uint8_t recent_pct) {
 // not its business (docs/50, docs/60).
 static void govern_cpu() {
   if (g_power == nullptr || !policy_is_auto()) return;
+  // **I un dit a sobre no és una càrrega baixa** (0.190.87): the governor reads the load and a finger held still on a panel that
+  // reports only a change is a board that looks idle —o sigui que baixaria la velocitat just quan la persona espera la resposta—.
+  // El que mana mentre el dit hi és ho ha dit `note_a_finger`, i el governador no hi té res a dir (docs/30, docs/50).
+  if (g_a_finger_down) return;
   const uint8_t before = g_trend_count;
   take_a_sample();
   // **Una decisió per mostra i no per torn**: the samples are two seconds apart, so the clock can move at most once every two
@@ -1544,6 +1715,10 @@ void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why) {
 
 void rest_cpu(const char* why) {
   if (g_power == nullptr) return;
+  // **I un dit a sobre no baixa la velocitat** (0.190.87): the frame of a finger renews the window, but a finger **held still** on
+  // a panel that only reports a change gives no new frame, o sigui que la finestra caducaria amb el dit a sobre i la pàgina es
+  // quedaria lenta just quan una persona l'està esperant (docs/30, docs/50).
+  if (g_a_finger_down) return;
   g_cpu_busy_until_ms = 0;
   if (policy_is_auto()) {
     govern_cpu();
@@ -1565,6 +1740,10 @@ void work_cpu(const char* why) {
 // chip spends with nothing to compute (docs/50, docs/60).
 void wait_cpu(const char* why) {
   if (!policy_is_auto()) return;
+  // **I una espera amb un dit a sobre no existeix** (0.190.87, trobat al run sencer): the kernel waits between turns and a wait asks
+  // for the bottom step, però mentre un dit toca el vidre la placa està treballant per a una persona —el marc que s'ha de llegir i la
+  // pàgina que s'ha de pintar— i baixar-li el rellotge a cada espera deixava el cim en una sola volta (docs/30, docs/50).
+  if (g_a_finger_down) return;
   hold_cpu(kIdleMhz, 0, why);
 }
 
@@ -1794,8 +1973,15 @@ Leaving settle_before_leaving(const char* why) {
 
   if (hal::IKeyValue* store = hal::platform().nvs()) done.store = store->commit();
 
-  log_printf(pal::kLogInfo, "POWER", "%s: the console, %u of %u volume(s) and the store are written", reason,
-             static_cast<unsigned>(done.volumes_ok), static_cast<unsigned>(done.volumes));
+  // **I si el disc de les claus no ho ha pres, es diu** (0.190.109): the store keeps the settings in the RAM until this moment —that is what
+  // saves the flash— and this is the one moment where a page that cannot be written means a setting that is lost. Abans la línia deia «són
+  // escrites» passés el que passés (docs/70, docs/75). **I és una marca** (0.190.114): és l'única línia que diu que els ajustos han arribat a la
+  // flash, o sigui que no ha de desaparèixer per un nivell de registre que parla de traces (docs/30, docs/70).
+  log_markf("NVS", "the store %s", done.store ? "is written" : "did NOT take everything it had");
+  log_printf(done.store ? pal::kLogInfo : pal::kLogWarn, "POWER",
+             "%s: the console, %u of %u volume(s) and the store %s", reason,
+             static_cast<unsigned>(done.volumes_ok), static_cast<unsigned>(done.volumes),
+             done.store ? "are written" : "did NOT take everything it had");
 
   // **I el repòs, que és el que cap crida pot fer per la targeta**: the controller of a card writes its own buffer into the
   // flash some milliseconds after the last sector has arrived, and there is no call of the filesystem that waits for it

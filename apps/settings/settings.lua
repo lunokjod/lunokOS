@@ -63,6 +63,13 @@ for i = 0, 59 do MINUTES[i + 1] = string.format('%02d', i) end
 for i = 1, 31 do DAYS[i] = string.format('%d', i) end
 local MONTHS = { 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
                  'November', 'December' }
+-- **L'any és un camp més del rellotge** (0.190.144, l'amo: *«Any (que falta) i el botó "Set the clock" a la mateixa fila»*): the page
+-- had the hour, the minute, the day and the month and set the clock **with the year of that moment**, so a board whose calendar is in
+-- another year could not be fixed from here. The list is this one and not a field with the digits because every other row of the page
+-- is a card of the system (docs/45).
+local kFirstYear = 2024
+local YEARS = {}
+for y = kFirstYear, kFirstYear + 20 do YEARS[#YEARS + 1] = string.format('%d', y) end
 
 -- **Les zones són hores senceres** (0.189.142, l'amo: *«Treu la selecció de +30 a les zones horàries, no he vist mai que fos
 -- +X.5, sempre hores +1, -3, +3…»*): de -12:00 a +14:00, una hora per fila, i cap mitja hora a la llista. El sistema **sí** que
@@ -303,6 +310,26 @@ local function choice_row(tab, name, label, items, get_index, put_index)
   return one
 end
 
+-- **Mitja pàgina cada cosa** (0.190.144): a row of the tab is one control across the width, and two of them can share it —the hour and
+-- the minute, the day and the month, the year and the button that writes it—. The pair lives in `rows` as a table of two, so the layout
+-- walks the same list it always walks (docs/45).
+local function pair_rows(tab, first, second)
+  if first == nil or second == nil then return end
+  local list = rows[tab]
+  for i = 1, #list do
+    if list[i] == first then
+      for j = 1, #list do
+        if list[j] == second then
+          table.remove(list, j)
+          break
+        end
+      end
+      list[i] = { first, second }
+      return
+    end
+  end
+end
+
 local function button_row(tab, name, label, on_click)
   local one, why = ui.button(2, 2)
   if one == nil then
@@ -481,10 +508,10 @@ end
 -- sistema refusa el trenta-u de febrer i el dels mesos de trenta. Abans el número es convertia en el dos de març i la pàgina
 -- deia el dia que la persona havia triat; ara torna `nil` i una frase, i una pàgina que digués «aquesta placa no té cap
 -- calendari» estaria dient una mentida sobre un dia (docs/30, docs/60).
-local function epoch_of(day, month, hour, minute)
+local function epoch_of(year, day, month, hour, minute)
   local today = time.date()
   if today == nil then return nil, 'This board has no calendar to write an hour into' end
-  local at = time.epoch(today.year, month, day, hour, minute)
+  local at = time.epoch(year, month, day, hour, minute)
   if at == nil then return nil, string.format('%d %s does not exist', day, MONTHS[month]) end
   return at
 end
@@ -515,28 +542,54 @@ end
 -- **Les paraules d'una casella van després de la càpsula, i la càpsula només se sap quan la fila té amplada**: el fill
 -- d'un `ui.checkbox` és un label i el sistema en diu la caixa amb `cb:box()`, que és la mesura de la imatge i no un número
 -- de l'app (docs/30, docs/45).
-local function place(control, y, h)
-  local width = wid - 2 * MARGIN
+local function place_at(control, x, y, width, h)
+  -- **El que una fila ensenya es torna a llegir del sistema abans de col·locar-la** (0.190.146): the field of a choice keeps the
+  -- `index` the app gave it and a control that changed its tone has to be read before the page is composed, not after: el refresc
+  -- que anava al final deia el valor bo i la pàgina el pintava vell, que és el botó que sortia ple (docs/30, docs/45).
+  local refresh = refresh_of[control]
+  if refresh ~= nil then refresh() end
   control:resize(width, h)
-  control:place(MARGIN, y)
+  control:place(x, y)
   local words = words_of[control]
   if words ~= nil then
     local left = control:box() + 10
     words:resize(math.max(0, width - left - 8), h)
     words:place(left, 0)
   end
-  -- **El que una fila ensenya es torna a llegir del sistema cada cop que es col·loca**: the field of a choice keeps the
-  -- `index` the app gave it, so a write that happened in a card would leave the page saying the old value (docs/30).
-  local refresh = refresh_of[control]
-  if refresh ~= nil then refresh() end
+end
+
+local function place(control, y, h)
+  local width = wid - 2 * MARGIN
+  if type(control) == 'table' and control[1] ~= nil then
+    local half = (width - GAP) // 2
+    place_at(control[1], MARGIN, y, half, h)
+    place_at(control[2], MARGIN + half + GAP, y, width - half - GAP, h)
+    return
+  end
+  place_at(control, MARGIN, y, width, h)
 end
 
 function layout()
+  -- **El to d'un botó es decideix a cada pàgina i amb el control que s'hi col·loca** (0.190.146): a `refresh_of` keyed on the control
+  -- of the build in hand was lost when the page was made again —the view changes size and `settle` builds it a second time—, i el
+  -- botó que quedava al vidre era el nou, sense el to. `named` is filled again by every build, so this is the same control that is
+  -- about to be placed (docs/30, docs/45).
+  if named.ntp ~= nil then
+    named.ntp.disabled = (not caps.net_wifi) or (net.stored() == nil)
+  end
   tabs:resize(wid - 2 * MARGIN, TABS_H)
   tabs:place(MARGIN, MARGIN)
+  local function park(control)
+    if type(control) == 'table' and control[1] ~= nil then
+      park(control[1])
+      park(control[2])
+    else
+      control:place(0, hei + 400)
+    end
+  end
   for i = 1, #TABS do
     for _, control in ipairs(rows[i] or {}) do
-      control:place(0, hei + 400)
+      park(control)
     end
   end
   local y = MARGIN + TABS_H + GAP
@@ -625,6 +678,7 @@ function build()
     minute = (today ~= nil) and today.min or 0,
     day = (today ~= nil) and today.day or 1,
     month = (today ~= nil) and today.month or 1,
+    year = (today ~= nil) and today.year or kFirstYear,
   }
   choice_row(1, 'hour', 'Hour', HOURS, function() return clock.hour + 1 end, function(index)
     clock.hour = index - 1
@@ -636,8 +690,10 @@ function build()
   end)
   choice_row(1, 'day', 'Day', DAYS, function() return clock.day end, function(index) clock.day = index end)
   choice_row(1, 'month', 'Month', MONTHS, function() return clock.month end, function(index) clock.month = index end)
-  button_row(1, 'setclock', 'Set the clock', function()
-    local epoch, why_not = epoch_of(clock.day, clock.month, clock.hour, clock.minute)
+  choice_row(1, 'year', 'Year', YEARS, function() return clock.year - kFirstYear + 1 end,
+             function(index) clock.year = kFirstYear + index - 1 end)
+  local set_the_clock = button_row(1, 'setclock', 'Set', function()
+    local epoch, why_not = epoch_of(clock.year, clock.day, clock.month, clock.hour, clock.minute)
     if epoch == nil then
       say(why_not)
       console.print('settings: the clock was not set: ' .. tostring(why_not))
@@ -645,15 +701,21 @@ function build()
     end
     local ok, kept = pcall(time.set, epoch)
     if ok and type(kept) == 'number' then
-      say(string.format('The clock is set to %02d:%02d, %d %s', clock.hour, clock.minute, clock.day,
-                        MONTHS[clock.month]))
-      console.print(string.format('settings: the clock is set to %02d:%02d on day %d of month %d', clock.hour,
-                                  clock.minute, clock.day, clock.month))
+      say(string.format('The clock is set to %02d:%02d, %d %s %d', clock.hour, clock.minute, clock.day,
+                        MONTHS[clock.month], clock.year))
+      console.print(string.format('settings: the clock is set to %02d:%02d on day %d of month %d of %d', clock.hour,
+                                  clock.minute, clock.day, clock.month, clock.year))
     else
       say('This board does not take an hour')
       console.print('settings: the clock refuses the hour (' .. tostring(ok and kept or kept.code) .. ')')
     end
   end)
+  -- **Dues coses que es trien juntes van a la mateixa fila** (0.190.144, l'amo: *«Hour i Minute que estigui la mateixa fila. Day i el mes
+  -- també. Any i el botó "Set the clock" a la mateixa fila»*): the half of the page is `pair_rows`, and the row is one control on each
+  -- half —the hour and the minute, the day and the month, the year and the button that writes them (docs/45).
+  pair_rows(1, named.hour, named.minute)
+  pair_rows(1, named.day, named.month)
+  pair_rows(1, named.year, set_the_clock)
   -- **La casella de l'estiu diu els dos números** (0.189.141): the zone of the map and the hour of the board, which are an hour
   -- apart while it is ticked, so the line under the rows and the row of the zone cannot disagree about what moved (docs/30).
   check_row(1, 'dst', 'Daylight saving time', function() return time.dst() end, function(on)
@@ -672,6 +734,8 @@ function build()
     time.tz(kept)
     console.print(string.format('settings: zone %s, and the board shows %s', tz_text(kept), tz_text(time.offset())))
   end)
+  if sync_btn ~= nil then
+  end
   choice_row(1, 'week', 'First day', WEEKS, function() return (time.week() == 7) and 2 or 1 end,
              function(index) time.week((index == 2) and 7 or 1) end)
   check_row(1, 'leap', 'Leap year', function() return time.leap() end, function(on) time.leap(on) end)
@@ -680,6 +744,10 @@ function build()
   -- its hand, so the page said *«The hour comes from the network»* on a board with no network saved —the commonest board there
   -- is— and the clock it promised had never been set. The shape is the one the page of the time zone has: the promise inside a
   -- `pcall` with a deadline, and the sentence for a person instead of the code of the kernel (docs/30, docs/60).
+  -- **Sense cap xarxa guardada el botó es veu i no es pot prémer** (0.190.145, l'amo: *«que surti deshabilitat el botó de "Sync from the
+  -- network" si no hi ha cap wifi guardada»*): `net.stored()` is the network the board remembers —the one `wifi` and `provision` write—
+  -- and it is asked every time the row is placed, so the button comes alive the moment a network is saved without leaving the page
+  -- (docs/30, docs/45).
   button_row(1, 'ntp', 'Sync from the network', function()
     local why = 'this board has no radio'
     local ok = false
@@ -801,6 +869,27 @@ function build()
   choice_row(4, 'cursor', 'Cursor blink', CURSORS, function() return index_of(CURSOR_MS, cfg.cursor()) end,
              function(index) cfg.cursor(CURSOR_MS[index]) end)
   check_row(4, 'sort', 'Order by uses', function() return cfg.sort() end, function(on) cfg.sort(on) end)
+  -- ---- **El règim dels escombrats del vidre** (0.190.107, l'amo: *«afegeix a Settings->Input un toggle que posi "Adaptative touch scan",
+  -- aquesta opciò activa o desactiva el comportament del panell de baixar la sensibilitat i pujar-la quan hi ha dit. Deixant el panell a máxima
+  -- velocitat mentre estigui el dispositiu despert»*). Encès —i és com ve de fàbrica— el vidre baixa els escombrats quan no hi ha ningú i els
+  -- apuja amb un dit; apagat es queda al màxim mentre la placa és desperta. **El son no hi passa**: una becaina o un son profund configuren el
+  -- vidre com el necessiten, i la fila només hi és a les plaques que tenen vidre (docs/30, docs/45, docs/50).
+  if caps.touch then
+    check_row(4, 'touchscan', 'Adaptative touch scan', function() return cfg.touch_adaptive() ~= false end,
+              function(on) cfg.touch_adaptive(on) end)
+  end
+  -- ---- **El botó de sota el vidre** (0.190.110, l'amo: *«Afegeix a Settings->Input un Toggle per habilitar-lo o deshabilitar-lo "Use software
+  -- button"»*). La fila només hi és a les caixes que tenen el cercle —`button.software()` és el maquinari i no el commutador—, i el que fa és
+  -- dir si el sistema converteix aquella zona del tàctil en una tecla més: el segon botó de la placa, al davant, que fa de *back* (docs/30, docs/45).
+  local has_software = false
+  if button and button.software ~= nil then
+    local ok_sw, sw = pcall(button.software)
+    has_software = (ok_sw and sw == true)
+  end
+  if has_software then
+    check_row(4, 'swbutton', 'Use software button', function() return cfg.software_button() ~= false end,
+              function(on) cfg.software_button(on) end)
+  end
   do
     local boots = cfg.boots() or {}
     choice_row(4, 'boot', 'Boot picture', boots, function() return index_of(boots, cfg.boot() or '') end,
@@ -848,6 +937,94 @@ function build()
     cfg.lock((index == 1) and 'none' or locks[index])
   end)
 
+  -- ---- **Quantes línies vol veure una persona** (0.190.89, l'amo: *«Afegeix "Log level" a Settings->System Amb els nivells de log, per
+  -- defecte Debug (com la comanda log)»*): el llindar del registre, amb les quatre paraules del prompt (`cfg loglevel`) i el de sèrie que
+  -- és el que el sistema ha fet sempre —**Debug, tot**—. El que la fila ensenya és el que el ring obeeix, i baixar-lo no esborra el que
+  -- ja hi ha: el que fa és que no hi arribi res de sota (docs/30, docs/45, docs/50).
+  local LOG_LEVELS = { 'Debug', 'Info', 'Warning', 'Error' }
+  local LOG_WORDS = { 'debug', 'info', 'warn', 'error' }
+  choice_row(5, 'loglevel', 'Log level', LOG_LEVELS, function()
+    return index_of(LOG_WORDS, cfg.loglevel() or 'debug')
+  end, function(index)
+    local word = LOG_WORDS[index]
+    local now = cfg.loglevel(word)
+    say(string.format('The log keeps the lines from %s up', LOG_LEVELS[index]))
+    console.print(string.format('settings: the log is %s (%s)', tostring(now), word))
+  end)
+
+  -- ---- **La llum del vidre** (0.190.106, l'amo: *«Afegeix a Settings->System un toggle amb "Use backlight" i un selector desplegable amb
+  -- tots els valors possibles del backlight (si el dispositiu no te cap led declarat com backlight aquesta opció surt deshabilitada)»*). El
+  -- que la placa digui és el que mana: `led.caps().backlight` és cert quan el seu llum és **la del vidre** i no una llum que diu coses, i
+  -- `max` és el sostre d'aquella llum. La llista són els valors possibles repartits en vint graons —el deure d'un PWM de vuit bits té
+  -- dos-cents cinquanta-sis, i un desplegable de dos-cents cinquanta-sis files en un vidre de tinta no el fa servir ningú— i la fila que no
+  -- té maquinari darrere **hi és i no es pot tocar**, que és el que demana el mateix missatge (docs/30, docs/45, docs/50).
+  local light_caps = nil
+  local read_caps = led and led.caps
+  if read_caps ~= nil then
+    local ok_caps, caps_light = pcall(read_caps)
+    if ok_caps and type(caps_light) == 'table' then light_caps = caps_light end
+  end
+  local has_backlight = (light_caps ~= nil and light_caps.backlight == true and (light_caps.count or 0) > 0)
+  local ceiling = (has_backlight and (light_caps.max or 255) or 255)
+  local LIGHT_NAMES, LIGHT_VALUES = {}, {}
+  for step = 1, 20 do
+    local value = math.floor(ceiling * step / 20)
+    if value < 1 then value = 1 end
+    LIGHT_NAMES[#LIGHT_NAMES + 1] = string.format('%d%%', step * 5)
+    LIGHT_VALUES[#LIGHT_VALUES + 1] = value
+  end
+  local light_switch = check_row(5, 'backlight', 'Use backlight', function()
+    return cfg.backlight() == true
+  end, function(on)
+    cfg.backlight(on)
+  end)
+  local light_level = choice_row(5, 'backlightlevel', 'Backlight', LIGHT_NAMES, function()
+    -- **Una placa sense llum contesta zero i no un buit** (0.190.120): the `index` of a selector is `1..count` with **zero for nothing
+    -- chosen**, i `nil` is not a value the control can hold —it threw `a selector's index is not a value it can use` and the whole page
+    -- of Settings was a card of «an application has stopped» on every board without a backlight— (docs/30, docs/45).
+    if not has_backlight then return 0 end
+    local now = cfg.backlight_level() or 0
+    local best = 1
+    for i, value in ipairs(LIGHT_VALUES) do
+      if value <= now then best = i end
+    end
+    return best
+  end, function(index)
+    cfg.backlight_level(LIGHT_VALUES[index])
+  end)
+  -- ---- **I la llum que s'apaga quan ningú mira** (0.190.118, l'amo: *«Afegeix a Settings->System->sota el selector de % de backlight unaltre Toggle
+  -- "Dim when idle" igual que el Sleep when idle o el Lock the screen. Aquest en 1 minut que no es toqui l apantalla el backlight s'apaga i es
+  -- torna a encendre quan toquen el panell»*). Viu sota el nivell perquè és la mateixa llum; el minut és del sistema i el commutador és de la
+  -- persona. **El primer toc només encén** i no clica res: el vidre era fosc i el que hi ha a sota no s'ha vist (docs/30, docs/50).
+  local light_dim = check_row(5, 'dimidle', 'Dim when idle', function() return cfg.dim_when_idle() ~= false end,
+                              function(on) cfg.dim_when_idle(on) end)
+  if not has_backlight then
+    -- **La fila es queda i no es pot tocar**: a disabled control is still the page saying that the board has no light for the glass, i el
+    -- que no ha de fer és fingir que en té (0.100.0, docs/45).
+    if light_switch ~= nil then
+      light_switch.disabled = true
+      light_switch.checked = false
+      refresh_of[light_switch] = nil
+    end
+    if light_level ~= nil then
+      light_level.disabled = true
+      light_level.index = 0
+      refresh_of[light_level] = nil
+    end
+    if light_dim ~= nil then
+      light_dim.disabled = true
+      light_dim.checked = false
+      refresh_of[light_dim] = nil
+    end
+  end
+
+  -- ---- **I la foto del cable** (0.190.165, l'amo: *«Afegeix un toggle a Settings->System "Announce charge" (per defecte true) que mostrarà l'
+  -- splash de "charging" quan es detecti que s'endolla. Fins que no es desendolla no es pot tornar a mostrar l'splash charging»*): the picture
+  -- lives on System, amb els moments del vidre, i no a Battery, que és la pila. Ve encesa; el que la fila escriu és si el nucli ensenya la
+  -- imatge quan el carregador comença a donar corrent, i **una vegada per cable**: fins que no es desendolla no torna (docs/30, docs/45, docs/50).
+  check_row(5, 'announcecharge', 'Announce charge', function() return cfg.announce_charge() ~= false end,
+            function(on) cfg.announce_charge(on) end)
+
   -- ---- Battery: **el que la placa sap de la seva pila**, que és un número i no un ajust d'aquesta pàgina (docs/30). Les
   -- files són del sistema i es tornen a llegir cada cop que la pestanya es col·loca.
   read_row(6, 'battery', 'Battery', function()
@@ -888,6 +1065,29 @@ function build()
     say(on and 'The waits of the board are spent asleep' or 'The board waits awake')
     console.print(string.format('settings: light sleep instead of wait is %s', on and 'on' or 'off'))
   end)
+  -- **I si la consola del darrere desperta la placa** (0.190.147, l'amo: *«Posa un toggle a Settings->Battery que doni la opció a "Wake
+  -- from UART"»*): the light sleep comes back on a key, on the glass and on the console, and a board on a shelf that only wants a finger
+  -- to wake it can take the console out of that list. Ve encesa, que és el que el sistema feia abans del commutador (docs/30, docs/45, docs/50).
+  check_row(6, 'uartwake', 'Wake from UART', function() return cfg.uart_wake() == true end, function(on)
+    cfg.uart_wake(on)
+    say(on and 'Typing on the console wakes the board' or 'The console stays asleep with the board')
+    console.print(string.format('settings: wake from the serial console is %s', on and 'on' or 'off'))
+  end)
+  -- **I el cable, que fa respirar el vidre** (0.190.162, l'amo: *«Si el T5S3 està carregant batería vull el efecte "breathe" al backight fins
+  -- que deixa de carregar. Afegeix un Toggle a l'app Settings->Battery que digui "Breathe while charging"»*): the switch lives on Battery, amb
+  -- la cel·la i el cable, que és on una persona que mira la càrrega ja és; el respir i aturar-se són del nucli —el carregador és qui diu si hi
+  -- ha corrent— i el que la fila escriu és si el vidre el fa. **En una placa sense retroil·luminació la fila hi és i no es pot tocar**: un
+  -- commutador que no té res a encendre és una porta a enlloc (docs/30, docs/45, docs/50).
+  local breathe_row = check_row(6, 'breathe', 'Breathe while charging', function()
+    return cfg.breathe_while_charging() ~= false
+  end, function(on) cfg.breathe_while_charging(on) end)
+  local ok_light, the_light = pcall(led.caps)
+  local can_breathe = ok_light and type(the_light) == 'table' and the_light.backlight == true
+  if not can_breathe and breathe_row ~= nil then
+    breathe_row.disabled = true
+    breathe_row.checked = false
+    refresh_of[breathe_row] = nil
+  end
   check_row(6, 'sleep', 'Sleep when idle', function() return cfg.sleep() == true end, function(on)
     cfg.sleep(on)
     say(on and 'The board sleeps when nobody uses it' or 'The board stays awake')

@@ -1,0 +1,15 @@
+dependencies:
+  idf:
+    component_hash: null
+    source:
+      type: idf
+    version: 5.1.2
+  joltwallet/littlefs:
+    component_hash: ded0e488095259506b631b6252d9034fd6f11cc8580e8df5fef6a93200449428
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.9.2
+manifest_hash: 2b742868fc04779a1d549c0e5108bb8d022d938550b02a6c63f3385f1f6d5ff0
+target: esp32s3
+version: 1.0.0

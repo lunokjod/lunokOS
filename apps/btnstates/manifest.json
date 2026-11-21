@@ -1,0 +1,10 @@
+{
+  "title": "Button states",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "btnstates.lua",
+  "boards": [
+    "esp32"
+  ],
+  "description": "Nine buttons, each one a different way of saying what a control is: enabled, disabled while it is built, disabled on the second page, `dim` given and not given, a grey colour on an enabled button. It is the bench where the tone of a disabled button is looked at on the glass, because a page of another app says whether it works only if it says which of the nine it was."
+}

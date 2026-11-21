@@ -20,12 +20,16 @@ void RtcClock::resync() { take_hour(); }
 
 void RtcClock::take_hour() {
   int64_t kept = 0;
-  if (chip_ == nullptr || !chip_->read_epoch_ms(kept)) {
+  bool lost = false;
+  if (chip_ == nullptr || !chip_->read_epoch_ms(kept, &lost)) {
     // No chip, no answer, or a cell that died: the board keeps counting with what the SoC
     // has, and the source says that instead of promising a chip that is not there.
+    // **I el motiu es queda dit** (0.190.153): una pila que s'ha de canviar no és un cable que s'ha de mirar (docs/30).
+    chip_state_ = (chip_ == nullptr) ? "none" : (lost ? "lost" : "silent");
     source_ = (inner_->epoch_ms() > 0) ? "soc" : "none";
     return;
   }
+  chip_state_ = "ok";
   if (!inner_->set_epoch_ms(kept)) return;
   source_ = "rtc";
 }

@@ -26,7 +26,8 @@
     "openocd_board": "esp32-wrover.cfg"
   },
   "frameworks": [
-    "arduino"
+    "arduino",
+    "espidf"
   ],
   "name": "LilyGO TTGO T-Koala",
   "upload": {

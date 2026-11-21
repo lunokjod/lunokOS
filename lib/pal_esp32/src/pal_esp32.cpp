@@ -2,14 +2,36 @@
 //
 // Two rules live here and nowhere else: how to queue events (FreeRTOS) and how
 // to talk to the serial port (Arduino Serial). The kernel sees neither.
+// **Dues consoles i una sola casa** (0.190.90): amb el nucli d'Arduino la consola és `Serial`; sense el nucli és el perifèric que la
+// placa hi té connectat —el USB-Serial-JTAG a la T5 E-Paper S3 Pro, la UART0 a la resta— i el que aquest fitxer li demana són cinc
+// respostes: escriure, buidar, quants bytes hi ha, llegir-ne un i començar. La resta del fitxer no sap quina de les dues té a sota
+// (docs/30, docs/50).
+#if defined(ARDUINO)
 #include <Arduino.h>
 #include <Esp.h>
+#else
+#include <driver/uart.h>
+// **El USB-Serial-JTAG només existeix al xip que en té** (0.190.166): a l'ESP32 de tota la vida la consola és la UART0 i la capçalera
+// d'aquell perifèric no hi és, o sigui que s'inclou només quan l'entorn diu que la consola és el USB (docs/50).
+#if (defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT) || (defined(LUNOK_CONSOLE_USB) && LUNOK_CONSOLE_USB)
+#include <hal/usb_serial_jtag_ll.h>
+#endif
+#include <esp_random.h>
+#include <esp_system.h>
+#include <esp_timer.h>
+#include <freertos/semphr.h>
+#endif
+#include <stdio.h>
+
 #include <bootloader_random.h>
 #include <driver/gpio.h>
+#include <esp_cpu.h>
+#include <esp_idf_version.h>
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_wifi.h>
 #include <esp_rom_sys.h>
+#include <esp_random.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -18,6 +40,155 @@
 #include <hal/uart_ll.h>
 
 #include "pal/pal.h"
+
+// **La consola de la placa quan no hi ha el nucli d'Arduino** (0.190.90): les cinc respostes que aquest fitxer demana, sobre el
+// perifèric que la placa té. Els bytes que arriben es guarden en un anell petit perquè `available()` i `read()` —que és com aquest
+// fitxer llegeix— preguntin sense perdre res (docs/30, docs/50).
+// La consola és el USB quan el nucli d'Arduino ho diu (`ARDUINO_USB_CDC_ON_BOOT`) o quan l'entorn d'ESP-IDF ho demana
+// (`LUNOK_CONSOLE_USB`), i és la UART0 en tots els altres casos (docs/50).
+#if (defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT) || (defined(LUNOK_CONSOLE_USB) && LUNOK_CONSOLE_USB)
+#define LUNOK_HAVE_USB_CONSOLE 1
+#else
+#define LUNOK_HAVE_USB_CONSOLE 0
+#endif
+
+#if defined(ARDUINO)
+#define LUNOK_SERIAL ::Serial
+inline void lunok_delay_ms(uint32_t ms) { delay(ms); }
+inline uint32_t lunok_now_ms() { return static_cast<uint32_t>(millis()); }
+inline void lunok_reboot() { ESP.restart(); }
+inline bool lunok_serial_begin() {
+  if (!lunok_serial_begin()) return false;
+  return true;
+}
+#else
+class LunokSerial {
+ public:
+  // **Ni el driver de la IDF ni una interrupció pròpia: la FIFO es buida quan es pregunta** (0.190.91, el primer flaix que no deixava
+  // teclejar). Amb el driver d'`esp_driver_usb_serial_jtag` la sortida hi era i l'entrada no —la placa parlava i no sentia—, i una
+  // interrupció pròpia xoca amb l'enllaçador de l'xtensa quan el nostre `lib/` la posa a IRAM (`l32r: literal placed after use`). El que
+  // sí que encaixa amb aquesta casa és el que ja fa: el lector del PAL pregunta cada **cinc mil·lisegons**, i a 115 200 bauds això són
+  // cinquanta-set bytes en una FIFO de seixanta-quatre. Es buida sencera a l'anell i el torn llegeix d'allà (docs/30, docs/50).
+  bool begin(uint32_t baud) {
+#if LUNOK_HAVE_USB_CONSOLE
+    (void)baud;
+    usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
+    usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
+    uint8_t stale[64];
+    while (usb_serial_jtag_ll_rxfifo_data_available() > 0) {
+      if (usb_serial_jtag_ll_read_rxfifo(stale, sizeof(stale)) <= 0) break;
+    }
+    usb_serial_jtag_ll_txfifo_flush();
+    return true;
+#else
+    uart_config_t config = {};
+    config.baud_rate = static_cast<int>(baud);
+    config.data_bits = UART_DATA_8_BITS;
+    config.parity = UART_PARITY_DISABLE;
+    config.stop_bits = UART_STOP_BITS_1;
+    config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+    config.source_clk = UART_SCLK_DEFAULT;
+    if (uart_driver_install(UART_NUM_0, 1024, 0, 0, nullptr, 0) != ESP_OK) return false;
+    return uart_param_config(UART_NUM_0, &config) == ESP_OK;
+#endif
+  }
+
+  void setDebugOutput(bool) {}
+
+  size_t write(const uint8_t* data, size_t len) {
+    if (data == nullptr || len == 0) return 0;
+#if LUNOK_HAVE_USB_CONSOLE
+    // La FIFO del perifèric és de seixanta-quatre bytes i el xip la buida sol; s'escriu el que hi cap i s'espera el torn. **El sostre de
+    // voltes és el mateix criteri que el del buidatge**: una línia perduda és pitjor que res, però la placa no es pot quedar aquí (docs/50).
+    size_t done = 0;
+    while (done < len) {
+      int spins = 0;
+      while (!usb_serial_jtag_ll_txfifo_writable()) {
+        if (++spins > 200000) return done;
+      }
+      const uint32_t room = (len - done > 64) ? 64u : static_cast<uint32_t>(len - done);
+      const int sent = usb_serial_jtag_ll_write_txfifo(data + done, room);
+      if (sent <= 0) break;
+      done += static_cast<size_t>(sent);
+      usb_serial_jtag_ll_txfifo_flush();
+    }
+    return done;
+#else
+    const int sent = uart_write_bytes(UART_NUM_0, data, len);
+    return (sent > 0) ? static_cast<size_t>(sent) : 0;
+#endif
+  }
+
+  // **El sostre de cent mil·lisegons és el de sempre** (0.190.69): una placa que ha de tallar el corrent no pot esperar un fil que no
+  // s'acaba; el que es perd si el fil no s'acaba és mitja línia del registre i el que es perdia sense el sostre era la placa.
+  void flush() {
+#if LUNOK_HAVE_USB_CONSOLE
+    // **El que hi ha a la FIFO surt ara** (0.190.91): el perifèric no té registre de desplaçament que esperar, i el que queda per
+    // enviar el porta la línia USB; això empeny el que ja és dins (docs/50).
+    usb_serial_jtag_ll_txfifo_flush();
+    vTaskDelay(pdMS_TO_TICKS(1));
+#else
+    (void)uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
+#endif
+  }
+  void flush(bool) { flush(); }
+
+  int available() {
+#if LUNOK_HAVE_USB_CONSOLE
+    take_what_the_fifo_has();
+    return static_cast<int>(count_);
+#else
+    size_t waiting = 0;
+    (void)uart_get_buffered_data_len(UART_NUM_0, &waiting);
+    return static_cast<int>(waiting);
+#endif
+  }
+
+  int read() {
+#if LUNOK_HAVE_USB_CONSOLE
+    if (count_ == 0) return -1;
+    const int byte = ring_[head_];
+    head_ = static_cast<uint16_t>((head_ + 1) % sizeof(ring_));
+    --count_;
+    return byte;
+#else
+    uint8_t byte = 0;
+    return (uart_read_bytes(UART_NUM_0, &byte, 1, 0) == 1) ? byte : -1;
+#endif
+  }
+
+#if LUNOK_HAVE_USB_CONSOLE
+ private:
+  // **El que el perifèric té, cap a l'anell** (0.190.91): la FIFO és de seixanta-quatre bytes i l'anell de dos-cents cinquanta-sis, o
+  // sigui que una ràfega curta hi cap sencera i la llegeix el torn del nucli. L'anell ple deixa caure el byte, que és el mateix que fa
+  // la FIFO del xip quan ningú no la buida (docs/50).
+  void take_what_the_fifo_has() {
+    uint8_t chunk[64];
+    while (count_ < sizeof(ring_) && usb_serial_jtag_ll_rxfifo_data_available() > 0) {
+      const int got = usb_serial_jtag_ll_read_rxfifo(chunk, sizeof(chunk));
+      if (got <= 0) return;
+      for (int i = 0; i < got; ++i) {
+        ring_[tail_] = chunk[i];
+        tail_ = static_cast<uint16_t>((tail_ + 1) % sizeof(ring_));
+        ++count_;
+      }
+    }
+  }
+
+  uint8_t ring_[256];
+  uint16_t head_ = 0;
+  uint16_t tail_ = 0;
+  uint16_t count_ = 0;
+#endif
+};
+
+LunokSerial g_lunok_serial;
+#define LUNOK_SERIAL g_lunok_serial
+inline void lunok_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
+inline uint32_t lunok_now_ms() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
+inline void lunok_reboot() { esp_restart(); }
+inline bool lunok_serial_begin() { return g_lunok_serial.begin(115200); }
+#endif
 
 namespace pal {
 namespace {
@@ -153,7 +324,7 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
 
   int64_t micros() const override { return esp_timer_get_time(); }
 
-  void reboot() override { ESP.restart(); }
+  void reboot() override { lunok_reboot(); }
   bool reboot_requested() const override { return false; }
 
   uint32_t random() override { return g_random.next(); }
@@ -190,6 +361,16 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     return xQueueSend(q_, &ev, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
   }
 
+  // **L'única empenta que ve d'una interrupció** (0.190.119): `xQueueSend` des d'una ISR no és legal i `xQueueSendFromISR` sí, amb el
+  // rendiment demanat en comptes de fet a l'aire (docs/50).
+  bool push_from_isr(const Event& ev) override {
+    if (q_ == nullptr) return false;
+    BaseType_t woken = pdFALSE;
+    const bool ok = xQueueSendFromISR(q_, &ev, &woken) == pdTRUE;
+    if (woken == pdTRUE) portYIELD_FROM_ISR();
+    return ok;
+  }
+
   bool pop(Event& out, int32_t timeout_ms) override {
     if (q_ == nullptr) return false;
     const TickType_t ticks = (timeout_ms < 0) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
@@ -206,7 +387,7 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   // IConsole ----------------------------------------------------------------
 
   size_t write(const void* data, size_t len) override {
-    return Serial.write(static_cast<const uint8_t*>(data), len);
+    return LUNOK_SERIAL.write(static_cast<const uint8_t*>(data), len);
   }
 
   // The UART keeps a FIFO and a shift register after write() returns, and both stop when
@@ -218,20 +399,20 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   // —sense consola, sense tàctil i sense anar-se'n a dormir, perquè el camí de la baixada no torna mai i el torn no avança—. El que
   // es perd si el fil no s'acaba és mitja línia del registre; el que es perdia sense el sostre era la placa (docs/50, docs/60).
   void flush() override {
-#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+#if LUNOK_HAVE_USB_CONSOLE
     // **Amb la consola al USB no hi ha cap UART del xip a esperar** (0.190.30): the bytes go out through the USB peripheral and its
     // own stack, so the bound below is about a wire this board does not have —and UART0 here is the GPS of that board and the
     // interrupt line of its touch (docs/50).
-    Serial.flush();
+    LUNOK_SERIAL.flush();
 #else
     // **Cent mil·lisegons és el sostre d'aquesta espera**: a 115200 bauds una línia del registre són nou mil·lisegons, i una placa que
     // ha de tallar el corrent no pot esperar més que això per una línia de text. És un sostre i no una espera: un UART sa el compleix
     // en microsegons (docs/50, docs/60).
     const uint32_t kFlushMostMs = 100;
-    const uint32_t started = millis();
+    const uint32_t started = lunok_now_ms();
     while (!uart_ll_is_tx_idle(UART_LL_GET_HW(0))) {
-      if (millis() - started >= kFlushMostMs) return;
-      delay(1);
+      if (lunok_now_ms() - started >= kFlushMostMs) return;
+      lunok_delay_ms(1);
     }
 #endif
   }
@@ -239,8 +420,8 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   size_t read(void* data, size_t len) override {
     uint8_t* out = static_cast<uint8_t*>(data);
     size_t n = 0;
-    while (n < len && Serial.available() > 0) {
-      const int c = Serial.read();
+    while (n < len && LUNOK_SERIAL.available() > 0) {
+      const int c = LUNOK_SERIAL.read();
       if (c < 0) break;
       out[n++] = static_cast<uint8_t>(c);
     }
@@ -258,7 +439,7 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     // doubly wrong there: its RX pin is somebody else's (the GPS of that board) and the pull-up this used to put on
     // GPIO3 is the interrupt line of its touch controller. The bytes of a CDC arrive when the host writes them and
     // there is no line to settle, o sigui que la resposta honesta és que ja ha callat (docs/50).
-#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+#if LUNOK_HAVE_USB_CONSOLE
     (void)quiet_ms;
     (void)cap_ms;
     return true;
@@ -268,15 +449,15 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     // "high and still" mean "nobody is talking" instead of "the wire is picking up the room" (docs/50).
     gpio_pullup_en(GPIO_NUM_3);
     // Whatever arrived while the system was not looking is dropped, as the boot did with its first bytes.
-    Serial.flush(false);
+    LUNOK_SERIAL.flush(false);
     if (quiet_ms == 0) quiet_ms = 1;
 
-    const uint32_t started = millis();
+    const uint32_t started = lunok_now_ms();
     uint32_t edges = uart_ll_get_rxd_edge_cnt(hw);
     uint32_t still_since = started;
     for (;;) {
-      while (Serial.available() > 0) Serial.read();
-      const uint32_t now = millis();
+      while (LUNOK_SERIAL.available() > 0) LUNOK_SERIAL.read();
+      const uint32_t now = lunok_now_ms();
       const uint32_t seen = uart_ll_get_rxd_edge_cnt(hw);
       const bool high = hw->status.rxd != 0;
       const bool bytes = uart_ll_get_rxfifo_len(hw) > 0;
@@ -289,7 +470,7 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
       if ((now - started) >= cap_ms) return false;
       vTaskDelay(pdMS_TO_TICKS(1));
     }
-#endif  // ARDUINO_USB_CDC_ON_BOOT
+#endif  // LUNOK_HAVE_USB_CONSOLE
   }
 
   bool ansi() const override { return true; }
@@ -301,7 +482,7 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
 
   void reader_loop() {
     for (;;) {
-      const int waiting = Serial.available();
+      const int waiting = LUNOK_SERIAL.available();
       if (waiting > 0) {
         Event ev;
         ev.type = kEventConsoleRx;
@@ -340,6 +521,96 @@ void relieve(void* keep, size_t bytes) {
   g_relieving = false;
 }
 
+// **Els canaris** (0.190.101, l'amo: *«millor fem les proves que volies fer amb els canaris i tota la pesca»*): every block that leaves
+// this door carries a head and a tail with a magic and the size that was asked for, o sigui que una escriptura més enllà del que es va
+// demanar deixa un rastre que es llegeix **al primer `release` o `resize` d'aquell bloc** —que és exactament el moment en què el `tlsf`
+// del xip cau amb un `StoreProhibited` i no diu res més—. La capçalera no toca la memòria del qui la demana: el punter que torna és
+// `raw + 32`, que segueix alineat a trenta-dos.
+#if LUNOK_MEMORY_GUARDS
+constexpr size_t kGuardHead = 32;
+constexpr size_t kGuardTail = 16;
+constexpr uint32_t kHeadWord = 0x474E4B4CU;   // "LKNG"
+constexpr uint32_t kHeadSizeWord = 0x455A4953U;  // "SIZE"
+constexpr uint32_t kTailWord = 0x44524155U;   // "UARD"
+constexpr uint32_t kTailSizeWord = 0x454E4F44U;  // "DONE"
+
+struct GuardHead {
+  uint32_t magic;
+  uint32_t marker;
+  uint32_t bytes;
+  uint32_t pad;
+};
+
+// **Quin bloc es vol veure morir** (0.190.101): zero vol dir cap. El watchpoint va damunt de la primera paraula de la cua del bloc
+// d'aquesta mida, i només se n'arma un.
+size_t g_watch_bytes = 0;
+uint32_t g_guard_breaks = 0;
+
+char* raw_of(void* block) { return static_cast<char*>(block) - kGuardHead; }
+void* user_of(char* raw) { return raw + kGuardHead; }
+// **La cua va alineada, o el xip cau per una altra cosa** (0.190.101): Xtensa no llegeix una paraula a mitges sense una excepció, i els
+// blocs de Lua són de mides senars (una cadena de set caràcters), o sigui que el farciment no és un luxe: és el que fa que aquests
+// canaris no canviïn el xoc d'adreça (docs/95).
+size_t padded(size_t bytes) { return (bytes + 3u) & ~static_cast<size_t>(3u); }
+
+void write_guards(char* raw, size_t bytes) {
+  GuardHead* head = reinterpret_cast<GuardHead*>(raw);
+  head->magic = kHeadWord;
+  head->marker = kHeadSizeWord;
+  head->bytes = static_cast<uint32_t>(bytes);
+  head->pad = static_cast<uint32_t>(bytes) ^ kHeadWord;
+  uint32_t* tail = reinterpret_cast<uint32_t*>(raw + kGuardHead + padded(bytes));
+  tail[0] = kTailWord;
+  tail[1] = kTailSizeWord;
+  tail[2] = static_cast<uint32_t>(bytes) ^ kTailWord;
+  tail[3] = ~static_cast<uint32_t>(bytes);
+}
+
+// **La cua, mirada i dita** (0.190.101): returns true when the four words are the ones that were written, and says by how much and
+// where the first one that is not is, perquè «s'ha corromput» no és una resposta que serveixi per trobar qui ho ha fet.
+bool the_tail_is_whole(void* block, const char* when) {
+  GuardHead* head = reinterpret_cast<GuardHead*>(raw_of(block));
+  if (head->magic != kHeadWord || head->marker != kHeadSizeWord) {
+    ++g_guard_breaks;
+    printf("\n[MEMORY] guard: a block given to %s has no head any more (what is there is 0x%08lx) — it was already given back, or "
+           "the pointer was never ours\n", when, static_cast<unsigned long>(head->magic));
+    return false;
+  }
+  const uint32_t bytes = head->bytes;
+  const uint32_t* tail = reinterpret_cast<const uint32_t*>(static_cast<char*>(block) + padded(bytes));
+  const uint32_t want[4] = {kTailWord, kTailSizeWord, bytes ^ kTailWord, ~bytes};
+  for (int i = 0; i < 4; ++i) {
+    if (tail[i] != want[i]) {
+      ++g_guard_breaks;
+      printf("\n[MEMORY] guard: the tail of a %lu B block at %p is broken at byte +%d (0x%08lx, wanted 0x%08lx) on %s\n",
+             static_cast<unsigned long>(bytes), block, static_cast<int>(bytes + i * 4), static_cast<unsigned long>(tail[i]),
+             static_cast<unsigned long>(want[i]), when);
+      return false;
+    }
+  }
+  return true;
+}
+
+// **El nom del watchpoint canvia de la IDF 4.4 a la 5** (0.190.101): la 5 en fa un `enum` (`ESP_CPU_WATCHPOINT_STORE`) i la 4.4 un
+// `#define` (`ESP_WATCHPOINT_STORE`), i el nucli d'Arduino porta la 4.4. És una línia i val per als dos entorns (docs/50).
+esp_err_t watch_a_store(void* where) {
+#if ESP_IDF_VERSION_MAJOR >= 5
+  return esp_cpu_set_watchpoint(0, where, 4, ESP_CPU_WATCHPOINT_STORE);
+#else
+  return esp_cpu_set_watchpoint(0, where, 4, ESP_WATCHPOINT_STORE);
+#endif
+}
+
+void arm_the_watchpoint(void* block, size_t bytes) {
+  if (g_watch_bytes == 0 || g_watch_bytes != bytes) return;
+  g_watch_bytes = 0;  // one block, one watchpoint
+  void* where = static_cast<char*>(block) + padded(bytes);
+  const bool ok = watch_a_store(where) == ESP_OK;
+  printf("\n[MEMORY] guard: watching the tail of the %lu B block at %p (the watchpoint is on %p, %s)\n",
+         static_cast<unsigned long>(bytes), block, where, ok ? "armed" : "refused");
+}
+#endif
+
 class EspExtraMemory : public IExtraMemory {
  public:
   // **Els llibres de la memòria** (0.190.0): the table is a block of the **extra memory** and not a static of the binary —the Paper
@@ -359,13 +630,13 @@ class EspExtraMemory : public IExtraMemory {
   void open_the_books() override { begin_the_books_once(); }
 
   void* allocate(size_t bytes, bool prefer_extra) override {
-    void* block = allocate_raw(bytes, prefer_extra);
+    void* block = take_guarded(bytes, prefer_extra);
     if (block != nullptr) pal::memory_book_taken(block, bytes);
     return block;
   }
 
   void* resize(void* block, size_t bytes, bool prefer_extra) override {
-    void* moved = resize_raw(block, bytes, prefer_extra);
+    void* moved = resize_guarded(block, bytes, prefer_extra);
     if (moved != nullptr) {
       pal::memory_book_moved(block, moved, bytes);
     } else if (block != nullptr && bytes == 0) {
@@ -376,11 +647,60 @@ class EspExtraMemory : public IExtraMemory {
 
   void release(void* block) override {
     if (block == nullptr) return;
-    release_raw(block);
+    give_guarded(block);
     pal::memory_book_released(block);
   }
 
  private:
+  // **Les tres portes amb canaris** (0.190.101): a build without `LUNOK_MEMORY_GUARDS` les tres són les de sempre, sense ni una crida
+  // de més (docs/75, docs/95).
+  void* take_guarded(size_t bytes, bool prefer_extra) {
+#if LUNOK_MEMORY_GUARDS
+    if (bytes == 0) return nullptr;
+    char* raw = static_cast<char*>(allocate_raw(kGuardHead + padded(bytes) + kGuardTail, prefer_extra));
+    if (raw == nullptr) return nullptr;
+    write_guards(raw, bytes);
+    void* block = user_of(raw);
+    arm_the_watchpoint(block, bytes);
+    return block;
+#else
+    return allocate_raw(bytes, prefer_extra);
+#endif
+  }
+
+  void* resize_guarded(void* block, size_t bytes, bool prefer_extra) {
+#if LUNOK_MEMORY_GUARDS
+    if (block == nullptr) return take_guarded(bytes, prefer_extra);
+    if (bytes == 0) {
+      give_guarded(block);
+      return nullptr;
+    }
+    // **Un bloc amb la cua trencada no es mou i no es torna** (0.190.101): moving it would die inside the `tlsf` with no explanation,
+    // and giving it back would poison the heap; es deixa anar (el build de diagnòstic es pot permetre el forat) i el registre diu
+    // quina mida i on, que és el que es venia a saber (docs/95).
+    if (!the_tail_is_whole(block, "a resize")) return nullptr;
+    const uint32_t was = reinterpret_cast<GuardHead*>(raw_of(block))->bytes;
+    void* moved = take_guarded(bytes, prefer_extra);
+    if (moved == nullptr) return nullptr;  // the old block is untouched and still the caller's
+    memcpy(moved, block, (was < bytes) ? was : bytes);
+    give_guarded(block);
+    return moved;
+#else
+    return resize_raw(block, bytes, prefer_extra);
+#endif
+  }
+
+  void give_guarded(void* block) {
+#if LUNOK_MEMORY_GUARDS
+    if (!the_tail_is_whole(block, "a release")) return;  // leaked on purpose: the log has the size (docs/95)
+    GuardHead* head = reinterpret_cast<GuardHead*>(raw_of(block));
+    head->magic = 0;
+    release_raw(head);
+#else
+    release_raw(block);
+#endif
+  }
+
   void* allocate_raw(size_t bytes, bool prefer_extra) {
     if (bytes == 0) return nullptr;
     // A block that asked for the extra memory goes there first and the board's RAM is the fallback; a
@@ -456,8 +776,7 @@ bool init() {
   // —the battery gauge of the Paper is an ADC pin— and before the radio (docs/50). Doing it here and not at the first
   // `random()` is what makes that a fact of the boot instead of a fact of whoever asks first (docs/20).
   g_random.seed();
-  Serial.setDebugOutput(false);
-  Serial.begin(115200);
+  if (!lunok_serial_begin()) return false;
   // Right after a reset the line carries junk for a few milliseconds. The line
   // says when it has gone quiet; the twenty milliseconds are the ceiling of a
   // bridge that never stops talking (docs/50).
@@ -480,6 +799,42 @@ bool pump() { return false; }
 ISystem& system() { return g_system; }
 
 IExtraMemory& extra_memory() { return g_extra; }
+
+// **Les eines de la memòria, dites al prompt** (0.190.101): el build de diagnòstic les té, i un build de vida contesta que no i no fa
+// res més (docs/95).
+void debug_watch_a_block_of(size_t bytes) {
+#if LUNOK_MEMORY_GUARDS
+  g_watch_bytes = bytes;
+  printf("\n[MEMORY] guard: the next block of %lu B will be watched\n", static_cast<unsigned long>(bytes));
+#else
+  (void)bytes;
+#endif
+}
+
+void debug_watch_off() {
+#if LUNOK_MEMORY_GUARDS
+  g_watch_bytes = 0;
+#if LUNOK_MEMORY_GUARDS
+  (void)watch_a_store(nullptr);
+#endif
+#endif
+}
+
+uint32_t debug_guards_on() {
+#if LUNOK_MEMORY_GUARDS
+  return g_guard_breaks + 1;  // one is «on and nothing broken yet», which is not zero (docs/95)
+#else
+  return 0;
+#endif
+}
+
+bool debug_heap_check() {
+  // **Els dos munts, un darrere l'altre** (0.190.101): the walk says which heap and where; the return value is what it found.
+  const bool home = heap_caps_check_integrity(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT, true);
+  const bool extra = heap_caps_check_integrity(MALLOC_CAP_SPIRAM, true);
+  printf("\n[MEMORY] heap: home %s, extra %s\n", home ? "whole" : "BROKEN", extra ? "whole" : "BROKEN");
+  return home && extra;
+}
 
 void set_dispatch_us(uint32_t us) {
   // **The tick of the chip dispatches for itself**: a board is not told how its own FreeRTOS wakes
@@ -531,6 +886,13 @@ void delay_us(uint32_t us) {
   // **The chip's own busy wait**: on the board nothing asks for this —the time is the real one— and the
   // honest answer to "wait" is to wait (docs/85).
   if (us > 0) esp_rom_delay_us(us);
+}
+
+void delay_ms(uint32_t ms) {
+  // **I aquesta espera sí que deixa córrer el que toca** (0.190.137): a tick of this system is ten milliseconds, o sigui que una espera de
+  // zero és un tick i prou. És el que fa que una comanda llarga no es mengi el watchdog de tasca (docs/50, docs/95).
+  const uint32_t ticks = (ms == 0) ? 1u : ((ms + 9u) / 10u);
+  vTaskDelay(static_cast<TickType_t>(ticks));
 }
 
 }  // namespace pal

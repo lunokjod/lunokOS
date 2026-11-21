@@ -11,6 +11,7 @@
 #include <stdint.h>
 
 #include "alarms/alarms.h"
+#include "hal/hal.h"
 
 namespace luabind {
 
@@ -280,10 +281,39 @@ struct CfgOps {
   // The answer is the system's and not the page's, like the others (docs/30, docs/60).
   bool (*wake_on_touch)();
   bool (*set_wake_on_touch)(bool on);
+  // **La consola com a porta de la becaina** (0.190.147): the switch of the Battery tab, a door of the board like the glass's.
+  bool (*uart_wake)();
+  bool (*set_uart_wake)(bool on);
   // **Si les esperes es passen dormint** (0.190.63): the light sleep the system takes instead of waiting, on by default and a switch of
   // the Battery tab. A board that cannot nap keeps the setting and does nothing with it, which is what `can_nap` answers (docs/30, docs/50).
   bool (*nap_on)();
   bool (*set_nap_on)(bool on);
+  // **El nivell del registre** (0.190.89): the row of the System tab, a word of four —`debug`, `info`, `warn`, `error`— read by the ring
+  // and by nobody else. The page shows what the system obeys and not what it asked for (docs/30, docs/50).
+  const char* (*log_level)();
+  bool (*set_log_level)(const char* word);
+  // **La llum del vidre** (0.190.106): the switch *Use backlight* and the level of the drop-down of the System tab. The page reads what
+  // stands and writes what it wants, i el nucli aplica el nivell a la llum de la placa quan canvia (docs/30, docs/50).
+  // **El règim del tàctil** (0.190.107): the switch *Adaptative touch scan* of the Input tab. Cert és el vidre que baixa els escombrats quan
+  // no hi ha ningú; el son mana el seu règim a cada mode (docs/30, docs/50).
+  bool (*software_button)();
+  bool (*set_software_button)(bool on);
+  bool (*touch_adaptive)();
+  bool (*set_touch_adaptive)(bool on);
+  bool (*backlight)();
+  bool (*set_backlight)(bool on);
+  uint8_t (*backlight_level)();
+  bool (*set_backlight_level)(uint8_t level);
+  // **La llum que s'apaga quan ningú mira** (0.190.118): el commutador *Dim when idle* de la pestanya System. El minut és del sistema i el
+  // que la pàgina desa és si la llum del vidre pot baixar sola; qui l'apaga i l'encén és `led` (docs/30, docs/50).
+  bool (*dim_when_idle)();
+  bool (*set_dim_when_idle)(bool on);
+  // **El vidre que respira amb el cable posat** (0.190.162): the switch of the Battery tab.
+  bool (*breathe_while_charging)();
+  bool (*set_breathe_while_charging)(bool on);
+  // **L'avís de la càrrega** (0.190.165): the switch of the System tab.
+  bool (*announce_charge)();
+  bool (*set_announce_charge)(bool on);
 };
 
 void set_cfg_ops(const CfgOps& ops);
@@ -459,6 +489,13 @@ struct PowerOps {
   bool (*sleep)(uint8_t mode, int64_t at_epoch_ms);
   // False when the board has no gauge, which is not the same as empty (docs/75).
   bool (*battery)(int& mv, int& pct, bool& charging);
+  // **El que un indicador de càrrega sap i un divisor en un ADC no** (0.190.155): the current that is going in or out of the cell
+  // and the capacity that is left. Absent —null— on a board whose battery is two resistors and an ADC, and the numbers the part
+  // does not say arrive as `hal::IPower::kUnknown` and never as a zero that would be read as a measurement (docs/30, docs/50).
+  bool (*battery_detail)(hal::IPower::BatteryDetail& out);
+  // **El carregador** (0.190.156): the cable, what it is and what is going into the cell, which is the other half of the same
+  // question and the one that a board with only a gauge cannot answer. Null on a board without one (docs/30, docs/50).
+  bool (*charger_detail)(hal::IPower::ChargerDetail& out);
   bool (*keep_awake)(bool on);
   bool (*keeping_awake)();
   const char* (*wakes)();
@@ -532,6 +569,9 @@ struct LedOps {
   bool (*effect_from_name)(const char* name, uint8_t& kind);
   const char* (*trigger_name)(uint8_t trigger);
   bool (*trigger_from_name)(const char* name, uint8_t& trigger);
+  // **Què és aquesta llum** (0.190.106): `light` o `backlight`, dit per la placa, perquè una app —i la pàgina dels ajustos— sàpiga si
+  // aquesta placa té una llum que il·lumina el vidre (docs/30, docs/50).
+  const char* (*role)();
 };
 
 void set_led_ops(const LedOps& ops);
@@ -576,6 +616,9 @@ struct ButtonOps {
   bool (*down)(uint32_t key);
   int64_t (*held)(uint32_t key);
   bool (*info)(uint32_t key, KeyInfo& out);
+  // **Si la caixa té un botó de sota el vidre** (0.190.110): cert vol dir que el sistema en fa una tecla quan el commutador *Use software
+  // button* és encès, i és el que una pàgina pregunta abans d'ensenyar-ne la fila (docs/30, docs/50).
+  bool (*software_button)();
   // **La cua de subscriptors** (0.180.0): a listener, the owner it gets back and the mode —0 cascade, 1 exclusive—.
   // Answers a handle above zero, or zero when the queue is full. The same two calls serve an app and a control of the
   // page, and the owner is what tells them apart when one of them goes (docs/30, docs/90).

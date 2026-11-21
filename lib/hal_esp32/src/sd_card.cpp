@@ -160,12 +160,27 @@ class SdCard : public IStorage {
     if (!full_path(from, from_path, sizeof(from_path))) return false;
     if (!full_path(to, to_path, sizeof(to_path))) return false;
     errno = 0;
+    if (::rename(from_path, to_path) == 0) return true;
+    const int first = errno;
+    // **FatFs no reemplaça el destí i POSIX sí** (0.190.25, i el log de l'amo del 21/11 amb l'app Battery: *«cannot rename
+    // /sd/data/battery/samples.txt.tmp to /sd/data/battery/samples.txt: errno 17»*). `f_rename` answers `FR_EXIST` when the
+    // name is already taken —it registers a new object in the folder and the folder refuses a second one—, o sigui que **el
+    // segon desament de qualsevol fitxer d'aquesta targeta** passava pel remei del nucli, que esborrava el destí i tornava a
+    // provar. El remei és bo i aquest és el lloc on es paga sense dir-ho dues vegades: the destination is taken away and the
+    // rename is tried once more, **and it is not an error until that one fails**. A failed rename that is fixed on the next
+    // line is not news; a log line on every save of a board that is working is a line nobody reads (docs/50, docs/70, docs/95).
+    if (first != EEXIST) {
+      logf(pal::kLogDebug, "SD", "cannot rename %s to %s: errno %d", from_path, to_path, first);
+      return false;
+    }
+    // **I només es toca el destí si hi és**: un `unlink` que falla per una altra cosa que no ser-hi és un disc que no
+    // respon, i aleshores el `.tmp` s'ha de quedar on és (docs/70).
+    if (::unlink(to_path) != 0 && errno != ENOENT) {
+      logf(pal::kLogDebug, "SD", "cannot take away %s to rename over it: errno %d", to_path, errno);
+      return false;
+    }
+    errno = 0;
     if (::rename(from_path, to_path) != 0) {
-      // **`EEXIST` és la regla de FATFS i no un disc trencat** (0.190.25): POSIX's `rename` replaces the destination and
-      // FatFs refuses it, so the caller (`write_atomic`) takes the target away and tries again. **It is a `[D]` and not a
-      // `[W]`**: every save of every app on this card goes through here, and a warning that appears on every save of a
-      // board that is working is a warning nobody reads. A rename that fails for another errno still ends in the app's
-      // error and in the write's own line (docs/50, docs/70, docs/95).
       logf(pal::kLogDebug, "SD", "cannot rename %s to %s: errno %d", from_path, to_path, errno);
       return false;
     }

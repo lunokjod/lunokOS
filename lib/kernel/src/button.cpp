@@ -8,7 +8,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "kernel/cfg.h"
 #include "kernel/log.h"
+#include "kernel/power.h"
 #include "kernel/shell.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
@@ -20,6 +22,9 @@ namespace {
 
 hal::IInput* g_input = nullptr;
 hal::IClock* g_clock = nullptr;
+// **La resposta de la placa a si les seves tecles són per a la pàgina** (0.190.103): read once at boot, perquè el que no canvia no es
+// pregunta a cada pulsació (docs/30, docs/50).
+bool g_keys_are_the_page = true;
 
 // Three taps inside a second and a half close what is in front: it is the gesture
 // the console already has with three ESC, and the same window, because a person
@@ -43,6 +48,17 @@ uint32_t g_taps = 0;
 
 bool g_waiting = false;
 int64_t g_wait_deadline_ms = 0;
+
+// **El botó de sota el vidre** (0.190.110): el tàctil diu quan un contacte comença a la seva zona i quan s'aixeca, i aquestes quatre coses
+// són el que en fa una tecla: si és baix, des de quan, si el `long` ja s'ha dit, i si la placa té vidre —que és el que decideix si la tecla
+// existeix quan el commutador és encès— (docs/30, docs/90).
+bool g_software_down = false;
+int64_t g_software_since_ms = 0;
+bool g_software_long_said = false;
+bool g_glass_is_there = false;
+// **Un contacte que camina no és una premuda**: setze píxels és el que el polze es mou en prémer un botó de debò, i més enllà és un
+// lliscament que va començar allà (docs/30).
+const int32_t kSoftwareWalkPx = 16;
 
 int64_t now_ms() {
   // **The clock is read once a turn and once per key, and that is what `stats` has to see**: the scope goes
@@ -71,7 +87,10 @@ void system_listener(const char* kind, uint32_t key, int64_t held_ms, void* owne
   // docs/90).
   // **I una app que s'ha posat a la cua no rep el hook a més** (0.180.0): an app that registered a listener chose the
   // queue, so `on_button` is not called a second time behind its back (docs/30).
-  if (!g_waiting && luabind::ui_button_event(kind, key)) return;
+  // **I en una placa on les tecles no són per a la pàgina, la pulsació no arriba a l'anell** (0.190.103): the board says so and every
+  // press goes where it went before there was a ring —the promise, the queue, `on_button`—, o sigui que una tecla que no és un dial no
+  // mou ni prem res de la pàgina (docs/30, docs/50).
+  if (g_keys_are_the_page && !g_waiting && luabind::ui_button_event(kind, key)) return;
   if (g_waiting) {
     g_waiting = false;
     luabind::button_progress(kind, held_ms, key);
@@ -223,6 +242,12 @@ bool info_for_lua(uint32_t key, luabind::KeyInfo& out) {
 bool boot(hal::IPlatform& platform) {
   g_input = platform.input();
   g_clock = platform.clock();
+  g_keys_are_the_page = platform.keys_are_for_the_page();
+  // **I si aquesta placa té vidre, té la tecla de sota** (0.190.110): the switch of the Input tab decides whether it is used, and a board with no
+  // glass has no such key at all (docs/30, docs/50).
+  g_glass_is_there = platform.touch() != nullptr && platform.a_button_under_the_glass();
+  g_software_down = false;
+  g_software_long_said = false;
   g_key_count = (g_input != nullptr) ? g_input->count() : 0;
   if (g_key_count > kMaxKeys) g_key_count = kMaxKeys;
   for (uint32_t key = 0; key < kMaxKeys; ++key) {
@@ -250,6 +275,7 @@ bool boot(hal::IPlatform& platform) {
     ops.down = &down;
     ops.held = &held_ms;
     ops.info = &info_for_lua;
+    ops.software_button = &software_button_exists;
     // **I la cua** (0.180.0): an app registers a listener of its own and gives it back when it leaves; the kernel keeps
     // the handle and the interpreter is the one that remembers it (docs/30).
     ops.subscribe = &subscribe_for_lua;
@@ -261,24 +287,87 @@ bool boot(hal::IPlatform& platform) {
 
 bool available() { return g_input != nullptr; }
 
-uint32_t count() { return g_key_count; }
+// **La tecla del vidre hi és quan la placa té vidre i el commutador és encès** (0.190.110): the index is the one after the board's keys, so a
+// number that was there before does not move, i un commutador apagat treu la tecla del tot en lloc de deixar-la muda (docs/30, docs/50).
+bool the_software_button_is_a_key() { return g_glass_is_there && cfg::software_button(); }
+
+uint32_t count() { return g_key_count + (the_software_button_is_a_key() ? 1u : 0u); }
+
+int32_t software_button_key() {
+  return the_software_button_is_a_key() ? static_cast<int32_t>(g_key_count) : -1;
+}
 
 bool info(uint32_t key, Info& out) {
-  if (g_input == nullptr || key >= g_key_count) return false;
+  if (g_input == nullptr) return false;
+  if (key < g_key_count) {
+    out.key = key;
+    out.face = g_input->face(key);
+    out.spot = g_input->spot(key);
+    out.kind = g_input->kind(key);
+    out.group = g_input->group(key);
+    return true;
+  }
+  if (key != g_key_count || !the_software_button_is_a_key()) return false;
+  // **La cara i el lloc, com els de qualsevol altre botó** (0.190.110): the front of the case and the middle of it, simple and alone —una app
+  // que dona una funció a «el botó del davant» no ha de saber que és un tros de vidre— (docs/30, docs/50).
   out.key = key;
-  out.face = g_input->face(key);
-  out.spot = g_input->spot(key);
-  out.kind = g_input->kind(key);
-  out.group = g_input->group(key);
+  out.face = hal::Face::kFront;
+  out.spot = hal::Spot::kCentre;
+  out.kind = hal::KeyKind::kSimple;
+  out.group = 0;
   return true;
 }
 
 bool down(uint32_t key) {
-  return (g_input != nullptr) && (key < g_key_count) && g_input->pressed(key);
+  if (g_input == nullptr) return false;
+  if (key < g_key_count) return g_input->pressed(key);
+  return (key == g_key_count) && the_software_button_is_a_key() && g_software_down;
 }
 
 int64_t held_ms(uint32_t key) {
-  return (g_input != nullptr && key < g_key_count) ? g_input->held_ms(key) : 0;
+  if (g_input == nullptr) return 0;
+  if (key < g_key_count) return g_input->held_ms(key);
+  if (key != g_key_count || !the_software_button_is_a_key() || !g_software_down) return 0;
+  return now_ms() - g_software_since_ms;
+}
+
+// **El tàctil diu com va el contacte** (0.190.110): `down` és cert mentre el dit és a la zona, i `went` arriba quan s'aixeca amb el que ha
+// durat i si ha caminat. Una premuda curta és el **camí de tornada del sistema** —el mateix que tres pulsacions de la tecla del dial—, i un
+// `long` és el que la tecla diu a l'app, que és el repartiment que l'amo va demanar (*«pot fer també long»*) (docs/30, docs/90).
+void software_button_held(bool down) {
+  if (down == g_software_down) return;
+  g_software_down = down;
+  if (!down) return;
+  g_software_since_ms = now_ms();
+  g_software_long_said = false;
+  lock::note_activity(power::Hand::kKey);
+}
+
+bool software_button_down() { return g_software_down; }
+
+// **Si aquesta caixa en té un** (0.190.110): the hardware and not the switch, que és el que una pàgina ha de saber per ensenyar la fila (docs/30).
+bool software_button_exists() { return g_glass_is_there; }
+
+void software_button_went(uint32_t ms, bool walked) {
+  g_software_down = false;
+  if (walked || ms >= static_cast<uint32_t>(kLongPressMs) || g_software_long_said) return;
+  // **El camí de tornada, el mateix que el de tres pulsacions** (0.167.0, 0.190.110): a page with views gives the last one back and stays,
+  // and a page that is the only one goes with the app and the page that asked for it comes back —el que l'amo va demanar quan va dir
+  // *«Farà de "back"»*— (docs/30, docs/45).
+  switch (shell::leave_one_page()) {
+    case shell::LeaveOutcome::kBack:
+      say("the button under the glass: back one view\r\n");
+      break;
+    case shell::LeaveOutcome::kClosedHome:
+      say("the button under the glass: the page that asked is back\r\n");
+      break;
+    case shell::LeaveOutcome::kLauncher:
+      say("the button under the glass: a launcher is the one page that is not left\r\n");
+      break;
+    default:
+      say("the button under the glass: closing the app\r\n");
+      break;
+  }
 }
 
 uint32_t taps_to_close() { return kTapsToClose; }
@@ -375,6 +464,17 @@ void poll() {
     if (down && !g_long_sent[key] && g_input->held_ms(key) >= kLongPressMs) {
       g_long_sent[key] = true;
       deliver("long", g_input->held_ms(key), key);
+    }
+  }
+
+  // **I el `long` de la tecla de sota el vidre, quan passa** (0.190.110): the press of that one is the system's back and it acts when the finger
+  // goes up; a finger that stays is a `long` and that one is the key saying something to the app, o sigui que es lliura en creuar el llindar
+  // com qualsevol altra tecla (docs/30, docs/90).
+  if (g_software_down && !g_software_long_said && the_software_button_is_a_key()) {
+    const int64_t held = now_ms() - g_software_since_ms;
+    if (held >= kLongPressMs) {
+      g_software_long_said = true;
+      deliver("long", held, g_key_count);
     }
   }
 

@@ -1,0 +1,11 @@
+{
+  "title": "Energy",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "energy.lua",
+  "icon": "res/icon.png",
+  "boards": [
+    "esp32"
+  ],
+  "description": "What the board spends, in watts: the cell's voltage times the current its coulomb counter sees, with the sign that says which way it goes. Under it, what the two battery chips can say —charge, health, cycles, temperature, and the cable's own voltage and current— and the parts the board carries. The current is the whole board's: there is no shunt per part, and the page says so instead of inventing a number for each one."
+}

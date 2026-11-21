@@ -135,7 +135,10 @@ static void test_a_new_title_repaints_the_bar() {
   TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
   const emu::MemorySurface::Paint* paint = glass().paint_at(before);
   TEST_ASSERT_NOT_NULL(paint);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);  // cleans, and does not blink
+  // **La franja del títol és la tinta barata des de la 0.190.94** (l'amo: *«vull que les franges de la barra...»*): the strip of the
+  // clock went to `a2` and the pass that cleans comes back every ten minutes, so a new title of the middle of the bar is an `a2` and
+  // not a `gld16` any more —this case was written in 0.85.2, when the whole strip was clean— (docs/50).
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kA2, paint->mode);
   // The box: after the hour and its air (12 + "00:00" of 116 + 8) and before the charge and its own (92 + 8 + 12),
   // on the rows of the text and not on the whole strip.
   // **The box is the middle of the bar and not the whole of it**: after the hour and its air —12 and "00:00" of 87 at
@@ -218,7 +221,8 @@ static void test_a_new_minute_repaints_the_hour_and_not_the_strip() {
   TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
   const emu::MemorySurface::Paint* paint = glass().paint_at(before);
   TEST_ASSERT_NOT_NULL(paint);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);
+  // L'hora va amb la mateixa tinta barata que la resta de la franja des de la 0.190.94 (docs/50).
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kA2, paint->mode);
   TEST_ASSERT_EQUAL_UINT16(12, paint->x);
   TEST_ASSERT_EQUAL_UINT16(6, paint->y);
   TEST_ASSERT_EQUAL_UINT16(87, paint->w);

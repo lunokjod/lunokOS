@@ -13,7 +13,9 @@
 # provisioning over Bluedroid is what has to go first.
 #
 # Name,     Type, SubType, Offset,   Size,     Flags
-nvs,        data, nvs,     0x9000,   0x4000,
+# **I la botiga de claus, més gran aquí també** (0.190.109): the same four pages and the same reason, o sigui que les sis pàgines de 24 KB hi
+# són igual que a la taula de 16 MB.
+nvs,        data, nvs,     0x9000,   0x6000,
 phy_init,   data, phy,     0xf000,   0x1000,
 app0,       app,  factory, 0x10000,  0x280000,
 # LittleFS lives in a data partition named "littlefs". The subtype column says

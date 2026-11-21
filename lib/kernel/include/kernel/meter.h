@@ -36,7 +36,7 @@ enum Id : uint8_t {
   kBoot = 0,
   // One row per unit and per door: `sd.read`, `flash.write`, `rtc.stat`…
   kStorageFirst = 1,
-  kGlassFlush = kStorageFirst + kUnitCount * kOpCount,
+  kGlassFlush = kStorageFirst + static_cast<uint8_t>(kUnitCount) * static_cast<uint8_t>(kOpCount),
   // The paints that clean: `gc16` and its family are the slow ones, and knowing how many of the paints
   // were one of them is the difference between a page that flickers and a page that does not (docs/50).
   kGlassGc16,
@@ -82,7 +82,7 @@ enum Id : uint8_t {
 
 // The id of one door of one unit, for a caller that has the unit at hand.
 inline uint8_t storage_id(Op op, uint8_t unit) {
-  return static_cast<uint8_t>(kStorageFirst + op * kUnitCount + unit);
+  return static_cast<uint8_t>(kStorageFirst + static_cast<uint8_t>(op) * static_cast<uint8_t>(kUnitCount) + unit);
 }
 
 // The clock the meters read: monotonic microseconds. A call to a device measured in milliseconds is a

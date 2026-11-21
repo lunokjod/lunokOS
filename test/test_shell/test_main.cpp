@@ -1669,30 +1669,22 @@ void test_a_log_line_carries_its_level_and_its_tag(void) {
 }
 
 
-// **The ring is painted by level and only when the terminal asked** (docs/30, docs/85): an error is red, a
-// warning is yellow and an info line is the paper. The echo and the dump go through the same painter, so
-// both are here, and with the answer off not one escape byte comes out of either.
-static void test_the_log_is_painted_by_level() {
+// **El registre és text pla i el nivell és el que es llegeix** (0.190.92, l'amo: *«treu els textos ANSI del codi»*): la línia va al port
+// tal com l'ha formatada el formatter, sense cap codi d'escapament, i el nivell hi és a la segona lletra (`[E]`, `[W]`, `[I]`) perquè és
+// el que una persona llegeix i el que una cerca troba (docs/30).
+static void test_the_log_is_plain_text_and_a_level() {
   ensure_booted();
   static char said[8192];
-  kernel::log_colour(true);
   capture_begin();
-  kernel::log_printf(pal::kLogError, "TST", "red line");
-  kernel::log_printf(pal::kLogWarn, "TST", "yellow line");
-  kernel::log_printf(pal::kLogInfo, "TST", "plain line");
+  kernel::log_printf(pal::kLogError, "TST", "a failed line");
+  kernel::log_printf(pal::kLogWarn, "TST", "a warning");
+  kernel::log_printf(pal::kLogInfo, "TST", "a plain line");
   kernel::log_dump();
   capture_end(said, sizeof(said));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;31m[E][TST] red line"), said);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[33m[W][TST] yellow line"), said);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "[I][TST] plain line"), said);
-  TEST_ASSERT_NULL_MESSAGE(strstr(said, "\x1b[1;31m[I]"), said);
-  // Off: the same lines and not one escape byte.
-  kernel::log_colour(false);
-  kernel::log_printf(pal::kLogError, "TST", "red line, no colour");
-  capture_begin();
-  kernel::log_dump();
-  capture_end(said, sizeof(said));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "[E][TST] red line, no colour"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "[E][TST] a failed line"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "[W][TST] a warning"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "[I][TST] a plain line"), said);
+  // **I ni un byte d'escapament a tota la sortida**: això és el que el cas guarda.
   TEST_ASSERT_NULL_MESSAGE(strstr(said, "\x1b"), said);
 }
 
@@ -1712,70 +1704,6 @@ void test_a_duration_is_written_in_the_scale_that_reads(void) {
   TEST_ASSERT_EQUAL_STRING("1h23m", out);
 }
 
-// **Whether the terminal speaks ANSI is asked, not assumed** (docs/85): the answer to the Device Attributes
-// query is `ESC [ ? ... c`, and everything else —an arrow, a cursor report, a keystroke, nothing at all— is
-// not an answer. The rule is pure, so the question can be tried without a port.
-static void test_only_a_device_attributes_reply_is_an_answer() {
-  // What a VT100 and what an xterm send back.
-  TEST_ASSERT_TRUE(kernel::shell::ansi_reply("\x1b[?1;2c", 7));
-  TEST_ASSERT_TRUE(kernel::shell::ansi_reply("\x1b[?62;c", 7));
-  // An arrow key, which is a key and not an answer, and a cursor position report.
-  TEST_ASSERT_FALSE(kernel::shell::ansi_reply("\x1b[A", 3));
-  TEST_ASSERT_FALSE(kernel::shell::ansi_reply("\x1b[12;40R", 8));
-  // A person typing `ls` while the question was in the air is a person, not a terminal.
-  TEST_ASSERT_FALSE(kernel::shell::ansi_reply("ls\r", 3));
-  TEST_ASSERT_FALSE(kernel::shell::ansi_reply("", 0));
-  TEST_ASSERT_FALSE(kernel::shell::ansi_reply(nullptr, 5));
-  // The answer may come after something else, because a serial line does not deliver it alone.
-  TEST_ASSERT_TRUE(kernel::shell::ansi_reply("ab\x1b[?1;2c", 9));
-}
-
-// **The colours are worth the bytes only on a terminal that asked for them** (docs/30, docs/85): with the
-// answer off the same words come out and not one escape byte —what a pipe and a serial line without ANSI
-// see—, and with it on the error is red, a directory is blue, what is not the answer is dim and the prompt
-// is its own two pieces. The answer is forced because a test is not a terminal; `ansi on` is also how a
-// person whose bridge eats the question gets the colours.
-static void test_the_colours_are_the_prompt_an_error_and_a_directory() {
-  ensure_booted();
-  static char said[4096];
-  // Off: the words are the same and the bytes are not there.
-  kernel::shell::set_ansi(false);
-  capture_begin();
-  kernel::execute("cat /no-such-file");
-  capture_end(said, sizeof(said));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "no such file"), said);
-  TEST_ASSERT_NULL_MESSAGE(strstr(said, "\x1b"), said);
-  // On: an error is red and goes back to the paper.
-  kernel::shell::set_ansi(true);
-  capture_begin();
-  kernel::execute("cat /no-such-file");
-  capture_end(said, sizeof(said));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;31m"), said);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[0m"), said);
-  // A directory is blue and the kind of thing and the size are dim.
-  capture_begin();
-  kernel::execute("ls /");
-  capture_end(said, sizeof(said));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;34m"), said);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[90m"), said);
-  // And the prompt: the name in green, the `>` in grey, and the reset before the line the person types.
-  capture_begin();
-  kernel::shell::prompt();
-  capture_end(said, sizeof(said));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;32mlunok\x1b[0m"), said);
-  // The emulator goes back to being a pipe, so nothing after this test reads an escape byte.
-  kernel::shell::set_ansi(false);
-}
-
-// **Where a partial paint starts is a question for the glass, and the prompt can ask it** (0.179.12): the rectangle of
-// a partial update was sent from the left edge of the image because of a rule measured on a night with another fault in
-// the way (0.118.7, 0.118.9), and every partial paint pays the pixels between that edge and the change —the whole height
-// of a launcher's page for the cell at the bottom—. `panel` says what this glass does, takes the two words that change
-// it, refuses anything else, and the emulator —whose glass has no controller and takes any box— answers both (docs/30,
-// docs/50, docs/85).
-// **El que costa un tros d'esclat i el que costa una fila** (0.189.66): the model of the glass is where the three ways differ,
-// and a page that goes out as bursts is not the same wait as one that goes out row by row. The numbers are the wire's
-// —800 ns a byte at ten megahertz— and the row's hundred microseconds, which is what the board measured (docs/50, docs/95).
 static void test_a_burst_pays_the_wire_and_a_row_pays_the_row() {
   const uint32_t rows = emu::ink_transfer_us(64, 64, hal::FlushStyle::kRows);
   const uint32_t burst = emu::ink_transfer_us(64, 64, hal::FlushStyle::kBurst);
@@ -2027,8 +1955,6 @@ int main(int argc, char** argv) {
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_version_command_is_known);
-  RUN_TEST(test_only_a_device_attributes_reply_is_an_answer);
-  RUN_TEST(test_the_colours_are_the_prompt_an_error_and_a_directory);
   RUN_TEST(test_help_command_is_known);
   RUN_TEST(test_help_with_a_command_is_the_lines_of_that_command);
   RUN_TEST(test_caps_command_is_known);
@@ -2074,7 +2000,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_stats_prints_the_table_and_resets_it);
   RUN_TEST(test_stats_prints_the_meters_that_were_never_called);
   RUN_TEST(test_a_log_line_carries_its_level_and_its_tag);
-  RUN_TEST(test_the_log_is_painted_by_level);
+  RUN_TEST(test_the_log_is_plain_text_and_a_level);
   RUN_TEST(test_a_duration_is_written_in_the_scale_that_reads);
   RUN_TEST(test_a_burst_pays_the_wire_and_a_row_pays_the_row);
   RUN_TEST(test_a_band_is_its_rows_one_after_another);

@@ -938,6 +938,13 @@ void set_random_seed(uint32_t seed) { g_seed_request = seed; }
 
 void set_memory_relief(void (*relief)(void* keep, size_t bytes)) { g_relief = relief; }
 
+// **El PC no té ni canaris ni watchpoints de maquinari** (0.190.101): the emulator's blocks are the C library's and the sanitizers are
+// what a person runs there; the doors answer that there is nothing to arm, and `heapguard` ho diu en comptes de fingir-ho (docs/85).
+void debug_watch_a_block_of(size_t bytes) { (void)bytes; }
+void debug_watch_off() {}
+uint32_t debug_guards_on() { return 0; }
+bool debug_heap_check() { return true; }
+
 void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
   g_step_ns = step_ns;
   g_bytes_per_us = bytes_per_us;
@@ -952,6 +959,10 @@ void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
 void delay_us(uint32_t us) {
   if (us == 0) return;
   std::this_thread::sleep_for(std::chrono::microseconds(us));
+}
+
+void delay_ms(uint32_t ms) {
+  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
 }  // namespace pal

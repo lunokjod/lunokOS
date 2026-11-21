@@ -105,7 +105,11 @@ constexpr uint32_t kTriggerCount = 4;
 
 // Reads the board's light. False when this board has none, and then every call here does
 // nothing (docs/50).
-bool boot(hal::IPlatform& platform);
+// **`the_glass_waits` és un vidre que no s'ha d'il·luminar encara** (0.190.161, l'amo: *«Quan es desperta d'un deepsleep per alarma no
+// s'ha d'encendre el backlight i tornar a dormir... Menys que l'app demani "raise", has de tornar a dormir»*): a wake for an alarm has
+// nobody in front and the glass still says what the sleep left on it, o sigui que la llum es queda a zero fins que la placa tingui una
+// pàgina que ensenyar —el `raise` d'una alarma o una persona que la toqui— (docs/30, docs/50, docs/60).
+bool boot(hal::IPlatform& platform, bool the_glass_waits = false);
 bool available();
 
 // How many lights the board has: one on the ATOM Lite, twenty-five on the Matrix.
@@ -193,6 +197,34 @@ bool animating();
 // Paints when what has to be shown has changed, and not before: a frame is a write on
 // the wire and the light is also a cost (docs/75).
 void poll();
+
+// **La llum del vidre** (0.190.106, l'amo: *«Els leds es poden declarar com a "backlight", així el sistema pot identificar quin led usar-lo
+// per il·luminar la pantalla»* i *«Afegeix a Settings->System un toggle amb "Use backlight" i un selector desplegable amb tots els valors
+// possibles del backlight»*). A light the board declares as a backlight is not a light that says things: it is the panel's illumination, and
+// what it does is **the level a person chose**. `apply_the_backlight` is the one that reads the setting and leaves the light that way —at
+// boot and whenever the page changes it—, and it does nothing on a board whose light is a light of the board (docs/30, docs/50).
+bool is_a_backlight();
+void apply_the_backlight();
+
+// **I la llum torna quan hi ha algú o alguna cosa a qui ensenyar-la** (0.190.161): the board has a page now —a `raise` has put an app
+// in front, or the session is coming back—, o sigui que el nivell que la persona va triar s'aplica i el vidre s'il·lumina (docs/30).
+void the_glass_is_wanted();
+
+// **Un vidre que espera i que un dit encén**: what `touch` asks before it gives a contact to anybody, i en un despert per una alarma
+// la resposta és sí i el dit fa el mateix que fa sobre un vidre apagat pel comptador: l'encén i no prem res (docs/30, docs/50).
+bool the_glass_waits();
+
+// **El llum que s'apaga quan ningú mira** (0.190.118, l'amo: *«en 1 minut que no es toqui l apantalla el backlight s'apaga i es torna a encendre
+// quan toquen el panell»*). `dim_when_idle` is the turn's own check —a comparison and nothing else when the light is on— and it is what
+// apaga i encén; `wake_the_light` és el que el tàctil demana **al primer toc**: cert vol dir que el dit ha encès el vidre i que, per tant, aquell
+// contacte no ha de clicar res (docs/30, docs/50).
+void dim_when_idle();
+bool wake_the_light();
+bool is_dimmed();
+// **Si el vidre és il·luminat ara mateix**: la llum és una retroil·luminació, el commutador és encès, el nivell no és zero i el dim no l'ha
+// apagada. És la pregunta que el tàctil fa per posar el panell al ritme ràpid (0.190.119): un vidre que una persona mira no ha d'esperar un
+// escombrat sencer per cada marc del dit (docs/30, docs/50).
+bool glass_is_lit();
 
 // What is on the light now, for the shell to show it.
 void current(uint8_t& r, uint8_t& g, uint8_t& b);

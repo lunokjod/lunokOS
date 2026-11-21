@@ -3,7 +3,7 @@
 // board has no screen (docs/10 and docs/50).
 //
 // **The sections of this file, in order**:
-//   - the console: output, colour, the prompt, the words of a line and the help;
+//   - the console: output, the prompt, the words of a line and the help;
 //   - what the system says about itself: version, caps, mem, apps and mounts;
 //   - the files: ls, cat, hexdump and open;
 //   - the apps: run, the source of an app and the choice of a handler;
@@ -26,7 +26,6 @@
 #include "kernel/apps.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
-#include "kernel/colour.h"
 #include "kernel/display.h"
 #include "kernel/kernel.h"
 #include "kernel/led.h"
@@ -277,76 +276,11 @@ void spaces(size_t count) {
   }
 }
 
-// **Whether the terminal speaks ANSI is asked, not assumed.** The Device Attributes query is one sequence
-// (`ESC [ c`), a terminal that understands it answers `ESC [ ? ... c`, and a terminal that does not stays
-// quiet: that is a detection and not the guess `TERM` and `isatty` make (docs/85).
-//
-// The answer is cached, because asking is a wait and the redraw of a line asks on every key. **The platform's
-// own belief is the gate**: a console that already says it is not a terminal is not asked, which is what keeps
-// a pipe, a file and the native suite from paying 150 ms and from reading escape bytes that nobody sent.
-const uint32_t kAnsiProbeMs = 150;
-bool g_ansi = false;
-bool g_ansi_known = false;
-// What arrived while the question was in the air. It is fed to the line afterwards if it was not an answer,
-// so the first thing a person types at boot is not eaten by the boot.
-char g_early[32];
-size_t g_early_len = 0;
-
-// **The question and the wait**, asked once by `start` and remembered: it is the only place that reads the
-// port before there is a prompt.
-void detect_terminal() {
-  g_early_len = 0;
-  g_ansi_known = true;
-  g_ansi = false;
-  pal::IConsole* console = pal::system().console();
-  // **Not a terminal, not asked**: a pipe, a file, or the native suite. Nobody is going to answer, and paying
-  // 150 ms to hear nothing is not a detection (docs/85).
-  const bool asks = (console != nullptr) && console->ansi();
-  if (asks) {
-    const char ask[] = "\x1b[c";
-    console->write(ask, sizeof(ask) - 1);
-    console->flush();
-    const int64_t deadline = pal::system().millis() + static_cast<int64_t>(kAnsiProbeMs);
-    while (pal::system().millis() < deadline) {
-      char byte = 0;
-      if (console->read(&byte, 1) == 0) continue;
-      if (g_early_len < sizeof(g_early)) g_early[g_early_len++] = byte;
-      // The reply ends at its `c`, and the collection stops with it.
-      if (byte == 'c' && ansi_reply(g_early, g_early_len)) {
-        g_ansi = true;
-        g_early_len = 0;
-        break;
-      }
-    }
-  }
-  // **What was detected is said in one line**, because a terminal that is not what the platform believed is
-  // exactly the thing a person has to be able to see without guessing (docs/85).
-  log_printf(pal::kLogInfo, "TERM", "%s",
-             !asks ? "no terminal, ansi not asked"
-                   : (g_ansi ? "ansi" : "no ansi, spaces and backspaces"));
-  // The ring echoes and dumps with the same answer: a log line does not know where it is going (docs/30).
-  log_colour(g_ansi);
-}
-
-bool ansi_now() {
-  // **What the terminal said of itself at start is the answer**, and the platform's belief is only the gate
-  // that decides whether asking is worth 150 ms (docs/85).
-  if (g_ansi_known) return g_ansi;
-  pal::IConsole* console = pal::system().console();
-  return console != nullptr && console->ansi();
-}
-
-// **The colour is a courtesy and not a contract**: a terminal that answered the question gets the sequences,
-// one that did not gets the same words and not one byte it cannot read. Every writer of the shell goes
-// through here, so the two are the same picture (docs/30, docs/85).
-void colour(const char* code) {
-  if (code != nullptr && ansi_now()) out(code);
-}
-
-void colour_off() { colour(kColourOff); }
+// **Ni color ni detecció** (0.190.92, l'amo: *«esborra la comanda "ansi" i treu els textos ANSI del codi»*): el que escriu aquesta casa
+// és text pla. L'única cosa que queda amb codis és el que demana una persona o una app —`clear` i el mòdul `term` de Lua—, perquè allà el
+// codi és el que l'ordre vol dir (docs/30, docs/85).
 
 void error_out(const char* text) {
-  colour(kColourError);
   // **A complaint is the other pipe of a session** (0.159.0): the flag lives for one line and `out_bytes` reads it,
   // so a session sees what went wrong on its own pipe and an app does not have to guess it from the answers
   // (docs/30).
@@ -354,46 +288,25 @@ void error_out(const char* text) {
   g_to_error = true;
   out(text);
   g_to_error = was;
-  colour_off();
 }
 
 void good_out(const char* text) {
-  colour(kColourGood);
   out(text);
-  colour_off();
 }
 
 void usage_out(const char* text) {
-  colour(kColourWarn);
   // **A usage line is a complaint and not an answer** (0.159.0): a session has a pipe for each, so what went wrong is
   // asked for where it went, and `execute` answering false is the same thing said to the caller (docs/30).
   const bool was = g_to_error;
   g_to_error = true;
   out(text);
   g_to_error = was;
-  colour_off();
 }
 
-// **The prompt is the one thing that is always coloured**, because it is the line a person reads before
-// every command: the name in green and the `>` that follows it in grey. The bytes of `g_prompt` stay the
-// visible text —a redraw counts characters and not codes— and the question of the selector, which does not
-// end in `> `, is written as it is (docs/30).
-void write_prompt() {
-  const bool is_prompt = g_prompt_len >= 2 && g_prompt[g_prompt_len - 2] == '>' &&
-                         g_prompt[g_prompt_len - 1] == ' ';
-  if (!ansi_now() || !is_prompt) {
-    out_bytes(g_prompt, g_prompt_len);
-    return;
-  }
-  size_t name = 0;
-  while (name < g_prompt_len && g_prompt[name] != '>') ++name;
-  colour(kColourName);
-  out_bytes(g_prompt, name);
-  colour_off();
-  colour(kColourDim);
-  out_bytes(g_prompt + name, g_prompt_len - name);
-  colour_off();
-}
+// **El prompt és el text i prou** (0.190.92): el nom en verd i el `>` en gris eren codis d'escapament, i aquesta casa ja no n'escriu cap.
+// Els bytes de `g_prompt` sempre van ser el text visible —un redibuix compta caràcters i no codis—, o sigui que el que marxa és només el
+// color (docs/30).
+void write_prompt() { out_bytes(g_prompt, g_prompt_len); }
 
 const size_t kWordsBad = static_cast<size_t>(-1);
 
@@ -474,31 +387,20 @@ void set_prompt_text(const char* text, bool write) {
   g_visible = len;
 }
 
-// **The line is redrawn from the prompt and the cursor is put back where it belongs**. ANSI terminals get
-// the erase and the left move; a terminal without ANSI gets spaces to wash the old tail and backspaces to
-// reach the cursor, which is the same picture with the codes the shell already had (docs/30, docs/85).
-// The line is short, so a redraw per key is cheaper than keeping a second copy of the screen.
+// **The line is redrawn from the prompt and the cursor is put back where it belongs**, with spaces to wash the old tail and backspaces
+// to reach the cursor: that is the picture the shell has always drawn for a terminal that does not speak ANSI, i des de la 0.190.92 és
+// l'única que dibuixa. The line is short, so a redraw per key is cheaper than keeping a second copy of the screen (docs/30).
 void redraw_line() {
-  const bool ansi = ansi_now();
   const size_t len = g_editor.length();
   const size_t cursor = g_editor.cursor();
   const size_t old_line = (g_visible > g_prompt_len) ? g_visible - g_prompt_len : 0;
   out("\r");
   write_prompt();
   out_bytes(g_editor.text(), len);
-  if (ansi) {
-    out("\x1b[K");
-    if (cursor < len) {
-      out("\x1b[");
-      out_num(static_cast<uint32_t>(len - cursor));
-      out("D");
-    }
-  } else {
-    const size_t pad = (old_line > len) ? old_line - len : 0;
-    spaces(pad);
-    const size_t back = len + pad - cursor;
-    for (size_t i = 0; i < back; ++i) out("\b");
-  }
+  const size_t pad = (old_line > len) ? old_line - len : 0;
+  spaces(pad);
+  const size_t back = len + pad - cursor;
+  for (size_t i = 0; i < back; ++i) out("\b");
   g_visible = g_prompt_len + len;
 }
 
@@ -550,9 +452,7 @@ void help_line(const char* text, const char* only) {
     return;
   }
   out("  ");
-  colour(kColourBold);
   out_bytes(help_syntax(text), len);
-  colour_off();
   out(help_syntax(text) + len);
   out("\r\n");
 }
@@ -636,7 +536,6 @@ void print_help(const char* only) {
   help_line("  log               last lines of the log ring", only);
   help_line("  stats [reset]     what each device cost: calls, time, last call", only);
   help_line("  verbose on|off    mirror the log to the console too", only);
-  help_line("  ansi [on|off]     the colours of the terminal, or why there are none", only);
   help_line("  clear             clear the screen", only);
   help_line("  reboot            restart", only);
   help_line("  poweroff          cut the power of the board, if it can (docs/50)", only);
@@ -661,16 +560,12 @@ void print_help(const char* only) {
 
 void print_version() {
   out("lunokOS ");
-  colour(kColourBold);
   out(kVersion);
-  colour_off();
   out("  board ");
   out(platform().id());
   // The board and the emulator are both true at once on the PC (docs/85).
   if (platform().emulator()) {
-    colour(kColourDim);
     out(" (emulator)");
-    colour_off();
   }
   newline();
 }
@@ -887,44 +782,34 @@ bool print_app(const apps::Entry& entry, void* context) {
   const size_t id_len = strlen(entry.id);
   const size_t version_len = strlen(entry.version);
   out("  ");
-  colour(kColourBold);
   out(entry.id);
-  colour_off();
   spaces((id_len < 16) ? (16 - id_len) : 1);
-  colour(kColourDim);
   out(entry.version);
-  colour_off();
   spaces((version_len < 10) ? (10 - version_len) : 1);
   out(entry.title);
   // **The app of the card says so** (0.87.1): the same id may sit on the flash and on the card, and the two are presented
   // apart —`<id>` and `<id>-SD`— so a person who is trying a version can read which of the two copies each line is
   // (0.88.20, docs/40, docs/70).
   if (entry.on_card) {
-    colour(kColourDim);
     out("  [card]");
-    colour_off();
   }
   // An app of another board is not hidden: it says so, with the boards it wants, so
   // that a person does not have to guess where it went (docs/40).
   if (!entry.works_here) {
-    colour(kColourWarn);
     out("  [needs ");
     for (uint32_t i = 0; i < entry.board_count; ++i) {
       out((i == 0) ? "" : " or ");
       out(entry.boards[i]);
     }
     out("]");
-    colour_off();
   }
   // **Why this line is above the one under it** (0.189.14): the listing is ordered by how many times an app has been
   // opened, and a list in an order nobody can see the reason of is a list that looks shuffled. The number is only said
   // when the person asked for that order with `cfg sort on` (docs/30, docs/40).
   if (opened > 0) {
-    colour(kColourDim);
     out("  [");
     out_num(opened);
     out(opened == 1 ? " use]" : " uses]");
-    colour_off();
   }
   newline();
   if (print != nullptr) ++print->printed;
@@ -982,7 +867,7 @@ bool command_panel(const char* rest) {
     out("panel: the pixels go out as ");
     out(display::flush_style_name(display::flush_style()));
     out("\r\n");
-    out("panel [edge|box|bus [mhz]] | panel flush [rows|burst|2bit]\r\n");
+    out("panel [edge|box|bus [mhz]] | panel bench | panel wave [name] | panel flush [rows|burst|2bit]\r\n");
     return true;
   }
   // **`panel bars`** (0.190.45): the sixteen levels of the glass, drawn as sixteen vertical bars, black on the left and white
@@ -1007,6 +892,123 @@ bool command_panel(const char* rest) {
       return false;
     }
     out("panel: sixteen bars, black on the left\r\n");
+    return true;
+  }
+  // **`panel wave`** (0.190.134 → 0.190.136, l'amo: *«pots canviar `epdiy_ED047TC2.h` i si provem la C1? Els colors a la C2 no semblen
+  // correctes del tot... els 2,4 i 8 colors es veuen bé, pero els 16 no tant»*, i després *«podries afegir tots els waveforms?»* i *«que al
+  // posar "panel wave" digui l'actual i doni la llista»*). Sense argument diu quina es fa servir i **llista les vuit que el build porta**, amb
+  // els modes i els rangs de temperatura de cada taula; amb un nom la canvia. El que decideix quina es fa servir és un punter de l'estat
+  // d'epdiy, o sigui que el canvi és en calent i la pintada següent consulta la taula nova (docs/50, docs/95).
+  if (strcmp(both[0], "wave") == 0) {
+    if (many < 2) {
+      out("panel: the waveform is ");
+      out(display::waveform());
+      out("\r\n");
+      for (uint8_t i = 0;; ++i) {
+        uint8_t modes = 0;
+        uint8_t ranges = 0;
+        const char* name = display::waveform_at(i, &modes, &ranges);
+        if (name == nullptr) break;
+        char said[96];
+        snprintf(said, sizeof(said), "%s %-9s %u mode(s), %u temperature range(s)\r\n",
+                 (strcmp(name, display::waveform()) == 0) ? "  *" : "   ", name, static_cast<unsigned>(modes),
+                 static_cast<unsigned>(ranges));
+        out(said);
+      }
+      out("panel wave <name>\r\n");
+      return true;
+    }
+    if (!display::set_waveform(both[1])) {
+      out("panel: this build does not carry that waveform\r\n");
+      return false;
+    }
+    out("panel: the waveform is ");
+    out(display::waveform());
+    out("\r\n");
+    return true;
+  }
+  // **`panel bench`** (0.190.123, l'amo: *«Vull que facis possible això dels 60hz»*). Tres qualitats i tres àrees, i el que costa cada una de debò:
+  // el que triga una pintada d'aquest panell és **l'àrea i el mode** —la forma d'ona d'aquest vidre té vint-i-dues fases pel `du` i trenta-vuit pel
+  // `gc16`— o sigui que el número que decideix si una animació és possible és aquest, i no un de memòria. La pintada de mesura **gira l'àrea** perquè
+  // epdiy hi vegi un canvi de debò i la gira un nombre parell de vegades, o sigui que la imatge acaba on era; el primer cop es descarta perquè no és el
+  // règim, i es dona la mitjana de tres. L'últim número és el sostre d'imatges per segon que aquell mode permet a aquella àrea (docs/50, docs/95).
+  if (strcmp(both[0], "bench") == 0) {
+    hal::ISurface* glass = display::surface();
+    if (glass == nullptr) {
+      out("panel: this board has no glass\r\n");
+      return true;
+    }
+    // **Les mides del vidre i no les de la pàgina** (0.190.124): the page of this glass is 540×960 and the glass is 960×540, o sigui que preguntar-ho
+    // amb `width()` demanava una àrea que no hi cap i la pàgina sencera es descartava en silenci —que és el que va passar la primera vegada— (docs/50).
+    const uint16_t wide = glass->glass_width();
+    const uint16_t tall = glass->glass_height();
+    struct Shape {
+      const char* name;
+      uint16_t x;
+      uint16_t y;
+      uint16_t w;
+      uint16_t h;
+    };
+    // **Les tres àrees que aquesta casa pinta de debò**: la pàgina sencera, la franja de la barra i una cel·la del llançador amb el seu nom (docs/50).
+    const Shape shapes[3] = {
+        {"the whole page", 0, 0, wide, tall},
+        {"a strip of 48 rows", 0, 0, wide, static_cast<uint16_t>((tall > 48) ? 48 : tall)},
+        {"a cell of 120x80", 0, 0, static_cast<uint16_t>((wide > 120) ? 120 : wide),
+         static_cast<uint16_t>((tall > 80) ? 80 : tall)},
+    };
+    const hal::UpdateMode modes[3] = {hal::UpdateMode::kDu, hal::UpdateMode::kGc16, hal::UpdateMode::kGl16};
+    {
+      char said[96];
+      snprintf(said, sizeof(said), "panel: counting at %u MHz, and the glass flips while it does (it ends where it started)\r\n",
+               static_cast<unsigned>(display::bus_mhz()));
+      out(said);
+    }
+    // **I el processador al cim mentre dura** (0.190.138, el registre de l'amo: `error flag is set: 400` i `line buffer underrun occurred!`): the
+    // render of epdiy prepares the lines in two tasks while the DMA eats them, o sigui que **necessita el processador sencer**: a vuitanta
+    // megahertz les cues s'esgoten i la pintada surt a mitges. El nucli ja ho demana quan pinta una pàgina; una comanda que pinta trenta-sis cops
+    // sense passar pel nucli ho ha de demanar ella (docs/50, docs/95).
+    power::hold_cpu(power::kBusyMhz, 0, "a bench of the panel");
+    bool any = false;
+    for (const hal::UpdateMode mode : modes) {
+      for (const Shape& shape : shapes) {
+        uint32_t most = 0;
+        uint32_t least = 0xFFFFFFFFu;
+        uint32_t total = 0;
+        bool took = true;
+        // **Un nombre parell de pintades deixa el vidre com era** (0.190.124): cada crida gira l'àrea i la següent la desgira —és el seu propi
+        // desfer—, o sigui que una de més i la imatge que mira la persona es queda girada fins que una altra cosa la repinta (docs/50).
+        int calls = 0;
+        int measures = 0;
+        for (int turn = 0; turn < 4; ++turn) {
+          const uint32_t took_ms =
+              glass->paint_for_the_count(shape.x, shape.y, shape.w, shape.h, mode);
+          if (took_ms == 0) break;
+          ++calls;
+          if (turn == 0) continue;  // the first one is the rails coming up, not the paint
+          if (took_ms > most) most = took_ms;
+          if (took_ms < least) least = took_ms;
+          total += took_ms;
+          ++measures;
+        }
+        if (calls == 0) continue;
+        if ((calls % 2) != 0) {
+          // **I si el compte ha quedat senar, es desgira** (0.190.124): count is not a measurement, it is the way back (docs/50).
+          (void)glass->paint_for_the_count(shape.x, shape.y, shape.w, shape.h, mode);
+          took = false;
+        }
+        if (!took) continue;
+        any = true;
+        const uint32_t mean = (measures > 0) ? (total / static_cast<uint32_t>(measures)) : 0;
+        char said[128];
+        snprintf(said, sizeof(said), "panel: %-4s %-18s %ux%u: %u ms (from %u to %u), %u a second at best\r\n",
+                 hal::mode_name(mode), shape.name, static_cast<unsigned>(shape.w), static_cast<unsigned>(shape.h),
+                 static_cast<unsigned>(mean), static_cast<unsigned>(least), static_cast<unsigned>(most),
+                 static_cast<unsigned>((mean == 0) ? 0 : (1000u / mean)));
+        out(said);
+      }
+    }
+    power::rest_cpu("the bench of the panel is over");
+    if (!any) out("panel: this glass cannot be told to paint for a count\r\n");
     return true;
   }
   // **`panel flush`** (0.189.66): three ways of sending the same picture, and the one that wins is the one measured on this
@@ -1117,7 +1119,7 @@ bool command_panel(const char* rest) {
     return true;
   }
   if (strcmp(both[0], "edge") != 0 && strcmp(both[0], "box") != 0) {
-    usage_out("usage: panel [edge|box|bars|vcom [mv]] | panel flush [rows|burst|2bit]\r\n");
+    usage_out("usage: panel [edge|box|bars|bench|wave [name]|vcom [mv]] | panel flush [rows|burst|2bit]\r\n");
     return false;
   }
   if (!display::set_partial_from_the_box(strcmp(both[0], "box") == 0)) {
@@ -1260,22 +1262,14 @@ class ListPrinter : public hal::ListSink {
     // glance (docs/30, docs/85).
     if (entry.type == hal::NodeType::kDir) {
       out("  ");
-      colour(kColourDim);
       out("<dir>   ");
-      colour_off();
-      colour(kColourDir);
       out(entry.name);
-      colour_off();
     } else {
       out("  ");
-      colour(kColourDim);
       out("file    ");
-      colour_off();
       out(entry.name);
       out("  ");
-      colour(kColourDim);
       out_num(entry.size);
-      colour_off();
     }
     newline();
     return true;
@@ -1331,7 +1325,6 @@ void say_where_it_is(const char* path) {
     if (vfs::stat(trial, info) && info.type == hal::NodeType::kDir) {
       NamePrinter count(true);
       if (!vfs::list(trial, count) || count.shown() == 0) return;
-      colour(kColourDim);
       out("  ");
       out((strcmp(trial, "/") == 0) ? "the root" : trial);
       out(" has:");
@@ -1342,7 +1335,6 @@ void say_where_it_is(const char* path) {
         out_num(names.more());
         out(" more");
       }
-      colour_off();
       newline();
       return;
     }
@@ -2323,20 +2315,14 @@ void print_networks(uint32_t count) {
     int32_t rssi = 0;
     if (!net::scan_record(i, ssid, sizeof(ssid), rssi)) continue;
     out("  ");
-    colour(kColourDim);
     out_num(i + 1);
-    colour_off();
     out(") ");
     // A network that does not say its name is listed as such: an entry that is
     // skipped is indistinguishable from a scan that returned nothing (docs/50).
-    colour(kColourBold);
     out((ssid[0] != '\0') ? ssid : "(hidden network)");
-    colour_off();
-    colour(kColourDim);
     out("  (");
     out_int(rssi);
     out(" dBm)");
-    colour_off();
     newline();
   }
 }
@@ -2863,9 +2849,7 @@ void print_manifest(const char* text, size_t len, const char* app, const char* l
     out(field.name);
     for (size_t pad = strlen(field.name); pad < 12; ++pad) out(" ");
     if (!field.known) {
-      colour(kColourDim);
       out("--");
-      colour_off();
     } else if (field.value == nullptr) {
       if (boards_read == lunok::json::Strings::kTooMany) {
         out_num(board_total);
@@ -3316,13 +3300,11 @@ void install_report(bool ok, const char* why) {
     // presenter's own —does the flash carry an app of that name?— and not a stat of `/apps/<id>`, which the card would
     // answer too (docs/40, docs/70).
     if (strncmp(g_install_root, "/sd/", 4) == 0 && apps::is_an_app("/littlefs/apps", g_install_app)) {
-      colour(kColourDim);
       out("  the flash has a ");
       out(g_install_app);
       out(" too: run *");
       out(g_install_app);
       out(" to run this copy\r\n");
-      colour_off();
     }
   } else {
     error_out("repo: ");
@@ -3729,6 +3711,13 @@ bool command_power(const char* argument) {
   // **`power nap [ms]`**: una becaina i el que l'ha tornada (0.190.71). És l'instrument que diu si aquesta placa pot dormir de debò: es
   // demana un son lleuger d'un segon, es toca el vidre o es prem una tecla, i el registre diu quina porta s'ha obert i quants mil·lisegons
   // ha durat —o que el xip no l'ha presa— (docs/50, docs/95).
+  // **`power last`**: **què va fer la darrera dormida** (0.190.151, l'amo: *«posa tot el que necessiti en aquesta prova, no en vull fer més»*).
+  // A deep sleep is a reset and the console does not wait for it: this is the one question that answers the whole thing after the cable is
+  // back —which doors were armed, which were already open, and the raw level of the three lines (docs/50, docs/60, docs/95).
+  if (count > 0 && strcmp(words[0], "last") == 0) {
+    power::say_the_last_sleep();
+    return true;
+  }
   if (count > 0 && strcmp(words[0], "nap") == 0) {
     int32_t ms = 1000;
     if (count == 2) {
@@ -4007,6 +3996,48 @@ bool command_led(const char* argument) {
   return true;
 }
 
+// **heapguard [bytes|off]**: els canaris de la memòria, dits al prompt (0.190.101, l'amo: *«millor fem les proves que volies fer amb els
+// canaris i tota la pesca»*). This is the tool of a build that fell inside the `tlsf` with a `StoreProhibited` and no name: the guards
+// of the extra memory say **which block and how big** the moment it is given back, and the watchpoint says **who** wrote past it, with
+// its own `PC` and stack. `heapguard check` camina els dos munts i diu on és el forat (docs/75, docs/95).
+bool command_heapguard(const char* argument) {
+  char words[1][kWordCap];
+  size_t count = 0;
+  if (!read_words(argument, words, 1, count)) return false;
+  const uint32_t guards = pal::debug_guards_on();
+  if (count == 0) {
+    if (guards == 0) {
+      out("heapguard: this build has no guards (rebuild with LUNOK_MEMORY_GUARDS)\r\n");
+      return true;
+    }
+    out("heapguard: guards on, nothing broken yet or something was (see the log)\r\n");
+    out("  heapguard <bytes>   watch the tail of the next block of that size\r\n");
+    out("  heapguard off       forget the watch\r\n");
+    out("  heapguard check     walk both heaps and say where the hole is\r\n");
+    return true;
+  }
+  if (strcmp(words[0], "off") == 0) {
+    pal::debug_watch_off();
+    out("heapguard: the watch is off\r\n");
+    return true;
+  }
+  if (strcmp(words[0], "check") == 0) {
+    const bool whole = pal::debug_heap_check();
+    out(whole ? "heapguard: both heaps are whole\r\n" : "heapguard: a heap is broken, see the log\r\n");
+    return true;
+  }
+  const long asked = strtol(words[0], nullptr, 10);
+  if (asked <= 0) {
+    usage_out("usage: heapguard [bytes|off|check]\r\n");
+    return false;
+  }
+  pal::debug_watch_a_block_of(static_cast<size_t>(asked));
+  out("heapguard: the next block of ");
+  out_num(static_cast<uint32_t>(asked));
+  out(" B will be watched\r\n");
+  return true;
+}
+
 // button: what the finger is doing right now, and the gesture the system keeps for
 // itself. It is how a person sees the board feel the press before blaming the app
 // (docs/50).
@@ -4087,6 +4118,9 @@ bool leave_lua() {
   led::clear_colour();
   led::set_state(led::State::kOff);
   luabind::stop();
+  // **I la botiga, escrita quan la sessió de Lua es tanca** (0.190.116): `cfg.sort(true)` from a session is the same as the row of a page,
+  // o sigui que tancar la sessió és el mateix moment d'escriure-ho a la flash (docs/30, docs/70).
+  if (hal::IKeyValue* store = platform().nvs()) store->commit();
   g_lua = false;
   out("lua: session closed\r\n");
   return true;
@@ -4138,17 +4172,6 @@ void console_away(const char* text, size_t len) {
 }
 
 }  // namespace
-
-// **The answer and the switch that overrides it.** A serial bridge or a terminal that does not reply to the
-// Device Attributes question would be a terminal without colours for ever, so `ansi on` says what the
-// terminal could not (docs/30, docs/85).
-bool console_ansi() { return ansi_now(); }
-
-void set_ansi(bool on) {
-  g_ansi_known = true;
-  g_ansi = on;
-  log_colour(on);
-}
 
 void prompt() {
   // **A closed session does not ask**: the prompt is what says the console is listening, and every caller keeps
@@ -4302,6 +4325,12 @@ void close_app(bool say) {
                static_cast<unsigned>(flushed.written), static_cast<unsigned>(flushed.unchanged));
   }
   g_app_alive = false;
+  // **I la botiga de claus s'escriu quan una app s'acaba** (0.190.116, l'amo: *«[I][NVS] the store was read at the boot: 0 setting(s)»*).
+  // Des de la 0.190.109 els ajustos s'aguanten a la RAM i baixen a la flash a la baixada —que és el que estalvia les pàgines de 4 KB—, però
+  // això deixava el cas dolent: canviar mitja dotzena de coses a Settings, reiniciar la placa amb el botó i trobar-se la botiga buida. Tancar
+  // una app és el moment en què una persona ha acabat el que feia amb aquella pàgina, o sigui que és **aquí** on el que s'ha canviat passa a la
+  // flash: una escriptura per sessió d'ajustos i no una per toc, i res perdut per un reinici (docs/30, docs/70, docs/75).
+  if (hal::IKeyValue* store = platform().nvs()) store->commit();
   // **I el dit que hi havia al vidre, o el toc que la cua encara devia, no és de la pàgina que ve** (0.189.100): the same
   // rule as a start, said at the other end —the page that is gone leaves nothing of its own behind for the one that comes,
   // not a finger and not a tap (docs/30, docs/50).
@@ -4762,18 +4791,10 @@ void start() {
   g_esc = 0;
   g_escape = Escape::kNone;
   g_visible = 0;
-  // **The terminal is asked what it is before the first line is written**, because what a person is about to
-  // see depends on the answer: with ANSI the line is redrawn with its codes, and without it the shell washes
-  // the old tail with spaces and backspaces (docs/85).
-  detect_terminal();
+  // **No es pregunta res al terminal** (0.190.92): la línia es redibuixa amb espais i retrocessos i el registre va en text pla, o sigui
+  // que el que hi hagi a l'altra banda no canvia el que aquesta casa escriu (docs/85).
   newline();
   prompt();
-  if (g_early_len > 0) {
-    // What arrived while the question was in the air was not an answer: it is a key, and it is not lost.
-    const size_t early = g_early_len;
-    g_early_len = 0;
-    feed(g_early, early);
-  }
 }
 
 // cfg: the settings of the system and where the settings of the apps are kept. `/cfg` is a door and not a disk, so the
@@ -5003,6 +5024,152 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
+    // **`cfg loglevel debug|info|warn|error`** (0.190.89, l'amo: *«Afegeix "Log level" a Settings->System Amb els nivells de log, per
+    // defecte Debug (com la comanda log)»*): the same setting as the row of the System tab, said by the prompt i aplicada en el mateix
+    // moment; el que no és cap de les quatre paraules es refusa i el registre es queda com era (docs/30, docs/50).
+    if (strcmp(words[0], "loglevel") == 0) {
+      pal::LogLevel at = pal::kLogDebug;
+      if (!log_level_from_name(words[1], &at)) {
+        out("cfg: the log is debug, info, warn or error\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_log_level(words[1]);
+      out("settings: the log is ");
+      out(cfg::log_level());
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg swbutton on|off`** (0.190.110, l'amo: *«Afegeix a Settings->Input un Toggle per habilitar-lo o deshabilitar-lo "Use software
+    // button"»*): el botó de sota el vidre, dit pel prompt. Encès, el tàctil en fa una tecla més; apagat, aquella zona torna a ser de la pàgina
+    // (docs/30, docs/50).
+    if (strcmp(words[0], "swbutton") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the button under the glass is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_software_button(on);
+      out("settings: the button under the glass ");
+      out(cfg::software_button() ? "on" : "off");
+      newline();
+      if (!button::software_button_exists()) out("cfg: this case has no button under the glass, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg dimidle on|off`** (0.190.118, l'amo: *«Aquest en 1 minut que no es toqui l apantalla el backlight s'apaga i es torna a encendre quan
+    // toquen el panell»*): the switch of the System tab, said by the prompt. El minut no es toca des d'aquí —és del sistema— i apagar el
+    // commutador amb el vidre fosc el torna a encendre a l'instant (docs/30, docs/50).
+    if (strcmp(words[0], "dimidle") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the light goes out when nobody looks, on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_dim_when_idle(on);
+      if (!on) led::wake_the_light();
+      out("settings: the light goes out when nobody looks ");
+      out(cfg::dim_when_idle() ? "on" : "off");
+      newline();
+      if (!led::is_a_backlight()) out("cfg: this board has no light for the glass, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg breathe on|off`** (0.190.162, l'amo: *«Afegeix un Toggle a l'app Settings->Battery que digui "Breathe while charging"»*): el
+    // mateix ajust que la fila de la pestanya Battery, dit pel prompt. El respir mateix no es toca des d'aquí —el carregador és qui diu si hi
+    // ha corrent i el nucli qui el fa—, o sigui que el que aquesta línia canvia és si el vidre el fa o no (docs/30, docs/50).
+    if (strcmp(words[0], "breathe") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the glass breathes on a cable, on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_breathe_while_charging(on);
+      out("settings: the glass breathes while charging ");
+      out(cfg::breathe_while_charging() ? "on" : "off");
+      newline();
+      if (!led::is_a_backlight()) out("cfg: this board has no light for the glass, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg announce on|off`** (0.190.165, l'amo: *«un toggle a Settings->System "Announce charge"»*): la imatge del cable quan s'endolla, dita
+    // pel prompt. El flanc el mira el nucli cada dos segons i el que aquesta línia canvia és si la placa l'ensenya (docs/30, docs/50).
+    if (strcmp(words[0], "announce") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the glass says the charge when a cable comes in, on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_announce_charge(on);
+      out("settings: the glass says the charge ");
+      out(cfg::announce_charge() ? "on" : "off");
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg touchscan on|off`** (0.190.107, l'amo: *«afegeix a Settings->Input un toggle que posi "Adaptative touch scan"»*): el mateix
+    // ajust que la fila de la pestanya Input, dit pel prompt i aplicat al vidre en el mateix moment. Una placa sense vidre ho diu i el valor
+    // es queda desat igualment (docs/30, docs/50).
+    if (strcmp(words[0], "touchscan") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the scan of the glass is adaptive or at its top speed (on or off)\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_touch_adaptive(on);
+      touch::set_adaptive_scan(on);
+      out("settings: adaptive touch scan ");
+      out(touch::adaptive_scan() ? "on" : "off");
+      newline();
+      if (!touch::available()) out("cfg: this board has no glass, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg backlight on|off` i `cfg backlight <1..max>`** (0.190.106, l'amo: *«Afegeix a Settings->System un toggle amb "Use backlight" i un
+    // selector desplegable amb tots els valors possibles del backlight»*): the same two settings as the rows of the System tab, said by the
+    // prompt and applied on the spot —the level goes to the light of the glass and not to a light that says things—. Una placa sense cap
+    // llum declarada com a retroil·luminació ho diu i el valor es queda desat igualment (docs/30, docs/50).
+    if (strcmp(words[0], "backlight") == 0) {
+      if (strcmp(words[1], "on") == 0 || strcmp(words[1], "off") == 0) {
+        const bool kept = cfg::set_backlight(strcmp(words[1], "on") == 0);
+        led::apply_the_backlight();
+        out("settings: the light of the glass is ");
+        out(cfg::backlight() ? "on" : "off");
+        newline();
+        if (!led::is_a_backlight()) out("cfg: this board has no light for the glass, and the setting is kept all the same\r\n");
+        if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+        return true;
+      }
+      const long asked = strtol(words[1], nullptr, 10);
+      // **El sostre d'una placa sense llum és dos-cents cinquanta-cinc** (0.190.111): the setting is kept on every board —it is a preference and
+      // not a promise—, o sigui que una placa que no té cap llum no ha de refusar el número que una persona escriu; el que ha de dir és que no
+      // hi ha res a il·luminar, i això es diu a sota (docs/30, docs/50).
+      const long ceiling = (led::max_value() > 0) ? static_cast<long>(led::max_value()) : 255;
+      if (asked < 1 || asked > ceiling) {
+        out("cfg: the light of the glass is a level from 1 to ");
+        out_num(static_cast<uint32_t>(ceiling));
+        newline();
+        return false;
+      }
+      const bool kept = cfg::set_backlight_level(static_cast<uint8_t>(asked));
+      led::apply_the_backlight();
+      out("settings: the light of the glass is at ");
+      out_num(cfg::backlight_level());
+      newline();
+      if (!led::is_a_backlight()) out("cfg: this board has no light for the glass, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     // **`cfg nap on|off`**: les esperes del sistema, passades dormint o despert (0.190.63, l'amo: *«[X] Light sleep instead of wait. Aplica
     // lightSleep allá on puguis»*). És el mateix ajust que la fila de la pestanya Battery, i la resposta diu també què en fa aquesta placa:
     // una que no en sap espera com sempre (docs/30, docs/50).
@@ -5019,6 +5186,23 @@ bool command_cfg(const char* argument) {
       out(cfg::nap_on() ? "on" : "off");
       newline();
       if (!power::can_nap()) out("cfg: this board does not take a light sleep, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg uartwake on|off`**: si la consola del darrere desperta la becaina (0.190.147). És el mateix ajust que la fila `Wake from
+    // UART` de la pestanya Battery, i la resposta diu també què en fa aquesta placa (docs/30, docs/50).
+    if (strcmp(words[0], "uartwake") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: wake from the console is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_uart_wake(on);
+      out("settings: wake from the console ");
+      out(cfg::uart_wake() ? "on" : "off");
+      newline();
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
@@ -5826,11 +6010,12 @@ bool execute(char* line) {
     return true;
   }
   if (strcmp(line, "clear") == 0) {
-    // **The screen is cleared with the code only on a terminal that answered the question**: a pipe or a
-    // serial line that never said it understood is not sent `ESC [ 2 J`, which would be four characters of
-    // noise in the middle of its file (docs/85).
-    if (!console_ansi()) {
-      error_out("clear: this terminal did not answer the ANSI question\r\n");
+    // **El codi només va a un terminal** (0.190.92): una canonada o una línia sèrie no reben `ESC [ 2 J`, que serien quatre caràcters de
+    // brossa al mig del seu fitxer. La pregunta és la de la plataforma —el console diu si és un terminal— i no la detecció que hi havia
+    // abans, perquè aquesta casa ja no pregunta res (docs/85).
+    pal::IConsole* console = pal::system().console();
+    if (console == nullptr || !console->ansi()) {
+      error_out("clear: this console is not a terminal\r\n");
       return false;
     }
     out("\x1b[2J\x1b[H");
@@ -5868,30 +6053,6 @@ bool execute(char* line) {
     }
     return true;
   }
-  // **A terminal that does not answer is not a terminal without colour for ever**: the question is one
-  // sequence and a serial bridge may eat it, so `ansi on` says what the terminal could not. `ansi` alone
-  // answers what was detected, which is also the line the boot logs (docs/30, docs/85).
-  if (strncmp(line, "ansi", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
-    const char* argument = line + 4;
-    while (*argument == ' ') ++argument;
-    if (*argument == '\0') {
-      out(console_ansi() ? "ansi: on\r\n" : "ansi: off\r\n");
-      return true;
-    }
-    if (strcmp(argument, "on") == 0) {
-      set_ansi(true);
-      out("ansi: on\r\n");
-      return true;
-    }
-    if (strcmp(argument, "off") == 0) {
-      set_ansi(false);
-      out("ansi: off\r\n");
-      return true;
-    }
-    usage_out("usage: ansi [on|off]\r\n");
-    return false;
-  }
-
   if (strncmp(line, "verbose", 7) == 0) {
     const char* argument = line + 7;
     while (*argument == ' ') ++argument;
@@ -5950,6 +6111,9 @@ bool execute(char* line) {
   }
   if (strncmp(line, "led", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
     return command_led(line + 3);
+  }
+  if (strncmp(line, "heapguard", 9) == 0 && (line[9] == '\0' || line[9] == ' ')) {
+    return command_heapguard(line + 9);
   }
   // **`serial`**: el port sèrie cedit a una app —o a una persona— i el silenci del sistema mentre ho és (0.189.20). Three
   // words and nothing else: with no word it says who has the port, `claim` takes it and `release` gives it back, and the
@@ -6293,6 +6457,7 @@ const char* const kCommandNames[] = {
     "load",
     "poweroff", "deepsleep", "reboot",   "battery",  "led",      "serial",   "imu",      "touch",    "buttons",  "log",
     "panic",    "stats",    "free",     "echo",     "cat",      "ls",       "cd",       "pwd",
+    "heapguard",
     "mkdir",    "rm",       "mv",       "cp",       "hexdump",  "fs",       "clear",    "history",
 };
 

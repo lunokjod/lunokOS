@@ -37,7 +37,8 @@
     "openocd_target": "esp32s3.cfg"
   },
   "frameworks": [
-    "arduino"
+    "arduino",
+    "espidf"
   ],
   "name": "LilyGO T5 E-Paper S3 Pro (ESP32-S3, 16 MB flash, 8 MB OPI PSRAM)",
   "upload": {
@@ -45,7 +46,7 @@
     "maximum_ram_size": 327680,
     "maximum_size": 16777216,
     "require_upload_port": true,
-    "speed": 460800
+    "speed": 921600
   },
   "url": "https://github.com/Xinyuan-LilyGO/T5S3-4.7-e-paper-PRO",
   "vendor": "LilyGO"

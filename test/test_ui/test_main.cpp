@@ -239,24 +239,24 @@ static void test_a_start_under_a_picture_does_not_clean_the_glass_first(void) {
   TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, page->mode);
 }
 
-// Two regions drawn with two qualities are two paints, each with its own: a photo and the line of text
-// under it are not the same kind of ink (docs/30).
-static void test_two_qualities_are_two_paints() {
+// **Two qualities of one turn are one paint when the glass says it is cheaper** (0.190.142): a photo and the line of text under it are
+// not the same kind of ink, and the two boxes used to go up as two paints of their own. The wash of the second one is paid whatever the
+// rectangle —120 ms of `du4` and 450 of `gc16`, and the ink is per paint—, so one `gc16` of the union costs less than the two apart, and
+// the cleaner one paints the result of the quicker one as well. What this case measures is that the quality that arrives is the
+// **stronger** of the two and that the paper between them is not painted with a poor one (docs/30, docs/50, docs/95).
+static void test_two_qualities_are_one_paint_when_the_glass_says_so() {
   fresh_view();
   const uint32_t before = glass().paint_count();
   TEST_ASSERT_TRUE(ui::fill_rect(0, 0, 40, 20, 0, "du4"));
   TEST_ASSERT_TRUE(ui::fill_rect(0, 200, 40, 20, 3, "gc16"));
   TEST_ASSERT_EQUAL_UINT8(2, ui::damage_count());
   TEST_ASSERT_TRUE(ui::present());
-  TEST_ASSERT_EQUAL_UINT32(before + 2, glass().paint_count());
-  const emu::MemorySurface::Paint* first = glass().paint_at(before);
-  const emu::MemorySurface::Paint* second = glass().paint_at(before + 1);
-  TEST_ASSERT_NOT_NULL(first);
-  TEST_ASSERT_NOT_NULL(second);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kDu4, first->mode);
-  TEST_ASSERT_EQUAL_UINT16(20, first->h);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, second->mode);
-  TEST_ASSERT_EQUAL_UINT16(200, second->y);
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
+  const emu::MemorySurface::Paint* paint = glass().paint_at(before);
+  TEST_ASSERT_NOT_NULL(paint);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);
+  TEST_ASSERT_EQUAL_UINT16(0, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(220, paint->h);
 }
 
 // Two pieces of the same quality close together are one paint: an update is what an e-ink panel is slow
@@ -287,20 +287,15 @@ static void test_present_with_a_quality_overrides_the_damage() {
   TEST_ASSERT_TRUE(ui::fill_rect(0, 0, 40, 20, 0, "du4"));
   TEST_ASSERT_TRUE(ui::fill_rect(0, 200, 40, 20, 3, "du4"));
   TEST_ASSERT_TRUE(ui::present_all(hal::UpdateMode::kGc16));
-  TEST_ASSERT_EQUAL_UINT32(before + 2, glass().paint_count());
-  const emu::MemorySurface::Paint* first = glass().paint_at(before);
-  const emu::MemorySurface::Paint* second = glass().paint_at(before + 1);
-  TEST_ASSERT_NOT_NULL(first);
-  TEST_ASSERT_NOT_NULL(second);
-  // La qualitat és la del present a les dues, que és el que aquest cas mesura.
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, first->mode);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, second->mode);
-  TEST_ASSERT_EQUAL_UINT16(0, first->y);
-  TEST_ASSERT_EQUAL_UINT16(20, first->h);
-  TEST_ASSERT_EQUAL_UINT16(200, second->y);
-  TEST_ASSERT_EQUAL_UINT16(20, second->h);
-  // I el paper entre les dues no s'ha pintat: el que ningú ha canviat no es toca.
-  TEST_ASSERT_EQUAL_UINT16(0, static_cast<uint16_t>(glass().paint_count() - before - 2));
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
+  const emu::MemorySurface::Paint* paint = glass().paint_at(before);
+  TEST_ASSERT_NOT_NULL(paint);
+  // La qualitat és la del present i no la de les caixes, que és el que aquest cas mesura.
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);
+  TEST_ASSERT_EQUAL_UINT16(0, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(220, paint->h);
+  // I el paper entre les dues va amb la qualitat del present, que és el que costa una pintada en lloc de dues.
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
 }
 
 // **The damage is in the canvas' coordinates and the glass wants panel ones.** A view that sits in a
@@ -4604,7 +4599,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_canvas_is_the_glass_and_starts_white);
   RUN_TEST(test_drawing_stays_on_the_canvas_and_leaves_damage);
   RUN_TEST(test_present_sends_the_damage_with_its_quality);
-  RUN_TEST(test_two_qualities_are_two_paints);
+  RUN_TEST(test_two_qualities_are_one_paint_when_the_glass_says_so);
   RUN_TEST(test_the_boxes_of_a_start_go_up_over_the_picture_and_the_page_after);
   RUN_TEST(test_a_start_under_a_picture_does_not_clean_the_glass_first);
   RUN_TEST(test_damage_of_the_same_quality_merges);

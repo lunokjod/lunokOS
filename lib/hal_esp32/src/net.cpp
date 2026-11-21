@@ -22,9 +22,27 @@
 #include <esp_tls_errors.h>
 #include <esp_wifi.h>
 #include <mbedtls/platform.h>
+// **El mDNS és una comoditat del build i no una peça del sistema** (0.190.90): l'entorn d'ESP-IDF no el porta (el registre només en té una
+// versió per a IDF 5), i el que fa és anunciar la provisió; sense ell la provisió funciona igual i ho diu (docs/50).
+#if defined(__has_include)
+#if __has_include(<mdns.h>)
 #include <mdns.h>
+#define LUNOK_HAS_MDNS 1
+#endif
+#endif
+#ifndef LUNOK_HAS_MDNS
+#define LUNOK_HAS_MDNS 0
+#endif
 #include <wifi_provisioning/manager.h>
+// **El Bluetooth és una peça de la configuració i no del codi** (0.190.90): l'esquema de provisió per BLE només existeix si el build porta
+// el Bluetooth (`CONFIG_BT_ENABLED`), i l'entorn d'ESP-IDF d'aquesta placa no el porta —set-cents kilobytes de flaix per una porta de
+// provisió que la wifi fa igualment—. Sense ell, la provisió va per SoftAP i ho diu (docs/50).
+#if defined(CONFIG_BT_ENABLED) && CONFIG_BT_ENABLED
 #include <wifi_provisioning/scheme_ble.h>
+#define LUNOK_HAS_BLE_PROV 1
+#else
+#define LUNOK_HAS_BLE_PROV 0
+#endif
 #include <wifi_provisioning/scheme_softap.h>
 
 #include <freertos/FreeRTOS.h>
@@ -144,7 +162,13 @@ esp_netif_t* g_ap_netif = nullptr;
 // The scheme frees Bluetooth when provisioning ends (as the header of scheme_ble
 // says to do), and this wraps it to remember that it did (docs/75).
 void bt_event_cb(void* user_data, wifi_prov_cb_event_t event, void* event_data) {
+#if LUNOK_HAS_BLE_PROV
   wifi_prov_scheme_ble_event_cb_free_btdm(user_data, event, event_data);
+#else
+  (void)user_data;
+  (void)event;
+  (void)event_data;
+#endif
   if (event == WIFI_PROV_END || event == WIFI_PROV_DEINIT) {
     hal::logf(pal::kLogInfo, "PROV", "bluetooth freed");
   }
@@ -322,14 +346,20 @@ void prov_event_cb(void* user_data, wifi_prov_cb_event_t event, void* event_data
 // switching brings the old one down first because the manager keeps only one
 // (docs/50).
 bool manager_for(ProvTransport transport) {
-  const bool ble = (transport == ProvTransport::kBle);
+  // **I sense Bluetooth, el BLE no és una opció** (0.190.90): el que demana BLE en un build sense Bluetooth cau al SoftAP, que és
+  // l'altra porta de la provisió i la que aquesta placa pot oferir (docs/50).
+  const bool ble = (transport == ProvTransport::kBle) && LUNOK_HAS_BLE_PROV;
   if (g_manager_ready && g_manager_scheme == transport) return true;
   if (g_manager_ready) {
     wifi_prov_mgr_deinit();
     g_manager_ready = false;
   }
   wifi_prov_mgr_config_t config;
+#if LUNOK_HAS_BLE_PROV
   config.scheme = ble ? wifi_prov_scheme_ble : wifi_prov_scheme_softap;
+#else
+  config.scheme = wifi_prov_scheme_softap;
+#endif
   config.scheme_event_handler.event_cb = ble ? &bt_event_cb : nullptr;
   config.scheme_event_handler.user_data = nullptr;
   config.app_event_handler.event_cb = &prov_event_cb;
@@ -359,6 +389,7 @@ bool manager_for(ProvTransport transport) {
 // the radio has buffers of its own (docs/50, docs/85).
 const size_t kTlsExtraBytes = 4096;
 
+#if defined(MBEDTLS_PLATFORM_MEMORY)
 void* tls_calloc(size_t count, size_t size) {
   if (count == 0 || size == 0 || count > (0xFFFFFFFFu / size)) return nullptr;
   const size_t bytes = count * size;
@@ -373,6 +404,7 @@ void* tls_calloc(size_t count, size_t size) {
 void tls_free(void* block) {
   if (block != nullptr) heap_caps_free(block);
 }
+#endif  // MBEDTLS_PLATFORM_MEMORY
 
 const uint32_t kHttpUrlCap = 192;
 const uint32_t kHttpStack = 10240;  // the TLS handshake runs on this stack
@@ -470,7 +502,14 @@ void http_fetch(HttpJob& job) {
   // (docs/75, docs/85). Installing them twice is harmless and the job is one at a time (docs/30).
   static bool hooks_ready = false;
   if (!hooks_ready) {
+#if defined(MBEDTLS_PLATFORM_MEMORY)
     if (mbedtls_platform_set_calloc_free(&tls_calloc, &tls_free) == 0) hooks_ready = true;
+#else
+    // **O ja ho fa la IDF per nosaltres** (0.190.90): amb `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` tota l'assignació de mbedTLS surt de la
+    // PSRAM i la crida dels ganxos no existeix en aquesta versió de la llibreria. El que importa és el mateix: que les grapes no
+    // vinguin de la RAM interna del xip (docs/75).
+    hooks_ready = true;
+#endif
   }
   esp_http_client_config_t config = {};
   config.url = job.url;
@@ -926,7 +965,9 @@ class Esp32Net : public INet {
 
     // The manager keeps one scheme for its whole life, so the scheme is chosen
     // here and a change brings the old one down first (docs/50).
-    const bool ble = (transport == ProvTransport::kBle);
+    // **I sense Bluetooth, el BLE no és una opció** (0.190.90): el que demana BLE en un build sense Bluetooth cau al SoftAP, que és
+  // l'altra porta de la provisió i la que aquesta placa pot oferir (docs/50).
+  const bool ble = (transport == ProvTransport::kBle) && LUNOK_HAS_BLE_PROV;
     if (!manager_for(transport)) return refuse("the provisioning manager did not start", ESP_FAIL);
 
     // The provisioning service announces itself with mDNS: the phone app finds
@@ -964,12 +1005,14 @@ class Esp32Net : public INet {
     // finds the board by its advertisement, and mDNS would be a name nobody looks
     // for (docs/50).
     if (!ble) {
+#if LUNOK_HAS_MDNS
       if (mdns_init() != ESP_OK) {
         hal::logf(pal::kLogWarn, "PROV", "mdns did not start");
       } else {
         mdns_hostname_set("lunokos");
         hal::logf(pal::kLogInfo, "PROV", "mdns up");
       }
+#endif
     }
 
     // The probe goes in after the manager so that it reports on it and never in

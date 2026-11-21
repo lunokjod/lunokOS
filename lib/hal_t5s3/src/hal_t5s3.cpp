@@ -12,16 +12,32 @@
 // xip l'ha de pilotar en paral·lel, amb les taules de forma d'ona del panell— i això és la peça que
 // falta. Fins que hi sigui, aquesta placa és una consola: el prompt, les alarmes, la targeta, l'hora
 // i el tàctil, i cap pàgina.
+// **La capçalera del nucli d'Arduino, només quan el nucli hi és** (0.190.90): aquest fitxer no en fa servir res —la consola és del
+// PAL i el panell d'epdiy— i l'entorn d'ESP-IDF no la té (docs/50).
+#if defined(ARDUINO)
 #include <Arduino.h>
+#endif
+#include <driver/gpio.h>
 #include <esp_heap_caps.h>
+#include <driver/rtc_io.h>
+#include <esp_sleep.h>
+#include <esp_timer.h>
+// **La mida de la PSRAM, dita per qui la sap** (0.190.90): el nucli d'Arduino la porta a `esp32/spiram.h` i la IDF a `esp_psram.h`; el
+// número és el mateix i el que canvia és el nom de la crida (docs/50).
+#if defined(ARDUINO)
 #include <esp32/spiram.h>
+#else
+#include <esp_psram.h>
+#endif
 
 #include <cstdio>
 #include <cstring>
 
 #include <driver/spi_master.h>
+#include <memory>
 
 #include "board/identity.h"
+#include "esp32/backlight.h"
 #include "esp32/bm8563.h"
 #include "esp32/caps.h"
 #include "esp32/clock.h"
@@ -64,6 +80,12 @@ const int kBootKeyPin = 0;
 // enable and mode, the four gates of its supply and the button of the board, o sigui que sense aquest xip el vidre no
 // existeix. Its inputs are the supply's `POWER_GOOD` and interrupt and the button (docs/50).
 const uint8_t kExpanderAddress = 0x20;
+// **La interrupció de l'expansor** (0.190.99): the PCA9535 answers on GPIO38 and it goes low when any of its inputs moves —the board's
+// button `S3`, the supply's `POWER_GOOD` and the supply's `TPS_INT`—. És la manera de no preguntar-li res per I²C quan no ha passat
+// res, i, com que no és una RTC GPIO, serveix per despertar del son lleuger i no del profund (docs/50).
+const int kExpanderIntPin = 38;
+// **La llum de fons**: GPIO11 va a l'`EN` de l'elevador PT4103B23F, i el PWM és com es regula (docs/50).
+const int kBacklightPin = 11;
 // **Què és entrada i què és sortida, en el registre de configuració del propi xip** (0.190.34, i és la segona trampa
 // d'aquesta placa): en un PCA9535 un `1` en aquest registre vol dir **entrada**, o sigui que `0xC400` són les tres
 // entrades de la placa —IO1_2 el botó `S3`, IO1_6 el `PWR_GOOD` de la font i IO1_7 la interrupció de la font— i tota la
@@ -100,23 +122,239 @@ const SdPins kSdPins = {12, 14, 13, 21, SPI2_HOST, 10000, kSdQuietPins, kSdQuiet
 // the core's default (docs/70).
 const char kDataPartition[] = "littlefs";
 
-// **Una tecla i prou**, i és la del mòdul: `kSimple` vol dir que no és part d'un dial, i el centre
-// perquè no n'hi ha d'altra (docs/50).
-const KeySpot kKeys[] = {
-    {kBootKeyPin, Face::kTop, Spot::kCentre, KeyKind::kSimple, 0},
-};
+// **On és el botó de debò, i no on el posa un full de dades** (0.190.104, l'amo: *«el botó físic de veritat que té la placa, està
+// físicament a la cara dreta, a 1/3 d'alçada comptant des de baix»*). El descriptor és el mateix que fa servir el Paper per al seu dial
+// —una **cara** de la caixa, un **lloc** dins d'aquella cara, com està fet i de quin grup—, i serveix per a dues coses que no són la
+// pintada: una app dona una funció a una posició (`button.list()`, `face` i `spot`), i l'emulador posa la columna de tecles al costat
+// que la cara diu —una fila sota la pàgina si la cara és la de dalt, una columna a la dreta si és la dreta— (docs/30, docs/50, docs/85).
+//
+// **I el botó de debò no és cap pin del xip** (0.190.104, l'amo: *«la S3 de l'expansor és el botó de debò; el BOOT només serveix per al
+// mode de descàrrega»*). El que una persona prem en aquesta placa penja del **PCA9535**, i el descriptor —el mateix vocabulari que el
+// dial del Paper: una **cara** de la caixa, un **lloc** dins d'aquella cara, com està fet i de quin grup— el posa on és de veritat:
+// *«el botó físic de veritat que té la placa, està físicament a la cara dreta, a 1/3 d'alçada comptant des de baix»*. Serveix per a dues
+// coses que no són la pintada: una app dona una funció a una posició (`button.list()`) i l'emulador posa la columna de tecles al costat
+// que la cara diu —a la dreta, i no una fila sota la pàgina— (docs/30, docs/50, docs/85).
+//
+// **`kRight` i `kDown` i no `kTop` i `kCentre`**, que és el que hi havia: el botó no és a la cara de dalt —el costat pel qual s'endolla
+// el cable— sinó a la dreta, i no és al mig de la caixa sinó **a un terç de l'alçada des de baix**, que és el lloc de baix dels tres que
+// el vocabulari té en una cara vertical (el dial del Paper és, exactament, amunt, centre i avall sobre la dreta).
+const KeySpot* const kNoKeysThere = nullptr;
+
+// **El vidre, per a qui ha de dormir-lo** (0.190.105): the way down needs the touch controller —to put it to sleep when nobody is going to
+// listen for a finger, and to clean its line when somebody is— and the driver is the singleton the platform's own `touch()` returns.
+// Es declara abans de la classe de potència perquè el seu `arm_the_doors` el demana (docs/50).
+ITouch* t5s3_touch() { return esp32_gt911(esp32_i2c(kI2cSdaPin, kI2cSclPin), kTouchIntPin); }
+
+// **Una porta que ja és oberta desperta el xip a l'instant** (0.190.121, l'amo: *«Al activar l' sleep amb el táctil connectat (settings->battery), el
+// dispositiu es desperta de seguida»*). El son profund d'aquesta placa s'arma amb `ext1` i **`ANY_LOW`**, o sigui que la pregunta no és «hi ha un dit»
+// sinó «alguna d'aquestes línies és baixa ara mateix»: el dit que acaba de prémer el commutador a la pàgina dels ajustos, o el marc que el controlador
+// encara no ha lliurat, fan que el xip torni abans d'haver-se adormit —una vegada i una altra—. El que lleva la línia és **llegir el marc i
+// tornar-li l'estat** (`flush`), i el que diu si ja és alta és el pin; per això això no és una crida sinó un bucle: s'allibera, es mira, i si el dit
+// encara hi és s'espera una mica més, amb un topall que és el que una persona triga a aixecar-lo. Si no puja, el tàctil **no és una porta
+// d'aquest son**: val més tornar pel rellotge i per la tecla que no dormir gens (docs/50, docs/60).
+// **Un segon és el que es dona a un dit per aixecar-se**, i és el mateix número que la Paper (0.190.16, `kTouchReleaseMostMs`): dues bandes, un sol
+// criteri per a la mateixa pregunta (docs/50).
+const uint32_t kTouchReleaseMostMs = 1000;
+
+// **El que la placa recorda d'una dormida** (0.190.149): the RTC RAM is the only memory that survives a deep sleep —the domain is left on
+// for the doors—, and this is the one place where the answer to «why did it come back at once?» can wait for the person who plugs the
+// console back in. Un bit per porta, armada o trobada oberta; es buida quan s'ha dit (docs/50, docs/60).
+RTC_DATA_ATTR static uint8_t g_doors_armed = 0;
+RTC_DATA_ATTR static uint8_t g_doors_open = 0;
+// **Tot el que una sola prova ha de dir** (0.190.151, l'amo: *«posa tot el que necessiti en aquesta prova, no en vull fer més»*): the raw
+// level of the three lines at the moment of arming —a line that is low is a door already open and the wake is immediate—, how long the board
+// had been up, and how many sleeps it has done in a row. Amb això i la causa del reset, una sola dormida diu si el xip no s'ha adormit, si
+// s'ha adormit i ha tornat per una línia, o si l'alimentació l'ha deixat anar (docs/50, docs/60, docs/95).
+RTC_DATA_ATTR static uint8_t g_lines_low = 0;   // bit 0 clock, 1 key, 2 glass: 1 = the line was low
+RTC_DATA_ATTR static uint32_t g_up_at_arming = 0;
+RTC_DATA_ATTR static uint32_t g_sleeps_in_a_row = 0;
+
+const uint8_t kDoorClock = 1;
+const uint8_t kDoorKey = 2;
+const uint8_t kDoorGlass = 4;
+
+// **Un buffer per crida i no una estàtica** (0.190.149): the line says the doors it armed **and** the ones it found open, and a static
+// shared by the two calls would print the second one twice —a line that lies about the very thing it exists to explain (docs/50).
+void doors_words(uint8_t bits, char* said, size_t cap) {
+  if (said == nullptr || cap == 0) return;
+  if (bits == 0) {
+    snprintf(said, cap, "nothing");
+    return;
+  }
+  said[0] = '\0';
+  size_t used = 0;
+  const struct {
+    uint8_t bit;
+    const char* word;
+  } kWords[] = {{kDoorClock, "clock"}, {kDoorKey, "key"}, {kDoorGlass, "glass"}};
+  for (const auto& one : kWords) {
+    if ((bits & one.bit) == 0) continue;
+    const size_t len = strlen(one.word);
+    if (used + len + 2 >= cap) break;
+    if (used > 0) said[used++] = '+';
+    memcpy(said + used, one.word, len);
+    used += len;
+    said[used] = '\0';
+  }
+}
+
+bool the_line_is_free(ITouch* glass, int pin) {
+  const int64_t deadline = pal::system().millis() + static_cast<int64_t>(kTouchReleaseMostMs);
+  for (;;) {
+    glass->flush();
+    if (gpio_get_level(static_cast<gpio_num_t>(pin)) != 0) return true;
+    if (pal::system().millis() >= deadline) {
+      logf(pal::kLogWarn, "POWER",
+           "the line of the glass (%d) is still low: this deep sleep wakes on the clock and the button only", pin);
+      return false;
+    }
+    pal::delay_us(10000);
+  }
+}
 
 // The sleep of the chip, with the BOOT key as the way back, and the gauge of this board in place of
 // the divider the Paper reads (docs/50).
 class T5Power : public Esp32Power {
  public:
-  T5Power(int wake_pin, int second_wake_pin) : Esp32Power(wake_pin, second_wake_pin) {}
+  // **Quatre portes del son lleuger** (0.190.99): the BOOT of the chip —que no és una tecla del sistema però sí un botó de debò—, the
+  // clock's interrupt, and the line of the expander —the button `S3` and the supply's `POWER_GOOD`—, which is not an RTC pin and o sigui
+  // que no pot despertar d'un son profund (docs/50, docs/60).
+  T5Power(int wake_pin, int second_wake_pin, int glass_pin, int more_pin)
+      : Esp32Power(wake_pin, second_wake_pin, glass_pin, more_pin) {}
 
   // **A deep sleep here does not cut the board's own supply**: there is no latch to let go, the
   // cell feeds the chip and the panel's rails are the TPS65185's business. So `deep_powers_off` is
   // false, and the policy does not treat this board as one that is powered off between two alarms
   // (docs/50, docs/60).
   bool deep_powers_off() const override { return false; }
+  // **I la tecla que torna d'un son profund és el BOOT del xip** (0.190.108, l'amo: *«El botó fisic no desperta de deepsleep. Revisa els
+  // exemples del fabricant»*). El botó de debò de la placa —el `S3` de l'expansor— **no pot** ser una porta: la seva línia és `PCA_INT` a
+  // GPIO38 i GPIO38 no és cap GPIO de l'RTC; el fabricant ho va provar i ho va deixar comentat al seu exemple (`// esp_sleep_enable_ext1_wakeup((1UL <<
+  // KEY_BTN), ...)`), i el que va deixar armat és això: `esp_sleep_enable_ext0_wakeup(BOARD_BOOT_BTN, 0)`, o sigui **GPIO0, nivell baix**.
+  // Aquest fitxer fa el mateix, amb el rellotge i el dit al mateix `ext1` (docs/50, docs/60).
+  bool can_sleep_with_the_keys() const override { return true; }
+
+
+  // **Les portes del son profund, i la tecla no n'és una** (0.190.102, l'amo: *«segur? no desperta mai»*). Waking from a deep sleep is
+  // a **reset**, i el xip torna a mirar els seus *strapping* en aquell reset: GPIO0 és el BOOT, o sigui que la mateixa tecla que demana
+  // tornar el deixa **baix** just quan el xip decideix què arrencar, i la placa arrenca en **mode de descàrrega de la ROM** en lloc de
+  // lunokOS —la pantalla no canvia, la consola calla i la placa sembla morta fins que un gravador hi parla—. No és cap error de la IDF ni
+  // del codi: és el pin. Les dues portes que sí que serveixen són les dues línies que la placa cableja a GPIOs de l'RTC i que es queden
+  // **baixes mentre volen dir alguna cosa**: l'alarma del rellotge (GPIO2) i el controlador del tàctil mentre un dit és a sobre del vidre
+  // (GPIO3, que en repòs és alt i baixa amb el contacte). O sigui que aquesta placa es desperta **tocant el vidre** o quan sona l'alarma,
+  // i la tecla BOOT es queda per a la becaina i per a entrar al mode de descàrrega (docs/50, docs/60).
+  size_t describe_the_last_sleep(char* out, size_t cap) override {
+    if (out == nullptr || cap == 0) return 0;
+    if (g_doors_armed == 0 && g_doors_open == 0 && g_up_at_arming == 0) return 0;  // a boot that did not come from a sleep
+    char armed[32] = {0};
+    char open[32] = {0};
+    doors_words(g_doors_armed, armed, sizeof(armed));
+    doors_words(g_doors_open, open, sizeof(open));
+    snprintf(out, cap, "last sleep #%u after %u ms up: armed %s, open %s, low lines c%d k%d g%d",
+             static_cast<unsigned>(g_sleeps_in_a_row), static_cast<unsigned>(g_up_at_arming), armed, open,
+             (g_lines_low & kDoorClock) ? 1 : 0, (g_lines_low & kDoorKey) ? 1 : 0, (g_lines_low & kDoorGlass) ? 1 : 0);
+    return strlen(out);
+  }
+
+  bool arm_the_doors() override {
+    // **I les línies han de tenir el seu alt mentre el xip dorm** (0.190.102): the PCF8563's INT is **open drain** and the GT911's is
+    // driven, i en un son profund els pads del domino digital ja no hi són — el que compta és la resistència de l'RTC, que ve apagada de
+    // fàbrica—. Sense això una línia que flota es pot llegir com un zero i la placa es desperta tota sola; i per això el domini de l'RTC
+    // es queda encès, que és el preu de tenir portes (docs/50, docs/60).
+    rtc_gpio_pullup_en(static_cast<gpio_num_t>(kClockIntPin));
+    rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(kClockIntPin));
+    // **El dit és una porta només si una persona ho ha demanat** (0.190.105, l'amo: *«Revisa la funció de Settings->Battery->Wake on
+    // touch»*): listening for a finger means keeping the touch controller scanning and powered for the whole sleep, which is exactly the
+    // current a deep sleep exists to stop —the switch of the Battery tab is that decision and it says so in its own words—. Amb el
+    // commutador apagat **el controlador s'adorm** (`writeCommand(0x05)`, el mateix que el driver del fabricant) i la placa només torna
+    // pel rellotge; amb el commutador encès es queda en el seu règim de menys consum (deu escombrats per segon, la línia en nivell baix) i
+    // la seva línia és la porta (docs/30, docs/50, docs/60).
+    // **Les tres portes d'aquesta placa, i la del fabricant** (0.190.108): the clock's alarm, the chip's BOOT key —`ext0` at level low in the
+    // maker's own `ui_sleep()`, que és l'única tecla d'aquesta placa que arriba a un pin de l'RTC—, and the glass when «Wake on touch» says so.
+    // El BOOT té la resistència de pujada de la placa (és un *strapping*), i s'hi posa també la de l'RTC perquè en el son el domini digital no
+    // hi és (docs/50, docs/60).
+    rtc_gpio_pullup_en(static_cast<gpio_num_t>(kBootKeyPin));
+    rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(kBootKeyPin));
+    // **I una porta que ja és oberta no s'arma** (0.190.148, l'amo: *«l'Sleep continua despertant inmediatament... però només el primer
+    // cop... el segon dorm bé»*). `ANY_LOW` amb una línia que ja és baixa no és una porta: és un despertar immediat, i la placa es
+    // reiniciava a l'instant la primera vegada que s'adormia amb una d'elles al terra —el flag d'una alarma que el rellotge encara no
+    // havia deixat anar, o una tecla premuda— i la segona anava bé perquè el reinici havia netejat el flag. Això és el que fa la
+    // becaina des de la 0.190.69 (docs/50, docs/60).
+    uint64_t mask = 0;
+    g_doors_armed = 0;
+    g_doors_open = 0;
+    if (gpio_get_level(static_cast<gpio_num_t>(kClockIntPin)) != 0) {
+      mask |= 1ULL << kClockIntPin;
+      g_doors_armed |= kDoorClock;
+    } else {
+      g_doors_open |= kDoorClock;
+    }
+    if (gpio_get_level(static_cast<gpio_num_t>(kBootKeyPin)) != 0) {
+      mask |= 1ULL << kBootKeyPin;
+      g_doors_armed |= kDoorKey;
+    } else {
+      g_doors_open |= kDoorKey;
+    }
+    ITouch* glass = t5s3_touch();
+    if (wake_on_touch() && glass != nullptr) {
+      // **El vidre baixa al terra abans de dormir** (0.190.107): whether the glass is adaptive or at its top speed while the board is awake,
+      // a deep sleep that is only waiting for a line to fall does not need a hundredth of a second of resolution (docs/50, docs/60).
+      glass->quiet_now();
+      if (the_line_is_free(glass, kTouchIntPin)) {
+        rtc_gpio_pullup_en(static_cast<gpio_num_t>(kTouchIntPin));
+        rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(kTouchIntPin));
+        mask |= 1ULL << kTouchIntPin;
+        g_doors_armed |= kDoorGlass;
+      } else {
+        g_doors_open |= kDoorGlass;
+      }
+    }
+    // **I les altres dues portes, dites quan ja són obertes** (0.190.121): `ANY_LOW` despertaria el xip per qualsevol de les tres línies, o sigui que
+    // una alarma que el rellotge encara no ha deixat anar —o un BOOT que ja és premut— té el mateix efecte que el dit d'abans i no es veu enlloc.
+    // La línia només surt quan és baixa, que és quan explica alguna cosa (docs/50, docs/60).
+    if (gpio_get_level(static_cast<gpio_num_t>(kClockIntPin)) == 0) {
+      logf(pal::kLogWarn, "POWER", "the clock's line (%d) is low before the sleep: it is a door that is already open", kClockIntPin);
+    }
+    if (gpio_get_level(static_cast<gpio_num_t>(kBootKeyPin)) == 0) {
+      logf(pal::kLogWarn, "POWER", "the key's line (%d) is low before the sleep: it is a door that is already open", kBootKeyPin);
+    }
+    // **I sense cap porta no es dorm** (0.190.148): a deep sleep that nothing can undo is a board that a person has to unplug, i el
+    // que s'ha de veure és per què les tres són obertes i no una placa que es reinicia sola en bucle (docs/50, docs/60).
+    if (mask == 0) {
+      logf(pal::kLogWarn, "POWER",
+           "every door of the deep sleep is already open: the board stays awake instead of coming back at once");
+      return false;
+    }
+    // **I l'estat cru de les tres línies, que és el que una sola prova necessita** (0.190.151): the level of each line **before** anything is
+    // armed, so a wake that comes at once can be told from a sleep that was never taken without asking for a second run.
+    g_lines_low = 0;
+    if (gpio_get_level(static_cast<gpio_num_t>(kClockIntPin)) == 0) g_lines_low |= kDoorClock;
+    if (gpio_get_level(static_cast<gpio_num_t>(kBootKeyPin)) == 0) g_lines_low |= kDoorKey;
+    if (gpio_get_level(static_cast<gpio_num_t>(kTouchIntPin)) == 0) g_lines_low |= kDoorGlass;
+    g_up_at_arming = static_cast<uint32_t>(pal::system().millis());
+    ++g_sleeps_in_a_row;
+    // **El son profund no hereta res de la becaina** (0.190.152, l'amo: *«Segur que no es continua enganxant a l'UART per despertar?»*). La
+    // becaina arma la UART (`esp_sleep_enable_uart_wakeup`) i aquest camí només afegia el seu `ext1`: o sigui que un xip que havia fet una
+    // becaina abans tornava per activitat al port —el cable, el monitor, un DTR— en lloc de dormir, i l'endemà la segona dormida anava bé
+    // perquè la becaina ja estava refusada i no armava res. Es neteja **tot** i s'arma només el que aquest fitxer vol (docs/50, docs/60).
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+    const bool armed = esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW) == ESP_OK;
+    // **El controlador s'adorm només si la placa dorm de debò** (0.190.105): sleeping the chip and then staying awake —a door that did
+    // not take— would leave a board whose glass answers nothing, which is worse than one that draws a milliamp. So the order is the
+    // arming first and the controller after it, i si el xip no les pren, es diu (docs/50).
+    if (!armed) {
+      logf(pal::kLogWarn, "POWER", "the chip did not take the doors of the deep sleep (%d and the glass)", kClockIntPin);
+      return false;
+    }
+    if (!wake_on_touch() && glass != nullptr) glass->sleep_now();
+    return true;
+  }
+
+  // **El commutador de la pestanya Battery té feina en aquesta placa** (0.190.105): the board can hear a finger while its chip sleeps
+  // —the glass's line is on an RTC pin and the controller stays powered at its lowest rate— and that is what `can_wake_on_touch` says.
+  // El que decideix si s'arma és el commutador (`wake_on_touch()`, que el nucli hi posa des de `cfg.touch_wake`) (docs/30, docs/50).
+  bool can_wake_on_touch() const override { return true; }
   // **I el corrent sí que se'l pot tallar** (0.190.33, la trampa d'aquesta placa): the charger's `BATFET_DIS` bit is the
   // only switch between its cell and the board —the maker's `LilyGoT5_Shutdown` example is that one write—, o sigui que
   // `poweroff` aquí és una apagada de debò i no un son. **Amb el cable a dins no fa res**, perquè la placa no es pot
@@ -124,12 +362,21 @@ class T5Power : public Esp32Power {
   bool can_power_off() const override { return true; }
   bool power_off() override { return gauge_.shut_down(); }
   bool battery(int& mv, int& pct, bool& charging) override { return gauge_.read(mv, pct, charging); }
-  // The chip answers this one itself, amb les dues portes que la placa li ha cablejat (docs/50).
-  const char* wakes() override { return Esp32Power::wakes(); }
+  // **I el que el comptador de coulombs sap de més** (0.190.155): the current going in or out of the cell and the capacity that is
+  // left, which a board with a divider on an ADC cannot say. The gauge answers false when the bus is not there (docs/50, docs/60).
+  bool battery_detail(BatteryDetail& out) override { return gauge_.detail(out); }
+  // **I el carregador** (0.190.156): the other half of the battery's picture, which the same board and the same two wires answer.
+  bool charger_detail(ChargerDetail& out) override { return gauge_.charger(out); }
+  // **El que de debò la desperta** (0.190.108): la tecla del xip (el BOOT), el rellotge i —si una persona ha encès «Wake on touch»— el dit.
+  // El temporitzador del xip és el quart, quan hi ha una hora (docs/50, docs/60).
+  const char* wakes() override { return wake_on_touch() ? "timer, button, clock, glass" : "timer, button, clock"; }
   // **Aquesta placa no fa becaines, i és la consola qui ho diu** (0.190.63): its console is the chip's own USB (`ARDUINO_USB_CDC_ON_BOOT`),
   // and a light sleep stops that peripheral: the prompt would go deaf for every nap and the bytes typed meanwhile are gone. Until the USB
   // side of a nap is worked out, the honest answer is that this board waits awake (docs/50, docs/95).
   bool can_nap() const override { return false; }
+  // **I la consola no és una porta d'aquesta placa** (0.190.152): the console is the chip's USB, which a light sleep stops, o sigui que
+  // armar `esp_sleep_enable_uart_wakeup` només serviria per despertar el xip per un pin que no hi és (docs/50, docs/60).
+  bool the_console_can_wake() const override { return false; }
 
  private:
   T5Gauge gauge_{esp32_i2c(kI2cSdaPin, kI2cSclPin)};
@@ -176,6 +423,9 @@ class T5Platform : public IPlatform {
       // app can draw on it (docs/50). It is the last one because it is the most expensive question of this function: it
       // brings up the parallel bus, the supply and a frame of 259 200 bytes (docs/75).
       if (const_cast<T5Platform*>(this)->display() != nullptr) caps_.add(kCapDisplay);
+      // **I la llum de fons hi és** (0.190.99): the supply took the PWM, o sigui que una app pot demanar-ne la intensitat com demana la
+      // d'una tira. Es pregunta després del vidre perquè una placa sense vidre tampoc no té res a il·luminar (docs/30, docs/50).
+      if (const_cast<T5Platform*>(this)->led() != nullptr) caps_.add(kCapLed);
     }
     return caps_;
   }
@@ -188,7 +438,11 @@ class T5Platform : public IPlatform {
 
   ExtraMemory extra_memory() const override {
     ExtraMemory out;
+#if defined(ARDUINO)
     out.chip_bytes = static_cast<uint32_t>(esp_spiram_get_size());
+#else
+    out.chip_bytes = static_cast<uint32_t>(esp_psram_get_size());
+#endif
     out.total_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     out.free_bytes = static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     return out;
@@ -216,14 +470,100 @@ class T5Platform : public IPlatform {
     }
     return panel;
   }
-  ILed* led() override { return nullptr; }
-  IInput* input() override { return &keys_; }
+  // **La llum de fons, que és un LED** (0.190.99, l'amo: *«tenim interficie per leds a lunokOS, ja saps com fer-ho»*): this board's
+  // panel is lit from behind by one white LED on GPIO11 and the supply regulates it with a PWM, o sigui que **no és una tira** —un sol
+  // punt, sense color— i el que la interfície d'`ILed` hi troba és la intensitat que el color demana (docs/30, docs/50). Es construeix
+  // la primera vegada que es demana i no abans: un perifèric que ningú no ha demanat no ha de ser engegat a l'arrencada.
+  ILed* led() override {
+    if (!backlight_tried_) {
+      backlight_tried_ = true;
+      backlight_.reset(new Backlight(kBacklightPin));
+      if (!backlight_->ready()) backlight_.reset();
+    }
+    return backlight_.get();
+  }
+  // **I el botó `S3` de la placa, que no és cap GPIO** (0.190.98, l'amo: *«exposa els botons!»*): el segon botó d'aquesta placa
+  // penja del PCA9535, que ja el té declarat com a entrada al costat de `POWER_GOOD` i de la interrupció de la font, i fins ara
+  // no arribava al sistema. Es presenta com una segona tecla, **darrere del BOOT** perquè el número de les que ja hi havia no
+  // canviï. **I la línia d'interrupció de l'expansor sí que hi és** (0.190.99): GPIO38 baixa quan una de les seves entrades es mou,
+  // o sigui que el botó es llegeix quan ha passat alguna cosa i no cada vint mil·lisegons, i la mateixa línia és una porta del son
+  // lleuger —no del profund, perquè GPIO38 no és una RTC GPIO— (docs/50, docs/60).
+  IInput* input() override {
+    // **Una vegada i prou**: the register of the extra key is the same in every turn and `add` answers false when the room is
+    // gone, o sigui que una segona crida no fa res (docs/50).
+    if (!s3_added_) {
+      arm_the_expander_line_once();
+      KeyElsewhere s3;
+      // **La cara i el lloc, dits per qui té la placa a la mà** (0.190.104): right, a third of the height from the bottom (docs/50).
+      s3.face = Face::kRight;
+      s3.spot = Spot::kDown;
+      s3.kind = KeyKind::kSimple;
+      s3.group = 0;
+      s3.pressed = &T5Platform::read_the_s3;
+      s3.context = this;
+      s3_added_ = keys_.add(s3);
+    }
+    return &keys_;
+  }
+  // **I aquí les tecles no són per a la pàgina** (0.190.103, l'amo: *«en aquesta placa només tenim un botó físic real, no serveix per el
+  // focus. En aquesta placa no hi ha opció a focus per botons»*). Un dial de tres tecles camina l'anell i la del mig prem el que hi ha
+  // sota, i això demana un joc de tecles pensat per a això; aquí hi ha **un botó de debò** —el BOOT del xip— i la segona tecla és la de
+  // l'expansor, totes dues al mateix lloc i cap de les dues feta per moure's per una pàgina. O sigui que cada pulsació va a l'app com
+  // anava abans que hi hagués un anell: la promesa de `button.wait`, la cua de qui l'hagi presa o l'`on_button` (docs/30, docs/50).
+  bool keys_are_for_the_page() const override { return false; }
+
+  // **I té un botó de debò a sota del vidre** (0.190.110, l'amo: *«sota el panell hi ha un cercle que sembla ser un botó tàctil, i es fals... es al
+  // frontal, just sota la pantalla eink, centrat horitzontalment, com un botó d'iphone»*): the circle is moulded into the case and pressing it
+  // lands a finger on the last rows of the panel. És una propietat d'aquesta caixa i no del GT911, o sigui que es declara aquí (docs/30, docs/50).
+  bool a_button_under_the_glass() const override { return true; }
   IImu* imu() override { return nullptr; }
   ITouch* touch() const override { return esp32_gt911(esp32_i2c(kI2cSdaPin, kI2cSclPin), kTouchIntPin); }
 
  private:
   // **L'expansor, construït una vegada i configurat a la primera pregunta** (docs/50): the panel and the board's own
   // button live on it, and configuring a chip is an I2C transaction that must happen once.
+  // **El botó, llegit quan la línia de l'expansor diu que hi ha novetats** (0.190.99): the kernel asks every key on every turn and this
+  // one costs an I²C transaction of two bytes, o sigui que la resposta es guarda fins que la línia torna a baixar, i el debat de
+  // `GpioKeys` és el que decideix que allò és una premuda després (docs/50).
+  bool s3_button_pressed() {
+    // **Es pregunta quan la línia diu que hi ha hagut un canvi, i prou** (0.190.99): the `PCA_INT` of this board goes low when any of the
+    // expander's inputs moves —the button, the supply's `POWER_GOOD`, the supply's interrupt— and it stays low until the input ports are
+    // read, o sigui que **la línia mateixa és el senyal** i no cal cap gestor d'interrupció per tenir-lo. El bus només es toca quan és
+    // baixa, i una lectura de fons cada dos-cents mil·lisegons queda per a una placa on la línia no vingui: un botó que només respon
+    // quan una interrupció arriba és un botó que deixa de funcionar en silenci (docs/30, docs/50).
+    const int64_t now = esp_timer_get_time() / 1000;
+    // **Vint mil·lisegons de sòl sempre** (0.190.99): si una lectura falla, el latch de l'expansor no es neteja i la línia es queda
+    // baixa, o sigui que sense aquesta porta el fracàs es convertiria en una lectura d'I²C a cada torn —el que el driver feia justament
+    // per no fer-ho— (docs/50).
+    if (now - s3_read_ms_ < 20) return s3_pressed_;
+    const bool news = gpio_get_level(static_cast<gpio_num_t>(kExpanderIntPin)) == 0;
+    if (!news && now - s3_read_ms_ < 200) return s3_pressed_;
+    s3_read_ms_ = now;
+    bool level = true;
+    // **Es tanca a terra**: the board pulls the pin up and the switch closes it, o sigui que un zero és el dit.
+    s3_pressed_ = expander()->read(Expander::kButton, level) && !level;
+    return s3_pressed_;
+  }
+
+  // **La línia de l'expansor, com a entrada** (0.190.99): an input with its pull-up and no interrupt of ours. **No n'hi pot haver un**:
+  // `epd_board_v7` d'epdiy ja en té un d'enganxat a aquest mateix GPIO38 —el seu `interrupt_handler` aixeca un `interrupt_done` que
+  // ningú no llegeix mai— i el servei d'interrupcions del xip accepta **un sol gestor per pin**, o sigui que afegir-nos-hi seria trencar
+  // el panell o no rebre res. La línia és una entrada i prou: el nivell ja diu tot el que l'ISR hauria de dir (docs/50).
+  void arm_the_expander_line_once() {
+    if (expander_line_armed_) return;
+    expander_line_armed_ = true;
+    gpio_config_t config = {};
+    config.pin_bit_mask = 1ULL << kExpanderIntPin;
+    config.mode = GPIO_MODE_INPUT;
+    config.pull_up_en = GPIO_PULLUP_ENABLE;  // és una sortida de drenador obert: la resistència és la que la manté alta
+    config.intr_type = GPIO_INTR_DISABLE;    // la interrupció de la becaina es demana a `arm_wake`, i prou
+    if (gpio_config(&config) != ESP_OK) logf(pal::kLogWarn, "BOARD", "the line of the expander did not come up");
+  }
+
+  static bool read_the_s3(void* context) {
+    return static_cast<T5Platform*>(context)->s3_button_pressed();
+  }
+
   Pca9535* expander() {
     static Pca9535 chip(esp32_i2c(kI2cSdaPin, kI2cSclPin), kExpanderAddress);
     if (!chip.configured()) {
@@ -243,7 +583,10 @@ class T5Platform : public IPlatform {
   // the epoch— (docs/50, docs/60).
   static IClock* t5s3_clock() {
     static Bm8563 chip(esp32_i2c(kI2cSdaPin, kI2cSclPin), kClockAddress);
-    static RtcClock clock(&chip, esp32_clock());
+    // **El model del xip el diu la placa** (0.190.153): el fabricant l'anomena PCF8563 a l'exemple de la seva pròpia placa
+    // (`examples/rtc_pcf8563`, SDA 39, SCL 40, IRQ 2, `0x51`), i el codi que el llegeix és el mateix que el del BM8563 perquè
+    // tots dos parlen els mateixos registres (docs/50).
+    static RtcClock clock(&chip, esp32_clock(), "PCF8563");
     static bool adopted = false;
     if (!adopted) {
       adopted = true;
@@ -254,8 +597,19 @@ class T5Platform : public IPlatform {
 
   mutable Caps caps_;
   mutable bool built_ = false;
-  T5Power power_{kBootKeyPin, kClockIntPin};
-  GpioKeys keys_{kKeys, sizeof(kKeys) / sizeof(kKeys[0])};
+  // **Quatre portes**: la tecla BOOT, la interrupció del rellotge, i la de l'expansor, que és la que fa que el botó `S3` i el
+  // `POWER_GOOD` tornin la placa d'una becaina (0.190.99). El vidre no hi és com a porta perquè la línia del dit no és d'aquesta
+  // placa; el quart lloc és el de l'expansor (docs/50, docs/60).
+  T5Power power_{kBootKeyPin, kClockIntPin, -1, kExpanderIntPin};
+  // **Cap tecla en un pin del xip** (0.190.104): the one button of this board is read through the expander, i el BOOT es queda per al
+  // mode de descàrrega i per a la becaina, que és el que és (docs/50).
+  GpioKeys keys_{kNoKeysThere, 0};
+  int64_t s3_read_ms_ = -1000;
+  bool s3_pressed_ = false;
+  bool s3_added_ = false;
+  bool expander_line_armed_ = false;
+  std::unique_ptr<Backlight> backlight_;
+  bool backlight_tried_ = false;
 };
 
 T5Platform g_platform;

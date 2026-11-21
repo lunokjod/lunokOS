@@ -32,6 +32,9 @@ Model model_of(const char* name) {
     out.slot = true;
     out.fram = true;
     out.keeps_the_hour = true;
+    out.clock_chip = "BM8563";
+    // **The cell of the model**, which is what an M5Paper carries: 1150 mAh at 3,7 V, full at 4,2 V (docs/50, docs/85).
+    out.cell_mah = 1150;
     out.powers_off = true;
     // **La tecla del dial desperta un son que aguanta el corrent** (0.189.25): GPIO38 is a pin of the RTC domain and the chip
     // can watch it while it sleeps (docs/50, docs/85).

@@ -443,6 +443,11 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
   demana**, o el més gran dels permesos quan no n'hi ha cap per sobre. Un pas que no és cap dels tres es refusa
   i l'última permetuda no se'n pot anar —una placa sense cap velocitat no torna de la resposta— (docs/30,
   docs/60).
+- **I un dit al vidre vol el cim** (0.190.87, l'amo: *«Si el dit està tocant la pantalla i hi ha cpu scaling => 240mhz»*).
+  Mentre hi ha un contacte, `power::note_a_finger` posa la placa al pas de dalt **sense finestra** —el lleva el dit i no
+  el rellotge— i el governador queda fora del tot: la càrrega d'un dit quiet és la d'una placa avorrida, i el que aquell
+  dit espera és la resposta d'un control. **Passa pel mateix `hold_cpu` de sempre**, o sigui que amb l'escala apagada no
+  mou res i mana la fila `Speed:` (docs/60).
 
 ## Apagar tot el que es pot apagar
 
@@ -540,6 +545,15 @@ tota en sortir** amb `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL)`: l'
 el son profund també llegeix, o sigui que una becaina que deixés la consola armada acabaria despertant un son profund per una tecla que
 ja no és —i el compte del temporitzador es posa a zero amb ells (`esp32_note_wake_cleared`), o el `disarm` de després demanaria al xip
 que tragués una cosa que ja no hi és— (docs/60, docs/95).
+
+**I el son profund no l'escolta mai, la becaina sí** (0.190.152, l'amo: *«l'UART si que ha de despertar el lightSleep, si no no es pot
+usar la shell per serial (es menja caràcters) pero no de DeepSleep»*). Són dues preguntes i les dues s'han de fer per separat: el
+**commutador** de la pestanya Battery (`cfg.uart_wake`, clau `uartwake`, `cfg uartwake on|off`) diu si la persona vol que el cable
+desperti la becaina, i la **placa** diu si la seva consola pot ser una porta amb `IPower::the_console_can_wake()` — el T5 S3 Pro
+contesta que no, perquè la seva consola és el USB del xip. Amb les dues a favor, s'arma a `nap()` i al `sleep light` explícit; a
+`SleepMode::kDeep` no s'arma mai, perquè el camí del son profund neteja **totes** les fonts abans d'armar les seves portes. Una
+becaina que es mengi el que una persona escriu és pitjor que no estalviar res, i tancar aquesta porta deixa un avís a `CFG`
+(docs/30, docs/60).
 
 ## La consola
 
@@ -801,18 +815,132 @@ que una placa endollada que diu que s'ha apagat és una placa que no s'ha apagat
 **El que aquesta placa comparteix amb el Paper i no s'ha escrit dues vegades**: el GT911 (el mateix
 controlador, altres pins: `INT` 3 i `RST` 9) i el rellotge —el **PCF8563 és el xip que el BM8563
 clona**, o sigui que el driver de `lib/hal_esp32/bm8563.cpp` el llegeix i l'escriu sense una línia de
-més—. **I les dues portes del son** (0.190.29): la tecla BOOT (GPIO0) i la línia del PCF8563 (GPIO2),
-armades alhora amb **`ext1` en el mode «qualsevol baixa»**, que és el que aquest xip té i l'ESP32 no
-—els seus dos modes són «tots baixos», que demanaria la tecla *i* l'alarma al mateix temps, i
-«qualsevol alt», que és l'estat de repòs de les dues línies—. O sigui que aquí una placa adormida torna
-amb una tecla **i** amb l'alarma del rellotge, i `power.caps().wake` ho diu: `timer, button, clock`. **I el que no comparteix**: la bateria, que aquí no és un divisor en un ADC sinó dos xips que
-parlen; i el despertar, perquè aquí no hi ha cap latch d'alimentació com el GPIO2 del Paper
-(`deep_powers_off()` és fals: el corrent no se'n va, el xip dorm i la cel·la el manté).
+més—. **I les portes del son** (0.190.29, i 0.190.102 pel que fa a la tecla): la línia del PCF85063 (GPIO2) i la del tàctil (GPIO3),
+armades amb **`ext1` en el mode «qualsevol baixa»**, que és el que aquest xip té i l'ESP32 no —els seus dos modes són «tots baixos»,
+que demanaria les dues alhora, i «qualsevol alt», que és l'estat de repòs de les dues línies—. O sigui que aquí una placa adormida
+torna **amb un dit a sobre del vidre** o amb l'alarma del rellotge, i `power.caps().wake` ho diu: `timer, clock, glass`.
+
+**I la tecla que torna d'un son profund és el BOOT, que és el que arma el fabricant** (0.190.108, l'amo: *«El botó fisic no desperta de
+deepsleep. Revisa els exemples del fabricant»*). El seu `ui_sleep()` acaba amb `esp_sleep_enable_ext0_wakeup(BOARD_BOOT_BTN, 0)` —**GPIO0, nivell
+baix**— i porta **comentada** la línia que hauria armat el botó de l'expansor (`// esp_sleep_enable_ext1_wakeup((1UL << KEY_BTN), ...)`),
+perquè aquesta línia és `PCA_INT` a **GPIO38** i a l'S3 només els GPIO 0–21 són de l'RTC (`SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP` no hi és): el
+botó `S3` **no pot** despertar un son profund en aquesta placa, i per això el fabricant arma el BOOT. Aquest projecte fa el mateix: el BOOT
+entra a l'`ext1` amb el rellotge i —si «Wake on touch» ho diu— el vidre. **El preu, i és de maquinari**: despertar és un *reset*, i en un reset
+el xip mira els *strapping*; si el BOOT encara és premut quan el xip els llegeix, arrenca en **mode de descàrrega de la ROM** (pantalla quieta,
+consola muda). Un toc curt no hi cau; una premuda llarga sí, i és el que li passa també al firmware del fabricant. **I el que no comparteix** (amb el Paper): la bateria, que aquí no és un divisor en un ADC sinó dos
+xips que parlen; i el despertar, perquè aquí no hi ha cap latch d'alimentació com el GPIO2 del Paper (`deep_powers_off()` és fals: el
+corrent no se'n va, el xip dorm i la cel·la el manté).
 
 **El mapa de pins és el del fabricant** (`docs/pinmap.md` del repositori de la placa) i aquest projecte
 no l'inventa: I2C 39/40, panell `CKH` 4 i `D0..D7` 5-8 i 15-18, `STV` 45, `CKV` 48, `STH` 41, `LE` 42,
 targeta `CS` 12 `SCK` 14 `MOSI` 13 `MISO` 21, tàctil `INT` 3 `RST` 9, `PCA_INT` 38, `RTC_INT` 2,
 `BL_EN` 11.
+
+**I el flaix es llegeix en QIO, com el llegeix el fabricant** (0.190.99): la seva taula de configuració diu *Flash Mode QIO 80MHZ* i el
+seu build d'Arduino el porta al paquet `qio_opi`; el nostre entorn d'ESP-IDF naixia en **DIO** —dos bits per rellotge en lloc de quatre—,
+perquè PlatformIO força `dio` a la capçalera de les imatges i el símbol del `sdkconfig` era el defecte de la IDF. Amb
+`CONFIG_ESPTOOLPY_FLASHMODE_QIO=y` el **bootloader** posa el xip en QIO a l'arrencada (`bootloader_enable_qio_mode`, que només es compila
+amb aquest símbol), i des d'allà tot el codi i les dades que arriben del flaix viatgen al doble d'ample. La capçalera de la imatge segueix
+dient `dio` —és el que la plataforma escriu i el que fa que la ROM carregui el bootloader sense sorpreses—, i el que mana a partir d'aquell
+moment és el que el bootloader configura. A la placa es veu a la seva pròpia línia: `SPI Mode : QIO`.
+
+**I el botó és un, i no és cap pin del xip** (0.190.104, l'amo: *«la S3 de l'expansor és el botó de debò; el BOOT només serveix per al
+mode de descàrrega»*). El que una persona prem en aquesta placa penja del **PCA9535** (`IO1_2`, al costat de `POWER_GOOD` i de la
+interrupció de la font) i la HAL el llegeix pel bus, o sigui que el sistema en declara **una** tecla i no dues. **I el descriptor diu on
+és de veritat** —el mateix vocabulari que el dial del Paper: una cara de la caixa i un lloc dins d'aquella cara—: *«el botó físic de
+veritat que té la placa, està físicament a la cara dreta, a 1/3 d'alçada comptant des de baix»*, o sigui `kRight` i el lloc de baix
+(0.190.104). Serveix per a dues coses que no són la pintada: una app dona una funció a una posició (`button.list()`) i l'emulador posa la
+columna de tecles **a la dreta de la pàgina** en lloc d'una fila a sota, que és el que deia el `kTop` anterior (docs/30, docs/85).
+
+**I el BOOT (GPIO0) no és una tecla del sistema**: és el pin que el xip mira en arrencar per entrar al **mode de descàrrega** —prémer-lo
+mentre s'endolla el cable deixa la placa esperant un flaix i no arrencant— i segueix sent una porta de la **becaina**, que no reinicia
+res (docs/50, docs/60). El wiki de la placa havia llistat l'`IO48` com a botó per herència d'altres plaques d'aquesta casa; al mapa del
+fabricant (`H752-01`) l'`IO48` és **`EP_CKV`**, el rellotge de files del panell —el que aquest projecte genera amb el RMT a tretze
+microsegons per fila—, o sigui que un botó allà no hi cap.
+
+**I hi ha un segon botó, i no és cap botó** (0.190.110, l'amo: *«Farem un botó virtual (no s'ha de dibuxar res), per el sistema serà com un botó
+físic qualsevol (definexi-lo com a tal) però en realitat serà un toc en aquesta zona del panell tàctil, sota el panell hi ha un cercle que sembla
+ser un botó tàctil, i es fals... S'exposarà al sistema com a 2on botó, es al frontal, just sota la pantalla eink, centrat horitzontalment, com un
+botó d'iphone. Farà de "back"»*). La caixa té un **cercle** mòuldejat sota el vidre que no és cap botó: prémer-lo és tocar el panell amb la punta
+del dit, i el que el sistema en fa és **una tecla de debò** —cara `front`, lloc `centre`, `kSimple`, sola— que es declara com les altres i que
+`button.list()` ensenya com qualsevol altra. La zona és la **franja de baix de la vista** (centrada, 120 × 80 px): el cercle és petit i un polze
+no, i una zona de la mida del cercle seria un botó que funciona de vegades. **El contacte és del sistema des del primer marc** —la pàgina no en
+rep ni el toc ni el gest, i el que hi hagi dibuixat a sota del cercle no s'ha de prémer— i actua **quan el dit s'aixeca**: una premuda curta és
+el **camí de tornada** (el mateix que tres pulsacions del dial: enrere una vista, o tancar l'app i tornar a la pàgina que la va demanar), un
+dit que camina més de setze píxels no és cap premuda, i una premuda llarga és un `long` que sent l'app (docs/30, docs/45, docs/50).
+
+**I el commutador és a `Settings → Input`** (`cfg.software_button`, `cfg swbutton on|off`, `button.software()` per a qui ho ha de preguntar).
+Apagat, aquella franja torna a ser de la pàgina com qualsevol tros de vidre. **Les altres caixes no el tenen**: la Paper té el mateix GT911 i cap
+cercle allà, o sigui que la placa ho diu (`a_button_under_the_glass`) i la fila dels ajustos només surt on hi ha el cercle. **I no pot despertar
+la placa**: el panell tàctil només hi és quan la placa és desperta, i per això hi ha *Wake on touch* a la pestanya Battery, que és tot el vidre
+(docs/30, docs/50, docs/60).
+
+**I les tecles no són per a la pàgina** (0.190.103, l'amo: *«en aquesta placa només tenim un botó físic real, no serveix per el focus. En
+aquesta placa no hi ha opció a focus per botons»*). El Paper té un dial de tres tecles que camina el cercle i la del mig prem el control
+que el té; aquí hi ha **un botó sol**, el de l'expansor, que no està fet per moure's per una pàgina. O sigui que la placa contesta que no a `keys_are_for_the_page`, i cada pulsació va a l'app com anava abans que hi
+hagués un cercle; el cercle es mou amb el dit, i les **tres pulsacions que tanquen l'app** continuen comptant-se perquè es compten abans
+de la cua, que és el que impedeix que una app es tanqui la seva pròpia porta (docs/30, docs/90).
+
+**I l'expansor té línia d'interrupció pròpia** (`PCA_INT`, GPIO38), que és el que fa que el botó es pugui preguntar sense preguntar
+res: el PCA9535 la baixa quan **qualsevol** de les seves entrades es mou i **la deixa baixa fins que algú llegeix els ports d'entrada**,
+o sigui que la línia no és un pols sinó un estat —«l'expansor té novetats»— i es llegeix amb un registre, sense bus pel mig. El driver
+només toca l'I²C quan la línia és baixa, amb una lectura de fons cada dos-cents mil·lisegons, perquè un botó que només funciona quan una
+interrupció arriba és un botó que deixa de funcionar en silenci.
+
+**I en aquell pin no hi ha cap gestor d'interrupció d'aquest projecte, i no n'hi pot haver** (0.190.99): el `epd_board_v7` d'epdiy ja
+n'hi té un d'enganxat —`gpio_isr_handler_add(GPIO_NUM_38, interrupt_handler, …)`, que aixeca un `interrupt_done` que **ningú no llegeix
+mai**— i el servei d'interrupcions del xip accepta **un sol gestor per pin**. Tocar-lo seria trencar el panell o no rebre res; i no cal:
+el nivell de la línia ja diu tot el que l'ISR hauria de dir.
+
+**I la mateixa línia és una porta del son lleuger** i no del profund: GPIO38 no és una RTC GPIO —les de l'S3 són 0–21—, i el son
+profund només escolta aquelles. És el quart lloc d'`arm_wake`, amb el mateix desat i restauració del tipus d'interrupció que les altres
+tres, o sigui que prémer `S3` treu la placa d'una becaina com la tecla BOOT (docs/60).
+
+**I la retroil·luminació és una `ILed`** (0.190.99, l'amo: *«tenim interficie per leds a lunokOS, ja saps com fer-ho»*): GPIO11 va a
+l'`EN` de l'elevador PT4103B23F, que regula la llum de fons del vidre amb un PWM. La interfície d'`ILed` parla de colors i aquesta placa
+té **una llum blanca**, o sigui que el color d'una app es converteix en una intensitat amb el pes de l'ull (0,299 del vermell, 0,587 del
+verd i 0,114 del blau): `led.fill(255, 255, 255)` és el màxim, `fill(0, 0, 0)` és apagada, i cap app no ha d'aprendre una segona API per
+demanar el mateix. El PWM és d'**un quilohertz**, que és el que el full de l'PT4103 demana —l'app de fàbrica del fabricant la mou amb
+`analogWrite`, als mateixos 0–255—, i neix **apagada** perquè així neix la del fabricant: la llum de fons és corrent que ningú no ha
+demanat fins que una app o una persona la demana. **I els efectes del sistema no la toquen** (0.190.112, l'amo: *«Al iniciar una placa amb led es fa lo del SOS per errors i la respiració... No
+la facis en aquesta placa, al declarar-se backlight no es toca a primeres»*). The breath of the boot and the SOS of a failure are a **language**,
+and a light the board declares as a **backlight** has no language to speak with: it illuminates what is painted and nothing else. O sigui que en
+aquesta placa no hi ha respir a l'arrencada, ni SOS quan una línia del registre és un error, ni parpelleig de la ràdio, ni light-show de
+l'alarma: el que hi ha en encendre's és el **nivell que una persona ha triat** i res més. La porta és una sola —`system_now`, que és qui decideix
+si la placa diu alguna cosa— i `note()` i `set_state()` s'hi afegeixen per no gastar ni els fotogrames (docs/30, docs/50).
+
+**I la llum d'aquesta placa és una *backlight*, i ho diu** (0.190.106, l'amo: *«Els leds es poden declarar com a "backlight", així el sistema
+pot identificar quin led usar-lo per il·luminar la pantalla. El led d'aquesta placa es un backlight»*). `ILed` té un **paper**: `light` —una
+llum que diu coses, que és el que són les del ATOM, el Matrix i el T-Koala i el que val per defecte— i `backlight` —la llum que il·lumina el
+vidre i no diu res—. Aquesta placa respon `backlight`, o sigui que el sistema sap que la seva única llum és la del panell, i el que en fa és
+**deixar-la al nivell que una persona ha triat** quan no ha de dir res: els efectes del sistema i el color d'una app hi manen mentre duren i
+en acabar-s'hi es torna al nivell, no al negre (docs/30, docs/50).
+
+**And that is what the `kCapLed` capability could not say** (0.190.106): before this the board advertised a light and nothing more, o sigui que
+the row *Use backlight* of the System tab could not exist —a board with a status LED and a board with a backlight were the same thing— i la
+pàgina dels ajustos ensenya el commutador i el desplegable **deshabilitats** quan la placa no en té cap, que és el que l'amo va demanar
+(docs/30, docs/45).
+
+**I la llum s'apaga sola quan ningú no mira** (0.190.118, l'amo: *«Afegeix a Settings->System->sota el selector de % de backlight unaltre Toggle
+"Dim when idle" igual que el Sleep when idle o el Lock the screen. Aquest en 1 minut que no es toqui l apantalla el backlight s'apaga i es torna a
+encendre quan toquen el panell»*). El commutador *Dim when idle* (`cfg.dim_when_idle`, `dimidle` a la NVS, **encès de sèrie**) és a la pestanya
+System, sota el nivell, i el que governa és `led::dim_when_idle`, que es pregunta cada torn: amb *Use backlight* encès i un minut de quietud
+—`power::quiet_ms()`, el comptador únic d'aquesta casa, el mateix que fa saltar el bloqueig i el son—, el vidre es pinta de negre **sense
+tocar el nivell triat**, que és el que torna. Com que el comptador és el de tothom, qualsevol cosa que compti com una persona —un dit, una tecla,
+un byte de consola— el desfà; i una pàgina que pinta (un color, un efecte, una nota, la ràdio, un moment del sistema) **mana més que el
+commutador**: el dim s'aparta i la llum es queda com la tenia. **El primer toc només encén**: `led::wake_the_light()` diu al tàctil que el negre
+era d'aquest mòdul, i aquell contacte es queda en `kNobodys` —ni la pàgina, ni la barra, ni el botó de sota el vidre el senten— perquè el que hi
+ha sota un vidre fosc no s'ha vist i prémer a cegues no és prémer. Apagar el commutador amb el vidre fosc el torna a encendre a l'instant, i una
+placa sense cap llum declarada com a retroil·luminació l'accepta i no en fa res (docs/30, docs/50).
+
+**I el deure és una recta, i s'hi queda** (0.190.102, l'amo: *«lo del led ha estat una mala idea, deixa'l com abans»*). Entre la
+0.190.100 i la 0.190.101 hi va haver una **corba de la percepció** (gamma 2,2 sobre dotze bits, amb el terra de l'elevador i el motor de
+*fade* del `ledc` per suavitzar els graons) i el veredicte de la placa és que **no era millor**: feia els mateixos salts i la llum
+s'apagava abans, o sigui que es llegeix pitjor una llum que no fa el que el número diu. El que hi ha és el de sempre i és el que es queda:
+el color que una app demana convertit en **una intensitat** pel pes de l'ull, i un deure **lineal de vuit bits** a un quilohertz. La lliçó
+apuntada: el que es veu a bots en una llum de fons **no és el PWM** sinó els graons del nivell que demana el nucli, i això no es tapa amb
+una corba al driver (docs/30, docs/50).
+
 
 **I les dues unitats dels bytes, que és el que tallava la banda** (0.190.43): el quadre del vidre és de quatre bits per
 píxel —un byte seu són **dos** píxels— i la fila que surt pel bus és de dos bits per píxel —un byte seu en són
@@ -941,6 +1069,25 @@ les ordres de la targeta tornen espatllades. Ara la placa declara els xips que c
 reintenta**: 10 MHz → 5 MHz → 400 kHz, tres intents, perquè una targeta que respon a la prova i llavors es rendeix
 és una targeta massa apressada i no un disc trencat.
 
+**Què costa una pintada, mesurat al vidre amb IDF** (0.190.94, l'amo: *«vull que les pintades a pantalla siguin les mínimes
+necessàries i a la qualitat adequada per cada zona a pintar»*). El número que decideix tot el que ve després és aquest:
+
+| Fet | Número | D'on surt |
+|---|---|---|
+| Una fila del vidre | **13 µs** | `line width: 13us, 260 cycles` de l'arrencada; 248 píxels a 20 MHz |
+| Una passada sencera (540 files) | **7,0 ms** | 540 × 13 µs |
+| `gc16` (neteja, setze grisos) | **38 passades → 442 ms** | els fotogrames de la TC2 a 18–21 °C |
+| `gl16`/`gld16` (neteja suau) | **46 passades → 415 ms** | els mateixos |
+| `du`/`a2` (dues tintes) | **2 passades → 110 ms** | els mateixos |
+
+**I la conseqüència, que capgira una regla vella**: el panell es pinta **fotograma a fotograma i cada fotograma és sempre el vidre
+sencer** —les files que no canvien s'envien en blanc, no s'estalvien—, o sigui que **una pintada costa els fotogrames de la tinta i no
+la superfície**. Una tira de 33×273 amb `gld16` costa el mateix (427 ms) que el vidre sencer amb `gld16`; el que estalvia és **triar una
+tinta de pocs fotogrames** i **no fer dues passades on en cap una**. D'aquí surten les decisions d'aquesta tongada: les caixes de la franja —el
+rellotge i el títol— van amb `a2` i es netegen cada deu canvis (427 → ~160 ms de mitjana, amb el fantasma acotat a nou), i ajuntar dues
+caixes que no es toquen **no costa res de temps** si són la mateixa tinta. El que sí que escala amb el rellotge és la fila: per això el pas de 10 a
+20 MHz va baixar les pintades a la meitat (818 → 478 ms) i els fotogrames no s'hi poden tocar (docs/50, docs/95).
+
 **I el rellotge del vidre, que anava a un quart** (0.190.84). El log de la placa ho deia i no ho vaig veure:
 `Reducing the pixel clock from 20 MHz to 10 MHz` i tot seguit `from 10 MHz to 5 MHz`, en la mateixa arrencada. No és el
 panell: `epd_lcd_init` de la llibreria crida **dues vegades** `check_cache_configuration()` —una des
@@ -961,6 +1108,50 @@ placa qui digui si aguanta els vint.
   respecta.
 - **I amb l'escala apagada s'hi ha de baixar**: el rellotge d'un ESP32-S3 arrenca a 240, o sigui que no n'hi ha prou de
   deixar de pujar-lo; `power::boot` baixa al pas triat.
+
+**I el FAT anava sense noms llargs** (0.190.96, el `errno 22` en tancar una app). La targeta es muntava —`/sd mounted, 30436 MB`— i al
+desar les sessions deia:
+
+```
+[W][SD] cannot open /sd/session/home_eink/state for w: errno 22 (5 file(s) at once is the cap of this mount)
+```
+
+El número no era la capsa de cinc fitxers (aquest és només el context de la línia): **`EINVAL` és `FR_INVALID_NAME`** a la taula d'errors
+de la FAT de la IDF, i `home_eink` té **nou** caràcters en un sistema de noms 8.3. La diferència era de configuració i no de codi: el
+nucli d'Arduino porta `CONFIG_FATFS_LFN_STACK=y` i el nostre `sdkconfig` neix amb `CONFIG_FATFS_LFN_NONE=y`, o sigui que **la targeta es
+muntava i cap fitxer amb nom llarg s'hi podia crear** —les sessions de les apps, i qualsevol ruta d'`/apps` o `/data` amb un nom de més
+de vuit caràcters—. Ara hi és amb la pila, com el fabricant, i el sostre és el mateix de 255 caràcters (docs/50, docs/70).
+
+**El verí del heap, encès una estona i apagat** (0.190.95). El primer flaix d'aquest entorn va fer un `StoreProhibited` a l'adreça `0xb`
+dins del `tlsf` de la PSRAM (`remove_free_block`), o sigui que algú havia escrit fora del seu bloc i la llista de lliures havia quedat
+trencada; el xoc va arribar amb `run home_eink &` i no s'ha tornat a veure mai més. Es va encendre `CONFIG_HEAP_POISONING_COMPREHENSIVE`
+per caçar-lo —atura el codi **en l'escriptura** i diu el culpable— i no va cridar ni una vegada. **El seu preu és el que el fa de
+diagnòstic i no de vida**: vuit bytes per bloc (`0xABBA1234` al davant i `0xBAAD5678` al darrere) i un `memset` del bloc sencer a cada
+`malloc` (`0xCE`) i a cada `free` (`0xFE`), que en aquest sistema són blocs de 32 KB —les sessions de les apps— i de 246 KB —el canvas—.
+Apagat; si el xoc torna, s'encén una estona i es reprodueix amb ell posat (docs/50, docs/75).
+
+**I un build d'ESP-IDF per tenir el `sdkconfig`** (0.190.90, l'amo: *«podriem portar el projecte a esp_idf i així compilar com ens
+surti dels collons les coses?»*). Sí, i és menys del que semblava: **vuit fitxers** tocaven el nucli d'Arduino i el que s'hi usava eren
+tres coses —`Serial`, `ESP.restart()` i `delay()`—, perquè epdiy, els HAL, la wifi, Lua, el JSON, l'inflate i l'EPUB ja eren IDF o C
+portable. L'entorn `lilygo-t5s3-idf` (docs/80) construeix la mateixa placa amb **IDF 5.1.2 de debò**, i el que calgué fou això:
+
+| Peça | Què hi havia | Què hi ha |
+|---|---|---|
+| L'entrada | `setup()`/`loop()` del nucli | `app_main` a `src/main_idf.cpp`: el corrent de la placa, la PAL, el nucli i el torn per sempre |
+| La consola | `Serial` (USB CDC del nucli) | les cinc respostes que el PAL demana sobre el **USB-Serial-JTAG** del xip, o la UART0 a les altres plaques; sense Bluetooth el log d'IDF calla i l'anell del sistema és l'únic que parla |
+| La NVS | `Preferences` (embolcall d'Arduino) | `nvs_*` directe, que és el que l'embolcall fa per dins; i **el cercador té dues formes** —la 4.4 torna iterador, la 5.1 torna `esp_err_t` i el vol per paràmetre— |
+| El disc | l'objecte `LittleFS` del nucli | `esp_vfs_littlefs_register` amb `format_if_mount_failed = 0` (la regla de no formatar mai no es toca) i POSIX per a la resta; un `LunokFile` de quatre crides fa la feina del `File` |
+| La CPU | `setCpuFrequencyMhz` del nucli | `rtc_clk_cpu_freq_*`, que és exactament el que el nucli fa servir per dins |
+| mDNS i BLE | sempre | `__has_include` i `CONFIG_BT_ENABLED`: sense ells la provisió va per **SoftAP** i ho diu |
+| L'asm d'epdiy | `lut.S` | `lut_asm.S`: el builder d'espidf donava dos objectes al mateix nom |
+
+**El que això compra**, mesurat: RAM **100 128 B contra 132 320 B** (30,6 % contra 40,4 %), flaix **1 863 941 B contra 2 295 113 B**
+(44,4 % contra 54,7 %), el disc idèntic (149 fitxers, 24 apps) i **`CONFIG_ESP32S3_DATA_CACHE_LINE_SIZE 64`** al
+`config/sdkconfig.h` del build, que és el número que epdiy mira abans de decidir el rellotge del vidre: amb el nucli d'Arduino val 32
+i **no es pot canviar** —les seves lliberries venen compilades amb aquell número a dins—, i per això el vidre anava a 10 MHz. **El que
+no està provat és el maquinari**: el primer flaix ha de dir `epdiy 2.0.0, 960x540 of glass at 20 MHz` sense cap `Reducing the pixel
+clock`, i si el vidre surt amb una fila desplaçada un byte o la vora dreta d'una línia estirada, aquesta placa es queda a 10 MHz amb la
+comprovació de la lliberry (docs/80, docs/95).
 
 ## Fitxa: M5 Paper v1.0 i v1.1
 
@@ -1081,6 +1272,120 @@ contesta, perquè ara una app ho pot fer servir. La **rotació compartida amb el
 (0.18.1): una sola rotació per al dibuix i per al toc, amb els `x`/`y` i els `dx`/`dy` dels gestos
 convertits en un sol lloc. **El que falta**: una mesura al xip —**a quina velocitat mostreja** (docs/95,
 E-6)— i, del pas 8, la política d'energia de la I2C i de les alimentacions.
+
+### El GT911 i l'energia: què té el xip, i què s'hi fa (0.190.105)
+
+L'amo va demanar *«Estalvía el maxim d'energia possible al panell... Manté el panell en un consum baix fins a detectar un dit, llavors
+pujes la poténcia del panell durant uns segons i la tornes a deixar en LOW_LEVEL_QUERY»*, i la resposta surt del driver del fabricant
+(`TouchDrvGT911.hpp` de `SensorLib`), que és l'única cosa que el xip té de debò:
+
+| El que el xip té | On | Què fa |
+|---|---|---|
+| **Quatre modes de la línia** | `0x804D`, bits 1:0 | `0x0` vora de pujada, `0x1` vora de baixada, **`0x2` nivell baix**, `0x3` nivell alt. El de nivell baix (*«Keep high level when idle, and switch to low level when touched»*) és el que el seu exemple en diu el de menys consum: la línia es queda baixa mentre hi ha un dit i el host no ha de preguntar res |
+| **El ritme d'escombrat** | `0x8056` | `5 + (byte & 0x0F)` hertzs, o sigui **de cinc a vint**: és l'única palanca que canvia el que el xip gasta escombrant |
+| **Dormir i despertar** | `0x8040 = 0x05` | el comandament de son del xip; el despertar és un pols de vuit mil·lisegons a la línia (`sleep()`/`wakeup()` del fabricant) |
+| **Quants dits** | `0x804C` | aquesta unitat en declara dos (mesurat a la Paper, 1/11) |
+| **El botó de casa** | llista de punts | el fabricant té una crida per al «botó de casa» del panell; aquí no es fa servir perquè **un gest és una forma del flux de punts i no una cosa que el xip inventa** (docs/50, docs/85) |
+| **Gestos propis** | — | el xip en té i **ni el driver de M5 ni el d'Espressif els llegeixen**; aquest tampoc (el mateix motiu) |
+
+**I el que aquest projecte hi fa, que és el que ell demanava**: el xip neix i es queda en **`LOW_LEVEL_QUERY` i deu escombrats per
+segon** (`kGt911QuietHz`); quan un marc porta un dit, el ritme puja **al que la unitat porta de fàbrica** (vint en aquesta) i s'hi queda
+**cinc segons** després de l'últim dit (`kGt911HoldFastMs`), i quan el vidre calla torna al terra. El canvi de règim costa una lectura de
+186 bytes i tres escriptures —la configuració, el `checksum` a `0x80FF` i el «fresh» a `0x8100`, que és la seqüència del
+`reloadConfig` del fabricant— i per això es fa quan canvia el règim i no a cada marc. **El deu i no el cinc** perquè el primer toc d'un
+vidre adormit espera un escombrat: a cinc hertzs són dos-cents mil·lisegons abans que el xip noti el dit, i cent és el que una pàgina que
+triga mig segon a pintar pot amagar (docs/50, docs/95).
+
+**I el règim es pot desactivar des de la pestanya Input** (0.190.107, l'amo: *«afegeix a Settings->Input un toggle que posi "Adaptative touch
+scan", aquesta opciò activa o desactiva el comportament del panell de baixar la sensibilitat i pujar-la quan hi ha dit. Deixant el panell a
+máxima velocitat mentre estigui el dispositiu despert. En cas de lightsleep o deepsleep cada mode el configurarà com necessiti (low/off)»*).
+El commutador *Adaptative touch scan* (`cfg.touch_adaptive`, `touchscan` a la NVS) encès és el que hi ha des de la 0.190.105; apagat, el
+controlador **es queda al ritme de la unitat** mentre la placa és desperta i només baixa quan ha de dormir. **I qui mana en el son és el son**,
+no el commutador: un son profund que escolta un dit posa el vidre al terra (`quiet_now`) abans d'armar la línia —perquè el que ha de passar és
+que caigui, no que caigui amb precisió—, i un que no l'escolta **l'adorm del tot**; en tornar, el règim de la persona es torna a posar
+(docs/30, docs/50, docs/60).
+
+**I el panell va al ritme de la llum** (0.190.119, l'amo: *«El touch va per interrupció oi? perqué triga tant en respondre? sembla polling»*). La
+línia del GT911 **sí que és una interrupció** i l'ISR només aixeca un flag (el bus no es toca des d'una interrupció), però el que feia l'efecte de
+*polling* era el xip: aquesta unitat escombra el vidre a **deu hertzs** —la seva pròpia configuració ho deia a l'arrencada, `10 Hz quiet, 10 Hz
+awake`— i el terra que el driver hi posava era el mateix número, o sigui que el *burst* de cinc segons després d'un dit **no tenia res a apujar**:
+un marc cada cent mil·lisegons i un toc que necessita **dos** (la baixada i l'aixecament) són dos-cents mil·lisegons abans que una pàgina en sàpiga
+res. Ara `Gt911::set_brisk` posa el xip a **vint hertzs** mentre la llum del vidre és encesa (`led::glass_is_lit`: retroil·luminació, commutador
+encès, nivell diferent de zero i el dim no l'ha apagada) i el torna al terra quan la llum s'apaga; el tàctil el pregunta a cada torn i el driver
+només escriu al xip quan el règim canvia. **I la vora desvetlla el nucli**: l'ISR hi empenta un `pal::kEventTouch` amb
+`IQueue::push_from_isr` (`xQueueSendFromISR` a l'ESP32), de manera que el torn no espera els seus deu mil·lisegons —ni els quaranta d'una
+becaina— per mirar el vidre; el marc es continua llegint del torn i no de la interrupció (docs/30, docs/50, docs/95).
+
+**I el que costa una pintada es pregunta a la placa, amb `panel bench`** (0.190.123, l'amo: *«Mes cosetes per la pantalla eink! Vull que facis possible això
+dels 60hz»*). La forma d'ona d'aquest panell —la TC2 que el build porta compilada— té **vint-i-dues fases pel `du`** i **trenta-vuit pel `gc16`** a la
+temperatura ambient, i una fase costa uns dotze mil·lisegons i mig a pantalla sencera: o sigui que el mode més ràpid que aquest vidre té és ~275 ms i
+no hi ha cap paràmetre que el baixi, perquè el que es mou és la tinta. Els 60 fps de l'exemple del fabricant (`epd_60fps_probe`) **no són aquest camí**:
+és un driver de vídeo propi, I80 + DMA, que **salta la LUT** i envia dos bits per píxel amb comptadors de polsos per píxel (el seu propi README diu
+que és per a experiments de refresc i ghosting). Per deixar de discutir-ho de memòria, `panel bench` pinta tres àrees (el vidre sencer —960×540, i no
+la pàgina de 540×960, que va ser el primer error— una franja de quaranta-vuit files i una cel·la de 120×80) amb les tres qualitats, descarta la primera
+pintada de cada combinació i dona la mitjana de tres amb el sostre d'imatges per segon. **La pintada de mesura ha de tenir un canvi de debò**:
+`ISurface::paint_for_the_count` fa el mateix camí que una pintada —tensions amunt, forma d'ona, tensions avall— però **gira l'àrea del framebuffer**
+abans i la torna a girar a la crida següent, perquè la primera versió mesurava una àrea que ja estava pintada i epdiy contestava **1 ms** (el `diff`, no
+cap pintada: l'amo ho va veure amb mil imatges per segon en una franja). El nombre de crides per combinació és **parell**, o sigui que la imatge acaba on
+era (docs/50, docs/95).
+
+**I el número que va canviar el que fa la UI és que l'àrea no compta** (0.190.141): la mateixa sessió de bench, amb el bus a vint-i-quatre i les
+tensions calentes, dona **448 ms** per a la pàgina, **456** per a la franja de quaranta-vuit files i **456** per a la cel·la de 120 × 80 amb `gl16`
+—i 383, 383 i 393 amb `gc16`—. És a dir que pintar una cel·la costa el mateix que pintar el vidre sencer, perquè epdiy envia les 540 files sempre i les
+que no han canviat hi van en blanc. O sigui que **el que una UI estalvia en aquest vidre és el nombre de pintades i no la mida de les caixes**, i és el
+que fa l'ajuntament del damage del torn: vegeu *el control de danys* (docs/50, docs/95).
+
+**I les vuit taules d'epdiy són triables pel nom** (0.190.135, l'amo: *«podries afegir tots els waveforms? els vull provar»*). `builtin_waveforms.c`
+de la llibreria inclou **cada taula que porta** —les dues del nostre panell (`ed047tc1` i `ed047tc2`) i les sis dels seus altres vidres (`ed060sc4`,
+`ed060sct`, `ed060xc3`, `ed097oc4`, `ed097tc2`, `ed133ut2`)—, o sigui que totes són al binari i el que faltava era el nom per triar-ne una. `panel wave`
+les llista amb un asterisc a la que hi ha, i `panel wave <nom>` canvia el punter de l'estat. **Les sis que no són d'aquest panell no hi són per
+qualitat**: són de vidres de sis, nou i tretze polzades i el que faran és pintar amb la forma d'ona d'una altra tinta —es proven per entendre els
+grisos, no per quedar-s'hi—, i una taula que no tingui el mode que es demana ho diu a la línia de la pintada (`with an error`), no es penja (docs/50, docs/95).
+
+**I la forma d'ona es pot canviar en calent, i aquesta placa en té dues** (0.190.134, l'amo: *«pots canviar `epdiy_ED047TC2.h` i si provem la
+C1? Els colors a la C2 no semblen correctes del tot... els 2,4 i 8 colors es veuen bé, pero els 16 no tant»*). El build porta compilades les
+dues taules del panell, i el que decideix quina es fa servir és **un punter de l'estat d'epdiy** (`state->waveform`), o sigui que
+`panel wave tc1|tc2` les canvia **sense reiniciar** i la pintada següent consulta la nova. I no són la mateixa taula: la **C2** té **set
+rangs de temperatura** (3 °C cadascun, de 0 a 48) i **tres modes** —`du`, `gc16` i `gl16`—, mentre que la **C1** té **un sol rang (20-30 °C)** i
+**cinc modes**: els tres d'abans més `MODE_EPDIY_WHITE_TO_GL16` (0x10) i `MODE_EPDIY_BLACK_TO_GL16` (0x11), que són els comptes que arrenquen
+d'un paper blanc o d'un paper negre i que l'altra taula no porta. **El mode de setze grisos de la C1 és el que el nostre driver vell anomenava
+així** («quinze empentes en què cada nivell rep cap al negre mentre li calgui, i només per a un píxel que ve de blanc»); si els grisos de la C2
+no surten, el candidat és aquest, i demana una neteja a blanc abans de la matriu (docs/50, docs/95).
+
+**I el frame no es pot tallar amb el pipeline d'epdiy** (0.190.126, l'amo va provar `panel bands on` i la placa va quedar penjada per *task watchdog*). La
+idea era bona i el driver d'aquesta casa la feia abans de l'epdiy —acabar el frame a l'última fila bruta, que és el que fa que una franja de quaranta-vuit
+files costi quaranta-vuit files i no cinc-centes quaranta—, però el render de l'epdiy no és un bucle de files: són **dues tasques de preparació** que
+reparteixen les línies en dues cues de trenta-dues, un ISR que les consumeix i un DMA que les demana, i el frame s'inicia quan la línia **seixanta-tres**
+ja està preparada perquè el DMA tingui reserva. Amb un frame de noranta-sis files, el marge que queda després del disparador és de trenta-tres, el ISR
+es queda sense cua (`EPD_DRAW_EMPTY_LINE_QUEUE`, 0x400 → `line buffer underrun occurred!`) i el `epd_prep` no torna mai: el watchdog de tasca mata la
+placa. **El commutador s'ha tret del nucli** en lloc de deixar-lo penjat allà; si s'hi torna, és amb el disparador escalat i amb la placa a mà (docs/50,
+docs/95).
+
+**I el negre del dim passa pel comptable del que s'ha pintat** (0.190.122, l'amo: *«No veig que el backlight es recuperi al tornar a tocar la pantalla...
+triga molta estona en encendre per algún motiu? surt al log informació sobre l'apagada i l'encesa del backlight?»*). L'apagada pintava el negre **pel
+darrere** —`fill` i `show` a pèl— i deixava `g_shown` dient el nivell d'abans, o sigui que en tornar el dit `paint` veia el mateix color que creia que hi
+havia, no veia res a fer i **no encenia res**; la llum tornava quan una altra cosa del sistema posava el flamenc de brut, i això és el «triga molta
+estona». Ara el negre és un `paint(0, 0, 0)`, que apunta el que ha pintat, i les tres transicions es diuen al registre com a **marques** (no les filtra
+el nivell): `[I][LED] the glass's light is out: 60 s with nobody on the board`, `… is back at 42: a finger on the glass` i `… is back at 42: the board
+is in use again` (aquesta última quan qui la desfà és una tecla o un byte de consola, que també mouen la quietud) (docs/30, docs/50, docs/75).
+
+**I el dit que ha demanat el son no és un dit que desperti la placa** (0.190.121, l'amo: *«Al activar l' sleep amb el táctil connectat (settings->battery),
+el dispositiu es desperta de seguida. Quelcom similar passava amb l'm5paper recordes?»* — i sí: era el mateix, i a la Paper ja estava resolt des de la
+0.190.16). El son profund d'aquesta placa s'arma amb `ext1` i **`ANY_LOW`**: la pregunta no és «hi ha un dit» sinó «**alguna d'aquestes línies és baixa
+ara mateix**», i el dit que acaba de prémer el commutador —o el marc que el controlador encara no ha lliurat, o la línia que el `LOW_LEVEL_QUERY` deixa
+baixa mentre el contacte dura— fan que el xip torni abans d'haver-se adormit, una vegada i una altra. El que lleva la línia és **llegir el marc i
+tornar-li l'estat** (`flush`, el `0x814E` a zero de M5Unified #91) i el que diu si ja és alta és el pin, o sigui que l'armat és un **bucle**: alliberar,
+mirar, i si el dit encara hi és esperar deu mil·lisegons més, amb el mateix topall d'un segon que la Paper (`kTouchReleaseMostMs`). Si no puja, el
+tàctil **no és una porta d'aquest son** i el log ho diu: val més tornar pel rellotge i per la tecla que no dormir gens. I com que `ANY_LOW` val per
+a les tres línies, les altres dues també es miren abans d'armar: un rellotge que encara no ha deixat anar la seva interrupció i un BOOT que ja és
+premut són portes obertes i es diuen amb el seu pin (docs/50, docs/60, docs/95).
+
+**I el commutador `Wake on touch` de la pestanya Battery té feina en aquesta placa** (0.190.105). Encès vol dir que el controlador es
+queda despert, en el seu règim de menys consum, durant tot el son profund, i que la seva línia (GPIO3) és una porta: **un dit al vidre
+torna la placa**. Apagat vol dir que **el controlador s'adorm amb el xip** (`writeCommand(0x05)`) i que la placa només torna pel rellotge;
+sense alarma a la cua, doncs, no hi ha camí de tornada i el sistema ni tan sols ofereix la baixada (`can_deep_sleep()`). I la línia es
+neteja abans d'armar-la: un controlador amb un marc sense prendre la té baixa, i un son armat en «aquesta línia baixa» tornaria de
+seguida, una vegada i una altra (docs/30, docs/60).
 
 ### Els números de la placa: el RNG del xip, i per què cal la ràdio o l'ADC (0.174.8)
 
@@ -1253,6 +1558,15 @@ d'aquesta manera la línia d'un conductor i la del nucli són la mateixa cosa al
 conductor no ha de saber que el nucli existeix (docs/30, docs/85). Abans de la 0.20.0 eren **trenta-vuit
 `printf`** amb el prefix escrit a mà dins del text; ara la lletra de nivell i l'etiqueta les posa el
 format, i una línia que no porta etiqueta no compila.
+
+**I el cercle té un llindar** (0.190.89, l'amo: *«Afegeix "Log level" a Settings->System Amb els nivells de log, per defecte Debug (com la
+comanda log)»*). `debug`, `info`, `warn` o `error`, i **el filtre és a la porta única del registre** —la funció que rep la línia abans del
+cercle—, o sigui que el mira el mateix lloc per a un conductor, per a `log_printf` i per a una frase: el nivell és el segon byte de la
+línia (`[D]`, `[I]`, `[W]`, `[E]`), que és la forma que el format dóna a tot el que escriu aquest sistema, i una línia que no té aquesta
+forma és una frase de `log_say` i passa sempre, perquè una frase és una resposta a una persona i no una traça. **El de sèrie és `debug`**,
+que és el que el sistema ha fet sempre; el llindar es desa (`cfg loglevel`, NVS) i s'aplica a l'arrencada, i la línia del boot el diu al
+costat del teclat (`… keyboard qwerty, log debug, boot boot …`), perquè una placa amb el registre callat no s'ha de veure igual que una
+sense res a dir (docs/30, docs/60).
 
 **I el que es compta a la porta** (docs/30). El repàs és aquest, i és el que diu quina fila de `stats`
 paga cada cosa:
@@ -1449,6 +1763,43 @@ paper. El que fa ara el sistema:
 i un `gc16` de la pàgina és ara un `a2` de 540×912 i un `gl16` de la pàgina; l'arrencada del llançador amb deu
 apps passa de vint `gc16` de dues caixes a vint `gl16` de dues caixes, i la pàgina d'`about` —cinc caixes— de cinc
 pintats a un.
+
+**El torn es paga una vegada, i no una vegada per regió** (0.190.141 i 0.190.142, l'amo: *«tot el que s'ha après, s'ha
+d'aplicar al interficie UI, dibuixar més eficientment els controls»* i, el dia següent, *«device_lock pinta un per un¿? No
+entenc perqué... altres apps fan igual, pinten un per un»*). El control de danys de dalt suposa que **pintar menys píxels
+costa menys**, i a la pràctica no és així enlloc d'aquesta casa: el preu d'una pintada és **la tinta del mode**, una espera
+de 120 ms (`du`) a 450 ms (`gc16`) que es paga sencera encara que la caixa sigui de tres píxels, i al panell del T5S3 ni
+tan sols mira l'àrea, perquè el render d'epdiy envia les 540 files sempre (una franja de 48 files costa els mateixos
+**390 ms** que la pàgina sencera; mesurat, docs/95). O sigui que sis regions del damage no són sis sisenes d'una pintada:
+són **sis pintades**.
+
+Mesurat a l'emulador amb `--run device_lock`, un sol `ui.present('gl16')` en feia sis —les dues frases, els tres punts i el
+candau—, perquè `paint_root` pinta **una regió per regió** i les que no es toquen no s'ajunten mai. Ara, abans del bucle,
+**el damage del torn s'ajunta en una sola regió** amb el mode **més fort** de les que hi entren: el net pinta el resultat
+final de la ràpida i més, i sis `gl16` es pinten `gl16` i no `gc16` (a l'emulador, 483 ms contra 642). La pàgina del pany
+passa de ~3 000 ms a 801. Dues coses no s'ajunten:
+
+- **quan la unió faria escalar una ràpida a `gc16`** (set vuitenes parts del vidre, el llindar de sempre) **i hi ha menys de
+  quatre regions** (`kJoinFrom`): tres `du` de 128 ms són menys que un `gc16` de 414, i ajuntar-les seria perdre;
+- **quan hi ha una `a2`**, que és el mode del motor de vídeo i una altra manera d'escriure el vidre.
+
+I dues coses més que van sortir dels tests i no del cap:
+
+- **una unió que passa de vuit vegades l'àrea del que ha canviat no es fa** (0.190.143). Un dit a la cel·la de la vida i el comptador de
+  l'altra punta són mig vidre d'unió amb `du`: en temps és més barat que dues passades i en tinta no és el que una persona vol veure, perquè
+  deixa el fantasma d'una passada ràpida sobre mitja pàgina. El torn del pany —sis caixes, 2,2 vegades— entra; la cel·la amb el comptador
+  —23 vegades— no;
+- **el mode de la unió és el més fort dels que netegen, i no el de més rang de la taula**: `a2` té un rang propi i no és una rentada, o
+  sigui que una franja que va demanar `gld16` i una peça que va demanar `a2` pugen com la que deixa el vidre com la pàgina. Ho va trobar
+  `test_bar` amb la franja del títol pujant en `a2`.
+
+El retry, els comptadors i el deute de pintada són exactament els que hi havia, perquè el bucle no canvia.
+
+**I el log diu qui demana cada pintada** (0.190.142, l'amo: *«que he de buscar al log?»*). Hi ha set portes que acaben a
+`paint_root` —`present`, `page` (la pàgina sencera), `over` (les caixes damunt d'una imatge), `wash` (la rentada en
+enganxar una vista), `attach` (la vista nova sobre tinta que hi ha al vidre), `turn` (el repintat del pendent) i `due` (el
+parpelleig del cursor)— i totes feien la mateixa línia. Ara `[D][UI] paint x,y wxh mode N <nom> (<porta>)` diu la porta, i
+el que cal comptar al log és `[GLASS] flush`: **una línia per pintada de debò**, contra les línies `paint` de les regions.
 
 I una cosa que la placa mana i que el codi no pot saltar-se: **el controlador pinta d'una en una**. Cada
 `DPY_AREA` arrenca un motor de LUT, i el driver del fabricant espera (`CheckAFSR`) que l'anterior

@@ -91,6 +91,14 @@ bool nap_now(int32_t ms);
 // que el torn del nucli espera mentre la placa dorma entre voltes (docs/50, docs/95).
 int32_t nap_slice_ms();
 
+// **Un dit damunt del vidre** (0.190.87, l'amo: *«En qualsevol cas: mentre el dit toqui la pantalla també has de desactivar
+// temporalment el LightSleep per evitar tenir problemes amb les lectures fins que el dit aixequi»*). Mentre una persona té el dit
+// al vidre la placa **no fa cap becaina**: un son lleuger atura el xip, el tret de la línia del tàctil i la lectura del marc, i
+// una lectura que s'ha perdut amb un dit a sobre és un toc que no arriba o que arriba doble. **És una resposta de la política i no
+// del maquinari**: val amb l'escala de la CPU encesa i apagada, i la lleva el dit quan s'aixeca (docs/30, docs/50, docs/60).
+void note_a_finger(bool down);
+bool a_finger_is_down();
+
 // **Els deu segons de silenci del port** (0.190.75): the quiet a board needs before it naps or before a hand that breaks a countdown
 // is worth a line (docs/60).
 int64_t console_in_use_ms();
@@ -102,6 +110,13 @@ void set_console_in_use_ms(int64_t ms);
 void note_the_nap_end(bool something_happened);
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);
+// **La consola com a porta de la becaina** (0.190.147): the switch of the Battery tab is a setting of the system, so it goes down to the
+// board from here like the glass's (docs/30, docs/50).
+// **El que la placa sap de la darrera dormida** (0.190.151): printed at the boot and again whenever a person asks, because a deep sleep is a
+// reset and the log of the arming goes with it (docs/50, docs/60).
+void say_the_last_sleep();
+bool wake_from_uart();
+bool set_wake_from_uart(bool on);
 bool can_wake_on_touch();
 
 // **Un quadre que no és la imatge del son** (0.190.18). A wake for an alarm comes back with the picture of the way down on the glass and
@@ -171,6 +186,12 @@ bool keeping_awake();
 // The battery, when the board has a gauge. False is "this board cannot tell", and
 // that is not "empty" (docs/75).
 bool battery(int& mv, int& pct, bool& charging);
+// **I el que un indicador de càrrega sap de més** (0.190.155): the current and the capacities, which a board with a divider on an
+// ADC cannot say. `hal::IPower::kUnknown` in a field is «this part does not say» and never a zero (docs/30, docs/50).
+bool battery_detail(hal::IPower::BatteryDetail& out);
+// **I el carregador** (0.190.156): the cable, what kind it is, and what is going into the cell. False on a board whose battery is
+// an ADC and nothing else (docs/30, docs/50).
+bool charger_detail(hal::IPower::ChargerDetail& out);
 
 // **Under this mark a board says it is over** (0.183.0): one number, in one place, so that the boot, the way down and the
 // console cannot disagree about what "low" is. Five percent of a cell of this glass is minutes and not hours (docs/50).

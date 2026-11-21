@@ -52,9 +52,11 @@ inline const char* family() { return "esp32"; }
 // This build is for a board and not for the PC emulator.
 inline bool emulator() { return false; }
 
-// No light of its own: what it has is a screen (docs/50).
-inline uint32_t led_count() { return 0; }
-inline uint32_t led_max() { return 0; }
+// **Una llum, i és la del vidre** (0.190.99): GPIO11 va a l'`EN` de l'elevador PT4103B23F, o sigui que la retroil·luminació del
+// panell és el que aquesta placa té com a llum —una de sola, blanca, i sense color que triar-hi més enllà de la intensitat—. El valor
+// màxim és el del PWM de la placa, vuit bits, que és el mateix 255 que fa servir tota la casa (docs/30, docs/50).
+inline uint32_t led_count() { return 1; }
+inline uint32_t led_max() { return 255; }
 
 // No inertial sensor on this board.
 inline bool has_imu() { return false; }

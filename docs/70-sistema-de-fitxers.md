@@ -74,6 +74,97 @@ total); al PC i a l'emulador no hi ha sostre —una clau és un fitxer— i diu 
 (`total` val 0 i no s'imprimeix). `fs.space("/nvs")` continua responent `E_UNSUPPORTED`: no hi ha
 bytes que donar.
 
+## La botiga s'ha d'encendre: `nvs_flash_init` (0.190.117)
+
+**El forat que hi havia sota tots els altres**: `nvs_flash_init()` és el que llegeix la partició del magatzem, la reconstrueix si li cal i deixa el
+`nvs_open` engegat. El nucli d'Arduino la crida a l'arrencada i per això tot funcionava amb `framework = arduino`; **en el build d'ESP-IDF no la
+cridava ningú**, o sigui que cada `nvs_open` tornava `ESP_ERR_NVS_NOT_INITIALIZED` i **no s'hi ha escrit mai res**. Tres cares del mateix forat, en
+l'ordre en què les vam veure:
+
+1. `[W][ALARM] cannot write the queue to nvs` (la primera línia que l'amo va ensenyar);
+2. `[I][NVS] the store was read at the boot: 0 setting(s) in 'cfg'`;
+3. `[W][NVS] 1 of the 1 change(s) did not reach the flash: session/wake_at`.
+
+Ara `ensure_the_store()` es crida a **cada porta** de la botiga (llegeix, escriu, esborra, recorre, compta i `commit`), es fa una vegada i prou, i
+si la IDF diu que la partició no té pàgines lliures o que és d'una versió que no és la d'aquest build **s'esborra i es fa de nou** —dient-ho—, que
+és el que la seva documentació mana: el que hi ha a dins són ajustos i es poden tornar a escriure (docs/50, docs/70).
+
+**I una escriptura que falla diu per què**: `nvs_open` que no obre i `nvs_set_blob` que no pren tenen ara la seva línia amb `esp_err_to_name`.
+Abans totes dues eren el mateix silenci (docs/70, docs/95).
+
+## Les escriptures de la botiga esperen la baixada (0.190.109)
+
+**La botiga de claus viu a la flash i la flash té un comptador**: cada `nvs_set_blob` escriu una entrada i, quan la pàgina que s'està fent
+servir s'omple, una de sencera —**quatre kilobytes per a un byte**, i la pàgina es gasti igual—, o sigui que un comptador que canvia cada minut
+és una pàgina cada poques setmanes i el disc de les claus no és per a això (l'amo: *«la flash te un número d'escriptures molt limitat... S'ha
+de procurar fer perdurar el màxim possible»*).
+
+Ara `set` i `erase` **apunten el que ha de canviar a la RAM** (una taula de dotze files, cada valor copiat del buffer del qui el demana) i el
+que ho escriu és **`commit()`**, que el nucli ja cridava a `settle_before_leaving` —la baixada, l'apagada i el reinici—. Un `get` llegeix
+primer el que espera i després la flash, o sigui que `cfg keyboard x` i tot seguit `cfg keyboard` donen el mateix que sempre; i un `erase`
+pendent és una clau que ja no hi és. **La taula plena no perd res**: escriu el que té i torna a començar.
+
+**I quan una app es tanca, la botiga s'escriu** (0.190.116): l'amo va veure `[I][NVS] the store was read at the boot: 0 setting(s)` en una
+placa on havia canviat coses, i el motiu era aquest —el que s'aguanta a la RAM no arriba a la flash si el reinici no passa per la baixada—. Tancar
+una app és el moment en què una persona ha acabat el que feia amb aquella pàgina, o sigui que `shell::close_app()` i `leave_lua()` fan `commit()`:
+**una escriptura per sessió d'ajustos i no una per toc**, i res perdut per un reinici. La baixada continua escrivint el que quedi (les sessions,
+la política del son), que és el que canvia sol i no té cap moment de «fet».
+
+**El que costa**: un reinici que no passa per la baixada —un xoc, el botó de reset— s'endú el que esperava. És el preu de no gastar la flash,
+i per això el que hi ha pendent és **un ajust i no una dada**: els llibres, les sessions i les apps són al disc (docs/70, docs/75).
+
+**I la botiga té sis pàgines i no quatre** (0.190.109): a `partitions_16mb.csv` i a `partitions.csv` la partició `nvs` passa de 16 KB a 24 KB
+sense moure cap altra partició (comença a `0x9000` i `phy_init` segueix a `0xf000`). El motiu és el que va fer dir `[W][ALARM] cannot write the
+queue to nvs`: un NVS de quatre pàgines **no té on compactar** quan la que fa servir s'omple —tres poden ser plenes i la quarta és la que
+s'escriu—, i una escriptura que arriba en mal moment torna `ESP_ERR_NVS_NOT_ENOUGH_SPACE` amb lloc de sobres dins del disc. Amb sis pàgines
+n'hi ha dues de lliures per compactar. **I quan la flash diu que no, el registre diu per què**: `esp_err_to_name` a la línia del `NVS`, que
+abans només deia «cannot write the queue» (docs/70, docs/95).
+
+## Cada ajust, amb la seva clau, al registre (0.190.111)
+
+L'amo: *«Quan a settings es seleccioni alguna cosa o canvii de valor, ho vull veure al log, amb la clau nvs que es pretén utilitzar»*. Hi ha
+**una sola porta** que desa un ajust —`keep()` a `lib/kernel/src/cfg.cpp`— i **cap altra crida a la botiga** en tot el fitxer, o sigui que la
+línia no es pot oblidar en un ajust i recordar en un altre (que és exactament com es perd una clau):
+
+```
+[I][CFG] cfg/backlight = on
+[I][CFG] cfg/backlightlevel = 42
+[I][CFG] cfg/touchscan = off
+[I][CFG] cfg/swbutton = off
+```
+
+El nom sencer és `espai/clau` —el que es veu amb `nvs` i amb `mem`—, i la botiga respon: si la crida torna `false`, la línia ho diu.
+
+**I aquestes línies no les filtra el nivell del registre** (0.190.114, l'amo: *«Perqué no veig missatges d'NVS al log, sobretot a
+settings?»*). El nivell és una tria sobre **traces**; no és una tria sobre la resposta a una cosa que una persona acaba de fer. Una línia
+`[I][NVS] cfg/sort = on` passa sempre —`log_markf`, la mateixa idea que les frases de `log_say` però amb la forma de les traces perquè la clau
+es pugui buscar—, i el mateix val per la confirmació de la baixada:
+
+```
+[I][NVS] the store is written
+```
+ **I la
+botiga, quan les escriu totes de cop a la baixada, també les diu** (0.190.111):
+
+```
+[I][NVS] 4 change(s) to the flash: cfg/backlight cfg/backlightlevel cfg/touchscan cfg/swbutton
+[W][NVS] 1 of the 4 change(s) did not reach the flash: cfg/... (ESP_ERR_NVS_NOT_ENOUGH_SPACE)
+```
+
+**I el nivell del registre es desa abans d'aplicar el filtre** (0.190.111): la línia del canvi de nivell és l'última que es veu amb el nivell
+vell, o sigui que `cfg loglevel warn` deixa escrita la línia que diu que el registre ja només vol avisos.
+
+## I un ajust que no tornava (0.190.111)
+
+Els quatre ajustos de la 0.190.106 i la 0.190.107 —`backlight`, `backlightlevel`, `swbutton` i `touchscan`— es llegien **dins del bloc que
+només s'obre si la clau `loglevel` és a la botiga**, o sigui que un commutador que una persona havia encès tornava apagat a cada arrencada
+tret que hagués tocat abans el nivell del registre. La línia de l'arrencada ho va fer veure de seguida quan es va provar a l'emulador, i ara
+cada ajust té el seu bloc i surt en una línia pròpia:
+
+```
+[I][CFG] the glass: backlight on at 42, button under it off, adaptive scan off, wake on touch off
+```
+
 ## `/nvs` com a fitxers
 L'emmagatzematge clau-valor té espais de noms i claus. S'exposa com un arbre de dos nivells:
 
@@ -775,8 +866,12 @@ una escriptura trencada no deixi mig fitxer. A POSIX això és `rename()` i reem
 fitxer anava bé i totes les següents fallaven** (el `run.txt` del Clock, el tauler del 2048, el registre de la Battery). El
 símptoma era un `E_IO` sense cap línia de disc al darrere, perquè ni l'obertura ni l'escriptura fallaven: la que fallava era
 la tercera passa. Ara es prova el renombrat, i si el disc el refusa es treu el destí i es torna a provar —amb la finestra d'un
-renombrat, que és el preu de desar de debò— i el registre ho diu (`[W][SD] cannot rename … errno 17`). Les tres passes de la
-targeta diuen el seu `errno` quan fallen.
+renombrat, que és el preu de desar de debò—. **Des de la 0.190.154 això passa dins del disc mateix**: `SdCard::rename` fa el
+segon intent quan FatFs contesta `EEXIST` i **no diu res si el segon intent va bé**, perquè una línia a cada desada d'una placa
+que funciona és una línia que ningú llegeix (l'amo, amb l'app Battery: *«cannot rename /sd/data/battery/samples.txt.tmp to
+/sd/data/battery/samples.txt: errno 17»*). El nucli encara té el mateix remei com a xarxa per a un disc que es comporti com
+FatFs; el que ja no fa és anunciar una cosa que el disc ha resolt tot sol. Les tres passes de la targeta diuen el seu `errno`
+quan fallen de debò.
 
 **`E_IO` i no `E_UNSUPPORTED`** (0.190.24): una escriptura que falla amb lloc al volum és el disc fallant, i durant molt
 de temps aquesta caixa deia `E_UNSUPPORTED` —«the file system does not do that»— per una targeta que havia refusat

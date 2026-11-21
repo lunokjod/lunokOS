@@ -88,7 +88,36 @@ const char kSleepKey[] = "sleep";
 const char kTouchWakeKey[] = "touchwake";
 // **La becaina** (0.190.63): the switch of the Battery tab that turns the light sleep of the waits on and off.
 const char kNapKey[] = "nap";
+const char kUartWakeKey[] = "uartwake";
+const char kLastSleepKey[] = "lastsleep";
 const char kIdleKey[] = "idle";
+// **El nivell del registre** (0.190.89): the word of the row of the System tab, kept like the keyboard's and read by the ring.
+const char kLogLevelKey[] = "loglevel";
+// **La llum del vidre** (0.190.106, l'amo: *«Afegeix a Settings->System un toggle amb "Use backlight" i un selector desplegable amb tots els
+// valors possibles del backlight»*): two keys and not one, perquè són dues decisions diferents —si la placa il·lumina el vidre, i amb quanta
+// llum— i una persona vol poder apagar-la sense perdre el nivell que havia triat (docs/30, docs/50).
+// **El règim del tàctil** (0.190.107, l'amo: *«afegeix un toggle que posi "Adaptative touch scan", aquesta opciò activa o desactiva el
+// comportament del panell de baixar la sensibilitat i pujar-la quan hi ha dit»*): a switch of the Input tab and a key of its own, perquè el
+// que decideix és si el vidre escombra deu vegades per segon quan no hi ha ningú o sempre al màxim (docs/30, docs/50).
+const char kTouchScanKey[] = "touchscan";
+// **El botó de sota el vidre** (0.190.110, l'amo: *«Afegeix a Settings->Input un Toggle per habilitar-lo o deshabilitar-lo "Use software
+// button"»*): un commutador i prou, perquè el botó no té nivell ni mida —el lloc és el de la placa i la zona la calcula el tàctil— (docs/30).
+const char kSoftwareButtonKey[] = "swbutton";
+// **El llum que s'apaga quan ningú mira** (0.190.118, l'amo: *«unaltre Toggle "Dim when idle" igual que el Sleep when idle o el Lock the
+// screen. Aquest en 1 minut que no es toqui l apantalla el backlight s'apaga i es torna a encendre quan toquen el panell»*): una clau i prou,
+// perquè el minut és del sistema i el que una persona tria és si el vol (docs/30, docs/50).
+const char kDimIdleKey[] = "dimidle";
+// **El respir mentre carrega** (0.190.162, l'amo: *«Si el T5S3 està carregant batería vull el efecte "breathe" al backight fins que deixa de
+// carregar. Afegeix un Toggle a l'app Settings->Battery que digui "Breathe while charging"»*): una clau i prou —el gest és el mateix que el
+// del llum que s'apaga quan ningú mira—, i ve **encesa**, perquè un cable que no diu res és el que la persona demanava deixar de tenir (docs/30, docs/50).
+const char kBreatheKey[] = "breathe";
+// **L'avís del cable** (0.190.165, l'amo: *«Afegeix un toggle a Settings->System "Announce charge" (per defecte true) que mostrarà l' splash de
+// "charging" quan es detecti que s'endolla»*): una clau i prou, i ve **encesa** perquè un cable que no diu res és el que la persona vol deixar
+// de tenir; qui no el vol el treu a la pàgina dels ajustos (docs/30, docs/50).
+const char kAnnounceChargeKey[] = "announcecharge";
+const char kBacklightKey[] = "backlight";
+const char kBacklightLevelKey[] = "backlightlevel";
+const size_t kLogLevelCap = 8;
 const char kLockAfterKey[] = "lockafter";
 const size_t kLockCap = 40;
 const uint8_t kLockAfterDefault = 10;
@@ -131,6 +160,29 @@ bool g_wake_on_touch = false;
 // **La becaina, encesa de sèrie** (0.190.63, l'amo: *«[X] Light sleep instead of wait»*): waiting awake is current nobody asked for and a
 // light sleep keeps everything the system needs; a board that cannot nap ignores it, which is what `power::can_nap` says (docs/50, docs/60).
 bool g_nap_on = true;
+bool g_uart_wake = true;
+// **Una frase i prou** (0.190.152): the report of the last deep sleep, as the board wrote it. It is a note for a person and not a setting, o
+// sigui que no té valor per defecte ni es valida: el que hi hagi és el que la placa va dir (docs/50, docs/70).
+char g_last_sleep[160] = {0};
+// **I el nivell, que arrenca en `debug`** (0.190.89): the default is what this system has always written —everything—, i el fila el canvia.
+char g_log_level[kLogLevelCap] = "debug";
+// **El llum del vidre, de sèrie apagat i al mig** (0.190.106): off because a light nobody asked for is current nobody asked for, and half
+// because a level that is picked for the first time should be worth looking at (docs/30, docs/50).
+// **Adaptatiu de sèrie** (0.190.107): the board comes out of the box saving what can be saved —ten scans a second while nobody is on the
+// glass— and a person who wants the glass at its top speed turns the switch off (docs/30, docs/50).
+bool g_touch_adaptive = true;
+// **Encès de sèrie** (0.190.110): el cercle de sota el vidre hi és a la placa i el que hi ha sota és un fals botó que només funciona perquè el
+// dit toca el panell; o sigui que el sistema el fa servir si no li diuen el contrari (docs/30, docs/50).
+bool g_software_button = true;
+// **Encès de sèrie** (0.190.118): una llum de fons encesa en una placa que no mira ningú és el corrent que aquest sistema estalvia; si una
+// persona vol la pàgina il·luminada tota l'estona, ho apaga aquí (docs/30, docs/50).
+bool g_dim_when_idle = true;
+// **El respir del vidre amb el cable posat** (0.190.162): encesa de sèrie —un cable que es veu sense mirar la barra— i la persona la pot treure
+// si vol un vidre quiet mentre la placa es carrega (docs/30, docs/50).
+bool g_breathe_on = true;
+bool g_announce_charge = true;
+bool g_backlight = false;
+uint8_t g_backlight_level = 128;
 uint8_t g_lock_after = kLockAfterDefault;
 // **Quant de quietud abans del son profund** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per fer el
 // DeepSleep)»*): segons, i la política de `power` el llegeix d'aquí en lloc de la constant de deu (docs/30, docs/60).
@@ -152,24 +204,38 @@ bool g_sort_by_usage = false;
 
 bool same(const char* a, const char* b) { return a != nullptr && b != nullptr && strcmp(a, b) == 0; }
 
-void remember() {
-  if (g_nvs == nullptr) return;
-  // **The settings live in the key-value store**, which is a write to the flash and not a variable
-  // (docs/70, docs/75).
+// **Cada ajust que es desa, dit amb la seva clau** (0.190.111, l'amo: *«Quan a settings es seleccioni alguna cosa o canvii de valor, ho vull
+// veure al log, amb la clau nvs que es pretén utilitzar»*). There is **one** door that writes a setting and it is this one: nobody in this file
+// calls the store directly any more, o sigui que la línia del registre no es pot oblidar en un ajust i recordar en un altre —que és exactament
+// com es perd una clau—. El valor es diu tal com queda desat, i el nom sencer `cfg/<clau>` és el que una persona busca amb `nvs` o amb `mem`
+// (docs/30, docs/70).
+//
+// **I la botiga respon**: `set` contesta que sí quan ha pres el valor —i amb les escriptures aguantades vol dir «apuntat», no «a la flash»—, o
+// sigui que la línia diu les dues coses: el que s'ha demanat i el que la botiga n'ha fet (docs/70, docs/75).
+bool keep(const char* key, const char* value) {
+  if (g_nvs == nullptr) {
+    log_markf("NVS", "%s/%s = %s, and this board has no store to keep it", kNamespace, key, value);
+    return false;
+  }
   meter::Scope scope(meter::kKvSet);
-  g_nvs->set(kNamespace, kKey, g_preference, strlen(g_preference));
+  const bool taken = g_nvs->set(kNamespace, key, value, strlen(value));
+  // **I amb l'etiqueta `NVS`, que és el que una persona busca** (0.190.114): the key of this system is `cfg/<key>` and who has it is the store;
+  // la línia es diu com la cosa que és i no com el mòdul que la demana (docs/30, docs/70).
+  log_markf("NVS", "%s/%s = %s%s", kNamespace, key, value, taken ? "" : " (the store refused it)");
+  return taken;
 }
+
+// **The settings live in the key-value store**, which is a write to the flash and not a variable (docs/70, docs/75).
+void remember() { (void)keep(kKey, g_preference); }
 
 bool remember_keyboard() {
   if (g_nvs == nullptr) return false;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kKeyboardKey, g_keyboard, strlen(g_keyboard));
+  return keep(kKeyboardKey, g_keyboard);
 }
 
 bool remember_boot() {
   if (g_nvs == nullptr) return false;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kBootKey, g_boot, strlen(g_boot));
+  return keep(kBootKey, g_boot);
 }
 
 // **None is a word and not an empty value** (0.119.0): the store keeps a string, and a key that was cleared has to
@@ -178,8 +244,7 @@ bool remember_boot() {
 bool remember_home() {
   if (g_nvs == nullptr) return false;
   const char* value = (g_home[0] != '\0') ? g_home : "none";
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kHomeKey, value, strlen(value));
+  return keep(kHomeKey, value);
 }
 
 // The offset is written as the text the person typed, and never as a binary number: the store is a place people read
@@ -187,119 +252,156 @@ bool remember_home() {
 bool remember_leap() {
   if (g_nvs == nullptr) return false;
   const char* word = g_leap_years ? kOn : kOff;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kLeapKey, word, strlen(word));
+  return keep(kLeapKey, word);
 }
 
 bool remember_dst() {
   if (g_nvs == nullptr) return false;
   const char* word = g_dst ? kOn : kOff;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kDstKey, word, strlen(word));
+  return keep(kDstKey, word);
 }
 
 bool remember_week() {
   if (g_nvs == nullptr) return false;
   const char* word = (g_week_start == 7) ? kSunday : kMonday;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kWeekKey, word, strlen(word));
+  return keep(kWeekKey, word);
 }
 
 bool remember_turn() {
   if (g_nvs == nullptr) return false;
   char text[kTurnCap] = {0};
   snprintf(text, sizeof(text), "%u", static_cast<unsigned>(luabind::turn_budget()));
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kTurnKey, text, strlen(text));
+  return keep(kTurnKey, text);
 }
 
 bool remember_cursor() {
   if (g_nvs == nullptr) return false;
   char text[kCursorCap] = {0};
   snprintf(text, sizeof(text), "%d", static_cast<int>(luabind::caret_blink_ms()));
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kCursorKey, text, strlen(text));
+  return keep(kCursorKey, text);
 }
 
 bool remember_sort() {
   if (g_nvs == nullptr) return false;
   const char* word = g_sort_by_usage ? kOn : kOff;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kSortKey, word, strlen(word));
+  return keep(kSortKey, word);
 }
 
 bool remember_settings() {
   if (g_nvs == nullptr) return false;
   const char* value = (g_settings[0] != '\0') ? g_settings : "none";
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kSettingsKey, value, strlen(value));
+  return keep(kSettingsKey, value);
 }
 
 bool remember_lock() {
   if (g_nvs == nullptr) return false;
   const char* value = (g_lock[0] != '\0') ? g_lock : "none";
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kLockKey, value, strlen(value));
+  return keep(kLockKey, value);
 }
 
 bool remember_wake_on_touch() {
   if (g_nvs == nullptr) return false;
   const char* word = g_wake_on_touch ? kOn : kOff;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kTouchWakeKey, word, strlen(word));
+  return keep(kTouchWakeKey, word);
+}
+
+bool remember_dim_idle() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_dim_when_idle ? kOn : kOff;
+  return keep(kDimIdleKey, word);
+}
+
+bool remember_software_button() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_software_button ? kOn : kOff;
+  return keep(kSoftwareButtonKey, word);
+}
+
+bool remember_touch_adaptive() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_touch_adaptive ? kOn : kOff;
+  return keep(kTouchScanKey, word);
+}
+
+bool remember_backlight() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_backlight ? kOn : kOff;
+  // **La llum són dues claus i les dues es diuen** (0.190.106): the switch and the level; una persona que en canvia una ha de veure les dues
+  // línies, perquè el que es desa és el parell (docs/30, docs/70).
+  char level[8] = {0};
+  snprintf(level, sizeof(level), "%u", static_cast<unsigned>(g_backlight_level));
+  const bool on_kept = keep(kBacklightKey, word);
+  const bool level_kept = keep(kBacklightLevelKey, level);
+  return on_kept && level_kept;
+}
+
+bool remember_log_level() {
+  if (g_nvs == nullptr) return false;
+  return keep(kLogLevelKey, g_log_level);
+}
+
+bool remember_announce_charge() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_announce_charge ? kOn : kOff;
+  return keep(kAnnounceChargeKey, word);
+}
+
+bool remember_breathe() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_breathe_on ? kOn : kOff;
+  return keep(kBreatheKey, word);
+}
+
+bool remember_uart_wake() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_uart_wake ? kOn : kOff;
+  return keep(kUartWakeKey, word);
 }
 
 bool remember_nap_on() {
   if (g_nvs == nullptr) return false;
   const char* word = g_nap_on ? kOn : kOff;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kNapKey, word, strlen(word));
+  return keep(kNapKey, word);
 }
 
 bool remember_sleep_on() {
   if (g_nvs == nullptr) return false;
   const char* word = g_sleep_on ? kOn : kOff;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kSleepKey, word, strlen(word));
+  return keep(kSleepKey, word);
 }
 
 bool remember_idle() {
   if (g_nvs == nullptr) return false;
   char text[8];
   snprintf(text, sizeof(text), "%u", static_cast<unsigned>(g_idle_seconds));
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kIdleKey, text, strlen(text));
+  return keep(kIdleKey, text);
 }
 
 bool remember_lock_on() {
   if (g_nvs == nullptr) return false;
   const char* word = g_lock_on ? kOn : kOff;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kLockOnKey, word, strlen(word));
+  return keep(kLockOnKey, word);
 }
 
 bool remember_lock_after() {
   if (g_nvs == nullptr) return false;
   char text[8];
   snprintf(text, sizeof(text), "%u", static_cast<unsigned>(g_lock_after));
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kLockAfterKey, text, strlen(text));
+  return keep(kLockAfterKey, text);
 }
 
 bool remember_freq() {
   if (g_nvs == nullptr) return false;
   char text[kFreqCap] = {0};
   if (!freq_text(text, sizeof(text), freq_mask())) return false;
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kFreqKey, text, strlen(text));
+  return keep(kFreqKey, text);
 }
 
 bool remember_tz() {
   if (g_nvs == nullptr) return false;
   char text[kTzCap] = {0};
   tz_text(text, sizeof(text), g_tz_minutes);
-  meter::Scope scope(meter::kKvSet);
-  return g_nvs->set(kNamespace, kTzKey, text, strlen(text));
+  return keep(kTzKey, text);
 }
 
 // Picks the unit and tells the VFS where `/cfg` points. The fallback is said out loud:
@@ -341,6 +443,19 @@ void apply() {
 }
 
 }  // namespace
+
+// **La darrera dormida, desada a la botiga** (0.190.151, l'amo: *«el botó de power fa un reset i tot s'envà a la merda»*): the RTC RAM of
+// this board goes away with the supply, so the line the board can say at the boot that follows a deep sleep is written here while it
+// is fresh, and `power last` answers from here when the power button has emptied everything else (docs/50, docs/70).
+// **Fora de l'anonimat, que és el que fa que es pugui cridar**: a symbol inside it is private to this file and the link would not find
+// it, which is exactly what happened when it was first written here (docs/95).
+bool keep_the_last_sleep(const char* text) {
+  if (text == nullptr || text[0] == '\0') return false;
+  snprintf(g_last_sleep, sizeof(g_last_sleep), "%s", text);
+  return keep(kLastSleepKey, g_last_sleep);
+}
+
+const char* the_last_sleep() { return g_last_sleep; }
 
 void boot(hal::IPlatform& platform) {
   g_nvs = platform.nvs();
@@ -576,6 +691,46 @@ void boot(hal::IPlatform& platform) {
           log_printf(pal::kLogWarn, "CFG", "sleep '%s' is not on or off; the board keeps its own policy", raw_sleep);
         }
       }
+      char raw_note[sizeof(g_last_sleep)] = {0};
+      size_t note_len = 0;
+      if (g_nvs->get(kNamespace, kLastSleepKey, raw_note, sizeof(raw_note) - 1, note_len) && note_len > 0 &&
+          note_len < sizeof(raw_note)) {
+        raw_note[note_len] = '\0';
+        snprintf(g_last_sleep, sizeof(g_last_sleep), "%s", raw_note);
+      }
+      char raw_uart[8] = {0};
+      size_t uart_len = 0;
+      if (g_nvs->get(kNamespace, kUartWakeKey, raw_uart, sizeof(raw_uart) - 1, uart_len) && uart_len > 0 &&
+          uart_len < sizeof(raw_uart)) {
+        raw_uart[uart_len] = '\0';
+        if (same(raw_uart, kOn) || same(raw_uart, kOff)) {
+          g_uart_wake = same(raw_uart, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "uartwake '%s' is not on or off; the console stays a door", raw_uart);
+        }
+      }
+      char raw_announce[8] = {0};
+      size_t announce_len = 0;
+      if (g_nvs->get(kNamespace, kAnnounceChargeKey, raw_announce, sizeof(raw_announce) - 1, announce_len) &&
+          announce_len > 0 && announce_len < sizeof(raw_announce)) {
+        raw_announce[announce_len] = '\0';
+        if (same(raw_announce, kOn) || same(raw_announce, kOff)) {
+          g_announce_charge = same(raw_announce, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "announcecharge '%s' is not on or off; the cable says nothing", raw_announce);
+        }
+      }
+      char raw_breathe[8] = {0};
+      size_t breathe_len = 0;
+      if (g_nvs->get(kNamespace, kBreatheKey, raw_breathe, sizeof(raw_breathe) - 1, breathe_len) && breathe_len > 0 &&
+          breathe_len < sizeof(raw_breathe)) {
+        raw_breathe[breathe_len] = '\0';
+        if (same(raw_breathe, kOn) || same(raw_breathe, kOff)) {
+          g_breathe_on = same(raw_breathe, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "breathe '%s' is not on or off; the light stays still on a cable", raw_breathe);
+        }
+      }
       char raw_nap[8] = {0};
       size_t nap_len = 0;
       if (g_nvs->get(kNamespace, kNapKey, raw_nap, sizeof(raw_nap) - 1, nap_len) && nap_len > 0 &&
@@ -585,6 +740,83 @@ void boot(hal::IPlatform& platform) {
           g_nap_on = same(raw_nap, kOn);
         } else {
           log_printf(pal::kLogWarn, "CFG", "nap '%s' is not on or off; the waits stay awake", raw_nap);
+        }
+      }
+      // **I el llindar del registre** (0.190.89): the word of the row of the System tab; el ring no filtra res mentre no se sap què vol
+      // la persona, i el que es llegeix aquí és el que val per a aquest run (docs/30, docs/50).
+      char raw_log[kLogLevelCap] = {0};
+      size_t log_len = 0;
+      if (g_nvs->get(kNamespace, kLogLevelKey, raw_log, sizeof(raw_log) - 1, log_len) && log_len > 0 &&
+          log_len < sizeof(raw_log)) {
+        raw_log[log_len] = '\0';
+        pal::LogLevel at = pal::kLogDebug;
+        if (log_level_from_name(raw_log, &at)) {
+          snprintf(g_log_level, sizeof(g_log_level), "%s", log_level_name(at));
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "loglevel '%s' is not debug, info, warn or error; the log keeps everything", raw_log);
+        }
+      }
+      pal::LogLevel restored = pal::kLogDebug;
+      if (log_level_from_name(g_log_level, &restored)) log_set_level(restored);
+      // **I els tres ajustos de la 0.190.106 i la 0.190.110, llegits com tots els altres** (0.190.111): the light of the glass, its level,
+      // the button under the glass and the scan of the panel were read **inside the block of the log level**, o sigui que només tornaven si la
+      // clau `loglevel` era a la botiga —que és el cas estrany—. Amb la clau absent, un commutador que una persona havia encès tornava apagat a
+      // cada arrencada, i això era el que no anava bé (docs/30, docs/70).
+      char raw_dim[8] = {0};
+      size_t dim_len = 0;
+      if (g_nvs->get(kNamespace, kDimIdleKey, raw_dim, sizeof(raw_dim) - 1, dim_len) && dim_len > 0 &&
+          dim_len < sizeof(raw_dim)) {
+        raw_dim[dim_len] = '\0';
+        if (same(raw_dim, kOn) || same(raw_dim, kOff)) {
+          g_dim_when_idle = same(raw_dim, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "dimidle '%s' is not on or off; the glass's light goes down when idle", raw_dim);
+        }
+      }
+      char raw_sw[8] = {0};
+      size_t sw_len = 0;
+      if (g_nvs->get(kNamespace, kSoftwareButtonKey, raw_sw, sizeof(raw_sw) - 1, sw_len) && sw_len > 0 &&
+          sw_len < sizeof(raw_sw)) {
+        raw_sw[sw_len] = '\0';
+        if (same(raw_sw, kOn) || same(raw_sw, kOff)) {
+          g_software_button = same(raw_sw, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "swbutton '%s' is not on or off; the button under the glass stays used", raw_sw);
+        }
+      }
+      char raw_scan[8] = {0};
+      size_t scan_len = 0;
+      if (g_nvs->get(kNamespace, kTouchScanKey, raw_scan, sizeof(raw_scan) - 1, scan_len) && scan_len > 0 &&
+          scan_len < sizeof(raw_scan)) {
+        raw_scan[scan_len] = '\0';
+        if (same(raw_scan, kOn) || same(raw_scan, kOff)) {
+          g_touch_adaptive = same(raw_scan, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "touchscan '%s' is not on or off; the scan stays adaptive", raw_scan);
+        }
+      }
+      char raw_light[8] = {0};
+      size_t light_len = 0;
+      if (g_nvs->get(kNamespace, kBacklightKey, raw_light, sizeof(raw_light) - 1, light_len) && light_len > 0 &&
+          light_len < sizeof(raw_light)) {
+        raw_light[light_len] = '\0';
+        if (same(raw_light, kOn) || same(raw_light, kOff)) {
+          g_backlight = same(raw_light, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "backlight '%s' is not on or off; the glass stays dark", raw_light);
+        }
+      }
+      char raw_level[8] = {0};
+      size_t level_len = 0;
+      if (g_nvs->get(kNamespace, kBacklightLevelKey, raw_level, sizeof(raw_level) - 1, level_len) && level_len > 0 &&
+          level_len < sizeof(raw_level)) {
+        raw_level[level_len] = '\0';
+        const long asked = strtol(raw_level, nullptr, 10);
+        if (asked > 0 && asked <= 255) {
+          g_backlight_level = static_cast<uint8_t>(asked);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "backlightlevel '%s' is not 1 to 255; the light stays at %u", raw_level,
+                     static_cast<unsigned>(g_backlight_level));
         }
       }
       char raw_touch[8] = {0};
@@ -688,8 +920,10 @@ void boot(hal::IPlatform& platform) {
   // persona ha triat**, que és la pestanya System llegida en veu alta. **I el motiu de la tercera**: un magatzem amb un nom
   // llarg —`littlefs` en lloc de `sd`— ja torna a passar dels cent noranta-dos bytes i el `cpu allows 80,160,240` sortia com
   // `cpu allows 80,16…` al log del 19/11 (docs/30, docs/45).
-  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, boot %s, tz %+03d:%02d, leap %s, dst %s, week %s",
-             (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot, g_tz_minutes / 60,
+  // **I el llindar del registre, que decideix quantes d'aquestes línies es veuen** (0.190.89): a line that says the level is written
+  // after the filter is already set, or the summary of the boot would be the first thing the filter hides (docs/30, docs/50).
+  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, log %s, boot %s, tz %+03d:%02d, leap %s, dst %s, week %s",
+             (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_log_level, g_boot, g_tz_minutes / 60,
              (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60, g_leap_years ? kOn : kOff, g_dst ? kOn : kOff,
              (g_week_start == 7) ? kSunday : kMonday);
   // **I la velocitat de la CPU, que es deia a mitges** (0.190.86): the line said which steps are allowed and nothing about
@@ -701,9 +935,37 @@ void boot(hal::IPlatform& platform) {
              static_cast<unsigned>(luabind::turn_budget()), g_sort_by_usage ? kOn : kOff,
              static_cast<int>(luabind::caret_blink_ms()), power::cpu_auto() ? kOn : kOff, freq_words,
              static_cast<unsigned>(power::resting_cpu_mhz()), g_nap_on ? kOn : kOff);
+  // **I els ajustos del maquinari, que també es llegeixen a l'arrencada** (0.190.111): the glass's light, the button under it and the scans of
+  // the panel; una línia que diu el que ha tornat, perquè un commutador que no sobreviu a un reinici es vegi en una línia i no en tres pantalles
+  // (docs/30, docs/70).
+  log_printf(pal::kLogInfo, "CFG",
+             "the glass: backlight %s at %u, out when idle %s, button under it %s, adaptive scan %s, wake on touch %s",
+             g_backlight ? kOn : kOff, static_cast<unsigned>(g_backlight_level), g_dim_when_idle ? kOn : kOff,
+             g_software_button ? kOn : kOff, g_touch_adaptive ? kOn : kOff, g_wake_on_touch ? kOn : kOff);
+  log_printf(pal::kLogInfo, "CFG", "and on a cable the glass breathes %s and the picture of the charge is %s",
+             g_breathe_on ? kOn : kOff, g_announce_charge ? kOn : kOff);
+  // **I la consola com a porta de la becaina, i només de la becaina** (0.190.147, 0.190.152, l'amo: *«l'UART si que ha de despertar el
+  // lightSleep, si no no es pot usar la shell per serial (es menja caràcters) pero no de DeepSleep»*): the switch is said with the two
+  // halves of its meaning in one line, perquè una persona ha de veure d'un cop que el son profund no en depèn pas (docs/30, docs/50).
+  log_printf(pal::kLogInfo, "CFG", "the console wakes a nap and never a deep sleep: %s", g_uart_wake ? kOn : kOff);
   log_printf(pal::kLogInfo, "CFG", "the apps a person chose: home %s, settings %s, lock %s; the lock is %s and waits %u min",
              (g_home[0] != '\0') ? g_home : "none", (g_settings[0] != '\0') ? g_settings : "none",
              (g_lock[0] != '\0') ? g_lock : "none", g_lock_on ? kOn : kOff, static_cast<unsigned>(g_lock_after));
+
+  // **I que la botiga ha contestat, dit a la primera línia de totes** (0.190.115, l'amo: *«I on dius que es llegeix al boot l'NVS?»*). Les
+  // vint-i-cinc lectures d'aquest `boot` són **silencioses** —una línia per clau serien vint-i-cinc línies dient que tot va bé—, o sigui que el
+  // que faltava era **una** línia que digués que la botiga s'ha llegit i quant hi havia: el nombre de claus del seu espai és el que una persona
+  // compara amb el que creu haver desat, i `0` vol dir que la botiga contesta però és buida (una placa nova) o que no contesta (docs/30, docs/70).
+  //
+  // **I és una marca**: aquesta no l'ha de poder amagar un nivell de registre, perquè és la resposta a «on es llegeix l'NVS» (docs/70, docs/75).
+  uint32_t kept = 0;
+  if (g_nvs != nullptr) {
+    const char* key = nullptr;
+    bool first = true;
+    while (g_nvs->next(kNamespace, key, first)) ++kept;
+  }
+  log_markf("NVS", "the store was read at the boot: %u setting(s) in '%s', and /cfg is on %s", static_cast<unsigned>(kept),
+            kNamespace, (g_unit[0] != '\0') ? g_unit : "nowhere");
 }
 
 const char* unit() { return g_unit; }
@@ -736,10 +998,107 @@ bool set_wake_on_touch(bool on) {
 // board does in the same moment and not on the next boot (docs/30, docs/60).
 bool nap_on() { return g_nap_on; }
 
+// **I la consola, que és una porta del maquinari com la del vidre** (0.190.147): the value of the page is the board's, so moving the switch
+// changes what the next nap does and not the next boot (docs/30, docs/60).
+bool uart_wake() { return g_uart_wake; }
+
+bool set_uart_wake(bool on) {
+  g_uart_wake = on;
+  (void)power::set_wake_from_uart(on);
+  // **I el preu de tancar aquesta porta, dit quan es tanca** (0.190.152): la consola és l'única manera de parlar amb una placa sense
+  // teclat, i un xip que dorm a trossos sense escoltar-la es menja el que una persona escriu. No s'impedeix —qui té la placa en una
+  // prestatgeria vol estalviar el corrent d'un cable que fa soroll— però no es fa en silenci (docs/30, docs/50).
+  if (!on) {
+    log_printf(pal::kLogWarn, "CFG",
+               "the console will not wake a nap: what is typed while the chip naps can be lost");
+  }
+  return remember_uart_wake();
+}
+
 bool set_nap_on(bool on) {
   g_nap_on = on;
   (void)power::set_nap_on(on);
   return remember_nap_on();
+}
+
+// **El llindar del registre** (0.190.89): the word of the row is the word of the ring, and the ring is told in the same line, or the
+// page would show a level the log does not obey until the next boot (docs/30, docs/50).
+// **El llum que s'apaga quan ningú mira** (0.190.118): cert vol dir que la llum del vidre baixa un minut després de l'últim dit, tecla o byte
+// de consola, i que el primer toc la torna a encendre sense clicar res (docs/30, docs/50).
+bool dim_when_idle() { return g_dim_when_idle; }
+
+// **Un cable que es veu de lluny** (0.190.162): the switch of the Battery tab, i el que mana el respir del vidre mentre el carregador diu que
+// hi ha corrent cap a la cel·la. El valor és el del run: moure el commutador canvia el que passa aquesta tarda i no el pròxim arrencada (docs/30).
+bool breathe_while_charging() { return g_breathe_on; }
+
+bool set_breathe_while_charging(bool on) {
+  g_breathe_on = on;
+  return remember_breathe();
+}
+
+// **I l'avís del cable, que és una foto i no una llum** (0.190.165): cert vol dir que la placa ensenya la imatge del cable quan el carregador
+// diu que la cel·la ha començat a prendre corrent —una vegada per cable, no a cada torn— i el valor és el d'aquest run (docs/30, docs/50).
+bool announce_charge() { return g_announce_charge; }
+
+bool set_announce_charge(bool on) {
+  g_announce_charge = on;
+  return remember_announce_charge();
+}
+
+bool set_dim_when_idle(bool on) {
+  g_dim_when_idle = on;
+  return remember_dim_idle();
+}
+
+// **El botó de sota el vidre** (0.190.110): cert vol dir que el sistema fa servir la zona del tàctil com una tecla més, i fals que la deixa
+// a la pàgina com qualsevol tros de vidre (docs/30, docs/50).
+bool software_button() { return g_software_button; }
+
+bool set_software_button(bool on) {
+  g_software_button = on;
+  return remember_software_button();
+}
+
+// **El règim del tàctil** (0.190.107): cert vol dir que el vidre baixa els escombrats quan no hi ha ningú i els apuja quan hi ha un dit;
+// fals vol dir que es queda al màxim mentre la placa és desperta (docs/30, docs/50).
+bool touch_adaptive() { return g_touch_adaptive; }
+
+bool set_touch_adaptive(bool on) {
+  g_touch_adaptive = on;
+  return remember_touch_adaptive();
+}
+
+// **El llum del vidre** (0.190.106): the switch and the level, kept together and answered as what stands (docs/30, docs/50).
+bool backlight() { return g_backlight; }
+
+bool set_backlight(bool on) {
+  g_backlight = on;
+  return remember_backlight();
+}
+
+uint8_t backlight_level() { return g_backlight_level; }
+
+bool set_backlight_level(uint8_t level) {
+  if (level == 0) level = 1;  // una llum encesa a zero és una llum apagada, i per això hi ha el commutador
+  g_backlight_level = level;
+  return remember_backlight();
+}
+
+const char* log_level() { return g_log_level; }
+
+bool set_log_level(const char* word) {
+  pal::LogLevel at = pal::kLogDebug;
+  if (!log_level_from_name(word, &at)) return false;
+  snprintf(g_log_level, sizeof(g_log_level), "%s", log_level_name(at));
+  // **La línia del canvi es veu sempre** (0.190.111): the level that was just chosen decides what is written from here on, o sigui que la línia
+  // que diu el canvi s'escriu amb **el més permissiu dels dos nivells** —el vell i el nou— i tot seguit s'aplica el nou. Així `loglevel warn`
+  // deixa la seva pròpia línia escrita i `loglevel debug` també, que és el que una persona espera d'una ordre que parla del registre
+  // (docs/30, docs/50).
+  const pal::LogLevel was = kernel::log_level();
+  log_set_level((was < at) ? was : at);
+  const bool kept = remember_log_level();
+  log_set_level(at);
+  return kept;
 }
 
 bool set_sleep_on(bool on) {

@@ -34,6 +34,15 @@ uint32_t g_warnings_without_frame = 0;
 void IRAM_ATTR on_the_line(void* arg) {
   (void)arg;
   g_frame_ready = true;
+  // **I el nucli es desperta aquí i no al proper torn** (0.190.119): the edge is the only moment this panel has news, and a turn that is
+  // asleep for its ten milliseconds —or its forty, on a board that naps— is a tap the person has already made and cannot see. The frame
+  // is still read from the turn and not from the interrupt: a bus is not an interrupt's business (docs/50, docs/95).
+  pal::IQueue* queue = pal::system().queue();
+  if (queue != nullptr) {
+    pal::Event ev = {};
+    ev.type = pal::kEventTouch;
+    queue->push_from_isr(ev);
+  }
 }
 
 // The four registers this driver touches, all of them two bytes wide (docs/50).
@@ -53,6 +62,32 @@ const uint8_t kConfigScanRate = 15;
 // 186 bytes, which is the length both vendor drivers read and write back with a fresh checksum
 // (docs/50).
 const uint8_t kConfigBytes = 186;
+// **Els comandaments i els dos bytes que fan seva una configuració** (0.190.105, el full del GT911 i el driver del fabricant,
+// `TouchDrvGT911::reloadConfig`): the command register is `0x8040` —`0x05` is the chip's own sleep, `SensorLib` `writeCommand(0x05)`—
+// and a block that has been changed is only taken when the checksum at `0x80FF` and the «fresh» byte at `0x8100` are written after
+// it. The checksum is the sum of the first 184 bytes of the block, negated (docs/50).
+const uint16_t kRegCommand = 0x8040;
+const uint16_t kRegConfigFresh = 0x8100;
+const uint8_t kCommandSleep = 0x05;
+// Inside the block: `0x804D` is the module switch whose two low bits are the interrupt mode, i `0x8047` + 6 = `0x804D`.
+const uint8_t kConfigModuleSwitch = 6;
+// **Els quatre modes de la línia** (`GT911_MODULE_SWITCH_1`, `setInterruptMode` del fabricant): 0 és vora de pujada, 1 vora de baixada,
+// 2 **nivell baix** i 3 nivell alt. El de nivell baix és el que el seu exemple en diu el de menys consum: *«Keep high level when idle, and
+// switch to low level when touched»* —la línia es queda baixa mentre hi ha un dit i el host no ha de preguntar res— (docs/50).
+const uint8_t kInterruptLowLevel = 0x02;
+// **El terra i el sostre del ritme** (0.190.105): the byte at `0x8056` holds five to twenty hertz and `kGt911QuietHz` is where this
+// driver leaves it while nobody is on the glass. Ten and not five because the first touch of a quiet glass waits for a scan: at five
+// hertz that is two hundred milliseconds before a finger is even noticed, i a hundred is the most a page that answers with the ink
+// (half a second a pass) can hide (docs/50, docs/95).
+const uint8_t kGt911QuietHz = 10;
+// **I el sostre amb la llum encesa** (0.190.119, l'amo: *«triga tant en respondre? sembla polling»*): la taula del `0x8056` arriba a vint
+// hertzs i aquesta unitat ve a deu, o sigui que «el ritme de la unitat» i «el terra» eren el mateix número i el burst no tenia res a apujar.
+// Amb el vidre il·luminat el xip va a vint —un marc cada cinquanta mil·lisegons i no cada cent— i el que paga són microampers al costat
+// d'una retroil·luminació encesa; quan la llum s'apaga (el dim), el terra torna a manar (docs/50, docs/95).
+const uint8_t kGt911BriskHz = 20;
+// **Cinc segons de ritme ràpid després de l'últim dit**: the burst is what a swipe and a keyboard need, and a finger that comes back
+// inside those five seconds finds the glass already awake and does not pay a second configuration of the chip (docs/50).
+const uint32_t kGt911HoldFastMs = 5000;
 
 // A point is eight bytes: track id, x, y, the size of the contact, and one reserved byte.
 const uint8_t kPointBytes = 8;
@@ -67,12 +102,12 @@ uint16_t word_at(const uint8_t* data, uint8_t offset) {
 
 }  // namespace
 
-bool Gt911::probe() {
-  if (bus_ == nullptr) return false;
+// **Qui hi ha, a les dues adreces possibles** (0.190.105): this was the body of `probe()` and it is a function of its own because the probe
+// asks it twice —the second time after waking a controller that went down asleep— (docs/50).
+bool Gt911::find_it() {
   const uint8_t addresses[2] = {kGt911Address, kGt911AddressBackup};
   uint8_t id[4] = {0};
-  bool found = false;
-  for (uint8_t i = 0; i < 2 && !found; ++i) {
+  for (uint8_t i = 0; i < 2; ++i) {
     // **Ask who is there before reading anything.** This unit answers at one of the two addresses and
     // the other one is nobody: reading its product id from the empty one is what put
     // `i2c: read of 14:8140 failed (ESP_FAIL)` in the boot log of a board where nothing was wrong
@@ -82,7 +117,25 @@ bool Gt911::probe() {
     if (!bus_->read16(address_, kRegProductId, id, sizeof(id))) continue;
     // The product id is the three characters `911` and a zero: a chip that answers something else
     // is another device on the same two wires and not ours (docs/50).
-    if (id[0] == '9' && id[1] == '1' && id[2] == '1') found = true;
+    if (id[0] == '9' && id[1] == '1' && id[2] == '1') return true;
+  }
+  return false;
+}
+
+bool Gt911::probe() {
+  if (bus_ == nullptr) return false;
+  bool found = find_it();
+  // **Un xip que va dormir amb la placa no contesta** (0.190.105): the sleep command (`0x8040 = 0x05`) survives a reset of the ESP32
+  // —the controller keeps its own supply— so a board that went down with «Wake on touch» off comes back to a glass that is asleep and
+  // silent. The manufacturer's wake is a pulse of eight milliseconds on the line (`TouchDrvGT911::wakeup`), i es fa **només** quan el
+  // xip no ha contestat: un xip despert no s'ha de tocar (docs/50).
+  if (!found && int_pin_ >= 0) {
+    hold_the_line_as_output(true);
+    pal::delay_us(8000);
+    rearm();
+    asleep_ = false;
+    pal::delay_us(10000);
+    found = find_it();
   }
   if (!found) {
     snprintf(profile_, sizeof(profile_), "no answer at 0x%02x or 0x%02x", kGt911Address,
@@ -106,6 +159,14 @@ bool Gt911::probe() {
   // fifty milliseconds— and the kernel's window of silence is three of those, so a finger that walks is not declared gone
   // in the middle of a swipe (docs/50, docs/95).
   scan_ms_ = gt911_scan_ms(config[kConfigScanRate]);
+  // **I el xip es queda en el mode de menys consum des del primer moment** (0.190.105): the rate the unit came with is remembered as the
+  // fast one of a burst, the line is put in the chip's own `LOW_LEVEL_QUERY` mode —low while a finger is down, which is the mode the
+  // manufacturer's example calls the low-power one— and the scans are dropped to `kGt911QuietHz` until somebody touches the glass.
+  unit_rate_ = static_cast<uint8_t>(config[kConfigScanRate] & 0x0Fu);
+  quiet_rate_ = static_cast<uint8_t>((kGt911QuietHz > 5u) ? (kGt911QuietHz - 5u) : 0u);
+  hertz_ = 5u + unit_rate_;
+  set_interrupt_mode(kInterruptLowLevel);
+  if (quiet_rate_ < unit_rate_) set_rate_byte(quiet_rate_);
   // A frame left over from before the reset is dropped here: the first read of the session must be
   // a finger that is on the glass now and not one from the boot (docs/50).
   release();
@@ -133,9 +194,10 @@ bool Gt911::probe() {
     gpio_install_isr_service(0);
     gpio_isr_handler_add(static_cast<gpio_num_t>(int_pin_), on_the_line, nullptr);
   }
-  snprintf(profile_, sizeof(profile_), "GT911 at 0x%02x, config %u, %ux%u, %u fingers, %u ms a scan", address_,
-           config[0], static_cast<unsigned>(width_), static_cast<unsigned>(height_),
-           static_cast<unsigned>(points_), static_cast<unsigned>(scan_ms_));
+  snprintf(profile_, sizeof(profile_), "GT911 at 0x%02x, config %u, %ux%u, %u fingers, %u Hz quiet, %u Hz awake",
+           address_, config[0], static_cast<unsigned>(width_), static_cast<unsigned>(height_),
+           static_cast<unsigned>(points_), static_cast<unsigned>(5u + quiet_rate_),
+           static_cast<unsigned>(5u + unit_rate_));
   return true;
 }
 
@@ -154,6 +216,83 @@ void Gt911::rearm() {
   gpio_config(&line);
 }
 
+// **Un byte de la configuració, i el xip se'l creu** (0.190.105): the block is read, the byte is changed, the checksum of the first 184
+// bytes is written at `0x80FF` and `0x8100` is set to one —the sequence of the manufacturer's `reloadConfig`—. It costs a read of 186
+// bytes and three writes, o sigui que es fa quan canvia el règim i no a cada frame (docs/50).
+bool Gt911::set_config_byte(uint8_t offset, uint8_t value) {
+  if (bus_ == nullptr || offset >= kConfigBytes - 2) return false;
+  uint8_t config[kConfigBytes] = {0};
+  if (!bus_->read16(address_, kRegConfig, config, sizeof(config))) return false;
+  if (config[offset] == value) return true;  // nothing to say, nothing to pay
+  config[offset] = value;
+  uint8_t sum = 0;
+  for (uint8_t i = 0; i < kConfigBytes - 2; ++i) sum = static_cast<uint8_t>(sum + config[i]);
+  const uint8_t checksum = static_cast<uint8_t>(~sum + 1);
+  uint8_t ask[3] = {static_cast<uint8_t>(kRegConfig >> 8),
+                    static_cast<uint8_t>((kRegConfig & 0xFF) + offset), value};
+  if (!bus_->write(address_, ask, sizeof(ask))) return false;
+  ask[1] = 0xFF;  // 0x80FF, the checksum, which is the last byte of the block before the fresh flag
+  ask[2] = checksum;
+  if (!bus_->write(address_, ask, sizeof(ask))) return false;
+  const uint8_t fresh[3] = {0x81, 0x00, 0x01};
+  if (!bus_->write(address_, fresh, sizeof(fresh))) return false;
+  return true;
+}
+
+bool Gt911::set_rate_byte(uint8_t value) {
+  if (value > 15) value = 15;
+  if (!set_config_byte(kConfigScanRate, value)) return false;
+  hertz_ = 5u + value;
+  scan_ms_ = gt911_scan_ms(value);
+  return true;
+}
+
+bool Gt911::set_interrupt_mode(uint8_t mode) {
+  if (bus_ == nullptr) return false;
+  uint8_t config[kConfigBytes] = {0};
+  if (!bus_->read16(address_, kRegConfig, config, sizeof(config))) return false;
+  const uint8_t wanted = static_cast<uint8_t>((config[kConfigModuleSwitch] & 0xFCu) | (mode & 0x03u));
+  return set_config_byte(kConfigModuleSwitch, wanted);
+}
+
+// **La línia, com la mou el fabricant** (0.190.105): `TouchDrvGT911::sleep` drives the line low as an output before the command and
+// `wakeup` pulses it high for eight milliseconds and gives it back as an input. El xip escolta el pin que és la seva entrada de
+// despertar, i en aquesta placa és el mateix que el seu avís (docs/50).
+void Gt911::hold_the_line_as_output(bool level) {
+  if (int_pin_ < 0) return;
+  gpio_config_t line = {};
+  line.pin_bit_mask = 1ULL << int_pin_;
+  line.mode = GPIO_MODE_OUTPUT;
+  line.pull_up_en = GPIO_PULLUP_DISABLE;
+  line.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  line.intr_type = GPIO_INTR_DISABLE;
+  gpio_config(&line);
+  gpio_set_level(static_cast<gpio_num_t>(int_pin_), level ? 1 : 0);
+}
+
+bool Gt911::sleep_now() {
+  if (bus_ == nullptr || asleep_) return false;
+  hold_the_line_as_output(false);
+  const uint8_t command[3] = {static_cast<uint8_t>(kRegCommand >> 8), static_cast<uint8_t>(kRegCommand & 0xFF), kCommandSleep};
+  if (!bus_->write(address_, command, sizeof(command))) return false;
+  asleep_ = true;
+  g_frame_ready = false;
+  return true;
+}
+
+bool Gt911::wake_up() {
+  if (bus_ == nullptr || !asleep_) return false;
+  hold_the_line_as_output(true);
+  pal::delay_us(8000);
+  asleep_ = false;
+  // **I la línia torna a ser un avís** (0.190.105): the driver's own configuration —an input with its pull-up and a falling edge—, which
+  // is the same `rearm` a light sleep uses. The chip keeps the configuration it had, o sigui que el règim de menys consum no es toca.
+  rearm();
+  g_frame_ready = false;
+  g_last_read_ms = static_cast<int32_t>(pal::system().millis());
+  return true;
+}
+
 void Gt911::release() {
   // Writing a zero to the status is what tells the chip the frame has been taken; it is called for a frame that is
   // there and for nothing else (0.174.4, docs/50).
@@ -161,8 +300,68 @@ void Gt911::release() {
   bus_->write(address_, frame, sizeof(frame));
 }
 
+// **El règim del xip, segons el que hi ha al vidre** (0.190.105): a finger raises the scans to the rate the unit came with, and a glass
+// that has been quiet for `kGt911HoldFastMs` goes back to the floor. It happens on a read and not on a timer because a glass that nobody
+// reads has nothing to raise the rate for, i el que paga el canvi són dues configuracions del xip (docs/50, docs/95).
+void Gt911::settle(uint32_t now_ms) {
+  if (asleep_) return;
+  // **Amb la llum encesa el terra és el sostre** (0.190.119): no hi ha res a deixar baixar mentre una persona mira el vidre (docs/30).
+  if (brisk_) {
+    if (hertz_ != kGt911BriskHz) set_rate_byte(static_cast<uint8_t>(kGt911BriskHz - 5u));
+    return;
+  }
+  if (!adaptive_) {
+    if (hertz_ != 5u + unit_rate_) set_rate_byte(unit_rate_);
+    return;
+  }
+  if (hertz_ == 5u + unit_rate_) {
+    if (now_ms - last_finger_ms_ < kGt911HoldFastMs) return;
+    if (quiet_rate_ < unit_rate_) set_rate_byte(quiet_rate_);
+  }
+}
+
+// **El commutador, aplicat ara** (0.190.107): someone who turns *Adaptive touch scan* off wants the glass at its top speed from that moment
+// and not five seconds later, i qui l'encén vol veure'l baixar quan el dit marxi. Cap dels dos demana tocar el xip si el règim ja és el que
+// toca, i per això el canvi només escriu quan el número és diferent (docs/30, docs/50).
+void Gt911::set_adaptive_scan(bool on) {
+  adaptive_ = on;
+  if (asleep_) return;  // the rate of a sleeping chip is the sleep's business (docs/60)
+  if (!on) {
+    const uint8_t rate = brisk_ ? static_cast<uint8_t>(kGt911BriskHz - 5u) : unit_rate_;
+    if (hertz_ != 5u + rate) set_rate_byte(rate);
+    return;
+  }
+  // **Adaptatiu encès** (0.190.107): a glass that has had nobody on it for the hold of a burst drops to the floor now, i un que acaba de
+  // tenir un dit s'hi queda fins que el burst s'acabi (docs/50).
+  last_finger_ms_ = static_cast<uint32_t>(pal::system().millis()) - kGt911HoldFastMs;
+  settle(last_finger_ms_);
+}
+
+// **El vidre, amb la llum encesa o sense** (0.190.119): the light of the glass is the one thing that says whether a person is looking at it, i
+// el règim del panell es lliga a ella en lloc de a un rellotge. `settle` fa la resta —pujar si cal i tornar al terra quan la llum s'apaga—, i un
+// xip adormit no es toca: el seu ritme és cosa del son (docs/30, docs/50, docs/60).
+void Gt911::set_brisk(bool on) {
+  if (brisk_ == on) return;
+  brisk_ = on;
+  if (asleep_) return;
+  settle(static_cast<uint32_t>(pal::system().millis()));
+  // **El canvi de règim, al registre** (0.190.119): és el número que diu per què un toc triga el que triga, i surt dues vegades per minut com a
+  // molt —quan la llum s'encén i quan el dim l'apaga— (docs/50, docs/95).
+  logf(pal::kLogDebug, "TOUCH", "the panel scans at %u Hz: the glass is %s", static_cast<unsigned>(hertz_),
+       on ? "lit" : "dark");
+}
+
+// **El règim més baix, per a qui ha de dormir** (0.190.107): a deep sleep that listens for a finger does not need a hundredth of a second
+// of resolution —it needs the line to fall— i el que paga el vidre desperta no ho ha de pagar dormit (docs/50, docs/60).
+void Gt911::quiet_now() {
+  if (asleep_) return;
+  if (quiet_rate_ < unit_rate_) set_rate_byte(quiet_rate_);
+  last_finger_ms_ = 0;
+}
+
 uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {
   if (bus_ == nullptr || out == nullptr || capacity == 0) return 0;
+  settle(static_cast<uint32_t>(pal::system().millis()));
   // **Sense avís no hi ha res a demanar** (0.188.0): the line is the chip's own word that a scan has a frame, so a turn
   // that nobody warned about answers before touching the bus —not even the status— and the frame is taken on the turn the
   // interrupt arrives instead of up to a scan later (docs/50, docs/95).
@@ -213,6 +412,12 @@ uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {
   // **Un frame sense punts és el dit que s'aixeca** (0.183.2): it is the chip's own word about the glass and not a silence to
   // be guessed from a timeout, so it is written down before the frame is released (docs/50, docs/90).
   down_ = (points > 0 && points <= kGt911MaxPoints);
+  // **El dit puja la potència del panell** (0.190.105, l'amo: *«fins a detectar un dit, llavors pujes la potència del panell durant uns
+  // segons»*): the rate goes to the one this unit came with and the clock of the hold starts again on every frame of the contact.
+  if (down_) {
+    last_finger_ms_ = static_cast<uint32_t>(pal::system().millis());
+    if (!brisk_ && hertz_ != 5u + unit_rate_) set_rate_byte(unit_rate_);
+  }
   if (points == 0 || points > kGt911MaxPoints) {
     release();
     g_frame_ready = false;

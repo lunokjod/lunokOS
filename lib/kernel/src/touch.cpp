@@ -1,13 +1,17 @@
 // The glass: the frame of the last turn and the gestures made out of it (docs/30, docs/50).
 #include "kernel/touch.h"
 
+#include "kernel/led.h"
 #include "kernel/lock.h"
+#include "kernel/power.h"
 
 #include <string.h>
 
 #include "kernel/display.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
+#include "kernel/button.h"
+#include "kernel/cfg.h"
 #include "kernel/orientation.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
@@ -51,7 +55,7 @@ bool g_down = false;
 // **I un quart que no és ningú** (0.189.100): the contact that was on the glass when the page went away. What it would have
 // said —a press and a release at the point it landed, or a gesture— belongs to a page that is not here any more, and the
 // page that is here now has not seen a finger at all (docs/30, docs/50).
-enum : uint8_t { kNoContact = 0, kThePage = 1, kTheKeyboard = 2, kTheSystem = 3, kNobodys = 4 };
+enum : uint8_t { kNoContact = 0, kThePage = 1, kTheKeyboard = 2, kTheSystem = 3, kNobodys = 4, kTheButton = 5 };
 uint8_t g_contact = kNoContact;
 // **I la pàgina nova encara no ha vist el vidre buit** (0.189.100): the chip scans by itself and **keeps the frame of the last
 // scan that found somebody until a read takes it**, and the kernel is not turning while an app is read and compiled. A tap a
@@ -198,6 +202,28 @@ uint32_t isqrt(uint32_t value) {
 // the page the app asks for.
 const uint16_t kChipPage = 270;
 
+// **La zona del botó de sota el vidre** (0.190.110, l'amo: *«sota el panell hi ha un cercle que sembla ser un botó tàctil, i es fals... es al
+// frontal, just sota la pantalla eink, centrat horitzontalment, com un botó d'iphone»*). The zone is the **bottom strip of the view**, centred:
+// the circle is under the visible glass, so the finger that presses it lands on the last rows of the panel, i el que es mesura a la placa ho
+// diu —un toc a `270,905` d'una vista de 540×912— (docs/30, docs/50).
+//
+// **S'estira i no s'apunta**: the circle is small and a thumb is not, so the strip is a hundred and twenty pixels wide and eighty tall —from
+// `h - 80` to the last row— which is the smallest zone that a person can hit without looking; a zone of the size of the circle would be a
+// button that works sometimes (docs/30).
+const uint16_t kButtonHalfWidth = 60;
+const uint16_t kButtonRows = 80;
+
+bool a_finger_on_the_button(uint16_t x, uint16_t y) {
+  if (button::software_button_key() < 0) return false;
+  const ui::Canvas& view = ui::canvas();
+  if (view.width == 0 || view.height == 0) return false;
+  const uint16_t middle = static_cast<uint16_t>(view.width / 2);
+  const uint16_t top = (view.height > kButtonRows) ? static_cast<uint16_t>(view.height - kButtonRows) : 0;
+  const uint16_t left = (middle > kButtonHalfWidth) ? static_cast<uint16_t>(middle - kButtonHalfWidth) : 0;
+  const uint16_t right = static_cast<uint16_t>(middle + kButtonHalfWidth);
+  return x >= left && x <= right && y >= top;
+}
+
 void turn_frame() {
   if (g_count == 0) return;
   const orientation::Frame chip = {g_glass->width(), g_glass->height()};
@@ -300,6 +326,8 @@ LastContact g_last_contact;
 // When the chip was last asked. `-1` is a glass nobody has asked yet, and the gate below is what keeps a turn of a
 // millisecond from asking a chip that scans every ten (0.174.4, docs/50, docs/95).
 int32_t g_asked_ms = -1;
+// **El règim dels escombrats que hi ha posat** (0.190.107): the glass answers it, i aquesta còpia és el que contesta quan el vidre no hi és.
+bool g_adaptive_scan = true;
 
 // **The chip is asked once per scan and not once per turn** (0.174.4): the glass scans the panel by itself and keeps
 // the frame of its last scan until a read takes it, so a turn that asks again inside the same scan can only be told
@@ -342,11 +370,24 @@ bool boot(hal::IPlatform& platform) {
   g_seen_ms = -1;
   g_asked_ms = -1;
   if (g_glass == nullptr) return false;
+  // **I el règim que la persona ha triat** (0.190.107): the switch of the Input tab decides whether the glass drops its scans when nobody is
+  // on it; el vidre ho aplica ara, i el son ja el configurarà a cada mode (docs/30, docs/50, docs/60).
+  g_adaptive_scan = cfg::touch_adaptive();
+  g_glass->set_adaptive_scan(g_adaptive_scan);
   luabind::set_touch_ops(luabind::TouchOps{caps_for_lua, points_for_lua, gesture_for_lua});
   return true;
 }
 
 bool available() { return g_glass != nullptr; }
+
+// **El règim del vidre, dit i aplicat** (0.190.107): `cfg` el desa i aquesta porta el posa al controlador, que és l'únic que sap com canviar-lo
+// (docs/30, docs/50).
+void set_adaptive_scan(bool on) {
+  g_adaptive_scan = on;
+  if (g_glass != nullptr) g_glass->set_adaptive_scan(on);
+}
+
+bool adaptive_scan() { return g_adaptive_scan; }
 
 namespace {
 uint32_t g_asks = 0;
@@ -372,6 +413,10 @@ void poll() {
   // a whole scan (docs/30, docs/50). And the chip is asked at the rate it can have news and not at the rate the kernel
   // turns (0.174.4): what is measured as `touch.read` is the reads of the chip and not the turns that had nothing to
   // ask it (docs/30, docs/95).
+  // **I el panell va al ritme de la llum** (0.190.119, l'amo: *«triga tant en respondre? sembla polling»*): with the backlight on somebody is
+  // looking at the glass, so the chip scans at its top speed and a tap pays half a scan instead of a whole one; when the dim puts the light
+  // out —or the board has no light at all— the floor of the panel is enough. El driver només escriu al xip quan el règim canvia (docs/30, docs/50).
+  g_glass->set_brisk(led::glass_is_lit());
   uint8_t taken = 0;
   // **Un vidre que avisa es pregunta a cada torn** (0.188.0): a glass with its interrupt line wired answers a turn that has
   // nothing to hand over without touching the bus, so asking it is free and the frame is taken on the turn the line says it
@@ -394,6 +439,15 @@ void poll() {
     // and the board powered off under the finger. **El comptador és un i el té `power`** (0.190.9): `lock::note_activity` ja el
     // mou, o sigui que aquí no s'ha de dir dues vegades (docs/30, docs/60).
     lock::note_activity(power::Hand::kGlass);
+    // **Un dit damunt del vidre ho mana tot** (0.190.87, l'amo: *«Si el dit està tocant la pantalla i hi ha cpu scaling => 240mhz. En
+    // quaslevol cas: mentre el dit toqui la pantalla també has de desactivar temporalment el LightSleep per evitar tenir problemes amb
+    // les lectures fins que el dit aixequi»*). Un sol fet i dues respostes: **la velocitat al cim** —a finger on the glass is the one
+    // moment this board has work that a person is waiting for: the frame has to reach a control, the control has to answer and the
+    // page has to be painted, and at eighty megahertz that wait is the one a hand can feel— i **cap becaina** —a light sleep stops the
+    // chip, the line of the panel and the scan with it, o sigui que una lectura perduda amb un dit a sobre és un toc que no arriba o
+    // que arriba dos cops—. Passa per `power`, que és qui té les dues decisions, i **no és una finestra de rellotge**: el que ho lleva
+    // és el dit quan s'aixeca, i amb l'escala apagada no mou la velocitat (docs/30, docs/50, docs/60).
+    power::note_a_finger(true);
     // **A frame of a finger that is already gone is a tap that is over**, and it carries its own release: the chip
     // hands over the frame of its last scan and a finger that came and went between two reads is not on the glass any
     // more. The keyboard hears that release before the press, or the tap after one whose release was missed —while a
@@ -410,6 +464,10 @@ void poll() {
   } else if (g_seen_ms < 0 || !g_glass->finger_still_down() || (now - g_seen_ms) >= quiet_window_ms()) {
     g_count = 0;
     g_seen_ms = -1;
+    // **I el dit s'ha aixecat** (0.190.87): the glass has been quiet for a whole scan, which is what "no finger" means here; the
+    // frame of the release has already been handed over, o sigui que la becaina i el pas de repòs tornen a ser possibles
+    // (docs/30, docs/50).
+    power::note_a_finger(false);
   }
   // **QUI REP L'EVENT ES DECIDEIX EN COMENÇAR I NO ES TORNA A MIRAR** (0.179.34): a contact has **one owner** from its
   // first frame —the strip of the system, the band of the keyboard, or the page— and every frame that comes after goes to
@@ -458,6 +516,22 @@ void poll() {
     // **I la pàgina que hi ha ara no rep el contacte d'una que ja no hi és** (0.189.100): the press of this point is the
     // click on the control of the page before, and delivered here it clicked the control of the new page that happened to
     // be under the same pixel —the launcher opening an app nobody asked for— (docs/30, docs/50).
+    if (g_contact == kTheButton) {
+      // **Què ha estat aquest contacte** (0.190.110): the walk and the time decide between a press —the system's back—, a `long` —the key saying
+      // something to the app— and a swipe that happened to start there, which is nothing (docs/30, docs/90).
+      const int32_t walked_x = static_cast<int32_t>(g_last_x) - static_cast<int32_t>(g_start_x);
+      const int32_t walked_y = static_cast<int32_t>(g_last_y) - static_cast<int32_t>(g_start_y);
+      const bool walked = (walked_x * walked_x + walked_y * walked_y) > (16 * 16);
+      const uint32_t held = static_cast<uint32_t>(now_ms() - g_contact_ms);
+      button::software_button_went(held, walked);
+      log_printf(pal::kLogDebug, "TOUCH", "the button under the glass: %u ms, walked %d,%d", static_cast<unsigned>(held),
+                 static_cast<int>(walked_x), static_cast<int>(walked_y));
+      g_last_contact = LastContact();
+      g_last_contact.x = g_start_x;
+      g_last_contact.y = g_start_y;
+      g_last_contact.frames = static_cast<uint8_t>((g_contact_frames > 255) ? 255 : g_contact_frames);
+      g_last_contact.ms = static_cast<uint16_t>((held > 65535) ? 65535 : held);
+    }
     if (g_contact == kThePage && !nobody_s_contact) {
       // **I el contacte es decideix aquí i només aquí** (0.189.0, l'amo: *«fes un mètode per retardar els events que s'envien
       // als UIControl. Si es decideix que és un gest no s'envien mai els events i s'envia el gest»*). The page has heard
@@ -507,6 +581,15 @@ void poll() {
     // that begins is a contact that is not the one before, so the band is told its finger is over before it is asked whose
     // this one is (docs/30, docs/90).
     ui::keyboard_touch(0, 0, false);
+    // **El primer dit sobre un vidre apagat només l'encén** (0.190.118, l'amo: *«el backlight s'apaga i es torna a encendre quan toquen el panell»*).
+    // El contacte és de ningú: ni la barra, ni la pàgina, ni el botó de sota el vidre el senten, perquè el que hi ha sota un vidre fosc no s'ha vist i
+    // prémer a cegues no és prémer (docs/30, docs/50). **Sense `dimidle` això no passa mai**: el llum no era apagat i `wake_the_light` diu que no.
+    if (led::wake_the_light()) {
+      g_contact = kNobodys;
+      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u lit the glass and clicks nothing",
+                 static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y));
+      return;
+    }
     // **La primera passada del contacte, i el propietari es decideix aquí**: `on_the_bar` is the strip of the system,
     // which is not part of any view —the first rows of the bar and the first rows of the page are the same numbers—; then
     // the band of the keyboard, asked with the row the finger landed on, so a page under it cannot be pressed through it;
@@ -519,6 +602,20 @@ void poll() {
                  ui::page_held() ? 1 : 0);
     } else if (ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true)) {
       g_contact = kTheKeyboard;
+    } else if (a_finger_on_the_button(g_frame[0].x, g_frame[0].y)) {
+      // **El botó de sota el vidre és una tecla i no una part de la pàgina** (0.190.110): the contact belongs to the system from its first frame,
+      // o sigui que la pàgina no en rep ni el toc ni el gest —el que hi hagi dibuixat a sota del cercle no s'ha de prémer— i el botó actua quan
+      // el dit s'aixeca (docs/30, docs/50).
+      g_contact = kTheButton;
+      // **Els números del contacte, presos aquí perquè el camí del gest no els prendrà** (0.190.110): the button's contact leaves `poll` before
+      // the machine that records where a finger landed, o sigui que la primera i l'última posició es guarden amb el propietari (docs/30).
+      g_start_x = g_frame[0].x;
+      g_start_y = g_frame[0].y;
+      g_last_x = g_start_x;
+      g_last_y = g_start_y;
+      button::software_button_held(true);
+      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the button under the glass",
+                 static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y));
     } else {
       g_contact = kThePage;
       // **I el gir amb què s'ha llegit, a la mateixa línia** (0.188.5): the page turn between the chip's frame and the page's
@@ -535,6 +632,20 @@ void poll() {
     // and a tap cost one press and one release (docs/30, docs/50).
   } else if (g_contact == kTheKeyboard) {
     ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true);
+  } else if (g_contact == kTheButton) {
+    // **I on és ara el dit, que és el que decideix si ha caminat** (0.190.110): a finger that slides away from the circle is not a press.
+    g_last_x = g_frame[0].x;
+    g_last_y = g_frame[0].y;
+  }
+  // **El botó de sota el vidre tampoc no és cap gest** (0.190.110): while the contact is its, the machine of taps and pairs does not run —un
+  // dit que es queda quiet sobre el cercle no ha de comptar tocs per a la pàgina, que ni tan sols el veu— (docs/30).
+  if (g_contact == kTheButton) {
+    // I si la tecla deixa d'existir a mig contacte (el commutador s'apaga), el dit es deixa anar i el contacte s'acaba en aquest torn.
+    if (button::software_button_key() < 0) {
+      button::software_button_held(false);
+      g_contact = kNoContact;
+    }
+    return;
   }
   // `kTheSystem` goes to nobody here: the panel and the bar read the gestures of the queue and the page hears neither the
   // press nor the click (docs/30, docs/50).

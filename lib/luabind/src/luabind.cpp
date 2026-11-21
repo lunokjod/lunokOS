@@ -1042,13 +1042,22 @@ int l_time_set(lua_State* L) {
 
 int l_time_caps(lua_State* L) {
   hal::IClock* clock = wall_clock();
-  lua_createtable(L, 0, 3);
+  lua_createtable(L, 0, 5);
   lua_pushstring(L, (clock != nullptr) ? clock->source() : "none");
   lua_setfield(L, -2, "source");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "synced");
   lua_pushstring(L, (clock != nullptr && clock->can_wake()) ? "yes" : "no");
   lua_setfield(L, -2, "wake");
+  // **Quin xip és i si el pot portar** (0.190.153, l'amo: *«Afegeix l'informació a l'app Battery»*): `chip` és el model del
+  // rellotge amb pila —"PCF8563" a la T5 S3 Pro, "BM8563" al Paper, buit on no n'hi ha cap— i `cell` és el que aquell xip diu
+  // de si mateix: `"ok"` la guarda, `"lost"` la seva pila el va deixar (el bit VL), `"silent"` no contesta i `"none"` no hi és.
+  // Una app que viu d'una alarma ho necessita: una mostra que depèn d'un rellotge sense pila només arriba amb la placa encesa
+  // (docs/30, docs/50, docs/60).
+  lua_pushstring(L, (clock != nullptr) ? clock->chip_name() : "");
+  lua_setfield(L, -2, "chip");
+  lua_pushstring(L, (clock != nullptr) ? clock->chip_state() : "none");
+  lua_setfield(L, -2, "cell");
   return 1;
 }
 
@@ -3338,7 +3347,7 @@ int l_console_is_foreground(lua_State* L) {
 // the Matrix— and the highest a channel may be, which on the panel is not 255. Zero
 // when there is no light at all (docs/30, docs/50).
 int l_led_caps(lua_State* L) {
-  lua_createtable(L, 0, 3);
+  lua_createtable(L, 0, 5);
   lua_pushinteger(L, static_cast<lua_Integer>(
                          (g_led_ops.count != nullptr) ? g_led_ops.count() : 0));
   lua_setfield(L, -2, "count");
@@ -3347,6 +3356,13 @@ int l_led_caps(lua_State* L) {
   lua_setfield(L, -2, "max");
   lua_pushboolean(L, (g_led_ops.has_colour != nullptr && g_led_ops.has_colour()) ? 1 : 0);
   lua_setfield(L, -2, "taken");
+  // **Què és la llum d'aquesta placa** (0.190.106): `role` és `light` o `backlight`, i `backlight` és cert quan ho és —una pàgina que vol
+  // ensenyar el commutador del vidre pregunta això i no el nom de la placa— (docs/30, docs/50).
+  const char* role = (g_led_ops.role != nullptr) ? g_led_ops.role() : "light";
+  lua_pushstring(L, role);
+  lua_setfield(L, -2, "role");
+  lua_pushboolean(L, (role != nullptr && strcmp(role, "backlight") == 0) ? 1 : 0);
+  lua_setfield(L, -2, "backlight");
   return 1;
 }
 
@@ -3777,6 +3793,251 @@ int l_env_read(lua_State* L) {
   return 1;
 }
 
+// ---------------------------------------------------------------------------
+// sensors: **el maquinari dit en magnituds i no en xips** (0.190.157)
+// ---------------------------------------------------------------------------
+
+// **L'àmbit mana el mòdul i el xip no surt enlloc** (0.190.158, l'amo: *«el que vull es que sigui així precisament! no son àlies,
+// son la base de com llistar i obtenir tots els dispositius ... env.temperature[0].read ... imu ... power»*). `env`, `power` i `imu`
+// no són xips: són **l'aire, l'energia i el moviment**, o sigui que una app que diu `power.temperature[0]` no sap de maquinari — sap
+// de què va el número. I `sensors` és l'agregador: els mateixos objectes, ordenats per magnitud i sense àmbit, per a la pàgina que
+// vol «tot el que aquesta placa mesura» (docs/30, docs/50).
+enum class SensorSource : uint8_t {
+  kEnvAir,
+  kEnvHumidity,
+  kImuChip,
+  kBatteryTemperature,
+  kBatteryVoltage,
+  kBatteryCurrent,
+  kBatteryCharge,
+  kChargerVbus,
+  kChargerVsys,
+  kChargerCurrent,
+};
+
+struct SensorDef {
+  uint8_t id;
+  const char* scope;  // "env", "power" or "imu": the module it hangs from
+  const char* kind;   // "temperature", "voltage", ...: the table it goes in
+  const char* where;  // "air", "cell", "chip", "input", "system"
+  const char* unit;
+  SensorSource source;
+};
+
+// **L'adreça d'un sensor no depèn de la placa** (0.190.157, l'amo: *«sempre es passa un <id> (imagina que tenim 3 termòmetres, un
+// ambiental, un de la batería de la placa i l'altre de la cpu)»*): the three thermometers of a Paper are 0, 1 and 2 whatever chip is
+// under each one; el que canvia entre plaques és **quins hi són**, no on són (docs/30, docs/50).
+const SensorDef kSensorDefs[] = {
+    {0, "env", "temperature", "air", "C", SensorSource::kEnvAir},
+    {1, "power", "temperature", "cell", "C", SensorSource::kBatteryTemperature},
+    {2, "imu", "temperature", "chip", "C", SensorSource::kImuChip},
+    {3, "env", "humidity", "air", "%", SensorSource::kEnvHumidity},
+    {4, "power", "voltage", "cell", "V", SensorSource::kBatteryVoltage},
+    {5, "power", "voltage", "input", "V", SensorSource::kChargerVbus},
+    {6, "power", "voltage", "system", "V", SensorSource::kChargerVsys},
+    {7, "power", "current", "cell", "mA", SensorSource::kBatteryCurrent},
+    {8, "power", "current", "input", "mA", SensorSource::kChargerCurrent},
+    {9, "power", "charge", "cell", "%", SensorSource::kBatteryCharge},
+};
+
+const uint32_t kSensorCount = sizeof(kSensorDefs) / sizeof(kSensorDefs[0]);
+
+// **Les magnituds que tenen taula encara que estiguin buides**: `env.pressure` és una llista de zero sensors en aquesta placa i no
+// un `nil`, o sigui que `#env.pressure` contesta sense haver de preguntar abans si existeix (docs/30).
+const char* const kSensorKinds[] = {"temperature", "humidity", "pressure", "voltage", "current", "charge"};
+const uint32_t kSensorKindCount = sizeof(kSensorKinds) / sizeof(kSensorKinds[0]);
+
+bool the_board_has(const hal::Capability bit) { return hal::platform().caps().has(bit); }
+
+bool a_sensor_exists(uint8_t id) {
+  switch (id) {
+    case 0:
+    case 3:
+      return g_env_ops.read != nullptr && the_board_has(hal::kCapEnv);
+    case 2:
+      return g_imu_ops.read != nullptr && the_board_has(hal::kCapImu);
+    case 1:
+    case 4:
+    case 7:
+    case 9:
+      return g_power_ops.battery != nullptr && g_power_ops.battery_detail != nullptr &&
+             the_board_has(hal::kCapBattery);
+    case 5:
+    case 6:
+    case 8:
+      return g_power_ops.charger_detail != nullptr;
+    default:
+      return false;
+  }
+}
+
+// **El valor, en la unitat que la taula diu**: volts, graus i mil·liamperes creuen la frontera ja convertits, i el que el xip no
+// diu no es converteix en un zero. False vol dir «aquest sensor no contesta ara» (docs/30, docs/50).
+bool read_a_sensor(uint8_t id, double& value) {
+  switch (kSensorDefs[id].source) {
+    case SensorSource::kEnvAir:
+    case SensorSource::kEnvHumidity: {
+      float celsius = 0;
+      float humidity = 0;
+      if (g_env_ops.read == nullptr || !g_env_ops.read(celsius, humidity)) return false;
+      value = (kSensorDefs[id].source == SensorSource::kEnvAir) ? celsius : humidity;
+      return true;
+    }
+    case SensorSource::kImuChip: {
+      float ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0, celsius = 0;
+      if (g_imu_ops.read == nullptr || !g_imu_ops.read(ax, ay, az, gx, gy, gz, celsius)) return false;
+      value = celsius;
+      return true;
+    }
+    case SensorSource::kBatteryVoltage:
+    case SensorSource::kBatteryCharge: {
+      int mv = 0, pct = 0;
+      bool charging = false;
+      if (g_power_ops.battery == nullptr || !g_power_ops.battery(mv, pct, charging)) return false;
+      value = (kSensorDefs[id].source == SensorSource::kBatteryVoltage) ? static_cast<double>(mv) / 1000.0
+                                                                       : static_cast<double>(pct);
+      return true;
+    }
+    case SensorSource::kBatteryTemperature:
+    case SensorSource::kBatteryCurrent: {
+      hal::IPower::BatteryDetail detail;
+      if (g_power_ops.battery_detail == nullptr || !g_power_ops.battery_detail(detail)) return false;
+      if (kSensorDefs[id].source == SensorSource::kBatteryTemperature) {
+        if (detail.temp_c10 == hal::IPower::kUnknown) return false;
+        value = static_cast<double>(detail.temp_c10) / 10.0;
+      } else {
+        if (detail.current_ma == hal::IPower::kUnknown) return false;
+        value = static_cast<double>(detail.current_ma);
+      }
+      return true;
+    }
+    case SensorSource::kChargerVbus:
+    case SensorSource::kChargerVsys:
+    case SensorSource::kChargerCurrent: {
+      hal::IPower::ChargerDetail charger;
+      if (g_power_ops.charger_detail == nullptr || !g_power_ops.charger_detail(charger)) return false;
+      if (kSensorDefs[id].source == SensorSource::kChargerVbus) {
+        if (charger.vbus_mv == hal::IPower::kUnknown || charger.vbus_mv <= 0) return false;
+        value = static_cast<double>(charger.vbus_mv) / 1000.0;
+      } else if (kSensorDefs[id].source == SensorSource::kChargerVsys) {
+        if (charger.vsys_mv == hal::IPower::kUnknown) return false;
+        value = static_cast<double>(charger.vsys_mv) / 1000.0;
+      } else {
+        if (charger.ichgr_ma == hal::IPower::kUnknown) return false;
+        value = static_cast<double>(charger.ichgr_ma);
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+// **Un sensor és una cosa amb un `read`** (0.190.158): `env.temperature[0].read()` llegeix ara i no guarda res —el que vulgui
+// desar el número el desa ell—, i l'id viatja a l'upvalue perquè la crida valgui igual amb punt i amb dos punts, que és com ho
+// escriu l'amo (docs/30).
+int l_sensor_read(lua_State* L) {
+  const uint8_t id = static_cast<uint8_t>(lua_tointeger(L, lua_upvalueindex(1)));
+  double value = 0;
+  if (!read_a_sensor(id, value)) {
+    return push_nil_error(L, "E_IO", "the sensor did not answer");
+  }
+  lua_pushnumber(L, value);
+  return 1;
+}
+
+void push_sensor_object(lua_State* L, const SensorDef& one) {
+  lua_createtable(L, 0, 4);
+  lua_pushinteger(L, static_cast<lua_Integer>(one.id));
+  lua_setfield(L, -2, "id");
+  lua_pushstring(L, one.kind);
+  lua_setfield(L, -2, "kind");
+  lua_pushstring(L, one.where);
+  lua_setfield(L, -2, "where");
+  lua_pushstring(L, one.unit);
+  lua_setfield(L, -2, "unit");
+  lua_pushinteger(L, static_cast<lua_Integer>(one.id));
+  lua_pushcclosure(L, l_sensor_read, 1);
+  lua_setfield(L, -2, "read");
+}
+
+int l_sensors_list(lua_State* L) {
+  lua_createtable(L, static_cast<int>(kSensorCount), 0);
+  int at = 0;
+  for (uint32_t i = 0; i < kSensorCount; ++i) {
+    if (!a_sensor_exists(kSensorDefs[i].id)) continue;
+    push_sensor_object(L, kSensorDefs[i]);
+    lua_rawseti(L, -2, ++at);
+  }
+  return 1;
+}
+
+int l_sensors_count(lua_State* L) {
+  const char* kind = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
+  lua_Integer count = 0;
+  for (uint32_t i = 0; i < kSensorCount; ++i) {
+    if (!a_sensor_exists(kSensorDefs[i].id)) continue;
+    if (kind != nullptr && strcmp(kSensorDefs[i].kind, kind) != 0) continue;
+    ++count;
+  }
+  lua_pushinteger(L, count);
+  return 1;
+}
+
+// **I això és el que fa que env, power i imu tinguin els seus** (0.190.158): each sensor appears **twice** —in the table of its
+// magnitude inside its scope (`power.temperature[0]`) and in the aggregator (`sensors.temperature[1]`)— and the object is the same
+// one, o sigui que una app no ha de triar quina de les dues portes fer servir (docs/30).
+void install_sensors(lua_State* L) {
+  lua_newtable(L);
+  for (uint32_t k = 0; k < kSensorKindCount; ++k) {
+    lua_newtable(L);
+    lua_setfield(L, -2, kSensorKinds[k]);
+  }
+  static const char* const kScopes[] = {"env", "power", "imu"};
+  for (uint32_t i = 0; i < 3; ++i) {
+    lua_getglobal(L, kScopes[i]);
+    if (lua_istable(L, -1)) {
+      for (uint32_t k = 0; k < kSensorKindCount; ++k) {
+        lua_newtable(L);
+        lua_setfield(L, -2, kSensorKinds[k]);
+      }
+    }
+    lua_pop(L, 1);
+  }
+
+  uint32_t in_kind[16] = {0};
+  for (uint32_t i = 0; i < kSensorCount; ++i) {
+    const SensorDef& one = kSensorDefs[i];
+    if (!a_sensor_exists(one.id)) continue;
+    uint32_t kind_index = kSensorKindCount;
+    for (uint32_t k = 0; k < kSensorKindCount; ++k) {
+      if (strcmp(kSensorKinds[k], one.kind) == 0) kind_index = k;
+    }
+    if (kind_index >= kSensorKindCount) continue;
+
+    // The scope's own table; the aggregator is the table at the bottom of the stack.
+    lua_getglobal(L, one.scope);
+    if (!lua_istable(L, -1)) {
+      lua_pop(L, 1);
+      continue;
+    }
+    lua_getfield(L, -1, kSensorKinds[kind_index]);
+    const int at = static_cast<int>(lua_rawlen(L, -1)) + 1;
+    push_sensor_object(L, one);
+    lua_rawseti(L, -2, at);
+    lua_pop(L, 2);
+
+    lua_getfield(L, -1, kSensorKinds[kind_index]);
+    push_sensor_object(L, one);
+    lua_rawseti(L, -2, static_cast<lua_Integer>(++in_kind[kind_index]));
+    lua_pop(L, 1);
+  }
+
+  set_function(L, "list", l_sensors_list);
+  set_function(L, "count", l_sensors_count);
+  lua_setglobal(L, "sensors");
+}
+
 // How long an app waits for a press by default. Twenty seconds is a person looking
 // at the board; an app that wants to wait for ever asks for a bigger number (docs/30).
 const lua_Integer kButtonWaitDefaultMs = 20000;
@@ -3786,6 +4047,13 @@ const lua_Integer kButtonWaitDefaultMs = 20000;
 // (docs/30).
 // button.count(): how many keys this board has. Zero is a board with none, and
 // it is not an error: an app asks before it shows three of them (docs/30).
+// **`button.software()`**: si la caixa té un botó de sota el vidre (0.190.110). Cert vol dir que el sistema en fa una tecla —la darrera de
+// `button.list()`— quan *Use software button* és encès, i una pàgina ho pregunta abans d'ensenyar-ne la fila (docs/30, docs/50).
+int l_button_software(lua_State* L) {
+  lua_pushboolean(L, (g_button_ops.software_button != nullptr && g_button_ops.software_button()) ? 1 : 0);
+  return 1;
+}
+
 int l_button_count(lua_State* L) {
   if (g_button_ops.count == nullptr) {
     lua_pushinteger(L, 0);
@@ -5521,6 +5789,11 @@ int l_canvas_newindex(lua_State* L) {
   if (key != nullptr && strcmp(key, "disabled") == 0) {
     redraw = true;
     const bool off = lua_toboolean(L, 3) != 0;
+    // **I el control se'l queda** (0.190.144): `disabled` was handed to the **children** and never written into the state table of the
+    // control itself —where `ui_disabled_ink` and `ui_field_bool` both read it—, o sigui que un `ui.button`, que porta el títol a dins i
+    // no té cap fill, es pintava ple i no es podia prémer: una pàgina que diu que una cosa està disponible quan no ho està. Ho va trobar
+    // el botó de `Sync from the network` dels ajustos (docs/30, docs/45).
+    ui_set_field_bool(L, 1, "disabled", off);
     ui_set_disabled_below(L, 1, off, 0);
     if (off && g_ui_focus_slot == canvas->slot && g_ui_focus_generation == canvas->generation) {
       g_ui_focus_slot = -1;
@@ -11665,13 +11938,89 @@ int l_power_battery(lua_State* L) {
     lua_pushnil(L);
     return 1;
   }
-  lua_createtable(L, 0, 3);
+  lua_createtable(L, 0, 6);
   lua_pushinteger(L, static_cast<lua_Integer>(mv));
   lua_setfield(L, -2, "mv");
   lua_pushinteger(L, static_cast<lua_Integer>(pct));
   lua_setfield(L, -2, "pct");
   lua_pushboolean(L, charging ? 1 : 0);
   lua_setfield(L, -2, "charging");
+  // **I el que el comptador de coulombs sap de més** (0.190.155, l'amo: *«Mira els exemples de batería (es el hardware que tenim?)
+  // ... Si ens serveixen, afegeix la informació a l'app battery»*): `ma` és el corrent que entra o surt de la cel·la —negatiu
+  // mentre alimenta la placa— i `mah`/`mah_full` són la càrrega que queda i la que cap. **El camp que el xip no diu no hi és**,
+  // en lloc de ser un zero, perquè un zero és una mesura i una absència no (docs/30, docs/50).
+  hal::IPower::BatteryDetail detail;
+  if (g_power_ops.battery_detail != nullptr && g_power_ops.battery_detail(detail)) {
+    if (detail.current_ma != hal::IPower::kUnknown) {
+      lua_pushinteger(L, static_cast<lua_Integer>(detail.current_ma));
+      lua_setfield(L, -2, "ma");
+    }
+    if (detail.left_mah != hal::IPower::kUnknown && detail.full_mah != hal::IPower::kUnknown) {
+      lua_pushinteger(L, static_cast<lua_Integer>(detail.left_mah));
+      lua_setfield(L, -2, "mah");
+      lua_pushinteger(L, static_cast<lua_Integer>(detail.full_mah));
+      lua_setfield(L, -2, "mah_full");
+    }
+    // **Com és la cel·la i no com està** (0.190.156): the temperature its own sensor reads, the health the gauge trusts, the
+    // cycles it has counted and the capacity it was sold with. La temperatura va en dècimes de grau perquè no es perdi res pel
+    // camí; l'app la divideix (docs/30, docs/50).
+    if (detail.temp_c10 != hal::IPower::kUnknown) {
+      lua_pushinteger(L, static_cast<lua_Integer>(detail.temp_c10));
+      lua_setfield(L, -2, "temp_c10");
+    }
+    if (detail.health != hal::IPower::kUnknown) {
+      lua_pushinteger(L, static_cast<lua_Integer>(detail.health));
+      lua_setfield(L, -2, "health");
+    }
+    if (detail.cycles != hal::IPower::kUnknown) {
+      lua_pushinteger(L, static_cast<lua_Integer>(detail.cycles));
+      lua_setfield(L, -2, "cycles");
+    }
+    if (detail.design_mah != hal::IPower::kUnknown) {
+      lua_pushinteger(L, static_cast<lua_Integer>(detail.design_mah));
+      lua_setfield(L, -2, "mah_design");
+    }
+  }
+  return 1;
+}
+
+// power.charger(): **l'altre xip de la bateria** (0.190.156, l'amo: *«Tenim el PMU molt abandonat ... Busca quin model tenim al
+// T5S3 Pro i implementa'l»*). The cable, what kind of supply it is, how much of it is going into the cell and what the rails are
+// doing. `nil` on a board without one; every field the part does not answer is absent from the table and never a zero, que és la
+// diferència entre «no carrega» i «no ho sé» (docs/30, docs/50, docs/60).
+int l_power_charger(lua_State* L) {
+  hal::IPower::ChargerDetail detail;
+  if (g_power_ops.charger_detail == nullptr || !g_power_ops.charger_detail(detail)) {
+    lua_pushnil(L);
+    return 1;
+  }
+  lua_createtable(L, 0, 7);
+  if (detail.vbus_mv != hal::IPower::kUnknown) {
+    lua_pushinteger(L, static_cast<lua_Integer>(detail.vbus_mv));
+    lua_setfield(L, -2, "vbus_mv");
+  }
+  if (detail.ichgr_ma != hal::IPower::kUnknown) {
+    lua_pushinteger(L, static_cast<lua_Integer>(detail.ichgr_ma));
+    lua_setfield(L, -2, "ichgr_ma");
+  }
+  if (detail.vsys_mv != hal::IPower::kUnknown) {
+    lua_pushinteger(L, static_cast<lua_Integer>(detail.vsys_mv));
+    lua_setfield(L, -2, "vsys_mv");
+  }
+  if (detail.ntc_pct != hal::IPower::kUnknown) {
+    lua_pushinteger(L, static_cast<lua_Integer>(detail.ntc_pct));
+    lua_setfield(L, -2, "ntc_pct");
+  }
+  if (detail.input != nullptr && detail.input[0] != '\0') {
+    lua_pushstring(L, detail.input);
+    lua_setfield(L, -2, "input");
+  }
+  if (detail.charge != nullptr && detail.charge[0] != '\0') {
+    lua_pushstring(L, detail.charge);
+    lua_setfield(L, -2, "charge");
+  }
+  lua_pushboolean(L, detail.power_good ? 1 : 0);
+  lua_setfield(L, -2, "good");
   return 1;
 }
 
@@ -12611,6 +12960,23 @@ int l_cfg_idle(lua_State* L) {
 // **Si el vidre desperta el son profund** (0.190.16, l'amo: *«opcionalment el panell tàctil (per defecte false) així no cal mantenir
 // despert el panell»*): the third door of the way down, and the only one that costs current while the board sleeps. Off is what a board
 // that has not been told anything answers (docs/30, docs/60).
+// cfg.uart_wake([on]): **si la consola desperta la becaina** (0.190.147, l'amo: *«Posa un toggle a Settings->Battery que doni la opció a
+// "Wake from UART"»*). Sense argument pregunta, i amb un llegeix el de sempre (`on`, `off`, `true`, `false`). És la porta que no es pot
+// perdre en una placa sense teclat, i per això ve encesa: el que fa el commutador és deixar-la tancar a qui vulgui (docs/30, docs/50).
+int l_cfg_uart_wake(lua_State* L) {
+  if (g_cfg_ops.uart_wake == nullptr || g_cfg_ops.set_uart_wake == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no console as a door");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (!cfg_switch(L, 1, on) || !g_cfg_ops.set_uart_wake(on)) {
+      return push_nil_error(L, "E_INVAL", "the console is awake or asleep");
+    }
+  }
+  lua_pushboolean(L, g_cfg_ops.uart_wake() ? 1 : 0);
+  return 1;
+}
+
 int l_cfg_touch_wake(lua_State* L) {
   if (g_cfg_ops.wake_on_touch == nullptr || g_cfg_ops.set_wake_on_touch == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no way down to the glass");
@@ -12639,6 +13005,112 @@ int l_cfg_nap(lua_State* L) {
     }
   }
   lua_pushboolean(L, g_cfg_ops.nap_on() ? 1 : 0);
+  return 1;
+}
+
+// **`cfg.loglevel([<word>])`: quantes línies vol veure una persona** (0.190.89, l'amo: *«Afegeix "Log level" a Settings->System Amb els
+// nivells de log, per defecte Debug (com la comanda log)»*). With no argument it answers the word the ring obeys; with one it writes it and
+// answers what stands, like `cfg.keyboard`. Una paraula que no és cap de les quatre es refusa amb `E_INVAL` i no canvia res (docs/30, docs/50).
+int l_cfg_loglevel(lua_State* L) {
+  if (g_cfg_ops.log_level == nullptr || g_cfg_ops.set_log_level == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no level for the log");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* word = luaL_checkstring(L, 1);
+    if (!g_cfg_ops.set_log_level(word)) {
+      return push_nil_error(L, "E_INVAL", "the log is debug, info, warn or error");
+    }
+  }
+  lua_pushstring(L, g_cfg_ops.log_level());
+  return 1;
+}
+
+// **`cfg.backlight([on])` i `cfg.backlight_level([v])`**: la llum del vidre (0.190.106, l'amo: *«Afegeix a Settings->System un toggle amb "Use
+// backlight" i un selector desplegable amb tots els valors possibles del backlight»*). Sense argument contesten el que hi ha; amb un, ho
+// escriuen i contesten el que queda, com la resta de ports. El nivell es tanca entre u i el sostre de la llum de la placa, perquè una llum
+// encesa a zero és una llum apagada i per a això ja hi ha el commutador (docs/30, docs/50).
+int l_cfg_backlight(lua_State* L) {
+  if (g_cfg_ops.backlight == nullptr || g_cfg_ops.set_backlight == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no light for the glass");
+  }
+  if (!lua_isnoneornil(L, 1)) g_cfg_ops.set_backlight(lua_toboolean(L, 1) != 0);
+  lua_pushboolean(L, g_cfg_ops.backlight() ? 1 : 0);
+  return 1;
+}
+
+int l_cfg_backlight_level(lua_State* L) {
+  if (g_cfg_ops.backlight_level == nullptr || g_cfg_ops.set_backlight_level == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no light for the glass");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    lua_Integer asked = luaL_checkinteger(L, 1);
+    const lua_Integer ceiling = (g_led_ops.max_value != nullptr) ? static_cast<lua_Integer>(g_led_ops.max_value()) : 255;
+    if (asked < 1) asked = 1;
+    if (asked > ceiling) asked = ceiling;
+    g_cfg_ops.set_backlight_level(static_cast<uint8_t>(asked));
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_cfg_ops.backlight_level()));
+  return 1;
+}
+
+// **`cfg.software_button([on])`**: el botó de sota el vidre (0.190.110, l'amo: *«Afegeix a Settings->Input un Toggle per habilitar-lo o
+// deshabilitar-lo "Use software button"»*). Sense argument contesta el que hi ha; amb un, ho escriu i el sistema deixa de fer-ne una tecla —o
+// torna a fer-ne— al torn següent, perquè qui la llegeix és el tàctil i no una còpia (docs/30, docs/50).
+int l_cfg_software_button(lua_State* L) {
+  if (g_cfg_ops.software_button == nullptr || g_cfg_ops.set_software_button == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no button under the glass");
+  }
+  if (!lua_isnoneornil(L, 1)) g_cfg_ops.set_software_button(lua_toboolean(L, 1) != 0);
+  lua_pushboolean(L, g_cfg_ops.software_button() ? 1 : 0);
+  return 1;
+}
+
+// **`cfg.dim_when_idle([on])`**: the light that goes out when nobody looks (0.190.118, l'amo: *«Aquest en 1 minut que no es toqui l apantalla el
+// backlight s'apaga i es torna a encendre quan toquen el panell»*). Sense argument contesta el que hi ha; amb un, ho escriu, i el minut i el
+// tornar a encendre són del nucli i no de la pàgina (docs/30, docs/50).
+int l_cfg_dim_when_idle(lua_State* L) {
+  if (g_cfg_ops.dim_when_idle == nullptr || g_cfg_ops.set_dim_when_idle == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no light for the glass");
+  }
+  if (!lua_isnoneornil(L, 1)) g_cfg_ops.set_dim_when_idle(lua_toboolean(L, 1) != 0);
+  lua_pushboolean(L, g_cfg_ops.dim_when_idle() ? 1 : 0);
+  return 1;
+}
+
+// **`cfg.breathe_while_charging([on])`**: el vidre que respira amb el cable posat (0.190.162, l'amo: *«Si el T5S3 està carregant batería vull el
+// efecte "breathe" al backight fins que deixa de carregar»*). Sense argument contesta el que hi ha; amb un, ho escriu, i el respir i l'aturar-se
+// són del nucli —el carregador és qui diu si hi ha corrent— i no de la pàgina (docs/30, docs/50).
+int l_cfg_breathe_while_charging(lua_State* L) {
+  if (g_cfg_ops.breathe_while_charging == nullptr || g_cfg_ops.set_breathe_while_charging == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no light for the glass");
+  }
+  if (!lua_isnoneornil(L, 1)) g_cfg_ops.set_breathe_while_charging(lua_toboolean(L, 1) != 0);
+  lua_pushboolean(L, g_cfg_ops.breathe_while_charging() ? 1 : 0);
+  return 1;
+}
+
+// **`cfg.announce_charge([on])`**: la foto del cable (0.190.165, l'amo: *«un toggle a Settings->System "Announce charge" (per defecte true) que
+// mostrarà l' splash de "charging" quan es detecti que s'endolla»*). Sense argument contesta el que hi ha; amb un, ho escriu, i el flanc i la
+// imatge són del nucli i no de la pàgina (docs/30, docs/50).
+int l_cfg_announce_charge(lua_State* L) {
+  if (g_cfg_ops.announce_charge == nullptr || g_cfg_ops.set_announce_charge == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no picture of the charge");
+  }
+  if (!lua_isnoneornil(L, 1)) g_cfg_ops.set_announce_charge(lua_toboolean(L, 1) != 0);
+  lua_pushboolean(L, g_cfg_ops.announce_charge() ? 1 : 0);
+  return 1;
+}
+
+// **`cfg.touch_adaptive([on])`**: el règim dels escombrats del vidre (0.190.107, l'amo: *«afegeix a Settings->Input un toggle que posi
+// "Adaptative touch scan", aquesta opciò activa o desactiva el comportament del panell de baixar la sensibilitat i pujar-la quan hi ha dit.
+// Deixant el panell a máxima velocitat mentre estigui el dispositiu despert»*). Sense argument contesta el que hi ha; amb un, ho escriu i ho
+// aplica al vidre a l'instant, perquè el commutador es vegi al dit i no al proper boot (docs/30, docs/50).
+int l_cfg_touch_adaptive(lua_State* L) {
+  if (g_cfg_ops.touch_adaptive == nullptr || g_cfg_ops.set_touch_adaptive == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no scan of the glass");
+  }
+  if (!lua_isnoneornil(L, 1)) g_cfg_ops.set_touch_adaptive(lua_toboolean(L, 1) != 0);
+  lua_pushboolean(L, g_cfg_ops.touch_adaptive() ? 1 : 0);
   return 1;
 }
 
@@ -12803,7 +13275,16 @@ void seal_globals(lua_State* L) {
   set_function(L, "lock_after", l_cfg_lock_after);
   set_function(L, "sleep", l_cfg_sleep);
   set_function(L, "touch_wake", l_cfg_touch_wake);
+  set_function(L, "uart_wake", l_cfg_uart_wake);
   set_function(L, "nap", l_cfg_nap);
+  set_function(L, "loglevel", l_cfg_loglevel);
+  set_function(L, "touch_adaptive", l_cfg_touch_adaptive);
+  set_function(L, "software_button", l_cfg_software_button);
+  set_function(L, "dim_when_idle", l_cfg_dim_when_idle);
+  set_function(L, "breathe_while_charging", l_cfg_breathe_while_charging);
+  set_function(L, "announce_charge", l_cfg_announce_charge);
+  set_function(L, "backlight", l_cfg_backlight);
+  set_function(L, "backlight_level", l_cfg_backlight_level);
   set_function(L, "idle", l_cfg_idle);
   set_function(L, "keyboards", l_cfg_keyboards);
   set_function(L, "boots", l_cfg_boots);
@@ -12936,9 +13417,11 @@ void seal_globals(lua_State* L) {
   lua_newtable(L);
   set_function(L, "read", l_env_read);
   lua_setglobal(L, "env");
+
   lua_createtable(L, 0, 1);
   set_function(L, "wait", l_button_wait);
   set_function(L, "count", l_button_count);
+  set_function(L, "software", l_button_software);
   set_function(L, "down", l_button_down);
   set_function(L, "held", l_button_held);
   set_function(L, "info", l_button_info);
@@ -13034,11 +13517,16 @@ void seal_globals(lua_State* L) {
   lua_createtable(L, 0, 4);
   set_function(L, "caps", l_power_caps);
   set_function(L, "battery", l_power_battery);
+  set_function(L, "charger", l_power_charger);
   set_function(L, "sleep", l_power_sleep);
   set_function(L, "keep_awake", l_power_keep_awake);
   set_function(L, "cpu", l_power_cpu);
   set_function(L, "cpu_auto", l_power_cpu_auto);
   lua_setglobal(L, "power");
+
+  // **I els sensors, quan els tres àmbits ja existeixen** (0.190.158): `env`, `power` i `imu` són taules globals i les de cada
+  // magnitud s'hi pengen aquí, amb l'agregador `sensors` al costat (docs/30, docs/50).
+  install_sensors(L);
 
   // fs: reading, writing and asking. A call that is not here is not there
   // either, so nothing is promised that the kernel does not do (docs/30).

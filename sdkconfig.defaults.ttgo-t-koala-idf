@@ -1,0 +1,47 @@
+# **La configuració del T-Koala en el build d'ESP-IDF** (0.190.170): un ESP32-WROVER-B amb 4 MB de flaix i **8 MB de PSRAM QSPI, dels quals
+# quatre es mapegen**. És el mateix xip que l'ATOM amb la memòria extra del Paper, o sigui que aquesta configuració és la del Paper amb la
+# taula de particions de 4 MB (docs/50, docs/80).
+
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+# **QIO i no DIO**: el WROVER-B d'aquesta placa porta el flaix en quatre bits, i el seu `boards/ttgo-t-koala.json` ja ho diu així
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+
+# **La PSRAM del WROVER: la llegeix la IDF sola al boot** i el que es decideix aquí és que es faci servir per al heap
+CONFIG_ESP32_SPIRAM_SUPPORT=y
+CONFIG_ESP32_SPIRAM_USE_MALLOC=y
+CONFIG_ESP32_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
+
+# La consola per la UART0, que és el pont USB de la placa
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_BOOTLOADER_LOG_LEVEL_INFO=y
+# **Els avisos de la IDF i no les seves traces**, que el port d'aquesta placa és el del prompt del sistema
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+
+# El rellotge a 240 MHz, que és el que el governador del sistema mou després per la seva porta
+CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y
+
+# El torn del nucli compta mil·lisegons, i la pila del nucli és la dels 16 KB de l'Arduino (docs/75)
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+
+# I el C++ sense excepcions ni RTTI, com al build d'Arduino
+CONFIG_COMPILER_CXX_EXCEPTIONS=
+CONFIG_COMPILER_CXX_RTTI=
+
+# **El TLS allotja a la PSRAM**, i els noms llargs de la targeta encesos (les mateixes dues raons que al `sdkconfig.defaults`)
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_FATFS_LFN_STACK=y
+
+# La taula de particions és la de l'entorn d'Arduino d'aquesta placa
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# **La WiFi fora de la IRAM**, com a les altres tres bandes d'IDF d'aquest xip
+CONFIG_ESP32_WIFI_IRAM_OPT=n
+CONFIG_ESP32_WIFI_RX_IRAM_OPT=n

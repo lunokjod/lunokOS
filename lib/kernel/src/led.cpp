@@ -6,6 +6,9 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "kernel/cfg.h"
+#include "kernel/log.h"
+#include "kernel/power.h"
 #include "luabind/luabind.h"
 
 namespace kernel {
@@ -14,6 +17,25 @@ namespace {
 
 hal::IPlatform* g_platform = nullptr;
 hal::ILed* g_led = nullptr;
+
+// **El vidre que s'ha apagat sol** (0.190.118): cert vol dir que el negre que hi ha al vidre és d'aquest mòdul i no de ningú més, o sigui que el
+// primer dit només ha d'encendre i no ha de clicar (docs/30, docs/50).
+bool g_dimmed = false;
+// **Un llum que espera una pàgina** (0.190.161): the boot says it —a return for an alarm has nobody in front— and it goes down the
+// moment the board has something to show or a finger arrives (docs/30, docs/60).
+bool g_glass_waits = false;
+// **El vidre que respira amb el cable posat** (0.190.162): the switch of the Battery tab, the charge the gauge reports and the two moments
+// that decide it —when it was last asked and when the breath began—. The breath is the house's own (`EffectKind::kBreath`), o sigui que el
+// gest és el mateix que el de l'arrencada i el de la ràdio en una llum d'estat (docs/30, docs/50).
+bool g_breathe_on_a_cable = false;
+int64_t g_breathe_start = 0;
+int64_t g_cable_asked_ms = -1;
+const int64_t kCableEveryMs = 20000;   // how often the charger is asked, because a register per turn is a bus nobody else can use
+// **I cada quant mentre el vidre respira** (0.190.163, l'amo: *«El breathe ha de parar en quant la placa perdi el cable»*): a breath that goes
+// on for twenty seconds after the cable is out is the board saying a lie, o sigui que mentre el respir dura el carregador es pregunta cada
+// segon i el que costa és una lectura d'un registre i prou (docs/30, docs/50).
+const int64_t kCableWhileBreathingMs = 1000;
+const uint32_t kBreathePeriodMs = 4000;  // one breath of the glass: the same length the boot has
 
 // ---- the app layer -------------------------------------------------------
 // The colour an app asked for. It wins over the system while the app is in front.
@@ -49,6 +71,14 @@ uint8_t g_fade_blue = 0;
 Effect g_system[kTriggerCount];
 bool g_radio = false;
 int64_t g_radio_start = 0;
+// **El llum de repòs** (0.190.106, l'amo: *«Els leds es poden declarar com a "backlight", així el sistema pot identificar quin led usar-lo per
+// il·luminar la pantalla»*): what the board leaves when it has nothing to say. It is black on every board —a light that says nothing is a
+// light off— i en una placa amb retroil·luminació és el nivell que una persona ha triat a la pàgina dels ajustos. The effects and the app
+// keep winning over it while they last, i en acabar-se la llum torna aquí i no al negre (docs/30, docs/50).
+uint8_t g_rest_red = 0;
+uint8_t g_rest_green = 0;
+uint8_t g_rest_blue = 0;
+
 // The boot's breath is an **idle** effect and not a moment: an app that starts while it is still
 // going takes the light without waiting to be allowed and without being told, because it was never
 // the app's (docs/30).
@@ -344,6 +374,9 @@ void defaults() {
 // Giving the app its light back is **not** done here: `poll` does it before it paints anything, so
 // the frame of that turn is the app's and not black (docs/30).
 const Effect* system_now(int64_t now, uint32_t& elapsed) {
+  // **En una retroil·luminació el sistema no diu res** (0.190.112): it is one line in the one place that decides whether the board is saying
+  // something, o sigui que cap camí —el moment, la ràdio, el respir— no pot saltar-se-la (docs/30, docs/50).
+  if (g_led != nullptr && g_led->role() == hal::LedRole::kBacklight) return nullptr;
   if (g_has_note) {
     if (now < g_note_end) {
       const Effect& e = g_system[static_cast<uint32_t>(g_note)];
@@ -515,9 +548,22 @@ bool trigger_from_name(const char* name, Trigger& out) {
   return false;
 }
 
-bool boot(hal::IPlatform& platform) {
+// **El nom del paper de la llum, que el xip de la placa diu** (0.190.106): a board without a light answers `light` and not nothing, perquè
+// una pàgina que pregunta ho fa amb una resposta i no amb un nul (docs/30).
+const char* role_name() { return (g_led != nullptr) ? hal::led_role_name(g_led->role()) : "light"; }
+
+bool boot(hal::IPlatform& platform, bool the_glass_waits) {
   g_platform = &platform;
   g_led = platform.led();
+  g_glass_waits = the_glass_waits;
+  g_breathe_on_a_cable = false;
+  g_breathe_start = 0;
+  g_cable_asked_ms = -1;
+  if (the_glass_waits) {
+    // **Dit, perquè un vidre fosc que no s'explica és un vidre trencat** (0.190.161, l'amo: *«surt al log l'apagada i l'encesa del
+    // backlight?»*): a wake for an alarm has nobody in front, o sigui que la llum espera una pàgina i la línia ho diu (docs/30, docs/50).
+    log_markf("LED", "the glass's light waits: this boot came back for an alarm and has nothing to show yet");
+  }
   g_has_colour = false;
   g_painted = false;
   g_effect = Effect();
@@ -558,6 +604,8 @@ bool boot(hal::IPlatform& platform) {
     ops.effect_from_name = &op_effect_from_name;
     ops.trigger_name = &op_trigger_name;
     ops.trigger_from_name = &op_trigger_from_name;
+    // **I què és aquesta llum, dit per la placa** (0.190.106): `led.caps().role` i `.backlight` surten d'aquí (docs/30, docs/50).
+    ops.role = &role_name;
   }
   luabind::set_led_ops(ops);
 
@@ -565,13 +613,22 @@ bool boot(hal::IPlatform& platform) {
   // The light starts off: a chip that restarted with a lit light would be saying
   // something the new boot has not decided (docs/50). The white breath of the boot says
   // it on the turn after this one (docs/30).
-  {
+  // **I en una retroil·luminació aquesta passa no cal** (0.190.112): the driver of the glass's light is born at zero duty, o sigui que el negre
+  // ja hi és i el que ha de dir el primer frame és el nivell triat i no dues coses (docs/50, docs/75).
+  if (!is_a_backlight()) {
     // One frame of the wire, the same cost as any other (docs/75).
     meter::Scope scope(meter::kLedShow);
     g_led->fill(0, 0, 0);
     g_led->show();
   }
-  note(Trigger::kBoot);
+  // **I en una retroil·luminació el respir de l'arrencada no es diu** (0.190.112): the light of the glass does not talk, o sigui que el que
+  // hi ha en encendre's és el nivell que una persona ha triat i res més (docs/30, docs/50).
+  if (!is_a_backlight()) note(Trigger::kBoot);
+  // **I la llum del vidre, si la placa en té una** (0.190.106): the rest is the level a person chose, so the panel comes up lit when the
+  // switch says so (docs/30, docs/50). **I no s'encén si aquesta arrencada és una alarma** (0.190.161, l'amo: *«Quan es desperta d'un
+  // deepsleep per alarma no s'ha d'encendre el backlight i tornar a dormir»*): the board came back to take a sample and goes down
+  // again, o sigui que un llum que s'encén i s'apaga en dos segons és exactament el parpelleig que una alarma no ha de fer.
+  apply_the_backlight();
   return true;
 }
 
@@ -597,7 +654,9 @@ bool released() {
 }
 
 void set_state(State state) {
-  const bool radio = (state == State::kRadio);
+  // **I la ràdio tampoc no parpelleja en una retroil·luminació** (0.190.112): the blink of the radio is the board saying something, and the
+  // light of the glass says nothing —el que fa és il·luminar el que hi ha pintat— (docs/30, docs/50).
+  const bool radio = (state == State::kRadio) && g_led != nullptr && g_led->role() != hal::LedRole::kBacklight;
   if (radio && !g_radio) g_radio_start = now_ms();
   g_radio = radio;
   g_dirty = true;
@@ -764,6 +823,13 @@ void restore_system_effect(Trigger trigger) {
 
 void note(Trigger trigger) {
   if (g_led == nullptr) return;
+  // **Una llum de fons no diu coses** (0.190.112, l'amo: *«Al iniciar una placa amb led es fa lo del SOS per errors i la respiració... No la
+  // facis en aquesta placa, al declarar-se backlight no es toca a primeres»*). A light the board declares as a **backlight** is the glass's
+  // illumination: the breath of the boot and the SOS of a failure are a **language** and this one has no language to speak with —it would
+  // light the whole screen to say something nobody asked to read—. O sigui que cap moment del sistema la toca: ni el respir, ni l'SOS, ni la
+  // ràdio, ni l'alarma. El que sí que la governa és el nivell que una persona tria (*Use backlight*) i, si una app en demana un color, el color
+  // (docs/30, docs/50).
+  if (g_led->role() == hal::LedRole::kBacklight) return;
   if (static_cast<uint32_t>(trigger) >= kTriggerCount) return;
   const Effect& e = g_system[static_cast<uint32_t>(trigger)];
   if (e.kind == EffectKind::kNone) return;
@@ -819,7 +885,7 @@ int32_t next_frame_ms() {
   if (g_led == nullptr) return -1;
   if (g_effect.kind != EffectKind::kNone || g_fading) return static_cast<int32_t>(kFrameMs);
   if (g_has_colour) return g_dirty ? 0 : -1;
-  if (g_has_note || g_radio || g_idle) return static_cast<int32_t>(kFrameMs);
+  if (g_has_note || g_radio || g_idle || g_breathe_on_a_cable) return static_cast<int32_t>(kFrameMs);
   return -1;
 }
 
@@ -829,7 +895,7 @@ bool animating() {
   if (g_fading) return true;
   if (g_painted) return false;  // the app's own frame is still, and it is the app's
   if (g_has_colour) return false;
-  return g_has_note || g_radio || g_idle;
+  return g_has_note || g_radio || g_idle || g_breathe_on_a_cable;
 }
 
 // A moment that ended hands the app its light back, exactly as it was and with its effect where it
@@ -849,8 +915,63 @@ void restore_saved(int64_t now) {
   g_dirty = true;
 }
 
+// **I el vidre torna on era quan el respir s'acaba** (0.190.164, l'amo: *«Al acabar el breathe, si l'usuari te backlight, anar al seu nivell de
+// llum escollit. Si no, apagues i llestos»*): the level a person chose or black, o sigui que el repòs es torna a calcular i es pinta aquí mateix
+// —el darrer frame del respir és una llum qualsevol i no el que la placa diu quan no diu res— (docs/30, docs/50).
+bool no_one_is_talking();  // the app's colour, an effect, a fade, a note, the radio or a moment keep the light
+
+void back_to_the_rest() {
+  apply_the_backlight();
+  // **I si l'app té la llum, no se li treu**: the breath was the system talking and it has stopped, o sigui que el que mana és el que hi havia
+  // abans del cable i el repòs només s'hi posa quan no hi ha ningú més (docs/30).
+  if (!no_one_is_talking()) return;
+  paint(g_rest_red, g_rest_green, g_rest_blue, -1);
+}
+
+// **El cable, preguntat pel seu compte** (0.190.162): only on a board whose light is the glass's, with the switch on **i amb el vidre il·luminat**,
+// o sigui que una placa sense retroil·luminació no toca el bus per res, un commutador apagat tampoc i un vidre que la persona ha deixat a zero encara
+// menys: un respir que encén el que ella ha apagat és el sistema fent el contrari del que li han dit (docs/30, docs/50).
+void ask_the_cable(int64_t now) {
+  if (!is_a_backlight() || !cfg::breathe_while_charging() || !cfg::backlight()) {
+    if (g_breathe_on_a_cable) {
+      g_breathe_on_a_cable = false;
+      g_dirty = true;
+      back_to_the_rest();
+      log_markf("LED", "the glass stops breathing: the light of the glass is off");
+    }
+    return;
+  }
+  // **Un vidre que espera una pàgina no respira**: the alarm woke the board and there is nothing to show, o sigui que el cable espera que el
+  // vidre sigui el de la persona (docs/30, docs/60).
+  if (g_glass_waits || g_dimmed) return;
+  const int64_t every = g_breathe_on_a_cable ? kCableWhileBreathingMs : kCableEveryMs;
+  if (g_cable_asked_ms >= 0 && (now - g_cable_asked_ms) < every) return;
+  g_cable_asked_ms = now;
+  int mv = 0;
+  int pct = 0;
+  bool charging = false;
+  const bool known = power::battery(mv, pct, charging);
+  const bool on_a_cable = known && charging;
+  if (on_a_cable == g_breathe_on_a_cable) return;
+  g_breathe_on_a_cable = on_a_cable;
+  g_breathe_start = now;
+  g_dirty = true;
+  log_markf("LED", on_a_cable ? "the glass breathes: the cell is on a cable" : "the glass stops breathing: no current into the cell");
+  // **I el nivell torna de seguida**: sinó el vidre es quedaria amb el mig del respir, que no és ni el nivell ni el negre (docs/30).
+  if (!on_a_cable) back_to_the_rest();
+}
+
 void poll() {
   if (g_led == nullptr) return;
+  // **I el llum del vidre, que s'apaga sol** (0.190.118): the check is a comparison and it only paints on the turn it changes, o sigui que
+  // el preu de tenir-ho encès és una resta per torn i dos fotogrames per minut (docs/30, docs/50).
+  // **Qui pregunta pel cable, i cada quant** (0.190.162): a register of the charger is a call on the bus the touch panel and the clock also
+  // use, o sigui que es pregunta cada vint segons i no a cada torn; la resposta només pinta el torn que canvia (docs/30, docs/50).
+  ask_the_cable(now_ms());
+  dim_when_idle();
+  // **Mentre el negre és meu, cap altra cosa pinta** (0.190.118): the turn leaves without touching the glass, i el torn que hi hagi una
+  // pàgina que anima, un efecte o una nota el desfà `dim_when_idle` abans d'arribar aquí (docs/30, docs/50).
+  if (g_dimmed) return;
   const int64_t now = now_ms();
 
   // A moment that is over gives the light back **before** anything is painted, so the frame of this
@@ -910,11 +1031,29 @@ void poll() {
     return;
   }
 
+  // **I el cable, que el fa respirar** (0.190.162, l'amo: *«vull el efecte "breathe" al backight fins que deixa de carregar»*): the light of the
+  // glass goes up and down while the charger says there is current into the cell, amb el nivell que la persona va triar, i s'atura quan el
+  // cable marxa o la cel·la diu que ja està plena —el carregador posa el seu estat a `done` i el respir s'acaba igual— (docs/30, docs/50).
+  if (g_breathe_on_a_cable) {
+    Effect breath;
+    breath.kind = EffectKind::kBreathe;
+    breath.red = 255;
+    breath.green = 255;
+    breath.blue = 255;
+    breath.level = cfg::backlight_level();
+    breath.pixel = -1;
+    breath.period_ms = kBreathePeriodMs;
+    breath.cycles = 0;  // no end: the cable is what ends it
+    const uint8_t level = level_at(breath, static_cast<uint32_t>(now - g_breathe_start));
+    paint(level, level, level, -1);
+    return;
+  }
+
   // What the board is doing says the rest (docs/30).
   uint32_t elapsed = 0;
   const Effect* e = system_now(now, elapsed);
   if (e == nullptr) {
-    paint(0, 0, 0, -1);
+    paint(g_rest_red, g_rest_green, g_rest_blue, -1);
     return;
   }
   const uint8_t level = level_at(*e, elapsed);
@@ -923,6 +1062,108 @@ void poll() {
   uint8_t b = 0;
   shade_at(*e, elapsed, r, g, b);
   paint(scale(r, level), scale(g, level), scale(b, level), e->pixel);
+}
+
+// **Què és la llum d'aquesta placa, i què ha de fer el repòs** (0.190.106): the board answers the role and the setting answers the level; a
+// board whose light is a light of the board never comes through here and keeps its black (docs/30, docs/50).
+bool is_a_backlight() { return g_led != nullptr && g_led->role() == hal::LedRole::kBacklight; }
+
+// **Un minut de quietud, i la llum baixa** (0.190.118): the second is the system's and the switch is the person's. The quietness is
+// `power::quiet_ms()` —el comptador únic d'aquesta casa, el mateix que fa saltar el bloqueig i el son—, o sigui que **qualsevol** cosa que
+// compti com una persona (un dit, una tecla, un byte de consola) torna a encendre el vidre sense haver-hi de dir res més (docs/30, docs/60).
+const int64_t kDimAfterMs = 60000;
+
+bool is_dimmed() { return g_dimmed; }
+
+// **Un vidre que espera no és un vidre encès**: the panel is dark because this boot has nothing to show yet and not because the
+// quiet took the light, i el tacte del panell no ha de córrer per un vidre que no il·lumina res (docs/30, docs/50).
+bool glass_is_lit() {
+  return is_a_backlight() && cfg::backlight() && cfg::backlight_level() > 0 && !g_dimmed && !g_glass_waits;
+}
+
+bool the_glass_waits() { return g_glass_waits; }
+
+void the_glass_is_wanted() {
+  if (!g_glass_waits) return;
+  g_glass_waits = false;
+  // **I la quietud no té res a dir aquí**: the light was waiting and not dimmed, o sigui que el negre del comptador tampoc no hi és
+  // (un comptador que hi fos voldria dir que la placa s'ha estat un minut amb una pàgina i ningú, i aleshores el que mana és ell).
+  g_dimmed = false;
+  apply_the_backlight();
+  log_markf("LED", "the glass's light is back at %u: the board has a page to show",
+            static_cast<unsigned>(g_rest_red));
+}
+
+// **El negre passa pel comptable del que s'ha pintat** (0.190.122, l'amo: *«No veig que el backlight es recuperi al tornar a tocar la pantalla»*).
+// Això pintava el negre pel darrere —`fill` i `show` a pèl— i deixava `g_shown` dient el nivell d'abans: en tornar, `paint` veia el mateix color que
+// creia que hi havia, no veia res a fer i **no encenia res**, fins que una altra cosa del sistema posava el flamenc de brut —i això és el que trigava—.
+// El nivell triat continua sense tocar-se: el que es pinta és un zero que el comptable apunta (docs/30, docs/75).
+void paint_the_dark() { paint(0, 0, 0, -1); }
+
+// **La llum és meva només quan ningú no la vol** (0.190.106): an app's colour, an effect, a fade, a note, the radio or a moment of the system
+// keep the light, i el que fa això és apartar-se'n —i deixar-la com era— fins que tornin a manar ells (docs/30).
+bool no_one_is_talking() {
+  return !g_has_colour && g_effect.kind == EffectKind::kNone && !g_fading && !g_has_note && !g_radio && !g_idle;
+}
+
+void dim_when_idle() {
+  if (g_led == nullptr) return;
+  const bool it_is_mine = is_a_backlight() && cfg::backlight();
+  const int64_t quiet = power::quiet_ms();
+  // **I el cable guanya al comptador** (0.190.162): a board that is charging is a board saying something, o sigui que el minut de quietud no
+  // apaga el respir que la persona ha demanat (docs/30, docs/50).
+  const bool dark =
+      it_is_mine && cfg::dim_when_idle() && no_one_is_talking() && !g_breathe_on_a_cable && quiet >= kDimAfterMs;
+  if (dark == g_dimmed) return;
+  g_dimmed = dark;
+  if (g_dimmed) {
+    paint_the_dark();
+    // **L'apagada, dita** (0.190.122): és la resposta a «surt al log l'apagada i l'encesa del backlight?» —no hi sortia— i el número que fa falta per
+    // saber si el minut és el que una persona creu. Com les línies dels ajustos, és una marca i no una traça: no la filtra el nivell (docs/30, docs/75).
+    log_markf("LED", "the glass's light is out: %lld s with nobody on the board", static_cast<long long>(quiet / 1000));
+    return;
+  }
+  // **Tornar a encendre és tornar al nivell que la persona va triar**, que el negre no havia tocat (docs/30).
+  apply_the_backlight();
+  log_markf("LED", "the glass's light is back at %u: the board is in use again", static_cast<unsigned>(g_rest_red));
+}
+
+bool wake_the_light() {
+  // **Un vidre que espera s'encén amb el primer dit i el dit no prem res** (0.190.161): the same rule as the glass the quiet took,
+  // perquè la persona que arriba a una placa que s'ha despertat per una alarma es troba el mateix vidre fosc (docs/30, docs/50).
+  if (g_glass_waits) {
+    the_glass_is_wanted();
+    return true;
+  }
+  if (!g_dimmed) return false;
+  g_dimmed = false;
+  apply_the_backlight();
+  // **I el dit que l'ha encès, dit**: la línia d'abans diu l'hora de l'apagada i aquesta el que l'ha desfeta, que és el parell que es busca quan
+  // una persona diu que la llum no torna (docs/30, docs/50).
+  log_markf("LED", "the glass's light is back at %u: a finger on the glass", static_cast<unsigned>(g_rest_red));
+  return true;
+}
+
+void apply_the_backlight() {
+  if (g_led == nullptr) return;
+  // **I una llum d'estat no s'encén per un ajust que no és seu**: a board that has a light and no backlight keeps the black of always, i el
+  // commutador de la pàgina no li fa res (0.190.17, docs/30).
+  const uint8_t level =
+      (is_a_backlight() && cfg::backlight() && !g_glass_waits) ? cfg::backlight_level() : 0;
+  g_rest_red = level;
+  g_rest_green = level;
+  g_rest_blue = level;
+  // **Si el llum ja diu una altra cosa, no se li treu** (0.190.106): an effect that is playing, a moment of the system, a fade or a colour an
+  // app has taken keep the light; the new rest is what it goes back to, i el proper `poll` la hi deixa (docs/30).
+  const bool silent = !g_has_colour && g_effect.kind == EffectKind::kNone && !g_fading && !g_has_note && !g_radio && !g_idle;
+  if (!silent) {
+    g_dirty = true;
+    return;
+  }
+  {
+    meter::Scope scope(meter::kLedShow);
+    paint(g_rest_red, g_rest_green, g_rest_blue, -1);
+  }
 }
 
 void current(uint8_t& r, uint8_t& g, uint8_t& b) {

@@ -48,6 +48,26 @@ bool waiting();
 // is the same gesture the console has with three ESC, and the same window (docs/30).
 uint32_t taps_to_close();
 
+// ---- **el botó de sota el vidre** (0.190.110) ----
+//
+// **Un botó que és un tros de vidre** (l'amo: *«Farem un botó virtual (no s'ha de dibuxar res), per el sistema serà com un botó físic qualsevol
+// (definexi-lo com a tal) però en realitat serà un toc en aquesta zona del panell tàctil, sota el panell hi ha un cercle que sembla ser un botó
+// tàctil, i es fals... S'exposarà al sistema com a 2on botó, es al frontal, just sota la pantalla eink, centrat horitzontalment, com un botó
+// d'iphone. Farà de "back"»*). The board has a circle under the glass that is not a button, and pressing it lands a finger on the touch panel:
+// that zone is a key of the system and it is declared as one —`face` the front, `spot` the centre, `kind` simple— so an app gives it a
+// function with a position like any other, i la pàgina que hi ha a sota no en rep res (docs/30, docs/50).
+//
+// **Qui la llegeix és el tàctil**, perquè el marc del vidre és seu: `touch` diu quan un contacte comença dins de la zona i quan s'aixeca, i
+// aquest mòdul el converteix en el que és una tecla —una premuda, un `long`, i el camí de tornada del sistema— (docs/30, docs/90).
+void software_button_held(bool down);
+// **El dit s'ha aixecat**: `walked` és cert quan el contacte ha caminat més del que és un toc, i aleshores no és cap premuda (docs/30).
+void software_button_went(uint32_t ms, bool walked);
+bool software_button_down();
+// **Si la caixa en té un de debò** (0.190.110): hardware i no commutador, que és la pregunta d'una pàgina que vol ensenyar-ne la fila (docs/30).
+bool software_button_exists();
+// **L'índex que tindria**, per a qui el llegeix des de fora: el de després de les tecles de la placa, o -1 quan el commutador el treu (docs/30).
+int32_t software_button_key();
+
 // ---- the queue of subscribers (0.180.0) ----
 //
 // **The keys emit events whether or not anybody listens**: `poll` is the only reader of the board and it always reads it,

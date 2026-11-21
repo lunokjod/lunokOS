@@ -465,6 +465,10 @@ void dispatch(const pal::Event& ev) {
       break;
     case pal::kEventTimer:
       break;
+    // **La línia del vidre només ha despertat el torn** (0.190.119): the frame is read by `touch::poll` below, which asks the chip every turn
+    // it hears a line; l'event no porta res i no ha de fer res (docs/50).
+    case pal::kEventTouch:
+      break;
     default:
       log_printf(pal::kLogDebug, "SYS", "unhandled event type %u", static_cast<unsigned>(ev.type));
       break;
@@ -676,7 +680,10 @@ void boot(hal::IPlatform& platform) {
 
   // The light and the button: what this board does with a person. Both are optional
   // and both say so, so a board without them boots the same (docs/50).
-  led::boot(platform);
+  // **I la llum del vidre no s'encén si aquesta arrencada és una alarma** (0.190.161, l'amo: *«Quan es desperta d'un deepsleep per alarma
+  // no s'ha d'encendre el backlight i tornar a dormir ... Menys que l'app demani "raise"»*): the page of the sleep stays on the glass and
+  // the board goes down again, o sigui que el llum espera una pàgina que algú hagi demanat (docs/30, docs/50, docs/60).
+  led::boot(platform, (booted == power::BootKind::kSleep) && power::woken_by_an_alarm());
   button::boot(platform);
   // The sensor of the board, on the band that has one: the Lite says it has none and
   // imu.read() answers that, instead of the API being absent (docs/50).
@@ -739,6 +746,11 @@ void boot(hal::IPlatform& platform) {
                             !shell::app_running();
   if (for_an_alarm) {
     log_printf(pal::kLogInfo, "POWER", "nothing to paint: the board came back for an alarm and goes down again");
+  } else {
+    // **I quan hi ha pàgina, la llum sí** (0.190.161): a `raise` has put an app in front, the session is coming back or a person is
+    // here, i el vidre s'il·lumina amb el nivell que la persona va triar —que la 0.190.161 li havia deixat a zero perquè venia d'una
+    // alarma— (docs/30, docs/60).
+    led::the_glass_is_wanted();
   }
   // Last, because it speaks to the console and may bring an app back: a board that wakes from a deep
   // sleep is a board that boots, and the session record is what makes the app come back where it was
@@ -923,7 +935,11 @@ void poll() {
 #if LUNOK_GLASS
     // **I la línia del panell torna a ser una vora de baixada** (0.190.74): the nap arms that GPIO as a level wake and the chip leaves it
     // that way; without this the glass answers nothing after the first nap —which is exactly what happened twice on the Paper— (docs/50).
-    if (slept) touch::rearm();
+    // **Però només si el tàctil és una porta de la becaina** (0.190.167, el registre de la M5 Paper del 21/11: `I (39632) gpio:
+    // GPIO[36]| InputEn: 1 …` set vegades en quatre-cents mil·lisegons): amb *Wake on touch* apagat —que és com ve de sèrie— el nap no toca
+    // aquell pin i el que cal no és refer-lo sinó no fer-hi res, o sigui que el que era una crida per torn és una crida al torn que en té
+    // (docs/50, docs/60, docs/95).
+    if (slept && power::wake_on_touch()) touch::rearm();
 #endif
   }
   if (woke) {
@@ -1031,6 +1047,12 @@ void poll() {
   // What the light has to say is painted at the end of the turn, once, and only if
   // it changed: a frame is a write on the wire (docs/75).
   led::poll();
+
+  // **I el torn del vidre** (0.190.140): un panell que ha de baixar les seves tensions quan ningú no hi pinta. És una línia per volta i el que
+  // fa és mirar el rellotge (docs/50).
+#if LUNOK_GLASS
+  display::poll();
+#endif  // LUNOK_GLASS
 
   // The bar of the system: if the minute, the title or the charge changed, it paints its own strip and
   // nothing else. It is the only thing of the system that draws on the glass, and only its own rows

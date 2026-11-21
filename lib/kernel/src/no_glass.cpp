@@ -73,6 +73,9 @@ bool wait() { return true; }
 
 namespace touch {
 
+// **El règim que una persona ha triat, guardat aquí per a una placa que no pot fer res amb ell** (0.190.113).
+bool g_adaptive_scan = true;
+
 bool take_gesture_of(const char*, Gesture&) { return false; }
 
 bool take_pinch_in(int16_t, Gesture&) { return false; }
@@ -89,6 +92,20 @@ void counters(uint32_t& asks, uint32_t& frames, uint32_t& false_warnings) {
 // **A page cannot begin before a contact of a page that does not exist** (0.189.100): the shell calls this on the way in and
 // out of every app, and a board with no touch has no queue to forget (docs/30).
 void forget_the_page_before() {}
+
+// **I el règim dels escombrats, que no hi és perquè no hi ha vidre** (0.190.113): the switch of the Input tab and the `cfg touchscan`
+// command ask these on **every** board —`touch.cpp` sencer viu dins `#if LUNOK_GLASS`— i el 0.190.107 els va deixar sense resposta aquí:
+// les quatre bandes sense vidre (els dos ATOM, l'ESP32 i el T-Koala) no enllaçaven. Una placa sense panell no té res a escombrar i contesta
+// el que té: que no hi ha vidre i que el règim es queda com el que una persona hi ha escrit (docs/30, docs/50, docs/75).
+void set_adaptive_scan(bool on) { g_adaptive_scan = on; }
+
+bool adaptive_scan() { return g_adaptive_scan; }
+
+bool available() { return false; }
+
+// **I la zona del botó de sota el vidre, que aquí no existeix** (0.190.113): `button` en fa una tecla quan la caixa ho diu, i una caixa sense
+// cap panell no en pot tenir; aquesta porta és la que ho diu en lloc de deixar la pregunta sense resposta (docs/30, docs/50).
+bool a_finger_on_the_button(uint16_t, uint16_t) { return false; }
 
 }  // namespace touch
 
@@ -180,6 +197,15 @@ bool set_vcom_mv(uint16_t) { return false; }
 uint32_t gate_ns() { return 0; }
 
 bool set_gate_ns(uint32_t) { return false; }
+
+// **I la forma d'ona, que és una pregunta del vidre** (0.190.166): `cfg waveform` and `panel waveform` ask it on every board, i una placa
+// sense vidre contesta el mateix que les altres tres portes del panell —res i una negativa— en lloc de deixar l'enllaç sense els símbols,
+// que és el que va passar quan la comanda va arribar (docs/50, docs/75).
+const char* waveform() { return kNoGlass; }
+
+bool set_waveform(const char*) { return false; }
+
+const char* waveform_at(uint8_t, uint8_t*, uint8_t*) { return kNoGlass; }
 
 // **I una pintada que no va enlloc diu que sí** (0.189.162): a board with no glass has nothing to send and nothing to refuse, and the
 // callers of `present` are the ones that paint a page —`panel bars`, the card of the system—, which such a board does not have.

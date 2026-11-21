@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 
+#include "emu/ink.h"
 #include "hal/hal.h"
 
 namespace emu {
@@ -123,6 +124,11 @@ class MemorySurface : public hal::ISurface {
   };
   static const uint32_t kMaxPaints = 8;
   uint32_t paint_count() const { return paint_count_; }
+  // **El model d'aquest vidre, dit amb les seves dues meitats** (0.190.142): the ink of the quality —which is paid once, whatever the
+  // rectangle— and the wire of the pixels, which is what `ink_transfer_us` already charges every paint (docs/50, docs/85).
+  uint32_t paint_cost_ms(uint16_t w, uint16_t h, hal::UpdateMode mode) const override {
+    return ink_mode(mode).ms + ink_transfer_us(w, h, style_) / 1000u;
+  }
   // The i-th paint of the whole run, or nullptr when it is older than the ones kept.
   const Paint* paint_at(uint32_t index) const;
 
