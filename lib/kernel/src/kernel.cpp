@@ -859,6 +859,8 @@ void boot(hal::IPlatform& platform) {
     // it —el mateix camí que una línia escrita a mà—, o sigui que la pàgina del sistema arriba **després** de l'arrencada, amb el cable ja
     // viu, i al darrere del prompt (`&`). El que es deixa enrere: **la imatge de l'error** d'una placa que no troba la seva app, perquè el
     // que la diu ara és el `run` mateix al cable; la pàgina del pany (`device_lock`) la demana ella quan s'obre, com sempre (docs/30, docs/40).
+    // **I el que contesta aquesta porta és la veritat del moment** (0.190.250): `false` vol dir que la pàgina no hi és o que la cua no la
+    // va prendre —davant d'una arrencada, la primera—, o sigui que la línia del registre és la que sempre era (docs/30, docs/40).
     if (shell::ask_for_the_home_app()) {
       log_printf(pal::kLogInfo, "HOME", "%s (asked to the queue)", home);
     } else {

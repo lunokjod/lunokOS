@@ -5155,13 +5155,16 @@ bool deep_sleep(const char* reason) {
 bool ask_for_the_home_app() {
   const char* home = cfg::home_app();
   if (home == nullptr || home[0] == '\0') return false;
-  if (orders::post_a_line("home")) return true;
-  // **I si la cua no hi és, es fa aquí mateix**: una arrencada sense pàgina és pitjor que una pàgina sense cua (docs/30).
-  g_start_flags[0] = '\0';
-  g_start_detached = true;
-  const bool started = run_app(home, nullptr, false, /*splash=*/false);
-  g_start_detached = false;
-  return started;
+  // **I la pregunta que l'arrencada feia abans de cridar `run_app` es torna a fer aquí** (0.190.250): a name that is not on the disk is a
+  // line in the log and the prompt —«no app 'x' on this disk; the prompt is yours»— and that line was the boot's, because the boot was the one
+  // that knew the name. Ara qui sap el nom és aquesta porta, o sigui que la comprovació és seva: `apps::read` recorre el mateix llistat que
+  // `run_app` i no construeix cap intèrpret, i el que no hi és es diu aquí i no tres torns més tard al cable (docs/30, docs/40, docs/50).
+  apps::Entry entry;
+  if (!apps::read(home, entry)) return false;
+  // **I prou**: el que queda és una línia a la cua. **No hi ha camí de tornada** (0.190.250): la 0.190.249 tenia un `run_app` directe per si
+  // la cua refusava, i era codi mort —a l'arrencada la cua és buida i la fan abans que la shell—, o sigui que una porta que no pot passar mai
+  // i que, si passés, arrencaria l'app **dins del `boot`**, que és exactament el que aquesta funció existeix per no fer (docs/30, docs/50).
+  return orders::post_a_line("home");
 }
 
 void carry_out_the_orders() {

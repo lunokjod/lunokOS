@@ -12689,7 +12689,26 @@ namespace kernel {
 // feia, i és el que `ask_for_the_home_app` escriu a la cua. **I omple un forat de la taula de comandes**: `home` era una paraula que el
 // tabulador oferia i que no tenia cap mà que la contestés —el mateix defecte que la 0.190.238 va treure de `free` i `history`—, o sigui que
 // escriure-la demanava una comanda que no existia (docs/30, docs/45).
-static const char kVersion[] = "0.190.249";
+// **0.190.250 — `ask_for_the_home_app` deixa de tenir un camí que no existeix** (l'amo, comptant les portes que arrenquen apps:
+// *«perquè s'executen apps des de tants punts diferents? Justifica'ls»*, i després *«també preguntar per ask_for_the_home_app()»*).
+//
+// **Què era aquesta funció**: la porta que va néixer a la 0.190.247 perquè `kernel::boot` demanés la pàgina de casa **sense arrencar-la** —
+// el `boot` no pot executar res, o sigui que escriu una línia a `kernel/orders` i el torn la fa. El que tenia de més:
+//
+//   - **un camí de tornada mort**: si la cua refusava la línia, cridava `run_app` aquí mateix. A l'arrencada la cua és buida i `make_the_queue`
+//     ha passat abans, o sigui que no s'hi pot arribar mai —i si s'hi arribés, arrencaria l'app **dins del `boot`**, que és exactament el que
+//     la funció existeix per no fer—. Fora (docs/30, docs/50).
+//   - **una comprovació que s'havia perdut**: abans, un `home` que no és al disc deixava la línia «no app 'x' on this disk; the prompt is
+//     yours» perquè la feia l'arrencada, que era qui tenia el nom. Des de la 0.190.247 la línia deia «asked to the queue» i prou. Ara la porta
+//     fa la pregunta amb `apps::read` —el mateix llistat que `run_app`, sense construir cap intèrpret— i contesta de debò, o sigui que el
+//     registre de l'arrencada torna a dir el que passa (docs/30, docs/40).
+//
+// **I la resposta a la pregunta de fons, que és la que importa**: les divuit portes que arrenquen una app no són divuit idees sinó cinc autors
+// —la persona, el llaçador, el rellotge, la memòria del sistema i una app que en demana una altra—, i el que les fa un punt de fallada és que
+// **la política viatja com a booleans** a cada porta: `run_app` té sis paràmetres i cada autor tria el seu subconjunt (`restore`, `splash`,
+// alarma, fons), o sigui que una porta nova pot encertar-los tots i, si se n'oblida d'un, el defecte no és a la porta sino a la pàgina que es veu
+// —el cas de la targeta de la 0.190.249, que era meva (docs/30, docs/40).
+static const char kVersion[] = "0.190.250";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
