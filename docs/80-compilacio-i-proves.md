@@ -658,6 +658,18 @@ Bluetooth i el mapa encara deia `dram0_0_seg org = 0x3FFB0000 + 0`. **La regla n
 ell. O sigui: cada vegada que es toca un `sdkconfig.defaults` —o s'esborra el `sdkconfig.<entorn>`— esborrar també `.pio/build/<entorn>` abans
 de compilar, o el que es grava arrenca en un assert que no diu res de la causa.
 
+**I el remei barat, que no és esborrar tot el build** (0.190.214, comprovat a l'ATOM Matrix): el `memory.ld` és l'únic d'aquests fitxers generats
+que **no** és una sortida del build sinó de la configuració, o sigui que un `sdkconfig` nou el deixa vell i el build no el toca. Esborrant
+només ell, el build el torna a fer:
+
+```sh
+rm -f .pio/build/<entorn>/memory.ld
+pio run -e <entorn>          # 53 s, no una compilació sencera
+```
+
+I es comprova en un segon sobre l'`elf`: `nm | grep _data_start` ha de donar una adreça **per sobre** de `0x3FFB0000 + CONFIG_BTDM_RESERVE_DRAM`
+(al Matrix, amb `0xdb5c`, són `0x3ffbdb60`); si dóna `0x3ffb…0…` baix, el mapa és vell i el que s'ha gravat arrenca en l'assert.
+
 ```
 W (860) esp_psram: Virtual address not enough for PSRAM, map as much as we can. 4MB is mapped
 
