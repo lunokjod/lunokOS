@@ -741,6 +741,7 @@ void print_help(const char* only) {
   help_continuation("                    and `cfg settings [<id>|none]`, the app the gear of the panel opens", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  kill              close the app that is in front of the glass", only);
+  help_line("  home              bring the page of the start (cfg home) with no card, and keep the prompt", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
   help_line("  wifi add <ssid> [password]  store a network and go on it", only);
@@ -5146,14 +5147,15 @@ bool deep_sleep(const char* reason) {
 // **La pàgina de casa és una comanda com qualsevol altra** (0.190.247, l'amo: *«Mira que és fàcil tu!, shell fa "run home_eink &" només entrar i
 // santes pàsques!»*): fins avui la començava l'arrencada mateixa (`shell::start_app`), o sigui que la pàgina del sistema i el seu primer dibuix
 // passaven dins del `boot` i el cable es quedava sense prompt fins que el vidre havia acabat —segons, en una T5S3—. Ara s'escriu a la cua de
-// comandes i el torn la fa: el camí d'una línia escrita a mà, amb el mateix `run_app` i els mateixos comiats. **Amb `&`** (0.160.0): l'app és
-// al vidre i el cable és de la persona, que és exactament el que l'amo demanava —treballar mentre el llaçador és a la pantalla— (docs/30, docs/50).
+// comandes i el torn la fa: el camí d'una línia escrita a mà, amb el mateix `run_app` i els mateixos comiats.
+//
+// **I no és `run <id> &`, és `home`** (0.190.249): `run` no té cap manera de dir «sense targeta» i la pàgina de l'arrencada no en vol —el vidre
+// ja té la imatge del boot (0.179.33)—, o sigui que la comanda `home` és la que arrenca l'app de `cfg home` **sense targeta i al darrere del
+// prompt**, que és exactament el que l'arrencada feia amb `start_app(home, /*splash=*/false)` i el que un `run … &` no sabia dir (docs/30, docs/40).
 bool ask_for_the_home_app() {
   const char* home = cfg::home_app();
   if (home == nullptr || home[0] == '\0') return false;
-  char command[orders::kLineBytes];
-  snprintf(command, sizeof(command), "run %s &", home);
-  if (orders::post_a_line(command)) return true;
+  if (orders::post_a_line("home")) return true;
   // **I si la cua no hi és, es fa aquí mateix**: una arrencada sense pàgina és pitjor que una pàgina sense cua (docs/30).
   g_start_flags[0] = '\0';
   g_start_detached = true;
@@ -7283,6 +7285,23 @@ bool execute(char* line) {
     close_app();
     prompt();
     return true;
+  }
+  if (strncmp(line, "home", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    // **La pàgina de casa, com l'arrencada la vol** (0.190.249): the boot used to start it with `start_app(home, /*splash=*/false)` —the glass
+    // already has the picture of the boot, so the app's own card is a card nobody asked for (0.179.33)— and as a command that was lost: un
+    // `run <id> &` ensenya la targeta de l'app, perquè `run` no té cap manera de dir «sense targeta». Aquesta és la porta que sí, i és la que
+    // fa servir `ask_for_the_home_app` per demanar la pàgina de l'arrencada (docs/30, docs/40).
+    const char* home = cfg::home_app();
+    if (home == nullptr || home[0] == '\0') {
+      out("home: this board has no page of the start (cfg home)\r\n");
+      return false;
+    }
+    // **I al darrere del prompt, com el `&`**: la persona que escriu això vol la pàgina al vidre, no perdre el cable (docs/30).
+    g_start_detached = true;
+    const bool started = start_app(home, /*splash=*/false);
+    g_start_detached = false;
+    if (!started) out("home: it did not come up\r\n");
+    return started;
   }
   if (line[0] == 'l' && line[1] == 's' && (line[2] == '\0' || line[2] == ' ')) {
     char words[1][kWordCap];

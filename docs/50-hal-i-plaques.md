@@ -1104,8 +1104,8 @@ Dues coses, i cap de les dues era nostra:
   s'espera un mil·lisegon i es torna a provar. El que queda fora del pany és el que l'editor de línia escriu pel VFS pel seu compte
   (`linenoise`), que només es podria agafar posant-hi un driver propi (docs/30, docs/50).
 
-**I la pàgina de casa ja no la comença l'arrencada**: `kernel::boot` demana `shell::ask_for_the_home_app()`, que escriu `run <LUNOK_HOME_APP> &`
-a la cua de comandes i el torn l'executa al primer torn. O sigui que la pàgina del sistema arriba **després** del `boot`, amb el cable viu, i
+**I la pàgina de casa ja no la comença l'arrencada**: `kernel::boot` demana `shell::ask_for_the_home_app()`, que escriu `home` —la comanda
+que arrenca l'app de `cfg home` **sense targeta**, 0.190.249— a la cua de comandes, i el torn l'executa al primer torn. O sigui que la pàgina del sistema arriba **després** del `boot`, amb el cable viu, i
 **al darrere del prompt** (`&`): una persona pot demanar coses mentre el llaçador és al vidre (docs/30, docs/40).
 
 ## Interfícies de la PAL

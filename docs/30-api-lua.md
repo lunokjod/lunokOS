@@ -407,9 +407,12 @@ fora del fil de sistema, ni `run`, ni `kill`, ni `splash`, ni `panel`.
 
 L'amo: *«Mira que és fàcil tu!, shell fa "run home_eink &" només entrar i santes pàsques!»*. Fins avui `kernel::boot` cridava `shell::start_app`
 i la pàgina del sistema —amb el seu primer dibuix, que en una T5S3 són centenars de mil·lisegons per pàgina— passava **dins de l'arrencada**.
-Ara passa el mateix que amb qualsevol altra comanda: `shell::ask_for_the_home_app()` escriu `run <LUNOK_HOME_APP> &` a `kernel/orders` i el
+Ara passa el mateix que amb qualsevol altra comanda: `shell::ask_for_the_home_app()` escriu `home` a `kernel/orders` i el
 torn l'executa al primer torn.
 
+- **La comanda `home` i no un `run … &`** (0.190.249): la pàgina de l'arrencada **no vol targeta** —el vidre ja té la imatge del boot— i `run`
+  no té cap manera de dir-ho, o sigui que `home` arrenca l'app de `cfg home` sense targeta i al darrere del prompt. És una paraula que el
+  tabulador ja oferia i que no tenia cap mà que la contestés, i ara la té.
 - **`&` perquè el cable és de la persona**: l'app és al vidre i el prompt és viu, que és el que es volia. Una app que en demana una altra des
   del llaçador **segueix essent del fons** (0.160.0), o sigui que el comportament és el mateix per a tot el que s'arrenqui des d'allà.
 - **El que es deixa enrere**: la imatge de l'error (`splash::kOops`) d'una placa que no troba la seva app; el que la diu ara és el `run` mateix

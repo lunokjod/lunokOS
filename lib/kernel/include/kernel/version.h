@@ -12672,7 +12672,24 @@ namespace kernel {
 // **El segon encara no l'havia vist ningú perquè les bandes de placa no s'han compilat**: `wire_used_ -= took` a `wire_loop`, i `wire_used_`
 // és `volatile` (perquè `flush` el llegeix sense el pany). Una assignació composta sobre un `volatile` està desaconsellada i és un **error**
 // amb el `-Werror` de `pal_esp32`: el primer `pio run` d'una placa hauria petat per una línia de la 0.190.243. Ara és una assignació normal.
-static const char kVersion[] = "0.190.248";
+// **0.190.249 — `home`, perquè la pàgina de l'arrencada no vol targeta** (l'amo, preguntant si l'app de casa s'executava on ho feia abans:
+// *«l'app home s'està executant en el mateix punt que ho feia abans del canvi?»*).
+//
+// **No, i hi havia tres diferències; dues són volgudes i la tercera era un defecte**:
+//   - **el moment**: la decisió es pren on es prenia (`kernel::boot`, amb la mateixa condició: la pàgina del pany mana, cap alarma, cap app
+//     restaurada), però l'execució passa **al primer `poll`**, o sigui un torn més tard i després de `rest_cpu`. `run_app` demana el seu propi
+//     cim («an app is starting»), o sigui que el que canvia és el número del rellotge en un torn, no el camí (docs/50);
+//   - **el cable**: l'app de casa va **al darrere del prompt** (`&`), que és el que l'amo demanava i el que fa que `Enter` obri la sessió
+//     mentre el llaçador és al vidre. **I això vol dir que una app del llaçador ja no és la que llegeix el cable**, i és a posta (docs/30);
+//   - **la targeta**, i això era el defecte: l'arrencada la començava amb `start_app(home, /*splash=*/false)` —«en launcher no ha de mostrar
+//     l'splash rera el boot, tenim l'splash del sistema» (0.179.33)— i **`run` no té cap manera de dir «sense targeta»**, o sigui que la pàgina
+//     del sistema hauria ensenyat la seva targeta a sobre de la imatge de l'arrencada (docs/30, docs/40).
+//
+// **Ara hi ha la comanda `home`**: arrenca l'app de `cfg home` **sense targeta i al darrere del prompt**, que és exactament el que l'arrencada
+// feia, i és el que `ask_for_the_home_app` escriu a la cua. **I omple un forat de la taula de comandes**: `home` era una paraula que el
+// tabulador oferia i que no tenia cap mà que la contestés —el mateix defecte que la 0.190.238 va treure de `free` i `history`—, o sigui que
+// escriure-la demanava una comanda que no existia (docs/30, docs/45).
+static const char kVersion[] = "0.190.249";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
