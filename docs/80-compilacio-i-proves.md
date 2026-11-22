@@ -651,6 +651,13 @@ refer el `sdkconfig.h`, però el `memory.ld` es va quedar amb el de la configura
 amb `.data` a `0x3ffb0000` —la mateixa adreça que la regió que el controlador es reserva—. El símptoma no és d'enllaç sinó
 d'arrencada, i és del tot críptic:
 
+**I va tornar a passar amb el mesh de l'ATOM Matrix** (0.190.214, l'amo: *«l'estic compilant al matrix per provar»* i la placa va dir el mateix assert):
+el `sdkconfig.m5-atom-matrix-idf` era de les 00:59 i el `memory.ld` de les 00:53, o sigui que la configuració nova reservava `0xdb5c` per al
+Bluetooth i el mapa encara deia `dram0_0_seg org = 0x3FFB0000 + 0`. **La regla no és només «quan canvia una opció de memòria»**: esborrar el
+`sdkconfig` de l'arrel perquè hi entri una clau nova dels `sdkconfig.defaults` **també** és un canvi de configuració, i el mapa s'ha de refer amb
+ell. O sigui: cada vegada que es toca un `sdkconfig.defaults` —o s'esborra el `sdkconfig.<entorn>`— esborrar també `.pio/build/<entorn>` abans
+de compilar, o el que es grava arrenca en un assert que no diu res de la causa.
+
 ```
 W (860) esp_psram: Virtual address not enough for PSRAM, map as much as we can. 4MB is mapped
 
