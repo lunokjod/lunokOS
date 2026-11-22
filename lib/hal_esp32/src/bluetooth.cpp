@@ -975,9 +975,19 @@ int host_gap_event(struct ble_gap_event* event, void* arg) {
 // del telèfon —explorar, connectar— a cada operació. **El que la pila costa es diu una vegada i aquí**, que és on es paga (docs/50, docs/75).
 bool g_radio_up = false;
 
-bool bring_up_the_radio(const char* why) {
-  if (g_radio_up) return true;
-  const uint32_t before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+// **L'arrencada de la ràdio, en tres passos i no en un** (0.190.217): the stack of NimBLE is one and the GATT server is one, and who
+// registers its services first is who gets them served. El mesh d'Espressif registra **els seus** serveis (provisió i proxy) i crida
+// `ble_gatts_start()` dins de `esp_ble_mesh_init`, o sigui que si nosaltres ja hem registrat el HID i ja hem arrencat l'amfitrió, el que
+// el telèfon busca no hi és: l'app deixa anar *«Discover device services failed»*. Amb els tres passos, cada cosa entra al seu moment.
+bool g_the_stack_is_up = false;
+// **Quanta memòria hi havia abans de la pila**, perquè el registre digui el que costa de debò encara que l'amfitrió s'arrenqui més tard
+// (0.190.217): el mesh engega la pila i la tasca en dos moments, i el número que importa és el d'abans de tots dos (docs/75).
+uint32_t g_heap_before_the_stack = 0;
+
+// 1) la pila, sense res a dins: els serveis del teclat no hi són i la tasca de l'amfitrió encara no corre.
+bool the_stack_up(const char* why) {
+  if (g_the_stack_is_up) return true;
+  g_heap_before_the_stack = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   const esp_err_t err = nimble_port_init();
   if (err != ESP_OK) {
     hal::logf(pal::kLogWarn, "BT", "the radio did not come up (%d): %s has nothing to use", static_cast<int>(err), why);
@@ -995,28 +1005,49 @@ bool bring_up_the_radio(const char* why) {
   ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
   ble_svc_gap_init();
   ble_svc_gatt_init();
-  const int rc = ble_gatts_count_cfg(kGattServices);
-  if (rc != 0) {
-    hal::logf(pal::kLogWarn, "BT", "the HID service was not counted (%d)", rc);
-    nimble_port_deinit();
-    return false;
-  }
-  if (ble_gatts_add_svcs(kGattServices) != 0) {
-    hal::logf(pal::kLogWarn, "BT", "the HID service was not added");
-    nimble_port_deinit();
-    return false;
-  }
   // **Si ningú no li ha posat nom, el de la placa**: the host side can bring the radio up before a keyboard is asked for, o sigui que
   // el nom s'ha de construir aquí i no només a `keyboard_start` (docs/50).
   if (g_name[0] == '\0') make_the_name(g_name, sizeof g_name);
   ble_svc_gap_device_name_set(g_name);
   ble_svc_gap_device_appearance_set(0x03C1);
   ble_store_config_init();
+  g_the_stack_is_up = true;
+  return true;
+}
+
+// 2) el servei del teclat, que és el que fa que aquesta placa es pugui aparellar com un HID.
+bool the_keyboard_services() {
+  const int rc = ble_gatts_count_cfg(kGattServices);
+  if (rc != 0) {
+    hal::logf(pal::kLogWarn, "BT", "the HID service was not counted (%d)", rc);
+    return false;
+  }
+  if (ble_gatts_add_svcs(kGattServices) != 0) {
+    hal::logf(pal::kLogWarn, "BT", "the HID service was not added");
+    return false;
+  }
+  return true;
+}
+
+// 3) la tasca de l'amfitrió, i a partir d'aquí la ràdio viu de debò (l'anunci, les connexions, el sync).
+void the_host_start(const char* why) {
+  const uint32_t before = g_heap_before_the_stack;
   nimble_port_freertos_init(host_task);
   g_radio_up = true;
   const uint32_t after = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   hal::logf(pal::kLogInfo, "BT", "the radio is up for %s: %u B of internal memory before, %u B after (%d B spent)", why,
             static_cast<unsigned>(before), static_cast<unsigned>(after), static_cast<int>(before) - static_cast<int>(after));
+}
+
+bool bring_up_the_radio(const char* why) {
+  if (g_radio_up) return true;
+  if (!the_stack_up(why)) return false;
+  if (!the_keyboard_services()) {
+    nimble_port_deinit();
+    g_the_stack_is_up = false;
+    return false;
+  }
+  the_host_start(why);
   return true;
 }
 
@@ -1421,13 +1452,22 @@ IBluetooth* esp32_bluetooth() {
 // **La ràdio per a una cosa que no és el teclat** (0.190.212): the mesh needs the same NimBLE host and nothing offered, o sigui que aquesta
 // porta és `bring_up_the_radio` sense `keyboard_start` i sense anunciar-se com a teclat (docs/50).
 #if CONFIG_BT_ENABLED
-bool esp32_radio_for(const char* why) { return bring_up_the_radio(why); }
+// **Per a qui porta els seus propis serveis** (0.190.217): the stack up and nothing in it, o sigui que el mesh pot registrar els seus GATT i
+// arrencar el servidor sense que el servei del teclat li faci nosa. Qui crida això ha d'acabar amb `esp32_radio_start`.
+bool esp32_radio_for(const char* why) { return the_stack_up(why); }
+
+void esp32_radio_start(const char* why) {
+  if (g_radio_up) return;
+  the_host_start(why);
+}
+
 bool esp32_radio_is_up() { return g_radio_up; }
 #else
 bool esp32_radio_for(const char* why) {
   (void)why;
   return false;
 }
+void esp32_radio_start(const char* why) { (void)why; }
 bool esp32_radio_is_up() { return false; }
 #endif
 

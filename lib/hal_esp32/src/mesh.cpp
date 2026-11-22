@@ -52,7 +52,11 @@ class Esp32Mesh : public IMesh {
       return false;
     }
     mesh_node_set_uuid(mac);
+    // **El mesh registra els seus serveis GATT i arrenca el servidor dins d'aquest `init`** (0.190.217): per això la ràdio s'ha portat fins
+    // aquí sense el servei del teclat, i la tasca de l'amfitrió (`esp32_radio_start`) s'arrenca **després**, quan els serveis del mesh ja hi
+    // són. Amb l'ordre d'abans, l'app del telèfon deia *«Discover device services failed»* perquè el 0x1827 de la provisió no hi era (docs/50).
     if (!mesh_node_init()) return false;
+    esp32_radio_start("the mesh");
     // **El nom, amb els dos últims bytes de l'adreça** (0.190.215): `lunokOS-XXYY`, que és exactament el que aquesta placa diu quan és un
     // teclat de Bluetooth —la mateixa adreça de l'eFuse i el mateix format—, o sigui que un provisionador i un telèfon que aparellen veuen
     // el mateix nom de la mateixa placa. El nom del node no té el límit de trenta-un bytes de l'anunci del Bluetooth.

@@ -59,6 +59,9 @@ IBluetooth* esp32_bluetooth();
 // **La ràdio per a qui no és el teclat** (0.190.212): the stack of NimBLE is one and the same for the HID and for the mesh, o sigui que el
 // mesh ha de poder encendre'l sense oferir-se com a teclat (`bring_up_the_radio` i prou). False when the radio refused to come up.
 bool esp32_radio_for(const char* why);
+// **I el segon pas, que fa qui ha posat els seus serveis entremig** (0.190.217): `nimble_port_freertos_init` és el que fa córrer la pila, o
+// sigui que el mesh l'ha de cridar **després** del seu `esp_ble_mesh_init` i no abans (docs/50).
+void esp32_radio_start(const char* why);
 bool esp32_radio_is_up();
 
 }  // namespace hal

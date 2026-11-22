@@ -11921,7 +11921,20 @@ namespace kernel {
 // L'ordre bo és **ràdio, init, nom, oferir-se**: el nom ha d'anar després del `init` (la tasca hi és) i abans del `offer` (el nom viatja a la
 // resposta de l'escaneig de la provisió). I la resta del camí ja hi era bé: registrar els callbacks és local, i `is_provisioned` i
 // `get_primary_element_address` també (docs/50).
-static const char kVersion[] = "0.190.216";
+// **0.190.217 — el mesh no podia registrar els seus serveis perquè el GATT ja era arrencat** (l'app del telèfon, amb el node engegat:
+// *«Discover device services failed»*).
+//
+// El mesh d'Espressif porta **els seus** serveis GATT —el 0x1827 de la provisió i el 0x1828 del proxy— i els registra, amb
+// `ble_gatts_count_cfg`, `ble_gatts_add_svcs` i `ble_gatts_start`, dins de `esp_ble_mesh_init` (`bt_mesh_gatt_init`, al bearer de NimBLE).
+// Nosaltres, en canvi, portàvem la ràdio amb el **servei del HID ja registrat i la tasca de l'amfitrió ja corrent**, o sigui que el servidor
+// GATT s'arrencava abans que el mesh hi fos i el 0x1827 no arribava a servir-se: el telèfon es connecta, demana els serveis i no els troba.
+//
+// **L'arrencada de la ràdio ara són tres passos i no un**: `the_stack_up` (la pila i la seva configuració, sense cap servei a dins),
+// `the_keyboard_services` (el HID, que és del teclat) i `the_host_start` (la tasca de l'amfitrió, que és el que fa viure la ràdio). El teclat
+// els fa seguits, com abans; el mesh fa els dos primers al revés del que semblava natural —pila, **`esp_ble_mesh_init`**, i després la tasca—
+// perquè els seus serveis han d'entrar abans que res corri. `esp32_radio_for` i `esp32_radio_start` són les dues portes que hi ha per això
+// (docs/50).
+static const char kVersion[] = "0.190.217";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
