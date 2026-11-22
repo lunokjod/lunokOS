@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "esp32/board_name.h"
+
 #include <esp_crt_bundle.h>
 #include <esp_event.h>
 #include <esp_heap_caps.h>
@@ -49,6 +51,7 @@
 #include <freertos/task.h>
 
 #include "esp32/clock.h"
+#include "esp32/board_name.h"
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "hal/hal.h"
@@ -1002,7 +1005,11 @@ class Esp32Net : public INet {
       if (mdns_init() != ESP_OK) {
         hal::logf(pal::kLogWarn, "PROV", "mdns did not start");
       } else {
-        mdns_hostname_set("lunokos");
+        // **I la placa té un sol nom** (0.190.215): `lunokos` a totes les plaques és la mateixa llista de teclats que no es distingeixen,
+        // o sigui que l'mDNS diu `lunokOS-XXYY` com el teclat i com el node del mesh — i els punts del `.local` els posa mDNS (docs/50).
+        char who[32];
+        the_board_name(who, sizeof who);
+        mdns_hostname_set(who);
         hal::logf(pal::kLogInfo, "PROV", "mdns up");
       }
 #endif

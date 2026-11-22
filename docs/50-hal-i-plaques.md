@@ -559,8 +559,14 @@ node`, `provisioned: this node is 0x…`, `the mesh forgot this node`).
   diu què fer (`cfg bt off`). És el mateix criteri de la 0.190.192: dues coses que es disputen el mateix aire es diuen per separat.
 - **Cap model de més**: un model és una promesa (un llum, un relé) i aquesta placa encara no n'ha triat cap. El node sap existir, tenir adreça i
   respondre al provisionador, i els models són la feina següent.
-- **On és**: `IMesh` a `hal/hal.h`, `Esp32Mesh` a `hal_esp32/src/mesh.cpp`, el tauler que el dóna (`hal_paper`, `hal_t5s3`), `kernel::mesh` i
-  l'ordre `mesh` del prompt. Una banda sense `CONFIG_BLE_MESH` contesta que no i no engega res.
+- **On és**: `IMesh` a `hal/hal.h`, `Esp32Mesh` a `hal_esp32/src/mesh.cpp`, el node en C a `hal_esp32/src/mesh_node.c` —els macros d'Espressif
+  fan servir `[0 ... N]`, que en C++ és una lambda—, el tauler que el dóna (`hal_atom`, `hal_paper`, `hal_t5s3`), `kernel::mesh` i l'ordre `mesh`
+  del prompt. Una banda sense `CONFIG_BLE_MESH` contesta que no i no engega res.
+- **I la placa té un sol nom** (0.190.215, l'amo: *«canvia el nom de la màquina lunokOS-XXYY (dos ultims bytes de la mac, com amb el
+  bluetooth)»*): `hal::the_board_name` (`esp32/board_name.h`) compon `lunokOS-XXYY` una vegada i el teclat de Bluetooth, **aquest node** i
+  l'**mDNS** el demanen tots tres. El node el presenta a la resposta de l'escaneig (PB-GATT), que és el que l'app del provisionador ensenya
+  abans de triar-lo; a l'anunciant (PB-ADV) la pila no hi posa cap nom, i això és de la pila. I l'mDNS deixava de dir `lunokos` a totes les
+  plaques, que volia dir dues `lunokos.local` a la mateixa xarxa.
 - **I costa**: la pila demana desenes de kilobytes de RAM interna quan arrenca, o sigui que el número que s'ha de mirar després de gravar-lo és
   `mem` amb el node apagat i amb `mesh on` (docs/75).
 

@@ -13,6 +13,8 @@
 // (docs/50, docs/80).
 #include "sdkconfig.h"
 
+#include "esp32/board_name.h"
+
 #include "esp32/bluetooth.h"
 #include "esp32/nvs.h"
 
@@ -266,22 +268,9 @@ bool g_started = false;
 char g_name[32] = "";
 
 void make_the_name(char* out, size_t cap) {
-  // **L'adreça del ràdio ve de l'eFuse i no de la pila** (0.190.197): `esp_bt_dev_get_address` és de Bluedroid, i amb NimBLE el que hi
-  // ha és `esp_read_mac(…, ESP_MAC_BT)`, que es pot preguntar abans que la pila s'hagi sincronitzat —que és exactament quan es necessita,
-  // perquè el nom ha d'estar posat abans de l'anunci (docs/50).
-  uint8_t addr[6] = {};
-  if (esp_read_mac(addr, ESP_MAC_BT) != ESP_OK) {
-    snprintf(out, cap, "lunokOS");
-    return;
-  }
-  char long_name[32];
-  snprintf(long_name, sizeof long_name, "lunokOS-%02X%02X", addr[4], addr[5]);
-  const size_t kMostInAScanResponse = 29;
-  if (strlen(long_name) <= kMostInAScanResponse) {
-    snprintf(out, cap, "%s", long_name);
-  } else {
-    snprintf(out, cap, "lunok%02X%02X", addr[4], addr[5]);
-  }
+  // **El nom és d'un sol lloc des de la 0.190.215**: the keyboard, the mesh node and the mDNS name say the same `lunokOS-XXYY` with the same
+  // address, o sigui que el que hi ha aquí és el nom de la placa i prou (docs/50).
+  the_board_name(out, cap);
 }
 
 // **Els llums del teclat, que els diu l'altre aparell** (0.190.191): a HID host writes an output report with the five lights —num

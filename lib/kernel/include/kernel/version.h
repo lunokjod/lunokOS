@@ -11895,7 +11895,21 @@ namespace kernel {
 // `sdkconfig.defaults` **quan el genera**. Esborrar `.pio/build/<env>` no toca aquell fitxer, o sigui que la clau es queda fora i el que
 // s'enllaça és el node que diu que no —sense cap avís, amb el `defaults` dient que sí—. És el mateix que va passar amb el `memory.ld` de la
 // 0.190.201 (docs/80).
-static const char kVersion[] = "0.190.213";
+// **0.190.215 — un sol nom per a la màquina** (l'amo: *«canvia el nom de la màquina lunokOS-XXYY (dos ultims bytes de la mac, com amb el
+// bluetooth)»*).
+//
+// El nom que la 0.190.197 li va posar al teclat de Bluetooth —`lunokOS-XXYY` amb els dos últims bytes de l'adreça de la ràdio, i `lunokXXYY`
+// si al lloc no hi cap— era **bo i era d'un sol lloc**, i la placa en tenia dos més que no el feien servir: el **node del mesh** (que es
+// presentava sense nom a la llista del provisionador) i l'**mDNS**, que deia `lunokos` a totes les plaques i per tant dues a la mateixa xarxa
+// eren les dues `lunokos.local`. Ara hi ha `hal::the_board_name` (`esp32/board_name.h`), que és l'únic lloc on es compon, i el teclat, el
+// node i l'mDNS el demanen tots tres.
+//
+// **I el nom del mesh només arriba a la resposta de l'escaneig** (PB-GATT), que és el que l'app del provisionador ensenya abans de triar el
+// node; a l'anunciant (PB-ADV) la pila no hi posa cap nom i això és de la pila, no d'aquí (docs/50).
+//
+// De passada, `make_the_name` del `bluetooth.cpp` deixa de tenir el format a dins i passa a ser la crida a aquest sol lloc, o sigui que el
+// límit dels vint-i-nou bytes de la resposta d'escaneig segueix on era i val per a qui el necessiti.
+static const char kVersion[] = "0.190.215";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

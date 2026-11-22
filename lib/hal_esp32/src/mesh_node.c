@@ -83,6 +83,13 @@ void mesh_node_set_uuid(const uint8_t mac[6]) {
   if (mac != NULL) memcpy(&g_uuid[0], mac, 6);
 }
 
+void mesh_node_set_name(const char* name) {
+  if (name == NULL || name[0] == '\0') return;
+  if (esp_ble_mesh_set_unprovisioned_device_name(name) != ESP_OK) {
+    ESP_LOGW(kTag, "this node has no name to present");
+  }
+}
+
 bool mesh_node_init(void) {
   // **El que aquest node és, dit una vegada**: the relay off, the proxy on, the beacon on and a TTL of seven, que és el que fa un node
   // petit que només vol que el trobin (docs/50).
@@ -147,6 +154,7 @@ uint16_t mesh_node_address(void) { return g_up ? esp_ble_mesh_get_primary_elemen
 #else  // this build has no mesh in it: the door answers, and says it cannot
 
 void mesh_node_set_uuid(const uint8_t mac[6]) { (void)mac; }
+void mesh_node_set_name(const char* name) { (void)name; }
 bool mesh_node_init(void) { return false; }
 bool mesh_node_offer(void) { return false; }
 void mesh_node_withdraw(void) {}

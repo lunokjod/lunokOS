@@ -18,6 +18,11 @@ extern "C" {
 // siguin el mateix node davant d'un provisionador.
 void mesh_node_set_uuid(const uint8_t mac[6]);
 
+// **El nom amb què aquest node es presenta** (0.190.215, l'amo: *«canvia el nom de la màquina lunokOS-XXYY, com amb el bluetooth»*): the name
+// an unprovisioned node broadcasts in its advertising, o sigui el que surt a la llista del provisionador abans de triar-lo. La pila només el
+// posa a la resposta de l'escaneig (PB-GATT) i no a l'anunciant, o sigui que és el nom que es veu quan el telèfon ja l'ha trobat.
+void mesh_node_set_name(const char* name);
+
 bool mesh_node_init(void);
 bool mesh_node_offer(void);
 void mesh_node_withdraw(void);

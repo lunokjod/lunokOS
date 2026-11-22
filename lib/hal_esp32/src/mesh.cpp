@@ -6,9 +6,11 @@
 #include "sdkconfig.h"
 
 #include "esp32/bluetooth.h"
+#include "esp32/board_name.h"
 #include "esp32/mesh_node.h"
 #include "hal/log.h"
 
+#include <cstdio>
 #include <cstring>
 
 #include "esp_mac.h"
@@ -50,6 +52,12 @@ class Esp32Mesh : public IMesh {
       return false;
     }
     mesh_node_set_uuid(mac);
+    // **El nom, amb els dos últims bytes de l'adreça** (0.190.215): `lunokOS-XXYY`, que és exactament el que aquesta placa diu quan és un
+    // teclat de Bluetooth —la mateixa adreça de l'eFuse i el mateix format—, o sigui que un provisionador i un telèfon que aparellen veuen
+    // el mateix nom de la mateixa placa (docs/50). El nom del node no té el límit de trenta-un bytes de l'anunci del Bluetooth.
+    char mine[32];
+    the_board_name(mine, sizeof mine);
+    mesh_node_set_name(mine);
     if (!mesh_node_init()) return false;
     return mesh_node_offer();
   }
