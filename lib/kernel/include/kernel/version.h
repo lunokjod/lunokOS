@@ -12660,7 +12660,19 @@ namespace kernel {
 // el cable és viu des del primer segon (la shell és una tasca des de la 0.190.246), l'app del sistema ja no bloqueja l'arrencada, i **amb `&`**
 // el prompt és de la persona mentre el llaçador és al vidre. El que es perd: la imatge de l'error d'una placa que no troba la seva app, perquè
 // el que la diu ara és el `run` mateix al cable (docs/30, docs/40, docs/50).
-static const char kVersion[] = "0.190.247";
+// **0.190.248 — els dos avisos que `-Werror` converteix en build trencat** (l'amo, amb la compilació de l'emulador a la mà:
+// *«error: unused parameter 'say' [-Werror=unused-parameter]»*).
+//
+// **El primer era de la línia que es va callar**: `if (say) out("app closed\r\n")` va quedar comentada al codi —l'amo la va deixar així
+// perseguint d'on sortia `app closed`, i és per això que la meva resposta d'abans assenyalava una línia que no s'executava— i el paràmetre
+// `say` es va quedar sense ús. Amb `-Wall -Wextra -Werror`, que és el que porten les lliberries d'aquesta casa, això no compila. La línia
+// continua callada (és el que hi ha) i el paràmetre es documenta i es marca amb `(void)say`: el camí de l'alarma (`close_app(false)`) el
+// passa i el significat és el de sempre —una pàgina que s'aparta per a una finestra d'alarma no se'n va— (docs/30, docs/50).
+//
+// **El segon encara no l'havia vist ningú perquè les bandes de placa no s'han compilat**: `wire_used_ -= took` a `wire_loop`, i `wire_used_`
+// és `volatile` (perquè `flush` el llegeix sense el pany). Una assignació composta sobre un `volatile` està desaconsellada i és un **error**
+// amb el `-Werror` de `pal_esp32`: el primer `pio run` d'una placa hauria petat per una línia de la 0.190.243. Ara és una assignació normal.
+static const char kVersion[] = "0.190.248";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

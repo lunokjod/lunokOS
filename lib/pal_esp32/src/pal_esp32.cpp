@@ -281,7 +281,9 @@ class LunokSerial {
           took = (kWireBytes - tail < wire_used_) ? (kWireBytes - tail) : wire_used_;
           if (took > kChunk) took = kChunk;
           for (size_t i = 0; i < took; ++i) chunk[i] = wire_[tail + i];
-          wire_used_ -= took;
+          // **Fora del `-=`** (0.190.248): `wire_used_` és `volatile` perquè `flush` el llegeix sense el pany, i una assignació composta sobre un
+          // `volatile` està desaconsellada pel compilador —i amb `-Werror` d'aquesta casa, que és un error— (docs/50).
+          wire_used_ = wire_used_ - took;
         }
         (void)xSemaphoreGive(wire_lock_);
         if (took == 0) break;

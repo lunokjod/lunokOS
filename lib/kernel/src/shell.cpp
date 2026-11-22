@@ -4802,6 +4802,11 @@ bool go_back_one_view() {
 
 void close_app(bool say) {
   if (!g_app_alive) return;
+  // **I el que la línia del prompt diu, que és el que aquest paràmetre vol dir** (0.189.175): a page that steps aside for an alarm window
+  // is not gone, and the window's line is the one the log gets, o sigui que `say == false` és el camí de l'alarma. **La línia és callada des
+  // del 22/11** (l'amo la va deixar comentada perseguint d'on sortia `app closed`), i el paràmetre es queda perquè el camí de l'alarma el
+  // passa i el dia que la línia torni ha de tornar amb el mateix significat (docs/30, docs/50).
+  (void)say;
   // **I el port sèrie que l'app tenia torna al sistema** (0.189.20, la mateixa regla que el llum): a wire ceded to an app that
   // is not there any more is a port a person cannot get back, and giving it back here —before anything is written— is what
   // makes `app closed` readable at the prompt (docs/30, docs/50).
@@ -4868,7 +4873,7 @@ void close_app(bool say) {
   bar::title("");
   // **I la línia del prompt és només per a la pàgina que se'n va de debò** (0.189.175): a page that steps aside for an alarm
   // window is not gone, and the window's line is the one the log gets (docs/30, docs/60).
-  if (say) out("app closed\r\n");
+  //if (say) out("app closed\r\n");
 }
 
 bool restore_app(const char* id, const char* path) { return run_app(id, path, true); }
