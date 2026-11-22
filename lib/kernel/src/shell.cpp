@@ -2327,11 +2327,14 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   // **A breadcrumb before the interpreter takes over the task**: a page of controls, a font of outlines and
   // Lua share one stack, and when that stack dies the only thing left is what was said before it did
   // (measured on the Paper with `run buttons`, 2/11, docs/75).
+  // **I la línia diu què es fa i no només un nom** (0.190.252, l'amo: *«Canvia la linia per una cosa més entenedora»*): `[I][APPS]
+  // Launch app 'home_eink'` és una frase que es llegeix sola al registre; `[I][APPS] home_eink` era un nom solt que, entre el pa de pessic i
+  // la nota del fons, semblava una app arrencada dues vegades (docs/30, docs/50).
   const int32_t stack_left = pal::system().stack_free();
   if (stack_left >= 0) {
-    log_printf(pal::kLogInfo, "APPS", "%s, stack %d B free", boot.app_id, static_cast<int>(stack_left));
+    log_printf(pal::kLogInfo, "APPS", "Launch app '%s', stack %d B free", boot.app_id, static_cast<int>(stack_left));
   } else {
-    log_printf(pal::kLogInfo, "APPS", "%s", boot.app_id);
+    log_printf(pal::kLogInfo, "APPS", "Launch app '%s'", boot.app_id);
   }
   // **Obrir una app, mesurada**: the interpreter comes up and the chunk is compiled here, o sigui que el que una persona espera
   // després de prémer una cel·la és aquesta fila i no el metre de l'app, que encara no corre (docs/30, docs/75).
@@ -2388,7 +2391,9 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   g_start_detached = false;
   luabind::set_console_attached(!g_app_detached);
   if (g_app_detached) {
-    log_printf(pal::kLogInfo, "APPS", "%s goes to the background: its console is the log", id);
+    // **I el fons és una elecció de qui l'ha demanat, no un accident** (0.190.252, l'amo: *«goes to the background (user choice)»*): `&` al
+    // prompt o `app.run` des d'una app; el que cal saber en llegir-ho és que la consola no és d'aquesta app i que va al registre (docs/30).
+    log_printf(pal::kLogInfo, "APPS", "%s goes to the background (user choice)", id);
   }
   if (!luabind::poll()) {  // it never waited: it is already over
     // **Una app que es mor al primer torn també té el seu perquè** (0.189.162): an app whose first line is an error —which is what a

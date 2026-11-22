@@ -12728,7 +12728,17 @@ namespace kernel {
 // `start_the_home_app` tenien el mateix cos escrit dues vegades —ara és `start_the_home_page(card, detached)`— (docs/30, docs/40).
 //
 // Prova nova: `test_an_order_of_the_system_runs_with_the_session_closed`, que és el cas del T5S3 amb la consola del cable.
-static const char kVersion[] = "0.190.251";
+// **0.190.252 — dues línies del registre que es llegeixen soles** (l'amo: *«Canvia la linia per una cosa mes entenedora»*, amb les
+// dues que volia escrites: *«Launch app 'home_eink'»* i *«goes to the background (user choice)»*).
+//
+//   - **`[I][APPS] home_eink` → `[I][APPS] Launch app 'home_eink'`** (i amb la pila, `Launch app 'x', stack N B free`). Era un nom solt
+//     entre el pa de pessic i la nota del fons, i llegit de pressa semblava una app arrencada dues vegades —que és exactament el que l'amo va
+//     preguntar (docs/30, docs/50).
+//   - **`[I][APPS] x goes to the background: its console is the log` → `[I][APPS] x goes to the background (user choice)`**: el que cal
+//     saber en llegir-ho és que no és un accident del sistema, sinó el `&` que algú ha demanat; i que la consola de l'app no és aquesta (docs/30).
+//
+// **I les cites de docs/92, docs/75 i docs/80 es queden com són**: són transcripcions del registre d'aquell dia, i una cita no s'actualitza.
+static const char kVersion[] = "0.190.252";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
