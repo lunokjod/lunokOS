@@ -1,2 +1,0 @@
-Una línia de text qualsevol.
-Una altra, perquè el fitxer no estigui buit.

@@ -34,7 +34,9 @@
 #include "kernel/log.h"
 #include "kernel/mesh.h"
 #include "kernel/meter.h"
+#include "kernel/lock.h"
 #include "kernel/net.h"
+#include "kernel/orders.h"
 #include "kernel/serial.h"
 #include "kernel/usage.h"
 #include "kernel/bar.h"
@@ -49,6 +51,18 @@
 
 namespace kernel {
 namespace shell {
+
+// **Els colors d'una resposta** (0.190.238): les sis que aquesta casa fa servir per a una taula, i són aquí i no dins de l'anonimat perquè les
+// taules que no escriuen pel shell —el `stats`, que va per `meter.cpp`— han de poder dir el mateix. La paleta és la de sempre: el cian clar
+// del prompt, el gris del mig del vidre, el verd i el vermell del registre (docs/30, docs/50).
+const char* const kStyleTitle = "\033[1;4;38;5;51m";   // bold + underline + the light cyan of the system
+const char* const kStyleHead = "\033[1;38;5;51m";      // bold, for the head of a table
+const char* const kStyleKey = "\033[38;5;250m";        // what a row of a table is about
+const char* const kStyleQuiet = "\033[38;5;244m";      // a unit, a dash, an aside
+const char* const kStyleYes = "\033[38;5;41m";
+const char* const kStyleNo = "\033[38;5;196m";
+const char* const kStyleWarn = "\033[38;5;214m";      // the amber of a warning: the worst call of a meter
+const char* const kStyleOn = "\033[0m";
 
 // **The page that asked for the one that is ending** (0.153.0), said here because a start that ends in its own first turn
 // asks for it from inside `run_app` (0.179.48) and its body is with the rest of the ways out, further down (docs/30).
@@ -420,13 +434,88 @@ bool read_words(const char* argument, char words[][kWordCap], size_t max_words, 
 
 void out_num(uint32_t value);
 
-// A count of bytes as megabytes with one decimal (11.8), because a whole number hides the
-// difference between an empty partition and one holding a few apps (docs/70).
-void print_megabytes(uint64_t bytes) {
-  const uint64_t tenth = bytes / (1024ULL * 1024ULL / 10ULL);
-  out_num(static_cast<uint32_t>(tenth / 10));
-  out(".");
-  out_num(static_cast<uint32_t>(tenth % 10));
+// **Les respostes d'aquesta casa també es poden llegir** (0.190.238, l'amo: *«fes la sortida de les comandes mes agradable amb colors, format de
+// text, espais, columnes, negretes, subratllats... help podría ser ben bonic de consultar. O stats. mem necessita que arrodonim els valors a
+// bytes,Kilobytes, Megabytes....»*).
+//
+// **Els codis els porta el codi i qui decideix si surten és la porta única d'escriptura** (`out`): amb `ansi off` el filtre els treu i el que
+// queda és el mateix text, alineat igual, sense color. O sigui que una resposta no ha de tenir dues cares: n'hi ha prou que els codis no
+// comptin com a caràcters —i no compten, perquè el filtre i el terminal els mengen— (docs/30, docs/85).
+//
+// **La paleta és la de la casa i no una de nova**: el cian clar (51) del prompt per als títols, el gris del mig del vidre (244) per al que
+// no és el que una persona ha vingut a llegir —unitats, guions, avisos—, el blanc de sempre per als valors, i el verd i el vermell que el
+// registre ja fa servir per a un sí i un no (41 i 196, `log.cpp`). El subratllat és per als títols i prou: una columna subratllada sencera és
+// una regla i la regla ja la fan les columnes (docs/30, docs/50).
+// **A title says what the table below is, and it is one line**: a blank line before it, the words in bold and underlined, and nothing
+// after it. The blank line is there because a table glued to the command that asked for it reads as if the command had answered with a
+// word of its own (docs/30).
+void title(const char* text) {
+  out("\r\n");
+  out(kStyleTitle);
+  out(text);
+  out(kStyleOn);
+  newline();
+}
+
+// **A row of a table**: a key of at most eighteen columns, a value, and the key coloured so that the eye can skip the left column. The
+// padding is counted on the visible characters —the codes are not letters— and a key longer than the column pushes its value one space to
+// the right instead of cutting it (docs/30).
+const size_t kRowKeyColumns = 18;
+void row(const char* key, const char* value) {
+  out("  ");
+  out(kStyleKey);
+  out(key);
+  const size_t len = strlen(key);
+  spaces((len < kRowKeyColumns) ? (kRowKeyColumns - len) : 1);
+  out(kStyleOn);
+  out("  ");
+  out(value);
+  newline();
+}
+
+// **La meitat d'una fila, quan la part de l'esquerra la dibuixa qui crida**: `mounts` ja ha escrit el camí i el tipus amb el seu color, i el
+// que queda és alinear el número a la columna de sempre. `label` hi va en el color del que la fila és, i buit vol dir que només hi ha valor
+// (0.190.238, docs/30).
+void row_inline(const char* label, const char* measure, const char* value) {
+  out(kStyleQuiet);
+  out(label);
+  if (measure[0] != '\0') {
+    out(" ");
+    out(measure);
+  }
+  out(kStyleOn);
+  out("  ");
+  out(value);
+}
+
+// **A number of bytes that a person can read** (0.190.238): bytes below a kilobyte, and one decimal above it —kilobytes, megabytes,
+// gigabytes— because `917504 B` is a number nobody counts and what the eye wants is `896.0 KB`. **La rodonesa és a la unitat que es diu**:
+// el número es parteix en dècimes i s'arrodoneix a la dècima més propera, i el que una persona llegeix és el que hi ha, no el que hi havia
+// (docs/30, docs/75).
+//
+// **Sense comes flotants**: `%f` pot no existir en aquest build (`CONFIG_NEWLIB_NANO_FORMAT`) i el càlcul de les dècimes és una divisió
+// entera; un número per a una persona no ha de costar una llibreria de coma flotant (docs/45, docs/75).
+void human_bytes(uint64_t bytes, char* out_text, size_t capacity) {
+  const uint64_t kilo = 1024ULL;
+  const uint64_t mega = 1024ULL * 1024ULL;
+  const uint64_t giga = 1024ULL * 1024ULL * 1024ULL;
+  if (bytes < kilo) {
+    snprintf(out_text, capacity, "%u B", static_cast<unsigned>(bytes));
+    return;
+  }
+  const char* unit = "KB";
+  uint64_t scale = kilo;
+  if (bytes >= giga) {
+    unit = "GB";
+    scale = giga;
+  } else if (bytes >= mega) {
+    unit = "MB";
+    scale = mega;
+  }
+  // Tenths, rounded to the nearest one: `(bytes * 10 + scale / 2) / scale`. With a megabyte of room to spare the multiplication does
+  // not overflow a sixty-four bit number (the largest thing this board can count is a card of some gigabytes).
+  const uint64_t tenths = (bytes * 10ULL + scale / 2ULL) / scale;
+  snprintf(out_text, capacity, "%u.%u %s", static_cast<unsigned>(tenths / 10ULL), static_cast<unsigned>(tenths % 10ULL), unit);
 }
 
 void out_num(uint32_t value) {
@@ -538,19 +627,68 @@ uint8_t g_help_written = 0;
 // sentence ended in a comma— (found by reading the list, 9/11, docs/30).
 bool g_help_previous = false;
 
-// One line of the list, or nothing when the person asked for another command.
+// **La sintaxi d'una comanda, amb les dues coses que una persona ha de saber distingir** (0.190.240, l'amo: *«Decora mes el help, les
+// [opcionals] i les <requereides>»*): el nom en el cian de la casa, **el que s'ha d'escriure** (`<app>`, `<path>`) en blanc i negreta, i **el
+// que es pot afegir** (`[on|off]`, `[<ms>]`) en el gris del mig del vidre. Els claudàtors es llegeixen un a un perquè n'hi ha de niuats
+// —`sessions destroy [<id> [<key>]]`—, i el que mana és el que s'ha obert més a dins: un `<>` dins d'un `[]` és obligatori **si vols
+// l'opció**, i pintar-lo gris com el parèntesi seria dir que es pot no escriure (docs/30).
+const char* const kStyleRequired = "\033[1;97m";   // bold bright white: what has to be written
+
+void help_syntax_styled(const char* text, size_t len) {
+  int optional = 0;
+  size_t at = 0;
+  while (at < len) {
+    const char c = text[at];
+    if (c == '[') {
+      ++optional;
+      out(kStyleQuiet);
+      out("[");
+      ++at;
+      continue;
+    }
+    if (c == ']') {
+      if (optional > 0) --optional;
+      out(kStyleQuiet);
+      out("]");
+      ++at;
+      continue;
+    }
+    if (c == '<') {
+      const char* close = static_cast<const char*>(memchr(text + at, '>', len - at));
+      const size_t piece = (close != nullptr) ? static_cast<size_t>(close - (text + at)) + 1 : (len - at);
+      out(kStyleRequired);
+      out_bytes(text + at, piece);
+      out(kStyleOn);
+      at += piece;
+      continue;
+    }
+    size_t end = at;
+    while (end < len && text[end] != '[' && text[end] != ']' && text[end] != '<') ++end;
+    out((optional > 0) ? kStyleQuiet : kStyleHead);
+    out_bytes(text + at, end - at);
+    out(kStyleOn);
+    at = end;
+  }
+}
+
+// **One line of the list, or nothing when the person asked for another command.** The syntax goes in bold and in the colour of the
+// system —it is the part a person copies— and the description stays plain, which is what makes a list of ninety lines readable at a
+// glance (0.190.238, l'amo: *«help podría ser ben bonic de consultar»*). The advice lines at the end have no syntax and they go quiet:
+// they are not a command and they do not have to look like one (docs/30).
 void help_line(const char* text, const char* only) {
   const size_t len = help_syntax_len(text);
   g_help_previous = (only == nullptr) || (len > 0 && help_matches(text, only));
   if (!g_help_previous) return;
   ++g_help_written;
   if (len == 0) {
+    out(kStyleQuiet);
     out(help_syntax(text));
+    out(kStyleOn);
     out("\r\n");
     return;
   }
   out("  ");
-  out_bytes(help_syntax(text), len);
+  help_syntax_styled(help_syntax(text), len);
   out(help_syntax(text) + len);
   out("\r\n");
 }
@@ -566,6 +704,9 @@ void help_continuation(const char* text, const char* only) {
 
 void print_help(const char* only) {
   g_help_written = 0;
+  // **I un títol quan el que s'ha demanat és la llista sencera**: una persona que ha escrit `help` vol saber què hi ha, i el que hi ha és
+  // una taula de comandes amb el nom a l'esquerra i el que fa a la dreta (0.190.238, docs/30).
+  if (only == nullptr) title("the commands of this shell");
   help_line("  help [command]    this list, or the lines of one command", only);
   help_line("  version           version and board", only);
   help_line("  caps              what this board has", only);
@@ -599,6 +740,7 @@ void print_help(const char* only) {
       "                    and `cfg freq [<mhz> on|off|all]`, the floor and the ceiling of the processor", only);
   help_continuation("                    and `cfg settings [<id>|none]`, the app the gear of the panel opens", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
+  help_line("  kill              close the app that is in front of the glass", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
   help_line("  wifi add <ssid> [password]  store a network and go on it", only);
@@ -669,6 +811,16 @@ void print_help(const char* only) {
     newline();
     out("  `help` lists them all");
     newline();
+    return;
+  }
+  // **I el peu, quan la llista és tota**: quantes comandes hi ha i com es pregunta per una, que és el que una persona que ha arribat fins
+  // aquí necessita saber (0.190.238, docs/30).
+  if (only == nullptr) {
+    out("\r\n");
+    out(kStyleQuiet);
+    out("  `help <command>` for one of them, and `help` with no word for this list");
+    out(kStyleOn);
+    newline();
   }
 }
 
@@ -685,12 +837,22 @@ void print_version() {
 }
 
 void print_caps() {
+  title("what this board has");
   const hal::Caps& caps = platform().caps();
   for (uint32_t i = 0; i < hal::cap_count(); ++i) {
     const bool has = caps.has(static_cast<hal::Capability>(hal::cap_bit(i)));
+    // **El sí i el no amb el color del registre** (0.190.238): el verd i el vermell que `log.cpp` fa servir per a un nivell, o sigui que
+    // una persona el llegeix sense comptar les lletres (docs/30, docs/50).
     out("  ");
+    out(kStyleKey);
     out(hal::cap_name(i));
-    out(has ? "  yes" : "  no");
+    const size_t len = strlen(hal::cap_name(i));
+    spaces((len < kRowKeyColumns) ? (kRowKeyColumns - len) : 1);
+    out(kStyleOn);
+    out("  ");
+    out(has ? kStyleYes : kStyleNo);
+    out(has ? "yes" : "no");
+    out(kStyleOn);
     newline();
   }
 }
@@ -726,11 +888,12 @@ bool print_one_session(const session::Entry& row, void* user) {
 }
 
 void print_sessions() {
-  out("session memory   ");
-  out_num(session::count());
-  out(" block(s), ");
-  out_num(static_cast<uint32_t>(session::bytes_held()));
-  out(" B\r\n");
+  title("the memories a session is holding");
+  char value[64];
+  char held[24];
+  human_bytes(session::bytes_held(), held, sizeof held);
+  snprintf(value, sizeof value, "%u block(s), %s", static_cast<unsigned>(session::count()), held);
+  row("session memory", value);
   SessionRows mine;
   (void)session::each(print_one_session, &mine);
   if (mine.rows == 0) out("  (none: no app is holding a cache)\r\n");
@@ -752,31 +915,30 @@ void print_sessions() {
 }
 
 void print_mem() {
+  title("memory");
+  char value[64];
+  char other[24];
   const pal::HeapInfo heap = pal::system().heap();
   if (heap.valid) {
-    out("  free heap          ");
-    out_num(heap.free_bytes);
-    newline();
-    out("  min free heap      ");
-    out_num(heap.min_free_bytes);
-    newline();
+    human_bytes(heap.free_bytes, value, sizeof value);
+    row("free heap", value);
+    human_bytes(heap.min_free_bytes, value, sizeof value);
+    row("min free heap", value);
     // **What a page could still take**: the free bytes can be in pieces, and a block that does not fit in
     // any of them fails on a heap with room to spare. The board has the number and so does the emulator
     // (docs/75, docs/85).
-    out("  largest block      ");
-    out_num(heap.largest_free_bytes);
-    newline();
+    human_bytes(heap.largest_free_bytes, value, sizeof value);
+    row("largest block", value);
   } else {
-    out("  heap               not available on this build\r\n");
+    row("heap", "not available on this build");
   }
   // **What is left of the stack of this task**: a page of controls, a font of outlines and the interpreter
   // share it, and an overflow does not say so —it corrupts a backtrace and reboots— so the number is here
   // (docs/75).
   const int32_t stack_left = pal::system().stack_free();
   if (stack_left >= 0) {
-    out("  stack left         ");
-    out_num(static_cast<uint32_t>(stack_left));
-    out(" B\r\n");
+    human_bytes(static_cast<uint64_t>(stack_left), value, sizeof value);
+    row("stack left", value);
   }
   // The extra memory of the board (the PSRAM of the Paper), with the three numbers that are not the
   // same: what the chip says it has, what the CPU can address, and what is left. It was one number
@@ -784,68 +946,58 @@ void print_mem() {
   // (docs/75). On a board with none, the line says so and that is not an error.
   const hal::ExtraMemory extra = platform().extra_memory();
   if (extra.chip_bytes > 0) {
-    out("  extra memory       ");
-    out_num(extra.free_bytes / 1024);
-    out(" of ");
-    out_num(extra.total_bytes / 1024);
-    out(" KB usable, of ");
-    out_num(extra.chip_bytes / 1024);
-    out(" KB on the chip (psram)\r\n");
+    human_bytes(extra.free_bytes, value, sizeof value);
+    human_bytes(extra.total_bytes, other, sizeof other);
+    snprintf(value + strlen(value), sizeof value - strlen(value), " of %s usable", other);
+    row("extra memory", value);
+    human_bytes(extra.chip_bytes, other, sizeof other);
+    snprintf(value + strlen(value), sizeof value - strlen(value), ", of %s on the chip (psram)", other);
+    row("", value);
   } else {
-    out("  extra memory       none on this board\r\n");
+    row("extra memory", "none on this board");
   }
   // **Els megabytes que el xip té darrere el banc de commutació** (0.190.173): the other half of the
   // Paper's and the Koala's 8 MB, which cannot be handed to an app as a pointer —the chip moves them
   // in and out of a window— and for that reason they were not in the line above. `mem himem` proves
   // that they hold what is written there (docs/50, docs/75).
   if (extra.himem_bytes > 0) {
-    out("  himem              ");
-    out_num(extra.himem_free_bytes / 1024);
-    out(" of ");
-    out_num(extra.himem_bytes / 1024);
-    out(" KB free, ");
-    out_num(extra.himem_window_bytes / 1024);
-    out(" KB of window (bank switching)\r\n");
+    human_bytes(extra.himem_free_bytes, value, sizeof value);
+    human_bytes(extra.himem_bytes, other, sizeof other);
+    snprintf(value + strlen(value), sizeof value - strlen(value), " free of %s", other);
+    row("himem", value);
+    human_bytes(extra.himem_window_bytes, other, sizeof other);
+    snprintf(value, sizeof value, "%s of window (bank switching)", other);
+    row("", value);
   }
   // The last app, if one has run: what it asked for and what it was allowed.
   if (luabind::limit_bytes() > 0) {
-    out("  lua peak / limit   ");
-    out_num(static_cast<uint32_t>(luabind::peak_bytes()));
-    out(" / ");
-    out_num(static_cast<uint32_t>(luabind::limit_bytes()));
-    newline();
+    human_bytes(static_cast<uint64_t>(luabind::peak_bytes()), value, sizeof value);
+    human_bytes(static_cast<uint64_t>(luabind::limit_bytes()), other, sizeof other);
+    snprintf(value + strlen(value), sizeof value - strlen(value), " of %s allowed", other);
+    row("lua peak / limit", value);
   }
   // **The memories of a session an app is keeping** (0.179.0): the first thing the allocator gives back when a block does not
   // fit, so a person looking at a board that is short of memory sees what is being held and by whom it is held (docs/30,
   // docs/75).
   if (session::count() > 0) {
-    out("  session memory     ");
-    out_num(session::bytes_held() / 1024);
-    out(" KB in ");
-    out_num(session::count());
-    out(" block(s)\r\n");
+    human_bytes(session::bytes_held(), value, sizeof value);
+    snprintf(value + strlen(value), sizeof value - strlen(value), " in %u block(s)", static_cast<unsigned>(session::count()));
+    row("session memory", value);
   }
   pal::IQueue* queue = pal::system().queue();
-  out("  event queue        ");
-  out_num(queue->size());
-  out("/");
-  out_num(queue->capacity());
-  newline();
-  out("  log ring (bytes)   ");
-  out_num(static_cast<uint32_t>(log_bytes()));
-  newline();
+  snprintf(value, sizeof value, "%u of %u", static_cast<unsigned>(queue->size()), static_cast<unsigned>(queue->capacity()));
+  row("event queue", value);
+  human_bytes(static_cast<uint64_t>(log_bytes()), value, sizeof value);
+  row("log ring", value);
   // **I els llibres, en una línia** (0.190.0): `mem blocks` els ensenya un a un; aquí n'hi ha prou de saber que hi són i **què no
   // hi és**, perquè una llista que no és tota ho ha de dir on es mira (docs/75).
   if (pal::memory_slots() == 0) {
-    out("  memory books       none on this build\r\n");
+    row("memory books", "none on this build");
   } else {
-    out("  memory books       ");
-    out_num(pal::memory_live());
-    out(" block(s) of ");
-    out_num(pal::memory_slots());
-    out(" rows, ");
-    out_num(pal::memory_lost());
-    out(" ask(s) not written down\r\n");
+    snprintf(value, sizeof value, "%u block(s) of %u rows, %u ask(s) not written down",
+             static_cast<unsigned>(pal::memory_live()), static_cast<unsigned>(pal::memory_slots()),
+             static_cast<unsigned>(pal::memory_lost()));
+    row("memory books", value);
   }
 }
 
@@ -1407,38 +1559,41 @@ bool command_splash(const char* rest) {
 // One line per mount: what it is, whether it can be written and how much room is
 // left. Two of the numbers M4 asks for come from here (docs/90).
 void print_mounts() {
+  title("the file systems of this board");
   const uint32_t count = vfs::mount_count();
+  char value[64];
   for (uint32_t i = 0; i < count; ++i) {
     const char* path = vfs::mount_path(i);
+    const char* kind = vfs::mount_kind(i);
     out("  ");
+    out(kStyleHead);
     out(path);
-    spaces(strlen(path) < 12 ? 12 - strlen(path) : 1);
-    out(vfs::mount_kind(i));
-    spaces(strlen(vfs::mount_kind(i)) < 10 ? 10 - strlen(vfs::mount_kind(i)) : 1);
-    out(vfs::mount_writable(i) ? "rw  " : "ro  ");
+    const size_t path_len = strlen(path);
+    spaces((path_len < 12) ? (12 - path_len) : 1);
+    out(kStyleOn);
+    out(kStyleQuiet);
+    out(kind);
+    spaces((strlen(kind) < 10) ? (10 - strlen(kind)) : 1);
+    out(kStyleOn);
+    // **Escrivible o no, amb el color del registre**: `rw` verd i `ro` vermell, perquè és el que una persona mira abans de desar-hi res
+    // (0.190.238, docs/70).
+    const bool writable = vfs::mount_writable(i);
+    out(writable ? kStyleYes : kStyleNo);
+    out(writable ? "rw" : "ro");
+    out(kStyleOn);
+    out("  ");
 
     uint64_t total = 0;
     uint64_t free_bytes = 0;
     if (vfs::space(path, total, free_bytes)) {
-      // Bytes below a megabyte and megabytes above it: a 16 GB card in bytes is a number nobody counts,
-      // and `out_num` takes 32 bits, so the card overflowed it and printed zero (measured on the emulator,
-      // 31/10). The flash of a board fits either way (917 504 B).
-      const uint64_t megabyte = 1024ULL * 1024ULL;
-      if (total >= megabyte) {
-        // One decimal, because whole megabytes hide the difference between a partition that is
-        // empty and one that has a few apps in it (the Paper's is 11.87 MB, docs/70).
-        out("free ");
-        print_megabytes(free_bytes);
-        out(" MB of ");
-        print_megabytes(total);
-        out(" MB");
-      } else {
-        out("free ");
-        out_num(static_cast<uint32_t>(free_bytes));
-        out(" of ");
-        out_num(static_cast<uint32_t>(total));
-        out(" B");
-      }
+      // **Els bytes que es poden llegir** (0.190.238): `free 11.9 MB of 15.8 MB` és el que el codi ja feia a mà per sobre del megabyte i
+      // ara ho fa per a les tres unitats, també per a una targeta de setze gigabytes, que en bytes és un número que ningú compta
+      // (docs/70).
+      char free_text[24];
+      human_bytes(free_bytes, free_text, sizeof free_text);
+      human_bytes(total, value, sizeof value);
+      snprintf(value + strlen(value), sizeof value - strlen(value), " in all");
+      row_inline("free", free_text, value);
     } else {
       // Not "no room": the values of the NVS are not files and there is no byte count to
       // give. What there is, is a number of entries, and that is the number a person needs
@@ -1447,14 +1602,15 @@ void print_mounts() {
       uint32_t total_entries = 0;
       hal::IKeyValue* kv = platform().nvs();
       if (kv != nullptr && kv->stats(used_entries, total_entries)) {
-        out("entries ");
-        out_num(used_entries);
         if (total_entries > 0) {
-          out(" of ");
-          out_num(total_entries);
+          snprintf(value, sizeof value, "%u of %u entries", static_cast<unsigned>(used_entries),
+                   static_cast<unsigned>(total_entries));
+        } else {
+          snprintf(value, sizeof value, "%u entries", static_cast<unsigned>(used_entries));
         }
+        row_inline("entries", "", value);
       } else {
-        out("space unknown");
+        row_inline("space", "", "unknown");
       }
     }
     newline();
@@ -1463,24 +1619,48 @@ void print_mounts() {
 
 class ListPrinter : public hal::ListSink {
  public:
+  // **A name is the answer and the rest is the frame round it** (0.190.240, l'amo: *«ls està igual, li cal una mica d'estil»*): el tipus i la
+  // mida en el gris del mig del vidre, **el nom d'una carpeta en el cian de la casa i el d'un fitxer en el blanc de sempre**, i la mida en les
+  // unitats que es llegeixen (`1.4 KB` i no `1433`). És el primer ús del color que hi ha —un nom que mana sobre el que l'envolta— i el
+  // comentari de sempre ja ho deia; el que faltava era fer-ho (docs/30, docs/85).
   bool on_entry(const hal::ListEntry& entry) override {
-    // **A name is the answer and the rest is the frame round it**: the kind and the size go dim, a directory
-    // is blue, and a file is the paper. It is the oldest use of colour there is and it still reads at a
-    // glance (docs/30, docs/85).
-    if (entry.type == hal::NodeType::kDir) {
+    const bool folder = (entry.type == hal::NodeType::kDir);
+    char size[24];
+    human_bytes(entry.size, size, sizeof size);
+    out("  ");
+    out(kStyleQuiet);
+    out(folder ? "<dir>   " : "file    ");
+    out(kStyleOn);
+    out(folder ? kStyleHead : kStyleOn);
+    out(entry.name);
+    out(kStyleOn);
+    if (!folder) {
       out("  ");
-      out("<dir>   ");
-      out(entry.name);
-    } else {
-      out("  ");
-      out("file    ");
-      out(entry.name);
-      out("  ");
-      out_num(entry.size);
+      out(kStyleQuiet);
+      out(size);
+      out(kStyleOn);
     }
     newline();
+    ++rows;
     return true;
   }
+
+  // **I quantes coses hi ha**, que és el que una persona compta quan la llista és llarga i el que li diu si la carpeta és buida (docs/30).
+  void summary() {
+    out("  ");
+    out(kStyleQuiet);
+    if (rows == 0) {
+      out("(nothing here)");
+    } else {
+      char line[32];
+      snprintf(line, sizeof line, "%u entr%s", static_cast<unsigned>(rows), (rows == 1) ? "y" : "ies");
+      out(line);
+    }
+    out(kStyleOn);
+    newline();
+  }
+
+  uint32_t rows = 0;
 };
 
 // **Eight names and no more**: the hint of a path that is not there has to fit on one screen, and what is needed
@@ -1566,16 +1746,22 @@ void list_at(const char* path) {
     one.name = (base != nullptr) ? base + 1 : path;
     one.type = info.type;
     one.size = info.size;
+    title(path);
     ListPrinter printer;
     printer.on_entry(one);
     return;
   }
+  // **El camí, a dalt, i quantes coses hi ha, a baix** (0.190.240): una llista de trenta noms sense dir de quina carpeta són és una llista
+  // que una persona ha de reconstruir de memòria, i una carpeta buida i una carpeta que no s'ha pogut llegir es veuen igual (docs/30, docs/70).
+  title(path);
   ListPrinter printer;
   if (!vfs::list(path, printer)) {
     error_out("cannot list: ");
     out(path);
     newline();
+    return;
   }
+  printer.summary();
 }
 
 // cat: prints the file, and says which of the two things went wrong instead of
@@ -4389,8 +4575,22 @@ bool leave_lua() {
 // (docs/30, docs/50, docs/85).
 //
 // **The session of the console and the session of an app are two doors of the same shell** (0.159.0), which is why
+// **On viu l'historial del terminal** (0.190.236): el disc preferit de la persona, i no un altre. `/data` és la porta que ja el segueix
+// (0.190.8), però `linenoise` escriu amb `fopen` i el que `fopen` entén és el camí del VFS de la IDF —`/littlefs` i `/sd`, els dos discs
+// que hi són muntats—, o sigui que aquí es tradueix la porta al camí: `/<unitat>/data/history.txt`. Amb una targeta el fitxer neix a la
+// targeta i el flaix no s'escriu; sense targeta, al flaix, que és l'únic que hi ha (docs/30, docs/50, docs/70).
+bool history_path(char* out, size_t cap) {
+  const char* unit = cfg::unit();
+  if (unit == nullptr || unit[0] == '\0' || out == nullptr || cap < 24) return false;
+  snprintf(out, cap, "/%s/data/history.txt", unit);
+  return true;
+}
+
 // this is `close_console_session` and the other one is `close_session` of `kernel/shell.h`.
 bool close_console_session() {
+  // **I el que s'ha escrit es desa abans de tancar** (0.190.236): una sessió que marxa no s'endú les comandes que la persona ha escrit; es
+  // fa aquí i no a cada línia, perquè una escriptura de disc per tecla premuda no és un preu que una placa hagi de pagar (docs/30, docs/70).
+  keep_the_history();
   g_editor.reset();
   // **I el follow no sobreviu a la sessió** (0.190.185): a mirror left open is a wire that starts getting the log again after the
   // logout, which is the very thing this console stopped doing. The mirror goes back to what the console is, not to zero.
@@ -4443,6 +4643,23 @@ void console_away(const char* text, size_t len) {
 }
 
 }  // namespace
+
+// **I les dues portes de l'historial, fora de l'anonimat** (0.190.236): les declara `kernel/shell.h` i les crida el nucli, i una funció dins
+// de l'anonimat té enllaç intern i el que queda és un `undefined reference` a l'enllaç — que és exactament el que va passar quan aquesta
+// casa va escriure per primer cop una funció així dins d'un bloc anònim (docs/30).
+void load_the_history() {
+  pal::IConsole* console = serial::console();
+  char path[48];
+  if (console == nullptr || !history_path(path, sizeof path)) return;
+  if (console->load_the_history(path)) log_printf(pal::kLogInfo, "CONSOLE", "the history of the session came back from %s", path);
+}
+
+void keep_the_history() {
+  pal::IConsole* console = serial::console();
+  char path[48];
+  if (console == nullptr || !history_path(path, sizeof path)) return;
+  (void)console->save_the_history(path);
+}
 
 // **El color del prompt** (0.190.222, l'amo: *«Poder moure el cursor, fer efectes, i colors dona molta vidilla»*): el terminal del cable
 // entén codis d'escapament i és el que posa el prompt a la pantalla, o sigui que la paraula del shell hi va amb el seu color —el cian
@@ -4913,6 +5130,36 @@ bool deep_sleep(const char* reason) {
   if (!power::deep_sleep_with_the_keys()) return false;
   shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
   return true;
+}
+
+// **Les comandes es fan aquí i no a la tasca de la shell** (0.190.245, l'amo: *«l'app va per el seu fil d'execució i la shell terminal al port
+// serie va en un altre. Per això tota execució amb "run ...." o "comanda" ha d'executar-se al fil de sistema»*): the shell of the board only
+// reads and echoes, o sigui que el que una persona ha escrit és una línia en una cua i el que la fa és el torn, on viuen el vidre,
+// l'intèrpret i l'app. Es buida sencera cada volta i abans de res: una comanda que espera un torn més és una tecla que sembla no haver fet
+// res (docs/30, docs/50). `take_a_line` és exactament el camí d'una línia del terminal, o sigui que el que es fa aquí és el que sempre s'hi
+// ha fet —inclòs el prompt del final— i no una segona manera de fer comandes.
+// **La pàgina de casa és una comanda com qualsevol altra** (0.190.247, l'amo: *«Mira que és fàcil tu!, shell fa "run home_eink &" només entrar i
+// santes pàsques!»*): fins avui la començava l'arrencada mateixa (`shell::start_app`), o sigui que la pàgina del sistema i el seu primer dibuix
+// passaven dins del `boot` i el cable es quedava sense prompt fins que el vidre havia acabat —segons, en una T5S3—. Ara s'escriu a la cua de
+// comandes i el torn la fa: el camí d'una línia escrita a mà, amb el mateix `run_app` i els mateixos comiats. **Amb `&`** (0.160.0): l'app és
+// al vidre i el cable és de la persona, que és exactament el que l'amo demanava —treballar mentre el llaçador és a la pantalla— (docs/30, docs/50).
+bool ask_for_the_home_app() {
+  const char* home = cfg::home_app();
+  if (home == nullptr || home[0] == '\0') return false;
+  char command[orders::kLineBytes];
+  snprintf(command, sizeof(command), "run %s &", home);
+  if (orders::post_a_line(command)) return true;
+  // **I si la cua no hi és, es fa aquí mateix**: una arrencada sense pàgina és pitjor que una pàgina sense cua (docs/30).
+  g_start_flags[0] = '\0';
+  g_start_detached = true;
+  const bool started = run_app(home, nullptr, false, /*splash=*/false);
+  g_start_detached = false;
+  return started;
+}
+
+void carry_out_the_orders() {
+  char line[orders::kLineBytes];
+  while (orders::take_a_line(line, sizeof(line))) take_a_line(line);
 }
 
 bool poll_app() {
@@ -7020,6 +7267,18 @@ bool execute(char* line) {
     g_start_detached = false;
     return opened;
   }
+  if (strncmp(line, "kill", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    // **Matar una app des del prompt** (0.190.245, l'amo: *«Per matar una app el mateix. S'envía a la tasca del torn i allà es mata o s'arrenca
+    // l'app»*): the command itself runs in the turn —tota comanda hi corre des de la 0.190.245—, o sigui que aquí no hi ha cap cua i el que
+    // hi ha és la veritat del moment: si no hi ha cap app, es diu (docs/30, docs/50).
+    if (!app_running()) {
+      out("no app is running\r\n");
+      return false;
+    }
+    close_app();
+    prompt();
+    return true;
+  }
   if (line[0] == 'l' && line[1] == 's' && (line[2] == '\0' || line[2] == ' ')) {
     char words[1][kWordCap];
     size_t count = 0;
@@ -7325,11 +7584,179 @@ bool execute(char* line) {
   return false;
 }
 
+// **El banner d'una sessió són les lletres de l'amo, i sóc aquí dins** (0.190.232, l'amo: *«El text que tinc seleccionat es el banner que has
+// de mostrar després d'iniciar una sessió a la placa per serie»*, i tot seguit *«Canvia l'ansi per el que tinc seleccionat a l'editor»*).
+// L'art és el seu `data/res/logo2.ans` —té les provatures al costat, `logo1.ans` i `logo3.ans`, i aquesta és la que va triar—, i **el que hi
+// ha aquí són els seus bytes, escapatge a escapatge**: els codis de color (`ESC[0;97m`, `ESC[0;94m`, `ESC[0;34m`) i les caixes de dibuix
+// (UTF-8) són del fitxer i no d'aquesta casa, que només els ensenya (docs/30, docs/50).
+//
+// **Per què els bytes i no el fitxer** (i no és gust): `data/res` viu a la partició `littlefs`, i canviar-hi una lletra vol dir
+// `pio run -t uploadfs`, que **reescriu la partició sencera** — i al ATOM, que no té targeta, això s'endú `/data` amb el que hi hagi (el
+// registre de la bateria, les marques del rellotge). El que es veu amb **un sol flaix de firmware** és aquest literal, i el `.ans` és
+// l'original des d'on es torna a copiar si l'art canvia (docs/30, docs/50, docs/70).
+//
+// **I el salt de línia ja hi és fet**: un `.ans` porta el salt sol (`LF`), i aquí cada línia acaba en `CRLF` com tota la resta del que aquest
+// sistema escriu a la consola, perquè **és el que el terminal necessita per baixar de línia** (la documentació de la IDF ho diu a *Console →
+// Configuring UART*: el terminal envia CR en prémer Enter i espera CR LF per tornar al principi de la línia següent). El driver del VFS, en
+// mode `LF`, **no toca el que s'escriu** (0.190.237, `vfs_uart.c`), i el camí de bytes l'escriu tal qual (docs/30, docs/50).
+const char* const kBanner[] = {
+    "\x1b[0;97m┌─\x1b[0;94m──\x1b[0;97m┐\x1b[0;94m \x1b[0;97m┌─\x1b[0;94m──\x1b[0;34m┐\x1b[0;94m───\x1b[0;34m┐\x1b[0;97m┌─\x1b[0;94m─┐ ┌──\x1b[0;34m┐\x1b[0;97m┌─\x1b[0;94m──────\x1b[0;34m┐\x1b[0;97m┌─\x1b[0;94m─┐┌──\x1b[0;34m┐\x1b[0;97m┌─\x1b[0;94m──────\x1b[0;34m┐\x1b[0;97m┌─\x1b[0;94m─────\x1b[0;34m┐\x1b[0;94m \x1b[0m",
+    "\x1b[0;94m│   \x1b[0;34m│\x1b[0;94m │   │   \x1b[0;34m│\x1b[0;94m│  └\x1b[0;34m┐\x1b[0;94m│  \x1b[0;34m│\x1b[0;94m│   \x1b[0;34m┬\x1b[0;94m   \x1b[0;34m│\x1b[0;94m│  └\x1b[0;97m┘\x1b[0;94m  \x1b[0;34m│\x1b[0;94m│   \x1b[0;34m┬\x1b[0;94m   \x1b[0;34m│\x1b[0;94m│   \x1b[0;97m──\x1b[0;94m─┴\x1b[0;34m┐\x1b[0m",
+    "\x1b[0;94m│   \x1b[0;34m│\x1b[0;94m \x1b[0;34m│\x1b[0;94m   \x1b[0;97m┘\x1b[0;94m   \x1b[0;34m││\x1b[0;94m  \x1b[0;34m┌\x1b[0;94m└\x1b[0;97m┤\x1b[0;94m  \x1b[0;34m││\x1b[0;94m   │   \x1b[0;34m││\x1b[0;94m    \x1b[0;34m┌─\x1b[0;94m┘\x1b[0;34m│\x1b[0;94m   │   \x1b[0;34m│├─\x1b[0;94m───\x1b[0;34m┐\x1b[0;94m  \x1b[0;34m│\x1b[0m",
+    "\x1b[0;34m│\x1b[0;94m   \x1b[0;34m└┐│\x1b[0;94m       \x1b[0;34m││\x1b[0;94m  \x1b[0;34m│└\x1b[0;94m┐  \x1b[0;34m││\x1b[0;94m   \x1b[0;97m┴\x1b[0;94m   \x1b[0;34m││\x1b[0;94m  ┌┐  \x1b[0;34m││\x1b[0;94m   \x1b[0;97m┴\x1b[0;94m   \x1b[0;34m││\x1b[0;94m   \x1b[0;34m─┘\x1b[0;94m  \x1b[0;34m│\x1b[0m",
+    "\x1b[0;34m└────┘└───────┘└─\x1b[0;94m─┘ └\x1b[0;34m──┘└───────┘└──┘\x1b[0;97m└\x1b[0;34m──┘└───────┘└───────┘\x1b[0m",
+};
+const size_t kBannerLines = sizeof(kBanner) / sizeof(kBanner[0]);
+// **El banner és del cable i no de qualsevol consola**: la consola que es penja (el vidre, l'emulador del PC) té la seva línia i la seva
+// mida, i cinc línies d'art allà són soroll. `a_wire_console()` és la mateixa resposta que fa servir el pany del son (docs/50).
+//
+// **L'art va alineat a la dreta, i va a la línia de la sessió** (0.190.234, l'amo: *«posala alinada a la dreta a dalt, el més alt possible i
+// el més a la dreta possible»*, i després, amb la placa a la mà: *«massa alt, es perd amunt amb el retorn de carro i també veig com salta de
+// la dreta a l'esquerra abans de pujar»*).
+//
+// **Per què no es fixa a la primera fila de la pantalla**: un terminal que fa scroll no té cantonada. Posar el cursor a `ESC[1;1H` i pintar-hi
+// el dibuix el deixa a la fila u **de la vista**, i el primer salt de línia de la sessió —el de la línia en blanc que hi havia darrere— fa
+// pujar el paper i se n'endú la primera línia de l'art, i el segon se n'endú la segona. O sigui que l'art **va amb la sessió i no a la
+// cantonada**: es pinta en el seu lloc, línia a línia, i puja amb el que escriu la persona com qualsevol altra línia, que és el que fa que no
+// es perdi mai (docs/30, docs/50).
+//
+// **I la dreta es troba amb el cursor, sense preguntar la mida**: a cada línia, `ESC[999C` deixa el cursor **clavat al marge dret** —el
+// terminal no el deixa passar, sigui quina sigui l'amplada— i `ESC[58D` el torna enrere l'amplada del dibuix menys un (les cinc línies fan
+// cinquanta-nou columnes), o sigui que l'última caixa cau a l'última columna. És el mètode amb què `linenoise` mesura l'amplada (`ESC[999C`
+// i preguntar on ha quedat), però aquí no es pregunta on ha quedat: n'hi ha prou amb tornar enrere. **I no depèn de cap resposta**: el primer
+// intent posava el cursor amb la columna que el terminal havia contestat, i amb `pio device monitor` al mig aquesta resposta no arriba mai —
+// el monitor es menja el que el terminal contesta, com amb la sonda de la 0.190.223 (docs/50, docs/85).
+//
+// **I el cursor s'amaga mentre es col·loca**: els salts al marge i enrere es veurien com un cursor que corre per la pantalla abans de pujar,
+// que és exactament el que l'amo va veure. `ESC[?25l` abans i `ESC[?25h` després, i el que es veu és el dibuix, no el camí (docs/30, docs/85).
+//
+// **La mida, quan la diu, només serveix per no dibuixar de més**: un terminal que declara menys de 59 columnes o menys de 5 files no rep
+// l'art, perquè el que quedaria seria el dibuix doblegat i trencat. Si no la diu, es dibuixa igualment — la dreta no en depèn (docs/50).
+//
+// **I sense ANSI no hi ha art** (l'amo: *«Si no hi ha ansii, no mostris l'art»*): el dibuix són codis de color i de cursor, i amb el
+// commutador apagat el filtre els trauria i el que quedaria seria un garbuix de caixes sense cap sentit (docs/30, docs/85).
+// **I sota el dibuix, centrat, qui és aquesta placa i quina versió hi corre** (0.190.239, l'amo: *«Sota el banner de l'entrada posa centrat
+// (sota el banner) en text blanc i negreta el numero de versiò i la placa..»*). El blanc i la negreta són el que fa que es llegeixi com una
+// llegenda i no com una línia més de la sessió —`ESC [ 1 ; 9 7 m`, el blanc clar—, i **el centrat és dins de les cinquanta-nou columnes del
+// dibuix i no de la pantalla**: la llegenda és del dibuix, i un text centrat a la pantalla es veuria desplaçat respecte del que té a sobre.
+// La columna es troba amb el mateix truc que les línies de l'art —el marge dret, que és el que el terminal sap, menys el que sobra del
+// dibuix— o sigui que **tampoc aquí es pregunta cap mida** (docs/30, docs/50).
+const char* const kStyleLegend = "\033[1;97m";
+
+void say_the_banner() {
+  if (!a_wire_console() || !g_ansi) return;
+  const int kBannerColumns = 59;   // the width of every line of the art, colour codes not counted (data/res/logo2.ans)
+  const int kFewestRows = 5;
+  int rows = 0;
+  int columns = 0;
+  pal::IConsole* console = serial::console();
+  const bool knows = (console != nullptr) && console->the_size(rows, columns);
+  if (knows && columns >= 1 && columns < kBannerColumns) return;
+  if (knows && rows >= 1 && rows < kFewestRows) return;
+  out("\x1b[?25l");   // the cursor out of sight: what is seen is the drawing, not the path
+  for (size_t i = 0; i < kBannerLines; ++i) {
+    out("\x1b[999C");
+    out("\x1b[58D");
+    out(kBanner[i]);
+    out("\r\n");
+  }
+  // **La llegenda, centrada sota el dibuix**: el número i la placa, que és el que una persona mira quan la sessió s'obre i no li cal
+  // preguntar-ho amb `version` (docs/30).
+  char legend[64];
+  const int written = snprintf(legend, sizeof legend, "%s  %s", kVersion, platform().id());
+  if (written > 0) {
+    const int columns = (written < kBannerColumns) ? written : kBannerColumns;
+    int back = (kBannerColumns - 1) - (kBannerColumns - columns) / 2;
+    if (back < 0) back = 0;
+    char move[24];
+    snprintf(move, sizeof move, "\x1b[999C\x1b[%dD", back);
+    out(move);
+    out(kStyleLegend);
+    out(legend);
+    out(kStyleOn);
+    out("\r\n");
+  }
+  out("\r\n");
+  out("\x1b[?25h");
+}
+
 // **Una línia sencera, que és el que arriba quan el cable té terminal** (0.190.222, l'amo: *«Vull una migració completa de la shell a aquest
 // terminal serie»*). El camí de bytes i aquest fan la mateixa feina i per això el que mana és el mateix `execute`: el que canvia és **qui
 // ha dibuixat la línia** —l'editor del `console`, amb el cursor i els colors— i per això aquí no s'escriu ni la línia ni el salt, que ja
 // són a la pantalla. El que sí que es fa és tot el que el camí de bytes fa abans d'executar: la sessió, el registre seguit i una app amb
 // la consola (docs/30, docs/50).
+// **Una línia que s'ha acabat va a la cua i no a `execute`** (0.190.245): the shell reads and echoes; the command is the turn's. Quan la cua és
+// plena es diu aquí mateix —una tecla que desapareix en silenci és pitjor que una tecla refusada— i la persona pot tornar a prémer Enter, que
+// tornarà a enviar la mateixa línia (docs/30, docs/50).
+namespace {
+void hand_the_line_over(const char* text) {
+  lock::note_activity(power::Hand::kConsole);
+  if (orders::post_a_line(text)) return;
+  error_out("the turn already has four commands waiting: nothing queued\r\n");
+}
+}  // namespace
+
+// **El servei de la consola, que és el que la tasca de la shell fa** (0.190.244): look at the console once —a line if the terminal has an
+// editor, bytes if it does not— and execute what came. `wait_ms` is how long the wait for a line may last, and zero is the turn asking
+// whether there is one and going on with its work, which is the PC and the emulator (docs/30, docs/50, docs/85).
+void serve_once(int32_t wait_ms) {
+  pal::IConsole* console = serial::console();
+  if (console == nullptr) return;
+  // **Dues maneres d'arribar una línia i un sol shell** (0.190.222): amb el terminal del cable, el que arriba és la línia que l'editor ha
+  // acabat —amb els colors i el cursor ja dibuixats— i el que se'n fa és el mateix; sense terminal (l'emulador, la consola del vidre,
+  // una placa on el controlador no arrenca) arriben bytes i el shell té el seu editor. **Un sol camí per volta** i mai tots dos, o la
+  // meitat de les tecles anirien a un editor i l'altra meitat a l'altre (docs/30, docs/50).
+  if (console->has_a_line_editor()) {
+    char line[orders::kLineBytes];
+    if (wait_ms > 0) {
+      if (console->wait_for_a_line(line, sizeof(line), wait_ms)) hand_the_line_over(line);
+      return;
+    }
+    while (console->take_a_line(line, sizeof(line))) hand_the_line_over(line);
+    return;
+  }
+  char buf[64];
+  size_t n = console->read(buf, sizeof(buf));
+  while (n > 0) {
+    // A person is at the keyboard: the board is being used and does not put itself to sleep until the prompt has been quiet for a while
+    // (docs/60). **Un comptador i prou**: `lock::note_activity` mou el de `power` des de la 0.190.9 (docs/30, docs/60).
+    lock::note_activity(power::Hand::kConsole);
+    // **L'eco sí que és d'aquesta tasca, i per això el pany del torn** (0.190.245): `feed` escriu la lletra que s'ha premut i, si l'app és al
+    // davant, la dona al seu intèrpret —que viu al torn—, o sigui que aquest tros és l'únic d'aquesta tasca que toca el que és del torn. La
+    // comanda que en surti no es fa aquí: va a la cua com la del terminal (docs/30, docs/50).
+    take_the_turn();
+    feed(buf, n);
+    give_the_turn();
+    n = console->read(buf, sizeof(buf));
+  }
+}
+
+void serve() {
+  // **Una tasca que espera i no gira** (0.190.244): with a line editor the wait is the queue's and twenty milliseconds is the pause of a
+  // person between two keypresses, o sigui que la tecla es llegeix de seguida i la tasca dorm. **I sense editor no hi ha res que esperi**
+  // —el camí de bytes llegeix el que hi ha i torna—, i una tasca a prioritat de la shell que girés sense parar es menjaria el torn sencer;
+  // aleshores la volta és la de sempre, deu mil·lisegons, que és el que el torn feia amb la consola abans de la 0.190.244 i el que deixa
+  // que la placa segueixi fent becaines (docs/30, docs/50, docs/60, docs/95).
+  for (;;) {
+    pal::IConsole* console = serial::console();
+    const bool editor = console != nullptr && console->has_a_line_editor();
+    serve_once(editor ? 20 : 0);
+    if (!editor) pal::delay_ms(10);
+  }
+}
+
+namespace {
+void serve_task(void*) { serve(); }
+}  // namespace
+
+bool start_the_task() {
+  // **Sis kilobytes, perquè aquesta tasca ja no executa cap comanda** (0.190.245): it reads a line, echoes the bytes and leaves the line to
+  // the turn, o sigui que el que necessita és el que costen la línia, l'eco i el conductor del port —`splash`, `panel` i `wipe` es tornen a
+  // fer a la pila del torn, que és on es feien abans de la 0.190.244—. La prioritat és per damunt del torn perquè una tecla no esperi un
+  // quadre, i la tasca passa la vida esperant, o sigui que no li lleva res (docs/30, docs/50, docs/75).
+  return pal::start_a_task("lunok_shell", 6 * 1024, 3, &serve_task, nullptr);
+}
+
 void take_a_line(const char* text) {
   g_last_wire_activity_ms = pal::system().millis();
   const size_t len = (text != nullptr) ? strlen(text) : 0;
@@ -7339,6 +7766,7 @@ void take_a_line(const char* text) {
     g_session_open = true;
     g_editor.reset();
     out("login: a new session\r\n");
+    say_the_banner();
     sync_the_wire_lock();
     prompt();
     return;
@@ -7403,6 +7831,7 @@ void feed(const char* data, size_t len) {
       g_editor.reset();
       newline();
       out("login: a new session\r\n");
+      say_the_banner();
       prompt();
       // **I el pany torna** (0.190.184): el despertar per la consola i aquest Enter són el mateix moment, o sigui que el xip no ha de poder
       // tornar a adormir-se mentre la persona és al prompt (docs/60).
@@ -7532,16 +7961,16 @@ void feed(const char* data, size_t len) {
 
     if (c == '\r' || c == '\n') {
       newline();
+      // **La comanda la fa el torn i aquí només es llegeix** (0.190.245): the line goes to the queue the same way the one the terminal edits
+      // does, i el prompt del final el posa qui l'executa. Una línia buida també hi va: és com s'obre una sessió tancada i com torna el
+      // prompt, o sigui que no és res a fer aquí (docs/30, docs/50).
       if (!g_editor.empty()) {
-        execute(g_editor.data());
+        hand_the_line_over(g_editor.data());
         g_editor.remember();
       } else {
         g_editor.reset();
+        hand_the_line_over("");
       }
-      // The question of the selector is its own prompt: printing "lunok> " there
-      // left the person answering after a prompt that belongs to the shell.
-      // **And a detached app does not own the prompt**: it is the shell's, which is what `&` bought (0.160.0).
-      if ((!g_app_alive || g_app_detached) && !g_choosing && !native_running() && !g_log_follow) prompt();
     } else if (c == 0x7f || c == 0x08) {
       // **Al final de la línia només marxa el caràcter** (0.190.190, l'amo: *«podem fer mes responsiu el teclat al port serie? … a vegades
       // costa de teclejar»*): reescrivint la línia sencera per cada tecla, escriure una ordre llarga costa set bytes de prompt més tota la
@@ -7686,14 +8115,17 @@ uint32_t session_dropped(uint8_t id) {
 // one list that will disagree with itself (docs/30).
 const char* const kCommandNames[] = {
     "help",     "version",  "caps",     "mem",      "sessions", "apps",     "mounts",   "splash",
-    "panel",    "cfg",      "run",      "stop",     "home",     "repo",     "lua",      "keys",
+    "panel",    "cfg",      "run",      "kill",     "stop",     "home",     "repo",     "lua",      "keys",
     "fonts",    "wifi",     "provision", "ntp",     "tz",       "date",     "alarm",    "sleep",
     "bt",
     "load",
     "poweroff", "deepsleep", "reboot",   "battery",  "led",      "serial",   "imu",      "touch",    "buttons",  "log",
-    "panic",    "stats",    "free",     "echo",     "cat",      "ls",       "cd",       "pwd",
+    // **I el que no hi és, no s'ofereix** (0.190.238): `free` i `history` eren en aquesta taula i no tenen cap mà que els contesti —el
+    // tabulador els oferia i la línia queia a `unknown command`—, o sigui que surten. La taula del tabulador i la llista de `help` han de
+    // dir el que aquesta casa sap fer de debò (docs/30, docs/45).
+    "panic",    "stats",    "echo",     "cat",      "ls",       "cd",       "pwd",
     "heapguard",
-    "mkdir",    "rm",       "mv",       "cp",       "hexdump",  "fs",       "clear",    "history",
+    "mkdir",    "rm",       "mv",       "cp",       "hexdump",  "fs",       "clear",
     "ansi",    "terminal",
 };
 

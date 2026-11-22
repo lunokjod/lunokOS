@@ -1,0 +1,11 @@
+{
+  "title": "Snake",
+  "author": "@lunokjod",
+  "version": "0.1.1",
+  "entry": "snake.lua",
+  "boards": [
+    "esp32"
+  ],
+  "icon": "res/icon.png",
+  "description": "The snake of the phones: a field of twenty by twenty, and a wall or its own tail ends the game.\nTap where you want the head to go, or let the CPU play and take it back with a tap."
+}

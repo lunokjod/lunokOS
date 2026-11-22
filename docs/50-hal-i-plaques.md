@@ -964,10 +964,20 @@ gratuïta:
 - **Un sol camí d'escriptura**. Amb el terminal, tot el que el nucli escriu —el registre, una taula, un avís— passa pel `write` del VFS i
   no per la FIFO del perifèric. Dues plomes al mateix paper es trepitgen: una línia de registre cauria **al mig** d'una comanda que s'està
   editant i el cursor de `linenoise` quedaria descol·locat.
+- **I el terminal és multitasca** (0.190.243, l'amo: *«el terminal serie ha de ser multitasca… per poder seguir atenent al usuari encara que
+  la pantalla estigui robant molt temps de torns»*): **dues tasques i el torn no toca el filferro**. `pal_rx` llegeix i edita la línia;
+  **`pal_tx`** s'inicialitza amb la consola i queda esperant, i el que el nucli escriu es deixa en una **cua de 2 KB** (del munt, que la
+  DRAM de la Paper no en té per a una de fixa) que aquesta tasca buida en trossos contigus —dues escriptures no es barregen mai—. El torn
+  només espera si la cua és plena, amb un sostre de 200 ms. **I les escriptures que no passen per la cua** (`linenoise`, la sonda i el
+  rentat, que són del component) **es fan amb la cua buida**: `flush` abans de cada una. El buidatge té dos passos: la cua i després el
+  registre del perifèric, o el que quedés a la cua no arribaria abans d'un `poweroff` (docs/30, docs/75).
 - **El driver del VFS, i les dues consoles no es tracten igual**. `linenoise` llegeix del descriptor 0, i per això la consola ha de ser al
   VFS amb una lectura que **bloquegi**. A la **UART0** el driver ja hi era des de la 0.190.190 (amb la seva cua) i només cal donar-lo al VFS
   amb `esp_vfs_dev_uart_use_driver`; els finals de línia es posen explícits (`ESP_LINE_ENDINGS_CR` a l'entrada, `LF` a la sortida) i
-  `stdin` sense buffer. Al **USB-Serial-JTAG** no hi havia driver des de la 0.190.91 —aquella banda llegeix la FIFO amb les crides de baix
+  `stdin` sense buffer. **I `LF` a la sortida vol dir «no toquis res»** (0.190.237, `components/vfs/vfs_uart.c`: el CR només s'insereix
+  quan el mode **no** és `LF`), o sigui que els `CRLF` que aquesta casa escriu a mà surten sencers — que és el que la documentació de la IDF
+  demana (*Console → Configuring UART*: el terminal envia CR en prémer Enter i espera **CR LF** per baixar de línia). El mode `CRLF` del
+  fabricant (`esp_console_repl.c`) fa el mateix dibuix des de l'altra banda: el seu codi escriu `\n` i el driver hi posa el CR. Al **USB-Serial-JTAG** no hi havia driver des de la 0.190.91 —aquella banda llegeix la FIFO amb les crides de baix
   nivell— i el terminal en demana un: s'instal·la amb `usb_serial_jtag_driver_install` i es dona al VFS. **Si no arrenca, el terminal no
   s'encén**: `start_the_terminal` contesta que no i aquesta banda es queda amb el camí de bytes de sempre, perquè una placa sense terminal
   ha de tenir prompt igualment.
@@ -1001,9 +1011,102 @@ gratuïta:
 
 - **I la sonda es renta quan no contesta ningú** (0.190.224): a un terminal la pregunta és invisible, però en un monitor que no ho és queda
   escrita com a `␛[5n` i és el primer que llegeix una persona en arrencar. Es tapa amb `\r` i vuit espais, i el registre diu què cal per
-  tenir cursor i colors (`tio`, `screen`, `minicom`, o `pio device monitor --filter direct`). **No hi ha interruptor per forçar-ho**: sense
-  resposta, `linenoise` es menjaria les tecles que una persona escriu fins que en sortís una `R` (docs/85).
+  tenir cursor i colors. **La llista de monitors que valen no és d'aquesta casa**: la documentació de la IDF 5.1 (*Console → Line
+  editing*) diu que un monitor que només ensenya els bytes crus del port no pot conviure amb l'editor de línia, i que els que se sap que
+  funcionen són **GNU screen, minicom i `esp-idf-monitor`** (o `idf.py monitor`); `pio device monitor`, amb qualsevol filtre, **no** n'és un:
+  es menja les respostes del terminal. **No hi ha interruptor per forçar-ho**: sense resposta, `linenoise` es menjaria les tecles que una
+  persona escriu fins que en sortís una `R` (docs/50, docs/85).
+- **La mida de la vista es pregunta de debò** (0.190.233, l'amo: *«al ser una sessió ansi, pots obtenir el tamany de la vista, oi?»*): dues
+  preguntes i cap és `ESC[6n` a seques. Primer **`ESC[18t`** (*report window size in chars*, extensió d'xterm), que contesta
+  `ESC[8;files;columnes t` —les dues dades de cop i el cursor quiet— i que **no és estàndard**: xterm.js la implementa però l'apaga per
+  defecte (`windowOptions.getWinSizeChars`) i el VS Code l'encén. Si calla, el mètode de `linenoise` (`getColumns`): `ESC[999C` clava el
+  cursor al marge dret i `ESC[6n` torna la columna, que **és** l'amplada, i el cursor es restaura amb `ESC[nD`. **Fins la 0.190.232 es
+  preguntava `ESC[6n` sol** i es deia amplada a la columna on era el cursor —que al registre de la IDF és la llargada de l'última línia de
+  log, perquè acaba en `\n`—, o sigui que el número del registre no era la mida de res. Es desen les dues (`g_columns`, `g_rows`) i **zero
+  files vol dir «no ho ha dit»**. El motiu del rebuig també és un motiu: `kNoTerminal`, `kNoSize` o `kNoVfs`, perquè dir «no terminal» quan
+  la sonda ha contestat és un registre que menteix (docs/30, docs/85).
+- **I les taules de la consola es poden llegir** (0.190.238): les tintes són sis i són les de la casa (el cian clar del prompt, el gris del mig
+  del vidre, el verd i el vermell de `log.cpp`), i les taules es fan amb `title`, `row` —una clau de divuit columnes comptada en caràcters
+  visibles— i `row_inline`. `stats` no passa pel shell i per això filtra la seva taula amb el mateix `shell::filter_ansi` i la mateixa decisió
+  `shell::ansi_on`: una segona regla per al mateix commutador seria la mena de cosa que aquesta casa no vol (docs/30, docs/85).
+- **I una sessió oberta pel cable ensenya l'art de l'amo** (0.190.232): cinc línies de caixes en blanc i blau (`ESC[0;97m`, `ESC[0;94m`,
+  `ESC[0;34m`), el dibuix que l'amo va triar a `data/res/logo2.ans`, que es diu quan una sessió s'obre —el primer Enter amb el terminal
+  tancat— **i no a l'arrencada**, on sortiria a cada flaix. Va **darrere** `login: a new session`, que segueix dient què ha passat, i **només
+  al cable**: `a_wire_console()` és la mateixa porta que el pany del son, o sigui que la consola que es penja (el vidre, l'emulador, les
+  proves) no el diu. **Els bytes del `.ans` són dins del nucli i no es llegeixen del disc**: `data/res` viu a `littlefs` i canviar-hi una
+  lletra vol `uploadfs`, que reescriu la partició sencera — i al ATOM, sense targeta, s'endú `/data` amb el registre de la bateria a dins.
+  Cada línia del literal acaba en `CRLF` (el `.ans` porta `LF` sol) i l'últim codi és un `ESC[0m`, perquè **l'art no pinti el prompt**
+  (docs/30, docs/70).
+- **I es pinta a la dreta, amb la sessió i no a la cantonada** (0.190.234, l'amo: *«posala alinada a la dreta a dalt, el més alt possible i
+  el més a la dreta possible»*, i després *«massa alt, es perd amunt amb el retorn de carro i també veig com salta de la dreta a l'esquerra
+  abans de pujar»*). **Un terminal que fa scroll no té cantonada**: posar el dibuix a la fila u de la vista fa que el primer salt de línia de
+  la sessió el faci pujar i se n'endugui la primera línia, i el següent la segona. O sigui que l'art es pinta **en el seu lloc**, just darrere
+  de `login: a new session` i línia a línia, i puja amb el que la persona escriu com qualsevol altra línia. La dreta es troba **sense
+  preguntar la mida**: a cada línia, `ESC[999C` deixa el cursor clavat al marge dret —el terminal no el deixa passar, sigui quina sigui
+  l'amplada— i `ESC[58D` el torna enrere l'amplada del dibuix menys un (les cinc línies fan 59 columnes). **El cursor s'amaga mentre es
+  col·loca** (`ESC[?25l` / `ESC[?25h`): el que s'ha de veure és el dibuix i no el camí. La mida que la 0.190.233 mesura només serveix per no
+  dibuixar de més (un terminal que declara menys de 59 columnes o menys de 5 files no rep l'art), i **sense ANSI no es dibuixa res**
+  (*«Si no hi ha ansii, no mostris l'art»*). **I sota el dibuix, centrada en les seves 59 columnes**, va la llegenda en blanc i negreta
+  (`ESC[1;97m`): la versió i la placa (0.190.239) — centrada al dibuix i no a la pantalla, que és de qui és la llegenda (docs/30, docs/85).
 
+### La shell té la seva tasca, i el que no pot fer ho demana (0.190.244)
+
+L'amo: *«la Shell en una tasca independent no pot arrencar apps per si sola, les envia a una cua perquè el nucli les pugui executar. Per matar
+una app el mateix. S'envía a la tasca del torn i allà es mata o s'arrenca l'app. Aquestes cues han de ser protegides amb mutex»*.
+
+Fins aquí la línia es llegia en una tasca (`pal_rx`), s'escrivia en una altra (`pal_tx`) i **s'executava al torn**: el terminal era
+multitasca i l'ordre de les tasques era el pitjor possible, perquè la línia esperava el torn i el torn esperava la línia. Ara són tres
+peces:
+
+- **`lunok_shell`**, la tasca nova: s'inicialitza **tot just després que la shell tingui el seu estat i abans de les alarmes, de l'app de la
+  sessió i de la pàgina de casa** (0.190.246) i es queda esperant (`IConsole::wait_for_a_line`, vint mil·lisegons de sostre) el que `pal_line`
+  hi deixa. **L'ordre és el que la fa útil**: en una T5S3 cada pàgina de l'`epdiy` és un `draw` de tres-cents a quatre-cents mil·lisegons, i
+  una tasca que naixés després de l'app de casa deixaria el port mut tota l'arrencada (l'amo ho va veure: els registres de l'`epdiy` i cap
+  prompt). Les línies que arribin mentre l'arrencada encara va queden a la cua i el torn les fa al primer `poll`, i **la resta de l'arrencada
+  es fa amb el pany del torn a la mà** perquè l'eco d'una tecla no entri mentre es munten el vidre i l'intèrpret.
+  **Sis kilobytes** de pila: llegeix, fa l'eco i deixa la línia a la cua, o sigui que les comandes que pinten es fan a la pila del torn, on es
+  feien abans de tot això. Prioritat per damunt del torn, i no li lleva res: passa la vida esperant.
+- **`kernel/orders`**, la cua: **quatre línies** de cent vint-i-vuit bytes amb **mutex** (`pal::make_lock`). Des de la 0.190.245 no hi passen
+  «arrencades» sinó **comandes senceres**: la shell només llegeix i fa l'eco, i el que ha escrit una persona és una línia en aquesta cua. El que
+  no hi cap **es refusa dient-ho**: una comanda perduda en silenci seria una tecla que no ha fet res, i qui la veu refusada pot tornar a prémer
+  Enter. El torn les buida al començament de cada volta (`shell::carry_out_the_orders` → `take_a_line`), **abans de l'app**, o sigui que una
+  comanda es fa al mateix torn en què arriba (docs/30).
+- **`kill`**, la comanda nova: tanca l'app que és al vidre. És una comanda normal perquè totes les comandes es fan al torn; fins avui, des del
+  prompt no hi havia cap camí per tancar-ne una de fons.
+
+**I el torn té el pany a la mà** (`kernel/the_turn`, fet a l'arrencada amb el de la cua): el pren per a la volta sencera i el deixa anar
+**just el temps de l'espera d'esdeveniments** —quan no hi ha res a fer—. La tasca de la shell no executa cap comanda, o sigui que l'únic que
+encara toca del torn és **l'eco del camí de bytes** (`feed` escriu la tecla i, si una app és al davant, la dona al seu intèrpret), i per això
+el pany continua essent aquí. El resultat és el que l'amo demanava: el prompt i l'eco segueixen vius mentre el panell pinta, i el que es fa de
+debò es fa sempre al fil de sistema (docs/30).
+
+**Què no ha canviat, i es diu**: al PC (`pal_host`) no hi ha tasques —`pal::tasks_are_here` contesta que no, el pany és nul i `start_a_task`
+diu que no— i el torn serveix la consola ell mateix amb `shell::serve_once(0)`, que és el que la suite i l'emulador esperen (docs/85). Allà la
+línia es deixa a la cua i el torn la buida dins del **mateix** torn, o sigui que res no canvia de moment.
+
+**I el que això tanca**: la 0.190.244 deixava `splash`, `panel` i `wipe` corrent a la tasca de la shell amb el pany a la mà. Des de la
+0.190.245 **no hi ha cap comanda que s'executi fora del fil de sistema**, o sigui que el que pinten també pinta el torn (docs/30).
+
+
+### Una sola ploma al filferro, i les línies de la IDF a casa (0.190.247)
+
+L'amo, amb el registre a la mà: *«Les repintades de epdiy es veuen al canal sèrie!! no havíem quedat que tot anava al log circular del kernel?»*.
+Dues coses, i cap de les dues era nostra:
+
+- **Les línies `I (761007) epdiy: …` són de la llibreria**, no d'aquest codi: escriuen amb `ESP_LOGx`, i el `vprintf` de la IDF les posa
+  **directe al descriptor de la consola**, sense passar ni pel registre circular ni per la regla de què surt pel cable. **El ganxo**
+  (`esp_log_set_vprintf` a `pal::init`) les porta a `hal::say_a_line`, que és el mateix pou que les nostres: el registre, el mirall i la cua.
+  Una línia de la IDF ja ve feta i no se li posa cap prefix; el que canvia és on va.
+- **I quatre tasques escrivint al mateix paper**: la shell, el registre, l'editor de línia i `pal_tx`. El que hi havia era un pany **per tros**
+  de cua. Ara hi ha **la ploma del filferro** ([`LunokSerial`](/home/sharek/code/lunokOS/lib/pal_esp32/src/pal_esp32.cpp)): un mutex recursiu
+  fet amb l'objecte, pres per l'escriptura **sencera** i deixat anar a la sortida, o sigui que dues línies de tasques diferents no es barregen.
+  **I no s'espera amb la ploma a la mà quan la cua és plena** —qui la buida és `pal_tx`, i un pany retingut seria un pany mort—: es deixa anar,
+  s'espera un mil·lisegon i es torna a provar. El que queda fora del pany és el que l'editor de línia escriu pel VFS pel seu compte
+  (`linenoise`), que només es podria agafar posant-hi un driver propi (docs/30, docs/50).
+
+**I la pàgina de casa ja no la comença l'arrencada**: `kernel::boot` demana `shell::ask_for_the_home_app()`, que escriu `run <LUNOK_HOME_APP> &`
+a la cua de comandes i el torn l'executa al primer torn. O sigui que la pàgina del sistema arriba **després** del `boot`, amb el cable viu, i
+**al darrere del prompt** (`&`): una persona pot demanar coses mentre el llaçador és al vidre (docs/30, docs/40).
 
 ## Interfícies de la PAL
 
@@ -1035,6 +1138,7 @@ class IConsole {
   virtual void set_the_prompt(const char* text) {}           // el prompt el dibuixa qui edita la línia
   virtual int start_the_terminal(const char* const* names, uint8_t count) { return 0; }  // <0: no n'hi ha
   virtual int take_a_line(char* out, size_t cap) { return -1; }  // 1: línia, 0: cap, <0: paciència
+  virtual bool wait_for_a_line(char* out, size_t cap, int32_t timeout_ms) { return false; }  // la mateixa, esperant-la (0.190.244)
 };
 
 class ISystem {
@@ -1050,13 +1154,21 @@ class ISystem {
 
 bool init();  void shutdown();  ISystem& system();
 void set_random_seed(uint32_t seed);      // zero és «sembra'm tu»; a la placa no fa res
+
+// **El que creua tasques** (0.190.244): la PAL és l'única capa que sap fer un pany i una tasca a les dues bandes. A la placa un mutex
+// recursiu i `xTaskCreate` amb la pila en bytes; al PC un punter nul —que no costa res— i una tasca que contesta que no (docs/85).
+using Lock = void*;
+Lock make_lock();  void take_lock(Lock);  void give_lock(Lock);
+bool tasks_are_here();
+bool start_a_task(const char* name, uint32_t stack_bytes, uint8_t priority, void (*entry)(void*), void* argument);
 ```
 
 La consola de la PAL dona **bytes**, no línies. Qui parteix les línies, qui mira la seqüència de sortida
 i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes. **I aquesta segueix essent la regla**: les quatre portes de
 `IConsole` que hi ha a sota (`has_a_line_editor`, `set_the_prompt`, `start_the_terminal`, `take_a_line`) **neixen totes amb resposta de
 «no»**, i una banda que hi digui que sí assumeix ella l'edició de la línia: aleshores el nucli **no llegeix bytes** i no fa eco, i el que
-li arriba és una línia sencera per `take_a_line`, que desa al mateix `execute` de sempre. Avui només en diu que sí el cable de la IDF
+li arriba és una línia sencera per `take_a_line` —o per `wait_for_a_line` quan qui la demana és la tasca de la shell i no el torn
+(0.190.244)—, que desa al mateix `execute` de sempre. Avui només en diu que sí el cable de la IDF
 (`pal_esp32/src/console_line.cpp`, docs/30); l'emulador i la consola del vidre no hi toquen res i es queden amb el camí de bytes (docs/85).
 
 **I `speaks_ansi` és una cinquena pregunta que no és la de l'editor** (0.190.223): diu si el que hi ha a l'altre cap entén els codis

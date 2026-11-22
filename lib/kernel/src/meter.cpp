@@ -1,6 +1,7 @@
 #include "kernel/meter.h"
 #include "kernel/kernel.h"
 #include "kernel/serial.h"
+#include "kernel/shell.h"
 #include "kernel/touch.h"
 
 #include <stdio.h>
@@ -275,18 +276,37 @@ size_t human_us(char* out, size_t cap, uint64_t us) {
                                       static_cast<unsigned long>((seconds % 3600ULL) / 60ULL)));
 }
 
+// **La taula de `stats` també es llegeix** (0.190.238, l'amo: *«O stats.»*): el cap de la taula en negreta, el nom de cada comptador en el
+// cian del sistema, els guions i les unitats en el gris del mig del vidre, i els números com eren —un número alineat és el que fa que una
+// taula es pugui mirar de dalt a baix (docs/30).
+//
+// **I aquesta taula no passa pel shell**: l'escriu `meter` directament a la consola, o sigui que el filtre del `ansi off` s'ha de fer aquí
+// o els codis arribarien a un monitor que no els entén. És el mateix filtre (`shell::filter_ansi`) i la mateixa decisió (`shell::ansi_on`),
+// no una segona regla (docs/30, docs/85).
+void say(pal::IConsole* console, const char* text, size_t len) {
+  if (shell::ansi_on()) {
+    console->write(text, len);
+    return;
+  }
+  char plain[256];
+  const size_t shown = shell::filter_ansi(text, len, plain, sizeof plain);
+  console->write(plain, shown);
+}
+
 void dump() {
   pal::IConsole* console = serial::console();
   if (console == nullptr) return;
-  char line[128];
+  char line[192];
   int used = 0;
 
   // **This is a table and not a line of the log**: no level and no tag, because nobody greps `stats`, a
   // person reads it. The three things that decide a cost, and **every time in the scale that reads** —
   // a row of five million milliseconds is a row that hides what it says (docs/30).
-  used = snprintf(line, sizeof(line), "%-14s %6s %10s %10s %10s %10s %10s\r\n", "meter", "calls",
-                  "total", "mean", "min", "max", "last");
-  console->write(line, static_cast<size_t>(used));
+  used = snprintf(line, sizeof(line), "\r\n%s%s", shell::kStyleTitle, "what each meter has cost");
+  say(console, line, static_cast<size_t>(used));
+  used = snprintf(line, sizeof(line), "%s\r\n%s%-14s %6s %10s %10s %10s %10s %10s%s\r\n", shell::kStyleOn,
+                  shell::kStyleHead, "meter", "calls", "total", "mean", "min", "max", "last", shell::kStyleOn);
+  say(console, line, static_cast<size_t>(used));
   for (uint8_t i = 0; i < kCount; ++i) {
     if (!available(i)) continue;
     const Entry& entry = g_entries[i];
@@ -294,9 +314,10 @@ void dump() {
     // dash: no call was made, so there is no shortest, no longest, no mean and no last one. Writing `0us`
     // there would say that a call took no time, which is not the same thing (docs/30).
     if (entry.calls == 0) {
-      used = snprintf(line, sizeof(line), "%-14s %6lu %10s %10s %10s %10s %10s\r\n", kNames[i], 0ul,
-                      "0us", "-", "-", "-", "-");
-      console->write(line, static_cast<size_t>(used));
+      used = snprintf(line, sizeof(line), "%s%-14s%s %s%6lu%s %10s%s %10s %10s %10s %10s%s\r\n", shell::kStyleHead, kNames[i],
+                      shell::kStyleOn, shell::kStyleQuiet, 0ul, shell::kStyleOn, "0us", shell::kStyleQuiet, "-", "-", "-", "-",
+                      shell::kStyleOn);
+      say(console, line, static_cast<size_t>(used));
       continue;
     }
     char total[16];
@@ -309,9 +330,15 @@ void dump() {
     human_us(shortest, sizeof(shortest), entry.min_us);
     human_us(longest, sizeof(longest), entry.max_us);
     human_us(last, sizeof(last), static_cast<uint64_t>(entry.last_ms) * 1000ULL);
-    used = snprintf(line, sizeof(line), "%-14s %6lu %10s %10s %10s %10s %10s\r\n", kNames[i],
-                    static_cast<unsigned long>(entry.calls), total, mean, shortest, longest, last);
-    console->write(line, static_cast<size_t>(used));
+    // **Els números, amb el color que diu què són** (0.190.240, l'amo: *«a stats molaría els valors alts i baixos en colors diferents, les
+    // mitjanes en blanc etc...»*): les crides en gris —són quantes, no quant costen—, el total i la mitjana en el blanc de sempre, **el
+    // més curt en verd i el més llarg en ambre**. No és un semàfor inventat: el verd és el que una casa vol veure i l'ambre el que ha de
+    // mirar, i és el mateix parell que el registre fa servir per a un nivell (docs/30, docs/95).
+    used = snprintf(line, sizeof(line),
+                    "%s%-14s%s %s%6lu%s %10s %10s %s%10s%s %s%10s%s %10s\r\n", shell::kStyleHead, kNames[i], shell::kStyleOn,
+                    shell::kStyleQuiet, static_cast<unsigned long>(entry.calls), shell::kStyleOn, total, mean, shell::kStyleYes,
+                    shortest, shell::kStyleOn, shell::kStyleWarn, longest, shell::kStyleOn, last);
+    say(console, line, static_cast<size_t>(used));
   }
   // **And what the app that is running has cost**, which is the only row that answers "who is slow":
   // the difference against the table at the moment its interpreter came up (docs/30).
@@ -320,9 +347,9 @@ void dump() {
     const uint64_t app_us = g_entries[kLuaCall].us - g_app_start.us;
     char spent[16];
     human_us(spent, sizeof(spent), app_us);
-    used = snprintf(line, sizeof(line), "%s: %lu calls into the system, %s in them\r\n", g_app,
-                    static_cast<unsigned long>(app_calls), spent);
-    console->write(line, static_cast<size_t>(used));
+    used = snprintf(line, sizeof(line), "%s%s%s: %lu calls into the system, %s in them\r\n", shell::kStyleHead, g_app,
+                    shell::kStyleOn, static_cast<unsigned long>(app_calls), spent);
+    say(console, line, static_cast<size_t>(used));
   }
   // **The whole accounting, and nothing counted twice.** A turn of the kernel contains everything —the
   // devices, the interpreter, the app— and the interpreter contains the calls an app makes; so the
@@ -357,20 +384,21 @@ void dump() {
   uint32_t frames = 0;
   uint32_t false_warnings = 0;
   touch::counters(asks, frames, false_warnings);
-  used = snprintf(line, sizeof(line), "turns %lu (%lu events, %lu waits), kernel %s of %s up, idle %s\r\n",
-                  static_cast<unsigned long>(g_entries[kLoop].calls), static_cast<unsigned long>(with_event),
-                  static_cast<unsigned long>(on_timeout), kernel_time, up_time, idle_time);
-  console->write(line, static_cast<size_t>(used));
-  used = snprintf(line, sizeof(line), "touch %lu asks, %lu frames, %lu false warnings\r\n",
-                  static_cast<unsigned long>(asks), static_cast<unsigned long>(frames),
+  used = snprintf(line, sizeof(line), "\r\n%s%-8s%s %lu turns (%lu events, %lu waits), kernel %s of %s up, idle %s\r\n",
+                  shell::kStyleHead, "turns", shell::kStyleOn, static_cast<unsigned long>(g_entries[kLoop].calls),
+                  static_cast<unsigned long>(with_event), static_cast<unsigned long>(on_timeout), kernel_time, up_time, idle_time);
+  say(console, line, static_cast<size_t>(used));
+  used = snprintf(line, sizeof(line), "%s%-8s%s %lu asks, %lu frames, %lu false warnings\r\n", shell::kStyleHead, "touch",
+                  shell::kStyleOn, static_cast<unsigned long>(asks), static_cast<unsigned long>(frames),
                   static_cast<unsigned long>(false_warnings));
-  console->write(line, static_cast<size_t>(used));
-  used = snprintf(line, sizeof(line), "lua %s: %s the app's own code (the rest is calls into it)\r\n",
-                  run_time, own_time);
-  console->write(line, static_cast<size_t>(used));
-  used = snprintf(line, sizeof(line), "doors %s (%lu.%lu %% of the uptime)\r\n", door_time,
-                  static_cast<unsigned long>(share / 10), static_cast<unsigned long>(share % 10));
-  console->write(line, static_cast<size_t>(used));
+  say(console, line, static_cast<size_t>(used));
+  used = snprintf(line, sizeof(line), "%s%-8s%s %s: %s the app's own code (the rest is calls into it)\r\n", shell::kStyleHead,
+                  "lua", shell::kStyleOn, run_time, own_time);
+  say(console, line, static_cast<size_t>(used));
+  used = snprintf(line, sizeof(line), "%s%-8s%s %s (%lu.%lu %% of the uptime)\r\n", shell::kStyleHead, "doors",
+                  shell::kStyleOn, door_time, static_cast<unsigned long>(share / 10),
+                  static_cast<unsigned long>(share % 10));
+  say(console, line, static_cast<size_t>(used));
 }
 
 // **La taula, per a una pàgina** (0.189.108, l'amo: *«si pot ser agafa de les estadístiques els tempos de les apps lua»*): the

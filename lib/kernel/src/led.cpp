@@ -36,7 +36,10 @@ const int64_t kCableEveryMs = 20000;   // how often the charger is asked, becaus
 // on for twenty seconds after the cable is out is the board saying a lie, o sigui que mentre el respir dura el carregador es pregunta cada
 // segon i el que costa és una lectura d'un registre i prou (docs/30, docs/50).
 const int64_t kCableWhileBreathingMs = 1000;
-const uint32_t kBreathePeriodMs = 4000;  // one breath of the glass: the same length the boot has
+// **I el vidre no es toca** (0.190.234): aquest respir és el de la **retroil·luminació** i no el d'un LED, i el seu ritme és el que era —
+// quatre segons, que des de la 0.190.234 ja **no és** el de l'arrencada, que en fa quinze—. El gest és el mateix dibuix i la mida del pany
+// no: el que l'amo ha demanat és el dels leds (docs/30, docs/50).
+const uint32_t kBreathePeriodMs = 4000;
 
 // ---- the app layer -------------------------------------------------------
 // The colour an app asked for. It wins over the system while the app is in front.
@@ -320,7 +323,10 @@ Effect default_effect(Trigger trigger) {
       e.red2 = 120;
       e.green2 = 180;
       e.blue2 = 255;
-      e.period_ms = 5000;
+      // **Un respir tres vegades més llarg** (0.190.234, l'amo: *«fes que l'animació dels leds de breath sigui el triple de llarga»*): cinc
+      // segons era el ritme d'una persona asseguda i ara en són quinze, o sigui un cicle de quinze segons per volta i quatre voltes —un minut
+      // d'arrencada—, i el gest és el mateix: el que canvia és el temps que triga a fer-se (docs/30, docs/50).
+      e.period_ms = 15000;
       e.cycles = 4;
       break;
     case Trigger::kRadio:
@@ -336,7 +342,9 @@ Effect default_effect(Trigger trigger) {
       e.red2 = 0;
       e.green2 = 55;
       e.blue2 = 170;
-      e.period_ms = 3200;
+      // **I el de la ràdio, també** (0.190.234): tres mil dos-cents eren vuit segons de cicle amb la corba de desacceleració del respir, i
+      // ara són nou mil sis-cents —el triple— perquè el gest de la casa és un i no dos (docs/30, docs/50).
+      e.period_ms = 9600;
       e.cycles = 0;  // as long as the radio is up
       // **Una mica més que els altres i encara fluix**: aquest llum és l'única cosa que diu que el teclat és engegat —no hi ha pàgina ni
       // consola que ho digui— i vint de dos-cents cinquanta-cinc no es veu en un LED de debò. Quaranta-vuit és una cinquena part de la

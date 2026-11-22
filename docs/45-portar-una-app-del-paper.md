@@ -509,7 +509,7 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **tretze** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
@@ -526,6 +526,7 @@ Portades i viatjant avui, **dotze** (`home_eink` va a part, a sota):
 | `Energy` | `energy` | 0.1.0 |
 | `Meteo` | `meteo` | 0.1.1 |
 | `Agenda` | `agenda` | 0.1.2 |
+| `Snake` | `snake` | 0.1.1 |
 
 **La columna «Versió» és la del `manifest.json` d'avui i no la del dia que es va portar** (0.190.7): un commit que toca una app
 en puja el número i **toca aquesta fila al mateix commit**, o la taula es queda dient el que ja no és (docs/40, docs/80).
@@ -546,9 +547,36 @@ I a part, **dues que no són ports**:
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 
-Les **tretze** que falten, i que són la cua d'aquesta feina: `Banner`,
+Les **dotze** que falten, i que són la cua d'aquesta feina: `Banner`,
 `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
-`Snake`, `Tamagotchi` i `Tetris`.
+`Tamagotchi` i `Tetris`.
+
+**El que va ensenyar la `Snake`** (0.190.241, la primera portada que **canvia el comandament** perquè l'amo ho va demanar:
+*«Fes el port de l'snake, però no posis el comandament de joc. Usarem la pantalla per orientar el cuc. Tocs.»*):
+
+- **Un comandament del sistema que es treu no es tradueix, es torna a pensar.** El vell portava creu, dial i dues càpsules
+  (`paperos.ui.pad.only{}`); aquí el camp és el comandament i **un toc diu cap a on ha d'anar el cap**: l'eix amb més
+  recorregut decideix, i un toc que apunta cap enrere es llegeix com la meitat lateral que volia —un dit que vol girar i
+  empeny enrere no és un dit que demana una paret—. I el tomb que giraria el cuc del revés **no passa**, que és la regla que
+  el Tetris del vell ja havia escrit.
+- **El redibuixat mil·limetrat és una política i no un dibuix**: un pas pinta les cel·les que han canviat (dues a quatre
+  caixes en **un** present de `du4`, que és el que el vell va mesurar: 120 ms i sense parpelleig), el marcador és una caixa
+  seva en `gld16` i només quan el número es mou, i la pàgina sencera es pinta un cop —en obrir, en canviar la mida i en
+  començar partida—. El que el vell tenia i aquest no: el seu `canvas` i el rastre de set grisos, perquè aquí el nucli ajunta les
+  caixes d'un present i el llindar del fantasma és del sistema (docs/50).
+- **I el CPU sí que hi és** (0.190.242, l'amo: *«el jugador-cpu també l'has portat?»* — i no hi era, i es va portar): les dues
+  regles del vell (vol el menjar i no es pot tancar), el farciment d'inundació amb **una generació per farciment** —la que el vell
+  va haver d'aprendre a cops: amb una de sola per pas, el segon camí trobava els veïns ja marcats i responia «una cel·la», i el
+  CPU anava en cercles; mesurat allà, **dues peces en quatre-cents passos**—, el nivell propi que puja menjant, i **un toc al camp
+  que la pren**, que és el que el vell feia amb qualsevol tecla. La porta és un tercer botó de la franja, `Demo`, perquè aquesta
+  pàgina no té cap targeta del sistema on preguntar-ho. Mesurat amb el banc: **34 peces en 489 passos**.
+- **El compàs és una data i no l'espera del torn**: el pas venç a `nextStep` i el bucle mira el dit cada setze
+  mil·lisegons, o sigui que un toc cau mentre el cuc va entre dues cel·les; i el que el vidre triga a pintar **no es
+  descuenta del compàs** (el pas compta des de l'anterior), amb un límit quan la pintada dura més que un pas, perquè el
+  panell no pot anar més de pressa que un present i val més dir-ho que descobrir-ho perdent una partida que no es veia.
+- **El que no es va tocar del vell**: la graella de vint per vint, la llista del nivell (220 ms menys quinze per nivell amb
+  el terra de setanta), els punts per nivell (cinc per `nivell + 1`), el menjar més petit que una cel·la i el píxel de paper
+  entre dos segments del cuc.
 
 **El que va ensenyar la `Battery`** (0.189.144, i el control que en va sortir): el gràfic del projecte del paper era **un
 dibuix de l'app** (`graph.lua`, amb `paperos.draw`) i aquí és **un control del sistema** (`ui.chart`), perquè el que demana

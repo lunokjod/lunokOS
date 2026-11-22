@@ -12,10 +12,50 @@ namespace kernel {
 namespace shell {
 
 void start();
+
+// **La shell de la placa és una tasca seva** (0.190.244, l'amo: *«El terminal serie ha de ser multitasca. El terminal s'ha d'inicialitzar i
+// quedar-se a l'espera. Anirà a una tasca del sistema per poder seguir atenent al usuari encara que la pantalla estigui robant molt temps
+// els torns»*). `serve` is what that task runs: it waits for a line —or for bytes when the console has no editor—, echoes it and **leaves it
+// to the turn**, que és qui l'executa (0.190.245). On the PC there is no such task and the turn calls `serve_once(0)`, which is the same code
+// without the wait (docs/30, docs/50, docs/85).
+void serve();
+void serve_once(int32_t wait_ms);
+// **I la tasca on viu**, que la demana l'arrencada: contesta si aquesta banda en té (docs/50).
+bool start_the_task();
+// **Les comandes que la shell ha llegit, fetes pel torn** (0.190.245): la shell només llegeix i fa l'eco, o sigui que cada línia acabada espera
+// a `kernel/orders` i aquesta és la porta per la qual el torn les executa —el vidre, l'intèrpret i l'app són seus—, al començament de cada
+// volta i amb el mateix `take_a_line` d'una línia del terminal (docs/30, docs/50).
+void carry_out_the_orders();
+
+// **La pàgina de casa la demana la shell, no l'arrencada** (0.190.247, l'amo: *«Mira que és fàcil tu!, shell fa "run home_eink &" només
+// entrar i santes pàsques!»*): escriu `run <LUNOK_HOME_APP> &` a la cua de comandes i contesta si hi ha pogut entrar. El torn l'executa al
+// primer torn, o sigui que la pàgina del sistema arriba **després** de l'arrencada i amb el cable ja viu (docs/30, docs/50).
+bool ask_for_the_home_app();
+
 void prompt();
 // **La sessió del cable tanca sola als cinc minuts** (0.190.184): el torn la mira a cada volta, i si la persona no ha tocat res es tanca i el
 // xip torna a poder fer becaines (docs/30, docs/60).
 void poll_idle();
+
+// **L'historial de la sessió que sobreviu a un reinici** (0.190.236, l'amo: *«pero usant el disc prefrit per l'usuari, si hi ha SD instal·lada,
+// es l'SD per evitar danyar la flash»*). El camí no és una preferència nova: és el **disc preferit** que ja decideix `/cfg` i `/data`
+// (`cfg auto|sd|littlefs`), o sigui que amb una targeta el fitxer hi viu i el flaix no s'escriu per una comanda. `load_the_history` es
+// crida quan el terminal s'encén i `keep_the_history` quan la sessió es tanca; una consola sense editor de línia contesta que no a totes
+// dues i no es toca cap fitxer (docs/30, docs/50, docs/70).
+void load_the_history();
+void keep_the_history();
+
+// **Les sis tintes d'una resposta** (0.190.238): el cian clar del prompt per als títols, el gris del mig del vidre per al que no és el que una
+// persona ha vingut a llegir —unitats, guions, avisos—, i el verd i el vermell que el registre ja fa servir per a un sí i un no. `stats` les
+// necessita perquè la seva taula no passa pel shell: l'escriu `meter.cpp` directament a la consola (docs/30, docs/50).
+extern const char* const kStyleTitle;
+extern const char* const kStyleHead;
+extern const char* const kStyleKey;
+extern const char* const kStyleQuiet;
+extern const char* const kStyleYes;
+extern const char* const kStyleNo;
+extern const char* const kStyleWarn;
+extern const char* const kStyleOn;
 
 // Bytes as they arrive from the console. Handles echo, backspace and newline.
 void feed(const char* data, size_t len);

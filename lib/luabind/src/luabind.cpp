@@ -3464,14 +3464,16 @@ int l_led_off(lua_State* L) {
 }
 
 // The period an effect has when the app does not give one. They are tastes with a reason:
-// a breath at five seconds is about the resting rate of a person, a blink at 800 ms is seen
-// without being a strobe, and a dot of 200 ms is the Morse that a person sends (docs/30).
+// a blink at 800 ms is seen without being a strobe, and a dot of 200 ms is the Morse that a
+// person sends (docs/30). **I el respir fa quinze segons i no cinc** (0.190.234, l'amo: *«fes
+// que l'animació dels leds de breath sigui el triple de llarga»*): és el mateix número que el
+// respir de l'arrencada i el de la ràdio, perquè el gest de la casa és un.
 // The names come from the kernel, so this switch cannot list an effect the light does not
 // have.
 uint32_t default_period(uint8_t kind) {
   const char* name = (g_led_ops.effect_name != nullptr) ? g_led_ops.effect_name(kind) : nullptr;
   if (name == nullptr) return 1000;
-  if (strcmp(name, "breathe") == 0) return 5000;
+  if (strcmp(name, "breathe") == 0) return 15000;
   if (strcmp(name, "blink") == 0) return 800;
   if (strcmp(name, "sos") == 0) return 200;
   if (strcmp(name, "bounce") == 0) return 700;

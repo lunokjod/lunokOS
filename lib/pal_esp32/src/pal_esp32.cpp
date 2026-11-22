@@ -26,6 +26,8 @@
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_wifi.h>
+#include <esp_log.h>
+#include <stdarg.h>
 #include <esp_rom_sys.h>
 #include <esp_random.h>
 #include <esp_system.h>
@@ -33,6 +35,10 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+
+// **I el registre, que és de la HAL i no d'aquesta casa**: el fil del filferro diu si arrenca o no, i aquesta banda ja en parla des del
+// terminal (0.190.243, and `console_line.cpp` in this same library does the same) (docs/50).
+#include "hal/log.h"
 #include <hal/uart_ll.h>
 // **`sdkconfig.h` explícit**: en una llibreria del projecte no arriba sol, i el que hi ha aquí a sota és un `#if` sobre un símbol seu
 // (docs/45). **El de la consola**, que diu si aquesta banda parla per la UART o pel USB-Serial-JTAG (docs/50).
@@ -70,8 +76,17 @@
 const int kUartEvents = 8;
 static QueueHandle_t g_uart_events = nullptr;
 
+// **Els dos rellotges d'aquest fitxer, abans de qui els fa servir** (0.190.243): the queue of the wire waits with a ceiling and needs the
+// millisecond clock and a delay, i una funció que es declara després del seu lector no existeix per a ell (docs/45).
+inline void lunok_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
+inline uint32_t lunok_now_ms() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
+
 class LunokSerial {
  public:
+  // **La ploma del filferro, feta amb l'objecte** (0.190.247): four tasks write here and asking for it later would be a lock that two of
+  // them could make at once. Recursive, perquè qui té la ploma la torna a demanar quan baixa a `put_on_the_wire` (docs/50).
+  LunokSerial() { pen_ = xSemaphoreCreateRecursiveMutex(); }
+
   // **Al USB, ni el driver de la IDF ni una interrupció pròpia: la FIFO es buida quan es pregunta** (0.190.91, el primer flaix que no
   // deixava teclejar). Amb el driver d'`esp_driver_usb_serial_jtag` la sortida hi era i l'entrada no —la placa parlava i no sentia—, i una
   // interrupció pròpia xoca amb l'enllaçador de l'xtensa quan el nostre `lib/` la posa a IRAM (`l32r: literal placed after use`). El que
@@ -90,6 +105,7 @@ class LunokSerial {
       if (usb_serial_jtag_ll_read_rxfifo(stale, sizeof(stale)) <= 0) break;
     }
     usb_serial_jtag_ll_txfifo_flush();
+    (void)start_the_wire();
     return true;
 #else
     uart_config_t config = {};
@@ -114,14 +130,170 @@ class LunokSerial {
     // reader thread waits on it instead of asking `available()` every few milliseconds; els bytes no es toquen, perquè l'event només diu
     // que n'hi ha i qui els llegeix és el torn (docs/50).
     if (uart_driver_install(UART_NUM_0, 1024, 0, kUartEvents, &g_uart_events, 0) != ESP_OK) return false;
-    return uart_param_config(UART_NUM_0, &config) == ESP_OK;
+    if (uart_param_config(UART_NUM_0, &config) != ESP_OK) return false;
+    // **I el fil del filferro, aquí** (0.190.243): the terminal has to be up and waiting before the first line of the system, and a
+    // serial that did not come up writes from the caller as it always did (docs/50).
+    (void)start_the_wire();
+    return true;
 #endif
   }
 
   void setDebugOutput(bool) {}
 
+  // **El filferro té el seu propi fil** (0.190.243, l'amo: *«el terminal serie ha de ser multitasca. El terminal s'ha d'inicialitzar i
+  // quedar-se a l'espera. Anirà a una tasca del sistema per poder seguir atenent al usuari encara que la pantalla estigui robant molt
+  // temps de torns»*).
+  //
+  // **Què passava sense això**: `write()` posava els bytes al UART *des del torn*, i el driver d'aquesta casa no té anella de sortida
+  // —`uart_driver_install(…, 1024, 0, …)`—, o sigui que una línia de registre, una taula de `help` o el dibuix de l'entrada **esperaven
+  // el filferro dins del torn**: mil cent bytes a 115 200 bauds són noranta mil·lisegons que el nucli no pot mirar ni el tàctil ni el
+  // panell. Amb el fil del filferro, el torn només **deixa els bytes a la cua** i torna de seguida; qui espera la línia és una tasca.
+  //
+  // **I és una cua i no una escriptura directa quan hi ha editor**: el dibuix del prompt i l'eco de `linenoise` passen per `::write(1)`
+  // —són del component i no es poden interceptar sense posar-hi un driver de VFS propi—, o sigui que abans de tocar el filferro per
+  // aquesta banda es buida la cua (`flush`), i el torn no pot deixar res entremig d'un redibuix (docs/30, docs/50).
+  //
+  // **La mida és de dos kilobytes i surt del munt**: una cua fixa d'aquestes és DRAM que la Paper no té (docs/75) i un `malloc` d'aquest
+  // munt acaba a la PSRAM quan n'hi ha. Si el munt no en dona, `write` segueix essent el de sempre i ho diu al registre: una placa sense
+  // fil del filferro ha d'escriure igualment.
+  static const size_t kWireBytes = 2048;
+  static const size_t kFullMostMs = 200;   // what a caller waits for room in the queue, and not a tick more
+
+  bool start_the_wire() {
+    if (wire_on_) return true;
+    if (wire_ == nullptr) wire_ = static_cast<uint8_t*>(malloc(kWireBytes));
+    if (wire_lock_ == nullptr) wire_lock_ = xSemaphoreCreateMutex();
+    if (wire_wake_ == nullptr) wire_wake_ = xSemaphoreCreateBinary();
+    if (wire_ == nullptr || wire_lock_ == nullptr || wire_wake_ == nullptr) {
+      hal::logf(pal::kLogWarn, "CONSOLE", "no memory for the queue of the wire: the console writes from the caller as it always did");
+      return false;
+    }
+    if (xTaskCreate(&LunokSerial::wire_trampoline, "pal_tx", kWireStack, this, kWirePriority, nullptr) != pdPASS) {
+      hal::logf(pal::kLogWarn, "CONSOLE", "the task of the wire did not start: the console writes from the caller as it always did");
+      return false;
+    }
+    wire_on_ = true;
+    hal::logf(pal::kLogInfo, "CONSOLE", "the wire is its own task (%u bytes of queue)", static_cast<unsigned>(kWireBytes));
+    return true;
+  }
+
   size_t write(const uint8_t* data, size_t len) {
     if (data == nullptr || len == 0) return 0;
+    if (!wire_on_) return put_on_the_wire(data, len);
+
+    // **El torn deixa els bytes i se'n va**: what makes this a queue and not a wait is that only a full queue makes the caller wait,
+    // and then with a ceiling. A line of the log is forty bytes and a screen is a couple of thousand, so the ceiling is the wire and
+    // not the queue.
+    //
+    // **I cada escriptura és sencera o no és** (0.190.247): el tros que aquesta crida deixa a la cua es copia amb la ploma a la mà, o sigui
+    // que dues escriptures de tasques diferents mai no es barregen dins de la cua. **La ploma no s'espera amb la cua plena**: qui la buida és
+    // `pal_tx`, i si qui espera tingués la ploma, el filferro no avançaria mai — el que es fa és deixar-la anar, esperar un mil·lisegon i
+    // tornar-ho a provar, que és exactament el que aquesta cua ha fet sempre (docs/50).
+    size_t done = 0;
+    const uint32_t started = lunok_now_ms();
+    while (done < len) {
+      const size_t piece = put_in_the_queue(data + done, len - done);
+      done += piece;
+      if (done < len) {
+        if (lunok_now_ms() - started >= kFullMostMs) break;
+        lunok_delay_ms(1);
+      }
+    }
+    return done;
+  }
+
+  // **El tros que es deixa a la cua, amb la ploma a la mà** (0.190.247): what fits goes in whole and nothing else can be written between its
+  // first and its last byte. When the whole write does not fit, what fits goes in anyway —una escriptura gran s'escriu a trossos i el que no
+  // pot passar és que s'hi colin *dins*— i el que queda espera que el filferro buidi (docs/50).
+  size_t put_in_the_queue(const uint8_t* data, size_t len) {
+    Pen pen(pen_);
+    size_t piece = 0;
+    (void)xSemaphoreTake(wire_lock_, portMAX_DELAY);
+    const size_t room = kWireBytes - wire_used_;
+    if (room > 0) {
+      piece = (len < room) ? len : room;
+      for (size_t i = 0; i < piece; ++i) {
+        wire_[(wire_head_ + i) % kWireBytes] = data[i];
+      }
+      wire_head_ = (wire_head_ + piece) % kWireBytes;
+      wire_used_ = wire_used_ + piece;
+    }
+    (void)xSemaphoreGive(wire_lock_);
+    if (piece > 0) (void)xSemaphoreGive(wire_wake_);
+    return piece;
+  }
+
+  // **I el buidatge espera la cua abans que el registre del perifèric**: what a caller wants from `flush` is that the words are on the
+  // wire, and they are not while the queue still holds them (docs/50, docs/60). **La ploma no es té mentre s'espera la cua** (0.190.247):
+  // qui la buida és `pal_tx` i un pany a la mà de qui espera seria un pany mort; es pren després, per esperar el perifèric, que és l'últim
+  // tros del camí.
+  void flush() {
+    if (wire_on_) {
+      const uint32_t started = lunok_now_ms();
+      while (wire_used_ > 0) {
+        if (lunok_now_ms() - started >= kFlushMostMs) break;
+        lunok_delay_ms(1);
+      }
+    }
+    Pen pen(pen_);
+    wait_the_wire();
+  }
+  void flush(bool) { flush(); }
+
+ private:
+  // **Una sola ploma al filferro** (0.190.247, l'amo: *«escriptura a port serie ha de ser exclusiva (shell, vs tota la resta del codi)»*):
+  // the guard takes the lock at the door and gives it back on every way out, o sigui que el que no es barreja és l'escriptura sencera i no
+  // el tros. És recursiu perquè `write` la té i baixa a `put_on_the_wire` (docs/30, docs/50).
+  struct Pen {
+    explicit Pen(SemaphoreHandle_t lock) : pen(lock) {
+      if (pen != nullptr) (void)xSemaphoreTakeRecursive(pen, portMAX_DELAY);
+    }
+    ~Pen() {
+      if (pen != nullptr) (void)xSemaphoreGiveRecursive(pen);
+    }
+    Pen(const Pen&) = delete;
+    Pen& operator=(const Pen&) = delete;
+    SemaphoreHandle_t pen;
+  };
+
+  SemaphoreHandle_t pen_ = nullptr;
+  static const size_t kWireStack = 3072;
+  static const uint8_t kWirePriority = 2;   // above the turn and the reader, below the radios
+  static const uint32_t kFlushMostMs = 100;
+
+  static void wire_trampoline(void* self) {
+    static_cast<LunokSerial*>(self)->wire_loop();
+  }
+
+  // **La tasca del filferro**: waits for the turn to leave something and puts it on the wire, chunk by chunk. What it takes out of the
+  // queue is contiguous —a ring gives a run up to its end— and a write of a run is one `put_on_the_wire`, o sigui que dues línies de
+  // registre mai no es barregen encara que vinguin de tasques diferents.
+  void wire_loop() {
+    static const size_t kChunk = 512;   // a run at a time: the stack of this task is three kilobytes and not eight
+    uint8_t chunk[kChunk];
+    for (;;) {
+      (void)xSemaphoreTake(wire_wake_, portMAX_DELAY);
+      while (true) {
+        size_t took = 0;
+        (void)xSemaphoreTake(wire_lock_, portMAX_DELAY);
+        if (wire_used_ > 0) {
+          const size_t tail = (wire_head_ + kWireBytes - wire_used_) % kWireBytes;
+          took = (kWireBytes - tail < wire_used_) ? (kWireBytes - tail) : wire_used_;
+          if (took > kChunk) took = kChunk;
+          for (size_t i = 0; i < took; ++i) chunk[i] = wire_[tail + i];
+          wire_used_ -= took;
+        }
+        (void)xSemaphoreGive(wire_lock_);
+        if (took == 0) break;
+        (void)put_on_the_wire(chunk, took);
+      }
+    }
+  }
+
+  // **El que posa els bytes al perifèric**, i el de sempre: la ploma única del terminal, la FIFO del USB o l'`uart_write_bytes`.
+  size_t put_on_the_wire(const uint8_t* data, size_t len) {
+    if (data == nullptr || len == 0) return 0;
+    Pen pen(pen_);
     // **Una sola ploma** (0.190.222): amb el terminal enlaire, el que escriu el nucli i el que dibuixa el cursor de la línia han de sortir
     // pel mateix camí —el que el driver dona a `stdout`—, o dues escriptures al mateix filferro es trepitjarien i una línia del registre
     // cauria al mig d'una comanda que s'està editant (docs/30, docs/50).
@@ -157,8 +329,10 @@ class LunokSerial {
   }
 
   // **El sostre de cent mil·lisegons és el de sempre** (0.190.69): una placa que ha de tallar el corrent no pot esperar un fil que no
-  // s'acaba; el que es perd si el fil no s'acaba és mitja línia del registre i el que es perdia sense el sostre era la placa.
-  void flush() {
+  // s'acaba; el que es perd si el fil no s'acaba és mitja línia del registre i el que es perdia sense el sostre era la placa. **I des de
+  // la 0.190.243 això és el segon pas del buidatge**: primer la cua del fil i després el registre del perifèric, o el que es quedés a la
+  // cua no arribaria mai (docs/50, docs/60).
+  void wait_the_wire() {
 #if LUNOK_HAVE_USB_CONSOLE
     // **Amb el terminal, la FIFO no és nostra** (0.190.222): el driver del USB-Serial-JTAG té el perifèric i el seu anella, i empènyer
     // la FIFO amb les crides de baix nivell seria ficar-hi la mà a mitges —el que s'ha escrit pel VFS ja surt sol—. Es deixa passar el
@@ -175,7 +349,8 @@ class LunokSerial {
     (void)uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
 #endif
   }
-  void flush(bool) { flush(); }
+
+ public:
 
   int available() {
 #if LUNOK_HAVE_USB_CONSOLE
@@ -201,8 +376,18 @@ class LunokSerial {
 #endif
   }
 
-#if LUNOK_HAVE_USB_CONSOLE
  private:
+  // **La cua del filferro i la seva tasca** (0.190.243): the bytes the turn has handed over and the task that puts them on the wire. The
+  // ring is a `malloc` of two kilobytes —DRAM is what the Paper does not have— and the two semaphores are the lock of the ring and the
+  // shout that says there is work.
+  uint8_t* wire_ = nullptr;
+  size_t wire_head_ = 0;            // where the next byte of the queue goes
+  volatile size_t wire_used_ = 0;   // how many are waiting, and read by `flush` without the lock
+  SemaphoreHandle_t wire_lock_ = nullptr;
+  SemaphoreHandle_t wire_wake_ = nullptr;
+  volatile bool wire_on_ = false;
+
+#if LUNOK_HAVE_USB_CONSOLE
   // **El que el perifèric té, cap a l'anell** (0.190.91): la FIFO és de seixanta-quatre bytes i l'anell de dos-cents cinquanta-sis, o
   // sigui que una ràfega curta hi cap sencera i la llegeix el torn del nucli. L'anell ple deixa caure el byte, que és el mateix que fa
   // la FIFO del xip quan ningú no la buida (docs/50).
@@ -228,8 +413,6 @@ class LunokSerial {
 
 LunokSerial g_lunok_serial;
 #define LUNOK_SERIAL g_lunok_serial
-inline void lunok_delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
-inline uint32_t lunok_now_ms() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 inline void lunok_reboot() { esp_restart(); }
 inline bool lunok_serial_begin() { return g_lunok_serial.begin(115200); }
 
@@ -490,6 +673,10 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   // la resposta és **sí**, i qui decideix si els codis surten és el commutador `ansi on|off` (docs/30, docs/50, docs/85).
   bool speaks_ansi() const override { return true; }
 
+  // **I la mida de la vista** (0.190.234): la pregunta la fa el mòdul del terminal un sol cop, quan s'encén, i aquí només es diu el que ha
+  // contestat. Un terminal que no ho ha dit contesta que no, i qui dibuixa aleshores no pot alinear res a la dreta (docs/50, docs/85).
+  bool the_size(int& rows, int& columns) const override { return pal::the_terminal_size(rows, columns); }
+
   bool start_the_terminal(const char* const* names, uint8_t count) override {
     return pal::start_the_line_editor(names, count);
   }
@@ -497,6 +684,14 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   void set_the_prompt(const char* text) override { pal::set_the_line_prompt(text); }
 
   bool take_a_line(char* out, size_t capacity) override { return pal::take_a_finished_line(out, capacity); }
+  bool wait_for_a_line(char* out, size_t capacity, int32_t timeout_ms) override {
+    return pal::take_a_finished_line(out, capacity, timeout_ms);
+  }
+
+  // **I l'historial, que pot sobreviure al reinici** (0.190.236): `linenoise` el té a la memòria i el desa en un fitxer del VFS; quin disc
+  // és el que mana ho ha decidit el nucli abans de cridar aquí (docs/30, docs/50, docs/70).
+  bool load_the_history(const char* path) override { return pal::load_the_line_history(path); }
+  bool save_the_history(const char* path) override { return pal::keep_the_line_history(path); }
 
   size_t read(void* data, size_t len) override {
     // **Amb l'editor a sobre, qui llegeix és ell**: un segon lector es menjaria les tecles que la persona escriu (docs/50).
@@ -909,7 +1104,32 @@ EspExtraMemory g_extra;
 
 }  // namespace
 
+namespace {
+// **Les línies de la IDF passen a ser d'aquesta casa** (0.190.247, l'amo: *«Les repintades de l'epdiy es veuen al canal sèrie!! no havíem
+// quedat que tot anava al log circular del kernel?»*). The components of the chip and of the libraries —`epdiy` between them— write with
+// `ESP_LOGx`, and that goes by `vprintf` straight to the descriptor of the console: neither the ring of the kernel nor the rule that says the
+// wire only carries errors applied to them, o sigui que una repintada del panell sortia pel port al mig del que una persona escrivia. With this
+// hook every one of those lines comes through `hal::say_a_line`, which is the same door as ours: el registre circular, el mirall de la consola
+// i la cua del filferro amb la seva ploma (docs/30, docs/50, docs/85).
+int the_line_of_the_idf(const char* fmt, va_list args) {
+  char line[192];
+  const int written = vsnprintf(line, sizeof(line), fmt, args);
+  if (written <= 0) return written;
+  size_t len = static_cast<size_t>(written);
+  if (len >= sizeof(line)) len = sizeof(line) - 1;
+  // The IDF puts the newline at the end and a line of this house carries its own: es treu i es torna a posar, perquè una línia del registre
+  // acabi en un salt de línia i en un de sol.
+  while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) --len;
+  if (len == 0) return written;
+  line[len++] = '\n';
+  hal::say_a_line(line, len);
+  return written;
+}
+}  // namespace
+
 bool init() {
+  // **I el ganxo, abans de la primera línia de ningú** (0.190.247).
+  esp_log_set_vprintf(&the_line_of_the_idf);
   // **The noise of this boot, taken before anything else of the board exists**: the window of `Random::seed` leaves the
   // entropy source off, and the documents of the chip are clear that it has to be off before the ADC is initialised
   // —the battery gauge of the Paper is an ADC pin— and before the radio (docs/50). Doing it here and not at the first
@@ -1032,10 +1252,70 @@ void delay_us(uint32_t us) {
 }
 
 void delay_ms(uint32_t ms) {
-  // **I aquesta espera sí que deixa córrer el que toca** (0.190.137): a tick of this system is ten milliseconds, o sigui que una espera de
-  // zero és un tick i prou. És el que fa que una comanda llarga no es mengi el watchdog de tasca (docs/50, docs/95).
-  const uint32_t ticks = (ms == 0) ? 1u : ((ms + 9u) / 10u);
-  vTaskDelay(static_cast<TickType_t>(ticks));
+  // **I aquesta espera sí que deixa córrer el que toca** (0.190.137): és el que fa que una comanda llarga no es mengi el watchdog de tasca
+  // (docs/50, docs/95).
+  //
+  // **I compta mil·lisegons de debò des de la 0.190.244**: la versió anterior comptava deu mil·lisegons per tick (`(ms + 9) / 10`), que era
+  // cert quan el tick era de deu; amb el tick d'un mil·lisegon que aquesta IDF té (`CONFIG_FREERTOS_HZ=1000`), una espera de mil
+  // mil·lisegons en feia cent. No hi havia cap crida que ho patís —la primera és la tasca de la shell—, o sigui que s'arregla amb la primera
+  // que en depèn i no abans (docs/95). Zero continua essent **un** tick i no cap.
+  lunok_delay_ms(ms);
+}
+
+// **El pany de debò** (0.190.244): the queues that cross a task need one, and here it is a recursive mutex, perquè la shell pot prendre el pany
+// i cridar una cosa que el torna a prendre sense penjar-se. Un pany que no s'ha pogut fer es contesta nul i la cua queda sense pany, que en una
+// placa amb memòria lliure no passa mai (docs/50).
+pal::Lock make_lock() {
+  static_assert(sizeof(SemaphoreHandle_t) <= sizeof(pal::Lock), "un pany no cap en un punter");
+  return static_cast<pal::Lock>(xSemaphoreCreateRecursiveMutex());
+}
+
+void take_lock(pal::Lock lock) {
+  if (lock != nullptr) xSemaphoreTakeRecursive(static_cast<SemaphoreHandle_t>(lock), portMAX_DELAY);
+}
+
+void give_lock(pal::Lock lock) {
+  if (lock != nullptr) xSemaphoreGiveRecursive(static_cast<SemaphoreHandle_t>(lock));
+}
+
+// **Aquesta banda sí que té tasques** (0.190.244): the shell runs in its own task here, because the glass takes turns away from everything
+// else and a prompt that only reads between paints is not a terminal (docs/30, docs/50).
+bool tasks_are_here() { return true; }
+
+namespace {
+// **El que la tasca ha de saber quan arrenca** (0.190.244): FreeRTOS passes one pointer, so the entry and its argument travel together and
+// the trampoline frees the parcel before it lets go, o sigui que la tasca que no torna mai no deixa res a deure.
+struct Start {
+  void (*entry)(void*);
+  void* argument;
+};
+
+void run_a_start(void* parcel) {
+  Start start = *static_cast<Start*>(parcel);
+  vPortFree(parcel);
+  start.entry(start.argument);
+  vTaskDelete(nullptr);
+}
+}  // namespace
+
+bool start_a_task(const char* name, uint32_t stack_bytes, uint8_t priority, void (*entry)(void*), void* argument) {
+  if (entry == nullptr) return false;
+  // **I una pila sense número no en té** (0.190.244): a FreeRTOS task with zero bytes is a task with the idle stack, o sigui que es demana el
+  // mínim honest i no es deixa la decisió a un zero (docs/50).
+  const uint32_t bytes = (stack_bytes == 0) ? 4096u : stack_bytes;
+  Start* parcel = static_cast<Start*>(pvPortMalloc(sizeof(Start)));
+  if (parcel == nullptr) return false;
+  parcel->entry = entry;
+  parcel->argument = argument;
+  // **I la pila va en bytes i no en paraules** (0.190.244): aquesta IDF compta la profunditat de la pila en bytes (`StackType_t` és un
+  // `uint8_t`), al revés que el FreeRTOS de sempre, o sigui que el número que demana el nucli és el que arriba tal qual (docs/50).
+  static_assert(sizeof(StackType_t) == 1, "aquesta IDF compta la pila en bytes");
+  const BaseType_t made = xTaskCreate(&run_a_start, (name == nullptr) ? "lunok" : name, bytes, parcel, priority, nullptr);
+  if (made != pdPASS) {
+    vPortFree(parcel);
+    return false;
+  }
+  return true;
 }
 
 }  // namespace pal

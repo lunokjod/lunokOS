@@ -38,6 +38,7 @@
 #include "kernel/lock.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
+#include "kernel/orders.h"
 #include "kernel/panel.h"
 #include "kernel/serial.h"
 #include "kernel/session.h"
@@ -805,6 +806,63 @@ void test_an_app_runs_and_writes(void) {
   TEST_ASSERT_FALSE(kernel::app_running());
 }
 
+// **La cua de les comandes: quatre places, per torn, i és el torn qui les executa** (0.190.245, l'amo: *«l'app va per el seu fil d'execució i la
+// shell terminal al port serie va en un altre. Per això tota execució amb "run ...." o "comanda" ha d'executar-se al fil de sistema»*). Al PC no
+// hi ha tasca i la shell segueix essent el torn (`pal::tasks_are_here` diu que no), o sigui que el que aquest cas mesura és la cua ella
+// mateixa —l'ordre, el sostre, el que es refusa i com es talla una línia massa llarga— i el camí del torn, que és el que a la placa fa la
+// feina: una comanda escrita a la cua es respon al torn següent, amb el mateix `execute` de sempre.
+void test_the_queue_of_commands_holds_four_and_the_turn_runs_them(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  char line[kernel::orders::kLineBytes];
+  while (kernel::orders::take_a_line(line, sizeof(line))) {
+  }
+  TEST_ASSERT_EQUAL_UINT32(0u, static_cast<uint32_t>(kernel::orders::waiting()));
+
+  // Four fit and the fifth is refused in the face of whoever asked: una comanda perduda seria una tecla que no ha fet res.
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line("version"));
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line(""));  // una línia buida és una línia
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line("run words &"));
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line("kill"));
+  TEST_ASSERT_EQUAL_UINT32(4u, static_cast<uint32_t>(kernel::orders::waiting()));
+  TEST_ASSERT_FALSE(kernel::orders::post_a_line("echo five"));
+  TEST_ASSERT_EQUAL_UINT32(4u, static_cast<uint32_t>(kernel::orders::waiting()));
+
+  // The oldest first, and a line comes out whole.
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_EQUAL_STRING("version", line);
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_EQUAL_STRING("", line);
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_EQUAL_STRING("run words &", line);
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_EQUAL_STRING("kill", line);
+  TEST_ASSERT_FALSE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_EQUAL_UINT32(0u, static_cast<uint32_t>(kernel::orders::waiting()));
+
+  // **Una línia massa llarga es talla i no emprenya la següent**: the queue's line is the shell's own, o sigui que el que arriba més enllà no
+  // existeix per a ningú (docs/30).
+  char longer[kernel::orders::kLineBytes * 2];
+  for (size_t i = 0; i < sizeof(longer) - 1; ++i) longer[i] = 'x';
+  longer[sizeof(longer) - 1] = '\0';
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line(longer));
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(kernel::orders::kLineBytes - 1), static_cast<uint32_t>(strlen(line)));
+
+  // **I el torn les executa**: una comanda a la cua és la resposta d'aquella comanda al torn següent, que és el que la shell d'una altra tasca
+  // necessita perquè `run` i companyia passin pel fil de sistema (docs/30, docs/50).
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line("kill"));
+  pump_captured(2, g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no app is running"), g_out);
+  TEST_ASSERT_EQUAL_UINT32(0u, static_cast<uint32_t>(kernel::orders::waiting()));
+
+  // **I `run` des de la cua arrenca l'app de debò**: la captura és el que l'app de les comandes imprimeix; si la línia no s'hagués executat,
+  // seria buida (docs/30, docs/40).
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line("run words"));
+  pump_captured(3, g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 54"), g_out);
+  TEST_ASSERT_EQUAL_UINT32(0u, static_cast<uint32_t>(kernel::orders::waiting()));
+}
+
 // **La llista de comandes arriba a una app sencera** (0.189.9): the page of the commands of the app `shell` is
 // the kernel's own table —`sys.commands()` answers the same `kCommandNames` that `help` and the prompt read—,
 // so the count, the first word, the last one and a word that is in the middle are what says the list is the
@@ -815,12 +873,12 @@ void test_an_app_runs_and_writes(void) {
 void test_the_commands_of_the_prompt_reach_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
   TEST_ASSERT_TRUE(run_captured("run words", g_out, sizeof(g_out)));
-  // **Cinquanta-tres** (0.190.141 hi va posar cinquanta-dues amb `heapguard`, i la llista ha tornat a créixer des d'aleshores):
-  // the number is the one `kCommandNames` holds —the same table the prompt reads— i el que aquest cas defensa és que la llista de
-  // l'app i la del prompt són la mateixa, no el número en si (docs/30, docs/40).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 53"), g_out);
+  // **Cinquanta-quatre** (0.190.244 hi va posar `kill`, i la 0.190.238 n'havia tret `free` i `history`, que no tenien mà que els
+  // contestés): the number is the one `kCommandNames` holds —the same table the prompt reads— i el que aquest cas defensa és que la
+  // llista de l'app i la del prompt són la mateixa, no el número en si (docs/30, docs/40).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 54"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first help"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last history"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last terminal"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sessions true"), g_out);
   TEST_ASSERT_FALSE(kernel::app_running());
 }
@@ -10200,6 +10258,164 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
 // pass that carries that one cell is the two-level one of 290 ms and not a wash, **the New button fills the world** with the
 // twenty-eight percent of the paper, and **the centre key stops the clock** —a paused game does not ask the panel for
 // anything, which is what being stopped means— (docs/30, docs/45, docs/50).
+// **El joc de la serp, portat amb la pantalla com a comandament** (0.190.241, docs/45). The case runs the app of the
+// repository —the one the build copies onto the disk of the suite— and reads what it says through the console: a known
+// game is **six cells, four pieces and the step of level zero**, a tap above the head turns the worm up, and **a tap that
+// points straight back does not turn it at all** —the rule the old project wrote for its Tetris, and the one a person would
+// pay for with a wall.
+void test_the_snake_turns_where_the_finger_points_and_not_back(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **The app that ships is the app the test runs** (docs/85): the disk of the suite carries none of the apps of the
+  // repository, so the two files of the game are copied from it here and not from a copy that goes stale.
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps/snake");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/snake/snake.lua", "/apps/snake/snake.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/snake/manifest.json", "/apps/snake/manifest.json"));
+
+  // **Where the field is, said by the app** (the paper's `-keys`, docs/45): a test that guessed a corner would be measuring
+  // the layout of the day it was written. The listing goes first, because «no such app» is a sentence about the door.
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "snake"), g_out);
+  pump_captured(40, g_out, sizeof(g_out), "run snake keys");
+  const char* geometry = strstr(g_out, "[snake] cell ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(geometry, g_out);
+  int cell = 0;
+  int field_x = 0;
+  int field_y = 0;
+  int field_w = 0;
+  int field_h = 0;
+  int bx = 0;
+  int by = 0;
+  int bw = 0;
+  int bh = 0;
+  int px = 0;
+  int py = 0;
+  int pw = 0;
+  int ph = 0;
+  int mx = 0;
+  int my = 0;
+  int mw = 0;
+  int mh = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(17,
+                                sscanf(geometry,
+                                       "[snake] cell %d, field %d,%d %dx%d, new %d,%d %dx%d, pause %d,%d %dx%d, demo %d,%d %dx%d",
+                                       &cell, &field_x, &field_y, &field_w, &field_h, &bx, &by, &bw, &bh, &px, &py, &pw, &ph, &mx,
+                                       &my, &mw, &mh),
+                                geometry);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, cell, geometry);
+  // **I el camp i els dos botons són dins la vista**: the box the app says it paints is the box it hit-tests, and one that
+  // hung off the page would be a corner a finger cannot reach.
+  TEST_ASSERT_TRUE_MESSAGE(field_x >= 0 && field_y >= 0 && field_x + field_w <= view.width && field_y + field_h <= view.height,
+                           geometry);
+  TEST_ASSERT_TRUE_MESSAGE(bx >= 0 && by >= 0 && bx + bw <= view.width && by + bh <= view.height, geometry);
+  TEST_ASSERT_TRUE_MESSAGE(px >= 0 && py >= 0 && px + pw <= view.width && py + ph <= view.height, geometry);
+  TEST_ASSERT_TRUE_MESSAGE(mx >= 0 && my >= 0 && mx + mw <= view.width && my + mh <= view.height, geometry);
+  // **I els tres botons no es trepitgen**: three doors of the strip that overlap are a corner a finger cannot choose, and the
+  // demo of the CPU is the third of them (0.190.242).
+  TEST_ASSERT_TRUE_MESSAGE(mx + mw <= px && px + pw <= bx, geometry);
+
+  // **A game in a known state**: six cells going right in the middle row, four pieces eaten and the food four cells in front
+  // —one piece short of the level, which is what the bar of the strip says—. The save goes first, or the run reads the game
+  // the run before left (the 2048 paid for this once, 0.179.53).
+  storage->remove("/data/snake/game.txt");
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  pump_captured(40, g_out, sizeof(g_out), "run snake full");
+  const char* line = strstr(g_out, "[snake] len=");
+  TEST_ASSERT_NOT_NULL_MESSAGE(line, g_out);
+  int len = 0;
+  int score = 0;
+  int level = 0;
+  int pace = 0;
+  int over = 1;
+  int paused = 1;
+  char why[16] = {0};
+  TEST_ASSERT_EQUAL_INT_MESSAGE(7,
+                                sscanf(line, "[snake] len=%d score=%d level=%d step=%d over=%d paused=%d why=%15s", &len, &score,
+                                       &level, &pace, &over, &paused, why),
+                                line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(6, len, line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, score, line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, level, line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(220, pace, line);   // the step of level zero, which is the ladder of the old app
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, over, line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, paused, line);
+
+  // **The ink of the page is the clock of the finger** (0.179.53): the first page of an app is one pass the model pays, and
+  // the app's turn waits behind it. The turns are pumped before the hand, or the case reads the paint of the run before.
+  pump_turns(1200);
+
+  // **A tap above the head turns it up**: the head is the sixth cell of the middle row and the tap lands three cells above it,
+  // which is a finger saying «that way» and not a finger on a cell.
+  const int head_x = field_x + 5 * cell + cell / 2;   // the head is the first cell of the body, on the left of the six
+  const int head_y = field_y + 10 * cell + cell / 2;
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + head_x),
+                                      static_cast<uint16_t>(view.y + head_y - 3 * cell)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  const char* turned = strstr(g_out, "[snake] turn=up ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(turned, g_out);
+
+  // **I un toc que apunta cap enrere no la gira**: the worm is going right now (the turn is taken on the next step), so a tap
+  // to its left is a tap asking for the wall it is leaving —and the finger gets nothing, which is the rule.
+  pump_turns(1200);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + head_x - 4 * cell),
+                                      static_cast<uint16_t>(view.y + head_y)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "[snake] turn="), g_out);
+
+  // **I el CPU juga** (0.190.242): `run snake demo` diu l'estat a cada pas, i el que la prova mira és que mengi —un CPU que
+  // va en cercles, que és el que el vell va haver de pagar amb dues peces en quatre-cents passos, no menja mai—. The clock of
+  // the case is a few seconds of emulator, which is a few steps at the pace of level zero, so what is asked of it is that it
+  // walks and eats and that the state line says the demo is on.
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  // **Mil sis-cents torns i no seixanta** (0.190.242): a turn costs one millisecond and the step of level zero is 220, so sixty
+  // turns is a demo that has not walked yet —and a case that read it would be measuring the paint of the first page—.
+  pump_captured(1600, g_out, sizeof(g_out), "run snake demo seed=3");
+  int demo_lines = 0;
+  int pieces = 0;
+  for (const char* at = g_out; (at = strstr(at, "[snake] len=")) != nullptr; ++at) {
+    int length = 0;
+    int scored = 0;
+    int lv = 0;
+    int pace = 0;
+    int ended = 0;
+    int stopped = 0;
+    int is_demo = 0;
+    if (sscanf(at, "[snake] len=%d score=%d level=%d step=%d over=%d paused=%d demo=%d", &length, &scored, &lv, &pace, &ended,
+               &stopped, &is_demo) == 7) {
+      ++demo_lines;
+      if (scored > pieces) pieces = scored;
+      TEST_ASSERT_EQUAL_INT_MESSAGE(1, is_demo, at);   // the demo flag is on in every line of a demo
+    }
+  }
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(2, demo_lines, g_out);   // the bench says every step, and it walked at least one
+  TEST_ASSERT_TRUE_MESSAGE(pieces >= 0, g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+}
+
 void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
@@ -21093,6 +21309,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_options_of_the_emulator_start_empty);
   RUN_TEST(test_the_switches_of_run_begin_at_the_word_that_is_one);
   RUN_TEST(test_an_app_runs_and_writes);
+  RUN_TEST(test_the_queue_of_commands_holds_four_and_the_turn_runs_them);
   RUN_TEST(test_the_commands_of_the_prompt_reach_an_app);
   RUN_TEST(test_a_failing_app_says_why_and_the_shell_survives);
   RUN_TEST(test_the_exit_code_reaches_the_shell);
@@ -21295,6 +21512,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_battery_and_the_reason_decide_the_picture);
   RUN_TEST(test_a_plane_of_the_glass_is_painted_as_it_is);
   RUN_TEST(test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game);
+  RUN_TEST(test_the_snake_turns_where_the_finger_points_and_not_back);
   RUN_TEST(test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops);
   RUN_TEST(test_the_rainbow_app_paints_the_panel_of_the_matrix);
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);

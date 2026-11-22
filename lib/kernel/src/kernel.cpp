@@ -17,6 +17,7 @@
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/net.h"
+#include "kernel/orders.h"
 #include "kernel/power.h"
 #include "kernel/session.h"
 #include "kernel/serial.h"
@@ -90,6 +91,22 @@ const uint32_t kConsoleSettleMs = 250;
 
 hal::IPlatform* g_platform = nullptr;
 bool g_running = false;
+
+// **El pany del torn** (0.190.244): made by the boot with the queue's, so that a null lock is a system that never asked for one (docs/50).
+pal::Lock g_turn_lock = nullptr;
+
+
+
+
+namespace {
+// **Qui té el torn té la pissarra** (0.190.244): the guard is the turn's own promise to itself —it gives the lock back on every way out of
+// `poll`, including the ones that end the turn early— and it costs nothing when the lock is null, which is the PC (docs/50, docs/85). Té el
+// pany a la mà directament perquè viu dins de l'anonimat i una funció de fora hi seria ambigua (docs/30).
+struct TurnGuard {
+  TurnGuard() { pal::take_lock(g_turn_lock); }
+  ~TurnGuard() { pal::give_lock(g_turn_lock); }
+};
+}  // namespace
 
 // **The session memory of an app, asked from the interpreter** (0.179.0): the kernel is the one that knows which app is
 // running, so the key that arrives from Lua is paired with that id here and nowhere else —`"apps"` is one block for a
@@ -764,10 +781,33 @@ void boot(hal::IPlatform& platform) {
       const char* const* names = shell::command_names(name_count);
       if (the_console->start_the_terminal(names, name_count)) {
         log_printf(pal::kLogInfo, "CONSOLE", "the shell is on the terminal of the console component");
+        // **I l'historial que la sessió de l'última vegada va deixar, aquí** (0.190.236): el terminal ja és qui edita la línia, i `linenoise`
+        // reclama la llista abans que cap prompt es torni a dibuixar (docs/30, docs/50).
+        shell::load_the_history();
       }
     }
   }
+  // **La cua de les ordres, abans que la shell pugui demanar-ne cap** (0.190.244): the shell of the board is a task of its own and what it
+  // asks the turn for waits here, mutex-protected because two tasks touch it (docs/50).
+  orders::make_the_queue();
+  g_turn_lock = pal::make_lock();
   shell::start();
+  // **I la tasca de la shell ABANS que res del que pinta** (0.190.246, l'amo: *«La gràcia d'executar-lo en una tasca separada era precisament
+  // per evitar aquests bloquejos. Fes el favor de llençar abans la Shell i després la HOME_APP del #define»*). El que va veure a la T5S3: el
+  // port contestava els registres de l'`epdiy` —`diff: 17ms, draw: 352ms, total: 374ms` per pàgina— i el prompt no hi era enlloc, perquè la
+  // tasca encara no havia nascut: la 0.190.244 la creava **al final** de l'arrencada, i una arrencada en aquesta placa són segons de pintar.
+  // Ara neix tot just després que la shell tingui el seu estat i abans de les alarmes, de l'app de la sessió i de la pàgina de casa, o sigui
+  // que el port és viu mentre el vidre treballa: les línies que arribin mentre l'arrencada encara va es queden a la cua (`kernel/orders`) i
+  // el torn les fa al primer `poll` (docs/30, docs/50). Una línia que arriba dins d'un `draw` de quatre-cents mil·lisegons no ha d'esperar
+  // que el vidre hagi acabat per existir.
+  if (shell::start_the_task()) {
+    log_printf(pal::kLogInfo, "CONSOLE", "the shell listens in its own task");
+  }
+  // **I la resta de l'arrencada amb el pany del torn a la mà** (0.190.246): la tasca de la shell ja és viva, o sigui que el seu eco pot
+  // entrar —`feed` dona la tecla a l'intèrpret i a la caixa que té el focus— mentre l'arrencada encara arrenca apps i pinta pàgines. El que
+  // toca el vidre i l'intèrpret es fa amb el mateix pany que el torn fa servir, i el que una persona escrigui mentrestant espera a la cua
+  // fins al primer `poll`, que és on el torn les executa (docs/30, docs/50).
+  TurnGuard the_boot_has_the_turn;
   // **Les alarmes que van tocar mentre la placa no hi era es fan abans que cap pàgina torni** (0.189.175): a board that wakes
   // from a deep sleep is a board that boots, and the session app used to come back *before* the queue was looked at, o sigui
   // que la finestra de la mostra es refusava i la nit sencera es perdia. Amb el vidre buit la finestra és la de sempre, i
@@ -814,29 +854,15 @@ void boot(hal::IPlatform& platform) {
 
   const char* home = cfg::home_app();
   if (lock_page == nullptr && home[0] != '\0' && !for_an_alarm && !app_running()) {
-    // **I ARRENCA SENSE LA SEVA TARGETA** (0.179.33, l'amo: *«en launcher no ha de mostrar l'splash rera el boot, tenim
-    // l'splash del sistema»*): the board has just painted the picture of its boot on that glass, so the home app comes up
-    // with the page and nothing else. Its card is for the way back —a Lua app ends and the launcher arrives with it—
-    // which is the moment it was drawn for (docs/30, docs/40).
-    if (shell::start_app(home, /*splash=*/false)) {
-      log_printf(pal::kLogInfo, "HOME", "%s", home);
+    // **I la pàgina de casa, la demana la shell** (0.190.247, l'amo: *«Mira que és fàcil tu!, shell fa "run home_eink &" només entrar i
+    // santes pàsques!»*): the boot does not start it any more. It writes `run <LUNOK_HOME_APP> &` to the queue of commands and the turn runs
+    // it —el mateix camí que una línia escrita a mà—, o sigui que la pàgina del sistema arriba **després** de l'arrencada, amb el cable ja
+    // viu, i al darrere del prompt (`&`). El que es deixa enrere: **la imatge de l'error** d'una placa que no troba la seva app, perquè el
+    // que la diu ara és el `run` mateix al cable; la pàgina del pany (`device_lock`) la demana ella quan s'obre, com sempre (docs/30, docs/40).
+    if (shell::ask_for_the_home_app()) {
+      log_printf(pal::kLogInfo, "HOME", "%s (asked to the queue)", home);
     } else {
-      // **La cara del sistema que no té pàgina** (0.183.0): the home app is the page this board is supposed to present, and a
-      // boot that cannot present it is a system error and not a line in a log nobody is reading. The picture goes up on the
-      // glass with the reason under the stamp of the build, and the prompt is still the console's, which is the only door a
-      // board like this has left. **A panic cannot be painted** —the chip that panics is not driving the glass— so this is
-      // the one error of the system a person can be told about (docs/50).
       log_printf(pal::kLogWarn, "HOME", "no app '%s' on this disk; the prompt is yours", home);
-      // **I la imatge és de la pàgina** (0.189.112): `splash.h` and `ui.h` are the two headers this build does not carry
-      // without a glass —`no_glass.cpp` gives the shell the doors it asks in spite of that, and this one is a picture and
-      // not a door—, so a board with no screen says the line and stays at the prompt, which is all it ever had (docs/50).
-#if LUNOK_GLASS
-      if (!splash::show(splash::kOops)) {
-        log_printf(pal::kLogDebug, "SPLASH", "no picture of the error: %s", splash::last_error());
-      } else {
-        ui::owe_the_page();
-      }
-#endif
     }
   }
 
@@ -845,6 +871,7 @@ void boot(hal::IPlatform& platform) {
   // so this is where the board goes back to a hundred and sixty. An app started after the boot —`run`, another app, an
   // alarm— asks for its own window (docs/50, docs/60).
   power::rest_cpu("the system is loaded");
+
 }
 
 void alarms_restore() {
@@ -891,6 +918,9 @@ void turns(uint32_t& with_event, uint32_t& on_timeout) {
 
 void poll() {
   if (!g_running) return;
+  // **Un torn sencer amb el pany a la mà** (0.190.244): the shell of the board executes its lines in another task, o sigui que el torn i la
+  // shell es fan la tornada i cap dels dos no troba la pissarra a mitges (docs/30, docs/50).
+  TurnGuard the_turn_is_mine;
   // **The turn of the kernel, counted whole**: what it costs to keep the system going, with the waiting
   // between turns left out because the wait is not the kernel working (docs/30).
   meter::Scope turn(meter::kLoop);
@@ -969,7 +999,11 @@ void poll() {
     // d'abans (docs/50, docs/60, docs/95).
     const int32_t napping = power::open_the_sleep(wait);
     const int64_t waited_from_ms = pal::system().millis();
+    // **I mentrestant la pissarra no és de ningú** (0.190.244): an espera d'un segon amb el pany a la mà seria una tecla que espera un segon,
+    // o sigui que el torn el deixa anar just el temps que no té res a fer i el torna a prendre quan el que arriba és feina seva (docs/30, docs/50).
+    give_the_turn();
     woke = pal::system().queue()->pop(ev, (napping > 0) ? napping : wait);
+    take_the_turn();
     power::close_the_sleep(pal::system().millis() - waited_from_ms);
     power::note_the_nap_end(woke);
 #if LUNOK_GLASS
@@ -1048,31 +1082,14 @@ void poll() {
   // ser-hi—. El `kernel::boot` el fa qui porta l'executable, que és el que fa el xip sol (docs/50, docs/60, docs/85).
   if (power::the_chip_restarted()) return;
 
-  pal::IConsole* console = pal::system().console();
-  if (console != nullptr) {
-    // **Dues maneres d'arribar una línia i un sol shell** (0.190.222): amb el terminal del cable, el que arriba és la línia que l'editor ha
-    // acabat —amb els colors i el cursor ja dibuixats— i el que se'n fa és el mateix; sense terminal (l'emulador, la consola del vidre,
-    // una placa on el controlador no arrenca) arriben bytes i el shell té el seu editor. **Un sol camí per torn** i mai tots dos, o la
-    // meitat de les tecles anirien a un editor i l'altra meitat a l'altre (docs/30, docs/50).
-    if (console->has_a_line_editor()) {
-      char line[128];
-      while (console->take_a_line(line, sizeof(line))) {
-        lock::note_activity(power::Hand::kConsole);
-        shell::take_a_line(line);
-      }
-    } else {
-      char buf[64];
-      size_t n = console->read(buf, sizeof(buf));
-      while (n > 0) {
-        // A person is at the keyboard: the board is being used and does not put itself to
-        // sleep until the prompt has been quiet for a while (docs/60). **Un comptador i prou**: `lock::note_activity` mou el de
-        // `power` des de la 0.190.9 (docs/30, docs/60).
-        lock::note_activity(power::Hand::kConsole);
-        shell::feed(buf, n);
-        n = console->read(buf, sizeof(buf));
-      }
-    }
-  }
+  // **Qui llegeix la consola** (0.190.244): on the board the shell is a task of its own and the line, the bytes and the prompt are hers,
+  // o sigui que el torn no mira el port; al PC no hi ha tasca i el torn serveix la consola com sempre, amb un sol camí per volta i mai tots
+  // dos, o la meitat de les tecles anirien a un editor i l'altra meitat a l'altre (docs/30, docs/50, docs/85).
+  if (!pal::tasks_are_here()) shell::serve_once(0);
+  // **I les comandes que la shell ha llegit es fan aquí** (0.190.245, l'amo: *«tota execució amb "run ...." o "comanda" ha d'executar-se al fil
+  // de sistema»*): the shell only reads and echoes, o sigui que cada línia acabada espera a la cua i el torn l'executa al començament de la
+  // volta, on viuen el vidre i l'intèrpret (docs/30, docs/50).
+  shell::carry_out_the_orders();
   // **I un `deepsleep` escrit al prompt és el mateix que la baixada de la política** (0.190.68): la línia ha adormit el xip, o sigui que
   // el que queda del torn —l'app, el cursor, la barra— seria feina d'un run que ja s'ha acabat i el torn s'acaba aquí (docs/50, docs/60).
   if (power::the_chip_restarted()) return;
@@ -1153,5 +1170,12 @@ bool execute(const char* line) {
 }
 
 bool app_running() { return shell::app_running(); }
+
+// **El pany del torn, fora de l'anonimat** (0.190.244): les tres portes les declara `kernel/kernel.h` i les crida la shell, que viu en una altra
+// tasca —una funció dins de l'anonimat té enllaç intern i el que hi hauria és un `undefined reference`—, i el pany el fa l'arrencada amb el de
+// la cua de les ordres (docs/30, docs/50).
+pal::Lock the_turn() { return g_turn_lock; }
+void take_the_turn() { pal::take_lock(g_turn_lock); }
+void give_the_turn() { pal::give_lock(g_turn_lock); }
 
 }  // namespace kernel

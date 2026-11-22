@@ -973,6 +973,16 @@ void delay_us(uint32_t us) {
   std::this_thread::sleep_for(std::chrono::microseconds(us));
 }
 
+// **El PC no té tasques ni panys** (0.190.244): the emulator and the suite run the shell in the turn and in one thread, so a lock is a null
+// pointer that costs nothing and a task is an answer of no (docs/85).
+Lock make_lock() { return nullptr; }
+void take_lock(Lock) {}
+void give_lock(Lock) {}
+
+bool tasks_are_here() { return false; }
+
+bool start_a_task(const char*, uint32_t, uint8_t, void (*)(void*), void*) { return false; }
+
 void delay_ms(uint32_t ms) {
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }

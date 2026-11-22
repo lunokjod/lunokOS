@@ -427,6 +427,7 @@ bool Esp32Power::set_cpu_range(uint32_t min_mhz, uint32_t max_mhz) {
   }
   return ok;
 #else
+  // unused
   (void)min_mhz;
   (void)max_mhz;
   return false;

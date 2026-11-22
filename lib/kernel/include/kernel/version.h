@@ -12280,7 +12280,387 @@ namespace kernel {
 //
 // **I `ansi on|off` repinta el prompt a l'instant**: canviar el commutador i no veure'n l'efecte fins a la línia següent seria endevinar si
 // ha funcionat (docs/30).
-static const char kVersion[] = "0.190.231";
+// **0.190.232 — una sessió oberta pel cable ensenya l'art de l'amo** (l'amo, amb el dibuix triat a l'editor: *«El text que tinc seleccionat
+// es el banner que has de mostrar després d'iniciar una sessió a la placa per serie»*, i tot seguit *«Canvia l'ansi per el que tinc
+// seleccionat a l'editor»*).
+//
+// **On es diu i per què allà**: a les **dues portes** que obren una sessió —el camí de l'editor de línia (`take_a_line`) i el camí de bytes
+// (`feed`)— i no a l'arrencada. Una sessió s'obre quan la persona prem Enter amb el terminal tancat, o sigui que l'art es diu **darrere**
+// `login: a new session`, que ja hi era i que segueix essent la línia que diu què ha passat. A l'arrencada hauria sortit a cada flaix i a
+// cada reinici, on ningú no l'ha demanat (docs/30, docs/50).
+//
+// **I només al cable**: `a_wire_console()` és la mateixa porta que el pany del son, o sigui que la consola que es penja —el vidre, l'emulador
+// del PC, i les proves— no el diu. Allà el terminal és una àrea petita que ja té la seva línia, i «per serie» és el que l'amo ha demanat
+// (docs/50).
+//
+// **L'art és seu, i són els seus bytes i no una còpia a mà**: el dibuix és `data/res/logo2.ans` —amb `logo1.ans` i `logo3.ans` al costat com
+// les altres provatures— i el literal de `shell.cpp` porta **el mateix contingut, escapatge a escapatge** (els codis `ESC[0;97m`, `ESC[0;94m`
+// i `ESC[0;34m` i les caixes UTF-8). **No es llegeix del disc a posta**: `data/res` viu a `littlefs`, i canviar-hi una lletra vol dir
+// `pio run -t uploadfs`, que reescriu la partició sencera — i al ATOM, que no té targeta, això s'endú `/data` amb el registre de la bateria
+// i les marques del rellotge a dins. Amb el literal, l'art es veu amb **un sol flaix de firmware** (docs/30, docs/50, docs/70).
+//
+// **I el salt de línia hi va fet**: un `.ans` porta el salt sol (`LF`), i cada línia del literal acaba en `CRLF` com tota la resta del que
+// aquest sistema escriu, perquè és el que el terminal necessita per baixar de línia (docs/30).
+// L'últim codi del fitxer és un `ESC[0m`, i el nucli hi afegeix la línia en blanc: **l'art no ha de pintar el prompt** (docs/30).
+//
+// **I com que és ANSI de debò, `ansi off` també hi mana**: els codis surten del fitxer i passen per la porta única d'escriptura, o sigui que
+// amb el commutador apagat el filtre els treu i el dibuix queda en caixes de text pla. Cap dels dos estats queda trencat (docs/85).
+// **0.190.233 — la mida de la vista es pregunta de debò, i la que hi havia no mesurava res** (l'amo, quan el banner ja era ANSI: *«al ser una
+// sessió ansi, pots obtenir el tamany de la vista, oi?»*).
+//
+// **Sí que es pot, però no amb la pregunta que es feia.** Un terminal diu la seva mida de dues maneres i cap és `ESC[6n` a seques:
+//   - **`ESC[18t`** (*report window size in chars*, extensió d'xterm) contesta **`ESC[8;files;columnes t`** —les dues dades de cop i sense
+//     moure el cursor—. No és estàndard: xterm.js la implementa al cas 18 de `windowOptions` del seu `InputHandler` i **la té apagada per
+//     defecte**; el VS Code l'encén (`getWinSizeChars` a `xtermTerminal.ts`), i un xterm de debò també contesta. Qui no la coneix calla.
+//   - **`ESC[6n` amb el cursor clavat al marge dret** (`ESC[999C` primer): dona el número que importa, perquè el terminal no deixa passar el
+//     cursor del marge i la columna que torna **és** l'amplada. És el mètode de `linenoise` (`getColumns` a `linenoise.c`), i després el
+//     cursor torna on era amb `ESC[nD`.
+//
+// **I el que aquesta casa feia fins la 0.190.232 era preguntar `ESC[6n` sol i quedar-se amb la columna com si fos l'amplada.** Passava el
+// llindar de vint columnes **per casualitat**: el registre de la IDF acaba en `\n`, que baixa de línia sense tornar el carro, o sigui que la
+// columna era la llargada de l'última línia de log. El número que el registre deia —«the terminal is up … on N column(s)»— no era la mida de
+// res. Una mesura que no és la que es creu és exactament el parany que va penjar `pal_line` la 0.190.225 (docs/50, docs/85).
+//
+// **Tres coses més, i totes són de la mateixa mena**:
+//   - **`ask_the_size()` en lloc d'`ask_the_width()`**: pregunta primer la mida de debò i, si calla, cau al mètode del cursor. Desa
+//     `g_columns` i `g_rows`, i **zero files vol dir «no ho ha dit»**, no «zero files» (docs/50).
+//   - **El registre diu les dues dades**, i quan el terminal no diu les files ho diu amb paraules en lloc d'un zero que sembla una mesura.
+//   - **I el motiu del rebuig és un motiu i no dues paraules**: `set_up_the_console_side` torna `kNoTerminal`, `kNoSize` o `kNoVfs`, perquè
+//     fins ara el camí de la mida deia *«the other end of the cable does not answer escape codes (no terminal)»* quan el terminal havia
+//     contestat la sonda perfectament i el que fallava era la mida. Un registre que menteix costa una tarda (docs/30, docs/50, docs/85).
+//
+// **I el rentat segueix essent exacte**: les preguntes són més ara (cinc, deu o quinze caràcters segons el camí) i per això el comptador
+// `g_asked_chars` compta el que s'ha escrit de veritat, en lloc d'una constant que algú ha de recordar d'actualitzar (docs/50, docs/85).
+// **0.190.234 — l'art a la cantonada de dalt a la dreta, i el respir tres vegades més llarg** (l'amo, amb la sessió ANSI ja en marxa: *«posala
+// alinada a la dreta a dalt, el més alt possible i el més a la dreta possible. Si no hi ha ansii, no mostris l'art. I fes que l'animació dels
+// leds de breath sigui el triple de llarga»*, i després, amb la placa a la mà: *«no sembla funcionar bé, el banner està alineat a
+// l'esquerra»*).
+//
+// **La cantonada es troba amb el cursor i no preguntant la mida**: el primer intent posava el cursor a `ESC[1;<columnes − 59 + 1>H` i depenia
+// de la resposta de la mida — que **amb `pio device monitor` al mig no arriba mai**, perquè el monitor es menja el que el terminal contesta, el
+// mateix que va deixar la sonda sense resposta la 0.190.223. O sigui que el dibuix queia a l'esquerra, que és exactament el que l'amo va veure.
+// **L'alineació no necessita saber res**: `ESC[1;1H` porta el cursor a dalt a l'esquerra, `ESC[999C` el deixa clavat al marge dret —el
+// terminal no el deixa passar, sigui quina sigui l'amplada— i `ESC[58D` el torna enrere l'amplada del dibuix menys un, o sigui que les 59
+// caixes cauen fins a l'última columna. És el mètode amb què `linenoise` mesura l'amplada (`ESC[999C` i preguntar on ha quedat), però aquí no
+// es pregunta on ha quedat: n'hi ha prou amb tornar enrere. I el cursor torna a la sessió amb `ESC 7`/`ESC 8` (docs/30, docs/50).
+//
+// **La mida que la 0.190.233 mesura només serveix per no dibuixar de més**: un terminal que declara menys de 59 columnes o menys de 5 files no
+// rep l'art, perquè el que quedaria és el dibuix doblegat i trencat. Si no la diu, es dibuixa igualment — la cantonada no en depèn (docs/50).
+//
+// **I aquesta versió la cantonada no s'aguanta, i és el que va ensenyar la placa**: un terminal que fa scroll no té cantonada — el dibuix es
+// pinta a la fila u **de la vista i no del paper**, i el primer salt de línia fa pujar el paper i se n'endú la primera línia, el següent la
+// segona, i a més el cursor es veu córrer fins al marge i tornar abans que pugi. Ho arregla la 0.190.235 (docs/30, docs/50).
+//
+// **I sense ANSI no hi ha art**: el dibuix són codis de color i de cursor, i amb `ansi off` el filtre els trauria i el que quedaria a la
+// cantonada seria un garbuix de caixes sense cap sentit (docs/30, docs/85).
+//
+// **El respir dels leds fa el triple**: quinze segons per cicle a l'arrencada (eren cinc, i amb quatre voltes és un minut), nou mil sis-cents
+// a la ràdio (eren tres mil dos-cents) i quinze segons és també el període de sèrie del `led.play{kind = 'breathe'}` d'una app, perquè el
+// gest de la casa és un i no tres. **El vidre no es toca**: el respir de la retroil·luminació mentre carrega és un altre dibuix i un altre
+// pany (quatre segons), i per això el comentari de `kBreathePeriodMs` —que deia que feia la mateixa llargada que l'arrencada— deixa de ser
+// cert i ho diu (docs/30, docs/50).
+//
+// **I `pal::IConsole::the_size` és la porta**: files i columnes, contestades un sol cop quan el terminal s'encén, i `false` quan aquesta
+// consola no ho sap (l'emulador, el vidre, una canonada, o un terminal que no entén la pregunta). **Zero files vol dir «no ho ha dit»**, i
+// qui dibuixa ho ha de poder dir en lloc d'endevinar-ho (docs/50, docs/85).
+// **0.190.235 — l'art deixa la cantonada i va amb la sessió** (l'amo, amb la 0.190.234 a la placa i el registre a la mà: *«massa alt, es perd
+// amunt amb el retorn de carro i també veig com salta de la dreta a l'esquerra abans de pujar»*).
+//
+// **Un terminal que fa scroll no té cantonada, i això no és un defecte de la 0.190.234: és el que és un terminal.** El dibuix pintat a
+// `ESC[1;1H` viu a la fila u **de la vista**, i cada salt de línia de la sessió fa pujar el paper: la primera línia del dibuix marxa amb el
+// primer, la segona amb el segon, i al cap de cinc la cantonada és buida. I el camí del cursor fins al marge i enrere es veu, que és el
+// «salta de la dreta a l'esquerra abans de pujar» (docs/30, docs/50).
+//
+// **El que es queda és el dibuix amb la sessió i no a la cantonada**: es pinta en el seu lloc —just darrere de `login: a new session`— línia a
+// línia, o sigui que puja amb el que la persona escriu **com qualsevol altra línia** i no es destrueix mai: el que se'n va amb el scroll és el
+// que se'n va amb el scroll, i es pot tornar a llegir pujant el paper. La dreta no canvia de mètode: a cada línia, `ESC[999C` deixa el cursor
+// clavat al marge dret i `ESC[58D` el torna enrere l'amplada del dibuix menys un (les cinc línies fan 59 columnes) (docs/50).
+//
+// **I el cursor s'amaga mentre es col·loca** (`ESC[?25l` abans, `ESC[?25h` després): el que s'ha de veure és el dibuix i no el camí del
+// cursor. L'art passa a ser **cinc cadenes, una per línia**, perquè cada línia s'ha de col·locar per separat; els bytes són els del fitxer de
+// l'amo, comprovats un a un (docs/30, docs/85).
+//
+// **I el registre diu la llista de monitors del fabricant i no la nostra**: la documentació de la IDF 5.1 (*Console → Line editing*) diu
+// que un monitor que només ensenya els bytes crus del port no pot conviure amb l'editor, i que els que se sap que funcionen són **GNU screen,
+// minicom i `esp-idf-monitor`** (`idf.py monitor`). El missatge de rebuig i docs/50 ho diuen així des d'aquesta versió, perquè una llista que
+// ens hem inventat nosaltres no és una font (docs/50, docs/85).
+// **0.190.236 — l'historial del terminal sobreviu al reinici, i viu al disc que la persona ha triat** (l'amo, després del repàs de la
+// documentació de la IDF: *«1- pero usant el disc prefrit per l'usuari, si hi ha SD instal·lada, es l'SD per evitar danyar la flash»*).
+//
+// **El que la documentació va destapar**: `linenoiseHistorySave` i `linenoiseHistoryLoad` són del component (`linenoise.h`) i van amb
+// `fopen`, i el que `fopen` entén en aquesta placa és el **VFS de la IDF** — que ja té els dos discs muntats: `/littlefs`
+// (`hal_esp32/storage.cpp`, `esp_vfs_littlefs_register`) i **`/sd`** (`hal_esp32/sd_card.cpp`, `esp_vfs_fat_sdspi_mount`). O sigui que no
+// cal escriure cap fitxer a mà ni cap driver: el fabricant ja porta les dues meitats (docs/30, docs/50, docs/70).
+//
+// **I on va el fitxer és una pregunta que ja tenia resposta**: el **disc preferit** (`cfg auto|sd|littlefs`, la fila *Preferred disk*), que
+// és el que decideix `/cfg` i `/data` des de la 0.190.8. El camí és **`/<unitat>/data/history.txt`** — la porta `/data` traduïda al camí
+// que `fopen` necessita—, o sigui que amb una targeta el fitxer neix a la targeta i **el flaix no s'escriu per una comanda**, i sense
+// targeta va al flaix, que és l'únic que hi ha. **Cap preferència nova**: una segona resposta a la mateixa pregunta és el que la 0.190.8 va
+// haver de desfer (docs/30, docs/70).
+//
+// **Quan s'escriu i quan es llegeix**: es **carrega quan el terminal s'encén** (des del nucli, just després de `start_the_terminal`, que és
+// quan `linenoise` ja té l'historial creat amb el seu màxim) i es **desa quan la sessió es tanca** (`logout`, `exit`, Ctrl+D) i no a cada
+// línia: una escriptura de disc per tecla premuda no és un preu que una placa hagi de pagar, i el que es perd si la placa es queda sense
+// corrent és mitja sessió, no la feina (docs/30, docs/50).
+//
+// **I una consola sense editor de línia no toca cap fitxer**: les dues portes noves del PAL (`load_the_history`/`save_the_history`) contesten
+// que no per defecte, o sigui que l'emulador, el vidre i les proves no veuen ni un byte de disc (docs/50, docs/85).
+//
+// **El que s'ha deixat de banda, i per què**: `linenoiseSetDumbMode` existeix però és un `fgets` amb eco —pitjor que l'editor que aquesta
+// casa ja té com a recanvi—, i `esp_console_split_argv` i `argtable3` no aporten res a un parser que ja té les comandes fetes (docs/30).
+// **0.190.237 — les cites del fabricant, i un comentari que deia una cosa falsa sobre els salts de línia** (l'amo, amb la documentació a la mà:
+// la secció *Configuring UART* de l'exemple `system/console`, i la referència de seqüències d'xterm).
+//
+// **El codi estava bé i el comentari no.** Mitja casa (i jo) dèiem que la baixada del driver del VFS **treu el CR** —*«la conversió de
+// baixada és CR→LF»*—, i **no és cert**: a `components/vfs/vfs_uart.c` el CR s'insereix **abans** del `\n` quan el mode **no** és `LF`, i en
+// mode `LF` **no es toca res**. O sigui que els `\r\n` que aquesta casa escriu a mà surten sencers, que és exactament el que la
+// documentació de la IDF demana: *«To move the cursor to the beginning of the next line, serial device needs to send CR LF»*, i en prémer
+// Enter el terminal envia **CR**, que és el que la banda d'entrada converteix. El mode `CRLF` que fa servir el fabricant (`esp_console_repl.c`)
+// és el mateix dibuix des de l'altra banda —el seu codi escriu `\n` i el driver hi posa el CR—, i el que aquesta casa fa (escriure `CRLF` a
+// mà amb el mode `LF`) hi és equivalent. **El que canvia és el que diuen els comentaris**, a `console_line.cpp` (les dues bandes), a
+// `shell.cpp` (l'art) i a docs/50, perquè un comentari que menteix costa el mateix que un registre que menteix (docs/30, docs/50).
+//
+// **I la mida de la vista té referència de debò**: la d'xterm (*Control Sequences*, `CSI Ps t`) diu literalment *«Ps = 18 ⇒ Report the size
+// of the text area in characters. Result is `CSI 8 ; height ; width t`»* — **la fila primer**, que és com es llegeix— i la del cursor
+// (*«Ps = 6 ⇒ Report Cursor Position (CPR) [row;column]. Result is `CSI r ; c R`»*). La mateixa pàgina avisa d'una cosa que convenia saber:
+// **una tecla de funció amb modificadors també envia una resposta amb aquesta forma** (`CSI 1 ; 2 R`, la F3 amb majúscules); per això la
+// primera lectura del mètode del cursor només diu on era el cursor i **la que mana és la segona**, i una tecla que s'hi coli no pot fer res
+// més que descol·locar el cursor de tornada (docs/50). **I no hi ha cap camí millor amagat**: el VFS de la IDF no implementa `TIOCGWINSZ`
+// —`linenoise` ho comenta però no ho prova—, o sigui que les preguntes al terminal són l'única porta (docs/50, docs/85).
+// **0.190.238 — les respostes tenen format, i els bytes es llegeixen** (l'amo: *«fes la sortida de les comandes mes agradable amb colors,
+// format de text, espais, columnes, negretes, subratllats... help podría ser ben bonic de consultar. O stats. mem necessita que arrodonim
+// els valors a bytes,Kilobytes, Megabytes....»*).
+//
+// **Una capa d'estil i prou, i els codis van pel camí de sempre**: sis tintes a `shell.cpp` —títol (negreta i subratllat, el cian clar del
+// prompt), cap de taula (negreta), clau d'una fila (el blanc del mig), què és quiet (el gris del mig del vidre), sí i no (el verd i el vermell
+// que `log.cpp` ja fa servir) i el `ESC[0m` que les tanca—, i tres ajudes: `title`, `row` (una clau de divuit columnes i el valor, comptant
+// caràcters visibles i no codis) i `row_inline`. **No hi ha una segona porta d'escriptura**: tot passa per `out`, o sigui que `ansi off` treu
+// els codis i el que queda és el mateix text alineat igual (docs/30, docs/85).
+//
+// **Els bytes s'arrodoneixen a la unitat que es diu** (`human_bytes`): bytes per sota del miler, i una dècima de KB, MB o GB per sobre, amb
+// una divisió entera — `%f` pot no existir en aquest build i un número per a una persona no ha de costar una llibreria de coma flotant. `mem`
+// passa a ser una taula de clau i valor amb els números llegibles, i `mounts` fa el mateix amb la targeta de setze gigabytes, que en bytes és
+// un número que ningú compta (docs/30, docs/70, docs/75).
+//
+// **`help` és la que més es nota**: un títol quan el que s'ha demanat és la llista sencera, la sintaxi de cada comanda —el que es copia— en
+// negreta i en el cian del sistema, la descripció com era, els dos consells del final en gris perquè no són comandes, i un peu que diu com es
+// pregunta per una. `caps` i `sessions` agafen la mateixa taula, i les files de `sessions` i de `mem` alineen la clau a la mateixa columna
+// (docs/30).
+//
+// **I `stats` no passa pel shell** (l'escriu `meter.cpp` directament a la consola), o sigui que el filtre s'hi fa allà, amb el mateix
+// `shell::filter_ansi` i la mateixa decisió `shell::ansi_on` — una segona regla seria el que aquesta casa no vol—; el cap de la taula va en
+// negreta, el nom de cada comptador en el cian i els guions en gris (docs/30, docs/85).
+//
+// **I dues coses que no hi eren**: `free` i `history` sortien al tabulador i no tenien cap mà que les contestés —el tabulador oferia una
+// comanda que queia a `unknown command`—, o sigui que surten de la taula dels noms. La llista del tabulador i la de `help` han de dir el que
+// aquesta casa sap fer (docs/30, docs/45).
+// **0.190.239 — la llegenda sota el dibuix: la versió i la placa, en blanc i negreta** (l'amo: *«Sota el banner de l'entrada posa centrat (sota
+// el banner) en text blanc i negreta el numero de versiò i la placa..»*).
+//
+// **El número i la placa, i prou**: `0.190.239  m5stack-atom`, que és el que una persona mira quan la sessió s'obre i no ha de preguntar-ho
+// amb `version` (docs/30).
+//
+// **Centrat dins del dibuix i no de la pantalla**: la llegenda és del dibuix, i un text centrat a la pantalla es veuria desplaçat respecte del
+// que té a sobre. La columna es troba amb el mateix truc que les línies de l'art —`ESC[999C` al marge dret, que és l'única cosa que el
+// terminal sap de la seva amplada, i enrere el que sobra del dibuix— o sigui que **tampoc aquí es pregunta cap mida**, i funciona amb el
+// monitor que es menja les respostes (docs/50).
+//
+// **El blanc i la negreta** (`ESC[1;97m`) són el que fa que es llegeixi com una llegenda i no com una línia més de la sessió; el codi va per
+// la porta única d'escriptura, o sigui que amb `ansi off` el que queda és el text, sense color i al mateix lloc (docs/30, docs/85).
+//
+// **I el cursor segueix amagat fins que la llegenda hi és**: l'art i la seva llegenda són un sol gest i el que s'ha de veure és el dibuix,
+// no el camí del cursor (docs/85).
+// **0.190.240 — el `help` diu què és obligatori, `ls` té estil i `stats` té colors per columna** (l'amo: *«Decora mes el help, les [opcionals]
+// i les <requereides>. ls està igual, li cal una mica d'estil. a stats molaría els valors alts i baixos en colors diferents, les mitjanes en
+// blanc etc...»*).
+//
+// **`help`, amb les tres tintes de la sintaxi**: el nom de la comanda en el cian de la casa, **el que s'ha d'escriure** (`<app>`, `<path>`) en
+// blanc i negreta, i **el que es pot afegir** (`[on|off]`, `[<ms>]`) en el gris del mig del vidre. Els claudàtors es llegeixen un a un —no amb
+// una cerca de text— perquè n'hi ha de niuats (`sessions destroy [<id> [<key>]]`), i el que mana és el parèntesi més interior: un `<>` dins
+// d'un `[]` és obligatori **si vols l'opció**, i pintar-lo gris com el parèntesi diria que es pot no escriure (docs/30).
+//
+// **`ls`, que tenia un comentari que prometia colors i no en tenia cap**: el tipus i la mida en gris, el nom d'una carpeta en el cian i el d'un
+// fitxer en blanc, la mida en les unitats que es llegeixen (`1.4 KB` i no `1433`), el camí com a títol i **quantes coses hi ha al final** —
+// una llista de trenta noms sense dir de quina carpeta són és una llista que una persona ha de reconstruir de memòria, i una carpeta buida i
+// una que no s'ha pogut llegir es veuen igual (docs/30, docs/70).
+//
+// **I `stats` amb el color dient què és cada número**: les crides en gris (són quantes, no quant costen), el total i la mitjana en blanc, i
+// **el més curt en verd i el més llarg en ambre** — el mateix parell que el registre fa servir per a un nivell, i no un semàfor inventat:
+// el verd és el que una casa vol veure i l'ambre el que ha de mirar (docs/95). L'ambre és la setena tinta de la paleta, perquè una taula que
+// no passa pel shell no ha de tenir la seva (docs/30, docs/85).
+// **0.190.241 — la `Snake` del paper, amb la pantalla de comandament** (l'amo: *«Fes el port de l'snake, però no posis el comandament de joc.
+// Usarem la pantalla per orientar el cuc. Tocs. Aquesta app es especialment complexa perquè el redibuixat està milimetrat per no fer
+// parpallejos i anar el més ràpid possible»*).
+//
+// **El joc és el del telèfon i les regles són les tres del gènere**: no s'atura i no s'arronsa —el cap pren una cel·la per pas i la cua en
+// deixa una—, un menjar és una cel·la més, i una paret o el seu propi cos l'acaben. **I els números són els del vell**: camp de vint per
+// vint, el pas del nivell `220 − 15·n` amb el terra de 70, un nivell cada cinc peces per `nivell + 1`, i un cuc de tres (docs/45).
+//
+// **El comandament és la pantalla** i no la creu, el dial ni les càpsules del vell: **un toc diu cap a on ha d'anar el cap des d'on és**,
+// l'eix amb més recorregut decideix, un toc que apunta cap enrere es llegeix com la meitat lateral que volia, i **el tomb que giraria el cuc
+// del revés no passa** —la regla que el Tetris del vell ja havia escrit—. El que queda del comandament són dos botons de la franja,
+// `Pause` i `New`, que aquest fitxer llegeix directament (`focusable = false`) perquè el centre del dial segueixi essent del sistema
+// (docs/30, docs/45).
+//
+// **El redibuixat és la feina, i són tres polítiques**: un pas pinta només les cel·les que han canviat —dues a quatre caixes en **un**
+// present de `du4`, el que el vell va mesurar: 120 ms i sense parpelleig—, el marcador és una caixa seva en `gld16` i només quan el número
+// es mou, i la pàgina sencera es pinta un cop (en obrir, en canviar la mida i en començar partida). **El compàs és una data i no l'espera
+// del torn**: el pas venç a `nextStep` i el bucle mira el dit cada setze mil·lisegons, i el que el vidre triga a pintar no es descompta del
+// compàs —amb un límit quan una pintada dura més que un pas, perquè el panell no pot anar més de pressa que un present i val més dir-ho
+// que descobrir-ho perdent una partida que no es veia (docs/50, docs/95).
+//
+// **El joc és dada i la pausa és forma**: el cuc, el menjar i els punts viuen a `fs.data('game.txt')` i tornen on eren (desats en pausar, en
+// dormir, en tancar i quan la partida s'acaba, i **mai a cada pas**, que seria una escriptura de disc per cel·la); la millor marca és una
+// preferència i va a `best.txt`; i si la pàgina era aturada ho diu la sessió `state`, que és la forma de la vista que una persona va deixar
+// (docs/30, docs/45 §5 bis).
+//
+// **I la prova l'arrenca de debò** (`test_apps`): la partida coneixedora —sis cel·les, quatre peces i el pas del nivell zero—, un toc a
+// sobre del cap que la gira amunt, i **un toc cap enrere que no la gira gens** (docs/45, docs/80).
+// **0.190.242 — el CPU de la `Snake`, que no hi era** (l'amo, després del port: *«el jugador-cpu també l'has portat?»* — i no, i ho
+// deia la capçalera de l'app).
+//
+// **Les dues regles del vell, senceres**: what it wants is the piece of food and what it cannot do is shut itself in. The first rule
+// alone is a worm that eats itself in a corner, so every way it could take is measured by the **room it leaves** —the cells still
+// reachable from there, with the flood fill every game of a grid has— and it is a greedy with a look at the room, which is what a
+// snake can be (docs/45).
+//
+// **I la generació per farciment, que és la lliçó que el vell va pagar**: the four ways of a step are measured one after the other and
+// the marks of the fill before are still in the table. With one generation for all of them the second way found its neighbours
+// already seen and answered «one cell», and the CPU went round in circles —measured in the old project as **two pieces of food in four
+// hundred steps**—. Every fill has its own generation here, and the body is marked once per step (`cpuGen`), with no table cleared
+// and no rubbish per step (docs/45, docs/75).
+//
+// **El nivell és seu i la partida és la mateixa**: `cpuLevel` i la seva base climb as it eats, because a demo that climbed the person's
+// ladder would be a demo of the person's game; the field, the clock and the rules do not change. **I la porta és un tercer botó**,
+// `Demo`, perquè aquesta pàgina no té cap targeta del sistema on preguntar-ho; **un toc al camp la pren** —the old app's «any key of the
+// person hands it over»— i una demostració **no es desa**, perquè el cuc que juga el CPU no és la partida que una persona va deixar
+// (docs/30, docs/45).
+//
+// **I el banc llegeix el CPU i no el rellotge**: `run snake demo` diu l'estat a cada pas (the old app's `-probe`), perquè aquest CPU
+// dura més que el rellotge d'un cas. Mesurat amb el banc del port: **34 peces en 489 passos** i el nivell 3, contra les dues peces en
+// quatre-cents del CPU trencat del vell (docs/45).
+// **0.190.243 — el terminal del cable és multitasca: el filferro té el seu propi fil** (l'amo: *«el terminal serie ha de ser multitasca. El
+// terminal s'ha d'inicialitzar i quedar-se a l'espera. Anirà a una tasca del sistema per poder seguir atenent al usuari encara que la
+// pantalla estigui robant molt temps de torns»*).
+//
+// **Què passava sense això**: `write()` posava els bytes al UART **des del torn**, i el driver d'aquesta casa no té anella de sortida
+// —`uart_driver_install(…, 1024, 0, …)`—, o sigui que una línia del registre, una taula de `help` o el dibuix de l'entrada **esperaven el
+// filferro dins del torn**: mil cent bytes a 115 200 bauds són noranta mil·lisegons en què el nucli no mira ni el tàctil ni el panell, i
+// amb el panell pintant a sobre el que la persona veia era un terminal que s'havia begut el torn (docs/30, docs/50).
+//
+// **Ara el terminal són dues tasques i el torn no toca el filferro**:
+//   - **`pal_rx`** (0.190.190/0.190.225) és qui llegeix: waits for the terminal, edits the line and leaves it in a queue.
+//   - **`pal_tx`**, nova: **s'inicialitza amb la consola** i es queda esperant; el que el nucli escriu es deixa en una **cua de dos
+//     kilobytes** que neix del munt (la DRAM de la Paper no en té per a una cua fixa) i és aquesta tasca qui ho posa al filferro, un tros
+//     contigu alhora. Dues escriptures de tasques diferents no es barregen mai, perquè cada tros que surt de la cua és una escriptura
+//     sencera (docs/50, docs/75).
+//   - **El torn només espera si la cua és plena**, i aleshores amb un sostre de dos-cents mil·lisegons: una línia de quaranta bytes no
+//     l'espera mai, i una pantalla de dos mil sí que va a la velocitat del filferro, que és l'única que pot tenir.
+//   - **I res de la consola no depèn del maquinari per existir**: si el munt no dona els dos kilobytes o la tasca no arrenca, es diu al
+//     registre i `write` segueix essent el de sempre —una placa sense el fil del filferro ha d'escriure igualment— (docs/50).
+//
+// **I les escriptures que no passen per la cua es fan amb la cua buida**: `linenoise` dibuixa el prompt i l'eco amb el descriptor, i la
+// sonda i el rentat també, perquè són del component i no es poden interceptar sense posar-hi un driver de VFS propi; o sigui que **abans
+// de cada una d'elles es buida la cua** (`flush`), i el prompt no pot caure al mig d'una línia del registre (docs/30, docs/50).
+//
+// **I el buidatge té dos passos**: primer la cua del fil i després el registre del perifèric, perquè el que es quedés a la cua no arribaria
+// mai abans d'un `poweroff` (docs/50, docs/60).
+// **0.190.244 — la shell té la seva tasca i les apps les arrenca el torn** (l'amo: *«la Shell en una tasca independent no pot arrencar apps per
+// si sola, les envia a una cua perquè el nucli les pugui executar. Per matar una app el mateix. S'envía a la tasca del torn i allà es mata o
+// s'arrenca l'app. Aquestes cues han de ser protegides amb mutex»*).
+//
+// **El que faltava**: el terminal ja llegia en una tasca i escrivia en una altra (0.190.243), però les línies acabades les executava el torn
+// —`shell::take_a_line` des de `kernel::poll`—, o sigui que l'ordre en què un terminal multitasca és útil era el que menys ho era: la línia
+// esperava el torn i el torn esperava la línia (docs/30, docs/50).
+//
+// **Ara són tres peces i cadascuna fa el seu**:
+//   - **`pal_line`** llegeix les tecles i deixa la línia a la cua de l'editor (ja hi era des de la 0.190.222).
+//   - **`lunok_shell`**, nova: s'inicialitza al final de l'arrencada i **es queda esperant una línia** (`wait_for_a_line`, vint mil·lisegons
+//     de sostre); quan n'arriba una l'executa. Amb el cable, el prompt i l'eco continuen mentre el panell pinta (docs/50).
+//   - **`kernel/orders`**, nou: la cua on la shell deixa el que no pot fer ella. Un `kStart` (id, camí, commutadors, fons) i un `kClose`
+//     (el motiu de dir-ho) amb **mutex** —`pal::make_lock`, un mutex recursiu de la placa i el nul del PC—, quatre places i el que no hi cap
+//     es refusa: una ordre perduda seria una tecla que no ha fet res. El torn les buida al començament de cada volta, abans de l'app
+//     (docs/30, docs/50).
+//   - **`kill`**, nou al prompt: tanca l'app que és al vidre per la mateixa cua, que fins avui no tenia cap camí des del prompt (docs/30).
+//
+// **I el torn té el pany a la mà**: `kernel::take_the_turn` (fet amb el de la cua a l'arrencada) l'agafa per a la volta sencera i el deixa
+// anar just el temps de l'espera d'esdeveniments —el que no toca res—, i la shell el pren al voltant de la línia que executa. Així el que era
+// cert quan la shell vivia dins del torn continua essent cert: la pissarra, l'intèrpret i l'app són d'un sol amo alhora (docs/30, docs/50).
+//
+// **I `pal::delay_ms` comptava deu mil·lisegons per tick** (arreglat aquí perquè aquesta és la primera crida que en depèn): amb el tick d'un
+// mil·lisegon que aquesta IDF té (`CONFIG_FREERTOS_HZ=1000`), `(ms + 9) / 10` feia una espera deu vegades més curta del que el nom diu. No hi
+// havia cap crida al nucli que ho patís —la primera és la tasca de la shell— i ara tradueix amb `pdMS_TO_TICKS`, que és el que fa servir tota
+// la resta del fitxer (docs/50, docs/95).
+//
+// **Què no ha canviat, i es diu**: al PC no hi ha tasca (`pal::tasks_are_here` contesta que no) i el torn serveix la consola ell mateix
+// (`serve_once(0)`), que és el que la suite i l'emulador esperen; allà `run`, `open` i `kill` es fan en el mateix lloc de sempre. I les
+// comandes que pinten (`splash`, `panel`, `wipe`) encara corren a la tasca de la shell, amb el pany del torn a la mà, o sigui que no es
+// barregen amb cap volta però fan esperar el torn: són les ordres següents que hi ha a fer (docs/30, docs/50).
+// **0.190.245 — la cua porta línies i no arrencades: tota comanda es fa al fil de sistema** (l'amo: *«l'app va per el seu fil d'execució i la shell
+// terminal al port serie va en un altre. Per això tota execució amb "run ...." o "comanda" ha d'executar-se al fil de sistema»*).
+//
+// **El que la 0.190.244 havia deixat a mitges**: la shell era una tasca i la cua hi era, però només passaven per la cua l'arrencada i el
+// tancament d'una app; la resta de comandes —`splash`, `panel`, `wipe`, `apps install`, `cfg`…— s'executaven **dins de la tasca de la shell**,
+// amb el pany del torn a la mà. És a dir: el fil de sistema no les veia, i una comanda podia pintar des d'una tasca que no és la que té la
+// pissarra. La 0.190.244 ho apuntava com el que faltava; això ho tanca (docs/30, docs/50).
+//
+// **Ara la cua és de línies i prou**:
+//   - **`orders::post_a_line`** / **`orders::take_a_line`**: `kernel/orders` deixa de tenir `kStart`/`kClose` i té quatre línies de cent
+//     vint-i-vuit bytes amb el mutex de sempre. El que no hi cap es refusa i es diu («the turn already has four commands waiting»): una
+//     comanda perduda en silenci és pitjor que una tecla refusada.
+//   - **La shell només llegeix i fa l'eco**: tant el camí del terminal (`wait_for_a_line`) com el camí de bytes (`feed`) acaben la línia amb
+//     `post_a_line` i **no criden `execute`**. El prompt del final el posa qui executa, o sigui que no n'hi ha dos.
+//   - **El torn les fa totes** (`shell::carry_out_the_orders` → `take_a_line`): la mateixa porta d'una línia del terminal, amb el mateix
+//     `execute`, el mateix `g_sink`, el mateix app i el mateix prompt. O sigui que `run`, `open`, `kill` i qualsevol altra comanda es fan on
+//     viuen el vidre i l'intèrpret, i la 0.190.244 no havia de canviar el camí d'arrencada de cap app: `run`/`open`/`kill` tornen a cridar
+//     `run_app`/`close_app` directament, i `kill` queda com una comanda normal (docs/30).
+//   - **I el pany del torn es queda per a l'eco**: l'únic que la tasca de la shell encara toca del torn és el camí de bytes (`feed` escriu la
+//     tecla i, si l'app és al davant, la dona al seu intèrpret). És un sol lloc, i és per això que el pany continua essent aquí (docs/50).
+//
+// **Què vol dir per a l'amo**: `run nom` ja no arrenca res des de la shell —arrenca una línia—, o sigui que el que passa pel fil de sistema és
+// **tota** l'execució i no només les apps. I el que diu la 0.190.244 del PC continua essent cert: a la banda del PC no hi ha tasques i el torn
+// serveix la consola ell mateix, o sigui que la cua es buida dins del mateix torn i res no canvia de moment (docs/85).
+// **0.190.246 — la shell neix abans que res del que pinta** (l'amo, amb el registre de la T5S3 a la mà: *«La gràcia d'executar-lo en una tasca
+// separada era precisament per evitar aquests bloquejos. Fes el favor de llençar abans la Shell i després la HOME_APP del #define»*).
+//
+// **Què passava**: la 0.190.244/0.190.245 creaven `lunok_shell` **al final** de `kernel::boot`, i en aquesta placa el final de l'arrencada és
+// el principi del que costa: l'`epdiy` fa `diff: 17ms, draw: 352ms, total: 374ms` per pàgina, i la primera pàgina de casa és part de
+// l'arrencada. O sigui que la tasca que havia de fer el port viu naixia **després** de segons de pintar, i el que es veia era el registre del
+// panell i cap prompt — el contrari del que la tasca separada havia de comprar (docs/30, docs/50).
+//
+// **Ara neix a la tercera línia**: `orders::make_the_queue()`, el pany del torn, `shell::start()` i **la tasca**, tot abans de les alarmes, de
+// l'app de la sessió i del `LUNOK_HOME_APP`. El que això vol dir:
+//   - **El port és viu mentre el vidre treballa**: la tasca llegeix i fa l'eco, i una línia que arriba dins d'un `draw` de quatre-cents
+//     mil·lisegons existeix de seguida —a la cua— en lloc de no existir enlloc.
+//   - **I les comandes s'executen quan el torn hi és**: una línia escrita durant l'arrencada espera a `kernel/orders` i el primer `poll` la fa.
+//     El que no pot passar és que el torn executi res mentre l'arrencada encara està començant apps, i per això no executa: espera (docs/50).
+//   - **La resta de l'arrencada es fa amb el pany del torn a la mà** (`TurnGuard the_boot_has_the_turn`): la tasca ja és viva i el seu eco
+//     toca l'intèrpret i la caixa que té el focus —`feed`—, o sigui que muntar el vidre i l'intèrpret mentre una tecla hi entra és el que
+//     aquest pany impedeix. És recursiu a la placa, o sigui que `boot` no es pot penjar amb si mateix (docs/30, docs/50).
+//   - **I la sessió del cable continua arrencant tancada** (0.190.184): el prompt el dona el primer Enter, que durant l'arrencada queda a la
+//     cua i surt amb `login: a new session` i el dibuix al primer `poll`. El que canvia és que ara aquest Enter **es pot escriure** (docs/30).
+// **0.190.247 — una sola ploma al filferro, i la pàgina de casa per la cua** (l'amo, amb el registre a la mà: *«Les repintades de epdiy es
+// veuen al canal serie!! no havíem quedat que tot anava al log circular del kernel?»*, i després: *«Mira que és fàcil tu!, shell fa "run
+// home_eink &" només entrar i santes pàsques!»*).
+//
+// **El que sortia pel port sense passar per casa**: les línies `I (761007) epdiy: diff: 3ms, draw: 93ms…` no eren nostres. Els components del
+// xip i les llibreries escriuen amb `ESP_LOGx`, i això anava per `vprintf` **directe al descriptor de la consola**: ni el registre circular ni
+// la regla de «el cable només rep el que és una fallada» els tocaven, o sigui que una repintada del panell queia al mig del que una persona
+// escrivia. **Ara hi ha un ganxo** (`esp_log_set_vprintf` a `pal::init`) que porta cada línia d'aquelles a `hal::say_a_line`: el mateix pou que
+// les nostres —el registre circular, el mirall i la cua del filferro— i amb les mateixes regles (docs/30, docs/50, docs/85).
+//
+// **I dues plomes escrivint al mateix paper**: quatre tasques escriuen a la consola (la shell, el registre, l'editor de línia i `pal_tx`) i el
+// que hi havia era un pany **per tros**. Ara hi ha **la ploma del filferro** (`LunokSerial`, un mutex recursiu fet amb l'objecte): cada
+// escriptura la té sencera, o sigui que dues línies de tasques diferents no es barregen mai. **I no s'espera amb la ploma a la mà quan la cua és
+// plena** —qui la buida és `pal_tx` i un pany retingut seria un pany mort—: es deixa anar, s'espera un mil·lisegon i es torna a provar, com
+// aquesta cua ha fet sempre (docs/50).
+//
+// **I la pàgina de casa deixa de ser cosa de l'arrencada**: `kernel::boot` ja no crida `shell::start_app`; demana `shell::ask_for_the_home_app()`,
+// que escriu **`run <LUNOK_HOME_APP> &`** a la cua de comandes i el torn l'executa al primer torn. D'aquí surten les tres coses que l'amo volia:
+// el cable és viu des del primer segon (la shell és una tasca des de la 0.190.246), l'app del sistema ja no bloqueja l'arrencada, i **amb `&`**
+// el prompt és de la persona mentre el llaçador és al vidre. El que es perd: la imatge de l'error d'una placa que no troba la seva app, perquè
+// el que la diu ara és el `run` mateix al cable (docs/30, docs/40, docs/50).
+static const char kVersion[] = "0.190.247";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

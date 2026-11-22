@@ -32,10 +32,24 @@ void set_the_line_prompt(const char* text);
 
 // Una línia acabada, sense el salt i sense bloquejar. False quan no n'hi ha cap d'espera.
 bool take_a_finished_line(char* out, size_t capacity);
+// **I la mateixa esperant-la fins a `timeout_ms`** (0.190.244): zero vol dir no esperar (docs/30).
+bool take_a_finished_line(char* out, size_t capacity, int32_t timeout_ms);
 
 // **Si el terminal té la consola**: mentre la té, el camí de bytes del nucli no ha de llegir, o li robaria les tecles a l'editor
 // (docs/50).
 bool the_line_editor_owns_the_console();
+
+// **L'historial de la sessió, desat a un fitxer del VFS** (0.190.236): les llistes les té `linenoise` a la memòria i el que fa aquestes dues
+// és el que el component ja sap fer —`linenoiseHistoryLoad` i `linenoiseHistorySave`, que van amb `fopen` i per tant entenen tant `/littlefs`
+// com `/sd`, que són els dos discs que la IDF té muntats al VFS—. El camí no el tria aquest mòdul: el tria el nucli, que és qui sap quin
+// disc prefereix la persona (docs/30, docs/50, docs/70).
+bool load_the_line_history(const char* path);
+bool keep_the_line_history(const char* path);
+
+// **La mida que el terminal ha contestat** (0.190.234, l'amo: *«al ser una sessió ansi, pots obtenir el tamany de la vista, oi?»*): files i
+// columnes, preguntades un sol cop quan l'editor s'encén. **Zero files vol dir «no ho ha dit»** —la pregunta de debò és una extensió d'xterm
+// i qui no la coneix calla—, i false vol dir que aquesta banda no té terminal i no té cap mida a dir (docs/50, docs/85).
+bool the_terminal_size(int& rows, int& columns);
 
 }  // namespace pal
 

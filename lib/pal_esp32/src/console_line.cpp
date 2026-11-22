@@ -72,10 +72,16 @@ const int kHintColour = 90;
 // encara és una línia, i per sota d'això el que hi ha a l'altre cap no és un terminal o no ha contestat bé, i val més no deixar-li la línia a
 // l'editor (0.190.225, docs/50, docs/85).
 const int kFewestColumns = 20;
-// **Quants caràcters fa cada pregunta** (0.190.231): `ESC [ 5 n` (l'estat del terminal) i `ESC [ 6 n` (on és el cursor) són quatre bytes cada
-// una, i el rentat de la pantalla en posa tants com s'han escrit (docs/50, docs/85).
+// **Quants caràcters fa cada pregunta** (0.190.231, i des de la 0.190.233 els compta el mateix `ask`): `ESC [ 5 n` (l'estat del terminal),
+// `ESC [ 6 n` (on és el cursor), `ESC [ 9 9 9 C` (cap al marge dret) i `ESC [ 1 8 t` (la mida de la vista). El rentat de la pantalla en
+// posa tants com s'han escrit, i per això no és una constant sinó el comptador `g_asked_chars`: cada pregunta que se'n va diu què ha escrit
+// (docs/50, docs/85).
 const size_t kProbeBytes = 4;
-const size_t kWidthBytes = 4;
+// **Les tres preguntes de la mida** (0.190.233): la de debò (`ESC [ 1 8 t`, que contesta files i columnes de cop) i les dues del mètode de
+// `linenoise` (`ESC [ 6 n` i `ESC [ 9 9 9 C`), que només diuen l'amplada (docs/50, docs/85).
+const char kAskSize[] = "\x1b[18t";
+const char kAskCursor[] = "\x1b[6n";
+const char kToTheEdge[] = "\x1b[999C";
 
 bool g_on = false;
 // **Ja no és un pany sinó una pregunta que es pot repetir** (0.190.230): qui la fa és el nucli a l'arrencada i, després, la comanda
@@ -91,9 +97,15 @@ bool g_on = false;
 // sèrie, un `clear` hi enviava codis a un monitor que no els entén (docs/50, docs/85).
 bool g_ansi = false;
 bool g_said_the_stack = false;
+// **Quants caràcters s'han escrit preguntant qui hi ha a l'altre cap** (0.190.233): el rentat de la sonda els ha de tapar tots, i les
+// preguntes són cinc segons el camí (la sonda, la mida de debò, o la mida pel mètode del cursor) (docs/50, docs/85).
+size_t g_asked_chars = 0;
 // **L'amplada que ha contestat el terminal** (0.190.225): es pregunta un cop i es diu al registre; el que no es fa és deixar-la decidir res més
 // que si hi ha terminal, perquè qui la fa servir és `linenoise` i una amplada de zero el penja (docs/50, docs/85).
 int g_columns = 0;
+// **I les files** (0.190.233): el terminal les diu amb `ESC [ 1 8 t` i pot no dir-les mai —un que no entengui aquesta pregunta—, i aleshores
+// aquest número és **zero, que vol dir «no ho ha dit»** i no «zero files» (docs/50, docs/85).
+int g_rows = 0;
 // **El prompt el diu el shell i abans que el digui no n'hi ha** (0.190.222): al cable, la sessió arrenca tancada i es demana un Enter, i un
 // prompt que hi és sense sessió és un prompt que demana una cosa que no es pot fer. El shell el posa al primer `prompt()` (docs/30).
 //
@@ -130,6 +142,15 @@ void post_a_line(const char* text) {
   if (queue != nullptr) (void)queue->push(ev, 0);
 }
 
+// **Abans de tocar el filferro per aquesta banda, la cua del fil es buida** (0.190.243): the console's writes are a queue drained by a
+// task of the PAL, and `linenoise` —and the probe, and the wash— write to the descriptor themselves because they are the component's.
+// A question written in front of what is still queued would arrive at the terminal before the text it follows, i el prompt es dibuixaria
+// sobre una línia que encara no hi és (docs/30, docs/50).
+void flush_the_wire() {
+  pal::IConsole* console = system().console();
+  if (console != nullptr) console->flush();
+}
+
 // **La pregunta de la sonda es renta de la pantalla** (0.190.224, l'amo: *«I el suport per ansi ? no veig color enlloc»*). A un terminal de
 // debò la sonda no es veu —és una pregunta, no una lletra—, però en un monitor que no ho és queda escrita com quatre caràcters i és el
 // primer que llegeix una persona en arrencar la placa. Un retorn de carro, vuit espais i un altre retorn la tapen amb el que hi hagués a
@@ -137,8 +158,11 @@ void post_a_line(const char* text) {
 // **I es renta exactament el que s'ha escrit** (0.190.231, l'amo: *«8 espais?»*): vuit era el pitjor cas —les dues preguntes, `ESC [ 5 n` i
 // `ESC [ 6 n`, quatre caràcters cada una— i quan només se n'havia fet una, els quatre espais de més quedaven a la pantalla com una línia en
 // blanc. Cada camí diu quants caràcters ha escrit i el rentat en posa tants com cal (docs/50, docs/85).
-void wash_the_probe(size_t chars) {
-  char wash[16];
+void wash_the_probe() {
+  flush_the_wire();
+  char wash[40];
+  size_t chars = g_asked_chars;
+  g_asked_chars = 0;
   if (chars + 2 > sizeof wash) chars = sizeof wash - 2;
   wash[0] = '\r';
   for (size_t i = 0; i < chars; ++i) wash[1 + i] = ' ';
@@ -146,32 +170,40 @@ void wash_the_probe(size_t chars) {
   (void)::write(STDOUT_FILENO, wash, chars + 2);
 }
 
-// **La segona pregunta: quantes columnes té** (0.190.225). `linenoise` mesura l'amplada amb `␛ [ 6 n` i, si la resposta no li arriba bé, es
-// queda amb una amplada que pot ser **zero** — i llavors `refreshMultiLine` **divideix per zero** (i en aquest xip, que no té divisió al
-// maquinari, la rutina de la llibreria dona voltes per sempre) i `refreshSingleLine` fa baixar un `size_t` fins que dona la volta. Les dues
-// coses són el mateix que va veure l'amo: `pal_line` clavat i l'`IDLE` del segon nucli sense menjar, o sigui la placa morta. O sigui que es
-// pregunta **aquí primer**, es llegeix la resposta amb la seva forma (`␛ [ files ; columnes R`) i, si no és l'amplada d'un terminal de debò,
-// aquesta banda diu que no i el shell es queda amb el seu editor de text pla (docs/50, docs/85).
-int ask_the_width() {
+// **El que no és una pregunta sinó una ordre** (0.190.233): `ESC [ 9 9 9 C` mou el cursor al marge dret i no contesta res, o sigui que
+// s'escriu i es compta, i la pregunta que ve després és la que escolta (docs/50).
+void ask_only(const char* order, size_t length) {
+  (void)::write(STDOUT_FILENO, order, length);
+  g_asked_chars += length;
+}
+
+// **Una pregunta i la seva resposta**: escriu els bytes de la pregunta, compta'ls per al rentat i llegeix fins al caràcter que tanca la
+// resposta (`R` a la del cursor, `t` a la de la mida). False vol dir que ningú no ha contestat dins del temps —que és el que fa un monitor
+// que no és un terminal— o que el que ha arribat no té la forma d'una resposta (docs/50, docs/85).
+bool ask_and_listen(const char* question, size_t length, char final_char, char* answer, size_t capacity) {
+  flush_the_wire();
+  ask_only(question, length);
+  answer[0] = '\0';
   const int fd = fileno(stdin);
   const int flags = fcntl(fd, F_GETFL);
-  if (flags < 0) return 0;
+  if (flags < 0) return false;
   (void)fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-  const char query[] = "\x1b[6n";
-  (void)::write(STDOUT_FILENO, query, sizeof query - 1);
-  char answer[24] = {};
   size_t used = 0;
+  bool answered = false;
   // **Cent cinquanta mil·lisegons i prou**: el mateix temps que es dona a la sonda, en passos de cinc, i el terminal que contesta ho fa en
   // microsegons (docs/50).
   for (int waited_ms = 0; waited_ms < 150; ++waited_ms) {
     char c = 0;
     const int got = read(fd, &c, 1);
     if (got == 1) {
-      if (used + 1 < sizeof answer) {
+      if (used + 1 < capacity) {
         answer[used++] = c;
         answer[used] = '\0';
       }
-      if (c == 'R') break;
+      if (c == final_char) {
+        answered = true;
+        break;
+      }
       continue;
     }
     // **Qualsevol altra cosa és «encara no»**: el VFS del cable contesta zero quan no hi ha res i el de la IDF pot contestar -1; totes dues
@@ -179,17 +211,73 @@ int ask_the_width() {
     vTaskDelay(pdMS_TO_TICKS(5));
   }
   (void)fcntl(fd, F_SETFL, flags);
-  if (used < 5 || answer[0] != '\x1b' || answer[1] != '[') return 0;
+  return answered && used >= 5 && answer[0] == '\x1b' && answer[1] == '[';
+}
+
+// **La segona pregunta: quina mida té la vista** (0.190.225, i la 0.190.233 amb les dues dades i bé). L'amo: *«al ser una sessió ansi, pots
+// obtenir el tamany de la vista, oi?»*. Es pot, però **no és una sola pregunta ni la que aquest mòdul feia**:
+//
+//   - **`ESC [ 1 8 t`**, i el que diu és la referència d'xterm (*Control Sequences*, `CSI Ps t`, `Ps = 18`): **«Report the size of the text
+//     area in characters. Result is `CSI 8 ; height ; width t`»** — les dues coses de cop, **la fila primer** i sense moure el cursor. És la
+//     que es fa primer. **No és estàndard**: és una extensió d'xterm que xterm.js implementa (`InputHandler.ts`, el cas 18 de
+//     `windowOptions`) i que **està apagada per defecte** allà —el VS Code l'encén amb `getWinSizeChars` (`xtermTerminal.ts`)—, o sigui que
+//     qui no la contesta calla i prou.
+//   - **`ESC [ 6 n` amb el cursor clavat al marge dret** (`ESC [ 9 9 9 C`): és el mètode de `linenoise` (`getColumns`, `linenoise.c`) i dona
+//     **només l'amplada**, perquè el número que torna és la columna on el terminal ha deixat el cursor. La referència d'xterm diu el mateix
+//     —`CSI Ps n`, `Ps = 6`: **«Report Cursor Position (CPR) [row;column]. Result is `CSI r ; c R`»**— i avisa d'una cosa que importa: **una
+//     tecla de funció amb modificadors també envia una resposta amb aquesta forma** (`CSI 1 ; 2 R`, la F3 amb majúscules). Per això la
+//     primera lectura només diu on era el cursor i la que mana és **la segona**, després de `ESC[999C`: una tecla que s'hi coli no pot
+//     fer res més que descol·locar el cursor de tornada. Després es torna el cursor on era amb `ESC [ n D`, o el prompt sortiria a la dreta
+//     (docs/50).
+//
+// **I el que feia fins la 0.190.232 era preguntar `ESC [ 6 n` sol i quedar-se amb la columna com si fos l'amplada**: passava el llindar de vint
+// columnes per casualitat —el registre de la IDF acaba en `\n`, que baixa de línia sense tornar el carro, i la columna era la llargada de
+// l'última línia— i el número del registre no era la mida de res. Una mesura que no és la que es creu és el mateix parany que va penjar
+// `pal_line` la 0.190.225 (docs/50, docs/85).
+//
+// **Per què cal la mesura**: `linenoise` mesura la seva pròpia amplada i, si la resposta no li arriba bé, es queda amb una amplada que pot
+// ser **zero** — i llavors `refreshMultiLine` **divideix per zero** (i en aquest xip, que no té divisió al maquinari, la rutina de la llibreria
+// dona voltes per sempre) i `refreshSingleLine` fa baixar un `size_t` fins que dona la volta. Les dues coses són el mateix que va veure
+// l'amo: `pal_line` clavat i l'`IDLE` del segon nucli sense menjar, o sigui la placa morta. Si aquí no surt una amplada d'un terminal de
+// debò, aquesta banda diu que no i el shell es queda amb el seu editor de text pla (docs/50, docs/85).
+bool ask_the_size() {
+  char answer[24] = {};
+  // **1. La pregunta de debò**: una resposta, les dues dades, el cursor quiet.
+  if (ask_and_listen(kAskSize, sizeof kAskSize - 1, 't', answer, sizeof answer)) {
+    int rows = 0;
+    int cols = 0;
+    if (sscanf(answer + 2, "8;%d;%d", &rows, &cols) == 2 && rows > 0 && cols > 0) {
+      g_rows = rows;
+      g_columns = cols;
+      return true;
+    }
+  }
+  // **2. I si calla, el mètode del cursor**: el marge dret és l'amplada, i el cursor torna on era.
+  int at_col = 0;
+  if (!ask_and_listen(kAskCursor, sizeof kAskCursor - 1, 'R', answer, sizeof answer)) return false;
+  if (sscanf(answer + 2, "%*d;%d", &at_col) != 1 || at_col < 1) return false;
+  ask_only(kToTheEdge, sizeof kToTheEdge - 1);
   int rows = 0;
   int cols = 0;
-  if (sscanf(answer + 2, "%d;%d", &rows, &cols) != 2) return 0;
-  if (rows < 1 || cols < 1) return 0;
-  return cols;
+  if (!ask_and_listen(kAskCursor, sizeof kAskCursor - 1, 'R', answer, sizeof answer)) return false;
+  if (sscanf(answer + 2, "%d;%d", &rows, &cols) != 2 || cols < 1) return false;
+  if (cols > at_col) {
+    char back[12];
+    const int written = snprintf(back, sizeof back, "\x1b[%dD", cols - at_col);
+    if (written > 0) (void)::write(STDOUT_FILENO, back, static_cast<size_t>(written));
+  }
+  g_columns = cols;
+  // **Aquesta pregunta no diu res de les files**, i per això `g_rows` es queda a zero: zero és «no ho ha dit» (docs/50).
+  g_rows = 0;
+  return true;
 }
 
 // **La tasca de l'editor**: espera una línia, la guarda i torna a esperar. El que no s'hi fa és executar res: això és del torn.
 void line_loop(void*) {
   for (;;) {
+    // **I el prompt surt darrere del que el torn hagi deixat a la cua** (0.190.243): the editor writes to the descriptor itself, so the
+    // queue of the wire has to be empty before it draws or the prompt would land in the middle of a line of the log.
+    flush_the_wire();
     char* line = linenoise(g_prompt[g_prompt_now]);
     if (line == nullptr) {
       // **Una línia que no s'ha pogut llegir no és una tasca morta**: la memòria s'ha cansat un moment i es torna a provar; una tasca
@@ -220,7 +308,12 @@ void line_trampoline(void* self) { line_loop(self); }
 
 // **La consola a punt perquè algú l'esperi**: el driver darrere de `stdin`, el salt de línia d'un terminal i el `stdin` sense memòria
 // intermèdia. El registre continua essent text pla: el color de les línies de la IDF és `CONFIG_LOG_COLORS` i no es toca (docs/50).
-bool set_up_the_console_side() {
+// **Per què no s'ha pogut encendre** (0.190.233): tres coses diferents es veuen igual des del prompt —no hi ha terminal, el terminal hi és
+// però no diu la mida, o la consola no pot esperar— i qui llegeix el registre amb la placa a la mà les ha de poder distingir. Fins ara el
+// camí de la mida deia «no terminal» quan el terminal havia contestat la sonda perfectament (docs/30, docs/50, docs/85).
+enum class Why { kReady, kNoTerminal, kNoSize, kNoVfs };
+
+Why set_up_the_console_side() {
   // **La sonda** (0.190.222): `linenoise` mesura el prompt i l'amplada preguntant-ho al terminal (`␛ [ 6 n`) i **llegeix la resposta de
   // `stdin` esperant-se-la**; en un conducte que no és un terminal —el monitor de `pio`, `cat`, una canonada— no hi ha resposta, i el que
   // passaria és que el primer caràcter de cada línia es menjaria la sonda i sortiria escombraria. `linenoiseProbe()` pregunta el mateix amb
@@ -234,18 +327,19 @@ bool set_up_the_console_side() {
   // sonda no la veuria mai (docs/50).
 #if LUNOK_LINE_CONSOLE_USB
   // **I la resposta de la sonda no es llença**: que l'altre cap contesti vol dir que entén els codis, i això es diu (0.190.223).
+  flush_the_wire();
+  g_asked_chars += kProbeBytes;
   g_ansi = (linenoiseProbe() == 0);
   if (!g_ansi) {
-    wash_the_probe(kProbeBytes);
-    return false;
+    wash_the_probe();
+    return Why::kNoTerminal;
   }
-  // **I l'amplada, que és la que pot penjar l'editor** (0.190.225): sense una amplada de debò, el que hi ha a l'altre cap no és un terminal i
-  // `linenoise` s'hi quedaria clavat (docs/50, docs/85).
-  g_columns = ask_the_width();
-  if (g_columns < kFewestColumns) {
-    wash_the_probe(kProbeBytes + kWidthBytes);
+  // **I la mida, que és la que pot penjar l'editor** (0.190.225, i les dues dades des de la 0.190.233): sense una amplada de debò, el que hi
+  // ha a l'altre cap no és un terminal i `linenoise` s'hi quedaria clavat (docs/50, docs/85).
+  if (!ask_the_size() || g_columns < kFewestColumns) {
+    wash_the_probe();
     g_ansi = false;
-    return false;
+    return Why::kNoSize;
   }
   // **El driver del USB-Serial-JTAG, que és el que `linenoise` necessita llegir** (0.190.222): aquesta banda no en tenia cap des de la
   // 0.190.91 —llegeix la FIFO amb les crides de baix nivell— i el terminal en demana un, perquè `read(0)` ha de poder esperar. Si no
@@ -255,37 +349,45 @@ bool set_up_the_console_side() {
   usb_serial_jtag_driver_config_t config = {};
   config.tx_buffer_size = 256;
   config.rx_buffer_size = 256;
-  if (usb_serial_jtag_driver_install(&config) != ESP_OK) return false;
+  if (usb_serial_jtag_driver_install(&config) != ESP_OK) return Why::kNoVfs;
   esp_vfs_usb_serial_jtag_use_driver();
-  // **El salt de línia del terminal** (0.190.222): el d'un terminal és CR, i el que aquest sistema escriu és CRLF escrit a mà. La
-  // conversió de baixada és CR→LF, que és el que `linenoise` espera, i la de pujada no es toca, o cada línia en tindria dos (docs/30).
+  // **El salt de línia del terminal** (0.190.222, i el que vol dir de debò des de la 0.190.237): el que el terminal envia en prémer Enter
+  // és **CR** —ho diu la documentació de la IDF, *Console → Configuring UART*— i el que el terminal necessita per baixar de línia és **CR LF**,
+  // i el que aquest sistema escriu a la consola és CRLF escrit a mà. `ESP_LINE_ENDINGS_LF` a la baixada **no vol dir «treu el CR»**: vol dir
+  // **que no es toca res** (`vfs_uart.c`, la branca que només insereix el CR quan el mode no és LF), o sigui que els nostres `\r\n` surten
+  // sencers i és exactament el que el monitor espera. El mode CRLF del fabricant (`esp_console_repl.c`) fa el mateix des de l'altra banda:
+  // el seu codi escriu `\n` i el driver hi posa el CR. La pujada sí que es converteix —CR sol passa a ser el salt— o cada línia en tindria
+  // dos (docs/30, docs/50).
   esp_vfs_dev_usb_serial_jtag_set_rx_line_endings(ESP_LINE_ENDINGS_CR);
   esp_vfs_dev_usb_serial_jtag_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
 #else
   // **I la UART, amb el driver que el PAL ja va instal·lar per la consola** (0.190.190): `use_driver` el posa darrere de `read(0)`, que
   // és el que el terminal demana, i el lector del PAL deixa de llegir mentre l'editor hi sigui (docs/50).
   esp_vfs_dev_uart_use_driver(UART_NUM_0);
+  // **El mateix que la banda del USB, i ben mirat**: el terminal envia CR, la baixada no es toca (els `\r\n` de la casa surten sencers) i
+  // l'`Enter` del teclat es converteix a un sol salt (docs/30, docs/50).
   esp_vfs_dev_uart_port_set_rx_line_endings(UART_NUM_0, ESP_LINE_ENDINGS_CR);
   esp_vfs_dev_uart_port_set_tx_line_endings(UART_NUM_0, ESP_LINE_ENDINGS_LF);
+  flush_the_wire();
+  g_asked_chars += kProbeBytes;
   g_ansi = (linenoiseProbe() == 0);
   if (!g_ansi) {
-    wash_the_probe(kProbeBytes);
-    return false;
+    wash_the_probe();
+    return Why::kNoTerminal;
   }
-  // **I l'amplada, que és la que pot penjar l'editor** (0.190.225): sense una amplada de debò, el que hi ha a l'altre cap no és un terminal i
-  // `linenoise` s'hi quedaria clavat (docs/50, docs/85).
-  g_columns = ask_the_width();
-  if (g_columns < kFewestColumns) {
-    wash_the_probe(kProbeBytes + kWidthBytes);
+  // **I la mida, que és la que pot penjar l'editor** (0.190.225, i les dues dades des de la 0.190.233): sense una amplada de debò, el que hi
+  // ha a l'altre cap no és un terminal i `linenoise` s'hi quedaria clavat (docs/50, docs/85).
+  if (!ask_the_size() || g_columns < kFewestColumns) {
+    wash_the_probe();
     g_ansi = false;
-    return false;
+    return Why::kNoSize;
   }
 #endif
   // **El `stdin` sense memòria intermèdia**: amb la de newlib, un `read(0)` d'un byte esperaria una línia sencera i el cursor de la
   // línia no es mouria fins que la persona prem Enter, que és exactament el que el terminal ha de poder fer (docs/50).
   setvbuf(stdin, nullptr, _IONBF, 0);
   (void)fcntl(fileno(stdin), F_SETFL, 0);
-  return true;
+  return Why::kReady;
 }
 
 // **La taula que el tabulador completa**: els noms del shell, sense ajuda ni pistes. El que aquesta casa té de cada comanda —la frase
@@ -352,20 +454,31 @@ bool start_the_line_editor(const char* const* names, uint8_t count) {
   // **I si la consola no es pot posar darrere del VFS, no hi ha terminal**: `linenoise` llegeix del descriptor zero, i un descriptor
   // que no bloqueja el tornaria amb una línia buida a cada volta —un bucle que es menja el torn i no espera ningú— o sigui que val més
   // dir que no i quedar-se amb l'editor del shell (docs/50).
-  if (!set_up_the_console_side()) {
+  const Why why = set_up_the_console_side();
+  if (why != Why::kReady) {
     vSemaphoreDelete(g_ready);
     g_ready = nullptr;
     vQueueDelete(g_lines);
     g_lines = nullptr;
-    // **I es diu per què** (0.190.223): un terminal que no hi és i una consola que no pot esperar es veuen igual des del prompt, i són dues
-    // coses diferents per a qui llegeixi el registre amb la placa a la mà (docs/30, docs/50, docs/85).
-    if (g_ansi) {
+    // **I es diu per què** (0.190.223, i la raó de debò des de la 0.190.233): un terminal que no hi és, un que hi és i no diu la mida, i una
+    // consola que no pot esperar es veuen igual des del prompt, i són tres coses diferents per a qui llegeixi el registre amb la placa a la
+    // mà. El camí de la mida deia «no terminal» quan el terminal havia contestat la sonda, que és el que va fer perdre una tarda (docs/30,
+    // docs/50, docs/85).
+    if (why == Why::kNoSize) {
+      hal::logf(pal::kLogWarn, "CONSOLE",
+                "the terminal answers the escape codes but not its size (%d column(s), %d row(s)): the shell keeps its own line editor",
+                g_columns, g_rows);
+    } else if (why == Why::kNoVfs) {
       hal::logf(pal::kLogWarn, "CONSOLE", "the console cannot go through the VFS; the shell keeps its own line editor");
     } else {
+      // **I la llista de monitors que valen no és d'aquesta casa** (0.190.235): és la que dona la documentació de la IDF 5.1 a *Console →
+      // Line editing* —*«Programs which are known to work are GNU screen, minicom, and esp-idf-monitor (which can be invoked using
+      // `idf.py monitor` from project directory)»*— i diu el mateix que hem après a la placa: un monitor que només ensenya els bytes crus
+      // del port no pot conviure amb l'editor de línia, i el que es veu és `[6n` en lloc de les comandes (docs/50, docs/85).
       hal::logf(pal::kLogWarn, "CONSOLE",
                 "the other end of the cable does not answer escape codes (no terminal): the shell keeps its own line editor; "
-                "a terminal of truth answers -- tio, screen, minicom, or `pio device monitor --filter direct` -- and `terminal` at the "
-                "prompt asks it again");
+                "a terminal of truth answers -- GNU screen, minicom, or the IDF's own monitor (`esp-idf-monitor`, `idf.py monitor`) -- "
+                "and `terminal` at the prompt asks it again");
     }
     return false;
   }
@@ -380,10 +493,19 @@ bool start_the_line_editor(const char* const* names, uint8_t count) {
   g_on = true;
   // **I el terminal es presenta**: que contesti els codis és la diferència entre un prompt amb cursor i colors i un que només té lletres,
   // i és una cosa que qui mira el registre ha de poder saber sense endevinar-la (0.190.223, docs/30, docs/50).
-  hal::logf(pal::kLogInfo, "CONSOLE",
-            "the terminal is up and speaks ANSI (cursor, colour, history) on %d column(s): the line is edited by the console component "
-            "(%u command(s) to complete)",
-            g_columns, static_cast<unsigned>(count));
+  // **I la mida que ha contestat, sencera** (0.190.233): l'amplada és la que l'editor necessita i les files són les que el terminal ha dit;
+  // quan no les diu, es diu així i no un zero que sembla una mesura (docs/50, docs/85).
+  if (g_rows > 0) {
+    hal::logf(pal::kLogInfo, "CONSOLE",
+              "the terminal is up and speaks ANSI (cursor, colour, history) on %d column(s) and %d row(s): the line is edited by the console "
+              "component (%u command(s) to complete)",
+              g_columns, g_rows, static_cast<unsigned>(count));
+  } else {
+    hal::logf(pal::kLogInfo, "CONSOLE",
+              "the terminal is up and speaks ANSI (cursor, colour, history) on %d column(s) (it does not say how many rows): the line is "
+              "edited by the console component (%u command(s) to complete)",
+              g_columns, static_cast<unsigned>(count));
+  }
   return true;
 }
 
@@ -402,10 +524,34 @@ void set_the_line_prompt(const char* text) {
   if (g_ready != nullptr) (void)xSemaphoreGive(g_ready);
 }
 
+bool load_the_line_history(const char* path) {
+  if (!g_on || path == nullptr || path[0] == '\0') return false;
+  return linenoiseHistoryLoad(path) == 0;
+}
+
+bool keep_the_line_history(const char* path) {
+  if (!g_on || path == nullptr || path[0] == '\0') return false;
+  return linenoiseHistorySave(path) == 0;
+}
+
+bool the_terminal_size(int& rows, int& columns) {
+  if (!g_on || g_columns < 1) return false;
+  rows = g_rows;
+  columns = g_columns;
+  return true;
+}
+
 bool take_a_finished_line(char* out, size_t capacity) {
+  return take_a_finished_line(out, capacity, 0);
+}
+
+// **I la mateixa, esperant-la** (0.190.244): the shell is a task of its own and cannot spin for a line, o sigui que la cua de l'editor és on
+// dorm. Un temps de zero és el que no espera i prou, que és el que el torn demana quan mira si n'hi ha (docs/30, docs/50).
+bool take_a_finished_line(char* out, size_t capacity, int32_t timeout_ms) {
   if (g_lines == nullptr || out == nullptr || capacity == 0) return false;
   char block[kLineBytes];
-  if (xQueueReceive(g_lines, block, 0) != pdPASS) return false;
+  const TickType_t ticks = (timeout_ms <= 0) ? 0 : pdMS_TO_TICKS(static_cast<uint32_t>(timeout_ms));
+  if (xQueueReceive(g_lines, block, ticks) != pdPASS) return false;
   snprintf(out, capacity, "%s", block);
   return true;
 }

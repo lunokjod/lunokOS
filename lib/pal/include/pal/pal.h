@@ -110,6 +110,14 @@ class IConsole {
   // el terminal sense editor i amb els codis). El que escriu codis ho pregunta aquí; el que llegeix tecles, a `has_a_line_editor`
   // (docs/30, docs/50, docs/85).
   virtual bool speaks_ansi() const { return false; }
+  // **I quina mida té la vista, quan el terminal la diu** (0.190.234): files i columnes, preguntades a l'altre cap un sol cop a l'arrencada.
+  // **False vol dir que aquesta consola no ho sap** —l'emulador, el vidre, una canonada, o un terminal que no entén la pregunta de la
+  // mida—, i qui vulgui col·locar res a la pantalla ho ha de poder dir en lloc d'endevinar-ho (docs/50, docs/85).
+  virtual bool the_size(int& rows, int& columns) const {
+    (void)rows;
+    (void)columns;
+    return false;
+  }
   // **El prompt és del shell i el dibuixa el terminal**: el shell diu la paraula i qui la posa a la pantalla és qui edita la línia, o
   // sigui que no s'escriu dues vegades (docs/30).
   virtual void set_the_prompt(const char* text) { (void)text; }
@@ -122,10 +130,30 @@ class IConsole {
     (void)count;
     return false;
   }
+  // **I la mateixa línia, esperant-la** (0.190.244): a shell that is a task of its own cannot spin, o sigui que espera aquí el que l'editor
+  // de línia deixi, amb un sostre. False quan no n'hi ha cap dins del temps —que és el que aquesta banda contesta sempre en un PC, on la
+  // shell la porta el torn (docs/30, docs/50).
+  virtual bool wait_for_a_line(char* out, size_t capacity, int32_t timeout_ms) {
+    (void)out;
+    (void)capacity;
+    (void)timeout_ms;
+    return false;
+  }
   // **Una línia que una persona ha acabat**, sense el salt i sense bloquejar. False quan no n'hi ha cap d'espera.
   virtual bool take_a_line(char* out, size_t capacity) {
     (void)out;
     (void)capacity;
+    return false;
+  }
+  // **L'historial de la sessió, que pot sobreviure a un reinici** (0.190.236): el camí el decideix el nucli —el **disc preferit** de la
+  // persona, o sigui la targeta quan n'hi ha— i qui escriu el fitxer és el terminal, que és qui té la llista a la memòria. False quan
+  // aquesta consola no té editor de línia i, per tant, no té cap historial ni cap fitxer a tocar (docs/30, docs/50, docs/70).
+  virtual bool load_the_history(const char* path) {
+    (void)path;
+    return false;
+  }
+  virtual bool save_the_history(const char* path) {
+    (void)path;
     return false;
   }
 };
@@ -254,6 +282,19 @@ void set_memory_bytes(uint32_t home_bytes, uint32_t extra_bytes);
 // not running on, where the interpreter's instructions cost what they cost on the board (docs/85). On
 // the board it is the chip's own busy wait and nothing calls it with a number.
 void delay_us(uint32_t us);
+
+// **Un pany per a les cues que creuen tasques** (0.190.244, l'amo: *«Aquestes cues han de ser protegides amb mutex»*): the kernel runs on the
+// board in more than one task and on the PC in one, so what two of them touch needs a lock, and the PAL is the only layer that knows how to
+// make one in both. A null lock is the PC's, and taking it is doing nothing (docs/50, docs/85).
+using Lock = void*;
+Lock make_lock();
+void take_lock(Lock lock);
+void give_lock(Lock lock);
+
+// **Una tasca que el nucli demana** (0.190.244): the shell of the board is its own task and the shell of the PC is the turn itself, o sigui que
+// això ho contesta la PAL i no el nucli. `start_a_task` contesta si la tasca existeix; `tasks_are_here` diu si aquest build en té (docs/50, docs/85).
+bool tasks_are_here();
+bool start_a_task(const char* name, uint32_t stack_bytes, uint8_t priority, void (*entry)(void*), void* argument);
 
 // **Esperar deixant córrer els altres** (0.190.137, l'amo: *«panel bench peta la màquina... el wathdog continua desactivat? no el desacivis»*). A
 // wait that gives the processor back, which is what the task watchdog of this board watches: `delay_us` is a busy wait and a command that

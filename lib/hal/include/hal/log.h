@@ -42,6 +42,11 @@ void logf(pal::LogLevel level, const char* tag, const char* fmt, ...)
 #endif
     ;
 
+// **Una línia que ja ve feta**, per al que no és d'aquesta casa (0.190.247): the IDF's own `esp_log` lines arrive already shaped —the
+// components of the chip and of the libraries write them—, o sigui que no se'ls posa cap prefix i es deixen al mateix pou: el registre
+// circular del nucli i la consola amb les regles de sempre (docs/30, docs/50).
+void say_a_line(const char* line, size_t len);
+
 // The letter of a level, for a place that builds its own line.
 char level_letter(pal::LogLevel level);
 

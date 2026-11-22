@@ -387,6 +387,35 @@ sh:close()                           -- o escriure 'exit\n' al stdin, que és co
 - **El que costa**: 1 024 B de respostes i 256 B de queixes **demanats al heap** mentre la sessió viu, i res quan es
   tanca. **Una sessió alhora**: la segona rep `E_BUSY` amb el motiu, i no una cua que ningú buida (docs/75).
 
+### La shell no executa cap comanda: les fa el fil de sistema (0.190.245)
+
+L'amo: *«l'app va per el seu fil d'execució i la shell terminal al port serie va en un altre. Per això tota execució amb "run ...." o "comanda"
+ha d'executar-se al fil de sistema»*. A la placa la shell viu en una **tasca seva** (docs/50) i el vidre, l'intèrpret i l'app són del **torn**,
+o sigui que la shell **llegeix, fa l'eco i res més**: la línia que una persona ha acabat —la del terminal o la del camí de bytes— es deixa a
+`kernel/orders` i el torn l'executa al començament de la volta següent amb el mateix `execute` de sempre. No hi ha cap comanda que es faci
+fora del fil de sistema, ni `run`, ni `kill`, ni `splash`, ni `panel`.
+
+- **La cua és de quatre línies de cent vint-i-vuit bytes**, amb **mutex**, i el que no hi cap es refusa en veu alta: una comanda perduda en
+  silenci seria una tecla que no ha fet res.
+- **`kill`** és la comanda que faltava: tanca l'app que és al davant, i sense cap app diu que no n'hi ha.
+- **`run <una altra>` segueix tancant l'app que hi ha al davant**: una app al vidre alhora, i això no ho canvia qui executi la comanda. El que
+  canvia és que ara qui la executa és el torn, o sigui que `run` no pot deixar el vidre a mitges (docs/50).
+- **Al PC no hi ha cua a efectes pràctics** (`pal::tasks_are_here` diu que no): el torn serveix la consola ell mateix i buida la cua dins del
+  mateix torn, que és el que la suite i l'emulador esperen (docs/85).
+
+### La pàgina de casa és una comanda (0.190.247)
+
+L'amo: *«Mira que és fàcil tu!, shell fa "run home_eink &" només entrar i santes pàsques!»*. Fins avui `kernel::boot` cridava `shell::start_app`
+i la pàgina del sistema —amb el seu primer dibuix, que en una T5S3 són centenars de mil·lisegons per pàgina— passava **dins de l'arrencada**.
+Ara passa el mateix que amb qualsevol altra comanda: `shell::ask_for_the_home_app()` escriu `run <LUNOK_HOME_APP> &` a `kernel/orders` i el
+torn l'executa al primer torn.
+
+- **`&` perquè el cable és de la persona**: l'app és al vidre i el prompt és viu, que és el que es volia. Una app que en demana una altra des
+  del llaçador **segueix essent del fons** (0.160.0), o sigui que el comportament és el mateix per a tot el que s'arrenqui des d'allà.
+- **El que es deixa enrere**: la imatge de l'error (`splash::kOops`) d'una placa que no troba la seva app; el que la diu ara és el `run` mateix
+  al cable, que és una resposta més precisa i no una imatge (docs/50).
+- **La pàgina del pany no canvia**: `device_lock` la demana ell quan s'obre (`cfg home`), com sempre (docs/40, docs/60).
+
 ## L'app `shell`: el terminal amb pestanyes (0.162.0, els menús des de la 0.189.29)
 
 **`apps/shell` és el shell del sistema al vidre i no una segona implementació**: cada pestanya és una
@@ -1653,7 +1682,7 @@ led.play{kind = 'breathe', pixel = 12, period = 2000, cycles = 0} -- un llum del
 | `kind` | **obligatori** | `breathe` (la intensitat puja i baixa com una respiració), `blink` (encesa i apagada), `sos` (el codi Morse del socors), `bounce` (una pilota que bota cada cop més de pressa) o `none`/`off` (cap) |
 | `color` | blanc | `{r, g, b}`, cada canal de 0 a 255 i retallat pel sostre de la placa |
 | `color2` | el mateix que `color` | L'altre extrem de la **rampa**: l'efecte va del primer color al segon al llarg de cada cicle, que és el que fa que un respiració derivi i un rebot canviï de to a mesura que es fa més ràpid |
-| `period` | **5 000** breathe, **800** blink, **200** sos, **700** bounce | Un **cicle sencer** en mil·lisegons; al `sos` és **un punt** i prou, i una volta del missatge són 34 punts amb els seus silencis |
+| `period` | **15 000** breathe, **800** blink, **200** sos, **700** bounce | Un **cicle sencer** en mil·lisegons; al `sos` és **un punt** i prou, i una volta del missatge són 34 punts amb els seus silencis |
 | `cycles` | `0` | Quants cicles abans de deixar anar el llum. **`0` vol dir per sempre**: fins que es pari o fins que l'app marxi |
 | `pixel` | `-1` | `-1` és **tot el llum**; un número és **un** llum del panell, comptat des de zero, i la resta queden apagats. Un número que la placa no té es refusa amb `E_INVAL` |
 | `level` | **20** | El més brillant que pot arribar aquest efecte, sobre 255. Vint de sèrie perquè un llum que diu una cosa no ha de ser el més brillant de la taula; una app que en vulgui més ho demana, i el sostre de la placa encara mana per sobre |
@@ -1704,10 +1733,15 @@ color que demana la persona (docs/30).
 
 | Moment | Què fa de sèrie | Quan |
 |---|---|---|
-| `boot` | respiració **blanca** que deriva a blau pàl·lid, 4 cicles de 5 s, nivell **20** | quan la placa arrenca, i **s'acaba**: un llum que respira tota l'estona en una taula és energia gastada per ningú. Un color o un efecte de l'app el substitueix sense avisar i sense que torni |
-| `radio` | parpelleig **blau** que deriva a cian, 800 ms, nivell 20 | mentre la ràdio treballa (Wi-Fi, Bluetooth o ESP-NOW) |
+| `boot` | respiració **blanca** que deriva a blau pàl·lid, 4 cicles de 15 s, nivell **20** | quan la placa arrenca, i **s'acaba**: un llum que respira tota l'estona en una taula és energia gastada per ningú. Un color o un efecte de l'app el substitueix sense avisar i sense que torni |
+| `radio` | respiració **blava** que deriva a cian, 9 600 ms, nivell 20 | mentre la ràdio treballa (Wi-Fi, Bluetooth o ESP-NOW) |
 | `alarm` | rebot **turquesa** que deriva a verd | quan venç una alarma del rellotge, sigui de qui sigui; **interromp** |
 | `error` | SOS **vermell** que deriva a taronja | quan el nucli escriu un error al registre (`E`), que és el que veu una persona quan la consola és tancada; **interromp** |
+
+**I el respir fa el triple des de la 0.190.234** (l'amo: *«fes que l'animació dels leds de breath sigui el triple de llarga»*): quinze
+segons per volta a l'arrencada, nou mil sis-cents a la ràdio i quinze el període de sèrie de `led.play`, perquè el gest de la casa és un.
+**El respir del vidre no es toca**: la retroil·luminació mentre carrega segueix a quatre segons (`cfg.breathe_while_charging`), que és un
+altre dibuix i un altre pany.
 
 L'ordre mana: un **error** no el tapa una alarma, i una alarma no la tapa la ràdio. I els quatre
 són **de l'app**: `led.system()` els llegeix, `led.system('alarm', {...})` els canvia i
@@ -4343,6 +4377,23 @@ El que canvia és **com s'escriu la línia al cable**, i res del que hi ha a sot
 
 - **Qui edita**: `linenoise`. Fletxes esquerra/dreta, Inici/Fi, Suprimir, amunt/avall per l'historial (setze comandes), **tabulador** que
   completa amb la taula de comandes del shell (`kCommandNames`, la mateixa que `help`), i les pistes en gris quan n'hi hagi.
+- **Les respostes tenen format, i qui no vol color no el rep** (0.190.238, l'amo: *«fes la sortida de les comandes mes agradable amb colors,
+  format de text, espais, columnes, negretes, subratllats... help podría ser ben bonic de consultar. O stats. mem necessita que arrodonim els
+  valors a bytes,Kilobytes, Megabytes....»*): sis tintes —títol negreta i subratllat en el cian del prompt, cap de taula en negreta, clau de
+  fila, què és quiet en el gris del mig del vidre, i el verd i el vermell del registre per a un sí i un no— i tres ajudes (`title`, `row` de
+  divuit columnes i `row_inline`). **Tot passa per la porta única d'escriptura**, o sigui que `ansi off` treu els codis i el text queda
+  alineat igual. **Els bytes s'arrodoneixen a la unitat que es diu** (`human_bytes`: `984 B`, `1.4 KB`, `11.9 MB`, `3.7 GB`, amb divisió
+  entera i sense coma flotant), i `mem`, `mounts`, `sessions` i `caps` passen a taules. `help` porta títol, la sintaxi en negreta i color, els
+  consells en gris i un peu que diu com es pregunta per una comanda; **i la sintaxi amb tres tintes** (0.190.240): el nom en el cian, el que
+  s'ha d'escriure `<així>` en blanc i negreta i el que es pot afegir `[així]` en gris, amb els claudàtors llegits un a un perquè n'hi ha de
+  niuats. `ls` diu el camí a dalt, el tipus i la mida en gris, el nom d'una carpeta en cian i quantes coses hi ha al final, i `stats` pinta les
+  crides en gris, el total i la mitjana en blanc, i el més curt en verd i el més llarg en ambre. I `free` i `history`, que sortien al tabulador sense tenir cap mà que les
+  contestés, ja no hi surten (docs/50, docs/70, docs/75).
+- **I l'historial sobreviu al reinici** (0.190.236, l'amo: *«pero usant el disc prefrit per l'usuari, si hi ha SD instal·lada, es l'SD per
+  evitar danyar la flash»*): es desa en **`/<disc>/data/history.txt`** quan la sessió es tanca —no a cada comanda, que seria una escriptura
+  de disc per tecla— i es torna a carregar quan el terminal s'encén. El disc és el **preferit** de la persona (`cfg auto|sd|littlefs`, la fila
+  *Preferred disk*): amb targeta el fitxer hi viu i el flaix no s'escriu, i sense targeta va al flaix, que és l'únic que hi ha. Les dues
+  còpies de l'historial —la del terminal i la del fitxer— són les mateixes: `linenoiseHistorySave`/`Load` i prou (docs/50, docs/70).
 - **El prompt el dibuixa qui edita**: el shell li deixa el text i no l'escriu (o n'hi hauria dos, i el del nucli quedaria a sota de la línia).
   Va amb **color** —cian el `lunok> `, groc el `lua> `— perquè el terminal en parla; **el registre continua essent text pla**
   (`CONFIG_LOG_COLORS` segueix apagat) i el que es va treure a la 0.190.92/0.190.187 no torna enlloc més.
@@ -4351,8 +4402,9 @@ El que canvia és **com s'escriu la línia al cable**, i res del que hi ha a sot
   resposta; si l'altre cap no és un terminal, el primer caràcter de cada línia es menjaria la sonda. Per això es pregunta primer amb
   `linenoiseProbe()` (mig segon, sense bloquejar) i, si no contesta ningú, **no hi ha terminal i el shell es queda amb el seu editor**.
   El REPL d'Espressif (`esp_console_new_repl_uart`) no es fa servir: quan la sonda falla es queda amb un `fgets`, que és pitjor que el que
-  aquesta casa ja té. **Conseqüència pràctica**: cal un monitor que sigui un terminal de debò (minicom, `tio`, `screen`); amb
-  `pio device monitor` no n'hi ha i el que queda és l'editor de sempre (docs/85).
+  aquesta casa ja té. **Conseqüència pràctica**, i la diu la documentació de la IDF 5.1 (*Console → Line editing*): un monitor que només
+  ensenya els bytes crus del port no pot conviure amb l'editor, i els que se sap que funcionen són **GNU screen, minicom i
+  `esp-idf-monitor`** (`idf.py monitor`). Amb `pio device monitor` no n'hi ha i el que queda és l'editor de sempre (docs/50, docs/85).
 - **Es pregunta si el terminal parla codis, i es diu** (0.190.223): la sonda no només decideix si s'encén l'editor, sinó que **la seva
   resposta és la dada** `IConsole::speaks_ansi` —que l'altre cap entén el cursor, el color i l'esborrat de pantalla—. El prompt amb el seu
   color i el `clear` pregunten això, i **no** si hi ha editor: són dues coses i una banda pot tenir-ne una sense l'altra. I el registre ho diu

@@ -2,6 +2,7 @@
 #define LUNOK_KERNEL_KERNEL_H
 
 #include "hal/hal.h"
+#include "pal/pal.h"
 
 namespace kernel {
 
@@ -28,6 +29,14 @@ void shutdown();
 
 // The board the kernel is running on. Valid after boot().
 hal::IPlatform& platform();
+
+// **El pany del torn** (0.190.244): the glass, the interpreter and the app belong to the turn, and since the shell is a task of its own a line
+// can arrive in the middle of a turn. This lock makes the two take turns instead of touching the same panel: the turn holds it for the whole
+// turn and the shell holds it around the line it executes, o sigui que el que era cert quan la shell vivia dins del torn continua essent cert
+// (docs/30, docs/50). On the PC there is no task and the lock is the null one the host PAL makes.
+pal::Lock the_turn();
+void take_the_turn();
+void give_the_turn();
 
 // Runs one command line as if it had been typed. Used by the emulator's batch
 // mode and by the tests. Returns false when the command failed or was unknown.

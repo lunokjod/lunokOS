@@ -78,6 +78,20 @@ size_t format_log(char* out, size_t cap, pal::LogLevel level, const char* tag, c
   return len;
 }
 
+// **Una línia que ja ve feta** (0.190.247): the lines of the IDF's own `esp_log` —the ones of the libraries, like the `epdiy` ones— are
+// already shaped by the component that writes them, o sigui que no se'ls posa cap prefix: es deixen caure al mateix pou que les nostres, i
+// d'allà al registre circular i a la consola amb les mateixes regles. **El que no pot passar és que segueixin sortint pel descriptor
+// cru**: una línia de la IDF al mig d'una comanda que s'està editant és el mateix problema que dues plomes al mateix paper (docs/30, docs/50).
+void say_a_line(const char* line, size_t len) {
+  if (line == nullptr || len == 0) return;
+  if (g_sink != nullptr) {
+    g_sink(line, len);
+    return;
+  }
+  fwrite(line, 1, len, stdout);
+  fflush(stdout);
+}
+
 void logf(pal::LogLevel level, const char* tag, const char* fmt, ...) {
   char line[kLogLineBytes];
   va_list args;
