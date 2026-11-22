@@ -1,0 +1,12 @@
+{
+  "title": "Password",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "password.lua",
+  "boards": [
+    "esp32"
+  ],
+  "icon": "res/icon.png",
+  "opens": "pwdb",
+  "description": "Passwords in one encrypted file.\nA master password and five fields per entry: title, user, password, web and a note. The file lives on the memory card, and without the card there is no vault."
+}

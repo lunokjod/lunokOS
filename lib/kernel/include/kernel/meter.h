@@ -87,6 +87,10 @@ enum Id : uint8_t {
   // **I arrencar una app**, que és el que una persona espera quan prem una cel·la: crear l'intèrpret, compilar el tros i fer el primer
   // torn. El metre de cada app diu el que gasta mentre corre; això diu el que costa obrir-la (docs/30, docs/75).
   kAppStart,
+  // **I el preu d'una clau** (0.190.258): PBKDF2 is the one call of this system that is expensive on purpose, and the app
+  // `password` asks for it with a number of iterations; the row says what those iterations cost on this board, which is the
+  // only way to choose the number (docs/30, docs/95).
+  kCryptoKey,
   kCount,
 };
 

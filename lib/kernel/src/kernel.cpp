@@ -9,6 +9,7 @@
 #include "kernel/bluetooth.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
+#include "kernel/crypto.h"
 #include "kernel/fs_ops.h"
 #include "kernel/env.h"
 #include "kernel/imu.h"
@@ -197,8 +198,10 @@ void print_banner() {
   // On the PC both are true: the name is the board the emulator was told to be, and the
   // word says the hardware under it is a fake (docs/85).
   if (g_platform->emulator()) out(" (emulator)");
+  // **And nothing under it**: the banner says what this is and stops. The old "type 'help' and Enter."
+  // is NOT to be put back (the owner, twice: *«ES LA SEGONA VEGADA QUE ESBORRO AQUESTA LINIA»*); the
+  // prompt and the session say what to do, and a hint here is one more line in a log that scrolls.
   out("\r\n");
-  out("type 'help' and Enter.\r\n");
 }
 
 void count_caps(uint32_t& present, uint32_t& total) {
@@ -695,6 +698,10 @@ void boot(hal::IPlatform& platform) {
   serial_ops.release = &serial_release;
   serial_ops.claimed = &serial::claimed;
   luabind::set_serial_ops(serial_ops);
+  // **I l'aritmètica d'un secret** (0.190.258): `crypto.random`, `crypto.key`, `crypto.seal` i `crypto.open`, que és el que l'app
+  // `password` demana al sistema i l'única cosa que li demana. És programari pur —la entropia la porta el PAL— o sigui que totes les
+  // bandes la tenen, i per això s'instal·la aquí i no dins d'un `#if` (docs/30, docs/45).
+  crypto::boot();
   net::boot(platform);
   // **I el camí de les tecles de l'aire** (0.190.188): the radio hands the eight bytes of a HID report to this system, and from here they
   // are the same bytes as the wire's —`shell::feed`—, o sigui que el prompt i les apps no han de saber d'on vénen. S'instal·la sempre i no

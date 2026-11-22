@@ -1,0 +1,12 @@
+{
+  "title": "Files",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "files.lua",
+  "boards": [
+    "esp32"
+  ],
+  "icon": "res/icon.png",
+  "admin": true,
+  "description": "The disk as one tree: walk it, open a file with the app that claims it, make a folder, rename, delete, copy a folder with the modal of three bars. Every door is in a menu bar."
+}

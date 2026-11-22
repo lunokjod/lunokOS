@@ -155,6 +155,7 @@ const char* const kNames[kCount] = {
     "radio.pair",
     "radio.tap",
     "app.start",
+    "crypto.key",
 };
 char g_app[32] = {0};
 Entry g_app_start = {0, 0, 0, 0, 0};

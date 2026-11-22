@@ -1618,6 +1618,7 @@ NetOps g_net_ops = {};    // same rule: without them net.* answers E_UNSUPPORTED
 PowerOps g_power_ops = {};  // and power.* too
 LedOps g_led_ops = {};      // and led.*
 SerialOps g_serial_ops = {};  // and serial.*
+CryptoOps g_crypto_ops = {};  // and crypto.* — the arithmetic of a secret, filled by the kernel (0.190.258)
 ImuOps g_imu_ops = {};      // and imu.*
 EnvOps g_env_ops = {};      // and env.*
 ButtonOps g_button_ops = {};  // and button.*
@@ -2540,6 +2541,33 @@ int l_apps_info(lua_State* L) {
   return 1;
 }
 
+// **`apps.opener(name)`: who opens this file, asked to the manifests** (0.190.257, the old browser's `paperos.opener`).
+// It answers two things or a reason: the id of the app that claims the extension —**the first one that claims it wins**,
+// in the order the door lists them, because two apps that open `.txt` is a decision somebody took by putting the one
+// they want first— and the switches that app asked for when a browser hands it a file (`opensArgs`, which is how the
+// editor says `-ro` without the browser knowing what an editor is). **A hidden name has no opener on purpose**: the
+// `.photo.png.cache.ics` beside a picture is a thumbnail, and a door that opened it would offer the cache as the file.
+// **The extension is read from the last dot and in lower case**, so a card written on a computer (`FOTO.PNG`) is the
+// same kind of file here as there (docs/30, docs/40, docs/45).
+int l_apps_opener(lua_State* L) {
+  const char* name = luaL_checkstring(L, 1);
+  if (g_apps_ops.opener == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system cannot say who opens a file");
+  }
+  char id[48];
+  char flags[32];
+  char why[96];
+  id[0] = '\0';
+  flags[0] = '\0';
+  why[0] = '\0';
+  if (!g_apps_ops.opener(name, id, sizeof(id), flags, sizeof(flags), why, sizeof(why))) {
+    return push_nil_error(L, "E_INVAL", (why[0] != '\0') ? why : "no app of this system opens that file");
+  }
+  lua_pushstring(L, id);
+  lua_pushstring(L, flags);
+  return 2;
+}
+
 // app.run(id): **the wish to start another app**, which the kernel carries out at the end of the turn (docs/30, docs/90).
 // It answers true and nothing has happened yet; the reason of a refusal is the system's, because the system is the one
 // that knows whether the app is there, whether it runs on this board and whether it is the app that is asking.
@@ -2593,12 +2621,17 @@ int l_app_run(lua_State* L) {
     }
   }
   if (lua_gettop(L) >= 3 && lua_type(L, 3) == LUA_TSTRING) flags = lua_tostring(L, 3);
+  // **I el quart argument és el fitxer** (0.190.257): `app.run('editor', true, nil, '/sd/notes.txt')` hands the file the way
+  // the prompt does, and the app that arrives reads it at `app.args.path`. A browser that has resolved who opens a file
+  // needs this second half or it cannot open anything at all (docs/30, docs/45).
+  const char* path = nullptr;
+  if (lua_gettop(L) >= 4 && lua_type(L, 4) == LUA_TSTRING) path = lua_tostring(L, 4);
   if (g_app_ops.run == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this system cannot start another app");
   }
   char why[96];
   why[0] = '\0';
-  if (!g_app_ops.run(id, back, flags, why, sizeof(why))) {
+  if (!g_app_ops.run(id, back, flags, path, why, sizeof(why))) {
     return push_nil_error(L, "E_INVAL", (why[0] != '\0') ? why : "that app cannot be started");
   }
   lua_pushboolean(L, 1);
@@ -3447,6 +3480,159 @@ int l_serial_claimed(lua_State* L) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build has no serial port to cede");
   }
   lua_pushboolean(L, g_serial_ops.claimed() ? 1 : 0);
+  return 1;
+}
+
+// ---- crypto: **l'aritmètica que un secret necessita** (0.190.258) ----
+//
+// **Four calls and not one more**, because a file of passwords needs exactly four things —entropy, a key, a seal and an
+// open— and everything else (the format of the file, the screens, what is written around the block) is the app's. It is
+// `paperos.crypto` of the old project, the same four names and the same block, so a vault written by the Paper opens here
+// and the other way round (docs/30, docs/45).
+//
+// **The key is 64 bytes and it is ONE string**: the first 32 are ChaCha20's and the last 32 HMAC's. The same key doing two
+// jobs is how two sound primitives become one weak one, and a script that had to split it would be a script that can split
+// it wrong.
+//
+// **Every no comes with its reason**, and they are the old project's numbers: a band with no entropy, a key that is not the
+// 64 bytes `crypto.key()` makes, a text too big for one block (16 KB, which is one whole vault), a blob too short to be
+// one, or a tag that does not match —a wrong key and a changed file are the same answer on purpose, because telling them
+// apart tells whoever has the file whether the password was close.
+const lua_Integer kCryptoKeyBytes = 64;
+const lua_Integer kCryptoTagBytes = 16;
+const lua_Integer kCryptoNonceBytes = 12;
+// The price of a derivation has a floor and a ceiling, in ITERATIONS. A thousand is the least that is not a joke and a
+// hundred thousand is more than this board can pay inside one turn of the glass (docs/95).
+const lua_Integer kCryptoMinIterations = 1000;
+const lua_Integer kCryptoMaxIterations = 100000;
+// 16 KB: the same ceiling a whole vault has, because one vault is one block and one write (docs/70).
+const lua_Integer kCryptoMaxText = 16384;
+
+// crypto.random(n): n bytes of the band's own entropy, 1 to 64. A salt and a nonce are what this is for, and a caller that
+// wants more asks several times.
+int l_crypto_random(lua_State* L) {
+  const lua_Integer n = luaL_checkinteger(L, 1);
+  if (n < 1 || n > 64) {
+    return push_nil_error(L, "E_INVAL", "the number of random bytes has to be 1 to 64");
+  }
+  if (g_crypto_ops.random_bytes == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no entropy source");
+  }
+  uint8_t bytes[64];
+  if (!g_crypto_ops.random_bytes(bytes, static_cast<uint32_t>(n))) {
+    return push_nil_error(L, "E_UNAVAIL", "this board has no entropy source");
+  }
+  lua_pushlstring(L, reinterpret_cast<const char*>(bytes), static_cast<size_t>(n));
+  memset(bytes, 0, sizeof(bytes));
+  return 1;
+}
+
+// crypto.key(password, salt, iterations): this is the slow one, and slow ON PURPOSE. What it costs is in the kernel's log
+// and in its meters, so the number of iterations can be chosen on the board (docs/95).
+int l_crypto_key(lua_State* L) {
+  size_t password_len = 0;
+  size_t salt_len = 0;
+  const char* password = luaL_checklstring(L, 1, &password_len);
+  const char* salt = luaL_checklstring(L, 2, &salt_len);
+  const lua_Integer iterations = luaL_checkinteger(L, 3);
+
+  if (password_len == 0) return push_nil_error(L, "E_INVAL", "the password is empty");
+  if (password_len > 128) return push_nil_error(L, "E_INVAL", "that password is too long (128 bytes at most)");
+  if (salt_len < 8 || salt_len > 64) {
+    return push_nil_error(L, "E_INVAL", "the salt has to be between 8 and 64 bytes");
+  }
+  if (iterations < kCryptoMinIterations || iterations > kCryptoMaxIterations) {
+    return push_nil_error(L, "E_INVAL", "the iterations have to be between 1000 and 100000");
+  }
+  if (g_crypto_ops.key == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no key derivation");
+  }
+
+  uint8_t key[64];
+  if (!g_crypto_ops.key(password, password_len, salt, salt_len, static_cast<uint32_t>(iterations), key, sizeof(key))) {
+    return push_nil_error(L, "E_INVAL", "that password and that salt cannot make a key");
+  }
+  lua_pushlstring(L, reinterpret_cast<const char*>(key), sizeof(key));
+  memset(key, 0, sizeof(key));
+  return 1;
+}
+
+// crypto.seal(key, text): `nonce(12) | ciphertext | tag(16)`. **The nonce is new on every call**, so sealing the same text
+// twice does not produce the same bytes: a stream cipher that repeats a nonce with a key repeats its stream, and that is
+// the one mistake of this family that hands the plain text away.
+int l_crypto_seal(lua_State* L) {
+  size_t key_len = 0;
+  size_t text_len = 0;
+  const char* key = luaL_checklstring(L, 1, &key_len);
+  const char* text = luaL_checklstring(L, 2, &text_len);
+
+  if (g_crypto_ops.seal == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build cannot seal a block");
+  }
+  if (static_cast<lua_Integer>(key_len) != kCryptoKeyBytes) {
+    return push_nil_error(L, "E_INVAL", "the key has to be the 64 bytes of crypto.key()");
+  }
+  if (static_cast<lua_Integer>(text_len) > kCryptoMaxText) {
+    return push_nil_error(L, "E_INVAL", "that text is too big to seal in one go");
+  }
+
+  const size_t total = static_cast<size_t>(kCryptoNonceBytes) + text_len + static_cast<size_t>(kCryptoTagBytes);
+  luaL_Buffer buffer;
+  char* out = luaL_buffinitsize(L, &buffer, total);
+  if (out == nullptr) {
+    return push_nil_error(L, "E_NOMEM", "there is no room for the sealed block");
+  }
+  if (!g_crypto_ops.seal(reinterpret_cast<const uint8_t*>(key), key_len, text, text_len,
+                         reinterpret_cast<uint8_t*>(out), total)) {
+    // The stack has the buffer of the answer in it: it is emptied before the error goes in its place.
+    luaL_pushresultsize(&buffer, 0);
+    lua_pop(L, 1);
+    return push_nil_error(L, "E_UNAVAIL", "this board has no entropy source: the nonce would repeat");
+  }
+  luaL_pushresultsize(&buffer, total);
+  return 1;
+}
+
+// crypto.open(key, blob): the text of a block, or nil and the reason.
+int l_crypto_open(lua_State* L) {
+  size_t key_len = 0;
+  size_t blob_len = 0;
+  const char* key = luaL_checklstring(L, 1, &key_len);
+  const char* blob = luaL_checklstring(L, 2, &blob_len);
+
+  if (g_crypto_ops.open == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build cannot open a block");
+  }
+  if (static_cast<lua_Integer>(key_len) != kCryptoKeyBytes) {
+    return push_nil_error(L, "E_INVAL", "the key has to be the 64 bytes of crypto.key()");
+  }
+  const size_t overhead = static_cast<size_t>(kCryptoNonceBytes) + static_cast<size_t>(kCryptoTagBytes);
+  if (blob_len < overhead) {
+    return push_nil_error(L, "E_INVAL", "that blob is too short to be one");
+  }
+  if (static_cast<lua_Integer>(blob_len) > kCryptoMaxText + static_cast<lua_Integer>(overhead)) {
+    return push_nil_error(L, "E_INVAL", "that blob is too big for one block");
+  }
+
+  const size_t plain = blob_len - overhead;
+  if (plain == 0) {
+    lua_pushliteral(L, "");
+    return 1;
+  }
+  luaL_Buffer buffer;
+  char* out = luaL_buffinitsize(L, &buffer, plain);
+  if (out == nullptr) {
+    return push_nil_error(L, "E_NOMEM", "there is no room for the plain text");
+  }
+  const int32_t got = g_crypto_ops.open(reinterpret_cast<const uint8_t*>(key), key_len,
+                                        reinterpret_cast<const uint8_t*>(blob), blob_len,
+                                        reinterpret_cast<uint8_t*>(out), static_cast<uint32_t>(plain));
+  if (got < 0) {
+    luaL_pushresultsize(&buffer, 0);
+    lua_pop(L, 1);
+    return push_nil_error(L, "E_INVAL", "the key is not this blob's, or the blob was changed");
+  }
+  luaL_pushresultsize(&buffer, static_cast<size_t>(got));
   return 1;
 }
 
@@ -10235,13 +10421,66 @@ void ui_gesture_forget_if(LuaCanvas* canvas) {
   g_ui_swipe_tap = 0;
 }
 
+// The walk that finds the object of a slot, defined with the dial's helpers at the end of this file: a control that goes away
+// needs it to reach its father in the app's table (docs/30, docs/90).
+bool ui_push_slot_from(lua_State* L, int object, int16_t slot, int depth);
+
+// **Un control que marxa també surt de l'arbre que veu l'app** (0.190.257): a released child stayed in its father's
+// `children` table until that father was drawn again —the draw is what compacts the table—, i un control que **compta** els
+// seus fills ho pagava: una `ui.list` diu quantes pàgines té i on va cada fila comptant els fills que té, o sigui que deu files
+// mortes i deu de noves la feien dir dues pàgines, posar les noves **fora del seu marc** i pintar un peu seu. El que es veia al
+// vidre era una pàgina que no canviava quan s'entrava en una carpeta i dos paginadors l'un sobre l'altre (l'app `files`,
+// 22/11). Una baixa és un control que ja no hi és, i l'arbre és de l'app: es treu aquí i no s'espera un dibuix.
+void ui_take_out_of_the_father(lua_State* L, int object, int8_t father_slot) {
+  const int top = lua_gettop(L);
+  object = lua_absindex(L, object);
+  if (l_ui_root(L) != 1) {
+    lua_settop(L, top);
+    return;
+  }
+  const int root = top + 1;
+  if (!ui_push_slot_from(L, root, father_slot, 0)) {
+    lua_settop(L, top);
+    return;
+  }
+  const int father = top + 2;
+  lua_getiuservalue(L, father, 1);
+  if (lua_istable(L, -1)) {
+    const int fields = father + 1;
+    lua_getfield(L, fields, "children");
+    if (lua_istable(L, -1)) {
+      const int kids = fields + 1;
+      const lua_Integer count = static_cast<lua_Integer>(lua_rawlen(L, kids));
+      lua_createtable(L, static_cast<int>((count > 0) ? count : 0), 0);
+      const int kept = kids + 1;
+      lua_Integer n = 0;
+      for (lua_Integer i = 1; i <= count; ++i) {
+        lua_rawgeti(L, kids, i);
+        if (lua_rawequal(L, -1, object)) {
+          lua_pop(L, 1);  // the one that is going away stays out
+          continue;
+        }
+        lua_rawseti(L, kept, ++n);
+      }
+      lua_pushvalue(L, kept);
+      lua_setfield(L, fields, "children");
+    }
+  }
+  lua_settop(L, top);
+}
+
 int l_canvas_release(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  // **Qui el tenia, preguntat abans que el seu número se'n vagi**: the slot of the father is what the tree of the app needs to
+  // forget the row that is being given back, and a released canvas has no slot any more.
+  int8_t father = -1;
+  if (g_ui_ops.canvas_parent != nullptr) father = g_ui_ops.canvas_parent(canvas->slot);
   ui_gesture_forget_if(canvas);
   if (g_ui_ops.canvas_release != nullptr) g_ui_ops.canvas_release(canvas->slot);
   canvas->slot = -1;
   canvas->generation = 0;
+  if (father >= 0) ui_take_out_of_the_father(L, 1, father);
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -13131,9 +13370,10 @@ int l_bt_move(lua_State* L) {
   if (g_bt_ops.move == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no mouse");
   const int dx = static_cast<int>(luaL_checkinteger(L, 1));
   const int dy = static_cast<int>(luaL_checkinteger(L, 2));
-  if (dx < -127 || dx > 127 || dy < -127 || dy > 127) {
-    return push_nil_error(L, "E_INVAL", "a report carries -127 to 127; ask for it in more than one move");
-  }
+  // **Un dit pot saltar més de 127 píxels en un fotograma i el report no els hi cap** (0.190.259, i la pàgina ho va ensenyar a l'amo:
+  // *«la idea es usar el panell com a mouse»*): a HID report carries −127 to 127, i el que fa el sistema és **partir el moviment en
+  // tants reports com calgui** (`bt::move_for_a_page`, que és qui ho sap) en lloc de refusar-lo, perquè un moviment refusat és un dit
+  // que arrossega i un punter que es queda a mig camí. La pàgina no ha de saber res del signe d'un byte (docs/30, docs/50).
   lua_pushboolean(L, g_bt_ops.move(dx, dy) ? 1 : 0);
   return 1;
 }
@@ -13345,6 +13585,11 @@ void open_shell_library(lua_State* L) {
 
 // Nothing here reaches the outside world: no files, no C modules, no way to load
 // a precompiled chunk (docs/20).
+// **La porta dels tres tocs viu amb el seu lector i no amb el `admin`** (0.190.254): es declara aquí perquè la taula de `touch` —que
+// es fa en aquesta funció— la crida abans que el cos sigui escrit més avall, i una funció que es declara després del seu lector no
+// existeix per a ell.
+int l_touch_triple_tap_close(lua_State* L);
+
 void seal_globals(lua_State* L) {
   lua_pushnil(L);
   lua_setglobal(L, "dofile");
@@ -13564,6 +13809,16 @@ void seal_globals(lua_State* L) {
   set_function(L, "claimed", l_serial_claimed);
   lua_setglobal(L, "serial");
 
+  // **crypto: l'aritmètica d'un secret** (0.190.258): the entropy, the derivation of a key, the seal of a block and the
+  // open of one. Four calls, because a file of passwords needs exactly four things and everything else is the app's
+  // (docs/30, docs/45).
+  lua_createtable(L, 0, 4);
+  set_function(L, "random", l_crypto_random);
+  set_function(L, "key", l_crypto_key);
+  set_function(L, "seal", l_crypto_seal);
+  set_function(L, "open", l_crypto_open);
+  lua_setglobal(L, "crypto");
+
   lua_newtable(L);
   set_function(L, "read", l_imu_read);
   lua_setglobal(L, "imu");
@@ -13590,10 +13845,14 @@ void seal_globals(lua_State* L) {
 
   // touch: the glass, read in a loop. caps says how big it is, read gives the fingers of the last
   // turn of the kernel and gesture gives the last shape the kernel made out of them (docs/30).
-  lua_createtable(L, 0, 3);
+  lua_createtable(L, 0, 4);
   set_function(L, "caps", l_touch_caps);
   set_function(L, "read", l_touch_read);
   set_function(L, "gesture", l_touch_gesture);
+  // **I de qui és el gest dels tres tocs** (0.190.254): un joc llegeix cada toc, o sigui que el tercer no pot ser una ordre del
+  // sistema que li tanca la partida. `touch.triple_tap_close(false)` els deixa a la cua de la pàgina i torna l'estat nou
+  // (docs/30, docs/46).
+  set_function(L, "triple_tap_close", l_touch_triple_tap_close);
   lua_setglobal(L, "touch");
 
   // ui: the view of the app. Nothing is drawn by the system: clear and rect paint on the app's own
@@ -13764,9 +14023,10 @@ void seal_globals(lua_State* L) {
   lua_setglobal(L, "app");
 
   // apps: **the door of the apps** (0.153.0), which is what a launcher draws (docs/30, docs/40).
-  lua_createtable(L, 0, 2);
+  lua_createtable(L, 0, 3);
   set_function(L, "list", l_apps_list);
   set_function(L, "info", l_apps_info);
+  set_function(L, "opener", l_apps_opener);
   lua_setglobal(L, "apps");
 }
 
@@ -13953,6 +14213,23 @@ int l_admin_lock_screen(lua_State* L) {
 // after the call —`true` when the three taps still close the app— and it is asked even when the page only wants to know
 // (docs/30, docs/46 D1).
 int l_admin_triple_tap_close(lua_State* L) {
+  if (g_admin_ops.three_taps_close == nullptr || g_admin_ops.set_three_taps_close == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no three taps to give");
+  }
+  if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
+    g_admin_ops.set_three_taps_close(lua_toboolean(L, 1) != 0);
+  }
+  lua_pushboolean(L, g_admin_ops.three_taps_close() ? 1 : 0);
+  return 1;
+}
+
+// **Els tres tocs, per a qualsevol pàgina que els vulgui** (0.190.254, l'amo: *«Desactiva els 3 tocs sobre el Tetris, l'Snake i
+// qualsevol joc que no el tingui desactivat»*). Fins avui aquesta porta només existia dins del paquet `admin` —el candau la va
+// demanar a la 0.189.101— i un joc no pot ser administrador per una cosa que és del seu dit: un joc que llegeix cada toc no pot
+// tenir el sistema tancant-li la partida al tercer, i donar-li `admin` sencer per això seria donar-li `uninstall` i el candau.
+// És el mateix gest, la mateixa resposta (`true` vol dir que els tres tocs tanquen encara) i la mateixa mà que els torna quan
+// l'app s'acaba (`ui::give_back_the_glass`), o sigui que cap pàgina no pot deixar la placa sense aquesta porta (docs/30, docs/46).
+int l_touch_triple_tap_close(lua_State* L) {
   if (g_admin_ops.three_taps_close == nullptr || g_admin_ops.set_three_taps_close == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build has no three taps to give");
   }
@@ -14429,6 +14706,11 @@ void clear_exit_request() { g_exit_requested = false; }
 
 const char* app_id() { return g_app_id; }
 
+// **I si l'app que hi ha és administradora** (0.190.257): the key of its manifest, read by `apps::read` before the machine
+// was made. The filesystem asks it —an administrator holds the prompt's authority over the disk— and the page still gets
+// no call it did not have (docs/30, docs/70).
+bool app_is_admin() { return g_boot.admin; }
+
 const char* app_path() { return g_app_path; }
 
 void set_file_ops(const FileOps& ops) { g_file_ops = ops; }
@@ -14452,6 +14734,8 @@ void set_power_ops(const PowerOps& ops) { g_power_ops = ops; }
 void set_led_ops(const LedOps& ops) { g_led_ops = ops; }
 
 void set_imu_ops(const ImuOps& ops) { g_imu_ops = ops; }
+
+void set_crypto_ops(const CryptoOps& ops) { g_crypto_ops = ops; }
 
 void set_env_ops(const EnvOps& ops) { g_env_ops = ops; }
 

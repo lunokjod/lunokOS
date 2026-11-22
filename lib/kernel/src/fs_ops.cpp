@@ -162,7 +162,23 @@ bool on_the_named_path(const char* path) {
   return under(path, granted);
 }
 
+// **L'AUTORITAT DEL PROMPT, PER A UNA APP D'ADMINISTRADOR** (0.190.257): an app whose manifest says `"admin": true`
+// walks the disk the way the prompt does —every mount, every folder— and writes wherever the mount is writable. It is the
+// one door wider than a ground, and it is wider on purpose: the administrator's pack was a page that changes the system
+// (the lock, the uninstall, the cache) and a page that changes the system needs to see the files it is changing. **The
+// `/nvs` is not the disk**: it is the system's bookkeeping (the sessions, the settings as keys) and its row of the mount
+// table is read-only, so this door reads it and cannot write it (docs/30, docs/70).
+bool allowed_to_an_administrator(const char* path, bool writing, luabind::FsError& err) {
+  if (!writing) return true;
+  if (!vfs::is_writable(path)) {
+    err = luabind::FsError::kInval;
+    return false;
+  }
+  return true;
+}
+
 bool allowed(const char* path, bool writing, luabind::FsError& err) {
+  if (luabind::app_is_admin()) return allowed_to_an_administrator(path, writing, err);
   if (!writing) {
     if (inside_ground(path) || inside_cfg(path) || on_raw_memory(path) || under(path, kApps) ||
         under(path, kFonts) || under(path, kSd) || on_the_named_path(path)) {

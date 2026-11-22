@@ -48,6 +48,14 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
   - El `.icn` **no es porta**: és el format de quatre bits de l'altra pantalla i aquí no el llegeix
     ningú. El que es pinta aquí és un PNG, i `ui.image` en llegeix i n'escala.
   - El tamany és **94 × 94**, el número del paper (la caixa que el seu menú dona a una icona).
+  - **La icona es dibuixa amb la paleta de casa, i prou** (0.190.268). El primer intent de *btHID Mouse* i *btHID Keyboard* va ser agafar
+    el dibuix de [Lucide](https://lucide.dev) (ISC, equivalent a l'MIT d'aquí) tal com venia —línia fina, blanc— i l'amo el va tombar:
+    *«Recorda que has de seguir l'estètica dels icone que ja hi han... curra't-ho»*. La lliçó, apresa a cops: **el catàleg serveix per a
+    la forma, no per al dibuix**.
+  - **Què és l'estètica de casa, mesurada** (0.190.268): comptant els píxels dels vint-i-vuit de `tools/icons/` surten cinc tons i una
+    tinta —papall 255, **cos 221**, ombra 187, detall 170 i **tinta 68**—, amb contorns de setze píxels i cantonades de quaranta-quatre
+    en un dibuix de 448. I una cosa que no és un número: **el cos és ple i amb dos tons**, i cada icona té **un element de tinta** que la
+    fa llegir-se d'un cop (la tecla Enter del teclat, la roda del ratolí, el número del Calculator, la creu del Files).
   - **`tools/icons/` té vint-i-quatre dibuixos i no vint-i-quatre apps** (mesurat el 8/11): els vint-i-tres de les
     apps que en tenen —`2048`, `About`, `Agenda`, `Banner`, `Battery`, `Calculator`, `Clock`, `EPUB`, `Editor`,
     `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Password`, `SerialFUSE`,
@@ -192,7 +200,7 @@ dins de la mateixa encesa i mai a través d'un reinici; **l'excepció és la tor
 ha de ser la que la persona va deixar i el `state` és el que la fa (docs/30 § la sessió `state`, docs/60).
 
 **Quin full hi ha de mapejar què, i quins no hi han de mapejar res** (repàs complet, 0.189.52, i la calculadora des de la
-0.189.165): la sessió `state` la tenen avui **dinou de les vint-i-quatre apps** del disc —la vint-i-quarta és el `minesweeper`
+0.189.165): la sessió `state` la tenen avui **vint de les vint-i-cinc apps** del disc —la vint-i-quarta és el `minesweeper`
 (0.190.76, docs/40)—, i les cinc que no la tenen és una decisió dita al fitxer i no un oblit.
 
 | App | Què va a `state` |
@@ -213,6 +221,8 @@ ha de ser la que la persona va deixar i el `state` és el que la fa (docs/30 § 
 | `agenda` | **la pàgina sencera i el que s'hi està fent** (0.189.171): `page` (el mes, el dia o el formulari), `day`/`y`/`mo` (el dia obert i el mes que el calendari ensenyava), `marked` (l'esdeveniment amb el cercle), `editing` (el número de l'esdeveniment que el formulari escriu, o 0 per a un de nou), i les tries del formulari —`hour`, `min`, `len`, `rep` i `formy`/`formmo`/`formd`— amb **`text:title` i `text:note`** i `check:all_day`, que és el que la persona havia escrit i el que no s'ha de perdre quan la pàgina es reprèn. **Els esdeveniments no hi són**: són dada de l'app i tenen el seu fitxer a `fs.data` |
 | `appinfo`, `battery`, `clock`, `meteo` | **el que la seva pàgina és**: `appinfo` la pestanya i el detall obert (`page`, `focus`, `marked`), `battery` el cercle i prou —**la finestra del gràfic és una preferència i viu a `fs.data`**, que és la línia que separa la forma del gust—, `clock` la pestanya dels quatre fulls, el cercle i la fila triada (`tab`, `focus`, `marked`), i `meteo` el focus dels tres botons de la finestra —**la finestra triada i el registre de mostres són a `fs.data`**, i el registre no és forma sinó història— |
 | `minesweeper` | `flag` = el commutador de la franja, que és què vol dir un toc en aquesta pàgina; **el camp no hi és**, que una partida és dada i viu a `fs.data('game.txt')` (0.190.76) |
+| `files` | `path` (la carpeta on era, amb el nom del muntatge a dins) i `page` (la pàgina d'aquella carpeta); **la tria no hi és** —una tria és una cosa que una persona està fent i la fila on era pot no existir quan la pàgina torna— i **els fitxers amagats tampoc**: són una decisió sobre mirar i viuen a `/cfg/files/settings.txt` (0.190.257) |
+| `password` | **res**: s'obre sempre tancada i la vista que hi ha darrere del pany no és una vista que es pugui tornar —la clau viu en un `local` i mor amb la màquina, i un bloc amb el camí d'una entrada oberta seria un bloc que diu què mirava qui va tenir el vault obert—. **I el vault tampoc no és forma ni dada d'aquesta app**: és un fitxer de la targeta amb el seu nom (0.190.258) |
 | `2048`, `brokenapp`, `device_lock`, `luaperf`, `rainbow` | **res**: no tenen cap control amb cercle ni cap pàgina que tornar (les setze cel·les del 2048 són la partida, `rainbow` no té ni `ui`, `brokenapp` és un full de set botons que no recorda res, el pany és una pàgina que es tanca sola i `luaperf` és un instrument de mesura). Un bloc buit seria un kilobyte per no dir res |
 
 **I el que va fer possible que totes aquestes tornessin de debò** (0.189.52): el bloc es llegia amb els zeros del darrere
@@ -509,7 +519,7 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **tretze** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **disset** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
@@ -520,18 +530,21 @@ Portades i viatjant avui, **tretze** (`home_eink` va a part, a sota):
 | `Editor` | `editor` | 0.1.1 |
 | `EPUB` | `reader` | 0.1.1 |
 | `Timeclock` | `timeclock` | 0.2.2 |
-| `2048` | `2048` | 0.2.2 |
-| `Life` | `life` | 0.1.5 |
+| `2048` | `2048` | 0.2.4 |
+| `Life` | `life` | 0.1.6 |
 | `Battery` | `battery` | 0.1.5 |
 | `Energy` | `energy` | 0.1.0 |
 | `Meteo` | `meteo` | 0.1.1 |
 | `Agenda` | `agenda` | 0.1.2 |
-| `Snake` | `snake` | 0.1.1 |
+| `Snake` | `snake` | 0.1.2 |
+| `Tetris` | `tetris` | 0.1.3 |
+| `Files` | `files` | 0.1.0 |
+| `Password` | `password` | 0.1.0 |
 
 **La columna «Versió» és la del `manifest.json` d'avui i no la del dia que es va portar** (0.190.7): un commit que toca una app
 en puja el número i **toca aquesta fila al mateix commit**, o la taula es queda dient el que ja no és (docs/40, docs/80).
 
-I a part, **dues que no són ports**:
+I a part, **les que no són ports**:
 
 - **`home_eink`** (`title` *Home*, 0.2.0), el llançador: la graella de les apps del disc amb la icona i el nom de
   cadascuna, i un dit o el centre sobre una cel·la arrenca aquella app. No llista els llançadors —ni a si mateix—,
@@ -543,13 +556,138 @@ I a part, **dues que no són ports**:
   fletxes apagades). La pàgina es torna de dues maneres: el dit a sobre d'una fletxa, o el dial fins a la fletxa i el
   centre; la volta la fa el bucle de l'app i no el clic, perquè el control que l'ha pres no es pot donar a si mateix
   mentre corre.
+- **`bthid` i `btkbd`** (*btHID Mouse* 0.3.1 i *btHID Keyboard* 0.1.1), les dues apps que fan d'aquesta placa el ratolí i el teclat
+  d'un altre aparell. No vénen del projecte del paper: allà el Bluetooth no hi era i el panell no feia d'HID. El que sí que és de
+  casa és el seu aspecte —la pàgina d'espera amb un sol commutador, la línia d'estat i el log de cada pas— i el que les fa servir,
+  que és el HAL de la 0.190.204 (docs/30, docs/50).
 - **`probe`**, que **no és una pantalla**: és un instrument temporal de l'emulador que repeteix l'arrencada del lector
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 
-Les **dotze** que falten, i que són la cua d'aquesta feina: `Banner`,
-`FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
-`Tamagotchi` i `Tetris`.
+Les **nou** que falten, i que són la cua d'aquesta feina: `Banner`,
+`FRAM`, `ImageViewer`, `Jellyfin`, `News`, `Pacman`, `Paint`, `SerialFUSE`
+i `Tamagotchi`.
+
+**El que va ensenyar el `Tetris`** (0.190.253, i les tres coses les va demanar l'amo abans de començar: *«El Tetris, com amb
+l'snake, molta cura al fer el port. Fixa't que el tauler dibuixa el menys possible i tot es blanc i negre. No facis el gamePad.
+Usarem els dits per girar la peça (polsant a sobre) o moure-la a esquerra, dreta o avall»*):
+
+- **Un joc de dues tintes no és un joc sense colors: és un joc que es pot pintar sense passar pel mode lent.** El vell portava
+  quatre tons per què el panell triés `du4`; aquí hi ha **tinta i paper i prou**, o sigui que el mode és **`du`** —dos tons i
+  120 ms, el més ràpid que aquest vidre té— i el joc no paga mai una passada de qualitat. I el dibuix és **un de sol** per a la
+  peça que cau, la pila i la caixa del `Next`: un quadrat de tinta amb un píxel de paper al costat, que és el que fa que dues
+  cel·les costat a costat es llegeixin com dues.
+- **I d'aquí surt la conseqüència que el vell va haver de pagar**: si la cel·la del joc i la cel·la de la pila són el mateix
+  dibuix, **una peça que aterra no costa res de pintar**. El vell havia de repintar les cel·les que s'assentaven —la seva peça
+  era un contorn i la seva pila era plena, i el que es veia eren cel·les a mig dibuixar (12/10)—; aquí el que es pinta és el
+  que es mou, i és **com a molt vuit caixes en un sol present**.
+- **Els dits no són un comandament de joc amb menys botons: són una altra manera de dir les mateixes quatre coses.** Un toc
+  **sobre la peça** (la caixa que ocupa, forats inclosos) la gira; un toc a un costat la mou una columna; un toc a sota la baixa
+  una fila, i el terra és l'aterratge (el `soft drop` de l'original). **I un toc a sobre també la gira**, perquè enlaire no és un
+  camí que faci una peça —de les quatre direccions de la creueta, el dit en té tres i un gir—.
+- **I la llei del gir es respecta**: el sistema de rotació de l'original no té *wall kick* ni *lock delay*, o sigui que un gir
+  que no hi cap **no passa** i el dit no rep res. És el mateix que va ensenyar la `Snake`: la regla es tradueix, no s'adapta.
+- **El que es va poder provar sense placa, i és el que fa que el port es pugui dir acabat**: el harness de Lua del port li va
+  donar **93 línies i 5 020 punts en vint minuts de joc del CPU** (l'avaluador clàssic del vell, amb el farciment de forats i el
+  desnivell de la pila) sense omplir mai el pou, i els quatre estats de la puntuació de 1989 hi són exactes: **40, 100, 300 i
+  1 200** punts per una, dues, tres i quatre files, multiplicats pel nivell més u, amb el nivell pujant quan els punts del nivell
+  hi són (500 × (nivell + 1), la regla que el vell va escriure perquè la barra i el número no es puguin contradir).
+- **I dues coses més que només es veuen jugant, i el vell ja les tenia escrites** (0.190.256, l'amo: *«Les peces perden la forma quan
+  giren!!! revisa bé el codi original»*): **una marca que ningú pinta es pinta al moviment següent** —`lock` deixava el pou, cridava
+  `spawn` i se n'anava sense pintar, i les quatre marques del naixement sortien darrere de les de paper del primer moviment, o sigui que
+  la peça tornava a la casella d'on havia sortit (el que neix el pinta qui el fa, i `spawn` no marca res)—, i **`du` pinta però no
+  neteja**, o sigui que una cel·la repintada deixa una ombra al vidre (2,0 de fantasma per fila, mesurat al vell) i el joc ha de tenir
+  **la neteja del rastre**: el rectangle que la peça ha recorregut es repinta sencer i es puja en una passada de `gld16`, cada dotze
+  moviments. És el preu de jugar en `du` i el vell el pagava igual (docs/50).
+
+**El que va ensenyar el `Files`** (0.190.257, l'amo: *«Doncs anem a portar "Files", es una app complexa i gran, Farem un
+canvi... en aquesta app hi han penstanyes per anar a l'SD o al littlefs, amb l'vfs ja no ens fa falta, to penja d'una sola
+unitat. Analitza bé el codi, revisa totes les funcionalitats que te, vull una copia exacta»*):
+
+- **Una pestanya per memòria era el model del vell i aquí és una carpeta.** Its two tabs (`sd`, `littlefs`) were what its
+  storage answered —a list of units—; this system has **one tree** (docs/70), so the strip of tabs and the `Disk` menu are
+  gone, the screen opens at `/` —what `ls /` says, mount by mount— and **everything else is the old app**: the four menus,
+  the detail of a row, the finger of three things (a tap opens, a swipe up goes up, a hold selects), the three cards, the
+  clipboard with a queue and the modal of three bars.
+- **I el que el port va haver de demanar al nucli són tres portes i mitja**: the administrator's authority over the disk
+  (`"admin": true`, the key the owner chose), `apps.opener(name)` —the extension is a question for the manifests and not a
+  table the browser keeps (the old screen had three `if`s and every new app meant touching it)—, `app.run(id, back, flags,
+  path)` —the second half, because a browser that knows who opens a file has to give it the file— and nothing else. **La
+  mitja porta és el `page_at` del paginador** (0.190.257): la tira de boles d'aquest sistema és un estat i no una porta, o
+  sigui que **un toc sobre una bola no salta de pàgina** i les pàgines es giren amb el dit i amb les tecles; el vell ho
+  permetia perquè el seu paginador era seu.
+- **Les targetes es fan quan es pregunten i es tornen quan es contesten.** The paper project built its three cards once and
+  hid them, because the pools of controls were fixed and a card built per use asked for a second set of controls every time;
+  here a control is given back with `release()` and the page under it is painted again, o sigui que **la targeta del nom
+  (`ui.selector` + `ui.textbox` + dos botons), la del canvi de nom i la de la pregunta** existeixen mentre la pregunta dura.
+  I la pregunta de matar és un `ui.dialog` del sistema, que ja porta el seu «un dit fora és el cancel·lar» (docs/30, docs/90).
+- **La còpia és la mateixa de dues passades i la mateixa cua, però el modal ja no es pinta a mà.** The old screen painted the
+  card of the copy by hand —white, rounded, a rule, three rows of label, value and bar— and paid for it with the three passes
+  of the clean of a modal and a budget it had to ask for four seconds at a time; here it is **a panel with three
+  `ui.progress` and a few labels**, and the ink is the system's to mark. Two passes cut in turns, the tree walked with an
+  explicit stack, a few blocks per turn and one repaint when the modal has something new to say: **a copy of a folder across
+  the two disks is one job and the board keeps answering** (measured in the harness of the port: three files of a folder
+  copied to the card, in turns, with the count first).
+- **I una baixa que es quedava a l'arbre** (0.190.257, i va ser el defecte més car del port): a released control stayed in its
+  father's `children` table until that father was drawn again, i un control que **compta** els seus fills —una `ui.list`, que
+  diu quantes pàgines té i on va la fila de cada pàgina— comptava els morts: deu files donades i deu de noves feien dues
+  pàgines, les noves anaven fora del marc (la pàgina no canviava en entrar en una carpeta) i el peu del control sortia damunt
+  del de l'app. **És del nucli i s'hi ha arreglat**: `release()` treu el control de l'arbre que veu l'app, preguntant-li al pare
+  abans que el número del fill se'n vagi. La lliçó per a una app: **una fila que s'ha donat no pot comptar enlloc**, i el
+  nombre de fills vius d'un control es pot dir al registre (`[FILES] … 10 rows`) perquè la propera vegada es vegi en una línia.
+- **I dues coses que només es veuen amb el dit a sobre** (0.190.257, l'amo, amb el Files a la mà: *«Apareixen dos paginadors de
+  boles.... un sobre el'altre! i la pàgina no passa. No deixa navegr per subdirectoris»*): **una fila ha de ser una parada del
+  dial o el dit no la troba mai** —`focusable` no és només el recorregut de les tecles, és la caixa que el toc pregunta, i el
+  vell podia fer la llista no enfocable perquè el seu navegador i el seu dit eren dues màquines diferents—, i **el peu d'una
+  `ui.list` s'ha de reservar sempre** si l'app té el seu paginador: el control en dibuixa un quan té més d'una pàgina de files i
+  un `per_page` que omple la caixa fins a l'últim píxel en demana dues (docs/30, docs/90).
+- **El dibuix d'una fila és de les primitives i no d'una font** (the old app took `f114` and `f016` from its icon font at 64
+  px): a folder and a page of lines, which costs no file, is sharp at any size and —the reason it matters— **es gira amb la
+  fila** quan la fila és la triada, cosa que un PNG no fa. Les miniatures del visor d'imatges no hi són encara: el `Files` del
+  vell llegia el `.nom.cache.ics` que deixava el seu `ImageViewer`, i aquí aquesta app no s'ha portat.
+- **I la vista que es recorda és el camí i la pàgina** (the `state` session): no la tria, que és una cosa que una persona està
+  fent i que la fila on era pot no existir quan la pàgina torna, i no els fitxers amagats, que són una decisió sobre mirar i
+  viuen a `/cfg/files/settings.txt` —la carpeta de l'app dins dels ajustos, que amb la porta ampla de l'administrador s'ha de
+  dir amb el seu nom (docs/30, docs/70)—.
+
+**El que va ensenyar el `Password`** (0.190.258, l'amo: *«Farem la de password;»* amb les dues pàgines de l'IDF de la
+criptografia a la mà, i *«Revisa el codi original a fons i fes-la igual»*):
+
+- **La criptografia és una porta del sistema i no codi de l'app, i aquí la porta és del nucli.** PBKDF2 és per construcció la
+  part que costa, i escrita en Lua donaria unes quantes iteracions —i unes quantes iteracions és una contrasenya que cau en una
+  tarda—, o sigui que `crypto.random/key/seal/open` són quatre crides i l'aritmètica viu a `lib/kernel/src/crypto.cpp`
+  (docs/30). **I ve del projecte del paper sencera**, no reescrita: el bloc és el mateix (`nonce(12) | xifrat | etiqueta(16)`)
+  i per tant **un vault escrit allà s'obre aquí i al revés**, que és el que vol dir «una còpia exacta» quan el que es copia
+  és un fitxer.
+- **I no és mbedTLS, i és una decisió que es pot dir en una línia**: la suite d'aquest sistema és la d'un PC que no té ESP-IDF
+  a dins —una porta que no es pot provar a l'hostal és una porta que ningú prova— i el ChaCha20-Poly1305 de mbedTLS és una
+  etiqueta diferent sobre una altra disposició, o sigui que hauria canviat el fitxer. El que sí que s'ha pres del maquinari és
+  **l'atzar**: `pal::random_bytes()` demana entropia a la banda cada cop —`esp_fill_random()` amb la ràdio encesa i la
+  finestra de `bootloader_random_enable()` quan no ho és, tancada abans que res toqui l'ADC, que és el que la documentació de
+  l'IDF 5.2.1 diu— i el remenador de sempre (`pal::random()`) es queda per a les llavors i les simulacions.
+- **El vault viu a la targeta i no cal cap porta nova.** Aquí la targeta no és una unitat que una app tria: és `/data`, **el
+  terra de l'app, que segueix el disc preferit** (docs/70), o sigui que el vault és `/data/password/passwords.pwdb` i l'app
+  pregunta a `fs.mounts()` de quina memòria és `/data` abans d'escriure-hi un byte. Un vault que no és a la targeta s'obre i
+  es llegeix, de només lectura, i les tres portes que escriurien diuen el motiu — i **la pregunta es fa al fitxer a cada porta**
+  (`vault.editable(state)`) i no al número que es va llegir en obrir, perquè una targeta que surt del lector a mig camí s'ha
+  de veure al cop següent i no després que l'entrada hagi sortit de la memòria.
+- **El desat segur ja no és de l'app**: `fs.write` és el fitxer sencer o el vell, mai mig (docs/70), o sigui que el
+  `passwords.tmp`, l'esborrar i el reanomenar del projecte del paper són tres línies que aquí no existeixen i una recuperació
+  que el nucli dona a tothom.
+- **Quatre pantalles fetes i tornades, i no quatre pantalles amagades.** El vell va construir les seves quatre pàgines una
+  vegada i les amagava perquè la piscina de controls era fixa; aquí la pàgina es construeix quan arriba i es dona amb
+  `release()` —que s'emporta l'arbre sencer, fill i nét— i el que es queda entre dues pantalles és **el cursor d'una caixa que
+  s'escriu sobre si mateixa**: el formulari canvia el text de la caixa i les paraules dels seus dos botons en lloc de tornar-se
+  a fer, que és una passada de pintura per una paraula.
+- **I el que la pantalla va haver d'aprendre del vidre**: `ui.caps()` diu que la vista d'una app **comença a la fila 48**, o
+  sigui que el canvas ja és sota la barra i reservar-hi `kBarHeight` són quaranta-set píxels d'aire que ningú no ha demanat (el
+  `files` els reserva i el seu camí comença quaranta-set píxels més avall del que sembla); i **el motiu d'un refús és un
+  control de la pàgina**, o sigui que una pàgina que s'escriu sobre si mateixa ha de tornar-se a fer quan ha de dir que una
+  entrada buida no es desa, o la frase no surt enlloc.
+- **I una cosa que el vell no podia fer i aquí és gratis**: el vault es pot obrir **des del `Files`** (`"opens": "pwdb"` i
+  `app.args.path`), i aquell camí és escrivible encara que el terra de l'app no sigui a la targeta, perquè l'autoritat del
+  prompt és sobre aquell fitxer i prou (docs/70). És el primer port que aprofita el quart argument de `app.run` que el
+  `files` va fer néixer.
 
 **El que va ensenyar la `Snake`** (0.190.241, la primera portada que **canvia el comandament** perquè l'amo ho va demanar:
 *«Fes el port de l'snake, però no posis el comandament de joc. Usarem la pantalla per orientar el cuc. Tocs.»*):

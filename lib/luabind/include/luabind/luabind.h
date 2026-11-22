@@ -140,6 +140,13 @@ struct AppsOps {
   // **The manifest of one app**, read when the app that asked wants it. False with a reason when the door does not
   // know that id or its manifest is not one this system reads.
   bool (*info)(const char* id, AppInfo& out, char* why, size_t why_cap);
+  // **Who opens a file, asked to the manifests** (0.190.257): the id of the app that claims the extension of `name` and
+  // the switches it asked for when a browser hands it one (`opensArgs`), or false with the sentence that names the
+  // extension nobody claims. It is the question the old browser asked the catalogue (`paperos.opener`) and it lives in
+  // the system for the same reason `apps.info` does: the manifests are the door's to read, and a second reader of them is
+  // the one that goes wrong (docs/30, docs/40, docs/45).
+  bool (*opener)(const char* name, char* id, size_t id_cap, char* flags, size_t flags_cap, char* why,
+                 size_t why_cap);
 };
 
 void set_apps_ops(const AppsOps& ops);
@@ -185,6 +192,34 @@ struct SerialOps {
 };
 
 void set_serial_ops(const SerialOps& ops);
+
+// **La porta d'un secret** (0.190.258): four calls and not one more, because a file of passwords needs exactly four things
+// —entropy, a key, a seal and an open— and everything else (the format of the file, the screens, what is written around the
+// block) is the app's. It is `paperos.crypto` of the old project with the same four names, and the block it makes is the
+// same bytes, so a vault of the Paper opens here (docs/30, docs/45).
+//
+// The arithmetic is the kernel's (`kernel/crypto.cpp`, walked by `test/test_crypto`) and **the sizes are the standard's and
+// not the app's**: a key is 64 bytes, a nonce 12, a tag 16, and a block carries 16 KB at most, which is one whole vault
+// (docs/70). Every refusal is an `E_*` with a sentence: a band with no entropy, a key that is not the one `key()` makes, a
+// text too big for one block, a blob too short to be one, or a tag that does not match.
+struct CryptoOps {
+  // Fills `len` bytes with the band's own entropy. False when this band has no source at all, and then `crypto.random` says
+  // so instead of handing back a salt that everybody knows (docs/30, docs/50).
+  bool (*random_bytes)(uint8_t* out, uint32_t len);
+  // PBKDF2-HMAC-SHA256 (RFC 8018) of a password and a salt, `out_len` bytes out —64 in this house: the first 32 for the
+  // cipher and the last 32 for the MAC—. The kernel is the one that says what a derivation cost, in its log and in its
+  // meter, because the price of a key is a number to measure on the board and not a guess in a comment (docs/95).
+  bool (*key)(const char* password, size_t password_len, const char* salt, size_t salt_len, uint32_t iterations,
+              uint8_t* out, size_t out_len);
+  // `nonce(12) | ciphertext | tag(16)` into `out`, which the caller has sized. False when there is no entropy, because a
+  // nonce that repeats with the same key repeats the stream and that hands the plain text away.
+  bool (*seal)(const uint8_t* key, size_t key_len, const char* text, size_t text_len, uint8_t* out, size_t out_len);
+  // The plain text of a block, or -1 when the tag does not match —which is the same answer for a wrong key and for a file
+  // somebody changed, on purpose: telling them apart would tell whoever has the file whether the password was close.
+  int32_t (*open)(const uint8_t* key, size_t key_len, const uint8_t* blob, size_t blob_len, uint8_t* out, uint32_t cap);
+};
+
+void set_crypto_ops(const CryptoOps& ops);
 
 // **Els ajustos del sistema, per a una app** (0.189.13): until now a setting was a thing only the prompt could read, and
 // an app that had to obey one —the launcher and `sort apps by usage`— had no door at all: `/cfg` is the mount of the
@@ -398,7 +433,10 @@ struct AppOps {
   // opened ends, which is what a launcher wants and the only way back on a board with three keys (docs/30, docs/90).
   // **I els seus commutadors** (0.189.161): a string the app that is started reads as `app.args.flags`, which is how the
   // launcher opens the page of an app's details (`app.run('appinfo', true, '-d battery')`). Null is no switches.
-  bool (*run)(const char* id, bool back, const char* flags, char* why, size_t why_cap);
+  // **I el fitxer que se li dona** (0.190.257): `path` is a file the app is asked to open, handed to it as
+  // `app.args.path` the way the prompt's `run <id> <path>` does it; null is an app that starts with no file. It is what a
+  // browser needs to hand a file to whoever opens it, and it is the second half of `paperos.opener` (docs/30, docs/45).
+  bool (*run)(const char* id, bool back, const char* flags, const char* path, char* why, size_t why_cap);
   // **The views of the app in front** (0.163.0): how many pages it has on top of its first one, and the two calls that
   // move that number. They are the kernel's counter and not the app's, because a pinch means the same wish in every
   // app and an app that had to keep the number itself is an app that can get it wrong (docs/30, docs/46).
@@ -1475,6 +1513,11 @@ void feed_console(const char* data, size_t len);
 
 // The id of the app this state belongs to, or "" when it is not an app.
 const char* app_id();
+// **Whether the app in front is an administrator** (0.190.257): the `"admin": true` of its manifest, which is read with
+// the app and before its machine exists. It is asked by the door of the filesystem, because an administrator walks the
+// disk the way the prompt does —a file manager that cannot see the files is not a file manager— and by nothing else: the
+// table `admin` of the Lua machine is still the only pack of calls it opens (docs/30, docs/40, docs/70).
+bool app_is_admin();
 
 // The file the app was asked to open, or nullptr. It is what a sleep has to write
 // down along with the app, or the app would come back without it (docs/90).

@@ -9,11 +9,14 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <new>
+
 #include "hal/hal.h"
 #include "kernel/apps.h"
 #include "kernel/shell.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
+#include "pal/pal.h"
 
 namespace kernel {
 namespace apps {
@@ -59,8 +62,16 @@ bool lua_info(const char* id, luabind::AppInfo& out, char* why, size_t why_cap) 
   }
   // **The entry is not on the stack of the app's task**: a whole manifest is 1,1 KB and this call runs in the deepest
   // frame the interpreter has, which is the one docs/75 measures. One at a time is enough: the door loads one manifest
-  // and no visitor of this walk loads another (docs/40, docs/75).
-  static Entry entry;
+  // and no visitor of this walk loads another (docs/40, docs/75). **I no és un `static`** (0.190.261, l'amo: *«cal
+  // estalviar memoria... Pero cosetes petites»*): 772 B que la placa pagava des de l'arrencada per a una crida que fa un
+  // visitant d'un llistat. La porta és la mateixa que la del text del manifest a `apps::load` —`pal::Scratch`, que el
+  // demana en entrar i el torna en sortir per qualsevol camí—.
+  pal::Scratch block(sizeof(Entry), pal::kMemoryKernel);
+  if (!block) {
+    say(why, why_cap, "there is no memory to read its manifest");
+    return false;
+  }
+  Entry& entry = *new (block.get()) Entry();
   if (!read(id, entry)) {
     say(why, why_cap, "its manifest is not one this system reads");
     return false;
@@ -83,7 +94,8 @@ bool lua_info(const char* id, luabind::AppInfo& out, char* why, size_t why_cap) 
 // **`app.run(id)`**: every way a launcher can be wrong is answered here, before the wish is taken, so the app has a
 // reason to show. The name is checked against the door —it is an app, and it runs on this board— and against the app in
 // front —a launcher that asks for itself is a loop with a finger on it— (docs/30, docs/90).
-bool lua_run(const char* id, bool back, const char* flags, char* why, size_t why_cap) {
+bool lua_run(const char* id, bool back, const char* flags, const char* path, char* why,
+                size_t why_cap) {
   if (id == nullptr || id[0] == '\0') {
     say(why, why_cap, "an app with no name");
     return false;
@@ -96,7 +108,14 @@ bool lua_run(const char* id, bool back, const char* flags, char* why, size_t why
   // **The entry is not on the stack of the app's task**: a whole manifest is 1,1 KB and this call runs in the deepest
   // frame the interpreter has, which is the one docs/75 measures. It is one at a time —`app.run` is two hundred lines of
   // Lua away from being re-entered, and a second call in the same turn is refused by the shell— so one entry is enough.
-  static Entry entry;
+  // **I no és un `static`** (0.190.261): the block is asked when the call starts and given back when it ends, the same
+  // door `apps::load` uses for the text of the manifest (docs/40, docs/75).
+  pal::Scratch block(sizeof(Entry), pal::kMemoryKernel);
+  if (!block) {
+    say(why, why_cap, "there is no memory to read its manifest");
+    return false;
+  }
+  Entry& entry = *new (block.get()) Entry();
   if (!read(id, entry)) {
     say(why, why_cap, "there is no such app on this disk");
     return false;
@@ -107,7 +126,65 @@ bool lua_run(const char* id, bool back, const char* flags, char* why, size_t why
     say(why, why_cap, text);
     return false;
   }
-  return shell::ask_run(id, back, flags, why, why_cap);
+  return shell::ask_run(id, back, flags, path, why, why_cap);
+}
+
+// **`apps.opener(name)`: which app claims that file** (0.190.257). The extension is the question and it is read from the
+// last dot, in lower case, by the same door the prompt's `open` uses —so a card written on a computer is the same kind of
+// file here— and a hidden name has no opener on purpose: the thumbnail beside a picture is not the picture (docs/30).
+// **The first app that claims it wins, and it has to run on this board**: an app of another board cannot open anything
+// here, and the door lists it anyway (docs/40).
+struct OpenerWalk {
+  const char* ext;
+  char* id;
+  size_t id_cap;
+  char* flags;
+  size_t flags_cap;
+  bool found;
+};
+
+bool take_the_opener(const Entry& entry, void* context) {
+  OpenerWalk* walk = static_cast<OpenerWalk*>(context);
+  if (walk == nullptr || walk->found) return false;
+  if (entry.opens_count == 0) return true;
+  if (!entry.works_here) return true;
+  if (!handles(entry, walk->ext)) return true;
+  snprintf(walk->id, walk->id_cap, "%s", entry.id);
+  snprintf(walk->flags, walk->flags_cap, "%s", entry.opens_arg);
+  walk->found = true;
+  return false;
+}
+
+bool lua_opener(const char* name, char* id, size_t id_cap, char* flags, size_t flags_cap, char* why,
+                size_t why_cap) {
+  if (name == nullptr || name[0] == '\0') {
+    say(why, why_cap, "a file with no name");
+    return false;
+  }
+  if (name[0] == '.') {
+    say(why, why_cap, "a hidden name is not a file anybody opens");
+    return false;
+  }
+  char ext[16];
+  if (!extension_of(name, ext, sizeof(ext))) {
+    say(why, why_cap, "that name has no extension any app could claim");
+    return false;
+  }
+  OpenerWalk walk;
+  walk.ext = ext;
+  walk.id = id;
+  walk.id_cap = id_cap;
+  walk.flags = flags;
+  walk.flags_cap = flags_cap;
+  walk.found = false;
+  for_each(nullptr, &take_the_opener, &walk);
+  if (!walk.found) {
+    char text[96];
+    snprintf(text, sizeof(text), "no app of this system opens a .%s file", ext);
+    say(why, why_cap, text);
+    return false;
+  }
+  return true;
 }
 
 // **An app that restarts the board** (0.171.0): the page of the eraser offers it when it ends, because an app that has
@@ -121,6 +198,7 @@ void install_apps_ops() {
   luabind::AppsOps apps_ops = {};
   apps_ops.ids = &lua_ids;
   apps_ops.info = &lua_info;
+  apps_ops.opener = &lua_opener;
   luabind::set_apps_ops(apps_ops);
 
   luabind::AppOps app_ops = {};

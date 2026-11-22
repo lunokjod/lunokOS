@@ -390,6 +390,24 @@ respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és s
 | `/littlefs/`, `/nvs/` — les unitats del sistema | **no** | no |
 | `/data/<altra>/` | no | no |
 | **el camí que el prompt li ha nomenat** (0.65.0) | **sí** | **sí** |
+| **tot el disc, per a una app d'administrador** (0.190.257) | **sí**, cada muntatge | **sí**, on el muntatge és escrivible |
+
+**I `/data/<id>/` és el que fa que un secret es pugui desar sense cap porta nova** (0.190.258): la fila segueix el disc
+preferit, o sigui que **el terra d'una app és a la targeta quan n'hi ha** i al flaix quan no, i una app que ha de viure en un
+lloc concret pot preguntar-ho en lloc d'endevinar-ho —`fs.mounts()` diu `sd` o `littlefs` a la fila de `/data`, i el que fa
+l'app `password` és no escriure-hi res si la resposta no és la targeta, perquè un vault de contrasenyes que viu en un lloc o
+en un altre segons el dia és un vault que algú es deixa enrere (docs/45)—. **Treure una app no s'emporta el seu terra**:
+`/data/<id>` es queda (`apps.cpp`), i això és el que fa que reinstal·lar una app no sigui perdre el que hi havia a dins.
+
+**I la fila de baix és la porta del navegador del disc** (0.190.257, l'amo: *«reaprofitar "admin": true, el paquet de
+l'administrador»*): the manifest key `"admin": true` gives the page the `admin` table of docs/30 **and** the authority of the
+prompt over the tree —`fs.list`, `fs.stat`, `fs.read`, `fs.write`, `fs.mkdir`, `fs.remove`, `fs.rename`, `fs.space` and
+`fs.open` on any mount—, which is what the app `files` needs to be a file manager at all. It is one door and not a model
+change: `/nvs` is read-only in the mount table and stays read-only, an app that is not an administrator keeps the six places
+above, and the path the prompt named is still a grant for the app that was given it (docs/30, docs/40). **`/cfg` and `/res`
+are the tree's for an administrator**: the two aliases that every app has are its own room, and a page that walks the disk has
+to see the disk —`/cfg/files/settings.txt` is where the app of the files keeps its own answer, and it says its name because it
+is its own folder and not the room the alias gives it—.
 
 **El `/rtc` no és una unitat del sistema com `/littlefs` o `/nvs`**, i per això hi entra una app: és
 memòria sense mapa ni claus, i el format el posa l'app que hi escriu (docs/50). Es llegeix amb

@@ -41,11 +41,11 @@ class Listing {
   // address this API gives next to the name. `next` is still the short way for a list of folders (docs/30, docs/70).
   bool next_entry(Kind& kind, char* name, size_t name_cap, char* url, size_t url_cap);
 
-  // **The one listing the system walks at a time** (0.88.4): this object carries a window of two kilobytes, a name and
-  // an address, which is about **2 300 B**, and a frame like that is not a frame of the board —the stack of the loop
-  // task is sixteen kilobytes and the QR of four broke it once with a canary watchpoint (docs/75)—. There is one of
-  // them in static memory, `entry_at` and the shell's listing walk it, and `open` throws away whatever the one before
-  // left in it.
+  // **The one listing the system walks at a time** (0.88.4): a name and an address, and the window of the file. A frame
+  // like that is not a frame of the board —the stack of the loop task is sixteen kilobytes and the QR of four broke it
+  // once with a canary watchpoint (docs/75)—, so there is one object, `entry_at` and the shell's listing walk it, and
+  // `open` throws away whatever the one before left in it. **Els dos kilobytes de la finestra no són aquí des de la
+  // 0.190.260**: `open` els demana a `pal::extra_memory()` i es queden amb aquest objecte, que és de dos-cents bytes.
   static Listing& one();
 
  private:
@@ -76,7 +76,12 @@ class Listing {
 
   hal::IStorage* storage_ = nullptr;
   hal::FileSlot slot_ = {};
-  char buffer_[kChunk] = {};
+  // **La finestra del fitxer es demana i es queda** (0.190.260, l'amo: *«cal estalviar memoria … cosetes petites»*): two
+  // kilobytes of `.bss` that a board paid from power-on for a reader a person uses at a `store`. `open` takes it from
+  // `pal::extra_memory()` —PSRAM when the board has one, the memory of the house when it has not— the first time somebody
+  // walks a listing, and it stays: a window taken and given back at every open is the same bytes moved four times a second
+  // for no gain (docs/75).
+  char* buffer_ = nullptr;
   uint16_t at_ = 0;
   uint16_t len_ = 0;
   bool ended_ = false;

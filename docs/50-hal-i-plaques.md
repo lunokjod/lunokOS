@@ -482,11 +482,12 @@ bt dev mouse click [left|right|middle]
 ```
 
 - **El servei GATT no es toca**: el que canvia és el **report map** que el host llegeix (`0x2A4B` es llegeix de nou a cada petició, o sigui
-  que el canvi és en calent), el **report** que s'envia —vuit bytes de teclat o tres de ratolí— i l'**aparença de l'anunci** (`0x03C1`
+  que el canvi és en calent), el **report** que s'envia —vuit bytes de teclat o quatre de ratolí— i l'**aparença de l'anunci** (`0x03C1`
   teclat, `0x03C2` ratolí), que obliga a tornar-se a anunciar.
 - **Cal tornar a aparellar des de l'altre cap**: el mòbil va llegir el mapa d'un teclat i no endevina el d'un ratolí. La comanda ho diu.
-- **El moviment és relatiu i el report torna a zero de seguida**, o el cursor se n'aniria sol; i el report d'un ratolí de boot porta de
-  **−127 a 127**, o sigui que un moviment més gran es fa en més d'un pas i la comanda ho diu en lloc de deixar que el signe es desbordi.
+- **El moviment és relatiu i el report de repòs va darrere del de moviment**, o sigui que el cursor es queda quiet quan el dit s'atura; i
+  el report d'un ratolí porta de **−127 a 127**, o sigui que un moviment més gran es fa en més d'un report i ho parteix el sistema
+  (`bt::move_for_a_page`) en lloc de refusar-lo.
 - **El clic és pressió, trenta mil·lisegons i deixar anar**, la mateixa forma que una tecla: un botó premut per sempre és el que l'altre cap
   veu si no es deixa anar.
 
@@ -500,8 +501,8 @@ triar com a `opció B` es queda com és i se n'hi afegeix un tercer, amb el preu
 | Mode | Mapa | Report | Boot protocol |
 |---|---|---|---|
 | `keyboard` (de sèrie) | el del teclat, sense IDs | 8 bytes per la característica del teclat | **sí** |
-| `mouse` | el del ratolí, sense IDs | 3 bytes per la del ratolí | sí |
-| **`both`** | el del teclat **i** el del ratolí, amb `Report ID 1` i `2` | 9 i 4 bytes, l'ID al davant | **no** |
+| `mouse` | el del ratolí, sense IDs | **4 bytes** (botons, x, y i la roda) per la del ratolí | sí |
+| **`both`** | el del teclat **i** el del ratolí, amb `Report ID 1` i `2` | 9 i **5** bytes, l'ID al davant | **no** |
 
 - **El servei GATT és el mateix en els tres**: info, mapa, **dues** característiques de report d'entrada (teclat i ratolí, cadascuna amb
   el seu handle i la seva subscripció), la del boot, la de sortida dels llums, la de sortida del report, el control point i el protocol
@@ -545,6 +546,152 @@ I el que faltava per poder-ho veure: **el motiu de la desconnexió**. `BLE_GAP_E
 l'altre cap l'ha tancat, `0x05`/`0x3D`/`0x3E` autenticació i MIC, `0x16` l'altre cap per un motiu seu) i es llençava; ara surt al registre amb
 els paràmetres de la connexió (interval, latència, supervisor) i amb **cada accés** al servei a nivell de feina. I les claus que es
 reparteixen porten la identitat (`ENC | ID`), que és el que un telèfon espera d'un teclat de debò.
+
+#### Un ratolí de debò, i el de l'exemple (0.190.259)
+
+L'amo: *«Continuarem amb l'app bthid reanòmena-la a "bt HID". Recorda, la idea es usar el panell com a mouse. Fes que funcioni un dels
+dispositius, o el mouse o el teclat. Quan funcioni ja els ajuntarem»*, amb l'exemple `esp_hid_device` de la IDF 5.2.1 a la mà. Tres
+coses, i les tres són de protocol i no de gustos:
+
+- **El mapa del ratolí porta la roda, i és el del seu exemple, byte a byte**: `X`, `Y` i `Wheel` amb `Logical Minimum (−127)` i
+  `Maximum (127)` i `Report Count (3)`, o sigui **quatre bytes de report** —botons, x, y, roda—, que és el que el seu `send_mouse()`
+  envia amb `esp_hidd_dev_input_set(dev, 0, 0, buffer, 4)`. Abans el mapa declarava dos eixos i el report era de tres bytes: legal, i
+  és el que aquesta casa tenia, però **el que tothom prova primer és el de tres eixos** i una roda que el mapa no declara és una roda
+  que el report no pot portar. El mode `both` porta la mateixa roda (cinc bytes amb l'ID al davant).
+- **Dues característiques d'entrada que diuen el mateix `Report ID` són un servei que no compleix el HID-over-GATT.** Al mode d'un sol
+  report el mapa declara **un** report i cap ID, i les dues característiques (les que el mode compost necessita) contestaven totes dues
+  `0, input`: un amfitrió que les llegeix no sap quina és la del mapa i la que triï pot ser la que té la mida de l'altra. Ara la
+  segona contesta **`0xFF`**, un ID que el mapa no té, o sigui que **l'amfitrió veu exactament un report d'entrada** i la porta per on
+  aquesta placa envia queda una. L'altra manera hauria estat tornar a registrar el servei a cada canvi de mode, i el servei és
+  compartit amb el mesh (`ble_gatts_start` el crida `esp_ble_mesh_init`).
+- **I la mida que un amfitrió llegeix és la del mapa d'ara**: `report_access` contesta quatre bytes al mode `mouse` (abans deia vuit a
+  la primera característica i tres a la segona, o sigui que el valor que l'amfitrió llegia abans de subscriure-s'hi no era el de cap
+  report del mapa).
+
+**I dues línies que diuen on s'atura**, perquè això és el que una persona pot llegir d'aquesta banda sense un analitzador: una quan hi ha
+quelcom per enviar i l'altre cap encara no ha escrit el CCCD —*«this board has something to send and the other side has not asked for
+the reports yet»*— i una quan el primer report surt de debò —*«the first report went out: 4 bytes on 0x…»*—. Són una vegada per vincle,
+no una per fotograma, perquè un ratolí envia un report per cada fotograma del dit (docs/50, docs/95).
+
+**I l'app és un ratolí i prou** (`apps/bthid`, títol *btHID Mouse*, 0.3.1): o sigui que la pàgina d'espera té **un sol botó** (el
+commutador del ràdio, que no s'encén sol) i la vista viva és el pad: el dit que camina mou el cursor de l'altre aparell i el toc que no
+camina és un clic. El que la placa és es desa a `cfg btmode`, i el que s'ha deixat la persona és la vista (la sessió `state`).
+
+**I el ratolí té els seus tres botons** (0.190.267, i la icona del teclat amb la insígnia a la 0.190.268, l'amo: *«afegeix 2 o 3 botons a l'app “btHID Mouse” a la part de dalt del panell que fa
+de mouse, sota la barra de sistema per fer de botons del mouse»*): a la vista viva hi ha una fila de tres caixes —`Left`, `Middle` i
+`Right`— a dalt de tot, sota la barra del sistema, i **el pad del punter comença sota la fila**. Un botó que el dit prem és un `bt.click`
+de la seva paraula i **el pad no el veu**, perquè el rectangle que el dit camina (`pad_rect`) no arriba a la fila; un clic que no surt es
+diu a la línia i al registre, i un que surt no diu res —un ratolí que escriu al registre cada clic és un registre que no es pot llegir.
+
+#### El teclat, i la caixa que ha d'estar a dalt (0.190.267)
+
+L'amo va demanar la versió teclat —*«Ara fes la versió teclat de l'app “btHID Keyboard”, revisa els requisits
+https://novelbits.io/bluetooth-hid-device-design-example-project/»*— i va assenyalar-ne la dificultat abans que hi caiguéssim: *«Hauràs de
+posar un TextBox sota la barra de sistema a dalt de tot... Si no hi ha focus, el teclat per software no surt ni es manté»*.
+
+**I tenia raó, i és del sistema i no de l'app**:
+
+- **La banda del teclat segueix el focus** (docs/30, docs/90): surt quan una caixa que pren tecles el té i marxa quan el focus se'n va. Una
+  caixa **no enfocada** és una pàgina on el teclat no surt, i una pàgina que només espera que el dit trobi la caixa és una pàgina morta en
+  una placa que no té tecles físiques. El que fa `apps/btkbd` en entrar a la vista viva és donar-li el focus i aixecar la banda ella
+  mateixa (`kb.target = box` i `kb:show('alpha')`), i `on_resize` la torna a col·locar quan la banda apareix o marxa.
+- **La banda ocupa els 256 px de baix**: una caixa allà seria una caixa tapada pel teclat que ella mateixa fa sortir. Per això va **a dalt
+  de la vista, a tocar de la barra del sistema**, i el que queda al mig és el que diu què està passant.
+
+**El que hi ha a la pàgina** (`apps/btkbd`, 0.1.1): la caixa a dalt, la línia d'estat i la nota; la banda la posa el sistema. El que
+s'escriu marxa **lletra per lletra** amb el `bt.type` que ja existia, i el que compta és la diferència amb el que ja ha sortit —el que
+s'ha esborrat són retrocessos i el que s'ha afegit són les tecles, en aquest ordre—, o sigui que una lletra escrita al mig és un retrocés
+i la cua tornada a escriure, que és el que fa un teclat de debò. **El retorn de carro de la banda viatja com a Enter i no es queda dins la
+caixa**: una caixa d'una línia amb un salt a dins no és el que una persona ha escrit.
+
+**Els requisits de l'article, un per un** (novelbits, *Bluetooth HID Device Design*) i què en fa aquesta banda: el servei `0x1812` amb
+*HID Information*, *Control Point*, *Report Map*, *Protocol Mode* i l'*Input Report* amb el seu CCC i el *Report Reference* ja hi eren des
+de la 0.190.204 (docs/50); **el que l'article recorda i aquí es compleix** és que el report ha de cabre en el que el mapa declara —el
+teclat són vuit bytes i les tecles que en surten no en són mai més de sis alhora, amb els modificadors al primer octet— i que el que
+arriba de l'amfitrió (el *Control Point* i el *Protocol Mode*) es llegeix i no s'ignora.
+
+**I el que queda dit a les dues pàgines, perquè no enganyi**: les dues apps **no comparteixen vincle**. El mode es desa a `cfg btmode` i
+canviar-lo torna a anunciar el mapa, o sigui que l'altre aparell s'ha de **tornar a aparellar** en passar d'una app a l'altra. El mode
+`both` ho estalviaria —dos report IDs en un sol mapa— i no s'ha tocat perquè encara no s'ha vist funcionar en un amfitrió de debò, i el
+ratolí sí que hi ha de funcionar.
+**I la icona és el que l'app fa** (0.190.265, i refeta a la 0.190.268, l'amo: *«canvía el logo, ara es el logo de bluetooth, posa un mouse
+amb logo bluetooth millor»* i després *«L'icona del mouse tampoc te garie detall.. curra't-ho»*): el cos d'un ratolí amb els dos botons en
+el to clar i el cos en l'ombra, la ratlla que els separa i la roda amb les seves crestes, i **el logo de Bluetooth en una insígnia** a la
+cantonada —disc de paper, anella de tinta i la runa de sempre, que és el mateix gest que el disc del `About`.
+
+**Les dues icones segueixen la paleta de casa i no un catàleg** (0.190.268): paper 255, cos 221, ombra 187, detall 170 i tinta 68 —els
+valors que surten de comptar els vint-i-vuit dibuixos de `tools/icons/`—, contorn de setze píxels i cantonades de quaranta-quatre. El
+primer intent, amb els dibuixos de Lucide tal com venen, era de línia fina i blanca i no era d'aquest joc (docs/45).
+
+#### Un controlador que ja era encès (0.190.263)
+
+De la placa de l'amo, en obrir *bt HID* i prémer el commutador:
+
+```
+[I][APP] bt hid: bringing the radio up as a mouse
+[I][NVS] cfg/btmode = mouse
+E (83461) BLE_INIT: controller init failed
+[W][BT] the radio did not come up (259): the keyboard has nothing to use
+```
+
+**259 és `ESP_ERR_INVALID_STATE`** i diu exactament una cosa: `esp_bt_controller_init()` ha trobat el controlador **ja inicialitzat**. És
+la mateixa lliçó que el wifi de la 0.190.221 —el que s'inicialitza una vegada no s'inicialitza dues—, però aquí el que el deixava encès
+no era el nostre codi:
+
+- **El mesh** corre el seu amfitrió sobre el mateix controlador, i `mesh off` **només deixa de mirar** (`mesh_node_withdraw` desactiva la
+  provisió i prou): el controlador i la pila es queden a dalt. Un `bt` després d'un mesh no pot funcionar fins a la propera arrencada.
+- **Un `nimble_port_deinit()` que falla a mig camí**: `esp_nimble_deinit()` torna abans d'hora quan `esp_nimble_hci_deinit()` diu que no, i
+  llavors `esp_bt_controller_disable`/`deinit` **no s'arriben a fer mai**. El controlador es queda encès per a la resta de l'arrencada i
+  cada intent següent rep el mateix 259.
+
+I hi havia una segona cosa, pitjor perquè era invisible: **`g_the_stack_is_up` no es desfeia** a `keyboard_stop()` ni a `host_off()`. Després
+de baixar la pila, el següent `bt on` es pensava que ja hi era, es saltava `nimble_port_init` i anava a registrar serveis en un amfitrió mort.
+
+El que fa ara [`the_stack_up`](../../lib/hal_esp32/src/bluetooth.cpp):
+
+1. **La marca baixa amb la pila** als dos llocs que la desfan.
+2. **Es pregunta l'estat abans d'inicialitzar** (`esp_bt_controller_get_status()`). Si no és `IDLE`:
+   - i el mesh el té → es diu i no es toca, amb la veritat a la frase: *«the mesh has the radio …, and `mesh off` does not give it back
+     yet: the keyboard has to wait for the next start of the board»*;
+   - i no és de ningú → es desfà aquí (`disable` + `deinit`) i la ràdio es torna a provar. La línia del registre diu l'estat que hi havia
+     i què se n'ha fet, o sigui que un 259 no torna a arribar sense explicació.
+
+**El que encara no està fet, i és el següent**: que `mesh off` torni el controlador de debò (`esp_ble_mesh_deinit`), perquè llavors les dues
+ràdios conviuen en una sola arrencada. No s'ha tocat perquè el provisioner té el paper desat a la NVS i un `deinit` a mitges el deixaria
+sense xarxa fins a tornar a donar les claus; és una feina amb la seva pròpia prova.
+
+#### El `-1` era el host sense memòria, i la paraula era d'un teclat (0.190.264)
+
+La segona placa, amb el remei del controlador ja a dins, va arribar **més enllà i va fallar al pas següent** —que és exactament el que havia
+de fer si el primer forat era el de debò—:
+
+```
+I (32181) BLE_INIT: BT controller compile version [59725b5]
+I (32182) BLE_INIT: Bluetooth MAC: 30:ed:a0:ad:0a:fe
+E (32214) BLE_INIT: hci inits failed
+E (32215) BLE_INIT: nimble host init failed
+[W][BT] the radio did not come up (-1): the keyboard has nothing to use
+```
+
+I l'amo, llegint-lo: *«“the keyboard” potser estem confonent-nos?»*. Sí: la porta es diu `keyboard_start` des que tot això era un teclat i el
+missatge sortia d'aquell nom, en una placa que és un ratolí.
+
+- **`-1` no és cap codi d'error**: és el que `nimble_port_init` contesta sempre que el host falla (`return ESP_FAIL` escrit a mà dins d'IDF),
+  o sigui que amaga el motiu. Dins seu, el primer que fa el host és `os_msys_buf_alloc`, i **aquesta sí que torna `ESP_FAIL` quan un
+  `calloc` no cap**: el host no podia prendre els seus blocs de treball (12 × 256 + 24 × 320, més les cues d'esdeveniments, d'ordres i
+  d'ACL) en la RAM interna, perquè el controlador de la ràdio ja se n'havia menjat uns trenta kilobytes.
+- **El remei**: `CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y`, que fa que `bt_osi_mem_calloc` demani `MALLOC_CAP_SPIRAM`. Va a les dues
+  bandes que tenen ràdio **i** PSRAM (`lilygo-t5s3-idf` i `m5-paper-idf`, al `sdkconfig` i al `sdkconfig.defaults`); l'ATOM i el devkit, que
+  no en tenen, es queden com eren. **El controlador no s'hi mou** —la seva memòria ha de ser interna—, i el que s'hi mou és el host: uns
+  vint kilobytes que així no depenen de quants en quedin lliures quan una app encén el Bluetooth.
+- **I el registre diu el que abans no deia**: la memòria interna lliure i el bloc més gran en el moment de pujar la pila, i una segona
+  línia quan el codi és `ESP_FAIL` que nomena les dues causes possibles —els blocs del host, o un callback de HCI ja pres—.
+- **La paraula, arreglada**: la frase surt d'`g_device_mode` —`the mouse`, `the keyboard`, `the keyboard and the mouse`— i l'èxit diu
+  `the device is up as "lunokOS-XXYY" (the mouse)`.
+
+**Provat**: `lilygo-t5s3-idf` i `m5-paper-idf` compilen amb el canvi de `sdkconfig` (recompilació sencera de la IDF a totes dues, perquè el
+`sdkconfig` no és un fitxer de codi), i `emulator` segueix compilant. **El que no es pot provar sense la placa és que el ratolí aparegui al
+mòbil**: el que hauria de sortir al registre ara és `the radio is up for the mouse: N B of internal memory before, M B after`.
 
 #### La ràdio del wifi té commutador (0.190.221)
 

@@ -93,6 +93,19 @@ bool start(const char* name) {
   // **El que costa encendre-la**: la pila de NimBLE i els seus trenta kilobytes de heap, que és la xifra que decideix si el ràdio
   // es pot quedar en una placa sense PSRAM (docs/50, docs/75).
   meter::Scope metering(meter::kRadioUp);
+  // **I la placa torna a ser el que es va triar, ABANS que la ràdio arrenqui** (0.190.208, i mogut aquí a la 0.190.259): the mode is kept
+  // by `cfg` and the radio is born a keyboard, o sigui que el que s'ha d'aplicar és el de la botiga —una placa que es va deixar com a ratolí
+  // ha de tornar com a ratolí (docs/30, docs/50)—.
+  //
+  // **I això va abans i no després per un motiu que es va veure al ratolí**: `device_be` sobre una ràdio ja engegada **esborra els vincles**,
+  // perquè un amfitrió que va llegir un mapa no endevina l'altre; aplicar-ho DESPRÉS d'encendre-la volia dir que cada arrencada d'una placa
+  // que és un ratolí esborrava el vincle que ella mateixa havia fet, i el telèfon s'havia de tornar a aparellar a cada reinici. Abans
+  // d'encendre no hi ha res a esborrar: el mapa que el servei servirà és el que la ràdio llegirà en néixer.
+  const char* wanted = cfg::bt_mode();
+  if (wanted != nullptr && wanted[0] != '\0' && strcmp(wanted, device_word()) != 0) {
+    (void)be(wanted);
+    log_printf(pal::kLogInfo, "BT", "this board comes up as %s, as it was left", wanted);
+  }
   const bool ok = radio->keyboard_start(name);
   if (ok) {
     // **El començament és el de la ràdio i no el d'un costat** (0.190.195): the breath of the light starts when the radio starts doing
@@ -101,14 +114,6 @@ bool start(const char* name) {
     // **I el ràdio mana sobre la son** (0.190.179): un son lleuger atura els rellotges que el link viu, o sigui que el torn rep la
     // resposta de `wants_the_chip_awake` i no obre el pany mentre això és engegat (docs/50, docs/60).
     log_printf(pal::kLogInfo, "BT", "the keyboard is on: the waits of this board are spent awake while it lasts");
-    // **I la placa torna a ser el que es va triar** (0.190.208): the mode is kept by `cfg` and the radio is born a keyboard, o sigui que el
-    // que s'aplica aquí és el de la botiga. Sense això una placa que es va deixar com a ratolí tornava com un teclat a cada arrencada, i el
-    // que deia el prompt era una cosa i el que oferia la ràdio una altra (docs/30, docs/50).
-    const char* wanted = cfg::bt_mode();
-    if (wanted != nullptr && wanted[0] != '\0' && strcmp(wanted, device_word()) != 0) {
-      (void)be(wanted);
-      log_printf(pal::kLogInfo, "BT", "and it is %s, as it was left", wanted);
-    }
   }
   return ok;
 }

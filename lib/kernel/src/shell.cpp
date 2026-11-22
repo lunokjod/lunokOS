@@ -2150,6 +2150,10 @@ char g_run_wanted[40] = {0};
 // **Els commutadors del desig** (0.189.161): the switches the app that asked carried, given to the next start as `app.args.flags`
 // and spent with the wish —a string of the wish and not of the manifest, which is what `run appinfo -d battery` says (docs/30).
 char g_run_flags[48] = {0};
+// **El fitxer que el desig dona a l'app** (0.190.257): `app.run(id, back, flags, path)` is the browser handing a file to
+// whoever opens it, and a path is as long as the drive lets it be —the same ceiling the virtual file system uses, so a
+// path that fits there fits here— (docs/30, docs/70).
+char g_run_path[128] = {0};
 // **Els commutadors que el proper arrencada ha de rebre** (0.189.161): filled by the consumer of the wish —or by the prompt— and
 // read by the start that follows, which is the one the wish was about.
 char g_start_flags[48] = {0};
@@ -4753,7 +4757,7 @@ bool native_running() { return g_job != RadioJob::kNone || g_install_pending; }
 
 const char* app_id() { return g_app_alive ? luabind::app_id() : ""; }
 
-bool ask_run(const char* id, bool back, const char* flags, char* why, size_t why_cap) {
+bool ask_run(const char* id, bool back, const char* flags, const char* path, char* why, size_t why_cap) {
   if (id == nullptr || id[0] == '\0') {
     snprintf(why, why_cap, "%s", "an app with no name");
     return false;
@@ -4774,9 +4778,16 @@ bool ask_run(const char* id, bool back, const char* flags, char* why, size_t why
     snprintf(why, why_cap, "%s", "switches longer than an app of this system takes");
     return false;
   }
+  // **El fitxer viatja amb el desig** (0.190.257): a path that does not fit is refused here and said, because a cut path
+  // would start the app on a file nobody asked for —the lesson of the book with spaces in its name— (docs/30, docs/45).
+  if (path != nullptr && strlen(path) >= sizeof(g_run_path)) {
+    snprintf(why, why_cap, "%s", "a path longer than this system keeps while an app starts");
+    return false;
+  }
   snprintf(g_run_wanted, sizeof(g_run_wanted), "%s", id);
   g_run_wanted_back = back;
   snprintf(g_run_flags, sizeof(g_run_flags), "%s", (flags != nullptr) ? flags : "");
+  snprintf(g_run_path, sizeof(g_run_path), "%s", (path != nullptr) ? path : "");
   return true;
 }
 
@@ -4796,13 +4807,16 @@ bool start_the_one_that_asked() {
   return start_a_page(start);
 }
 
-bool app_run_wanted(char* out, size_t cap, bool& back, char* flags, size_t flags_cap) {
+bool app_run_wanted(char* out, size_t cap, bool& back, char* flags, size_t flags_cap, char* path,
+                    size_t path_cap) {
   if (g_run_wanted[0] == '\0') return false;
   if (out != nullptr && cap > 0) snprintf(out, cap, "%s", g_run_wanted);
   if (flags != nullptr && flags_cap > 0) snprintf(flags, flags_cap, "%s", g_run_flags);
+  if (path != nullptr && path_cap > 0) snprintf(path, path_cap, "%s", g_run_path);
   back = g_run_wanted_back;
   g_run_wanted[0] = '\0';
   g_run_flags[0] = '\0';
+  g_run_path[0] = '\0';
   g_run_wanted_back = false;
   return true;
 }
@@ -5286,8 +5300,10 @@ bool poll_app() {
     // the app that asked is already gone (docs/30, docs/90).
     char wanted[sizeof(g_run_wanted)];
     char switches[sizeof(g_run_flags)];
+    char wanted_path[sizeof(g_run_path)];
     bool back = false;
-    if (app_run_wanted(wanted, sizeof(wanted), back, switches, sizeof(switches))) {
+    if (app_run_wanted(wanted, sizeof(wanted), back, switches, sizeof(switches), wanted_path,
+                       sizeof(wanted_path))) {
       // **Els commutadors del desig, i només d'aquest arrencada** (0.189.161): the start of the app that was asked for reads
       // them where the manifest's `opensArgs` go, and a wish without any leaves the manifest's own in place (docs/30).
       snprintf(g_start_flags, sizeof(g_start_flags), "%s", switches);
@@ -5304,6 +5320,9 @@ bool poll_app() {
       g_start_detached = was_detached;
       AStart start_of_the_wish;
       start_of_the_wish.id = wanted;
+      // **I el fitxer del desig, si en porta** (0.190.257): the app that asked was a browser, and what it resolved is the
+      // file the new page opens with —`app.args.path`, the same door the prompt's `run` uses— (docs/30, docs/45).
+      if (wanted_path[0] != '\0') start_of_the_wish.path = wanted_path;
       if (!start_a_page(start_of_the_wish)) prompt();
       g_start_detached = false;
       return g_app_alive;
@@ -7874,6 +7893,29 @@ void take_a_line(const char* text) {
   run_a_line(text);
 }
 
+// **L'històric del prompt viu en un bloc propi i no en la `.bss`** (0.190.262, l'amo: *«si l'històric de les comandes ocupa massa
+// és perquè és una llista fixa, no? no trobes que és millor que es guardin lletra per lletra en el seu propi psmalloc»*): eight
+// slots of a hundred and twenty-eight bytes were 1 024 B of internal RAM for eight commands, and a command of three letters
+// wasted a hundred and twenty-four of its slot. Now the letters go back to back in **two kilobytes asked once** from
+// `pal::extra_memory()` —PSRAM when the board has it— and some hundred and twenty commands of sixteen letters fit.
+//
+// **Es demana al primer byte que una persona escriu i no a l'arrencada**: a board nobody ever types a command at does not pay
+// for it, and by the time a key arrives the books of the memory are open, so the block is in `mem blocks` with its owner. A
+// block that cannot be had is a prompt with no history —the line and the arrows of the line still work— and the log says it.
+void ensure_the_history() {
+  static bool asked = false;
+  if (asked) return;
+  asked = true;
+  // **La marca és el que fa que el bloc surti amb amo a `mem blocks`** i no com «nobody»: it is the shell's two kilobytes,
+  // and a person looking at the books has to see whose they are (docs/75).
+  pal::MemoryTag mine(pal::kMemoryShell);
+  char* block = static_cast<char*>(pal::extra_memory().allocate(line::kHistoryBytes, true));
+  g_editor.history_in(block, line::kHistoryBytes);
+  if (block == nullptr) {
+    log_printf(pal::kLogWarn, "SHELL", "no memory for the history of the prompt: up and down will do nothing");
+  }
+}
+
 void feed(const char* data, size_t len) {
   // **Un byte és una persona al cable** (0.190.184): the clock of the session starts again with every byte, and what the turn asks is whether
   // five minutes have gone by since this one (docs/60).
@@ -7891,6 +7933,10 @@ void feed(const char* data, size_t len) {
     luabind::feed_console(data, len);
     return;
   }
+
+  // **Els dos kilobytes de l'històric, aquí i un sol cop**: the first byte a person types at the prompt is the moment the
+  // history is worth having, and every path below this line may use it (docs/30, docs/75).
+  ensure_the_history();
 
   for (size_t i = 0; i < len; ++i) {
     const char c = data[i];

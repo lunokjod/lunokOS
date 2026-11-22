@@ -559,6 +559,34 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
 
   uint32_t random() override { return g_random.next(); }
 
+  // **I els bytes que han de valer per a un secret** (0.190.258). The chip's generator is a true one only while the radio
+  // is up —the entropy is the noise of the RF stage— and this system keeps the radio off until something asks for it, so
+  // the other case is the documented one: **open the chip's internal source for the bytes and close it again**. What the
+  // documentation says about that window is why it is a window and not a switch: it is the SAR ADC's noise, so it has to
+  // be let go before anything else touches the ADC —the battery gauge of the Paper is an ADC pin— and it must not be used
+  // while Wi-Fi or Bluetooth are running. Hence the two paths: **the radio's word when the radio is up, the window when it
+  // is not**, and never both at once (docs/30, docs/50).
+  //
+  // **It is not the mixer above on purpose**: a salt or a nonce has to be unguessable, and a xorshift read twice can be
+  // followed from the two words it answered. The word that comes out of here is the chip's own, and the meter of the RTC
+  // memory is stirred with it as well so that the next boot does not start from the same place.
+  bool random_bytes(uint8_t* out, uint32_t len) override {
+    if (out == nullptr || len == 0) return false;
+    g_random.seed();
+    if (radio_is_up()) {
+      esp_fill_random(out, len);
+    } else {
+      bootloader_random_enable();
+      esp_fill_random(out, len);
+      bootloader_random_disable();
+    }
+    // The last eight bytes are what the next boot of this board will know it drew (docs/50).
+    uint32_t tail = 0;
+    for (uint32_t i = 0; i < len; ++i) tail = (tail << 8) | out[i];
+    kept_write(tail ^ mix32(g_kept.state), g_kept.serial);
+    return true;
+  }
+
   HeapInfo heap() const override {
     HeapInfo info;
     info.valid = true;

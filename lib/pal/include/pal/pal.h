@@ -186,6 +186,23 @@ class ISystem {
   // mixer the run seeded. It is what the interpreter starts its own generator with, and what an app that needs a seed
   // asks for (docs/20, docs/75).
   virtual uint32_t random() = 0;
+  // **I l'atzar que ha de valer per a un secret** (0.190.258): `random()` is a word of the band's *mixer* —a xorshift on
+  // the PC and on the board too, seeded once from the noise of its own boot— and that is what a seed or a simulation
+  // wants. A salt and a nonce are the other question: a stream of them has to be unguessable, and a mixer read a few times
+  // can be followed from its own output. So this one **asks the band for entropy every time** —the board opens the chip's
+  // own source for a few bytes, the PC reads the run's— and the default below is "the same mixer, word by word", which is
+  // what a band with no other source has to answer (docs/30, docs/50).
+  virtual bool random_bytes(uint8_t* out, uint32_t len) {
+    if (out == nullptr) return false;
+    uint32_t i = 0;
+    while (i < len) {
+      const uint32_t word = random();
+      for (uint32_t b = 0; b < 4 && i < len; ++b, ++i) {
+        out[i] = static_cast<uint8_t>(word >> (b * 8u));
+      }
+    }
+    return true;
+  }
   virtual HeapInfo heap() const = 0;
   // **How much of the task's own stack is left at its lowest point**, in bytes, or -1 on a build that
   // cannot ask. A page of controls, a font of outlines and the interpreter share one task, and a stack that

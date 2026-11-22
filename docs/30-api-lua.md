@@ -59,6 +59,8 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
   el parpelleig del cursor, més les dues llistes que un desplegable necessita. **I el disc preferit és també el terra de
   `/data`** (0.190.8): una app no necessita cap porta nova per saber-ho — `fs.mounts()` li diu el `type` de la fila.
 - **`admin`** (0.189.99): el paquet d'una app que el manifest marca `"admin": true`.
+- **`crypto`** (0.190.258): `random`, `key`, `seal` i `open`, que és el que una app necessita per desar un secret i res més
+  (vegeu la secció, i `docs/45` per a l'app que la va fer néixer).
 
 **Encara no hi és**, i una app que ho cridi peta amb «attempt to call a nil value»:
 `console.flush()`, `console.read()`, `console.on_data()`, `time.format`/`parse`/`sync`,
@@ -541,6 +543,7 @@ llegís caminant `/apps` seria un segon lector del mateix fitxer.
 | Crida | Torna | Notes |
 |---|---|---|
 | `apps.list()` | taula de cadenes | **Els noms de la porta i res més**: un `id` per app, en l'ordre que el disc els dona. **No obre cap manifest**, o sigui que és el que un llançador pot ensenyar de seguida —el nom amb una icona genèrica— i el que arriba abans que el disc tregui res |
+| `apps.opener(name)` | `id, commutadors` o `nil, error` | **Qui obre un fitxer, preguntat als manifests** (0.190.257): l'`id` de l'app que diu que obre l'extensió de `name` i els commutadors que aquella app demana quan un navegador li dona un fitxer (`opensArgs`, que és com l'`Editor` diu `-ro` sense que el navegador sàpiga què és un editor), o `nil` i la frase que nomena l'extensió que ningú no vol. **L'extensió es llegeix de l'últim punt i en minúscules**, o sigui que una targeta escrita en un ordinador (`FOTO.PNG`) és la mateixa mena de fitxer aquí que allà; **guanya la primera app que la demana**, en l'ordre de la porta, perquè dues apps que obren `.txt` és una decisió que algú va prendre posant-hi primer la que vol; i **un nom amagat no té obridor a posta**: el `.foto.png.cache.ics` del costat d'una foto és una miniatura i obrir-lo seria oferir el cau com si fos el fitxer. És la pregunta del vell `paperos.opener` i viu al sistema pel mateix motiu que `apps.info`: els manifests són de la porta, i un segon lector és el que s'equivoca (docs/40, docs/45) |
 | `apps.info(id)` | taula o `nil, error` | **El manifest d'aquella app**, llegit quan l'app ho demana: `{id, title, icon, version, launcher, card, works_here}`. `icon` és **el camí que el disc contesta** (`/apps/<id>/res/icon.png`), o `""` si el manifest no en nomena cap; `version` és el `"version"` del manifest tal com l'escriu (`"0.2.0"`), o `""` si no en porta (0.189.22: és el número que deixa saber a un llançador que la cel·la que té guardada és d'una app d'abans); `launcher` és el `"launcher": true`; `card` diu de quin disc ha sortit i `works_here` si aquesta placa la pot arrencar. El no diu per què (`E_INVAL`): un nom que la porta no té, o un manifest que aquest sistema no llegeix |
 
 **Per què són dues crides i no una** (0.154.0): una pàgina que espera tots els manifests i totes les imatges abans
@@ -634,7 +637,7 @@ pàgina** i no una taula del nucli:
 | `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer. **`opens` és la llista sencera** que el manifest declara, amb els noms separats per espais —`"txt md lua"`—; una app que no n'obre cap rep `""` (0.120.0) |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
-| `app.run(id[, back[, flags]])` | `true`, o `nil, error` | **Arrenca una altra app** (0.153.0): l'app que hi ha davant es tanca amb els seus comiats i la del `id` ocupa el seu lloc. És **un desig i no un canvi immediat** —qui pregunta és la mateixa app que el intèrpret té a sota, i tancar-la dins la crida destruiria l'estat on la crida corre—: el nucli el porta a terme al final del torn, i fins aleshores `app.run` ha contestat `true` i no ha passat res. **`back` és la tornada i val `true` si no es diu**: quan l'app que s'ha obert s'acaba —o tres tecles la tanquen— la que va preguntar torna a la pantalla, que és el que vol un llançador i l'única manera de tornar en una placa de tres tecles. `app.run(id, false)` és un traspàs sense tornada. **El motiu del no és del sistema**: l'app que es demana a si mateixa, un `id` que no és al disc i una app d'una altra placa es diuen amb el seu `message` (`E_INVAL`), i no passa res més. **`flags` són els commutadors de l'app que s'arrenca** (0.189.161) i li arriben com `app.args.flags`, la mateixa porta que els `opensArgs` d'un manifest; `app.run('appinfo', '-d battery')` és una segona cadena i vol dir els commutadors amb la tornada de sèrie, i `app.args` hi és encara que l'app no rebi cap fitxer |
+| `app.run(id[, back[, flags[, path]]])` | `true`, o `nil, error` | **Arrenca una altra app** (0.153.0): l'app que hi ha davant es tanca amb els seus comiats i la del `id` ocupa el seu lloc. És **un desig i no un canvi immediat** —qui pregunta és la mateixa app que el intèrpret té a sota, i tancar-la dins la crida destruiria l'estat on la crida corre—: el nucli el porta a terme al final del torn, i fins aleshores `app.run` ha contestat `true` i no ha passat res. **`back` és la tornada i val `true` si no es diu**: quan l'app que s'ha obert s'acaba —o tres tecles la tanquen— la que va preguntar torna a la pantalla, que és el que vol un llançador i l'única manera de tornar en una placa de tres tecles. `app.run(id, false)` és un traspàs sense tornada. **El motiu del no és del sistema**: l'app que es demana a si mateixa, un `id` que no és al disc i una app d'una altra placa es diuen amb el seu `message` (`E_INVAL`), i no passa res més. **`flags` són els commutadors de l'app que s'arrenca** (0.189.161) i li arriben com `app.args.flags`, la mateixa porta que els `opensArgs` d'un manifest; `app.run('appinfo', '-d battery')` és una segona cadena i vol dir els commutadors amb la tornada de sèrie, i `app.args` hi és encara que l'app no rebi cap fitxer. **I el quart argument és el fitxer** (0.190.257): `app.run('editor', true, nil, '/sd/notes.txt')` dona a l'app el camí com el `run` del prompt, i el llegeix a `app.args.path`; és la segona meitat de `apps.opener`, perquè un navegador que ja sap qui obre un fitxer no tindria cap manera de donar-l'hi sense això. Un camí que no hi cap es refusa amb el motiu i no es talla (docs/45, docs/70) |
 | `app.view()` | enter | **La vista d'una app, per què és el nombre de pàgines que té a sobre de la primera** (0.163.0): `0` és una app que només té una pàgina, i és el que el sistema llegeix quan un pessic demana tornar (vegeu `app.view_push`) |
 | `app.view_push()` | enter | **Una pàgina a sobre de la que hi havia** (0.163.0): una app que obre un detall sobre la llista ho diu amb aquesta crida, i torna el nombre nou. És el número el que fa que un pessic doni el detall en lloc de tancar l'app |
 | `app.view_pop()` | enter | **La pàgina de dalt, tornada** (0.163.0): la mateixa que baixa el pessic i la que baixa un botó de Tornar. Es queda a zero i no baixa de zero |
@@ -907,7 +910,7 @@ consola no acceptaria (docs/30, docs/70).
 | `bt.ready()` | booleà | **Si l'altre cap ha encès els reports** (0.190.208, l'amo: *«connecta, pero encara no envia bé sembla»*): `bt.connected()` diu que hi ha un aparell a l'altre costat; això diu que a més a més ha escrit el CCCD de la característica d'entrada, que és el que fa que una notificació hi arribi. Entre les dues coses hi ha un moment en què la placa envia i l'altre cap encara no rep res, i una pàgina que ho sap ho diu en comptes de deixar una persona escrivint al buit (docs/50) |
 | `bt.device([<mode>])` | cadena o `nil, error` | **Què és aquesta placa com a aparell HID, i què ha de ser** (0.190.204): `'keyboard'` (el de sèrie), `'mouse'` o **`'both'`**, que és un teclat i un ratolí en un sol vincle. Sense argument contesta la paraula que hi ha ara; amb una, la canvia i contesta què ha quedat. **`'both'` vol report IDs** —el teclat l'1 i el ratolí el 2— i per tant **no serveix el boot protocol**: és per a un mòbil o un ordinador i no per a la BIOS d'un PC, i l'altre aparell ha de tornar a aparellar-se un cop perquè va llegir el mapa de quan això era només un teclat. Una paraula que no és cap de les tres, o una placa sense ràdio, responen `nil, E_INVAL` o `nil, E_UNSUPPORTED` (docs/50) |
 | `bt.name()` | cadena | **El nom amb què aquesta placa s'anuncia** (0.190.204), o sigui el que una persona busca a la llista del telèfon: `lunokOS-A1B2`, amb els dos últims bytes de l'adreça del ràdio (docs/50) |
-| `bt.move(<dx>, <dy>)` | booleà o `nil, error` | **Un moviment relatiu del punter** (0.190.204), i el report torna a zero de seguida perquè el cursor no se'n vagi. **El report en porta de −127 a 127**: més que això és `nil, E_INVAL` i la pàgina ho ha de fer en més d'un pas —un dit que arrossega sis-cents píxels no és un report—. Fals vol dir que no hi ha ningú a l'altre cap o que aquesta placa no és un ratolí (docs/30, docs/50) |
+| `bt.move(<dx>, <dy>)` | booleà o `nil, error` | **Un moviment relatiu del punter** (0.190.204), i el report de repòs va darrere del de moviment perquè el cursor es quedi quiet quan el dit s'atura. **El report en porta de −127 a 127 i el moviment més gran el parteix el sistema** (`bt::move_for_a_page`, 0.190.259): un dit que arrossega sis-cents píxels són cinc reports i no un `E_INVAL`, perquè una pàgina no ha de saber el signe d'un byte i un moviment refusat és un punter que es queda a mig camí. Fals vol dir que no hi ha ningú a l'altre cap o que aquesta placa no és un ratolí (docs/30, docs/50) |
 | `bt.click([<button>])` | booleà o `nil, error` | **Un clic** (0.190.204): `'left'` si no es diu res, `'right'` o `'middle'`. Prem, espera el que un dit hi posa i deixa anar, perquè un botó premut per sempre és el que l'altre cap veu si no es deixa anar (docs/50) |
 | `cfg.loglevel([paraula])` | cadena o `nil, error` | **Quantes línies vol veure una persona** (0.190.89, `cfg loglevel debug\|info\|warn\|error` i la fila *Log level* de la pestanya System): el **llindar del registre del sistema** i no un filtre de l'app, o sigui que val igual per a les línies dels conductors, per a les del nucli i per a les frases. **`debug` és el de sèrie i vol dir tot** —el que el sistema ha escrit sempre—; `info` deixa fora les línies de feina, `warn` les que només diuen el que passa i `error` només les que fallen. Baixar-lo **no esborra res del que ja hi ha** al cercle, només fa que el que ve no hi arribi. Una paraula que no és cap de les quatre és `E_INVAL` i el llindar es queda com era; el valor torna com el que el registre obeeix i **es desa** (docs/50). **I hi ha línies que no filtra** (0.190.114): la del canvi de cada ajust (`[I][NVS] cfg/<clau> = <valor>`) i la que diu que la botiga s'ha escrit a la baixada, perquè són respostes a una cosa que una persona ha fet i no traces (docs/70) |
 | `cfg.idle([seconds])` | enter o `nil, error` | **Quanta quietud abans del son profund** (0.190.9, `cfg idle [5\|10\|15]` i la fila *Sleep after* de la pestanya Battery): els segons que la política espera sense cap mà a la placa abans d'apagar-la. **Tres-cents, sis-cents o nou-cents —cinc, deu o quinze minuts, els mateixos tres del pany— i res més** —un altre número és `E_INVAL` i no es desa—, el de sèrie són cinc minuts, i el que torna és el que la política llegirà al pròxim torn, no el que la pàgina ha demanat. **L'API és en segons i la comanda del prompt en minuts** (0.190.186): `cfg idle 5` i `cfg idle 300` són el mateix, perquè el que una persona diu és cinc minuts i el que escriu una app són segons (docs/30, docs/60) |
@@ -1000,8 +1003,20 @@ l'app corregui cap línia, i una app copiada a la targeta se l'emporta a ella.
   (docs/70).
 - **I el llistat de les apps se n'assabenta**: cada esborrada apuja la generació de la llista, que és el número amb què el
   launcher sap que la seva graella ha canviat (docs/40).
-- **El que no fa**: no dona cap accés al maquinari, no salta cap límit de memòria ni de permisos de fitxers, i no canvia res
-  de la màquina de Lua que no sigui aquesta taula. És el mateix entorn que el d'una app d'usuari amb una taula més.
+- **I L'ADMINISTRADOR CAMINA EL DISC** (0.190.257, l'amo: *«reaprofitar "admin": true, el paquet de l'administrador»*): the
+  manifest key that gives this table **also widens the door of the filesystem**, and it is the one exception of the model of
+  grounds (docs/70). An administrator's `fs.list`, `fs.stat`, `fs.read`, `fs.write`, `fs.mkdir`, `fs.remove`, `fs.rename`,
+  `fs.space` and `fs.open` reach **every mount of the tree** —`/littlefs`, `/sd`, `/data`, `/cfg`, `/apps`, `/res`, `/fonts`,
+  `/session`— read and write, and `/cfg` and `/res` are the ones of the tree and not its own room. It is the prompt's
+  authority, and it exists because **a file manager that cannot see the files is not a file manager**: the page that walks the
+  disk is the one that changes it, and the two halves are the same page. Nothing else changes: `/nvs` is the system's
+  bookkeeping and its row of the mount table is read-only, so it is read and never written, and `/rtc` and `/fram` are raw
+  memories whose format the writer decides —which is what the mount table already says—. A key that is read with the app and
+  before its machine exists, like every other power of this table: an app copied to the card carries its own answer
+  (docs/30, docs/40, docs/70).
+- **El que no fa**: no dona cap accés al maquinari i no salta cap límit de memòria. **Els permisos de fitxers sí que els
+  amplia**, i només ell: la taula `admin` i la porta ampla del disc són la mateixa clau del manifest, i la resta d'apps es
+  queden amb el seu terreny (docs/30, docs/70).
 
 ```lua
 -- **Una pàgina que ensenya les apps i les pot esborrar** (és el que fa `appinfo`): les alarmes d'una app es compten amb el
@@ -1642,6 +1657,42 @@ un fil que una app pot necessitar **sencer**. Aquest mòdul és l'interruptor, i
 - **I des del prompt** hi ha la comanda `serial` (sense res diu de qui és), `serial claim` i `serial release`. Una persona que
   cedeix el port es queda **un teclat que no fa eco** per poder escriure `serial release` a cegues: és l'única manera de tornar
   sense desendollar la placa (docs/50).
+
+## `crypto`: l'aritmètica que un secret necessita (0.190.258)
+
+**Quatre crides i prou**, perquè un fitxer de contrasenyes necessita exactament quatre coses —entropia, una clau, un segell i
+una obertura— i tota la resta (el format del fitxer, les pantalles, què s'escriu al voltant del bloc) és de l'app. És el
+`paperos.crypto` del projecte del paper amb els mateixos quatre noms **i el mateix bloc**, o sigui que un vault escrit allà
+s'obre aquí i a l'inrevés (`docs/45`).
+
+```lua
+local salt = crypto.random(16)                  -- 16 bytes del generador de la placa
+local key  = crypto.key(password, salt, 10000)  -- 64 bytes, i és el que costa
+local blob = crypto.seal(key, text)             -- nonce(12) | xifrat | etiqueta(16)
+local back = crypto.open(key, blob)             -- el text, o nil i el motiu
+```
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `crypto.random(n)` | cadena de `n` bytes | `n` és **d'1 a 64**: un salt i un nonce són per a què serveix, i qui en vulgui més en demana més vegades. `E_UNAVAIL` si la banda no té cap font d'atzar, i llavors **no es torna un salt que tothom sap** |
+| `crypto.key(password, salt, iterations)` | 64 bytes o `nil, error` | **Aquesta és la lenta, i ho és a posta**: PBKDF2-HMAC-SHA256. La contrasenya no pot ser buida (128 B com a molt), el salt de 8 a 64 B, les iteracions **de 1 000 a 100 000**, i cada derivació deixa la seva línia —`[CRYPTO] key: 10000 iterations, 16 bytes of salt, 93 ms`— i la seva fila de comptadors (`crypto.key` a `stats`), perquè el preu es tria amb un número mesurat i no amb un comentari |
+| `crypto.seal(key, text)` | `nonce \| xifrat \| etiqueta` o `nil, error` | ChaCha20 amb el comptador a zero i l'etiqueta són els **primers setze bytes d'un HMAC-SHA256** del nonce i el xifrat —xifrar i després autenticar, o sigui que un byte canviat es **refusa** i no es desxifra en escombraries—. El nonce és **nou a cada crida**: segellar el mateix text dues vegades no dona els mateixos bytes, i un xifratge de flux que repeteix un nonce amb una clau repeteix el seu flux |
+| `crypto.open(key, blob)` | el text o `nil, error` | Una clau equivocada i un fitxer canviat són **la mateixa resposta a posta**: dir-los l'un de l'altre diria a qui té el fitxer si la contrasenya era a prop |
+
+- **La clau és de 64 bytes i és UNA cadena**: els primers 32 són del ChaCha20 i els últims 32 de l'HMAC. Una clau amb dues
+  feines és la manera clàssica de convertir dues primitives bones en una de dolenta, i un script que l'hagués de partir seria
+  un script que la pot partir malament.
+- **Comparar una etiqueta no és `memcmp`**: `equal_bytes()` llegeix tota l'etiqueta, o sigui que el temps que triga no diu
+  res sobre quin byte era el dolent.
+- **El text d'un bloc és de 16 KB com a molt** —una entrada de bloc és un vault sencer i una escriptura del disc— i el que no
+  hi cap es diu amb el seu motiu.
+- **L'aritmètica és del nucli i ve del projecte del paper sencera** (`lib/kernel/src/crypto.cpp`): SHA-256, HMAC-SHA256,
+  PBKDF2-HMAC-SHA256 i ChaCha20, **sense mbedTLS**. No és un descuit: la suite d'aquest sistema és la d'un PC que no té
+  ESP-IDF a dins, i el bloc que aquestes quatre fan és el que el projecte del paper desa (`docs/45`). Cada primitiva té la
+  seva norma a `test/test_crypto`, amb la secció nomenada al costat dels números.
+- **I l'atzar**: `pal::random_bytes()` és la porta que **demana entropia a la banda cada cop** —a la placa el generador del
+  xip, amb la finestra documentada quan la ràdio no hi és; al PC el remenador que la tirada va sembrar—, i no el `random()`
+  de sempre, que és prou per a sembrar una simulació i no per a un salt.
 
 ## `led`
 
@@ -4206,7 +4257,8 @@ toc és una app que no fa res més.
 |---|---|---|
 | `touch.caps()` | `{points, width, height}` | Quants dits alhora i **la mida de la vista de l'app**, que és el marc en què compten les coordenades (`ui.caps()` diu el mateix) |
 | `touch.read()` | taula de `{id, x, y, size}` | Els dits que hi ha **ara**, de la darrera lectura del nucli (el nucli pregunta al xip a cada torn). Taula buida quan no toca ningú, no `nil`, perquè un bucle la pugui recórrer sense preguntar |
-| `touch.gesture()` | `{kind, x, y, dx, dy, spread, held_ms, fingers}` o `nil` | L'últim gest, i **es pren una vegada**: preguntar-ho dues vegades no el repeteix |
+| `touch.gesture()` | `{kind, x, y, dx, dy, spread, held_ms, fingers}` o `nil` | L'últim gest, i **es pren una vegada**: preguntar-ho dues vegades no el repeteix. Els `kind` són `tap`, `double`, `triple`, `drag` i `pinch` |
+| `touch.triple_tap_close([on])` | booleà o `nil, error` | **De qui són els tres tocs del vidre** (0.190.254, l'amo: *«Desactiva els 3 tocs sobre el Tetris, l'Snake i qualsevol joc que no el tingui desactivat»*): sense argument diu si els tres tocs tanquen l'app; amb `false` el gest queda a la cua de la pàgina (`touch.gesture()` el dona com un `triple`) i el sistema no tanca res, i amb `true` torna a ser seu. Sempre torna el que hi ha ara. **És el mateix gest que `admin.triple_tap_close`, sense el paquet d'administrador**: un joc que llegeix cada toc no pot tenir el sistema tancant-li la partida al tercer, i donar-li `admin` sencer per això seria donar-li `uninstall`. Les tres premsades de la tecla del mig són un altre camí i no les toca ningú, i quan l'app s'acaba el sistema recupera els tres tocs sol (`ui::give_back_the_glass`). **I no és cosa només de jocs** (0.190.266): el ratolí de *bt HID* també els demana per a ell, perquè a l'altre cap de l'enllaç **un toc és un clic** i el tercer no pot ser el sistema tancant la pàgina amb el telèfon ja aparellat |
 
 - **Un fotograma que no ha arribat no és un dit que s'aixeca** (3/11). El xip entrega el fotograma
   d'un escaneig **una vegada** i el driver se'l queda, o sigui que qui pregunta més de pressa que el

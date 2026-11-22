@@ -14,6 +14,15 @@ CONFIG_BT_NIMBLE_ENABLED=y
 # sistema ja té per als ajustos (docs/50, docs/70).
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
 
+# **La memòria del host de NimBLE, a la PSRAM** (0.190.264, de la placa de l'amo: `E BLE_INIT: hci inits failed` / `[W][BT] the radio
+# did not come up (-1)`): el primer que fa el host en néixer és demanar els seus blocs de treball —els *msys* de 12 x 256 i 24 x 320,
+# i les cues d'esdeveniments, d'ordres i d'ACL—, i quan un `calloc` no cap en la RAM interna el que contesta és `ESP_FAIL`, o sigui un
+# `-1` que no diu res. Aquesta placa té 8 MB de PSRAM i el controlador del ràdio, que sí que ha de ser intern, ja se'n menja uns 30 KB;
+# posar-hi el host vol dir que encendre el Bluetooth no depèn de quants kilobytes quedin lliures quan una app el demana. Demana
+# `SPIRAM_USE_MALLOC`, que aquesta banda ja té (docs/50, docs/75).
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+
+
 # **El node de Bluetooth Mesh** (0.190.212, l'amo: *«pots posar algun mesh?»*): la pila d'Espressif damunt de la mateixa NimBLE que el
 # teclat, amb un element i el servidor de configuració, i res més. **Node i no provisionador**: el que ha de poder fer aquesta placa és
 # deixar-se afegir a una xarxa des del telèfon (nRF Mesh o l'app d'Espressif), i un provisionador és una altra pila i una altra feina.

@@ -792,6 +792,13 @@ if not caps.display then
   return
 end
 
+-- **Els tres tocs del vidre són d'aquest joc i no del sistema** (0.190.254, l'amo: *«Desactiva els 3 tocs sobre el Tetris, l'Snake
+-- i qualsevol joc que no el tingui desactivat»*). Un joc llegeix cada toc, o sigui que el tercer no pot ser una ordre del sistema
+-- que tanqui la partida al mig; el gest queda a la cua i aquest bucle el deixa caure, perquè només mira `tap` i `drag`. **I tornar
+-- enrere no es perd**: les tres premsades de la tecla del mig són un altre camí i no les toca ningú, i quan l'app s'acaba el
+-- sistema recupera els tres tocs sol (docs/30, docs/46).
+if (touch.triple_tap_close ~= nil) then touch.triple_tap_close(false) end
+
 W, H = ui.caps().width, ui.caps().height
 measure(W, H)
 

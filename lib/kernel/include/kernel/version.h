@@ -12738,7 +12738,395 @@ namespace kernel {
 //     saber en llegir-ho és que no és un accident del sistema, sinó el `&` que algú ha demanat; i que la consola de l'app no és aquesta (docs/30).
 //
 // **I les cites de docs/92, docs/75 i docs/80 es queden com són**: són transcripcions del registre d'aquell dia, i una cita no s'actualitza.
-static const char kVersion[] = "0.190.252";
+// **0.190.253 — el `Tetris` del paper, en dues tintes i amb el dit** (l'amo: *«El Tetris, com amb l'snake, molta cura al fer el port.
+// Fixa't que el tauler dibuixa el menys possible i tot es blanc i negre. No facis el gamePad. Usarem els dits per girar la peça
+// (polsant a sobre) o moure-la a esquerra, dreta o avall»*).
+//
+// **El joc és el de la Game Boy de 1989 i no una versió suaument inspirada**: el pou de deu per divuit, les set peces amb els seus
+// estats en una caixa de quatre per quatre, el sistema de rotació **sense wall kick ni lock delay** —un gir que no hi cap no passa i el
+// dit no rep res—, la promesa que cap peça surt dues vegades seguides, la taula de caiguda de l'original en fotogrames (53…3 per als
+// nivells 0 a 20) escalada per dos amb el terra de 200 ms que és del vidre i no del joc, la puntuació de Nintendo (40, 100, 300 i
+// 1 200 per una, dues, tres i quatre files, pel nivell més u) i el nivell que puja quan els punts del nivell hi són, que és la regla
+// que fa que la barra i el número no es puguin contradir (docs/45).
+//
+// **I el que és d'aquest port i no del vell és el dibuix**: dues tintes i prou —tinta i paper, o sigui el mode `du`, que és el més
+// ràpid d'aquest panell a 120 ms— i **un sol dibuix** per a la peça que cau, la pila i el quadret del `Next`. D'aquí surt la gràcia:
+// si la cel·la del joc i la de la pila són la mateixa, **una peça que aterra no costa res de pintar** i el que es pinta és el que es
+// mou —com a molt vuit caixes en un present—, que era el defecte que el vell pagava amb cel·les a mig dibuixar (docs/45).
+//
+// **Els dits són el comandament** (l'amo, i cap creueta): un toc **sobre la peça** la gira, a un costat la mou una columna, a sota la
+// baixa una fila —i el terra és l'aterratge—, i un toc a sobre també la gira, perquè enlaire no és un camí que faci una peça. Una
+// línia plena fa el blink de dues passades que l'amo va demanar el 16/10 i després baixa la pila en la passada del pou sencer.
+//
+// **El que es va poder mesurar sense placa**: el harness de Lua del port va donar **93 línies i 5 020 punts en vint minuts de joc del
+// CPU** sense omplir mai el pou —l'avaluador clàssic del vell, amb els forats i el desnivell de la pila—, i la prova nova de la suite
+// mesura la geometria, el dit (girar, esquerra, dreta i avall) i **l'esborrat**: `stack=4` deixa quatre files plenes menys la columna
+// del `I`, el rellotge el deixa anar i el joc paga **1 200 punts** amb el nivell a 1 (docs/45, docs/85).
+//
+// **La fitxa**: `apps/tetris` amb el manifest 0.1.0, la icona de `tools/icons/Tetris.png` i el `home_eink` que el troba sol —el
+// manifest diu `esp32`, o sigui que viatja a totes les bandes d'ESP32 sense tocar cap llista (docs/40, docs/70)—.
+// **0.190.254 — els tres tocs del vidre són del joc** (l'amo: *«Desactiva els 3 tocs sobre el Tetris, l'Snake i qualsevol joc que no el
+// tingui desactivat»*).
+//
+// **El que passava**: el tercer toc d'una partida era una ordre del sistema. El gest el pren el nucli abans que la pàgina el llegeixi
+// —`shell::poll_app` i `ui::poll_full_screen`— i el que fa és tancar l'app, o sigui que tres tocs seguits en un joc que es juga amb el
+// dit són una partida que s'acaba sola. La porta per demanar-los existia des de la 0.189.101, però **només dins del paquet `admin`**
+// (el candau la va necessitar), i un joc no pot ser administrador per una cosa que és del seu dit: `admin` porta també `uninstall`,
+// `LockScreen` i `forget_cache`.
+//
+// **Ara hi ha `touch.triple_tap_close([on])`**: el mateix gest i la mateixa resposta que la porta d'administrador —`true` vol dir que
+// els tres tocs tanquen encara—, sense el paquet. El gest queda a la cua i la pàgina el rep com un `triple` a `touch.gesture()`; i
+// **tornar enrere no es perd**: les tres premsades de la tecla del mig són un altre camí i no les toca ningú, i la mà que els torna
+// és la de sempre (`ui::give_back_the_glass`, que ja ho feia), o sigui que cap pàgina no pot deixar la placa sense aquesta porta
+// (docs/30, docs/46).
+//
+// **I ho demanen els cinc jocs que hi ha**: `tetris`, `snake`, `2048`, `minesweeper` i `life`, tots amb la mateixa línia —`if
+// touch.triple_tap_close ~= nil then touch.triple_tap_close(false) end`, que és una pregunta i no una imposició en una banda sense vidre—.
+// `rainbow` i `gradient` no ho demanen perquè no són jocs: són una mostra del panell i no hi ha res a perdre-hi (docs/30, docs/45).
+// **0.190.255 — el gir no es menjava les cel·les que es queden** (l'amo, amb el joc a la mà: *«El tetris fatal ehh? al girar la peça canvia
+// de forma!»*).
+//
+// **El defecte era del pintor i no de les peces**: un gir marca les cel·les que la peça deixa en paper i les que pren en tinta, i **una
+// rotació en conserva algunes on són** —la `T` i la `L` dues, la `I` una—. `paintChanged` descomptava les cel·les repetides amb una taula
+// i deixava guanyar **la primera** marca, que era la de paper: les cel·les que es quedaven s'esborraven i la peça es veia amb forats, o
+// sigui una altra peça. Un moviment i una caiguda no ho ensenyaven perquè els seus dos jocs de cel·les no es toquen mai; el gir és
+// l'únic que els toca.
+//
+// **Ara mana l'última marca**, que és la de debò: el recorregut va del darrer al primer, i per a una cel·la que hi és a tots dos jocs la
+// tinta arriba després del paper i és la que es pinta (docs/30, docs/45).
+//
+// **I la peça mirant-se-la**: les set taules de `Shapes` són les de l'original i **cada estat és una rotació del seu** —comprovat amb la
+// cella normalitzada de cada estat contra les quatre rotacions de la primera—, i els quatre girs d'una `T` es veuen a la pàgina com el que
+// són: amunt, dreta, avall i esquerra, amb el quart igual que el primer. **La prova de la suite llegeix ara els píxels de la vista** (tinta
+// 0, paper 15): la cel·la que un gir conserva ha de seguir essent tinta, la que pren ha de ser tinta i la que deixa ha de ser paper — i amb el
+// defecte les dues primeres eren paper— (docs/30, docs/50, docs/85).
+// **0.190.256 — la peça que neix i el rastre que deixa** (l'amo, tornant-hi: *«Les peces perden la forma quan giren!!! revisa bé el codi
+// original»*).
+//
+// **Dues coses més, i totes dues eren del pintor**:
+//   - **Una marca que ningú pinta es pinta al moviment següent.** `lock` deixava el pou, cridava `spawn` i se n'anava sense pintar; les
+//     quatre marques de tinta del naixement es quedaven a la cua i sortien **després** de les de paper del primer moviment, o sigui que la
+//     peça tornava a tenir la forma de la casella d'on havia sortit i el que es veia era un blob de dues posicions. El naixement el pinta
+//     qui el fa —`paintPiece`— i `spawn` no marca res: una marca és una promesa que algú la pintarà, i el que neix no es mou (docs/30,
+//     docs/45).
+//   - **`du` pinta i no neteja.** La cel·la que es repinta amb paper deixa una ombra al vidre —el vell ho va mesurar: 2,0 de fantasma per
+//     fila, contra 0,6 d'una passada que neteja—, i per això el joc té **la neteja del rastre de l'original**: el rectangle que la peça ha
+//     recorregut des de l'última neteja es repinta sencer —paper on no hi ha res, tinta on hi ha la pila i la peça a sobre— i es puja en
+//     una passada de `gld16`, que és la que neteja. **Cada dotze moviments**, que és el nombre que l'amo va triar al vell perquè es pogués
+//     jugar: mig segon de passada entre dotze moviments és el preu i el joc no el paga mai més sovint (docs/30, docs/45, docs/50).
+//
+// **I el rastre es tanca quan la peça aterra**, perquè el que ha deixat ja és pila i no ha de viatjar: la peça que neix obre el seu propi
+// rectangle on neix (docs/45).
+//
+// **I el que l'amo esborra no es torna a posar** (l'amo, la segona vegada: *«ES LA SEGONA VEGADA QUE ESBORRO AQUESTA LINIA»*): el
+// `type 'help' and Enter.` que el banner duia des de la importació **no hi és**, i el lloc ho diu perquè ningú no el reposi. La línia
+// era d'abans que hi hagués sessió i prompt —la consola d'ara diu `lunok>` i la sessió tancada ja explica què s'ha de prémer—, i el
+// que quedava era una quarta línia de soroll en un registre que passa (docs/30, docs/50, docs/85).
+
+// **0.190.257 — el `Files` del paper, i la porta del disc que demana** (l'amo: *«Doncs anem a portar "Files", es una app
+// complexa i gran, Farem un canvi... en aquesta app hi han penstanyes per anar a l'SD o al littlefs, amb l'vfs ja no ens fa
+// falta, to penja d'una sola unitat. Analitza bé el codi, revisa totes les funcionalitats que te, vull una copia exacta»*).
+//
+// **EL BAIXADOR DE FITXERS QUE EL SISTEMA NO TENIA**, i la part que és del nucli és una sola idea: **una app d'administrador
+// camina el disc com el prompt**. El model d'aquest sistema és que una app només toca el seu terreny —`/data/<id>`, `/cfg`,
+// `/rtc`, `/fram` i llegir `/apps`, `/res`, `/fonts` i `/sd`— i això és el que fa que una app no pugui fer malbé les dades
+// d'una altra; però un gestor de fitxers que no veu els fitxers no és un gestor de fitxers. La clau que ja hi havia
+// (`"admin": true`, docs/30) és la que l'amo va triar (*«reaprofitar "admin": true, el paquet de l'administrador»*), i ara fa
+// **dues coses i no una**: la taula `admin` de la màquina de Lua i **l'autoritat del prompt sobre l'arbre** —cada muntatge,
+// llegir i escriure, amb `/cfg` i `/res` sent les del disc i no les de l'app—. El que no canvia: `/nvs` és la llibreta del
+// sistema i la seva fila del muntatge és de només lectura, i la resta d'apps es queden amb el seu terreny (docs/30, docs/70).
+//
+// **I LES DUES PORTES QUE UN NAVEGADOR NECESSITA I NO HI EREN**:
+//   - **`apps.opener(name)`** (0.190.257): qui obre un fitxer, preguntat als manifests. Torna l'`id` de l'app que diu que obre
+//     l'extensió i els commutadors que aquella app demana (`opensArgs`), o la frase que nomena l'extensió que ningú no vol. És
+//     la pregunta del vell `paperos.opener`, i viu al sistema pel mateix motiu que `apps.info`: els manifests són de la porta,
+//     i un segon lector és el que s'equivoca (docs/30, docs/40).
+//   - **`app.run(id, back, flags, path)`**: la segona meitat. Un navegador que ja sap qui obre un fitxer no tenia cap manera de
+//     donar-l'hi —`app.run` portava commutadors i no un camí— i el camí arriba a l'app com el del `run` del prompt, a
+//     `app.args.path`. Un camí que no hi cap es refusa amb el motiu i no es talla (docs/30, docs/45).
+//
+// **I l'app** (`apps/files`, 0.1.0) és la del paper, porta per porta: els quatre menús (`File` amunt, nou i canviar de nom;
+// `Edit` copiar, retallar, enganxar i esborrar; `View` els fitxers amagats i refrescar), la fila amb el nom i, a sota, quan i
+// com és de gran, el dit de tres coses (un toc obre, un lliscament amunt puja un nivell, una premuda llarga tria), la tria amb
+// la marca a davant del nom, les tres targetes, el porta-retalls amb cua i el modal de tres barres, i la línia d'estat al peu
+// sobre el paginador. **El que canvia és el que el sistema nou fa millor**: les targetes es fan quan es pregunten i es tornen
+// quan es contesten (`release()`, i la pregunta de matar és un `ui.dialog`), el modal de la còpia és un panel amb tres
+// `ui.progress` en lloc d'un dibuix a mà amb les seves tres passades de neteja, el dibuix de carpeta i de fitxer és de
+// primitives i es gira amb la fila, i el que es recorda és el camí i la pàgina (la sessió `state`) i no la tria (docs/30,
+// docs/45).
+//
+// **El que es va poder provar sense placa**: el banc de Lua del port —una arbreda de memòria i les portes del sistema com a
+// taules— fa caminar l'app per les dues unitats i comprova el que una placa diria a crits: entrar i sortir de carpetes, triar
+// amb una premuda llarga, copiar dos fitxers i una carpeta sencera amb el seu subdirectori a l'altra unitat (tres fitxers, en
+// torns, amb el recompte primer), crear una carpeta, canviar un nom, esborrar amb la targeta, amagar i ensenyar els fitxers
+// amagats, girar pàgina amb les tecles, els refusos (una carpeta dins de si mateixa, un retall entre dues unitats, un fitxer
+// que no obre ningú) i el bloc de la vista anant i tornant.
+//
+// **I la pàgina, mirada a l'emulador** (`--no-gui --dump`, el vidre sense finestra): the bar with `File Edit View`, the path
+// under its line, ten rows with the drawing of a folder or of a file and the date and the size under the name, the strip of
+// pages at the foot —and three things that only a picture says:
+//   - **una llista a la qual li arriben files DESPRÉS del seu primer pintat no les col·loca**: placement is the list's own
+//     drawing and `add` puts a child in the tree without touching the father, o sigui que les deu files es quedaven a `0,0`,
+//     l'última tapant les altres i la pàgina ensenyava **una fila** (es veia al vidre, no al banc de Lua). La porta és
+//     `the_list:invalidate()` després d'afegir-les.
+//   - **el minut d'aquest sistema és `min` i no `minute`**: a `time.date(sec)` el camp `minute` no hi és i el `string.format`
+//     d'una data peta amb el número esperat i el `nil` trobat —un fitxer de la targeta amb data de debò i l'app morta al
+//     primer torn—.
+//   - **la línia del camí ha de començar sota la línia de la barra**: `kBarHeight - kMargin` i no `- 2 * kMargin`, o el camí
+//     de la carpeta surt mig tapat per la ratlla del menú.
+
+// **I el que va dir la placa, que és més que el vidre de l'emulador** (l'amo, amb el Files a la mà: *«Apareixen dos
+// paginadors de boles.... un sobre el'altre! i la pàgina no passa. No deixa navegr per subdirectoris»*, i després: *«Segueixo
+// veient dos paginadors. Quan canvies de carpeta no refresca ¿¿?»*):
+//   - **UNA FILA HA DE SER UNA PARADA DEL DIAL O EL DIT NO LA TROBA MAI.** `focusable = false` era la manera d'aquesta app de
+//     deixar el dial fora de la llista —el projecte del paper va fer el mateix— i en aquest sistema **un control que no és una
+//     parada no és ni una caixa del dit**: `ui_target_is_focusable` (docs/30, docs/90) el deixa fora del recorregut i el toc
+//     d'una fila anava a parar a ningú, o sigui que la pàgina era un dibuix. Ara la fila és la parada, i el centre del panell
+//     —que és el dial— obre la fila on és el cercle i la que el dit va marcar, amb una guàrdia: una fila sap de quina pàgina
+//     és i un toc que arriba després d'un canvi de pàgina no fa res.
+//   - **I EL QUE VA FER QUE LA PÀGINA NO CANVIÉS ERA UNA BAIXA QUE ES QUEDAVA A L'ARBRE.** A released child stayed in its
+//     father's `children` table until that father was drawn again —the draw is what compacts the table—, i una `ui.list`
+//     **compta els seus fills** per dir quantes pàgines té i on va la fila de cada pàgina: deu files donades i deu de noves la
+//     feien dir dues pàgines, posar les noves **fora del seu marc** —la pàgina es quedava com era— i pintar **el peu del
+//     control** damunt de la tira de l'app. És del nucli i s'hi ha arreglat: `release()` treu el control de l'arbre que veu
+//     l'app, preguntant-li al pare abans que el número del fill se'n vagi (`ui_take_out_of_the_father`). El `per_page`
+//     s'ajusta a la banda del peu igualment, perquè una pàgina que li doni al control una caixa justa tampoc no li ha de fer
+//     dir dues pàgines.
+//   - **I les icones són les del vell, amb el traç de dues files** (l'amo: *«Les icones no son les mateixes?»*): the folder with
+//     its tab on the left and the page with the folded corner, drawn with lines of two pixels like the figure of a font, and not
+//     a hair of one on a glass of five hundred and forty.
+//
+// **I la marca de quatre píxels que quedava a la vora dreta de cada línia de sota el nom era d'aquesta app**: a label paints
+// its background before its words, and the box of the subtitle reached the bottom of the row —`45 + 26 = 71` in a row of
+// `68`—, o sigui que el seu paper esborrava el tros de la línia del separador que tapava i el que quedava de la línia es
+// llegia com una marca solta al final. Les dues caixes s'aturen ara a la línia de la seva cara (`5 + 33` i `5 + 33 + 22`) i
+// el separador surt sencer (trobat amb el vidre, 22/11).
+
+// 0.190.258 (23/11): **l'app `password`, i la porta que li calia**. The owner: *«Farem la de password;»* with the two pages of
+// the IDF of the mbedTLS in his hand, and *«Revisa el codi original a fons i fes-la igual»*. It is the paper project's
+// `Password` 1.2.1: the same four screens, the same words, the same five fields, **and the same file**, byte for byte
+// (`PWDB1` | version | iterations | salt | nonce | ciphertext | tag), o sigui que un vault escrit allà s'obre aquí i al
+// revés. What is new in the system, and it is the first thing of this list
+//
+// **LA CRIPTOGRAFIA ÉS UNA PORTA DEL SISTEMA I NO CODI D'UNA APP** —`crypto.random`, `crypto.key`, `crypto.seal` i
+// `crypto.open`, quatre crides i prou—. PBKDF2 és per construcció la part que costa, i escrita en Lua donaria unes quantes
+// iteracions, i unes quantes iteracions és una contrasenya que cau en una tarda. L'aritmètica és del nucli
+// (`kernel/crypto.cpp`: SHA-256, HMAC-SHA256, PBKDF2-HMAC-SHA256 i ChaCha20, **portats sencers del projecte del paper**,
+// `OLD/PaperOS/src/system/crypto.cpp`) i **caminada contra la norma de cadascuna** a `test/test_crypto`: FIPS 180-4 apèndix B,
+// RFC 4231 casos 1, 2 i 6, RFC 7914 i RFC 8439 §2.3.2 i §2.4.2. **No és mbedTLS**, i és una decisió i no un descuit: la
+// suite d'aquest sistema és la d'un PC que no té ESP-IDF a dins (una porta que no es pot provar a l'hostal és una porta que
+// ningú no prova) i el bloc que aquestes quatre fan és el que el projecte del paper desa, o sigui que agafar el
+// ChaCha20-Poly1305 de mbedTLS hauria volgut dir que els dos sistemes no es podien llegir els fitxers (docs/30, docs/45).
+//
+// **I L'ATZAR TÉ LA SEVA PORTA, PERQUÈ UN SECRET NO ES POT SEMBRAR AMB UN REMENADOR** (`pal::random_bytes`, 0.190.258): the
+// word `random()` of a band is its mixer —a xorshift on the PC, and on the board one seeded from the noise of its own
+// boot— and that is what a seed or a simulation wants. A salt and a nonce are the other question: a stream of them has to be
+// unguessable, and a mixer read a few times can be followed from its own output. So the board answers with **the chip's own
+// source every time** —`esp_fill_random()` while the radio is up, and the documented `bootloader_random_enable()` window
+// when it is not, closed again before anything touches the ADC— and the PC with the mixer the run seeded, which is why
+// `--seed` still makes two runs of the emulator identical. **No s'ha inventat res del maquinari**: són les tres condicions
+// que la documentació de l'IDF 5.2.1 de l'atzar diu, i la finestra és la que el PAL ja feia servir per sembrar-se
+// (docs/30, docs/50).
+//
+// **I el vault viu a la targeta per la regla de sempre i sense cap porta nova** (l'amo, 24/10, al projecte del paper:
+// *«l'app ha d'escollir la memoria mes duradora del sistma per guardar el vault, en aquest cas es l' SD sempre»*): aquí la
+// targeta no és una unitat que una app tria, és `/data` — **el terra de l'app, que segueix el disc preferit** (docs/70:
+// `cfg auto` és la targeta quan n'hi ha i el flaix quan no—), o sigui que el vault és `/data/password/passwords.pwdb` i
+// **l'app pregunta a `fs.mounts()` de quina memòria és `/data`** abans d'escriure-hi un byte. Un vault que no és a la
+// targeta s'obre i es llegeix, de només lectura, i `New`, `Edit` i `Delete` diuen el motiu. I **el desat segur és del nucli**:
+// `fs.write` és el fitxer sencer o el vell, mai mig, o sigui que el `passwords.tmp` del projecte del paper i el reanomenament
+// que el seguia ja no són feina de l'app (docs/45, docs/70).
+//
+// **El que es va poder provar sense placa**: el banc de Lua (`/tmp/pw`, el mateix patró que el del `files`) fa caminar l'app
+// per 63 comprovacions —fer un vault, els dos mots que no coincideixen, una entrada buida que no es desa, els cinc camps,
+// ensenyar i amagar la contrasenya, esborrar amb la targeta del sistema, tancar, obrir amb el mot correcte i amb un de fals,
+// una targeta que surt a mig camí (la barra diu `read-only` i les tres portes diuen que no), i un fitxer que porta el `Files`
+// amb `app.args.path`, que es pot escriure encara que el terra no sigui a la targeta perquè l'autoritat del prompt és sobre
+// aquell camí i prou—. I **a l'emulador amb la criptografia de debò**: `[CRYPTO] key: 10000 iterations, 16 bytes of salt,
+// 93 ms`, un vault de quatre entrades desat a `/data/password/passwords.pwdb` (402 B), obert amb el mot correcte i refusat
+// amb un de fals. Les tres pantalles mirades amb `--no-gui --dump`.
+//
+// **I DUES COSES QUE EL VIDRE VA ENSENYAR I QUE EL BANC NO PODIA**: `ui.caps()` diu que la vista d'una app **comença a la
+// fila 48** (`view y` és 48 i l'alçada 912), o sigui que el canvas ja és sota la barra i el `kBarHeight - kMargin` que el
+// `files` reserva són quaranta-set píxels d'aire que ningú no havia demanat; i **el motiu d'un refús és un control de la
+// pàgina**, o sigui que el formulari —l'única pàgina que s'escriu sobre si mateixa per no perdre el cursor— ha de tornar-se
+// a fer quan ha de dir que una entrada buida no es desa, o la frase no surt enlloc.
+
+// 0.190.259 (22/11): **l'app `bthid` és `bt HID` i és un ratolí de debò** (l'amo: *«Continuarem amb l'app bthid reanòmena-la a "bt
+// HID"... Recorda, la idea es usar el panell com a mouse. Fes que funcioni un dels dispositius, o el mouse o el teclat. Quan funcioni ja
+// els ajuntarem»*, amb l'exemple `esp_hid_device` de la IDF 5.2.1 a la mà).
+//
+// **El que s'ha tret és la meitat de la pàgina i el que s'ha arreglat és el protocol.** The app kept the keyboard and the composite mode
+// (`both`, two report ids in one map) and neither had ever been seen working on the board; o sigui que el que hi ha ara és **una cosa**:
+// el pad és el ratolí de l'altre aparell, el toc és un clic, la pàgina d'espera té **un sol botó** (el commutador del ràdio, que no
+// s'encén sol) i el teclat torna quan el ratolí estigui comprovat (docs/30, docs/50).
+//
+// **I el ratolí és el de l'exemple, byte a byte** (docs/50): el mapa declara `X`, `Y` i **`Wheel`** amb `Report Count (3)`, o sigui que
+// el report és de **quatre bytes** —botons, x, y, roda—, que és el que el seu `send_mouse()` envia amb `esp_hidd_dev_input_set(dev, 0, 0,
+// buffer, 4)`. Abans eren dos eixos i tres bytes: legal, però el que tothom prova primer és el de tres eixos.
+//
+// **I dues coses del servei que no complien el HID-over-GATT**, i totes dues es veien a l'amfitrió i no a la placa:
+//   - **dues característiques d'entrada que contestaven el mateix `Report ID` 0** al mode d'un sol report —el mapa en declara un i cap
+//     ID, i el servei en té dues perquè el mode compost les necessita—. Ara la segona contesta **`0xFF`**, un ID que el mapa no té, o
+//     sigui que l'amfitrió veu **exactament un** report d'entrada i la porta per on aquesta placa envia queda una. L'altra manera era
+//     tornar a registrar el servei a cada canvi de mode, i **el servei és compartit amb el mesh** (`ble_gatts_start` el crida
+//     `esp_ble_mesh_init`).
+//   - **la mida del valor que un amfitrió llegeix abans de subscriure-s'hi**: `report_access` contestava vuit bytes a la primera
+//     característica i tres a la segona al mode ratolí, o sigui una mida que no era la de cap report del mapa. Ara contesta **la del mapa
+//     d'ara** —quatre— i els quatre bytes de zero són un report de ratolí quiet i ben format.
+//
+// **I el moviment d'un dit ja no es perd**: `bt.move` refusava més de cent vint-i-set píxels amb `E_INVAL` i la pàgina ho havia de fer
+// en més d'un pas —cosa que la pàgina no feia—, o sigui que un dit que arrossegava es quedava a mig camí. Ara el qui parteix el moviment
+// és el nucli, que ja en tenia la funció (`bt::move_for_a_page`): un dit que arrossega sis-cents píxels són cinc reports (docs/30).
+//
+// **I dues línies noves al registre, una vegada per vincle i no una per fotograma** —un ratolí envia un report per cada fotograma del
+// dit—: *«this board has something to send and the other side has not asked for the reports yet»* quan hi ha quelcom per enviar i el CCCD
+// encara no s'ha escrit, i *«the first report went out: N bytes on 0x…»* quan el primer report surt de debò. Són les dues frases que diuen
+// si un ratolí funciona, i el que una persona pot llegir d'aquesta banda sense un analitzador (docs/50, docs/95).
+//
+// **El que no s'ha pogut provar**: res d'això no s'ha vist en un mòbil de debò. El que sí que està provat és que l'app no peta i que fa el
+// que ha de fer —el banc de Lua del port, amb el dit i la ràdio com a taules— i que les dues bandes compilen (`lilygo-t5s3-idf` i
+// `emulator`); la prova de debò és l'amo aparellant-hi el telèfon, i el registre ara diu on s'atura si s'atura (docs/50).
+
+// 0.190.260 (22/11): **la finestra del llistat del repositori surt de la `.bss`** (l'amo: *«cal estalviar memoria... Pero cosetes
+// petites i sempre explicant-me quin es el canvi abans de canviar res!»*). `kernel::repository::Listing` era un `static` de **2 264 B**
+// —els 2 048 de la finestra del JSON més el nom i l'adreça de l'objecte que s'està llegint— que la placa pagava des de l'arrencada per a
+// una feina que només passa quan hi ha un `store`, un `install` o el llistat d'un repositori. Ara la finestra es demana **el primer
+// `open()`** a `pal::extra_memory()` —PSRAM quan la placa en té, la memòria de casa quan no— i es queda; l'objecte baixa a 220 B. No
+// s'ha tocat cap crida: `one()` segueix tornant la mateixa referència i el que ha canviat és d'on surten els dos kilobytes (docs/75).
+//
+// **La mesura**: `.dram0.bss` 79 416 → **77 376 B** (2 040 B), i el símbol `Listing::one()::shared` 2 264 → **220 B**. Una placa que no
+// pot donar ni la PSRAM ni dos kilobytes del heap no té llistat i `open` diu `false`, que és el que ja hauria passat amb el fitxer.
+
+// 0.190.261 (22/11): **els dos manifests de la porta de les apps surten de la `.bss`** (la segona coseta de la mateixa tarda,
+// l'amo: *«cal estalviar memoria... Pero cosetes petites i sempre explicant-me quin es el canvi abans de canviar res!»*). `apps_ops`
+// tenia **dos `static Entry`** —un a `lua_run` i un a `lua_info`, 772 B cada un— que la placa pagava des de l'arrencada per a dues
+// crides que fa un visitant d'un llistat o el llançador quan prem una cel·la. Ara cada una demana el seu bloc amb `pal::Scratch`
+// —la mateixa porta que el text del manifest a `apps::load`, que el dona per qualsevol camí de sortida— i el torna en acabar; el
+// bloc s'omple amb un `Entry()` de col·locació, o sigui que comença a zero com el `static` que hi havia.
+//
+// **La mesura**: `.dram0.bss` 77 376 → **75 832 B** (1 544 B), i els dos símbols `apps::(anonymous namespace)::lua_run/lua_info` ja no
+// hi són (només queden les funcions). Provat a l'emulador amb l'intèrpret de debò: `apps.info("files")` torna `Files`, `0.1.0`,
+// `works_here = true`; `apps.info("nosuchapp")` falla amb la seva taula d'error; `app.run("nosuchapp")` diu *«there is no such app on
+// this disk»* i `app.run("files")` arriba fins al shell (docs/40, docs/75).
+
+// 0.190.262 (22/11): **l'històric del prompt surt de la `.bss` i passa a ser un anell de lletres en un bloc de dos kilobytes** (l'amo:
+// *«si l'històric de les comandes ocupa massa és perquè és una llista fixa, no? no trobes que és millor que es guardin lletra per lletra
+// en el seu propi psmalloc»*). Tenia raó: `history_[8][128]` eren **1 024 B de RAM interna** per a **vuit** ordres, i una ordre de tres
+// lletres —`mem`— en desaprofitava cent vint-i-quatre del seu calaix. Ara les ordres van escrites `[llargada][lletres]`, una darrere
+// l'altra, en un bloc de **2 048 B** que es demana **al primer byte que una persona escriu** —no a l'arrencada: una placa a la qual ningú
+// no escriu mai una ordre no els ha de pagar— a `pal::extra_memory()`, que dona PSRAM quan la placa en té (docs/30, docs/75).
+//
+// **Què s'hi guanya**: `shell::g_editor` passa de **1 292 B a 280 B** de `.bss` (`.dram0.bss` 75 832 → **74 824 B**), i en lloc de vuit
+// ordres en caben **una mica més de cent de setze lletres** (o vuit de cent vint-i-set, que és el màxim d'una línia). L'ordre que no hi
+// cap no es trenca: es llença la més vella i es mou la resta, i una ordre més llarga que el bloc sencer es descarta sencera, perquè mig
+// ordre és pitjor que cap.
+//
+// **El que no s'hi ha posat i per què**: la línia i l'esborrany (`line_[128]` i `draft_[128]`) es queden a la RAM interna i dins l'objecte,
+// perquè es toquen **a cada tecla** i una escriptura a la PSRAM per caràcter no compra res; el que és fred és l'històric, que només es
+// llegeix quan es prem ↑ o ↓. I `line::Editor` **segueix sense assignar res de seu**: el bloc el dona el shell, com el QR rep el seu
+// `Scratch`, i sense bloc el prompt té línia i no té històric (i ho diu el registre una vegada).
+//
+// **Provat**: la suite de l'editor, 7 casos (dos de nous: quaranta ordres es recorden i es camina fins a la primera; un prompt sense bloc
+// no peta), i a l'emulador amb el camí de debò —tecles al port— `mem blocks` ensenya la fila `shell 1 2048 B` i `mem` + ↑ + Enter torna
+// a executar `mem`.
+
+// 0.190.263 (22/11): **un controlador de ràdio que ja era encès, i una marca que deia mentida** (de la placa de l'amo: `E BLE_INIT:
+// controller init failed` / `[W][BT] the radio did not come up (259): the keyboard has nothing to use`, en obrir l'app `bt hid`).
+// 259 és `ESP_ERR_INVALID_STATE` i vol dir una sola cosa: `esp_bt_controller_init()` ha trobat el controlador **ja inicialitzat**.
+//
+// **D'on surt un controlador encès quan la nostra pila no hi és**: (1) el **mesh**, que corre el seu amfitrió sobre el mateix
+// controlador, i (2) un `nimble_port_deinit()` que va fallar a mig camí —`esp_nimble_deinit()` torna abans d'hora quan
+// `esp_nimble_hci_deinit()` diu que no, i llavors `esp_bt_controller_disable`/`deinit` **no s'arriben a fer mai**—, o sigui que el
+// controlador es queda encès per a la resta de l'arrencada i cada intent següent rep el mateix 259.
+//
+// **I la marca que el feia invisible**: `g_the_stack_is_up` no es desfeia a `keyboard_stop()` ni a `host_off()`, o sigui que després
+// de baixar la pila el següent `bt on` es pensava que ja hi era, es saltava `nimble_port_init` i anava a registrar serveis en un
+// amfitrió mort. Ara baixa amb la pila.
+//
+// **El que es fa abans d'inicialitzar**: `esp_bt_controller_get_status()`; si no és `IDLE` i el mesh el té, es diu i no es toca —i la
+// frase diu la veritat: `mesh off` encara no el torna—; si no és de ningú, es desfà aquí (`disable` + `deinit`) i la ràdio es torna a
+// provar, perquè una ràdio que cap crida no pot encendre és pitjor que una que triga un segon més. La línia del registre ja no deixa
+// un 259 sense explicació (docs/50).
+
+// 0.190.264 (22/11): **el `-1` de la ràdio era el host sense memòria, i la frase deia «the keyboard» en una placa que és un ratolí** (de
+// la placa de l'amo: `E BLE_INIT: hci inits failed` / `E BLE_INIT: nimble host init failed` / `[W][BT] the radio did not come up (-1)`,
+// i la seva pregunta: *«“the keyboard” potser estem confonent-nos?»*).
+//
+// **La paraula**: la porta es diu `keyboard_start` des que tot això era un teclat, i el missatge d'error sortia d'aquell nom. Ara surt del
+// mode que la persona ha triat —`the mouse`, `the keyboard`, `the keyboard and the mouse`— i la línia d'èxit diu `the device is up as
+// "lunokOS-XXYY" (the mouse)`. `esp32_bluetooth()` i la meitat que diu que no es queden on eren: la porta de la instància ha d'existir a
+// **totes** les bandes, perquè el `platform` de cada placa la demana sempre.
+//
+// **El motiu**: `-1` no és cap codi d'error, és el que `nimble_port_init` contesta sempre que el host falla; dins seu el primer que passa
+// és `os_msys_buf_alloc`, que **torna `ESP_FAIL` quan un `calloc` no cap**. O sigui: el host de NimBLE no podia prendre els seus blocs de
+// treball (12 × 256 + 24 × 320, més les cues d'esdeveniments, d'ordres i d'ACL) en la RAM interna, perquè el controlador de la ràdio ja
+// se n'havia menjat uns trenta kilobytes i una app al davant deixa poc. El remei és el que aquesta casa fa sempre que pot:
+// `CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y` a les dues bandes amb ràdio i PSRAM (`lilygo-t5s3-idf`, `m5-paper-idf`), que fa que
+// `bt_osi_mem_calloc` demani `MALLOC_CAP_SPIRAM`. **El controlador no s'hi pot moure** i es queda a la interna, que és on ha de ser.
+//
+// **I el registre diu el que abans no deia**: la memòria interna lliure i el bloc més gran en el moment de pujar la pila, i una segona
+// línia quan el codi és `ESP_FAIL` que nomena les dues causes possibles (els blocs del host o un callback de HCI ja pres). Provat:
+// `lilygo-t5s3-idf` i `m5-paper-idf` compilen amb el canvi de `sdkconfig` (recompilació sencera de la IDF a totes dues).
+
+// 0.190.265 (22/11): **la icona de *bt HID* és un ratolí amb la runa a dins** (l'amo: *«canvía el logo, ara es el logo de bluetooth, posa un
+// mouse amb logo bluetooth millor»*, i després de dos intents meus: *«Això no es un mouse, es un pepino allargat xD»* — i tenia raó). El cos
+// és el ratolí **de catàleg de Lucide** (llicència ISC, `lucide.dev`): una càpsula de 14 x 20 unitats amb la ranura de la roda quatre unitats
+// més avall del nas, escalada a 231 x 330 px i amb el traç de 20 px d'aquesta casa en lloc del seu. El que és d'aquesta casa és la runa: la
+// que la icona ja tenia, retallada per la seva tinta i escalada, posada a la meitat de baix (docs/40, docs/45).
+//
+// El dibuix mestra (`res/icon-source.png`, 448 × 448) i la icona que llegeix el sistema (`res/icon.png`, 94 × 94) surten del mateix pas:
+// `tools/make_icon.py`. L'app puja a **0.2.1** i la cel·la del llançador ja ensenya el ratolí.
+
+// 0.190.266 (22/11): **els tres tocs del vidre són del ratolí** (l'amo: *«Desactiva els 3 tocs per tancar l'app al programa del
+// ratolí.»*). La pàgina de *bt HID* llegeix cada dit que hi cau —no el gest cuinat— i a l'altre cap de l'enllaç **un toc és un clic del
+// botó esquerre**: tres tocs seguits són tres clics, o sigui que el tercer no pot ser el sistema tancant la pàgina al mig d'una sessió
+// amb el telèfon ja aparellat. És la mateixa porta que els jocs van demanar a la 0.190.254 (`touch.triple_tap_close(false)`), i el gest
+// queda a la cua i aquí no el llegeix ningú; quan l'app s'acaba, el sistema els recupera tot sol (`ui::give_back_the_glass`), o sigui que
+// la sortida de la pàgina continua essent la de tothom: la tecla del mig i el `stop` del prompt. L'app puja a **0.2.2**.
+
+// 0.190.267 (22/11): **dues apps i un sol ràdio** (l'amo: *«Ara fes la versió teclat de l'app “btHID Keyboard”, revisa els requisits
+// https://novelbits.io/bluetooth-hid-device-design-example-project/ . Te una dificultat afegida... Hauràs de posar un TextBox sota la barra de
+// sistema a dalt de tot... Si no hi ha focus, el teclat per software no surt ni es manté. I ja que estàs afegeix 2 o 3 botons a l'app “btHID
+// Mouse” a la part de dalt del panell que fa de mouse, sota la barra de sistema per fer de botons del mouse»*).
+//
+// **`btHID Keyboard` és una app nova** (`apps/btkbd`, 0.1.0): la pàgina d'espera de sempre i, quan hi ha un aparell, una **caixa de text a
+// dalt de tot** —sota la barra del sistema— amb la banda del teclat a baix. El que s'hi escriu marxa com a tecles premudes, lletra per
+// lletra, amb la mateixa diferència que el port de la 0.190.204 feia servir (el que s'ha esborrat són retrocessos, el que s'ha afegit són
+// les tecles, i el retorn de carro de la banda viatja com a Enter i no es queda dins la caixa).
+//
+// **La dificultat que l'amo va veure és de debò i és del sistema**: la banda del teclat **segueix el focus** i no s'aixeca sola quan l'app
+// en té una de text; i una caixa a baix de tot és una caixa **tapada pels 256 px de banda que ella mateixa fa sortir**. O sigui que la caixa
+// va a dalt de la vista, la pàgina li dona el focus i li aixeca la banda en entrar (`kb.target` i `kb:show`), i `on_resize` la torna a
+// col·locar quan la banda apareix o marxa (docs/30, docs/90).
+//
+// **I el ratolí té els seus tres botons** (`apps/bthid`, ara **btHID Mouse** 0.3.0): una fila de tres caixes —esquerre, mig i dret— a la
+// part de dalt de la pàgina viva, sota la barra del sistema, i el pad del punter comença sota la fila. Un botó que el dit prem és un
+// `bt.click` de la seva paraula i **el pad no el veu**, perquè el rectangle que el dit camina no arriba a la fila.
+//
+// **El que no s'ha fet, i és a posta**: les dues apps no comparteixen vincle. El mode es desa a `cfg btmode` i canviar-lo **torna a anunciar
+// el mapa**, o sigui que l'altre aparell s'ha de tornar a aparellar en passar d'una app a l'altra; el mode `both` (teclat i ratolí amb dos
+// report IDs) ho estalviaria i **no s'ha tocat perquè encara no s'ha vist funcionar en un amfitrió de debò**, i el ratolí sí que hi ha de
+// funcionar (docs/30, docs/50).
+
+// 0.190.268 (22/11): **les dues icones, dibuixades amb la paleta de casa** (l'amo: *«Recorda que has de seguir l'estètica dels icone que ja
+// hi han. L'icona del mouse tampoc te garie detall.. curra't-ho»*, i abans: *«L'icona de keyboard es horrible! Fes-ne una de mes típica, el
+// teclat i el logo de bluetooth»*). Tenia raó una altra vegada: les dues eren **de línia fina i blanques**, i els vint-i-vuit dibuixos de
+// `tools/icons/` són una altra cosa.
+//
+// **La paleta, mesurada i no triada a ull**: paper 255, el cos 221, l'ombra 187, el detall 170 i **la tinta 68** —els vuit valors que
+// surten de comptar els píxels dels vint-i-vuit dibuixos—, amb un contorn de setze píxels i les cantonades de quaranta-quatre. El que fa
+// que una icona sigui d'aquest joc no és el dibuix: és que **el cos sigui ple i amb dos tons, i que hi hagi un element de tinta** (la
+// tecla Enter del teclat, la roda del ratolí, el número del Calculator).
+//
+// **El teclat**: el cos, quatre files amb les seves tecles, el tab i l'enter més amples, la barra d'espai i **dues tecles en tinta**. El
+// **ratolí**: els dos botons en el to clar i el cos en l'ombra, la ratlla que els separa i la roda amb les seves crestes.
+//
+// **I el logo de Bluetooth, en una insígnia a la cantonada** —disc de paper, anella de tinta i la runa de sempre—, que és el mateix
+// gest que el disc del `About`: el ratolí i el teclat volen dir «aquesta placa és això» i el disc diu «i va per Bluetooth». La runa no
+// s'ha tornat a dibuixar mai: és la de la icona que hi havia, retallada per la seva tinta. Les dues apps pugen a **0.3.1** i **0.1.1**.
+
+static const char kVersion[] = "0.190.268";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

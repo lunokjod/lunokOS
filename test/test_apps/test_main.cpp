@@ -725,6 +725,255 @@ void close_any_app() {
 }
 
 
+// **La porta del disc d'una app d'administrador** (0.190.257, l'amo: *«reaprofitar "admin": true, el paquet de
+// l'administrador»*): the file manager of this system walks the tree the prompt walks —every mount, every folder, read and
+// write— and that is a door no other app has. The case is the difference between two manifests over the same six lines of
+// Lua: a folder of the flash that is nobody's ground is listed and written by the administrator and refused to the other.
+void test_an_administrator_walks_the_disk_and_an_app_does_not(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/prueba");
+  storage->remove("/prueba/dos.txt");
+  TEST_ASSERT_TRUE(write_text(storage, "/prueba/uno.txt", "1"));
+
+  const char* source =
+      "local rows = fs.list('/littlefs/prueba')\n"
+      "console.print('list ' .. (rows and #rows or 'no'))\n"
+      "local wrote = fs.write('/littlefs/prueba/dos.txt', '2')\n"
+      "console.print('write ' .. (wrote and 'yes' or 'no'))\n";
+  storage->remove("/apps/xplain");
+  storage->remove("/apps/xadmin");
+  TEST_ASSERT_TRUE(add_app(storage, "xplain",
+                           "{\"title\":\"Plain\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           source));
+  TEST_ASSERT_TRUE(add_app(storage, "xadmin",
+                           "{\"title\":\"Admin\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"admin\":true,"
+                           "\"boards\":[\"esp32\"]}",
+                           source));
+
+  // An app that is not an administrator keeps its ground: the mount of the flash answers `E_INVAL` instead of the folder.
+  TEST_ASSERT_TRUE(run_captured("run xplain", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "list no"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write no"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "list 1"), g_out);
+
+  // And the administrator walks it: one entry read and a file written beside it.
+  TEST_ASSERT_TRUE(run_captured("run xadmin", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "list 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write yes"), g_out);
+  hal::Stat wrote;
+  TEST_ASSERT_TRUE(storage->stat("/prueba/dos.txt", wrote));
+
+  storage->remove("/prueba/dos.txt");
+  storage->remove("/prueba/uno.txt");
+  storage->remove("/prueba");
+  storage->remove("/apps/xplain/app.lua");
+  storage->remove("/apps/xplain/manifest.json");
+  storage->remove("/apps/xplain");
+  storage->remove("/apps/xadmin/app.lua");
+  storage->remove("/apps/xadmin/manifest.json");
+  storage->remove("/apps/xadmin");
+}
+
+// **Qui obre un fitxer, preguntat als manifests** (0.190.257): the browser of this system does not keep a table of extensions
+// —that table was three `if`s in the paper project and every new app meant touching the browser—; each app says in its
+// manifest what it opens and with which switches, and the door answers the two things or the sentence that names the
+// extension nobody claims. The case is that sentence, which is what the foot of the browser says.
+void test_the_disk_says_who_opens_a_file(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  storage->remove("/apps/xclaim");
+  TEST_ASSERT_TRUE(add_app(storage, "xclaim",
+                           "{\"title\":\"Claim\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"opens\":\"xyz\","
+                           "\"opensArgs\":\"-ro\",\"boards\":[\"esp32\"]}",
+                           "console.print('claim here')\n"));
+  storage->remove("/apps/xasks");
+  TEST_ASSERT_TRUE(add_app(storage, "xasks",
+                           "{\"title\":\"Asks\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local who, flags = apps.opener('/sd/notes.xyz')\n"
+                           "console.print('opens ' .. tostring(who) .. ' ' .. tostring(flags))\n"
+                           "local none, why = apps.opener('/sd/notes.zzz')\n"
+                           "console.print('nobody ' .. tostring(none) .. ' ' .. tostring(why and why.message))\n"
+                           // **Un nom amagat no té obridor a posta**: the cache beside a picture is not the picture.
+                           "local hidden = apps.opener('/sd/.foto.png.cache')\n"
+                           "console.print('hidden ' .. tostring(hidden))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run xasks", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "opens xclaim -ro"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "nobody nil no app of this system opens a .zzz file"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "hidden "), g_out);
+
+  storage->remove("/apps/xclaim/app.lua");
+  storage->remove("/apps/xclaim/manifest.json");
+  storage->remove("/apps/xclaim");
+  storage->remove("/apps/xasks/app.lua");
+  storage->remove("/apps/xasks/manifest.json");
+  storage->remove("/apps/xasks");
+}
+
+// **I el fitxer viatja amb el desig** (0.190.257): `app.run(id, back, flags, path)` is the second half of the opener —a
+// browser that has just asked who opens a file hands it that file— and the app that arrives reads it where the prompt's `run`
+// puts it (`app.args.path`). Without this half the browser could only start an app with no file in it.
+void test_an_app_hands_a_file_to_the_app_it_asked_for(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  storage->remove("/apps/xseen");
+  TEST_ASSERT_TRUE(add_app(storage, "xseen",
+                           "{\"title\":\"Seen\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('seen ' .. tostring(app.args and app.args.path))\n"));
+  storage->remove("/apps/xgives");
+  TEST_ASSERT_TRUE(add_app(storage, "xgives",
+                           "{\"title\":\"Gives\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('giving')\n"
+                           "app.run('xseen', false, nil, '/sd/notes.txt')\n"
+                           "sys.delay(50):await()\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run xgives", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "giving"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "seen /sd/notes.txt"), g_out);
+
+  storage->remove("/apps/xseen/app.lua");
+  storage->remove("/apps/xseen/manifest.json");
+  storage->remove("/apps/xseen");
+  storage->remove("/apps/xgives/app.lua");
+  storage->remove("/apps/xgives/manifest.json");
+  storage->remove("/apps/xgives");
+}
+
+// **El Files: l'arbre del disc i el dit** (0.190.257, l'amo: *«Doncs anem a portar "Files", es una app complexa i gran»*).
+// The case is the one thing that cannot be seen without a board: the app of the repository starts on the real disk of the
+// suite, says where it is, and a finger on the first row of the root opens a folder. What the rows say is the disk's own
+// answer, so the folder it opens is the first mount `/` has.
+void test_the_files_walks_the_tree_with_a_finger(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/prueba");
+  TEST_ASSERT_TRUE(write_text(storage, "/prueba/uno.txt", "1"));
+
+  storage->remove("/apps/files/files.lua");
+  storage->remove("/apps/files/manifest.json");
+  storage->remove("/apps/files");
+  storage->mkdir("/apps/files");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/files/files.lua", "/apps/files/files.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/files/manifest.json", "/apps/files/manifest.json"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  close_any_app();
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  close_any_app();
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **On és la llista i quant fa una fila, dit per l'app** (`run files keys`): a test that guessed a corner would be
+  // measuring the layout of the day it was written.
+  pump_captured(80, g_out, sizeof(g_out), "run files keys");
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("files", kernel::shell::app_id(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[FILES] /: "), g_out);
+  const char* geometry = strstr(g_out, "[FILES] keys row ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(geometry, g_out);
+  int row = 0;
+  int lx = 0;
+  int ly = 0;
+  int lw = 0;
+  int lh = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(5, sscanf(geometry, "[FILES] keys row %d, list %d,%d %dx%d", &row, &lx, &ly, &lw, &lh),
+                                geometry);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, row, geometry);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(row, lh, geometry);
+
+  // **Un dit sobre la primera fila entra a la carpeta**: the root of the tree is the mounts, and the first one is the flash.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(lx + 80), static_cast<uint16_t>(ly + row / 2)));
+  pump_turns(40);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[FILES] /littlefs: "), g_out);
+
+  // **I enlaire torna al nivell de dalt**: a swipe up is the same door as `File → Up` (the paper project's finger).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(lx + 80), static_cast<uint16_t>(ly + row * 3)));
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(lx + 80), static_cast<uint16_t>(ly + row)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[GESTURE] up"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[FILES] /: "), g_out);
+
+  close_any_app();
+  storage->remove("/prueba/uno.txt");
+  storage->remove("/prueba");
+  storage->remove("/apps/files/files.lua");
+  storage->remove("/apps/files/manifest.json");
+  storage->remove("/apps/files");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **La porta d'un secret, des de Lua** (0.190.258): `crypto.random`, `crypto.key`, `crypto.seal` i `crypto.open`, que és el
+// que l'app `password` demana al sistema i l'única cosa que li demana. El cas aguanta el contracte i els motius: la clau és
+// de 64 bytes, un bloc torna amb la seva clau, el mateix text segellat dues vegades són dos blocs (el nonce és nou), un byte
+// canviat es refusa amb la seva frase i les mides i els preus que no són una derivació diuen que no. L'aritmètica no es prova
+// aquí —això és `test_crypto`, contra la norma de cada primitiva— sinó la porta i el que diu quan diu no (docs/30).
+void test_the_crypto_door_seals_opens_and_says_why_not(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  storage->remove("/apps/xsecret");
+  TEST_ASSERT_TRUE(add_app(storage, "xsecret",
+                           "{\"title\":\"Secret\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local salt = crypto.random(16)\n"
+                           "console.print('salt ' .. #salt)\n"
+                           "local key = crypto.key('la clau', salt, 10000)\n"
+                           "console.print('key ' .. #key)\n"
+                           "local blob = crypto.seal(key, 'hola mon')\n"
+                           "local twice = crypto.seal(key, 'hola mon')\n"
+                           "console.print('sealed ' .. #blob .. ' twice differ ' .. tostring(blob ~= twice))\n"
+                           "console.print('back ' .. tostring(crypto.open(key, blob)))\n"
+                           "local changed = blob:sub(1, 14) .. string.char((blob:byte(15) + 1) % 256) .. blob:sub(16)\n"
+                           "local none, why = crypto.open(key, changed)\n"
+                           "console.print('changed ' .. tostring(none) .. ' ' .. tostring(why and why.code))\n"
+                           "local cheap, cheapWhy = crypto.key('la clau', salt, 10)\n"
+                           "console.print('cheap ' .. tostring(cheap) .. ' ' .. tostring(cheapWhy and cheapWhy.message))\n"
+                           "local empty, emptyWhy = crypto.key('', salt, 10000)\n"
+                           "console.print('empty ' .. tostring(empty) .. ' ' .. tostring(emptyWhy and emptyWhy.message))\n"
+                           "local short, shortWhy = crypto.open('massa curt', blob)\n"
+                           "console.print('short ' .. tostring(short) .. ' ' .. tostring(shortWhy and shortWhy.message))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run xsecret", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "salt 16"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "key 64"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sealed 36 twice differ true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back hola mon"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "changed nil E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cheap nil the iterations have to be between 1000 and 100000"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "empty nil the password is empty"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "short nil the key has to be the 64 bytes of crypto.key()"), g_out);
+
+  storage->remove("/apps/xsecret/app.lua");
+  storage->remove("/apps/xsecret/manifest.json");
+  storage->remove("/apps/xsecret");
+}
+
+
 }  // namespace
 
 // **The emulator's options start empty** (0.151.1): `emu::Options` is a plain struct with no constructor, and a `dump`
@@ -804,6 +1053,224 @@ void test_an_app_runs_and_writes(void) {
   TEST_ASSERT_TRUE(run_captured("run hello", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "hello from an app"), g_out);
   TEST_ASSERT_FALSE(kernel::app_running());
+}
+
+// **El Tetris: el pou de deu per divuit, en dues tintes, i el dit és el comandament** (0.190.253, l'amo: *«El Tetris, com amb
+// l'snake, molta cura al fer el port. Fixa't que el tauler dibuixa el menys possible i tot es blanc i negre. No facis el gamePad.
+// Usarem els dits per girar la peça (polsant a sobre) o moure-la a esquerra, dreta o avall»*). The case measures the three
+// things that can be wrong without a person seeing it: **the geometry** (a corner a finger cannot reach), **the finger** (a tap
+// on the piece turns it and a tap beside it moves it, and a turn that does not fit does not happen) and **the clear** (four rows
+// take four rows away and pay the 1 200 points of the original, with the level going up where the points are).
+//
+// The app that ships is the app the case runs (docs/85): the two files are copied from the repository into the disk of the suite.
+void test_the_tetris_turns_with_the_finger_and_clears_the_rows(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps/tetris");
+  storage->mkdir("/apps/tetris/res");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/tetris/tetris.lua", "/apps/tetris/tetris.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/tetris/manifest.json", "/apps/tetris/manifest.json"));
+
+  // **Where the well is, said by the app** (`run tetris keys`): a test that guessed a corner would be measuring the layout of
+  // the day it was written.
+  storage->remove("/data/tetris/game.txt");
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tetris"), g_out);
+  pump_captured(40, g_out, sizeof(g_out), "run tetris keys");
+  const char* geometry = strstr(g_out, "[tetris] cell ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(geometry, g_out);
+  int cell = 0;
+  int wx = 0;
+  int wy = 0;
+  int ww = 0;
+  int wh = 0;
+  int nx = 0;
+  int ny = 0;
+  int nw = 0;
+  int nh = 0;
+  int bx = 0;
+  int by = 0;
+  int bw = 0;
+  int bh = 0;
+  int px = 0;
+  int py = 0;
+  int pw = 0;
+  int ph = 0;
+  int mx = 0;
+  int my = 0;
+  int mw = 0;
+  int mh = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(21,
+                                sscanf(geometry,
+                                       "[tetris] cell %d, well %d,%d %dx%d, next %d,%d %dx%d, new %d,%d %dx%d, pause %d,%d %dx%d, demo %d,%d %dx%d",
+                                       &cell, &wx, &wy, &ww, &wh, &nx, &ny, &nw, &nh, &bx, &by, &bw, &bh, &px, &py, &pw,
+                                       &ph, &mx, &my, &mw, &mh),
+                                geometry);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, cell, geometry);
+  // **El pou és de deu per divuit**: the well is taller than wide, which is the playfield of the original and the thing that
+  // tells a well from a square field.
+  TEST_ASSERT_TRUE_MESSAGE(wh > ww, geometry);
+  TEST_ASSERT_TRUE_MESSAGE(wx >= 0 && wy >= 0 && wx + ww <= view.width && wy + wh <= view.height, geometry);
+  TEST_ASSERT_TRUE_MESSAGE(nx >= 0 && ny >= 0 && nx + nw <= view.width && ny + nh <= view.height, geometry);
+  TEST_ASSERT_TRUE_MESSAGE(bx >= 0 && by >= 0 && bx + bw <= view.width && by + bh <= view.height, geometry);
+  TEST_ASSERT_TRUE_MESSAGE(px >= 0 && py >= 0 && px + pw <= view.width && py + ph <= view.height, geometry);
+  TEST_ASSERT_TRUE_MESSAGE(mx + mw <= px && px + pw <= bx, geometry);
+
+  // **A page to read**: a pile, a piece in the air and a score that is not zero (`run tetris full`, the old app's `-probe`).
+  pump_captured(5, nullptr, 0);
+  pump_captured(40, g_out, sizeof(g_out), "run tetris full");
+  const char* line = strstr(g_out, "[tetris] x=");
+  TEST_ASSERT_NOT_NULL_MESSAGE(line, g_out);
+  int x = 0;
+  int y = 0;
+  int rot = 0;
+  char piece[8] = {0};
+  int lines = 0;
+  int score = 0;
+  int level = 0;
+  int over = 1;
+  int paused = 1;
+  int demo = 1;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(10,
+                                sscanf(line, "[tetris] x=%d y=%d rot=%d piece=%7s lines=%d score=%d level=%d over=%d paused=%d demo=%d",
+                                       &x, &y, &rot, piece, &lines, &score, &level, &over, &paused, &demo),
+                                line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, over, line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, paused, line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, demo, line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, rot, line);
+  const int start_x = x;
+  const int start_y = y;
+
+  pump_turns(1200);
+
+  // **A tap on the piece turns it**: the box the piece occupies, holes included, is the shape a finger means. The `T` of the
+  // known state is three cells wide and two tall, and its middle is the middle of that box.
+  const int cx = wx + (start_x - 1) * cell + 3 * cell / 2;
+  const int cy = wy + (start_y - 1) * cell + cell;
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + cx), static_cast<uint16_t>(view.y + cy)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  const char* turned = strstr(g_out, "[tetris] x=");
+  TEST_ASSERT_NOT_NULL_MESSAGE(turned, g_out);
+  int turn_rot = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(3,
+                                sscanf(turned, "[tetris] x=%*d y=%*d rot=%d", &turn_rot),
+                                turned);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, turn_rot, turned);   // the second state of the `T`
+
+  // **I el dibuix segueix la taula, cel·la a cel·la** (0.190.255, l'amo amb el joc a la mà: *«al girar la peça canvia de forma!»*).
+  // A turn paints the cells the piece leaves in paper and the ones it takes in ink, and **a rotation keeps some where they are**:
+  // the painter used to let the first mark of a cell win, o sigui que la marca de paper guanyava i el que es veia era la peça amb
+  // forats. It is read from the view of the app, which is the page a person sees: ink is 0 and paper is 15 (docs/30, docs/50).
+  const kernel::ui::Canvas& page = kernel::ui::canvas();
+  auto tone_at = [&page](int px, int py) -> int {
+    if (px < 0 || py < 0 || px >= page.width || py >= page.height || page.bits == nullptr) return -1;
+    const uint8_t byte = page.bits[py * page.stride + px / 2];
+    return (px % 2 == 0) ? (byte >> 4) : (byte & 0x0F);
+  };
+  // The middle of a cell, which is inside the square the game paints and not on the paper of its side.
+  auto tone_of = [&](int col, int row) -> int {
+    return tone_at(wx + (col - 1) * cell + cell / 2, wy + (row - 1) * cell + cell / 2);
+  };
+  // The `T` of the known state, turned to its second state: it keeps the cell above the middle, takes the one under it and
+  // leaves the one on its left, which is the `T` pointing right instead of up.
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, tone_of(start_x, start_y), "the cell a turn keeps must stay ink");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, tone_of(start_x, start_y + 2), "the cell a turn takes must be ink");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(15, tone_of(start_x - 1, start_y + 1), "the cell a turn leaves must be paper");
+
+  // **I un toc al costat la mou una columna, i un altre la torna**: the tap's direction from the middle of the piece is what
+  // says the way, so the two of them are the same gesture and the piece comes back where it was.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + cx - 3 * cell), static_cast<uint16_t>(view.y + cy)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  const char* moved = strstr(g_out, "[tetris] x=");
+  TEST_ASSERT_NOT_NULL_MESSAGE(moved, g_out);
+  int left_x = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(moved, "[tetris] x=%d y=%*d", &left_x), moved);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(start_x - 1, left_x, moved);
+
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + cx + 3 * cell), static_cast<uint16_t>(view.y + cy)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  const char* back = strstr(g_out, "[tetris] x=");
+  TEST_ASSERT_NOT_NULL_MESSAGE(back, g_out);
+  int right_x = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(back, "[tetris] x=%d y=%*d", &right_x), back);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(start_x, right_x, back);
+
+  // **I un toc a sota la baixa una fila**, que és el `soft drop` de l'original amb el dit.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + cx),
+                                      static_cast<uint16_t>(view.y + wy + wh - cell / 2)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  const char* down = strstr(g_out, "[tetris] x=");
+  TEST_ASSERT_NOT_NULL_MESSAGE(down, g_out);
+  int down_y = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(down, "[tetris] x=%*d y=%d", &down_y), down);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(start_y + 1, down_y, down);
+
+  // **I els tres tocs són del joc mentre el joc és al vidre** (0.190.254): the app asks for them with
+  // `touch.triple_tap_close(false)` and the system stops taking the gesture; a game that reads every tap cannot be closed by the
+  // third one. **I quan l'app s'acaba els torna**, que és la mà del sistema i no una promesa de la pàgina (docs/30, docs/46).
+  TEST_ASSERT_FALSE_MESSAGE(kernel::ui::three_taps_close(), "a game must keep the three taps");
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::ui::three_taps_close(), "the three taps come back with the page that took them");
+
+  // **And the clear**: `stack=4` is four rows full except the column of the `I`, which is put one row above resting —a piece
+  // on the floor has no «below» for a finger to point at—. The clock lands it, the four rows go away and the score is the
+  // 1 200 of a tetris at level zero, and the level goes up because the points of the level are there (docs/45).
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/data/tetris/game.txt");
+  capture_begin();
+  pump_captured(40, g_out, sizeof(g_out), "run tetris stack=4");
+  // **El rellotge del joc**: a row is 1 774 ms at level zero (the table of the original scaled by two) and the piece needs
+  // two of them, plus the two passes of the blink and the pass of the whole well —four presents of 120 ms—, o sigui que els
+  // torns que es bombejen són els del rellotge i els de la tinta (docs/45, docs/95).
+  pump_turns(6000);
+  capture_end(g_out, sizeof(g_out));
+  const char* landed = nullptr;
+  for (const char* at = g_out; (at = strstr(at, "[tetris] x=")) != nullptr; ++at) landed = at;
+  TEST_ASSERT_NOT_NULL_MESSAGE(landed, g_out);
+  int cleared = 0;
+  int points = 0;
+  int at_level = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(3,
+                                sscanf(landed, "[tetris] x=%*d y=%*d rot=%*d piece=%*s lines=%d score=%d level=%d", &cleared,
+                                       &points, &at_level),
+                                landed);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, cleared, landed);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1200, points, landed);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, at_level, landed);   // 1 200 points are the 500 of the first level and a bit of the second
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
 }
 
 // **La cua de les comandes: quatre places, per torn, i és el torn qui les executa** (0.190.245, l'amo: *«l'app va per el seu fil d'execució i la
@@ -21514,6 +21981,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_battery_and_the_reason_decide_the_picture);
   RUN_TEST(test_a_plane_of_the_glass_is_painted_as_it_is);
   RUN_TEST(test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game);
+  RUN_TEST(test_the_tetris_turns_with_the_finger_and_clears_the_rows);
   RUN_TEST(test_the_snake_turns_where_the_finger_points_and_not_back);
   RUN_TEST(test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops);
   RUN_TEST(test_the_rainbow_app_paints_the_panel_of_the_matrix);
@@ -21618,6 +22086,11 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_bar_of_the_start_is_a_line_under_the_loading_of_the_picture);
   RUN_TEST(test_the_eraser_app_empties_the_store_after_the_card_is_accepted);
   RUN_TEST(test_the_eraser_app_empties_the_card_it_may_not_write);
+  RUN_TEST(test_an_administrator_walks_the_disk_and_an_app_does_not);
+  RUN_TEST(test_the_disk_says_who_opens_a_file);
+  RUN_TEST(test_an_app_hands_a_file_to_the_app_it_asked_for);
+  RUN_TEST(test_the_files_walks_the_tree_with_a_finger);
+  RUN_TEST(test_the_crypto_door_seals_opens_and_says_why_not);
   UNITY_END();
   return 0;
 }

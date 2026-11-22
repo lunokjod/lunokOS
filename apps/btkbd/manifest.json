@@ -1,0 +1,12 @@
+{
+  "title": "btHID Keyboard",
+  "author": "@lunokjod",
+  "version": "0.1.1",
+  "entry": "btkbd.lua",
+  "boards": [
+    "m5stack-paper",
+    "lilygo-t5s3-epaper-pro"
+  ],
+  "icon": "res/icon.png",
+  "description": "This board as the keyboard of another device: the box under the bar is what you type in and every letter goes to the other device as a key press. Turn the radio on, pair with the name on the page, and the box is live.\nOne device for now: the pointer is the app beside this one."
+}

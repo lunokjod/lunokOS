@@ -1410,7 +1410,71 @@ moltes vegades no es fan mai:
   després —i perquè el valor de la NVS ha de sobreviure entre les crides d'un mateix fitxer obert—. **Dues versions més tard es van moure
   igualment, però no per crida sinó un cop i es queda** (vegeu la secció de la 0.190.207). El lector del llistat (2 264 B) té el seu
   propi comentari i la seva raó —la pila del bucle són setze kilobytes i un lector de dos i mig a sobre va petar una vegada—, i no s'hi
-  ha tocat.
+  ha tocat **fins a la 0.190.260**, que és la secció de sota.
+
+### La finestra del llistat, un cop i es queda (0.190.260)
+
+L'amo, després de mirar el `mem` de la placa: *«cal estalviar memoria... Pero cosetes petites i sempre explicant-me quin es el canvi
+abans de canviar res!»*. El lector del llistat del repositori tenia el seu comentari des de la 0.88.4 —no pot ser una local, perquè la
+pila del bucle són setze kilobytes— i **això no ha canviat**: el que ha canviat és que l'objecte ja no porta la finestra a dins.
+
+| Què | Abans | Després | Quan es fa servir |
+|---|---|---|---|
+| `repository::Listing` (la finestra de 2 048 B + el nom i l'adreça) | **2 264 B** de `.bss` | **220 B** de `.bss` + un bloc de 2 048 B que es demana | un `store`, un `install` o el llistat d'un repositori |
+
+- **El bloc es demana el primer `open()` i es queda**: `pal::extra_memory()` dona PSRAM quan la placa en té i la memòria de casa quan no.
+  No es torna a cada `close()` perquè un `entry_at` obre i tanca el document una vegada per entrada, i el que seria estalviar seria
+  demanar i tornar el mateix bloc vint vegades seguides (docs/30, docs/70).
+- **Cap crida no ha canviat**: `one()` segueix tornant la mateixa referència i `entry_at`, `start`, `next`, `stop` i el llistat del
+  prompt fan exactament el mateix. El que ha canviat és d'on surten els dos kilobytes.
+- **Una placa que no en pot donar cap** —ni PSRAM ni dos kilobytes de heap— no té llistat i `open` diu `false`, que és el que ja hauria
+  passat en no poder obrir el fitxer.
+- **La mesura al `lilygo-t5s3-idf`**: `.dram0.bss` 79 416 → **77 376 B** i el símbol 2 264 → **220 B** (docs/50, docs/75).
+
+### Els manifests de la porta de les apps (0.190.261)
+
+La segona coseta de la mateixa tarda: `apps_ops` tenia **dos `static Entry`** —el manifest sencer, 772 B cada un—, un a `lua_run`
+(`app.run`) i un a `lua_info` (`apps.info`), i els pagava tota l'estona una placa que només els toca quan el llançador prem una cel·la
+o quan un visitant d'un llistat demana un manifest.
+
+| Què | Bytes | Quan es fa servir | Què se n'ha fet |
+|---|---|---|---|
+| El manifest d'`app.run` | **772** | quan una app en vol arrencar una altra | `pal::Scratch` dins la crida, tornat per qualsevol camí |
+| El manifest d'`apps.info` | **772** | per cada cel·la que un llançador dibuixa | el mateix |
+
+- **És la porta que ja hi era**: la mateixa que fa dinàmic el *text* del manifest a `apps::load` des de la 0.190.206. El bloc s'omple
+  amb un `Entry()` de col·locació, o sigui que comença a zero exactament com el `static` que hi havia —un camp que un manifest no diu
+  no pot arribar amb brutícia del bloc d'abans.
+- **Si no hi ha bloc, es diu**: `there is no memory to read its manifest`, que és millor que dir que l'app no existeix.
+- **Provat a l'emulador amb l'intèrpret de debò** (0.190.261): `apps.info("files")` torna `Files`, `0.1.0`, `works_here = true`;
+  `apps.info("nosuchapp")` falla amb la seva taula d'error; `app.run("nosuchapp")` diu *«there is no such app on this disk»* i
+  `app.run("files")` llegeix el manifest i arriba fins al shell.
+- **La mesura**: `.dram0.bss` 77 376 → **75 832 B** (1 544 B).
+
+### L'històric del prompt, lletra per lletra en un bloc (0.190.262)
+
+L'amo va fer la pregunta que calia: *«si l'històric de les comandes ocupa massa és perquè és una llista fixa, no? no trobes que és millor
+que es guardin lletra per lletra en el seu propi psmalloc»*. Sí. `history_[kHistoryEntries][kLineBytes]` era **vuit calaixos de 128 B** —
+1 024 B de RAM interna— i una ordre de tres lletres en desaprofitava cent vint-i-quatre.
+
+| Què | Abans | Després |
+|---|---|---|
+| `shell::g_editor` | **1 292 B** de `.bss` | **280 B** de `.bss` + un bloc de 2 048 B |
+| Ordres que es recorden | **8** | una mica més de **cent** de setze lletres |
+| On viu l'històric | RAM interna, sempre | el bloc del `pal::extra_memory()`, demanat al primer byte |
+
+- **El bloc es demana quan algú escriu i no a l'arrencada**: a board nobody ever types a command at does not pay for it, i quan arriba
+  la primera tecla els llibres de la memòria ja són oberts, o sigui que el bloc surt a `mem blocks` **amb el seu amo** (`shell`) i no com
+  «nobody» —que és el que va sortir la primera vegada, i és el motiu pel qual la crida va amb un `pal::MemoryTag`—.
+- **La línia i l'esborrany no es mouen**: `line_[128]` i `draft_[128]` es toquen **a cada tecla** i es queden a la RAM interna, dins de
+  l'objecte. El que és fred és l'històric: només es llegeix quan es prem ↑ o ↓.
+- **L'editor segueix sense assignar res de seu**: `history_in()` li dona el bloc i `line::Editor` continua essent la classe pura de sempre
+  —el bloc el posa qui el té, com el `Scratch` del QR—. Sense bloc: línia sí, històric no, i una línia al registre.
+- **L'ordre que no hi cap no es trenca**: es llença la més vella i es mou la resta cap avall; una ordre més llarga que el bloc sencer es
+  descarta sencera, perquè mig ordre és pitjor que cap.
+- **Provat**: la suite de l'editor amb **7 casos** —dos de nous: quaranta ordres es recorden i es camina fins a la primera, i un prompt
+  sense bloc no peta— i a l'emulador pel camí de debò (tecles al port): `mem blocks` ensenya `shell 1 2048 B` i `mem` + ↑ + Enter torna a
+  executar `mem`.
 
 ## El que la `.bss` tenia per a feines d'un cop (0.190.207)
 

@@ -193,7 +193,8 @@ bool deep_sleep(const char* reason);
 // **`flags` are the switches the wish carries** (0.189.161): `app.run(id, back, '-d battery')` and `run appinfo -d battery` both
 // leave a string here that the next start gives to the app as `app.args.flags`, which is the door the manifest's `opensArgs`
 // already uses. Null or empty is no switches, and the manifest's own are what the app gets then (docs/30, docs/40).
-bool ask_run(const char* id, bool back, const char* flags, char* why, size_t why_cap);
+bool ask_run(const char* id, bool back, const char* flags, const char* path, char* why,
+              size_t why_cap);
 
 // **La porta única d'una pàgina que arrenca, amb cada cosa pel seu nom** (0.190.251, l'amo: *«reorganitza aquell caos de funcions que criden
 // funcions que comproven que criden funcions»*). Fins avui hi havia `run_app(id, path, restore, splash, alarm, late_ms)` —sis arguments

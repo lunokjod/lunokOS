@@ -1245,6 +1245,10 @@ bool fake_bt_click(const char* button) {
 // a page needs to be the two things at once, i el que la prova guarda és l'acord sencer —la paraula que es demana, la que queda, el
 // nom amb què la placa s'anuncia i els dos números del moviment— perquè una pàgina que arrossega un dit i rep un cursor quiet no té
 // res més a preguntar (docs/30, docs/50).
+//
+// **I un moviment de quatre-cents píxels arriba sencer a la porta** (0.190.259): el report d'un ratolí en porta de −127 a 127 i el
+// qui el parteix és el nucli (`bt::move_for_a_page`), o sigui que el que la pàgina demana és el que el dit ha caminat i no el que cap
+// en un byte. Abans aquesta porta el refusava amb `E_INVAL`, i un dit que arrossegava es quedava a mig camí (docs/30, docs/50).
 void test_bt_device_move_and_click_reach_the_radio(void) {
   pal::init();
   luabind::BtOps ops = {};
@@ -1267,14 +1271,13 @@ void test_bt_device_move_and_click_reach_the_radio(void) {
                        "local bad, err = bt.device('mouse-and-toaster')\n"
                        "assert(bad == nil, tostring(bad))\n"
                        "assert(type(err) == 'table' and err.code == 'E_INVAL', tostring(err and err.code))\n"
-                       "local far, why = bt.move(400, 0)\n"
-                       "assert(far == nil, tostring(far))\n"
-                       "assert(type(why) == 'table' and why.code == 'E_INVAL', tostring(why and why.code))\n"
+                       "assert(bt.move(400, 0) == true)\n"
                        "local which, e2 = bt.click('toaster')\n"
                        "assert(which == nil and type(e2) == 'table' and e2.code == 'E_INVAL', tostring(e2 and e2.code))"));
   TEST_ASSERT_EQUAL_STRING("both", g_bt_asked);
-  TEST_ASSERT_EQUAL_INT(12, g_bt_dx);
-  TEST_ASSERT_EQUAL_INT(-8, g_bt_dy);
+  // **El darrer moviment és el que la porta va veure**, i és el de quatre-cents: la pàgina no l'ha de partir (0.190.259).
+  TEST_ASSERT_EQUAL_INT(400, g_bt_dx);
+  TEST_ASSERT_EQUAL_INT(0, g_bt_dy);
   TEST_ASSERT_EQUAL_STRING("right", g_bt_button);
   luabind::stop();
 }

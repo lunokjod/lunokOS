@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "kernel/vfs.h"
+#include "pal/pal.h"
 
 namespace kernel {
 namespace repository {
@@ -18,6 +19,10 @@ Listing::~Listing() { close(); }
 bool Listing::open(const char* path) {
   close();
   if (path == nullptr) return false;
+  // The window of the file is asked once and stays (see the member's note): a board that can give neither the extra
+  // memory nor two kilobytes of the house has no listing, and `false` says it.
+  if (buffer_ == nullptr) buffer_ = static_cast<char*>(pal::extra_memory().allocate(kChunk, true));
+  if (buffer_ == nullptr) return false;
   char rel[128];
   if (!vfs::resolve(path, storage_, rel, sizeof(rel)) || storage_ == nullptr) return false;
   hal::Stat info;
@@ -52,7 +57,7 @@ void Listing::close() {
 
 bool Listing::fill() {
   if (ended_ || storage_ == nullptr || slot_.impl == nullptr) return false;
-  const int32_t got = storage_->read(slot_, buffer_, sizeof(buffer_));
+  const int32_t got = storage_->read(slot_, buffer_, kChunk);
   at_ = 0;
   if (got <= 0) {
     ended_ = true;
