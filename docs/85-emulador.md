@@ -911,6 +911,13 @@ llegeix 11 V.
   perquè l'emulador no dibuixa el consum de la placa —té una fila pròpia a la taula de fidelitat— i una
   bateria que baixa sola seria un número inventat.
 
+## El rellotge: cada model diu si escala (0.190.227)
+
+`emu::Model` porta ara `dfs`, i és el que respon `IPower::scales_the_clock` quan l'emulador fa aquella placa: **fals** als dos ATOM —que van
+sempre a 240, com a la placa de debò— i **cert** al Paper i al T-Koala. És el que fa que el mateix binari pugui provar les dues bandes: el cas
+`test_a_board_without_dfs_runs_at_the_top_and_the_paper_still_scales` arrenca com a ATOM, comprova que el commutador no mou res i que un pas més
+baix es refusa, i després arrenca com a Paper i troba el DFS de sempre (docs/50, docs/60).
+
 ## El Bluetooth: un ràdio de mentida que ho diu (0.190.200)
 
 L'amo: *«així podrem medir tot en detall i fer l'emulador més realista»*. El ràdio era l'única cosa del sistema que aquesta banda no
@@ -985,6 +992,79 @@ orfe fins a la **0.190.187**, que el va treure amb la resta de codis: el `clear`
 `term` de Lua i la capacitat `ansi`, que deia que el terminal entén els colors i era l'invitació a escriure'ls.
 **El que queda de codi amb un `0x1b` és llegir tecles**, que no és el mateix que escriure-les: una fletxa és
 `ESC [ A` i una tecla premuda arriba així (docs/30).
+
+### I l'emulador no té el terminal del cable (0.190.222)
+
+El terminal de debò —`linenoise`, el cursor, l'historial, el tabulador— **viu a la banda del cable** i no aquí. L'emulador diu que no a
+`IConsole::has_a_line_editor` i es queda amb el camí de bytes de sempre: el prompt es redibuixa amb espais i retrocessos i **no s'hi escriu
+cap `ESC [`**. No és una excepció, és la resposta per omissió de la porta: una banda que no vol editor no ha de fer res (docs/50). I això és
+el que fa que aquesta casa es pugui provar sense cap placa.
+
+**Qui provi el terminal al cable ha de saber dues coses del monitor**:
+
+- **`pio device monitor` no és un terminal**: porta un filtre que envia la línia sencera quan es prem Enter (`send_on_enter`) —amb ell les
+  fletxes no arriben al terminal i no hi ha manera de moure el cursor; `--filter direct` les hi envia— i, sobretot, **no contesta cap
+  pregunta de terminal**. Com que `linenoise` mesura el prompt i l'amplada preguntant-ho (`␛[6n`), la sonda del principi falla i **el que
+  queda és l'editor propi del shell**, amb espais i retrocessos, exactament com a l'emulador. No és cap avaria: és el monitor que no és un
+  terminal.
+- **I si la placa va arrencar abans que el monitor fos obert, hi ha la comanda `terminal`** (0.190.230): la sonda es fa un sol cop, al segon
+  d'arrencar, o sigui que gravar amb `pio run -t upload` i obrir el monitor després deixava la sessió sense cursor ni colors fins al proper
+  reinici. `terminal` al prompt torna a preguntar-ho amb el monitor ja escoltant i, si contesta, encén l'editor i el color de la sessió; si no,
+  diu que el monitor no és un terminal i el shell es queda amb el seu editor de text pla (docs/30, docs/50).
+- **Dins del VS Code els colors hi surten, si el monitor no els toca**: el terminal integrat és xterm.js i entén la paleta de 256; el que
+  decideix és `monitor_filters = direct` a `platformio.ini` (cap filtre pel mig i les tecles a la primera premuda) i que el terminal contesti
+  la sonda. **La línia que ho diu és del registre**: `[I][CONSOLE] the terminal is up and speaks ANSI (cursor, colour, history) on 120
+  column(s)`; si aquesta línia no hi és i en surt una de `does not answer escape codes`, el que falla és el monitor, no el color.
+- **Per veure el cursor i els colors, cal un terminal de debò**: `tio`, `minicom`, `screen` o l'editor que sigui, que contesti la sonda.
+  Amb un d'aquests, el prompt surt amb el seu color, les fletxes mouen el cursor i el tabulador completa. **I la resposta de la sonda és una
+  dada que el nucli llegeix** (`IConsole::speaks_ansi`, 0.190.223): diu si el que hi ha a l'altre cap entén els codis, i és el que decideix si
+  el prompt porta color i si `clear` neteja la pantalla o fa pujar quaranta línies. L'emulador contesta que no, i per això aquesta casa es pot
+  provar sense cap placa (docs/30, docs/50).
+
+I **el que no s'hi pot escriure**: la línia del terminal passa per `sanitize()`, que treu el que no és `isprint` en el joc de caràcters C, o
+sigui que **una lletra accentuada no arriba** al shell pel cable. A l'emulador i a la consola del vidre no es perd res, perquè per allà no
+hi passa (docs/30, docs/50).
+
+### La placa que es queda clavada amb `pal_line` (0.190.225)
+
+L'amo ho va veure a la placa: escriure una lletra i que la consola no torni, amb això al registre:
+
+```
+lunok> m
+E task_wdt: Task watchdog got triggered. The following tasks/users did not reset the watchdog in time:
+E task_wdt:  - IDLE (CPU 1)
+E task_wdt: CPU 1: pal_line
+```
+
+És la tasca de l'editor menjant-se el processador: el segon nucli no arriba ni a l'`IDLE`, o sigui que no és una espera, és un **bucle**. I el
+bucle és dins de `refreshMultiLine`, que treballa amb **l'amplada que li ha contestat el terminal** i amb l'estat de l'editor, que viu a la
+pila de la tasca: una amplada de zero hi divideix (i la rutina de divisió d'aquest xip dona voltes per sempre) i una pila plena fa que
+l'amplada sigui el que hi hagi. Per això la 0.190.225 porta **vuit kilobytes de pila** en lloc de quatre, **pregunta l'amplada abans**
+d'encendre l'editor (i se'n queda fora si no és d'un terminal de debò), i **diu al registre quants bytes de pila queden** després de la
+primera línia. I el fil de la consola torna al **sondeig** d'un mil·lisegon, amb la interrupció guardada al codi (docs/30, docs/50, docs/75).
+
+### Quan la placa ensenya `␛[5n` en arrencar (0.190.224)
+
+Li va passar a l'amo: *«I el suport per ansi ? no veig color enlloc»*, amb això a la pantalla:
+
+```
+type 'help' and Enter.
+␛[5n
+the session is closed: press Enter to open one
+```
+
+**No és cap avaria, és la resposta que no hi és.** `␛[5n` és la sonda —la pregunta *Device Status Report*— i el monitor l'ha **escrita** en
+comptes de contestar-la. Un monitor així no és un terminal: si no entén aquest codi tampoc no entendria els del color, o sigui que no hi
+hauria colors ni amb la sonda a favor. El sistema fa el que ha de fer: `speaks_ansi` diu que no i el shell escriu text pla.
+
+- **La pregunta es renta**: quan ningú no contesta, el que hi ha a la pantalla es tapa amb un retorn de carro i vuit espais, i en un
+  terminal de debò no es veu res (ni la sonda ni el rentat).
+- **El registre diu què cal**: `[W][CONSOLE] the other end of the cable does not answer escape codes (no terminal) … a terminal of truth
+  answers -- tio, screen, minicom, or \`pio device monitor --filter direct\``. Amb això, el prompt surt amb el seu color, les fletxes mouen
+  el cursor i el tabulador completa.
+- **I no hi ha cap interruptor per forçar-ho**: `linenoise` mesura l'amplada i el prompt preguntant-ho (`␛[6n`) i, si ningú no contesta,
+  **es menja les tecles** fins que en surt una `R`. Un «sí, tinc terminal» forçat en un monitor que no ho és deixaria el teclat pitjor que
+  abans; el que cal allà és text pla, que és el que hi ha (docs/30, docs/50).
 ## Què mirar, i amb quina app (1/11)
 
 **A l'emulador, el maquinari del model hi és des de l'arrencada**: el vidre i el GT911 d'una Paper són allà sense cap bandera (i `--no-display` / `--no-touch` els treuen), o sigui que una app que dibuixa amb el dit va amb `--board m5stack-paper` i prou. **I amb `--gui` el dit és el ratolí**: es prem i s'arrossega damunt de la finestra. El que no hi és mai és el que el model no té: un `--display` a un ATOM es refusa dient que aquella placa no té pantalla.

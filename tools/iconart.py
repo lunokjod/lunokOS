@@ -100,22 +100,48 @@ MARKS = {
     # `device_lock` draws its own padlock with the primitives of a page (`tools/make_lock_icon.py`), which is the picture of an
     # icon of the launcher; a key of the card carries a mark of the clipart like the other seven (docs/45, docs/50).
     "lock": (0xF023, "lock: the screen is covered"),
+    # **Les tres de la ràdio** (0.190.219, l'amo: *«Els botons aquests nous no se d'on els has tret pero no tenen res en comú. Busca al
+    # fontawsome»*): the Bluetooth, the wifi and the mesh are glyphs of the same clipart as the other eight, o sigui que les nou marques
+    # de la targeta surten de la mateixa família i es reconeixen com un joc. **La del Bluetooth és a la família `brands` i no a `solid`**
+    # —Font Awesome té les marques comercials a part— i per això una entrada pot dir la seva família; les altres dues són `solid` i prou
+    # (docs/45, docs/92).
+    # **La runa sola i no la insígnia** (0.190.219): `U+F293` és el Bluetooth dins d'un quadrat rodó —la marca de l'empresa— i a la targeta
+    # quedava com una taca fosca amb una runa blanca a dins, que no té res a veure amb la resta. `U+F294` és **la runa i prou**, o sigui la
+    # mateixa silueta que el pinyó, la casa i el candau (docs/45, docs/92).
+    "bluetooth": (0xF294, "bluetooth-b: the rune of the radio", "brands"),
+    "wifi": (0xF1EB, "wifi: the fan of the network"),
+    # **`share-alt` i no `network-wired`** (0.190.219): el primer era tres pantalles en un arbre —una xarxa amb jerarquia, que és el que és
+    # una LAN i el que **no** és un mesh—, i a la targeta es llegia com un org-chart. `U+F1E0` és **tres nodes enllaçats entre ells**, sense
+    # cap a dalt: és la forma d'una xarxa de parells, que és el que fa un mesh de Bluetooth, i pesa el mateix que la resta del joc
+    # (docs/45, docs/92). Els altres que s'hi van mirar —`project-diagram`, `sitemap`, `broadcast-tower`, `connectdevelop`— o són arbres o
+    # són massa dibuix per a una clau de setze mil·límetres.
+    "mesh": (0xF1E0, "share-alt: three nodes joined to each other"),
 }
 
 
-def the_font() -> str:
-    for path in FONTS:
+# **The second family** (0.190.219): Font Awesome has the commercial marks in a font of their own, o sigui que el Bluetooth no és a
+# `fa-solid-900.ttf` i buscar-lo allà és un glif que no hi és. Cada camí es prova amb el seu nom i la marca diu de quina família és.
+FONTS_BRANDS = (
+    os.path.join(HERE, "fontawesome", "fa-brands-400.ttf"),
+    "/home/sharek/mnt/node0_bak/node0/public/external/fontawesome-free-5.15.4-web/webfonts/fa-brands-400.ttf",
+    "/usr/share/fonts/truetype/fontawesome/fa-brands-400.ttf",
+)
+
+
+def the_font(family: str = "solid") -> str:
+    for path in (FONTS_BRANDS if family == "brands" else FONTS):
         if os.path.isfile(path):
             return path
-    sys.exit("the clipart is not here: put fa-solid-900.ttf in tools/fontawesome/ "
+    name = "fa-brands-400.ttf" if family == "brands" else "fa-solid-900.ttf"
+    sys.exit(f"the clipart of the {family} family is not here: put {name} in tools/fontawesome/ "
              "(Font Awesome Free 5.15.4, SIL OFL 1.1)")
 
 
-def glyph(code: int, px: int) -> Image.Image:
+def glyph(code: int, px: int, family: str = "solid") -> Image.Image:
     """**La tinta del glif i prou**, retallada a la seva caixa. A symbol of a
     clipart family is not centred in the box of its font, and two marks put side
     by side with their boxes centred come out at two optical sizes (docs/45)."""
-    face = ImageFont.truetype(the_font(), px)
+    face = ImageFont.truetype(the_font(family), px)
     probe = Image.new("L", (px * 2, px * 2), 0)
     ImageDraw.Draw(probe).text((px, px), chr(code), font=face, fill=255, anchor="mm")
     box = probe.getbbox()
@@ -130,8 +156,8 @@ def draw(name: str) -> Image.Image:
     is the air a key of the card needs —a mark that fills its key is a key with a
     frame of ink— and the two ends of the fourteen levels are the paper of the
     card and its ink (docs/45, docs/92)."""
-    code, _ = MARKS[name]
-    art = glyph(code, 400)
+    code, _, *family = MARKS[name]
+    art = glyph(code, 400, family[0] if family else "solid")
     room = int(SIZE * 0.80)
     scale = min(room / art.width, room / art.height)
     art = art.resize((max(1, int(art.width * scale)), max(1, int(art.height * scale))), Image.LANCZOS)

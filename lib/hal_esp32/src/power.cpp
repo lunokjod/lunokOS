@@ -28,6 +28,7 @@
 #endif
 #endif
 
+#include "board/identity.h"
 #include "hal/log.h"
 #include "esp32/clock.h"
 #include "esp32/power.h"
@@ -402,6 +403,10 @@ bool Esp32Power::set_cpu_mhz(uint32_t mhz) {
 // dorma el xip quan el planificador queda sense feina, i **demana abans de cada son** —`the_doors_are_shut`— si la placa el vol, o
 // sigui que la idea de quietud continua sent d'`kernel::power` (el dit, la pàgina al vidre, els deu segons del port i la becaina més
 // curta) i el que canvia és qui fa la dormida i qui compensa el tick (docs/50, docs/60).
+// **I el que la placa diu de si mateixa** (0.190.227): ve de `board/identity.h`, que és d'on surt tot el que aquesta casa sap d'una placa
+// abans de compilar-la. Els dos ATOM diuen que no escalen el rellotge i la resta que sí (docs/50, docs/60).
+bool Esp32Power::scales_the_clock() const { return board::scales_the_clock(); }
+
 bool Esp32Power::set_cpu_range(uint32_t min_mhz, uint32_t max_mhz) {
 #if defined(CONFIG_PM_ENABLE)
   if (min_mhz > max_mhz || min_mhz == 0) return false;

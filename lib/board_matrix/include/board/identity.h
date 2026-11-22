@@ -52,6 +52,12 @@ inline constexpr uint32_t led_max() { return 20; }
 // rate— on its own I2C bus, SDA G25 and SCL G21 at 100 kHz, address 0x68. Those two
 // pins are not free on this board, which is the other difference from the Lite
 // (docs/50).
+// **Whether this board scales its own clock** (0.190.227): **no**, and it is the owner's decision —*«Desactiva el Dynamic Frequency
+// Scaling per l'M5 Atom Lite i l'M5 Atom Matrix. Només per aquests dos models. Que vagin sempre a 240Mhz»*—. En aquesta placa el que es
+// vol és el rellotge quiet al cim: el DFS baixa la CPU a 80 quan no hi ha feina, i el preu és un canvi de PLL i d'APB que aquí no es paga a
+// gust. **El son lleuger no s'hi toca**: el xip continua dormint entre torns; el que no fa és córrer a mitja marxa (docs/50, docs/60).
+inline constexpr bool scales_the_clock() { return false; }
+
 inline constexpr bool has_imu() { return true; }
 
 }  // namespace board

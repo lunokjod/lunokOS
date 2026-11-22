@@ -52,6 +52,10 @@ inline const char* family() { return "esp32"; }
 // This build is for a board and not for the PC emulator.
 inline bool emulator() { return false; }
 
+// **Whether this board scales its own clock** (0.190.227): **yes**. Els dos ATOM diuen que no i la resta que sí, o sigui que el DFS del
+// xip es queda com estava a tot arreu menys allà on l'amo l'ha tret (docs/50, docs/60).
+inline constexpr bool scales_the_clock() { return true; }
+
 // **Una llum, i és la del vidre** (0.190.99): GPIO11 va a l'`EN` de l'elevador PT4103B23F, o sigui que la retroil·luminació del
 // panell és el que aquesta placa té com a llum —una de sola, blanca, i sense color que triar-hi més enllà de la intensitat—. El valor
 // màxim és el del PWM de la placa, vuit bits, que és el mateix 255 que fa servir tota la casa (docs/30, docs/50).

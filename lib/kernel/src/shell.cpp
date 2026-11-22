@@ -107,6 +107,8 @@ line::Editor g_editor;
 // the `lua` session and the question of the app selector are not the same line (docs/30, docs/85).
 char g_prompt[40] = "lunok> ";
 size_t g_prompt_len = 7;
+// **I quants bytes fa el text del prompt**, codis inclosos: `g_prompt_len` són les lletres que es veuen i això és el que s'escriu (0.190.231).
+size_t g_prompt_bytes = 7;
 size_t g_visible = 0;  // characters of the prompt and the line that are on the terminal
 bool g_last_was_cr = false;
 // The app that is alive between turns: while it is, the prompt is not shown and
@@ -133,6 +135,10 @@ bool g_session_open = true;
 // is why the flag is here and not in the editor: the prompt has to stop asking for a line and the two stop keys have to be caught
 // before the escape parser sees them (docs/30).
 bool g_log_follow = false;
+// **El color d'aquesta línia** (0.190.226): el que hi ha desat a `cfg/ansi` i el que el terminal contesta, junts. És el que llegeix el
+// filtre de la consola, i **no** el que hi ha desat: un monitor que no contesta la sonda deixa la sessió sense codis encara que la
+// preferència digui que sí, i això no ha de tocar el que la persona va triar (docs/30, docs/50).
+bool g_ansi = true;
 
 // **La sessió del cable tanca sola, i mentre és oberta el xip no dorm** (0.190.184, l'amo: *«La shell del lunokOS te un temporitzador
 // d'inactivitat. Si fa 5 minuts que no teclejes res o es reb igna cosa la sessió es tanca […] En aquest moment s'allibera el pany o el que
@@ -275,7 +281,28 @@ void out_bytes(const void* data, size_t len) {
   // go through the interpreter's console— and that is why the app that has the port keeps it (docs/30, docs/50).
   pal::IConsole* console = serial::console();
   if (console == nullptr) return;
-  console->write(data, len);
+  // **I el filtre, aquí i enlloc més** (0.190.226): aquesta és l'única porta del nucli cap a la consola —la taula, l'avís, el prompt i el
+  // que una comanda respon—, o sigui que filtrar aquí vol dir que cap línia s'escapa del color que la sessió no vol. Es fa a trossos i
+  // sense reservar res: una línia del registre o un `cat` d'un fitxer gran hi passen igual (docs/30, docs/50, docs/75).
+  if (g_ansi) {
+    console->write(data, len);
+    return;
+  }
+  const char* in = static_cast<const char*>(data);
+  char block[128];
+  size_t used = 0;
+  size_t at = 0;
+  while (at < len) {
+    if (static_cast<unsigned char>(in[at]) == 0x1b) {
+      at = skip_the_escape(in, len, at);
+      continue;
+    }
+    block[used++] = in[at++];
+    if (used < sizeof(block)) continue;
+    console->write(block, used);
+    used = 0;
+  }
+  if (used > 0) console->write(block, used);
 }
 
 void out(const char* text) { out_bytes(text, strlen(text)); }
@@ -293,9 +320,11 @@ void spaces(size_t count) {
 }
 
 // **Ni color ni detecció** (0.190.92, l'amo: *«esborra la comanda "ansi" i treu els textos ANSI del codi»*): el que escriu aquesta casa
-// és text pla. **I les dues excepcions que quedaven ja no hi són** (0.190.187, l'amo: *«Encara queden coses amb ansi! Busca per tot el
-// codi restes d'ansi i treu-lo»*): `clear` fa pujar el paper amb línies buides i el mòdul `term` de Lua es queda amb l'amplada i
-// l'alçada. Aquí no hi ha cap `ESC [` (docs/30, docs/85).
+// és text pla, i el mòdul `term` de Lua es queda amb l'amplada i l'alçada (0.190.187). **Des de la 0.190.222 hi ha dues excepcions i són
+// del terminal, no del registre**: el prompt amb el seu color i el `clear` que neteja la pantalla, i només quan la consola té **editor de
+// línia** —el `console` de la IDF al cable—; sense terminal (l'emulador, la consola del vidre) el que s'escriu és exactament el que hi havia
+// abans, lletra a lletra. **I la sonda**: el `␛[6n` que la 0.190.92 va fer treure del codi d'aquesta casa el pregunta ara el component, un
+// sol cop i abans d'encendre res, i només si el monitor de l'altre cap és un terminal de debò que hi contesta (docs/30, docs/50, docs/85).
 
 // **Netejar és fer pujar el paper** (0.190.188, l'amo: *«igual que amb "clear" passes unes linies (passa'n mes!) fes el mateix amb
 // logout/exit»*): quaranta salts de línia són més que la pantalla de qualsevol terminal —24 és el que aquest sistema promet i 40 el
@@ -304,6 +333,19 @@ void spaces(size_t count) {
 const int kWipeLines = 40;
 
 void wipe_the_paper() {
+  // **I amb el terminal a sobre, netejar és netejar** (0.190.222): `clear` pujava quaranta línies perquè el prompt no parlava codis i el
+  // paper era l'única manera de fer marxar el que hi havia a dalt. Un terminal que mou el cursor sí que en parla, o sigui que el que es
+  // demana és el que demana qualsevol terminal —`ESC [ 2 J` i el cursor a dalt de tot— i la pantalla queda neta de debò. Sense terminal,
+  // quaranta salts de línia segueixen essent el camí (docs/30, docs/85).
+  // **Netejar amb codis depèn del color i no de l'editor** (0.190.223, i des de la 0.190.226 el color és el commutador): el que ha
+  // d'entendre `ESC [ 2 J` és el que hi ha a l'altre cap de la línia, i qui edita la línia no hi té res a veure. **Quan el filtre treu els
+  // codis, la pantalla no es pot netejar amb ells** —el filtre se'ls menjaria i el `clear` no faria res—, o sigui que el paper puja amb
+  // quaranta salts de línia, que és el que entén tothom (docs/30, docs/50, docs/85).
+  if (g_ansi) {
+    out("\033[2J\033[H");
+    g_visible = 0;
+    return;
+  }
   for (int i = 0; i < kWipeLines; ++i) out("\r\n");
 }
 
@@ -333,7 +375,7 @@ void usage_out(const char* text) {
 // **El prompt és el text i prou** (0.190.92): el nom en verd i el `>` en gris eren codis d'escapament, i aquesta casa ja no n'escriu cap.
 // Els bytes de `g_prompt` sempre van ser el text visible —un redibuix compta caràcters i no codis—, o sigui que el que marxa és només el
 // color (docs/30).
-void write_prompt() { out_bytes(g_prompt, g_prompt_len); }
+void write_prompt() { out_bytes(g_prompt, g_prompt_bytes); }
 
 const size_t kWordsBad = static_cast<size_t>(-1);
 
@@ -402,6 +444,23 @@ void out_num(uint32_t value) {
   out(&buf[i]);
 }
 
+// **Quantes lletres es veuen d'un text amb codis** (0.190.231): el prompt pot portar color —i des d'avui el porta també quan l'editor és el
+// d'aquesta casa—, i el dibuix de la línia compta caràcters visibles mentre que el que s'escriu és el text sencer. `filter_ansi` no serveix per
+// a això perquè respecta el commutador: aquí els codis es treuen sempre, que és el que fa el terminal en pintar-los (docs/30, docs/50).
+size_t visible_bytes(const char* text, size_t len) {
+  size_t seen = 0;
+  size_t at = 0;
+  while (at < len) {
+    if (static_cast<unsigned char>(text[at]) == 0x1b) {
+      at = skip_the_escape(text, len, at);
+      continue;
+    }
+    ++at;
+    ++seen;
+  }
+  return seen;
+}
+
 // The prompt that a redraw has to put back. The selector asks its own question and the interpreter says
 // `lua>`, so the text is a value and not a call to `prompt()` (docs/30).
 void set_prompt_text(const char* text, bool write) {
@@ -409,9 +468,21 @@ void set_prompt_text(const char* text, bool write) {
   if (len >= sizeof(g_prompt)) len = sizeof(g_prompt) - 1;
   memcpy(g_prompt, text, len);
   g_prompt[len] = '\0';
-  g_prompt_len = len;
+  // **Els bytes que s'escriuen i les lletres que es veuen són dos números** (0.190.231): el prompt es desa amb els seus codis —és el que
+  // s'envia a la línia i el que es dona a l'editor— i `g_prompt_len` és el que compta el cursor del dibuix d'aquesta casa (docs/30).
+  g_prompt_bytes = len;
+  g_prompt_len = visible_bytes(g_prompt, len);
+  // **Qui dibuixa el prompt és qui edita la línia** (0.190.222): amb el terminal del cable, el text se li deixa a ell —que el posa amb el
+  // cursor al darrere i amb el color del sistema— i no s'escriu aquí, o n'hi hauria dos i el que escrivís el nucli quedaria a sota de la
+  // línia que s'està editant. Sense terminal, aquesta és la línia de sempre (docs/30, docs/50).
+  pal::IConsole* console = serial::console();
+  if (console != nullptr && console->has_a_line_editor()) {
+    console->set_the_prompt(g_prompt);
+    g_visible = g_prompt_len;
+    return;
+  }
   if (write) write_prompt();
-  g_visible = len;
+  g_visible = g_prompt_len;
 }
 
 // **The line is redrawn from the prompt and the cursor is put back where it belongs**, with spaces to wash the old tail and backspaces
@@ -546,8 +617,14 @@ void print_help(const char* only) {
   help_line("  cfg sleep on|off      whether the board sleeps until its next alarm when nobody uses it", only);
   help_line("  cfg touchwake on|off  whether a finger on the glass wakes the board from a deep sleep", only);
   help_line("  cfg nap on|off        whether the waits of the board are spent in a light sleep", only);
-  help_line("  mesh [on|off]     the board as a node of a Bluetooth Mesh: it offers itself to a", only);
-  help_line("                    provisioner, and the address it is given is kept", only);
+  help_line("  mesh              the board as a network of Bluetooth Mesh, and this board is its", only);
+  help_line("                    provisioner: it keeps the keys and it hands out the addresses", only);
+  help_line("  mesh key          a network of its own with new keys, `mesh key show` which ones, and", only);
+  help_line("                    `mesh key <net> <app>` the keys you bring, thirty-two hex digits each", only);
+  help_line("  mesh find [s]     who is near and in no network, and `mesh prov <n> [<addr>]` gives one", only);
+  help_line("                    of them an address; `mesh nodes` says who is in this network", only);
+  help_line("  cfg wifi on|off   the wifi radio, on or off: it is the switch of the card of the bar,", only);
+  help_line("                    and turning it on starts the radio if it was off", only);
   help_line("  cfg btmode [keyboard|mouse|both]  what this board is to another device, and it is", only);
   help_line("                    kept: a mouse makes the glass the pointer of the other one", only);
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
@@ -565,10 +642,15 @@ void print_help(const char* only) {
   help_line("  hexdump <path>    the bytes of a file in hex and in visible letters", only);
   help_line("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)", only);
   help_line("  log               last lines of the log ring", only);
-  help_line("  log follow        the log as it is written; Control+C or Escape stops it", only);
+  help_line("  log follow        the log as it is written; a line stops it (Control+C or Escape on a wire", only);
+  help_line("                    without a terminal)", only);
   help_line("  stats [reset]     what each device cost: calls, time, last call", only);
   help_line("  verbose on|off    mirror the log to the console too", only);
   help_line("  clear             clear the screen", only);
+  help_line("  terminal          ask the other end again whether it is a terminal, and take its cursor, its", only);
+  help_line("                    colour and its line editor if it answers", only);
+  help_line("  ansi [on|off]     the escape codes of this session: `off` filters them out before the wire,", only);
+  help_line("                    and the boot puts it off by itself when the console is not a terminal", only);
   help_line("  reboot            restart", only);
   help_line("  poweroff          cut the power of the board, if it can (docs/50)", only);
   help_line("  deepsleep         sleep with the supply still on, and come back when a key is pressed", only);
@@ -3813,9 +3895,14 @@ bool command_power(const char* argument) {
     if (!power::set_cpu_mhz(static_cast<uint32_t>(asked))) {
       // The number is said back: a speed that is not one of the board's steps is
       // refused and not rounded, and the person has to know which ones there are.
+      // **I en una placa que no escala només n'hi ha un** (0.190.227).
       out("cpu: this board does not run at ");
       out_int(asked);
-      out(" MHz (80, 160 or 240)\r\n");
+      if (power::scales_the_clock()) {
+        out(" MHz (80, 160 or 240)\r\n");
+      } else {
+        out(" MHz: it does not scale its clock and runs at 240 always\r\n");
+      }
       return false;
     }
     out("cpu: ");
@@ -3831,6 +3918,13 @@ bool command_power(const char* argument) {
       out("cpu: the automatic scaling is ");
       out(power::cpu_auto() ? "on" : "off");
       out("\r\n");
+      // **I en una placa que no escala no hi ha res a engegar** (0.190.227): el rellotge hi és sempre al cim, i això s'ha de dir quan es
+      // pregunta i no quan es prem (docs/50, docs/60).
+      if (!power::scales_the_clock()) {
+        out("cpu: this board does not scale its clock; it runs at ");
+        out_num(power::cpu_mhz());
+        out(" MHz always\r\n");
+      }
       return true;
     }
     if (count != 2 || (strcmp(words[1], "on") != 0 && strcmp(words[1], "off") != 0)) {
@@ -3839,6 +3933,14 @@ bool command_power(const char* argument) {
     }
     const bool on = strcmp(words[1], "on") == 0;
     power::set_cpu_auto(on);
+    if (!power::scales_the_clock()) {
+      // **El commutador no canvia res aquí, i el que es diu és la veritat de la placa** (0.190.227): no que s'hagi apagat el que s'ha
+      // demanat, sinó que aquest xip no té escala (docs/50, docs/60).
+      out("cpu: this board does not scale its clock; it runs at ");
+      out_num(power::cpu_mhz());
+      out(" MHz always\r\n");
+      return true;
+    }
     out("cpu: the automatic scaling is ");
     out(on ? "on" : "off");
     out(", ");
@@ -4080,6 +4182,19 @@ void print_colour(uint8_t r, uint8_t g, uint8_t b) {
   out(text);
 }
 
+// **Una clau del mesh, escrita com tothom les escriu** (0.190.218): trenta-dos dígits hexadecimals, els setze bytes i cap checksum —el mesh
+// no en porta—, o sigui que el que es copia d'aquí és literalment la clau. El text el posa i el llegeix `kernel::mesh`, perquè el prompt, la
+// botiga i el registre no escriguin la mateixa clau de tres maneres (docs/45, docs/50).
+void print_key(const char* label, const uint8_t key[16]) {
+  char text[33];
+  mesh::key_to_text(key, text);
+  out("  ");
+  out(label);
+  out(" ");
+  out(text);
+  out("\r\n");
+}
+
 // led [rrggbb|off]: the light of the board, by hand. It is the colour an app takes,
 // so `led off` gives it back to the system and the shell says which one is showing
 // (docs/30, docs/50).
@@ -4300,7 +4415,12 @@ bool close_console_session() {
 
   g_session_open = false;
   out("logout: the session is closed; press Enter to open a new one\r\n");
-  if (console != nullptr) console->flush();
+  // **I el terminal es queda sense prompt** (0.190.222): una sessió tancada que encara ensenya `lunok> ` és un prompt que demana una cosa
+  // que no es pot fer. El que demana és un Enter, i és el que el missatge de dalt diu (docs/30).
+  if (console != nullptr) {
+    if (console->has_a_line_editor()) console->set_the_prompt("");
+    console->flush();
+  }
   // **I el pany es deixa anar aquí** (0.190.184): la sessió tancada és el que permet que el xip torni a fer becaines, i el despertar per la
   // consola el torna a agafar quan una persona prem Enter (docs/60).
   sync_the_wire_lock();
@@ -4324,6 +4444,19 @@ void console_away(const char* text, size_t len) {
 
 }  // namespace
 
+// **El color del prompt** (0.190.222, l'amo: *«Poder moure el cursor, fer efectes, i colors dona molta vidilla»*): el terminal del cable
+// entén codis d'escapament i és el que posa el prompt a la pantalla, o sigui que la paraula del shell hi va amb el seu color —el cian
+// del que aquesta casa fa servir per al que és del sistema— i la resta del port continua essent text pla (docs/30, docs/50).
+// **I amb la paleta de 256 colors, que és el que un terminal de debò té** (0.190.229, l'amo: *«vull un terminal monitor ANSI de 256 colors i
+// que es vegi dins del puto vscode»*): `38;5;N` és el color N de la taula de 256 —no els vuit de sempre— i el 51 és el cian clar, el 220
+// l'ambre i el 45 el cian del rellotge. **Una sola forma per a tots els colors d'aquesta casa**: el prompt, el registre i el que vingui
+// després surten de la mateixa taula (docs/30, docs/50, docs/85).
+//
+// Cada un és `ESC [ 38 ; 5 ; N m` … `ESC [ 0 m` i prou: el filtre (`ansi off`) els treu sencers, i l'amplada visible del prompt la mesura
+// el terminal quan contesta (`ESC[6n`), o sigui que els codis no compten com a caràcters ni descol·loquen el cursor (docs/30).
+const char* const kTerminalPrompt = "\033[38;5;51mlunok>\033[0m ";
+const char* const kTerminalLuaPrompt = "\033[38;5;220mlua>\033[0m ";
+
 void prompt() {
   // **A closed session does not ask**: the prompt is what says the console is listening, and every caller keeps
   // asking for it —the end of an app, a new line, a command— because it is one place and not ten (docs/30).
@@ -4331,9 +4464,21 @@ void prompt() {
   // **And a session of an app is a pipe and not a terminal**: no prompt and no echo, so what the app reads is what
   // the command printed and nothing else (docs/30).
   if (g_sink != 0) return;
-  set_prompt_text(g_lua ? "lua> " : "lunok> ", true);
   g_esc = 0;
   g_escape = Escape::kNone;
+  // **La paraula del prompt la diu el terminal, no el camí** (0.190.222, i són dues preguntes des de la 0.190.223): **el color** depèn que
+  // l'altre cap entengui els codis (`speaks_ansi`) i **qui l'escriu** depèn que hi hagi editor de línia (`has_a_line_editor`). Amb el cable
+  // solen venir junts i no sempre: un driver del USB que no arrenca deixa el terminal sense editor i amb els codis, i aleshores el prompt
+  // l'ha d'escriure aquesta casa —amb el color igualment, que per això el terminal els entén—. I un monitor que no és terminal no en parla,
+  // o sigui que el prompt hi arriba amb lletres i prou (docs/30, docs/50, docs/85).
+  // **I el color el decideix el commutador i prou** (0.190.226, i des de la 0.190.231 sense preguntar res més): la paraula del prompt porta els
+  // codis sempre que `g_ansi` sigui encès, i qui la dibuixa és l'editor si n'hi ha i aquesta casa si no n'hi ha. **Són dues preguntes i no se
+  // separen per gust**: l'editor necessita que el terminal contesti (mesura l'amplada i el prompt), el color només necessita que el terminal
+  // pinti el que li arriba — i el de dins del VS Code pinta i no contesta (docs/30, docs/50, docs/85).
+  pal::IConsole* console = serial::console();
+  const bool terminal = console != nullptr && console->has_a_line_editor();
+  const char* const word = g_lua ? (g_ansi ? kTerminalLuaPrompt : "lua> ") : (g_ansi ? kTerminalPrompt : "lunok> ");
+  set_prompt_text(word, !terminal);
 }
 
 bool app_running() { return g_app_alive; }
@@ -4959,6 +5104,20 @@ void start() {
   // qui vol el prompt prem Enter. A l'emulador i a la consola del vidre no: no hi ha cable, no es perd cap caràcter i un run de prova no ha de
   // començar prement Enter (docs/30, docs/50, docs/85).
   g_session_open = !a_wire_console();
+  // **El color no depèn de la sonda, i això és un canvi de criteri** (0.190.231, l'amo: *«NI UN PUTO COLOR»* amb el `pio device monitor
+  // --filter direct` dins del VS Code). La 0.190.226 posava `ansi off` quan la sonda callava, amb el raonament que un monitor que no contesta
+  // no pot rebre codis — i és fals: **contestar la sonda i pintar els codis són dues coses diferents**, i el monitor de `pio` no pot contestar
+  // mai perquè es menja les respostes del terminal (`getkey()` les llegeix com si fossin fletxes). El que decideix el color és **el que la
+  // persona va triar** (`cfg/ansi`, encès de sèrie) i prou; `ansi off` és la porta per a un monitor que escriu els codis com a lletres
+  // (docs/30, docs/50, docs/85).
+  {
+    pal::IConsole* console = pal::system().console();
+    g_ansi = cfg::ansi_on() && console != nullptr && console->speaks_ansi();
+    if (g_ansi && !console->has_a_line_editor()) {
+      log_printf(pal::kLogInfo, "CONSOLE",
+                 "the other end does not answer as a terminal (no cursor, no history); the codes still go out -- `ansi off` filters them");
+    }
+  }
   // **I el mirall del registre, al que és la consola i no al que és el cable** (0.190.185, l'amo: *«fes que el log no s'envii al serie»*).
   // Es decideix aquí i no a `log_init()` perquè aquest és el moment en què hi ha consola de debò —un run de prova de l'emulador en té i una
   // placa també— i perquè un `start()` que no deixés el mirall com toca el deixaria encès d'un run anterior (docs/30, docs/50).
@@ -5044,7 +5203,8 @@ bool command_cfg(const char* argument) {
   static const char* const kUsage =
       "usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|lock [<id>|none]|"
       "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-      "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [5|10|15]|nap [on|off]|cursor delay [<ms>]]\r\n";
+      "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [5|10|15]|nap [on|off]|wifi [on|off]|"
+      "bt [on|off]|cursor delay [<ms>]]\r\n";
   char words[3][kWordCap];
   size_t count = 0;
   if (!read_words(argument, words, 3, count)) return false;
@@ -5431,6 +5591,26 @@ bool command_cfg(const char* argument) {
       out(cfg::bt_on() ? "on" : "off");
       newline();
       if (!bt::available()) out("cfg: this board has no radio, and the setting is kept all the same\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg wifi on|off`** (0.190.221, l'amo: *«Es ben senzill... igual que el cfg/bt cfg/wifi on/off. Si actives la wifi (passes a "on") està
+    // apagada en aquell moment, s'inicialitza»*): el commutador de la ràdio del wifi, el mateix que la clau de la targeta de la barra. Encendre
+    // vol dir el driver enlaire i l'estació començada —no connectat: aquest sistema usa la xarxa i la deixa anar quan la feina s'acaba— i el
+    // que es diu és el que la ràdio ha fet i no el que se li ha demanat (docs/30, docs/50).
+    if (strcmp(words[0], "wifi") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the wifi radio is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_wifi_on(on);
+      out("settings: wifi radio ");
+      out(cfg::wifi_on() ? "on" : "off");
+      newline();
+      if (!net::available()) out("cfg: this board has no wifi radio, and the setting is kept all the same\r\n");
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
@@ -6065,39 +6245,51 @@ bool execute(char* line) {
   //   bt host reconnect        go back to the one that was paired here
   //   bt host forget           forget the bonds
   //   bt type <text>           write into the device on the other end
-  // **`mesh [on|off]`** (0.190.212, l'amo: *«pots posar algun mesh?»*): la placa com a **node** d'una xarxa de Bluetooth Mesh. El que fa
-  // aquesta ordre és el primer pas de debò —la ràdio enlaire, el node oferint-se a un provisionador, i l'adreça que li donen desada a la
-  // NVS—, i ho diu tot: qui s'hi connecta, quan queda provisionat i amb quina adreça. **La ràdio és una**: si el teclat de Bluetooth hi és,
-  // això no el trenca i diu que cal apagar-lo (docs/30, docs/50).
+  // **`mesh` …** (0.190.212, i des de la 0.190.218 el provisionador): la placa com a xarxa de Bluetooth Mesh. El primer que hi havia era
+  // ser **node** d'una xarxa que algú altre manava —el telèfon amb nRF Mesh—; ara aquesta placa pot ser-ne el **provisionador** (l'amo: *«no
+  // puc provisionar jo manualment la clau del mesh per linia de comandaments, com amb el wifi?»*), o sigui que és qui té les claus i qui les
+  // reparteix. Les ordres són les del wifi: veure quines claus hi ha, fer-ne o posar-hi les que vulguis, veure qui no és enlloc, donar-li una
+  // adreça, i qui hi ha dins (docs/30, docs/50).
+  //
+  //   mesh                     on és i què té
+  //   mesh on|off              la pila enlaire, o fora
+  //   mesh key                 unes claus noves, fetes aquí
+  //   mesh key show            quines són
+  //   mesh key <net> <app>     les que diguis tu (trenta-dos dígits hexadecimals cada una)
+  //   mesh find [seconds]      escoltar qui no és enlloc (deu segons si no es diu res)
+  //   mesh prov <n> [addr]     donar-li una adreça d'aquesta xarxa
+  //   mesh nodes               qui és dins la xarxa d'aquesta placa
   if (strncmp(line, "mesh", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
-    char words[2][kWordCap];
+    char words[4][kWordCap];
     size_t count = 0;
-    if (!read_words(line + 4, words, 2, count)) return false;
-    if (count == 2) {
-      usage_out("usage: mesh [on|off]\r\n");
-      return false;
-    }
+    if (!read_words(line + 4, words, 4, count)) return false;
     if (!mesh::available()) {
       out("mesh: this build has no Bluetooth Mesh in it\r\n");
       return true;
     }
     if (count == 0) {
-      out(mesh::is_up() ? "mesh: the node is up\r\n" : "mesh: off\r\n");
+      out(mesh::is_up() ? "mesh: the stack is up\r\n" : "mesh: off\r\n");
       if (mesh::provisioned()) {
         char address[64];
         snprintf(address, sizeof(address), "  this node is 0x%04X of a network\r\n",
                  static_cast<unsigned>(mesh::address()));
         out(address);
       } else if (mesh::is_up()) {
-        out("  and no provisioner has taken it yet (nRF Mesh, or the app of Espressif)\r\n");
+        out("  and it has no network of its own yet: `mesh key` makes one\r\n");
       } else {
-        out("  mesh on brings it up and offers this node to a provisioner\r\n");
+        out("  mesh on brings it up; `mesh key` gives it a network of its own\r\n");
+      }
+      if (mesh::can_keep_the_keys()) {
+        out(mesh::has_the_network() ? "  this board is the provisioner of that network (`mesh key show`)\r\n"
+                                    : "  and this build can keep the keys of a network: `mesh key`\r\n");
+      } else {
+        out("  this build is a node only: a phone has to provision it\r\n");
       }
       return true;
     }
-    if (strcmp(words[0], "on") == 0) {
+    if (strcmp(words[0], "on") == 0 && count == 1) {
       if (mesh::is_up()) {
-        out("mesh: the node is already up\r\n");
+        out("mesh: the stack is already up\r\n");
         return true;
       }
       if (bt::is_on()) {
@@ -6105,18 +6297,176 @@ bool execute(char* line) {
         return true;
       }
       if (!mesh::start()) {
-        out("mesh: the node did not come up, and the reason is in the log\r\n");
+        out("mesh: the stack did not come up, and the reason is in the log\r\n");
         return true;
       }
-      out("mesh: the node is up and offering itself; provision it from the other device\r\n");
+      // **Una pila enlaire sense claus és un provisionador esperant-les** (0.190.218), i això no és un error: és el primer pas.
+      out(mesh::provisioned() ? "mesh: the provisioner is up with its network, watching for devices\r\n"
+                              : "mesh: the stack is up and it has no network yet: `mesh key` makes one\r\n");
       return true;
     }
-    if (strcmp(words[0], "off") == 0) {
+    if (strcmp(words[0], "off") == 0 && count == 1) {
       mesh::stop();
-      out("mesh: the node is no longer offering itself\r\n");
+      out("mesh: the stack is down\r\n");
       return true;
     }
-    usage_out("usage: mesh [on|off]\r\n");
+    if (strcmp(words[0], "key") == 0 && count <= 3) {
+      if (!mesh::can_keep_the_keys()) {
+        out("mesh: this build cannot keep the keys of a network (it has no provisioner in it)\r\n");
+        return true;
+      }
+      if (count == 2 && strcmp(words[1], "show") == 0) {
+        uint8_t net[16] = {0};
+        uint8_t app[16] = {0};
+        if (!mesh::network_keys(net, app)) {
+          out("mesh: this board has no keys yet (`mesh key` makes one, or `mesh key <net> <app>`)\r\n");
+          return true;
+        }
+        out("mesh: the network of this board\r\n");
+        print_key("net", net);
+        print_key("app", app);
+        out("  sixteen bytes each with no checksum: what is written here is the key, and it is the whole network\r\n");
+        return true;
+      }
+      // **Les claus necessiten la pila enlaire** (0.190.218): desar una clau és un missatge a la tasca `btc`, que neix amb la pila (docs/50).
+      if (!mesh::is_up()) {
+        if (bt::is_on()) {
+          out("mesh: the Bluetooth keyboard has the radio; turn it off first (cfg bt off)\r\n");
+          return true;
+        }
+        if (!mesh::start()) {
+          out("mesh: the stack did not come up, and the reason is in the log\r\n");
+          return true;
+        }
+      }
+      uint8_t net[16] = {0};
+      uint8_t app[16] = {0};
+      if (count == 1) {
+        if (!mesh::make_keys(net, app)) {
+          out("mesh: the board did not take the keys (the log says why)\r\n");
+          return true;
+        }
+        out("mesh: this board has a network of its own, and the keys are new\r\n");
+      } else {
+        // **Les claus que dóna l'amo, o les que ja hi ha** (0.190.218): una clau sola no fa xarxa —el mesh en vol una de xarxa i una
+        // d'aplicació—, o sigui que si només se'n dóna una es queda la que ja hi era i si no n'hi ha es diu què falta (docs/30).
+        if (!mesh::key_from_text(words[1], net)) {
+          usage_out("usage: mesh key [show|<net> <app>]   (thirty-two hex digits each)\r\n");
+          return false;
+        }
+        if (count == 3) {
+          if (!mesh::key_from_text(words[2], app)) {
+            usage_out("usage: mesh key [show|<net> <app>]   (thirty-two hex digits each)\r\n");
+            return false;
+          }
+        } else {
+          uint8_t there[16] = {0};
+          if (!mesh::network_keys(there, app)) {
+            out("mesh: a network needs both keys and this board has no application key to keep\r\n");
+            usage_out("usage: mesh key <net> <app>   (thirty-two hex digits each)\r\n");
+            return false;
+          }
+        }
+        if (!mesh::own_the_network(net, app)) {
+          out("mesh: the board did not take the keys (the log says why)\r\n");
+          return true;
+        }
+        out("mesh: this board has the network those keys make, and it is watching for devices\r\n");
+      }
+      print_key("net", net);
+      print_key("app", app);
+      out("  write them down: a key lost is a network to provision again\r\n");
+      return true;
+    }
+    if (strcmp(words[0], "find") == 0 && count <= 2) {
+      if (!mesh::can_keep_the_keys()) {
+        out("mesh: this build cannot look for devices (it has no provisioner in it)\r\n");
+        return true;
+      }
+      if (!mesh::has_the_network()) {
+        out("mesh: this board has no network yet: `mesh key` first\r\n");
+        return true;
+      }
+      if (!mesh::is_up()) {
+        out("mesh: the stack is not up: `mesh on` first\r\n");
+        return true;
+      }
+      // **Deu segons de séquia, i fins a dos minuts si es demana** (0.190.218): qui escolta espera, i el prompt ho diu abans en lloc de
+      // quedar-se mut (docs/30).
+      uint32_t seconds = 10;
+      if (count == 2) {
+        const long asked = strtol(words[1], nullptr, 0);
+        if (asked > 0 && asked <= 120) seconds = static_cast<uint32_t>(asked);
+      }
+      char said[96];
+      snprintf(said, sizeof(said), "mesh: listening for %u second(s) to the devices that are in no network ...\r\n",
+               static_cast<unsigned>(seconds));
+      out(said);
+      const int heard = mesh::watch(seconds * 1000);
+      if (heard == 0) {
+        out("mesh: nothing was heard; bring it closer, or listen for longer (mesh find 30)\r\n");
+        return true;
+      }
+      snprintf(said, sizeof(said), "mesh: %d device(s) said they are in no network\r\n", heard);
+      out(said);
+      for (int i = 0; i < heard; ++i) {
+        uint8_t uuid[16] = {0};
+        int rssi = 0;
+        if (!mesh::heard_at(i, uuid, &rssi)) continue;
+        char label[24];
+        snprintf(label, sizeof(label), "#%d %d dBm", i, rssi);
+        print_key(label, uuid);
+      }
+      out("  `mesh prov <n>` gives one of them an address of this network\r\n");
+      return true;
+    }
+    if (strcmp(words[0], "prov") == 0 && count >= 2 && count <= 3) {
+      if (!mesh::can_keep_the_keys()) {
+        out("mesh: this build cannot provision (it has no provisioner in it)\r\n");
+        return true;
+      }
+      if (!mesh::has_the_network()) {
+        out("mesh: this board has no network yet: `mesh key` first\r\n");
+        return true;
+      }
+      if (!mesh::is_up()) {
+        out("mesh: the stack is not up: `mesh on` first\r\n");
+        return true;
+      }
+      const int index = atoi(words[1]);
+      const uint16_t address = (count == 3) ? static_cast<uint16_t>(strtoul(words[2], nullptr, 0)) : 0;
+      uint16_t given = 0;
+      if (!mesh::provision(index, address, &given)) {
+        out("mesh: that device was not taken; the index is the one `mesh find` printed\r\n");
+        return true;
+      }
+      char said[112];
+      snprintf(said, sizeof(said), "mesh: device #%d gets 0x%04X; it takes a moment, and the log says when it is in\r\n", index,
+               static_cast<unsigned>(given));
+      out(said);
+      return true;
+    }
+    if (strcmp(words[0], "nodes") == 0 && count == 1) {
+      if (!mesh::can_keep_the_keys()) {
+        out("mesh: this build keeps no devices (it has no provisioner in it)\r\n");
+        return true;
+      }
+      uint16_t addresses[16];
+      const int have = mesh::known(addresses, 16);
+      if (have == 0) {
+        out("mesh: no device is in this board's network yet (`mesh find`, then `mesh prov`)\r\n");
+        return true;
+      }
+      char said[64];
+      snprintf(said, sizeof(said), "mesh: %d device(s) in this board's network\r\n", have);
+      out(said);
+      for (int i = 0; i < have; ++i) {
+        snprintf(said, sizeof(said), "  0x%04X\r\n", static_cast<unsigned>(addresses[i]));
+        out(said);
+      }
+      return true;
+    }
+    usage_out("usage: mesh [on|off] | mesh key [show|<net> <app>] | mesh find [seconds] | mesh prov <n> [<addr>] | mesh nodes\r\n");
     return false;
   }
   if (strncmp(line, "bt", 2) == 0 && (line[2] == '\0' || line[2] == ' ')) {
@@ -6716,7 +7066,20 @@ bool execute(char* line) {
   if (strcmp(line, "log follow") == 0) {
     log_echo(true);
     g_log_follow = true;
-    out("log: following. Control+C or Escape stops it\r\n");
+    // **Qui atura el registre depèn de qui llegeix les tecles** (0.190.226, l'amo: *«la comanda "log follow" està trencada degut a console»*):
+    // amb el terminal del cable, `Control+C` i `Escape` els menja l'editor —són seus— i el que arriba és **una línia**, o sigui que allò que
+    // atura el registre és Enter; sense terminal, els bytes arriben al shell i és la tecla de sempre. **I el prompt marxa mentre dura**: el
+    // registre s'escriu a sobre d'una línia que ningú no està escrivint, i un `lunok> ` al davant de cada línia seria el registre amb brossa
+    // (docs/30, docs/50).
+    pal::IConsole* console = serial::console();
+    const bool terminal = console != nullptr && console->has_a_line_editor();
+    if (terminal) {
+      set_prompt_text("", false);
+      // **I el cursor a l'inici de la línia**: l'editor ja ha dibuixat el prompt d'abans i no el pot esborrar; el primer log hi cauria al
+      // darrere. Un retorn de carro i prou (docs/30, docs/50).
+      out("\r");
+    }
+    out(terminal ? "log: following. Enter (a line) stops it\r\n" : "log: following. Control+C or Escape stops it\r\n");
     return true;
   }
   // **What the system costs, counted at the door.** A count, a time and the moment of the last call for
@@ -6729,6 +7092,78 @@ bool execute(char* line) {
   if (strcmp(line, "stats reset") == 0) {
     meter::reset();
     out("meters: back to zero\r\n");
+    return true;
+  }
+  // **`terminal`: tornar a preguntar si l'altre cap és un terminal** (0.190.230, l'amo amb el registre a la mà: *«the other end of the cable
+  // does not answer escape codes (no terminal)»* i el monitor obert dins del VS Code). La sonda es fa **un cop, al segon d'arrencar la placa**,
+  // i si el monitor encara no hi era la sessió es quedava sense cursor per sempre més. Aquesta és la porta: es torna a preguntar ara, amb el
+  // monitor ja escoltant, i si contesta s'encén l'editor i el color de la sessió (docs/30, docs/50, docs/85).
+  if (strcmp(line, "terminal") == 0) {
+    pal::IConsole* console = serial::console();
+    if (console == nullptr) {
+      error_out("terminal: the port is ceded to an app\r\n");
+      return false;
+    }
+    if (console->has_a_line_editor()) {
+      out("terminal: the line is edited by the console component and speaks ANSI already\r\n");
+      return true;
+    }
+    uint8_t names_count = 0;
+    const char* const* names = command_names(names_count);
+    if (!console->start_the_terminal(names, names_count)) {
+      // **I es diu què ha fallat**, que és el mateix que diu el registre a l'arrencada: el que no contesta no és un terminal, i el que no
+      // contesta és el monitor, no la placa (docs/30, docs/85).
+      out("terminal: the other end of the cable did not answer (the monitor is not a terminal, or it is filtered)\r\n");
+      out("terminal: the shell keeps its own line editor\r\n");
+      return false;
+    }
+    // **I el color es torna a decidir, com a l'arrencada**: la preferència és la mateixa (`cfg/ansi`) i el que ha canviat és que ara el
+    // terminal contesta (docs/30, docs/50).
+    g_ansi = cfg::ansi_on() && console->speaks_ansi();  // el cable pot portar-los; qui decideix és el commutador
+    out("terminal: the line is edited by the console component");
+    if (g_ansi) {
+      out(", with cursor, colour and history");
+    }
+    newline();
+    if (!g_ansi) out("terminal: and it does not answer as ANSI, so the codes are filtered out\r\n");
+    prompt();
+    return true;
+  }
+  // **`ansi on|off`** (0.190.226, l'amo: *«afegeix la comanda ansi on/off (totes les sortides tenen ansi, però amb aquesta opció es filtra
+  // abans d'enviar a la línia)»*): el codi porta els codis sempre i aquest commutador diu si el filtre els deixa passar. És **desat**, perquè
+  // una sessió que ha de ser de text pla ho és a cada arrencada, i és el que l'arrencada mira abans de decidir si el terminal en pot tenir
+  // (docs/30, docs/50, docs/85).
+  if (strncmp(line, "ansi", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    const char* word = line + 4;
+    while (*word == ' ') ++word;
+    if (*word == '\0') {
+      out("ansi: ");
+      out(g_ansi ? "on" : "off");
+      out(" (escape codes in what this session writes), and the setting is ");
+      out(cfg::ansi_on() ? "on" : "off");
+      newline();
+      return true;
+    }
+    const bool on = (strcmp(word, "on") == 0);
+    if (!on && strcmp(word, "off") != 0) {
+      usage_out("usage: ansi [on|off]\r\n");
+      return false;
+    }
+    g_ansi = on;
+    (void)cfg::set_ansi(on);
+    out("ansi: ");
+    out(on ? "on" : "off");
+    newline();
+    // **I el prompt es torna a dibuixar amb el color nou** (0.190.231): canviar el commutador i no veure'n l'efecte fins a la propera línia
+    // seria endevinar si ha funcionat (docs/30).
+    prompt();
+    // **I si el terminal no els entén, es diu**: un `on` en un monitor que no contesta no és un error —el filtre fa el que se li demana—,
+    // però el que una persona veurà seran els codis escrits, i això no és cap sorpresa que s'hagi d'endevinar (docs/30, docs/85).
+    pal::IConsole* console = serial::console();
+    if (on && (console == nullptr || !console->has_a_line_editor())) {
+      out("ansi: the codes go out, but this console does not answer as a terminal (no cursor, no history);"
+          " if your monitor writes them as letters, `ansi off`\r\n");
+    }
     return true;
   }
   if (strcmp(line, "clear") == 0) {
@@ -6888,6 +7323,46 @@ bool execute(char* line) {
   error_out(complaint);
   error_out("try 'help'.\r\n");
   return false;
+}
+
+// **Una línia sencera, que és el que arriba quan el cable té terminal** (0.190.222, l'amo: *«Vull una migració completa de la shell a aquest
+// terminal serie»*). El camí de bytes i aquest fan la mateixa feina i per això el que mana és el mateix `execute`: el que canvia és **qui
+// ha dibuixat la línia** —l'editor del `console`, amb el cursor i els colors— i per això aquí no s'escriu ni la línia ni el salt, que ja
+// són a la pantalla. El que sí que es fa és tot el que el camí de bytes fa abans d'executar: la sessió, el registre seguit i una app amb
+// la consola (docs/30, docs/50).
+void take_a_line(const char* text) {
+  g_last_wire_activity_ms = pal::system().millis();
+  const size_t len = (text != nullptr) ? strlen(text) : 0;
+  // **Una sessió tancada s'obre amb el primer Enter**, com al cable: el terminal no pot fer-hi res més, i la línia que s'hi escriu no és
+  // la primera lletra de res (docs/30).
+  if (!g_session_open) {
+    g_session_open = true;
+    g_editor.reset();
+    out("login: a new session\r\n");
+    sync_the_wire_lock();
+    prompt();
+    return;
+  }
+  // **`log follow` té el teclat mentre dura**: qualsevol línia l'atura, que és el mateix que feia qualsevol tecla (docs/30).
+  if (g_log_follow) {
+    g_log_follow = false;
+    log_echo(!a_wire_console());
+    out("log: not following any more\r\n");
+    prompt();
+    return;
+  }
+  // **Una app que viu al cable rep les línies**, i la seva consola és qui ha de dir què en fa (docs/30).
+  if (g_app_alive && !g_app_detached) {
+    luabind::feed_console(text, len);
+    luabind::feed_console("\n", 1);
+    prompt();
+    return;
+  }
+  // **La línia es copia i s'executa**: `execute` la talla i l'escriu, i el que arriba del terminal és d'ell i no es toca (docs/45).
+  char line[128];
+  snprintf(line, sizeof line, "%s", (text != nullptr) ? text : "");
+  if (line[0] != '\0') execute(line);
+  if ((!g_app_alive || g_app_detached) && !g_choosing && !native_running() && !g_log_follow) prompt();
 }
 
 void feed(const char* data, size_t len) {
@@ -7219,7 +7694,15 @@ const char* const kCommandNames[] = {
     "panic",    "stats",    "free",     "echo",     "cat",      "ls",       "cd",       "pwd",
     "heapguard",
     "mkdir",    "rm",       "mv",       "cp",       "hexdump",  "fs",       "clear",    "history",
+    "ansi",    "terminal",
 };
+
+// **Els noms de les comandes per al tabulador del terminal** (0.190.222): la taula de dalt és la de sempre i no se'n fa una còpia, perquè el
+// que el terminal completa i el que `help` llista no poden discrepar mai (docs/30, docs/45).
+const char* const* command_names(uint8_t& count) {
+  count = static_cast<uint8_t>(sizeof(kCommandNames) / sizeof(kCommandNames[0]));
+  return kCommandNames;
+}
 
 // **What the app of the shell asks for** (0.189.9): the names, and how many there are. The pointers are this file's and they
 // outlive the call, which is what a caller needs to print or list them (docs/30).
@@ -7237,6 +7720,55 @@ uint8_t shell_commands(const char** names, uint8_t cap) {
 void install_shell_ops() {
   luabind::set_shell_ops(luabind::ShellOps{&open_session, &close_session, &session_write, &session_read,
                                            &session_read_error, &session_dropped, &shell_commands});
+}
+
+
+
+// **`filtra_ansi`: el codi porta els codis i aquest filtre decideix si arriben a la línia** (0.190.226, l'amo: *«totes les sortides tenen
+// ansi, però amb aquesta opció es filtra abans d'enviar a la línia»*). Amb el color encès, el text passa tal com és; amb el color apagat,
+// cada seqüència `ESC [ … <lletra final>` marxa sencera —i un `ESC` sol també—, i el que queda és el mateix text sense format. És l'única
+// manera que una sessió sense terminal rebi el que s'ha de llegir i no el que s'ha de dibuixar (docs/30, docs/50, docs/85).
+//
+// **I la mesura de la seqüència viu en una sola funció**, perquè el filtre sencer i el que escriu a trossos han de comptar-la igual: una
+// `ESC [` sense final es pren la resta —una línia trencada no pot deixar mitja seqüència a la pantalla d'algú que no la pot llegir— i el
+// que aquest codi no fa servir (`ESC ] … BEL`, els jocs de caràcters) també marxa (docs/30, docs/50).
+size_t skip_the_escape(const char* text, size_t len, size_t at) {
+  ++at;
+  if (at >= len) return at;
+  const char kind = text[at];
+  if (kind == '[') {
+    ++at;
+    while (at < len) {
+      const unsigned char d = static_cast<unsigned char>(text[at]);
+      ++at;
+      if (d >= 0x40 && d <= 0x7e) break;
+    }
+    return at;
+  }
+  if (kind == ']' || kind == '(' || kind == ')') {
+    ++at;
+    while (at < len && static_cast<unsigned char>(text[at]) != 0x07) ++at;
+    if (at < len) ++at;
+    return at;
+  }
+  return at;
+}
+
+bool ansi_on() { return g_ansi; }
+
+size_t filter_ansi(const char* text, size_t len, char* out, size_t cap) {
+  if (text == nullptr || out == nullptr || cap == 0) return 0;
+  size_t used = 0;
+  size_t at = 0;
+  while (at < len && used + 1 < cap) {
+    if (static_cast<unsigned char>(text[at]) == 0x1b && !g_ansi) {
+      at = skip_the_escape(text, len, at);
+      continue;
+    }
+    out[used++] = text[at++];
+  }
+  out[used] = '\0';
+  return used;
 }
 
 }  // namespace shell

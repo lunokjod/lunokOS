@@ -32,11 +32,14 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
     passada amb LANCZOS** (les vores porten els grisos del panell en lloc d'una escala de píxels), la vora és el dibuix —15
     unitats, 2,1 px a 64; amb 8 la reducció se la menja—, i la paleta té nom: cos de 8 a 13, vora a 4, paper a 15.
   - **I per a les marques del sistema no es dibuixa res**: `tools/iconart.py` rasteritza els glifs de **Font Awesome Free
-    5.15.4** (`angle-left`, `times`, `cog`, `redo`, `power-off`, `moon`, `house` i **`lock`**; `--only <nom>` en refà una de
-    sola, que és com es va afegir la casa el 16/11 i el candau el 17/11 sense tocar les que ja hi eren), els ajusta al 80 % de
+    5.15.4** (`angle-left`, `times`, `cog`, `redo`, `power-off`, `moon`, `house`, **`lock`** i, des de la 0.190.219, **`bluetooth-b`,
+    `wifi` i `share-alt`**; `--only <nom>` en refà una de sola, que és com es va afegir la casa el 16/11, el candau el 17/11 i les
+    tres de la ràdio el 22/11 sense tocar les que ja hi eren), els ajusta al 80 % de
     la caixa i en desa el mestre a `tools/icons/system/` i la icona de 64 a `data/res/icons/`, que és el que el disc porta i el
-    que `ui::picture_of_a_mark` llegeix (docs/30, docs/92). **Llicències**: els glifs són SIL OFL 1.1 i les icones CC BY 4.0, amb
-    el crèdit al `README`.
+    que `ui::picture_of_a_mark` llegeix (docs/30, docs/92). **I una marca pot dir la seva família** (0.190.219): Font Awesome té les
+    marques comercials a `fa-brands-400.ttf` i no a `fa-solid-900.ttf`, o sigui que el Bluetooth —que és la runa d'una empresa— es busca
+    allà, i la taula `MARKS` de `tools/iconart.py` porta la família de cada entrada. **Llicències**: els glifs són SIL OFL 1.1 i les
+    icones CC BY 4.0, amb el crèdit al `README`.
 - **La icona es porta amb el seu màster.** Es copia `tools/icons/<App>.png` a
   `apps/<id>/res/icon-source.png` —el fitxer que es pot tornar a editar— i es converteix amb
   `tools/make_icon.py` a `apps/<id>/res/icon.png`, que és el que el manifest nomena amb

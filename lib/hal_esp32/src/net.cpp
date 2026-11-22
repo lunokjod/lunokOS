@@ -130,6 +130,10 @@ volatile int32_t g_sta_reason = 0;
 // Somebody has asked to be on a network. It is what makes the station connect on
 // `WIFI_EVENT_STA_START`, which is the only moment the request is not lost (docs/50).
 volatile bool g_want_station = false;
+// **Si la ràdio és encesa** (0.190.221): el motor del driver s'instal·la una vegada i el que s'encén i s'apaga amb el commutador és
+// `esp_wifi_start`/`esp_wifi_stop`. Aquest és el record d'això, perquè el driver contesta `ESP_ERR_WIFI_STATE` i aquesta casa vol una
+// resposta clara i no un codi (docs/50).
+bool g_radio_on = false;
 // True when the drop that is coming is one we asked for: `wifi stop` prints
 // `radio: stopped` and then the driver's line saying the station left, which reads
 // like a fault and is not (measured on the board, 31/10).
@@ -700,7 +704,11 @@ bool refuse(const char* what, esp_err_t err) {
 // the alarms never wait for the access point (docs/30, docs/50).
 class Esp32Net : public INet {
  public:
-  static bool espWifiReady() {
+  // **El driver, una sola vegada** (0.190.221): `esp_netif_init`, el bucle d'esdeveniments, les dues interfícies i `esp_wifi_init` no es
+  // poden fer dues vegades —la segona contesta `ESP_ERR_INVALID_STATE`—, o sigui que això és el que s'instal·la i no es toca més, i el que
+  // s'encén i s'apaga amb el commutador és la **ràdio** d'aquest driver (`esp_wifi_start`/`esp_wifi_stop`), que sí que es pot fer tantes
+  // vegades com calgui (docs/50).
+  static bool wifi_driver_up() {
     static bool ready = false;
     if (ready) return true;
     g_why = "";
@@ -733,12 +741,50 @@ class Esp32Net : public INet {
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
     const esp_err_t mode = esp_wifi_set_mode(WIFI_MODE_STA);
     if (mode != ESP_OK) return refuse("the radio did not take the station mode", mode);
-    const esp_err_t start = esp_wifi_start();
-    if (start != ESP_OK) return refuse("the radio did not start", start);
     ready = true;
     g_why = "";
     return true;
   }
+
+  // **I la ràdio, que és el que s'encén**: el driver enlaire i `esp_wifi_start`. `ESP_ERR_WIFI_STATE` vol dir que ja era encesa, que és la
+  // resposta que aquesta porta ha de donar com a bona —una cosa que s'encén dues vegades no és un error (docs/50).
+  static bool wifi_radio_up() {
+    if (g_radio_on) return true;
+    if (!wifi_driver_up()) return false;
+    const esp_err_t start = esp_wifi_start();
+    if (start != ESP_OK && start != ESP_ERR_WIFI_STATE) return refuse("the radio did not start", start);
+    g_radio_on = true;
+    g_why = "";
+    return true;
+  }
+
+  // **El nom que ja feien servir tots els camins** (0.190.221): `wifi_start`, `scan`, `ntp` i la provisió demanaven això i volien dir «la
+  // ràdio encesa», o sigui que el nom es queda i el que canvia és que ara també hi ha la porta d'apagar-la (docs/50).
+  static bool espWifiReady() { return wifi_radio_up(); }
+
+  bool wifi_radio_on() override { return wifi_radio_up(); }
+
+  bool wifi_radio_off() override {
+    if (!g_radio_on) return true;
+    // **Es deixa anar tot el que hi havia i s'atura la ràdio**: una connexió que sobreviu a l'apagada és una connexió que el commutador
+    // no ha apagat, i el `disconnect` primer és el que evita el reintent automàtic del driver (docs/50).
+    g_want_station = false;
+    g_connect_asked = false;
+    started_ = false;
+    g_sta_got_ip = false;
+    g_sta_failed = false;
+    g_radio_on = false;
+    // **La baixada que ve la demanem nosaltres**: sense això el driver diu `dropped, reason …` i sembla una avaria quan és el commutador
+    // (docs/50).
+    g_expect_drop = true;
+    (void)esp_wifi_disconnect();
+    const esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) return refuse("the radio did not stop", err);
+    hal::logf(pal::kLogInfo, "WIFI", "the radio is off");
+    return true;
+  }
+
+  bool wifi_radio_is_on() const override { return g_radio_on; }
 
   const char* last_error() const override { return g_why; }
 

@@ -2967,10 +2967,10 @@ void test_the_cross_of_a_text_box_goes_away_with_the_clean_pass(void) {
 // corners are ink. The six names are the set the panel of the bar uses —**and the house** of the page of the start,
 // 0.189.139—, and a name that is not one of them is no mark at all (docs/30, docs/92).
 void test_a_button_without_a_frame_is_its_mark_and_turns_over(void) {
-  // **Set marques des de la 0.189.151**: the padlock of the screen lock joined the seven of the system —the arrow, the cross, the
-  // wheel, the circle that starts again, the switch, the moon and the house—, and the count is the set's and not a number of
-  // this file (docs/30, docs/45).
-  TEST_ASSERT_EQUAL_UINT8(8, ui::icon_count());
+  // **Onze marques des de la 0.190.219**: the padlock of the screen lock joined the seven of the system —the arrow, the cross, the
+  // wheel, the circle that starts again, the switch, the moon and the house— i les tres de la ràdio hi són des de la targeta que les
+  // encén, i el compte és el del joc i no un número d'aquest fitxer (docs/30, docs/45).
+  TEST_ASSERT_EQUAL_UINT8(11, ui::icon_count());
   TEST_ASSERT_TRUE(ui::an_icon_named("back"));
   TEST_ASSERT_TRUE(ui::an_icon_named("close"));
   TEST_ASSERT_TRUE(ui::an_icon_named("settings"));
@@ -2979,6 +2979,10 @@ void test_a_button_without_a_frame_is_its_mark_and_turns_over(void) {
   TEST_ASSERT_TRUE(ui::an_icon_named("home"));
   TEST_ASSERT_TRUE(ui::an_icon_named("deepsleep"));
   TEST_ASSERT_TRUE(ui::an_icon_named("lock"));
+  // **I les tres de la ràdio** (0.190.219): la runa, el ventall i la xarxa.
+  TEST_ASSERT_TRUE(ui::an_icon_named("bluetooth"));
+  TEST_ASSERT_TRUE(ui::an_icon_named("wifi"));
+  TEST_ASSERT_TRUE(ui::an_icon_named("mesh"));
   TEST_ASSERT_FALSE(ui::an_icon_named("a-mark-that-is-not-one"));
   TEST_ASSERT_FALSE(ui::an_icon_named(nullptr));
 

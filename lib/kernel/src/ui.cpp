@@ -3407,11 +3407,13 @@ struct Icon {
   const char* name;
 };
 
-// **Les vuit marques del sistema** (0.189.157): the moon of the key that puts the board to sleep was drawn by `draw_icon` and
-// its name was not in this set, so a board with no `/res/icons` showed that key empty —the set is what `an_icon_named` asks,
-// and a mark that is not in it is not painted at all— i el candau de la 0.189.151 hi és des de llavors (docs/30, docs/45).
+// **Les onze marques del sistema** (0.189.157, i les tres de la ràdio des de la 0.190.219): the moon of the key that puts the
+// board to sleep was drawn by `draw_icon` and its name was not in this set, so a board with no `/res/icons` showed that key empty
+// —the set is what `an_icon_named` asks, and a mark that is not in it is not painted at all— i el candau de la 0.189.151 hi és des
+// de llavors, i **les tres de la ràdio** (docs/30, docs/45).
 const Icon kIcons[] = {
     {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"}, {"home"}, {"lock"}, {"deepsleep"},
+    {"bluetooth"}, {"wifi"}, {"mesh"},
 };
 const uint8_t kIconCount = static_cast<uint8_t>(sizeof(kIcons) / sizeof(kIcons[0]));
 
@@ -3483,7 +3485,9 @@ void icon_triangle(Canvas& view, int32_t ax, int32_t ay, int32_t bx, int32_t by,
 // walked as eight symmetric points and dropping the ones a predicate refuses. **The gap is a test on the way the point is from the
 // middle** —a quadrant and a share of the radius— and not an angle in radians, because there is no cosine in this file and an
 // eighth of a circle is two comparisons (docs/30, docs/92).
-enum class RingGap { kWhole, kTopRight, kTop };
+// **I el ventall** (0.190.219): the wifi is three arcs that open upwards from a dot, o sigui que el que es dibuixa és la part de
+// dalt de cada cercle —de 26 a 154 graus, que és el que fa un ventall i no una mitja circumferència— i la resta no hi és (docs/92).
+enum class RingGap { kWhole, kTopRight, kTop, kFan };
 
 void icon_ring(Canvas& view, int32_t cx, int32_t cy, int32_t radius, RingGap gap, uint8_t level,
                hal::UpdateMode mode) {
@@ -3492,6 +3496,7 @@ void icon_ring(Canvas& view, int32_t cx, int32_t cy, int32_t radius, RingGap gap
   auto refused = [gap, radius, third](int32_t dx, int32_t dy) {
     if (gap == RingGap::kTopRight) return dx > third && dy < -third;  // the quarter of the top-right
     if (gap == RingGap::kTop) return dy < 0 && dx > -radius / 2 && dx < radius / 2;
+    if (gap == RingGap::kFan) return dy > 0 || dx < -radius * 9 / 10 || dx > radius * 9 / 10;
     return false;
   };
   int32_t dx = radius;
@@ -3595,6 +3600,49 @@ bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t wid
     icon_ring(view, cx, top - (reach * 30) / 100, (reach * 42) / 100, RingGap::kWhole, level, mode);
     draw_round_fill(view, cx - body_w / 2, top, static_cast<uint16_t>(body_w), static_cast<uint16_t>(body_h),
                     (reach * 12) / 100, level, mode);
+  } else if (strcmp(name, "bluetooth") == 0) {
+    // **La runa del Bluetooth** (0.190.219): a stem, two steps down its right that close the two loops of a "B", and a
+    // chevron from the left that stops at the middle. És el mateix dibuix que el de la barra (`bar_icons.cpp`) i no una lletra:
+    // una runa es llegeix a quaranta píxels i una `ᛒ` no (docs/30, docs/50, docs/92).
+    const int32_t top = cy - reach;
+    const int32_t bot = cy + reach;
+    const int32_t step = (bot - top) / 3;
+    const int32_t close_x = cx + step / 3;
+    const int32_t left = cx - step - 1;
+    icon_line(view, cx, top, cx, bot, stroke, level, mode);
+    icon_line(view, cx, top, cx + step, top + step, stroke, level, mode);
+    icon_line(view, cx + step, top + step, close_x, cy, stroke, level, mode);
+    icon_line(view, close_x, cy, cx + step, bot - step, stroke, level, mode);
+    icon_line(view, cx + step, bot - step, cx, bot, stroke, level, mode);
+    icon_line(view, left, top + step, cx - step / 3, cy, stroke, level, mode);
+    icon_line(view, cx - step / 3, cy, left, bot - step, stroke, level, mode);
+  } else if (strcmp(name, "wifi") == 0) {
+    // **El ventall del wifi** (0.190.219): three half rings of growing radius and a dot at their foot, which is the mark of a
+    // radio that is talking to a network. Each arc is the top half of a circle drawn three times so it has the weight of a
+    // line of this set —a one-pixel arc is an arc an e-ink panel eats— i el punt és a sota perquè els radis surtin d'ell
+    // (docs/30, docs/92).
+    const int32_t foot = cy + (reach * 55) / 100;
+    for (int32_t ring = 1; ring <= 3; ++ring) {
+      const int32_t radius = (reach * 40 * ring) / 100;
+      for (int32_t thick = -stroke / 2; thick <= stroke / 2; ++thick) {
+        icon_ring(view, cx, foot, radius + thick, RingGap::kFan, level, mode);
+      }
+    }
+    draw_disc(view, cx, foot, stroke / 2 + 1, level, mode);
+  } else if (strcmp(name, "mesh") == 0) {
+    // **La xarxa del mesh** (0.190.219): three nodes and two links, **un de l'esquerra que enllaça amb els dos de la dreta**, que és la
+    // forma del glif `share-alt` del clipart —tres parells que es parlen i ningú a dalt, que és el que fa un mesh de Bluetooth i el que no
+    // fa una xarxa amb jerarquia—. És el que surt quan la placa no té el disc, i per això és el mateix dibuix (docs/30, docs/45, docs/92).
+    const int32_t node = stroke + 2;
+    const int32_t left_x = cx - reach;
+    const int32_t right_x = cx + (reach * 85) / 100;
+    const int32_t up_y = cy - (reach * 70) / 100;
+    const int32_t down_y = cy + (reach * 70) / 100;
+    icon_line(view, left_x, cy, right_x, up_y, stroke, level, mode);
+    icon_line(view, left_x, cy, right_x, down_y, stroke, level, mode);
+    draw_disc(view, left_x, cy, node, level, mode);
+    draw_disc(view, right_x, up_y, node, level, mode);
+    draw_disc(view, right_x, down_y, node, level, mode);
   } else {
     // **El símbol d'apagar**: the ring with a gap at the top and the stem through it, which is the one mark the world
     // already agrees on.

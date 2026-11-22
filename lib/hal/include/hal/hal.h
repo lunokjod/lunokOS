@@ -276,6 +276,17 @@ class INet {
   virtual NetState wifi_state() = 0;
   virtual bool wifi_disconnect() = 0;
 
+  // **La ràdio del wifi, encesa i apagada de debò** (0.190.221, l'amo: *«de moment aquests botons son per apagar i encendre radios»*): fins
+  // ara aquesta banda només sabia **connectar-se** —`wifi_start` encén la ràdio i s'hi lliga—, i una persona que volia la ràdio encesa sense
+  // xarxa no tenia cap porta. Encendre vol dir el driver enlaire i l'estació començada; apagar vol dir el driver aturat, i la propera
+  // encesa el torna a començar sense tornar-lo a instal·lar (docs/50).
+  //
+  // **I tenen definició per defecte** com la resta del HAL: una banda que no en sàpiga res contesta que no, i el commutador de la targeta
+  // no es pinta perquè `net::available()` ja ho diu abans (docs/45).
+  virtual bool wifi_radio_on() { return false; }
+  virtual bool wifi_radio_off() { return false; }
+  virtual bool wifi_radio_is_on() const { return false; }
+
   // Scanning the networks around, without waiting for the radio: start it, ask
   // whether it is done in every turn, and then how many it found (docs/50).
   virtual bool wifi_scan_start() = 0;
@@ -356,6 +367,62 @@ class IMesh {
   // What the provisioner left: the unicast address of the first element of this node, and whether it is in a mesh yet.
   virtual bool provisioned() const { return false; }
   virtual uint16_t address() const { return 0; }
+
+  // ---- la xarxa que aquesta placa té a les mans ----
+  // **Aquesta placa és el provisionador de la seva pròpia xarxa** (0.190.218, l'amo: *«no puc provisionar jo manualment la clau del mesh
+  // per linia de comandaments, com amb el wifi?»*). Un node no pot rebre les claus a mà —la provisió **és** l'intercanvi que les crea—, o
+  // sigui que el que sí que es pot és tenir-les aquí i repartir-les als nodes. Dues portes: aquest build porta el provisionador, i aquesta
+  // placa ja té xarxa.
+  //
+  // **Les claus són setze bytes i prou**: el mesh no hi posa cap checksum, els bytes que es donen són els bytes de la clau. El que mana la
+  // xarxa és la clau de xarxa (NetKey); la d'aplicació (AppKey) és la que fa que els models es puguin parlar (docs/50).
+  virtual bool can_keep_the_keys() const { return false; }
+  virtual bool has_the_network() const { return false; }
+  // Unes claus noves del generador del xip, i desades. False si aquest build no porta el provisionador o si la pila les refusa.
+  virtual bool make_keys(uint8_t net_key[16], uint8_t app_key[16]) {
+    (void)net_key;
+    (void)app_key;
+    return false;
+  }
+  // Les claus que et dóna l'amo, tal qual.
+  virtual bool own_the_network(const uint8_t net_key[16], const uint8_t app_key[16]) {
+    (void)net_key;
+    (void)app_key;
+    return false;
+  }
+  // Quines són, per poder-les apuntar fora d'aquí.
+  virtual bool network_keys(uint8_t net_key[16], uint8_t app_key[16]) const {
+    (void)net_key;
+    (void)app_key;
+    return false;
+  }
+  // **Escoltar qui no és enlloc** i comptar-los: un provisionador només pot donar adreça a qui ha sentit. Espera `ms` mil·lisegons, o
+  // sigui que bloqueja el que ho demana, i el prompt ho diu abans.
+  virtual int watch(uint32_t ms) {
+    (void)ms;
+    return 0;
+  }
+  virtual int heard_count() const { return 0; }
+  // Qui és el número `index` de la llista: la seva UUID, la ràdio per la qual s'ha sentit i la força amb què arriba.
+  virtual bool heard_at(int index, uint8_t uuid[16], int* rssi) const {
+    (void)index;
+    (void)uuid;
+    (void)rssi;
+    return false;
+  }
+  // **Donar-li una adreça**: zero vol dir la propera de la taula, i el número que ha quedat es diu a `given`.
+  virtual bool provision(int index, uint16_t address, uint16_t* given) {
+    (void)index;
+    (void)address;
+    (void)given;
+    return false;
+  }
+  // Qui és dins la xarxa d'aquesta placa: torna quants n'hi ha, omplint `addresses` fins a `cap`.
+  virtual int known(uint16_t* addresses, int cap) const {
+    (void)addresses;
+    (void)cap;
+    return 0;
+  }
 };
 
 class IBluetooth {
@@ -724,6 +791,12 @@ class IPower {
     (void)on;
     return false;
   }
+  // **Si aquesta placa escala el rellotge tota sola** (0.190.227, l'amo: *«Desactiva el Dynamic Frequency Scaling per l'M5 Atom Lite i l'M5
+  // Atom Matrix. Només per aquests dos models. Que vagin sempre a 240Mhz»*): ho contesta la placa, que és qui sap quin xip té a sota. Una
+  // placa que diu que no **no pot** tenir un rang de freqüències —el nucli li demana `240` i `240` i prou— i el nucli no li'n demana cap
+  // altre: el commutador de la pàgina i el `power auto` ho diuen i no fan res, perquè un commutador que es mou i no canvia res és una
+  // mentida (docs/50, docs/60).
+  virtual bool scales_the_clock() const { return true; }
 
  protected:
   // **El commutador del dit, que és de tota placa** (0.190.17): kept here and not in each board, because the setting belongs to the system

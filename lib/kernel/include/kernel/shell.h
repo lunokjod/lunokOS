@@ -19,6 +19,27 @@ void poll_idle();
 
 // Bytes as they arrive from the console. Handles echo, backspace and newline.
 void feed(const char* data, size_t len);
+
+// **Una línia sencera que el terminal ha editat** (0.190.222, l'amo: *«Vull una migració completa de la shell a aquest terminal serie»*):
+// el cursor, les fletxes, l'historial i el tabulador els porta l'editor, i el que en surt quan es prem Enter és aquesta línia. **No es
+// torna a escriure a la pantalla** —l'editor ja ho ha fet— i el que se'n fa és el mateix que el camí de bytes fa amb una línia: el
+// shell mana (docs/30, docs/50).
+void take_a_line(const char* text);
+
+// **El filtre del color, i la mesura d'una seqüència** (0.190.226): el codi porta els codis d'escapament sempre i qui decideix si arriben a
+// la línia és `cfg::ansi_on()` —el commutador de `ansi on|off`, que l'arrencada posa a `off` quan el terminal de l'altre cap no contesta—.
+// `filter_ansi` deixa el text tal com és amb el color encès i treu cada seqüència sencera quan és apagat; `skip_the_escape` diu on s'acaba
+// la que comença en una posició, i és la que fa que el filtre i el camí que escriu a trossos comptin igual (docs/30, docs/50, docs/85).
+size_t filter_ansi(const char* text, size_t len, char* out, size_t cap);
+size_t skip_the_escape(const char* text, size_t len, size_t at);
+
+// **Si aquesta sessió parla codis** (0.190.229): és el que el filtre consulta i el que el registre pregunta abans de pintar el nivell d'una
+// línia. `ansi on|off` el mou i l'arrencada el deixa com el terminal de l'altre cap demana (docs/30, docs/50).
+bool ansi_on();
+
+// **Els noms de les comandes**, perquè el terminal sàpiga què completa el tabulador. La taula és d'aquest fitxer i no es copia enlloc
+// (docs/30, docs/45).
+const char* const* command_names(uint8_t& count);
 // Runs one command line (already null-terminated). Returns false on error.
 bool execute(char* line);
 

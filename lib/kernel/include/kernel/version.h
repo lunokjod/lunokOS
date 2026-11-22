@@ -11934,7 +11934,353 @@ namespace kernel {
 // els fa seguits, com abans; el mesh fa els dos primers al revés del que semblava natural —pila, **`esp_ble_mesh_init`**, i després la tasca—
 // perquè els seus serveis han d'entrar abans que res corri. `esp32_radio_for` i `esp32_radio_start` són les dues portes que hi ha per això
 // (docs/50).
-static const char kVersion[] = "0.190.217";
+// **0.190.218 — les claus del mesh són d'aquesta placa, i les reparteix ella** (l'amo: *«no puc provisionar jo manualment la clau del mesh
+// per linia de comandaments, com amb el wifi?»*).
+//
+// **Un node no pot rebre les claus a mà, i això no és una mancança de la pila sinó què és la provisió**: la provisió **és** l'intercanvi que
+// les crea —la NetKey viatja xifrada amb la clau que surt de l'ECDH, i la DeviceKey en surt d'allà mateix—, o sigui que «posar la clau a mà
+// com amb el wifi» no vol dir escriure-la al node, vol dir **ser qui la té**. I això és el que fa aquesta versió: `CONFIG_BLE_MESH_PROVISIONER`
+// encén el provisionador d'Espressif i aquesta placa passa a ser-ho de la **seva** xarxa, amb quatre ordres noves al prompt que són les del
+// wifi: `mesh key` fa les claus (setze bytes del generador del xip, cap checksum —el mesh no en porta, a diferència del Thread—), `mesh key
+// show` les diu, `mesh key <net> <app>` les hi poses tu, `mesh find [s]` escolta qui no és enlloc, `mesh prov <n> [<addr>]` li dóna una
+// adreça i `mesh nodes` diu qui hi ha dins. L'adreça d'aquesta placa dins la xarxa és **0x0001** i el primer que es dóna **0x0005**, perquè
+// una placa d'aquesta casa sàpiga sempre on és sense dependre del que un telèfon va decidir l'última vegada (docs/30).
+//
+// **El que va costar, i no és el codi sinó l'ordre** (i els errors de la 5.1.2):
+//   - **`prov_uuid` i `prov_unicast_addr` són `const`** dins de `esp_ble_mesh_prov_t`, o sigui que no es poden assignar després: la
+//     identitat del provisionador es **declara** amb la variable (`=` amb els camps i prou), i així l'adreça no pot canviar per descuit.
+//   - **`esp_ble_mesh_provisioner_add_local_app_key` vol l'índex per valor i no per punter** (`(app_key, net_idx, app_idx)`, i 0xFFFF seria
+//     «fes-ne un i digues-me'l»): passar-hi un `&app_idx` compila com un punter que és un enter, i amb `-Werror` ni això. Les dues claus es
+//     desen a l'índex 0, i les funcions són a `esp_ble_mesh_networking_api.h`, no a la de provisió.
+//   - **`provisioner_prov_link_open` no té `prov_link_idx`** (aquell camp és del `prov_read_oob_pub_key`): el que diu l'event és el portador,
+//     i prou.
+//   - **`prov_device_with_addr` vol sis arguments** —uuid, adreça, tipus d'adreça, portador, oob i la unicast que vols—, i l'adreça bona és la
+//     que ha dit el node quan s'ha sentit, no zero.
+//   - **Les claus necessiten la pila enlaire i la pila no necessita les claus**: desar una clau és un missatge a la tasca `btc` (0.190.216),
+//     o sigui que `mesh key` amb prou feines arrenca la pila, hi posa les claus i **llavors** encén el provisionador; i `mesh on` sense claus
+//     deixa la pila enlaire **sense dir que ha fracassat**, perquè és el primer pas i no un error.
+//
+// **I proveir no és prou: la provisió deixa el node mut** (i això és el que va costar més d'entendre). La provisió dóna al node la NetKey i
+// una adreça, i els seus models no diuen res fins que tenen una **AppKey lligada**, que no és cosa de la provisió sinó del **client de
+// configuració** (`ESP_BLE_MESH_MODEL_CFG_CLI`), l'única via per manar-li coses amb la clau de dispositiu. Amb el camí de l'exemple
+// d'Espressif —`COMPOSITION_DATA_GET` (quins models té), `APP_KEY_ADD` (la clau) i `MODEL_APP_BIND` per a cada model de la SIG de la seva
+// composició, un darrere l'altre i esperant la resposta de cada pas— el node queda dins la xarxa i **parlant**. Una resposta que no arriba es
+// torna a provar tres vegades; un lligam que no contesta es deixa estar i els altres segueixen; tot surt al registre.
+//
+// **Tres coses més que eren errors meus i que la placa hauria dit amb un `EEXIST` o una provisió doble**: un provisionador no ha de fer
+// servir alhora `provisioner_add_unprov_dev` i `provisioner_prov_device_with_addr` (nota 4 del full d'Espressif) i l'adreça la diu
+// `prov_device_with_addr` amb la primera lliure de la taula (0x0001 la placa, 0x0005 ençà els altres); si la clau de l'índex 0 canvia la
+// pila contesta `EEXIST` i el camí és l'**actualització** —el refresc de claus del mesh—; i el que el context de configuració porta a
+// `app_idx` no decideix res, perquè la capa de la pila hi posa sempre `BLE_MESH_KEY_DEV`.
+//
+// **I el client de configuració és una opció del `sdkconfig` a part** (`CONFIG_BLE_MESH_CFG_CLI=y`): `CONFIG_BLE_MESH_PROVISIONER` no l'encén, i
+// sense ella les tres funcions del client no existeixen al binari —el primer intent va acabar en tres `undefined reference` que no deien què
+// faltava—. Ara el codi s'atura amb un `#error` que ho diu, i queda escrit a docs/50 que una opció nova al `sdkconfig.defaults` no entra si el
+// `sdkconfig.<banda>` ja existeix (docs/80).
+//
+// **I les claus es desen**, a `cfg/meshnet` i `cfg/meshapp` en hexadecimal, i `kernel::mesh::start()` les torna a posar: una xarxa que s'ha de
+// tornar a fer a cada reiniciada no és una xarxa (docs/30, docs/50, docs/70).
+//
+// **El preu, mesurat a l'ATOM Matrix i no estimat**: la imatge fa 2 131 994 B de 2 621 440 (el **81 %** de la partició d'app) i la RAM estàtica
+// 85 056 B (`.dram0.data` 26 528 + `.dram0.bss` 58 528, 240 B més que abans del provisionador). O sigui que hi cap, i el T5S3 i el Paper es
+// queden de moment **només node** —el `#else` d'aquests dos costats es compila i enllaça igual— fins que es miri si hi caben (docs/50, docs/75).
+// **0.190.219 — les tres ràdios són a la targeta de la barra** (l'amo: *«Posa 3 icones noves al panell de sistema: Una icona de bluetooth per
+// encendre/apagar, un de wifi i un de ble-mesh»*).
+//
+// La targeta que penja de la barra tenia vuit claus en dues files i cap de les tres coses d'aquesta placa que **s'encenen i s'apaguen** hi era:
+// per apagar el Bluetooth calia escriure `cfg bt off` a un prompt, o obrir l'app `bthid` i prémer-hi un botó, i per encendre el mesh, `mesh on`.
+// Ara hi ha una **tercera fila entremig** —les tres ràdios— perquè les claus que paren la placa quedin a dalt i les que naveguen a baix, i les
+// tres són les úniques de la targeta que **diuen un estat**: la tinta de la marca i de la paraula és negra quan la cosa és encesa i grisa quan no
+// ho és, o sigui que no cal un commutador nou ni una segona manera de dibuixar una clau (docs/30, docs/92).
+//
+// **Cada clau és el camí que el prompt ja té i no un segon camí**: `cfg::set_bt_on` és el de `cfg bt on` —i el que es llegeix després és el
+// resultat i no el desig, perquè una ràdio que no arrenca desfà la tria—, `net::connect_stored`/`net::stop` són els de `wifi connect` i
+// `wifi stop`, i `mesh::start`/`mesh::stop` són els de `mesh on|off`. Cap d'elles inventa res: la clau només ho demana amb un dit.
+//
+// **I el que el wifi és aquí mana sobre el dibuix del commutador**: la xarxa d'aquest sistema és una cosa que una feina fa servir i deixa anar
+// (`net::poll` apaga la ràdio quan la cua és buida), o sigui que la clau **no diu «connectat» sinó «la ràdio del wifi està treballant»** —el
+// mateix que la barra diu amb el ventall— i prémer-la amb la ràdio desperta la deixa anar. Una clau que digués «encesa» d'una cosa que
+// s'apaga tota sola seria una clau que menteix (docs/30, docs/50).
+//
+// **El preu, i és de la targeta**: amb una fila més, les claus arriben més avall que el **terç del vidre** que era la forma de la targeta, o
+// sigui que `card_height()` passa a ser *el terç o les files que la targeta té, la que sigui més gran* —tres-centes trenta-sis files en un
+// vidre de nou-centes seixanta, contra tres-centes quatre— i la fila de les quatre del sistema baixa de 168 a 204. Això és el que fa que els
+// tocs dels casos de la targeta s'hagin mogut amb ella (docs/30, docs/85).
+//
+// **I les tres marques són del mateix clipart que les altres vuit** (l'amo, quan va veure el primer intent: *«Els botons aquests nous no se
+// d'on els has tret pero no tenen res en comú. Busca al fontawsome»*). El primer intent les dibuixava amb primitives i no tenien res a veure
+// amb el pinyó, la casa i el candau; ara són **`bluetooth-b`** (`U+F294`, la runa sola i no la insígnia quadrada de `U+F293`, que a la targeta
+// sortia com una taca fosca), **`wifi`** (`U+F1EB`) i **`share-alt`** (`U+F1E0`) —tres nodes enllaçats entre ells i ningú a dalt, que és el
+// que fa un mesh i el que no fa una xarxa amb jerarquia; el primer dibuix era `network-wired`, tres pantalles en un arbre, i es llegia com un
+// org-chart—, rasteritzades per `tools/iconart.py` al mateix lloc que
+// les altres: el mestre de 448 a `tools/icons/system/` i la icona de 64 a `data/res/icons/`, que és el que el disc porta i el que
+// `ui::picture_of_a_mark` llegeix. **El Bluetooth és a la família `brands`** del clipart i no a `solid` —Font Awesome té les marques
+// comercials a part—, o sigui que `MARKS` pot dir la família d'una entrada i `iconart.py` tria la font per marca: buscar-lo a `fa-solid` és
+// un glif que no hi és (docs/45, docs/50, docs/92). `ui::draw_icon` en dibuixa les tres amb les primitives d'aquest arbre quan la placa no té
+// `/res`, que és el que ja fa amb les vuit altres, i el dibuix de la xarxa és el d'aquest glif i no un triangle inventat.
+// **0.190.220 — l'ANSI de la IDF no pot tornar sense que la compilació ho digui** (l'amo: *«et vaig demanar desactivar l'ANSI de la
+// configuració d'esp_idf… pots trobar-la i treure-ho?»*).
+//
+// **La resposta és que ja hi és, i que treure-ho seria el contrari del que vol**: el símbol és `CONFIG_LOG_COLORS` i a la Kconfig de la IDF
+// 5.1.2 val **`y` de sèrie** (`components/log/Kconfig`: `config LOG_COLORS` / `default "y"`), o sigui que les sis bandes el tenen apagat amb
+// una línia escrita a mà (`# CONFIG_LOG_COLORS is not set`, des de la 0.190.91 al T5S3 i la 0.190.172 a les altres cinc) i **esborrar aquella
+// línia no treu el color: el torna a encendre**. Comprovat al binari i no a la configuració: ni `firmware.elf` ni `bootloader.bin` del Matrix
+// tenen un sol `␛[0;` a dins, i el que hi ha de `␛[` són les tecles de cursor que el teclat de Bluetooth envia a l'altre aparell, que és
+// exactament el que ha de fer.
+//
+// **I el que sí que es podia fer, fet**: que això no es pugui desfer en silenci. `pal_esp32.cpp` —la casa de la consola en aquesta banda— porta
+// un `#error` si `CONFIG_LOG_COLORS` acaba definit, amb la línia que s'ha de posar i l'avís que esborrar-la és encendre'l. El dia que una IDF
+// nova canviï el defecte, o que una banda perdi la seva línia, la compilació s'atura amb una frase en lloc d'omplir el port de codis que ningú
+// no ha demanat (docs/50, docs/80).
+// **0.190.221 — les tres claus de la ràdio són commutadors, i el wifi en té un de debò** (l'amo: *«Si pico l'icona de bluetooth es veu al log:
+// [I][NVS] cfg/bt = on. Pero a la de wifi no ho he vist cap reacció. Es ben senzill... igual que el cfg/bt cfg/wifi on/off. Si actives la
+// wifi (passes a "on") està apagada en aquell moment, s'inicialitza. […] L'icona de mesh deixem-ho per ara […] de moment aquests botons son
+// per apagar i encendre radios»*).
+//
+// La clau del wifi feia `net::connect_stored`, o sigui que **intentava una connexió** amb la xarxa desada; en una placa que no en té cap
+// contestava `net::stored_ssid` amb fals i el registre deia una cosa d'una connexió que ningú no havia demanat. El que l'amo volia és el
+// **commutador**: encendre i apagar la ràdio, i prou. Ara hi ha `cfg wifi on|off` al prompt i la clau fa exactament el mateix —una sola porta,
+// com `cfg bt`— i el que hi ha desat és la paraula `cfg/wifi` a la botiga.
+//
+// **I per fer-ho calia separar dues coses que aquesta banda tenia juntes**: el **driver** —`esp_netif_init`, el bucle d'esdeveniments, les
+// dues interfícies i `esp_wifi_init`, que no es poden fer dues vegades— i la **ràdio** —`esp_wifi_start`/`esp_wifi_stop`, que es poden fer
+// tantes vegades com calgui—. `wifi_driver_up` fa el primer (una vegada) i `wifi_radio_up`/`wifi_radio_off` el segon, amb un `g_radio_on`
+// que és el que diu si la ràdio és encesa —perquè el driver contesta `ESP_ERR_WIFI_STATE` i aquesta casa vol una resposta clara i no un codi—.
+// La porta d'encendre **arrenca la ràdio per primera vegada** si no ho era, que és exactament el que demanava l'amo («si passes a on i està
+// apagada en aquell moment, s'inicialitza»), i la d'apagar deixa anar el que hi hagués i atura el driver sense desinstal·lar-lo.
+//
+// **I la paraula desada es compleix a l'arrencada**: `kernel::net::boot` mira `cfg::wifi_on()` i encén la ràdio, com fa el teclat de Bluetooth
+// des de la 0.190.180; si no arrenca, el commutador torna a apagar-se i el registre diu per què, perquè una paraula desada que no és certa a la
+// placa és pitjor que un commutador que torna enrere. **I la clau de la targeta diu això i no l'estat d'una connexió**: aquest sistema usa la
+// xarxa i la deixa anar quan la feina s'acaba, o sigui que una clau que s'apagués sola cada cop que una tasca acaba no es podria llegir
+// (docs/30, docs/50, docs/75).
+// **0.190.222 — la shell del cable és un terminal de debò** (l'amo: *«Vull una migració completa de la shell a aquest terminal serie. Poder
+// moure el cursor, fer efectes, i colors dona molta vidilla :) Fes la portabilitat amb cura i amb molta atenció als detalls»*).
+//
+// El cable d'aquesta placa **edita la línia amb el `console` de la IDF**: `linenoise` porta el cursor, les fletxes, l'inici i el fi,
+// suprimir, l'historial i el tabulador, i el que en surt quan es prem Enter va al **mateix `shell` de sempre**, que continua essent el
+// terminal virtual d'aquest sistema. El que canvia és **com s'escriu la línia** i res del que hi ha a sota: les comandes, les seves
+// respostes, les sessions i els `execute` són els mateixos (docs/30, docs/50).
+//
+// **La meitat del treball era la portabilitat, i són tres coses que no es podien fer a la babalà**:
+//   - **Qui llegeix**. `linenoise` llegeix per `stdin`, i aquesta banda tenia el seu lector: el fil `pal_rx` que només avisa el torn i el
+//     torn que llegeix els bytes. Amb l'editor a sobre, **el torn no llegeix** (`IConsole::has_a_line_editor`), el fil `pal_rx` no avisa
+//     (però buida la cua d'esdeveniments del driver, que plena faria perdre events), i `IConsole::read` contesta zero. Un sol lector, o les
+//     tecles es reparteixen entre dos editors (docs/50).
+//   - **Qui escriu**. Amb el terminal, tot el que el nucli escriu —el registre, una taula, un avís— va pel mateix camí que el cursor de la
+//     línia (`write` del VFS i no la FIFO del perifèric), perquè dues plomes al mateix paper es trepitgen i una línia del registre cauria
+//     al mig d'una comanda que s'està editant (docs/30, docs/50).
+//   - **Les dues consoles que aquesta casa té**. La UART0 i el USB-Serial-JTAG no es tracten igual: la UART ja tenia el driver instal·lat
+//     (`uart_driver_install` de la 0.190.190) i només calia donar-lo al VFS; el USB **no en tenia cap des de la 0.190.91** —aquella banda
+//     llegeix la FIFO amb les crides de baix nivell— i el terminal en demana un, o sigui que se n'hi instal·la un i si no arrenca **el
+//     terminal no s'encén i el shell es queda amb el seu editor**. Una placa que no pot tenir terminal segueix tenint prompt (docs/50, docs/85).
+//
+// **I les decisions que es veuen a la pantalla**:
+//   - **el prompt va amb color** —cian el del shell, groc el del `lua>`— perquè el terminal en parla, i el registre continua essent text pla:
+//     `CONFIG_LOG_COLORS` segueix apagat i el que la 0.190.220 va fer no es toca (docs/50);
+//   - **`clear` neteja de debò** (`ESC [ 2 J` i el cursor a dalt) quan hi ha terminal, i quaranta salts de línia quan no n'hi ha;
+//   - **el prompt el dibuixa qui edita la línia**: el shell li deixa el text i no l'escriu, o n'hi hauria dos i el del nucli quedaria a sota
+//     de la línia que s'està editant. I una sessió tancada **no té prompt**, perquè un prompt que hi és sense sessió demana una cosa que no
+//     es pot fer (docs/30);
+//   - **el tabulador completa amb la taula de comandes del shell** (`kCommandNames`), que és la mateixa que `help` i la que `sys.commands()`
+//     donen: una llista i no tres. El `help` d'esp_console no s'hi registra, perquè el d'aquesta casa és més llarg i més seu;
+//   - **el prompt surt després de la resposta i no abans**: l'editor espera el senyal del shell (un semàfor) abans de dibuixar la línia
+//     següent, amb un sostre de dos-cents cinquanta mil·lisegons, perquè una comanda llarga i el `log follow` no poden deixar la línia sense
+//     editor (docs/30, docs/50);
+//   - **la sonda hi és, i es pregunta abans d'encendre res**: `linenoise` mesura el prompt i l'amplada preguntant-ho al terminal (`␛ [ 6 n`) i
+//     espera la resposta per `stdin`; si l'altre cap no és un terminal, el primer caràcter de cada línia es menjaria la sonda. O sigui que es
+//     pregunta abans amb `linenoiseProbe()` —mig segon, sense bloquejar— i si no contesta ningú **aquesta banda diu que no i el shell es
+//     queda amb el seu editor**. El REPL d'Espressif (`esp_console_new_repl_uart`) no es fa servir, perquè quan la sonda falla es queda en
+//     mode lleig i el d'aquesta casa és millor que un `fgets` (docs/30, docs/50, docs/85).
+//
+// **I el comptador de la sessió compta línies i no tecles**: els cinc minuts de la 0.190.184 es compten des de l'última línia acabada,
+// perquè les tecles les té l'editor i el nucli no les veu. És el preu de no tenir dos lectors, i qui teclegi cinc minuts sense Enter es
+// trobaria la sessió tancada (docs/30, docs/60).
+//
+// **I dues coses que no es poden arreglar des d'aquí i es diuen**: (1) la línia que torna el component passa per `sanitize()`, que treu el que
+// no és `isprint` en el joc de caràcters C, o sigui que **una lletra accentuada no arriba al shell** pel cable —per l'emulador i la consola
+// del vidre, que no hi passen, sí—; (2) l'editor només s'encén si el monitor de l'altre cap és un terminal de debò i contesta la sonda
+// (docs/85).
+//
+// **El que es perd, i es diu**: el `Ctrl+C` i l'`ESC` són de l'editor —abandonen la línia— i no del shell, o sigui que **els tres ESC** que
+// aturaven una feina de la ràdio i el «qualsevol tecla» que aturava `log follow` passen a ser una línia (Enter). A l'emulador i a la consola
+// del vidre res d'això canvia, perquè allà no hi ha terminal: `IConsole` contesta que no i el camí de bytes és el de sempre.
+// **0.190.223 — el terminal diu si parla codis** (l'amo: *«has de detectar si el terminal es ANSI i notificar-ho a console, no?»*).
+//
+// La sonda de la 0.190.222 ja ho preguntava i **la resposta es llençava**: només servia per decidir si s'encenia l'editor. Però que l'altre cap
+// contesti la pregunta dels codis d'escapament vol dir una cosa més i més ampla —que entén el cursor, el color i l'esborrat de pantalla— i això
+// li interessa al nucli, que és qui escriu els codis. Ara es desa (`pal::the_terminal_speaks_ansi`) i surt per una porta nova,
+// **`IConsole::speaks_ansi`**, que neix responent que no.
+//
+// **Són dues preguntes i no una, i barrejar-les era el defecte**: qui llegeix les tecles és l'editor (`has_a_line_editor`) i qui entén el
+// cursor és el terminal (`speaks_ansi`). Amb el cable solen venir juntes i no sempre: si el driver del USB-Serial-JTAG no s'instal·la, el
+// terminal es queda **sense editor i amb els codis**, i fins ara això volia dir un prompt sense color per una banda que els entén. El que
+// escriu codis ho pregunta a la porta nova —el prompt amb el seu color i el `clear` que neteja de debò— i el que decideix qui dibuixa la
+// línia ho pregunta a l'altra (docs/30, docs/50, docs/85).
+//
+// **I es diu al registre, en els dos sentits**: en encendre's, `[I][CONSOLE] the terminal is up and speaks ANSI (cursor, colour, history)`;
+// i quan no hi ha terminal, `[W][CONSOLE] the other end of the cable does not answer escape codes (no terminal)` — abans les dues coses
+// sortien amb la mateixa frase, i qui llegeix el registre amb la placa a la mà no podia saber si el problema era el cable o el driver
+// (docs/30, docs/50, docs/85).
+//
+// **El que no es fa**: no torna la capacitat `ansi` de la 0.190.187. Aquella era una invitació a escriure codis des de fora i es va treure
+// perquè l'amo ho va demanar (*«Encara queden coses amb ansi! Busca per tot el codi restes d'ansi i treu-lo»*); això és una dada de la consola
+// per a qui ja escriu els codis que li toquen —el prompt i el `clear`— i no un permís (docs/30).
+//
+// **I un deute que es veu més ara**: el teclat Bluetooth entra les tecles per `shell::feed`, o sigui pel camí de bytes, i amb el terminal del
+// cable enlaire hi hauria dos editors damunt la mateixa pantalla. Es queda dit i pendent (docs/30).
+// **0.190.224 — la sonda es renta, i es diu què cal per tenir colors** (l'amo, provant la placa: *«I el suport per ansi ? no veig color
+// enlloc»*, amb això a la pantalla: `type 'help' and Enter.` / `␛[5n` / `the session is closed: press Enter to open one`).
+//
+// **No era cap avaria: era la resposta.** El `␛[5n` és la sonda de la 0.190.222 —la pregunta *Device Status Report* que es fa al terminal per
+// saber si hi és—, i el monitor de l'amo l'ha **escrita** en comptes de contestar-la. Un monitor així no és un terminal: no entén els codis, o
+// sigui que tampoc no hi hauria colors si els enviéssim. El sistema va fer el que havia de fer —`speaks_ansi` diu que no i el shell es queda
+// amb el seu editor de text pla— i el que faltava era **dir-ho de manera que es vegi** (docs/30, docs/50, docs/85).
+//
+// Dues coses i prou:
+//   - **la pregunta es renta de la pantalla** quan no contesta ningú: `\r`, vuit espais i `\r`. En un terminal no es veu res —la sonda hi és
+//     invisible i el rentat també—, i en un monitor que escriu els codis com a lletres el que queda és un tros de línia en blanc en lloc de
+//     quatre caràcters que no volen dir res per a qui no sap què és un `␛[5n`;
+//   - **el registre diu què cal**: `[W][CONSOLE] the other end of the cable does not answer escape codes (no terminal) ... a terminal of
+//     truth answers -- tio, screen, minicom, or `pio device monitor --filter direct``. És l'únic lloc on això es pot dir sense embrutar el
+//     prompt d'una placa que, sense terminal, no té ni colors ni cursor (docs/85).
+//
+// **I el que no s'hi afegeix, i és la part que importa**: **cap interruptor per forçar l'ANSI**. Es podria tenir i seria una trampa: `linenoise`
+// mesura l'amplada i el prompt preguntant-ho a l'altre cap (`␛[6n`) i, si ningú no contesta, **es menja les tecles** que una persona escriu
+// fins que en surt una `R` —el bucle de `getCursorPosition` llegeix fins a trobar-la—. O sigui que un «sí, tinc terminal» forçat en un monitor
+// que no ho és deixaria el teclat pitjor que ara, i el que cal davant d'un monitor que no contesta és el que ja passa: text pla (docs/50, docs/85).
+// **0.190.225 — la placa es quedava clavada, i eren tres coses** (l'amo: *«S'ha quedat pillat i no podia moure el cursor… recordes que em vas
+// dir que tornesim al pooling? … va doncs, provem-ho (no esborris el codi actual de la interrupció, comenta'l)»*). El registre de la placa:
+// `lunok> m` i, cinc segons després, `task_wdt: IDLE (CPU 1) did not reset the watchdog in time` / `CPU 1: pal_line`, repetit. O sigui que la
+// tasca de l'editor es menjava el processador i el segon nucli no arribava ni a l'`IDLE`.
+//
+// **El backtrace diu on**: `linenoiseEdit` → `linenoiseEditInsert` → `refreshMultiLine`, amb el `multi_heap` i una pila que no es deixa
+// desenrotllar (`post_a_line` entremig de `linenoiseRaw`, que no hi pot ser). I això són les dues coses que van malament alhora:
+//   - **la pila era petita** (4 KB): a la mateixa pila hi viu l'estat de l'editor —que és on són el buffer i **l'amplada**—, els buffers de
+//     refresc, el `snprintf` de newlib i les crides del `console` del tabulador. Amb la pila plena, llegir `l->cols` dona el que hi hagi, i
+//     **una amplada de zero és el pitjor que li pot passar a aquest codi**: `refreshMultiLine` divideix per ella (i en aquest xip, sense
+//     divisió al maquinari, la rutina de la llibreria dona voltes per sempre) i `refreshSingleLine` fa baixar un `size_t` fins que dona la
+//     volta. **Ara són 8 KB**, i després de la primera línia el registre diu quants bytes lliures queden (`the line editor has N byte(s) of
+//     stack left of 8192`), que és la mesura que diu si encara balla (docs/50, docs/75).
+//   - **l'amplada no es preguntava abans**: `linenoise` la pregunta ell (`␛ [ 6 n`) i, si la resposta no arriba bé, es queda amb el que
+//     sigui. Ara es pregunta **aquí**, amb la mateixa forma (`␛ [ files ; columnes R`), i si no és l'amplada d'un terminal de debò (vint
+//     columnes o més) **aquesta banda diu que no** i el shell es queda amb el seu editor de text pla: val més un prompt sense cursor que una
+//     placa que no respon (docs/50, docs/85).
+//
+// **I el sondeig, que és el que l'amo demanava** (docs/50): el fil de la consola torna a **mirar el port cada mil·lisegon** en lloc d'adormir-se
+// a la cua d'esdeveniments del driver. **La interrupció no s'ha esborrat**: és a `pal_esp32.cpp` dins d'un `#if 0` amb el seu nom
+// (`reader_loop_by_interrupt`) i el que cal per tornar-hi, perquè és el que hi havia de la 0.190.190 ençà. I el que canvia amb el sondeig és
+// que la cua del driver **es buida sencera a cada volta**: amb la interrupció hi havia un sol consumidor i la cua podia arribar a plena —i
+// quan s'omple, la ISR de la UART crida des de la interrupció, que es paga amb temps de filferro dins d'una ISR— (docs/50).
+// **0.190.226 — el color és un commutador, i el `log follow` torna a anar** (l'amo: *«la comanda "log follow" està trencada degut a console»* i
+// *«afegeix la comanda ansi on/off (totes les sortides tenen ansi, però amb aquesta opció es filtra abans d'enviar a la línia)»*).
+//
+// **El color es decideix en un sol lloc i no a cada escriptura.** Al codi hi ha els codis —el prompt amb el seu color, el `clear` que neteja de
+// debò— i el que decideix si arriben a la línia és **`ansi on|off`**, desat a `cfg/ansi` i començant per `on`. El filtre és `shell::filter_ansi`
+// i s'aplica a **l'única porta del nucli cap a la consola** (`out_bytes`), que és per on passen la taula, l'avís, el prompt i la resposta d'una
+// comanda; i també a la línia del registre (`log.cpp`), que té la seva porta i no havia de ser l'única que s'ho saltava. Amb `off` cada
+// seqüència `ESC [ … <lletra>` marxa sencera —i una que no s'acaba es pren la resta, que és el que evita mitja seqüència a la pantalla— i el que
+// queda és el mateix text sense format: exactament el que una sessió sense terminal ha de rebre (docs/30, docs/50, docs/85).
+//
+// **I l'arrencada ho pregunta sola**: si la consola diu que no parla codis (`IConsole::speaks_ansi`, la resposta de la sonda de la 0.190.223), la
+// sessió arrenca amb `off` **sense tocar el que la persona va triar**: una mesura no és una preferència, i escriure la NVS a cada arrencada per
+// un monitor és gastar la placa per res. El que sí que es diu: `[I][CONSOLE] the console does not speak ANSI: the codes are filtered out` i, si
+// algú fa `ansi on` en una consola així, una línia que ho avisa —els codis li arribaran escrits— (docs/30, docs/85).
+//
+// **El `log follow` tenia un defecte de disseny i no una avaria**: la seva única manera d'aturar-se era **una tecla** (`Control+C` o `Escape`), i
+// amb el terminal del cable les tecles són de l'editor: `Escape` abandona la línia i `Control+C` també, i el registre no s'assabentava de res.
+// Ara, amb terminal, **l'atura una línia** (Enter), que és el que l'editor pot donar, i ho diu quan comença (`log: following. Enter (a line) stops
+// it`); sense terminal, la tecla de sempre. **I el prompt marxa mentre dura**: l'editor ja ha dibuixat el seu, i un `lunok> ` al davant del
+// registre és el registre amb brossa; un retorn de carro posa el primer log al començament de la línia (docs/30, docs/50).
+// **0.190.227 — els dos ATOM van sempre a 240 MHz** (l'amo: *«busca el sistema de LightSleep que va dormitant entre torns de les plaques atom
+// lite i matrix. Desactiva el Dynamic Frequency Scaling per l'M5 Atom Lite i l'M5 Atom Matrix. Només per aquests dos models. Que vagin sempre a
+// 240Mhz»*).
+//
+// **El son lleuger no s'ha tocat**: el que dorm entre torns és `esp_pm` —`light_sleep_enable` a `Esp32Power::set_cpu_range`— i això segueix
+// igual; el que marxa és el **DFS**, que és l'altra meitat de la mateixa crida: el rang de freqüències. Amb el terra i el sostre en el mateix
+// número, el xip dorm quan no té feina i, quan en té, la té tota a 240 (docs/50, docs/60).
+//
+// **I qui ho diu és la placa**, que és la regla d'aquesta casa: `board::scales_the_clock()` a `board/identity.h` —**fals** a `board_atom` i a
+// `board_matrix`, **cert** a la resta—, `IPower::scales_the_clock()` amb resposta de sí per defecte, i `Esp32Power` que la llegeix d'allà. Amb
+// el nucli: `kernel::power::boot` pregunta un cop, i si la resposta és no **no llegeix ni la velocitat ni la política desades**, posa el repòs
+// a 240, apaga la política i diu al registre `this board does not scale its clock: the cpu is always at 240 MHz, and the light sleep is
+// untouched`. El que hi hagi desat **no s'esborra**: una targeta NVS pot acabar en una placa que sí que escala (docs/50, docs/60).
+//
+// **I les tres portes que hi havia per canviar el rellotge ho diuen i no fan res**, perquè un commutador que es mou i no canvia res és una
+// mentida: `set_cpu_auto` (el de la pàgina de Settings i `power auto on`) no toca res i ho diu, `set_cpu_mhz` refusa tot el que no sigui 240
+// —`power cpu 160` respon *«it does not scale its clock and runs at 240 always»*— i `set_allowed_steps` no s'aplica. El model de l'emulador
+// també ho sap (`emu::Model::dfs`), o sigui que les proves veuen les dues bandes amb el mateix binari i el cas nou ho guarda (docs/50, docs/85).
+// **0.190.228 — el color neix apagat a la banda i el filtre no se'l creu** (l'amo: *«ansi sempre es false?»*). No, no ho és; i la pregunta va
+// destapar que **el flag de la banda naixia encès**: `pal::the_terminal_speaks_ansi()` tornava `g_ansi` i `g_ansi` es declarava `true`, o sigui que
+// un camí que **no arribava a preguntar res** —la cua que no s'ha pogut fer, la tasca que no ha arrencat, el driver del USB que falla abans de la
+// sonda— deixava aquesta casa creient que l'altre cap entenia els codis, i el `clear` hi enviava `ESC [ 2 J` a un monitor que els hauria llegit
+// com a lletres. Ara neix **`false`**: el que no ha contestat ningú és un terminal que no ho és (docs/50, docs/85).
+//
+// **I el repàs de la pregunta, que és el que val**: `ansi` és fals en tres casos i només en tres — (1) **l'emulador i la consola del vidre**,
+// que no són cap terminal i ho diuen per omissió de la porta (`IConsole::speaks_ansi` neix `false`), i és el que fa que les proves llegeixin
+// text pla; (2) **una placa el monitor de la qual no contesta la sonda** o contesta una amplada que no és d'un terminal (<20 columnes), i el
+// registre diu per què; (3) **una persona que hi ha escrit `ansi off`**, que és desat a `cfg/ansi` i sobreviu a les arrencades. Amb un terminal
+// de debò al cable —i el monitor sense filtres que se'n mengin els codis— és **cert**, i és el que fa que el prompt surti cian i el `clear`
+// netegi de debò (docs/30, docs/50, docs/85).
+// **0.190.229 — 256 colors, i el registre amb el nivell pintat** (l'amo: *«vull un terminal monitor ANSI de 256 colors i que es vegi dins del
+// puto vscode»*).
+//
+// **La paleta deixa de ser la de vuit**: el prompt passa a `ESC [ 38 ; 5 ; N m` —**51** el cian del `lunok> ` i **220** l'ambre del `lua> `— i
+// el **nivell de cada línia del registre** es pinta amb la mateixa taula: **196** el `[E]`, **214** el `[W]`, **41** el `[I]` i **244** el `[D]`,
+// i només els tres primers caràcters, que la resta de la línia és el que una persona llegeix i no s'ha de tenyir sencera. Tot surt pel mateix
+// filtre d'ahir (`ansi on|off`), i per això el color i el filtre no es barallen: **primer es filtra i després es pinta** (docs/30, docs/50).
+//
+// **A l'altre costat del cable hi ha d'haver un terminal, i dins del VS Code n'hi ha**: el terminal integrat és xterm.js i entén els 256
+// colors, però el que decideix que els colors hi arribin és el **monitor** —`monitor_filters = direct` a `platformio.ini`, que envia les
+// tecles a la primera premuda i no toca un sol byte del que ve de la placa—. El senyal que tot això ha enganxat és la línia del registre:
+// `[I][CONSOLE] the terminal is up and speaks ANSI (cursor, colour, history) on 120 column(s)`. Si diu que no, el que falla és el monitor i
+// no els colors (docs/50, docs/85).
+//
+// **I el build**: les sis bandes tornen a tenir `-Wno-error=volatile` (el que la 0.190.90 va decidir i que estava comentat): la capçalera
+// `uart_ll.h` de la IDF fa assignacions compostes sobre un `volatile` i el GCC 12 ho marca obsolet, i amb `-Werror` això aturava la
+// compilació. **Es queda com a avís i no s'amaga**, que és el que diu el comentari de casa: `-Wno-error=volatile` i no `-Wno-volatile`,
+// perquè la segona forma no existeix per a C i ompliria de queixes els centenars de `.c` de la IDF (docs/50, docs/80).
+// **0.190.230 — el terminal es pot tornar a preguntar** (l'amo, amb el registre a la mà i el monitor obert dins del VS Code:
+// `[W][CONSOLE] the other end of the cable does not answer escape codes (no terminal)`).
+//
+// **No era cap avaria: era una cursa.** La sonda es fa **una vegada, al segon d'arrencar la placa**, i decideix per a tota la sessió. Si en
+// aquell moment el monitor encara no era a l'altre cap —o el terminal de l'editor no havia contestat encara— la placa es quedava sense
+// cursor, sense colors i sense historial fins al proper reinici, encara que el monitor s'obrís un segon després. I això és exactament el que
+// passa quan es grava amb `pio run -t upload` i el monitor s'obre a mà (docs/30, docs/50, docs/85).
+//
+// **La comanda `terminal`**, i prou: torna a preguntar-ho ara, amb el monitor ja escoltant, i si contesta **encén l'editor de línia** —cursor,
+// fletxes, historial, tabulador— i torna a decidir el color de la sessió (`g_ansi = cfg/ansi && speaks_ansi`, com a l'arrencada). Si no
+// contesta, ho diu i el shell es queda amb el seu editor de text pla. I la línia del registre que abans et deixava sense saber què fer ara
+// acaba dient-ho: *«and `terminal` at the prompt asks it again»*.
+//
+// **El que ha calgut a sota és llevar un pany**: `start_the_line_editor` tenia un `g_started` que **s'enganxava al primer fracàs**, o sigui que
+// un terminal que va fallar no es podia tornar a provar mai. Ara el pany diu una cosa més petita i certa —«l'editor ja hi és» o «la tasca no
+// s'ha creat mai»— i un fracàs deixa el camí obert. Un reintent és net perquè el fracàs sempre passa **abans** de crear la tasca i abans
+// d'instal·lar cap driver (docs/50).
+// **0.190.231 — el color deixa de dependre de la sonda, i el rentat renta el que ha escrit** (l'amo, amb el `pio device monitor --filter
+// direct` dins del VS Code: *«NI UN PUTO COLOR»*, i després *«8 espais? i ansi en OFF»*).
+//
+// **El que estava malament era el criteri, no el monitor.** La 0.190.226 posava `ansi off` quan la sonda callava, amb el raonament que un
+// monitor que no contesta no pot rebre codis. **És fals, i són dues coses diferents**: contestar la sonda és el que necessita l'**editor de
+// línia** per mesurar el prompt i l'amplada, i **pintar** els codis que arriben és una altra. I el monitor de `pio` no pot contestar mai
+// perquè llegeix el teclat amb `getkey()`, que entén les seqüències `ESC[...` com a tecles: **la resposta del terminal es queda dins del
+// monitor**. O sigui que la placa ha de poder tenir color amb un monitor que pinta i no contesta — que és exactament el cas de dins del VS Code.
+//
+// Tres peces:
+//   - **`pal_esp32::speaks_ansi()` contesta `sí`**: un cable pot portar codis encara que a l'altre cap no hi hagi un terminal que parli. Qui
+//     decideix si surten és el commutador `ansi on|off` (`cfg/ansi`), i l'emulador del PC segueix contestant que no —el seu `stdout` és el que
+//     comparen les proves i el que llegeix una canonada— (docs/30, docs/50, docs/85).
+//   - **El prompt ja no necessita editor per portar color**: portava els codis només quan hi havia editor, i ara els porta quan el commutador
+//     és encès, els escrigui qui els escrigui. **I per això `set_prompt_text` desa dos números i no un**: `g_prompt_bytes` és el que s'escriu
+//     —codis inclosos— i `g_prompt_len` són les lletres que es veuen, que és el que compta el dibuix de la línia d'aquesta casa. Sense això,
+//     el color del prompt hauria descol·locat el cursor a cada tecla (docs/30).
+//   - **El rentat de la sonda renta el que ha escrit**: vuit espais era el pitjor cas —les dues preguntes, quatre caràcters cada una— i quan
+//     només se n'havia fet una, els quatre de més quedaven com una línia en blanc. Ara cada camí diu quants caràcters ha escrit i el rentat en
+//     posa tants com cal (docs/50, docs/85).
+//
+// **I `ansi on|off` repinta el prompt a l'instant**: canviar el commutador i no veure'n l'efecte fins a la línia següent seria endevinar si
+// ha funcionat (docs/30).
+static const char kVersion[] = "0.190.231";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -35,6 +35,10 @@ inline const char* family() { return "esp32"; }
 // False: there is real hardware under this build.
 inline bool emulator() { return false; }
 
+// **Whether this board scales its own clock** (0.190.227): **yes**. Els dos ATOM diuen que no i la resta que sí, o sigui que el DFS del
+// xip es queda com estava a tot arreu menys allà on l'amo l'ha tret (docs/50, docs/60).
+inline constexpr bool scales_the_clock() { return true; }
+
 // **One green LED on GPIO5**: it is a plain LED and not an addressable chip, so the board HAL drives the
 // pin and there is no colour. `led_count()` is one because the frame of the driver is built around a
 // number of lights (docs/50).

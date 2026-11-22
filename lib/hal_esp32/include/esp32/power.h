@@ -65,6 +65,7 @@ class Esp32Power : public IPower {
   // top-step lock. A build without `CONFIG_PM_ENABLE` falls back to `rtc_clk_cpu_freq_set_config`, which is what the two
   // above do, so a band that has not been migrated keeps working.
   bool set_cpu_range(uint32_t min_mhz, uint32_t max_mhz) override;
+  bool scales_the_clock() const override;
   bool hold_cpu_top(bool on) override;
   // **El lock de la son** (0.190.184): el `ESP_PM_NO_LIGHT_SLEEP`, agafat mentre la consola del cable té una sessió oberta, perquè un xip
   // que s'adorm a trossos es menja els caràcters que arriben i fa esperar el despertar (docs/50, docs/60).

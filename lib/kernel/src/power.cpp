@@ -125,6 +125,10 @@ const int64_t kClockStepMs = 5000;
 uint32_t g_cpu_rest_mhz = kRestingMhz;
 // **El rang que el xip té ara**, dit una vegada: `esp_pm_configure` is not a call to make on every turn, and a range that has
 // not moved is not configured again (docs/50).
+// **Si aquesta placa escala el rellotge** (0.190.227, l'amo: *«Desactiva el Dynamic Frequency Scaling per l'M5 Atom Lite i l'M5 Atom Matrix.
+// Només per aquests dos models. Que vagin sempre a 240Mhz»*): ho diu la placa a l'arrencada i no canvia mai més en un run. Amb això fals, el
+// rang és un sol valor —el cim— i el commutador de la pàgina i el `power auto` ho diuen i no fan res (docs/50, docs/60).
+bool g_fixed_clock = false;
 uint32_t g_range_low = 0;
 uint32_t g_range_high = 0;
 // **La política i el terra i el sostre, en un sol byte** (0.189.94, 0.189.107): the automatic policy is the fourth bit and the
@@ -465,6 +469,9 @@ bool say_the_last_sleep_of_the_board(bool keep_it) {
 // one arithmetic that decides which step a request lands on —the smallest allowed step that is not under what was asked,
 // or the biggest allowed one when nothing is above it— (docs/50, docs/60).
 void set_allowed_steps(uint8_t mask) {
+  // **El terra i el sostre que algú tria en una placa que no escala no existeixen** (0.190.227): el rang és un sol valor i canviar-li el mask
+  // només serviria perquè la pàgina ensenyés una cosa que el xip no fa (docs/50, docs/60).
+  if (g_fixed_clock) return;
   g_cpu_policy = static_cast<uint8_t>((g_cpu_policy & ~kAllowedMask) | ((mask == 0) ? kAllowedMask : (mask & kAllowedMask)));
   // **I el rang nou es diu al xip ara mateix**: a ceiling that only applies to the next move would leave the board at a step the
   // person has just forbidden, which is the one thing this setting is for (docs/50, docs/60).
@@ -506,21 +513,34 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   g_cpu_rest_mhz = kRestingMhz;
   g_range_low = 0;
   g_range_high = 0;
-  char kept[8] = {0};
-  if (read_in(kNs, kCpuSpeedKey, kept, sizeof(kept))) {
-    const unsigned speed = static_cast<unsigned>(atoi(kept));
-    if (speed == kIdleMhz || speed == kRestingMhz || speed == kBusyMhz) g_cpu_rest_mhz = speed;
+  // **Una placa sense DFS no llegeix ni la velocitat ni la política** (0.190.227): el que hi hagi desat és el que la persona va triar en una
+  // placa que sí que escala, i aquí no hi ha res a triar —el rellotge va al cim i s'hi queda—. El que no es fa és esborrar el que hi ha desat,
+  // per si la mateixa targeta NVS acaba en una placa que sí que escala (docs/50, docs/60).
+  g_fixed_clock = (g_power != nullptr) && !g_power->scales_the_clock();
+  if (g_fixed_clock) {
+    g_cpu_rest_mhz = kBusyMhz;
+    set_policy(false);
+    log_printf(pal::kLogInfo, "POWER",
+               "this board does not scale its clock: the cpu is always at %u MHz, and the light sleep is untouched",
+               static_cast<unsigned>(kBusyMhz));
+  } else {
+    char kept[8] = {0};
+    if (read_in(kNs, kCpuSpeedKey, kept, sizeof(kept))) {
+      const unsigned speed = static_cast<unsigned>(atoi(kept));
+      if (speed == kIdleMhz || speed == kRestingMhz || speed == kBusyMhz) g_cpu_rest_mhz = speed;
+    }
+    char scaling[8] = {0};
+    const bool it_was_said = read_in(kNs, kCpuAutoKey, scaling, sizeof(scaling));
+    const bool scaling_on = !it_was_said || strcmp(scaling, "off") != 0;
+    set_policy(scaling_on);
   }
-  char scaling[8] = {0};
-  const bool it_was_said = read_in(kNs, kCpuAutoKey, scaling, sizeof(scaling));
-  const bool scaling_on = !it_was_said || strcmp(scaling, "off") != 0;
-  set_policy(scaling_on);
   // **I el rang es diu al xip a l'arrencada** (0.190.175): with the scaling on it is the floor and the ceiling the person allows
   // and the chip starts moving; with it off it is one step, because a clock of an ESP32-S3 boots at 240 i no n'hi ha prou de
   // deixar de pujar-lo: s'hi ha de baixar (docs/50, docs/60).
   g_range_low = 0;
   g_range_high = 0;
-  apply_the_range(scaling_on ? "the boot, the steps a person allows" : "the speed a person chose");
+  apply_the_range(g_fixed_clock ? "this board does not scale its clock"
+                               : (policy_is_auto() ? "the boot, the steps a person allows" : "the speed a person chose"));
   // **El comptador de la quietud arrenca amb aquesta arrencada** (0.190.9): nothing has been typed at it yet, and the person
   // who chose five minutes gets five minutes from the boot and not from the first turn that happened to look. **I una arrencada no és
   // una mà** (0.190.18): the flag is what tells «nobody has touched it since it came back» —the wake for an alarm and the stage of a long
@@ -1598,6 +1618,10 @@ uint32_t load_percent10() { return g_load_pct10; }
 
 bool cpu_auto() { return policy_is_auto(); }
 
+// **El que la placa ha contestat a l'arrencada** (0.190.227): un run no canvia de xip, o sigui que aquesta pregunta es fa una vegada i la
+// resta del sistema la llegeix d'aquí (docs/50, docs/60).
+bool scales_the_clock() { return !g_fixed_clock; }
+
 // **El dit, dit per qui el veu** (0.190.87): `touch::poll` és l'únic que sap si hi ha un contacte, i aquest és el lloc on es tradueix
 // a les dues decisions que en depenen —la becaina i la velocitat— perquè el nucli no hagi de preguntar-ho a cada volta (docs/30).
 void note_a_finger(bool down) {
@@ -1614,6 +1638,13 @@ void note_a_finger(bool down) {
 bool a_finger_is_down() { return g_a_finger_down; }
 
 void set_cpu_auto(bool on) {
+  // **I en una placa sense DFS el commutador no fa res, i ho diu** (0.190.227): el rellotge hi és sempre al cim, o sigui que encendre-hi
+  // l'escala automàtica seria un interruptor que es mou i no canvia res (docs/50, docs/60).
+  if (g_fixed_clock) {
+    log_printf(pal::kLogInfo, "POWER", "this board does not scale its clock: the switch changes nothing (cpu %u MHz)",
+               static_cast<unsigned>(kBusyMhz));
+    return;
+  }
   set_policy(on);
   // **I es desa** (0.190.85): una decisió que no sobreviu a un reinici no és una decisió, és una casualitat del run.
   write_in(kNs, kCpuAutoKey, on ? "on" : "off");
@@ -1646,6 +1677,9 @@ bool set_cpu_mhz(uint32_t mhz) {
   // step the person forbade— and it was turning that refusal into a silent round up, which is what 0.189.112 undoes here
   // (docs/50, docs/60).
   if (mhz != kIdleMhz && mhz != kRestingMhz && mhz != kBusyMhz) return false;
+  // **I aquí no hi ha passos on triar** (0.190.227): una placa que no escala va sempre al cim, i demanar-li vuitanta no és un número que no
+  // faci, és una cosa que no existeix en aquesta placa (docs/50, docs/60).
+  if (g_fixed_clock && mhz != kBusyMhz) return false;
   // **I des de la 0.190.175 no s'acota al mask**: `Speed:` i `power cpu N` són una decisió de la persona sobre el terra i el
   // sostre alhora (un rang d'un sol valor), i el mask només mana quan l'escala automàtica és encesa —on el que hi ha és un terra i
   // un sostre i no tres passos— (docs/50, docs/60).

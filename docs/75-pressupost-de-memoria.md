@@ -1448,3 +1448,21 @@ quatre no porten la ràdio i el que hi guanyen és la cua, que mai omplen).
 - **I el que queda a la llista, amb el número a la mà**: els tres blocs del ttf i el de l'antialiàsing són **12 096 B** i són l'única
   cosa gran que queda que sigui nostra; moure'ls demana abans una mesura de quant costa pintar una pàgina amb text quan el taller és a
   la PSRAM, i aquesta mesura encara no hi és.
+
+## El provisionador del mesh, i la clau que ningú no posava (0.190.218)
+
+La pregunta de l'amo —*«no puc provisionar jo manualment la clau del mesh per linia de comandaments, com amb el wifi?»*— es va respondre
+encenent el provisionador d'Espressif (`CONFIG_BLE_MESH_PROVISIONER`, només a l'ATOM de moment), i això **es va mesurar abans de dir que sí**:
+
+| Què | Número | D'on surt |
+|---|---|---|
+| Imatge de l'ATOM Matrix (`pio run -e m5-atom-matrix-idf`) | **2 131 994 B** de 2 621 440 | el **81 %** de la partició d'app; `size` del `firmware.elf` |
+| RAM estàtica de l'ATOM, amb el provisionador | **85 056 B** | `.dram0.data` 26 528 + `.dram0.bss` 58 528 (`readelf -S`) |
+
+- **El que aquest número encara no compta**: el que va vindre després de la mesura —les dues claus a `cfg` (`meshnet` i `meshapp`, 33 B cada
+  una a la `.bss`), el pla de lligams (`g_to_bind`, 12 × 4 B) i els comptadors del camí de la clau d'aplicació— són **uns centenars de bytes**
+  i no s'han tornat a mesurar. No és una estimació posada en una taula: és l'ordre de la cosa, i quan es torni a compilar es canvia el número.
+- **I la imatge creix molt més que la RAM**, perquè el que entra és codi: el provisionador, el client de configuració i els seus estats. És el
+  motiu pel qual el T5S3 i el Paper es queden de moment **només node**: primer es mira si hi caben amb el número a la mà, com sempre.
+- **El mesh no és alhora que el teclat** (docs/50), o sigui que el que s'ha de mirar a la placa és `mem` amb el mesh apagat i amb `mesh on`:
+  la pila demana desenes de kilobytes de RAM interna quan arrenca, i això és heap i no `.bss`.

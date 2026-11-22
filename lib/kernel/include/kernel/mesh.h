@@ -23,6 +23,29 @@ void stop();
 bool provisioned();
 uint16_t address();
 
+// ---- la xarxa que aquesta placa dóna als altres ----
+// **Des de la 0.190.218 aquesta placa pot ser el provisionador** (l'amo: *«no puc provisionar jo manualment la clau del mesh per linia de
+// comandaments, com amb el wifi?»*). Un node no rep les claus a mà; el provisionador les té i les reparteix, o sigui que aquí hi ha les
+// mateixes tres coses que amb el wifi: veure quines claus té, fer-ne unes de noves o posar-hi les que vulguis, i ensenyar-les per poder-les
+// apuntar (docs/30, docs/50).
+bool can_keep_the_keys();
+bool has_the_network();
+bool make_keys(uint8_t net_key[16], uint8_t app_key[16]);
+bool own_the_network(const uint8_t net_key[16], const uint8_t app_key[16]);
+bool network_keys(uint8_t net_key[16], uint8_t app_key[16]);
+// **Sentir qui no és enlloc** (bloqueja `ms`), i qui ha sentit la placa: la UUID, la ràdio i la força.
+int watch(uint32_t ms);
+int heard_count();
+bool heard_at(int index, uint8_t uuid[16], int* rssi);
+// Donar-li una adreça: zero vol dir la propera de la taula, i el número que ha quedat es diu a `given`.
+bool provision(int index, uint16_t address, uint16_t* given);
+int known(uint16_t* addresses, int cap);
+
+// **Una clau, escrita com tothom l'escriu** (0.190.218): trenta-dos dígits hexadecimals, els setze bytes i cap checksum. Una sola definició
+// perquè el prompt, la botiga i el registre no puguin escriure la mateixa clau de tres maneres (docs/45, docs/50).
+void key_to_text(const uint8_t key[16], char text[33]);
+bool key_from_text(const char* text, uint8_t key[16]);
+
 }  // namespace mesh
 }  // namespace kernel
 

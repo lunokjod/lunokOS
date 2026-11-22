@@ -859,6 +859,10 @@ class FakePower : public IPower {
     return true;
   }
 
+  // **El model mana** (0.190.227): el dels dos ATOM no escala el rellotge i la resta sí, i les proves poden veure les dues bandes amb el
+  // mateix binari (docs/50, docs/85).
+  bool scales_the_clock() const override { return emu::model().dfs; }
+
  private:
   uint32_t cpu_mhz_ = 160;
   uint32_t low_mhz_ = 160;
@@ -893,6 +897,25 @@ class HostNet : public INet {
     state_ = emu::options().wifi_fail ? NetState::kFailed : NetState::kUp;
     return state_;
   }
+
+  // **La ràdio d'aquest emulador** (0.190.221): el que el commutador de la targeta encén i apaga. `--wifi-absent` és una placa sense
+  // ràdio i contesta que no, com `wifi_start`; la resta és un interruptor que no menteix sobre l'estat, o sigui que apagar-la deixa la
+  // xarxa a `kOff` i encendre-la no connecta res (docs/50, docs/85).
+  bool wifi_radio_on() override {
+    if (emu::options().wifi_absent) return false;
+    radio_on_ = true;
+    return true;
+  }
+
+  bool wifi_radio_off() override {
+    if (!radio_on_) return true;
+    radio_on_ = false;
+    state_ = NetState::kOff;
+    started_ms_ = 0;
+    return true;
+  }
+
+  bool wifi_radio_is_on() const override { return radio_on_; }
 
   bool wifi_disconnect() override {
     state_ = NetState::kOff;
@@ -1471,6 +1494,8 @@ class HostNet : public INet {
 
   NetState state_ = NetState::kOff;
   int64_t started_ms_ = 0;
+  // **Si el commutador de la ràdio és encès** (0.190.221), que no és el mateix que estar connectat.
+  bool radio_on_ = false;
   bool scanning_ = false;
   int64_t scan_started_ms_ = 0;
   bool prov_running_ = false;

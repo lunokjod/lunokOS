@@ -92,6 +92,42 @@ class IConsole {
   // after write() returns, so the last thing a person reads before the board stops has to
   // be pushed out first or it is a word cut in half (docs/50).
   virtual void flush() = 0;
+
+  // ---- el terminal que edita la línia (0.190.222) ----
+  //
+  // **El cable d'una placa té un terminal de debò, i el d'aquest sistema és el `console` de la IDF** (l'amo: *«Vull una migració
+  // completa de la shell a aquest terminal serie. Poder moure el cursor, fer efectes, i colors dona molta vidilla»*). El que canvia
+  // és **com s'escriu la línia**: el cursor, les fletxes, l'historial, el tabulador i les pistes els porta `linenoise`, i el que la
+  // línia diu quan s'acaba va al mateix `shell` de sempre (docs/30, docs/50).
+  //
+  // **Una consola que no edita línies contesta que no i prou**: la de l'emulador i la del vidre reben bytes i el shell té el seu
+  // editor, que és el que fa que una prova no depengui d'un terminal. Amb aquestes quatre portes, el nucli no ha de saber quina de les
+  // dues té a sota (docs/45, docs/85).
+  virtual bool has_a_line_editor() const { return false; }
+  // **Si el que hi ha a l'altre cap entén els codis d'escapament** (0.190.223): un terminal de debò —el del cable, quan contesta la
+  // sonda— sí; una canonada, un fitxer o el monitor d'un `pio` que no és terminal, no. **Són dues preguntes i no una**: qui edita la línia
+  // és l'editor i qui entén el cursor és el terminal, i una banda pot tenir-ne un sense l'altre (el driver del USB que no arrenca deixa
+  // el terminal sense editor i amb els codis). El que escriu codis ho pregunta aquí; el que llegeix tecles, a `has_a_line_editor`
+  // (docs/30, docs/50, docs/85).
+  virtual bool speaks_ansi() const { return false; }
+  // **El prompt és del shell i el dibuixa el terminal**: el shell diu la paraula i qui la posa a la pantalla és qui edita la línia, o
+  // sigui que no s'escriu dues vegades (docs/30).
+  virtual void set_the_prompt(const char* text) { (void)text; }
+  // **Encén el terminal, amb els noms que el tabulador completa**, i contesta si hi és: la taula de comandes viu al nucli i el
+  // terminal només la necessita per oferir-la. **False vol dir que aquesta consola no en pot tenir** —l'emulador, una placa on el
+  // controlador no arrenca— i llavors el shell es queda amb el seu editor de sempre, que és el que fa que una placa que no pot tenir
+  // el terminal segueixi tenint un prompt (docs/30, docs/45, docs/85).
+  virtual bool start_the_terminal(const char* const* names, uint8_t count) {
+    (void)names;
+    (void)count;
+    return false;
+  }
+  // **Una línia que una persona ha acabat**, sense el salt i sense bloquejar. False quan no n'hi ha cap d'espera.
+  virtual bool take_a_line(char* out, size_t capacity) {
+    (void)out;
+    (void)capacity;
+    return false;
+  }
 };
 
 struct HeapInfo {

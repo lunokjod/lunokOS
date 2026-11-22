@@ -17659,10 +17659,11 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   };
   // **The cross is the third of the four of the bottom row** (0.189.158): the row starts sixty-six pixels off the left of the
   // card, the keys are ninety-six wide with eight of air between them, and the middle of the third is that plus two of those
-  // and half a key; the row starts a hundred and sixty-eight rows under the bar and is a hundred and four tall, so its middle
-  // is two hundred and twenty under it —the rows of the view, and the bar taken off (docs/30, docs/85).
+  // and half a key; the row starts two hundred and four rows under the bar —a hundred and sixty-eight until the row of the radios
+  // went between the two (0.190.219)— and is a hundred and four tall, so its middle is two hundred and fifty-six under it —the rows
+  // of the view, and the bar taken off (docs/30, docs/85).
   const uint16_t cross_x = static_cast<uint16_t>(66 + 2 * (96 + 8) + 96 / 2);
-  const uint16_t cross_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);
+  const uint16_t cross_y = static_cast<uint16_t>(kernel::ui::canvas().y + 204 + 52);
   // **The level of one pixel of the glass**, which is where the card is painted.
   auto glass_level = [](uint16_t x, uint16_t y) {
     emu::MemorySurface* glass = emu::memory_surface();
@@ -17743,7 +17744,7 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   // obre la pàgina de casa, que és el que la clau diu (docs/30, docs/45).
   kernel::cfg::set_home_app("homey");
   const uint16_t house_left = static_cast<uint16_t>(66 + 96 + 8);  // the second of the four of the bottom row
-  const uint16_t house_top = static_cast<uint16_t>(kernel::ui::canvas().y + 168);
+  const uint16_t house_top = static_cast<uint16_t>(kernel::ui::canvas().y + 204);
   auto ink_in_the_house = [&]() {
     int ink = 0;
     for (uint16_t y = house_top; y < static_cast<uint16_t>(house_top + 104); ++y) {
@@ -17852,8 +17853,8 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
                            "console.print('pager up')\nwhile true do sys.delay(20):await() end\n"));
 
   // **The card comes out of the bar and the gear is the first of the four of the bottom row** —`Settings`, `Home`, `Back`,
-  // `Close`—: the row starts a hundred and sixty-eight rows under the bar, the keys are ninety-six wide with eight of air, and the
-  // card is pulled with a swipe of the bar (docs/30, docs/85).
+  // `Close`—: the row starts two hundred and four rows under the bar (0.190.219), the keys are ninety-six wide with eight of air, and
+  // the card is pulled with a swipe of the bar (docs/30, docs/85).
   auto swipe_down = [&]() {
     TEST_ASSERT_TRUE(panel->finger_down(0, 400, 20));
     pump_turns(20);
@@ -17871,9 +17872,9 @@ void test_the_gear_of_the_panel_opens_the_app_of_the_settings(void) {
     pump_turns(500);
   };
   // **The gear is the first of the four of the bottom row** (0.189.152): sixty-six off the left of the card, ninety-six wide
-  // with eight of air, and a hundred and four tall from a hundred and sixty-eight rows under the bar.
+  // with eight of air, and a hundred and four tall from two hundred and four rows under the bar (0.190.219).
   const uint16_t gear_x = static_cast<uint16_t>(66 + 96 / 2);  // the middle of the first key
-  const uint16_t gear_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);  // the middle of the row of four
+  const uint16_t gear_y = static_cast<uint16_t>(kernel::ui::canvas().y + 204 + 52);  // the middle of the row of four
 
   pump_captured(40, g_out, sizeof(g_out), "run pager");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pager up"), g_out);
@@ -18044,7 +18045,7 @@ void test_the_arrow_of_the_panel_goes_back_one_view(void) {
   // Close, Back»*): sixty-six off the left of the card, three keys and three gaps in, and half a key, in the rows of the view, on
   // the glass where the bar has already been taken off (docs/30).
   const uint16_t arrow_x = static_cast<uint16_t>(66 + 3 * (96 + 8) + 96 / 2);
-  const uint16_t arrow_y = static_cast<uint16_t>(kernel::ui::canvas().y + 168 + 52);
+  const uint16_t arrow_y = static_cast<uint16_t>(kernel::ui::canvas().y + 204 + 52);
   auto glass_level = [](uint16_t x, uint16_t y) {
     emu::MemorySurface* glass = emu::memory_surface();
     return (glass == nullptr) ? static_cast<uint8_t>(0xFF) : glass->level_at(x, y);

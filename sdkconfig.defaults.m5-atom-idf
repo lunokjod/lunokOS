@@ -83,6 +83,16 @@ CONFIG_BT_NIMBLE_NVS_PERSIST=y
 # apagat i amb `mesh on` (docs/50, docs/75). La imatge creix uns 206 KB i la ranura de 2,5 MB els té (docs/75).
 CONFIG_BLE_MESH=y
 CONFIG_BLE_MESH_NODE=y
+# **I el provisionador, que és qui té les claus** (0.190.218, l'amo: *«no puc provisionar jo manualment la clau del mesh per linia de comandaments,
+# com amb el wifi?»*): un node no pot rebre les claus a mà perquè la provisió **és** l'intercanvi que les crea; el que sí que es pot és que
+# aquesta placa sigui el provisionador —ella les té i les reparteix— i que el que es provisioni siguin les altres. Demana el mateix element i el
+# mateix servidor de configuració, o sigui que la composició no canvia (docs/50).
+CONFIG_BLE_MESH_PROVISIONER=y
+# **I el client de configuració, que és la peça que fa que proveir serveixi d'alguna cosa** (0.190.218): la provisió deixa el node amb la clau
+# de xarxa i una adreça, i els seus models no parlen fins que tenen una clau d'aplicació **lligada**, que només es pot manar per aquí. No és una
+# opció del provisionador —`CONFIG_BLE_MESH_PROVISIONER` no l'encén— sinó un model de la capa de fundació que s'ha de dir a part
+# (`esp_ble_mesh_config_client_set_state` ni tan sols existeix al binari sense això, i l'enllaç falla amb `undefined reference`; docs/50).
+CONFIG_BLE_MESH_CFG_CLI=y
 CONFIG_BLE_MESH_PB_ADV=y
 CONFIG_BLE_MESH_PB_GATT=y
 CONFIG_BLE_MESH_GATT_PROXY_SERVER=y

@@ -8,6 +8,7 @@
 #include "hal/log.h"
 #include "kernel/led.h"
 #include "kernel/serial.h"
+#include "kernel/shell.h"
 
 #include "pal/pal.h"
 
@@ -37,9 +38,41 @@ pal::LogLevel g_level = pal::kLogDebug;
 // **El registre és text pla** (0.190.92, l'amo: *«treu els textos ANSI del codi»*): la línia va al port tal com l'ha formatada el
 // formatter, sense cap codi d'escapament. El nivell hi és —`[E]`, `[W]`, `[I]`, `[D]`—, que és el que una persona llegeix i el que una
 // cerca troba (docs/30).
+// **El color del nivell, de la taula de 256** (0.190.229, l'amo: *«vull un terminal monitor ANSI de 256 colors i que es vegi dins del puto
+// vscode»*): el `[E]`, el `[W]` i el `[I]` són el que una persona busca amb els ulls en una pila de línies, i pintar-los és el que fa que el
+// registre es llegeixi. Els números són de la paleta de 256: **196** el vermell de fallada, **214** l'ambre d'avís, **41** el verd d'informació
+// i **244** el gris de depuració; el `[D]` no es pinta mai quan la línia és una traça d'un nivell que ja se sol filtrar. **I el color és una
+// capa i no una escriptura**: primer es filtra la línia (que treu el que porti quan `ansi off`) i després es posa el color de la casa, i
+// per això el filtre i el color no es barallen mai (docs/30, docs/50, docs/85).
+const char* level_colour(char letter) {
+  switch (letter) {
+    case 'E': return "\033[38;5;196m";
+    case 'W': return "\033[38;5;214m";
+    case 'I': return "\033[38;5;41m";
+    case 'D': return "\033[38;5;244m";
+    default: return nullptr;
+  }
+}
+
 void write_line(pal::IConsole* console, const char* line, size_t len) {
   if (console == nullptr) return;
-  console->write(line, len);
+  // **I la línia del registre passa pel mateix filtre que la resta** (0.190.226, l'amo: *«tota línia que hagi d'anar al client a través del
+  // terminal serà filtrada»*): el registre és text pla des de la 0.190.92 i el que el filtre treu és el que algú hi hagi posat de més. El
+  // buffer és el de la línia del formatter (docs/30, docs/50).
+  char text[kLineBytes];
+  const size_t used = shell::filter_ansi(line, len, text, sizeof(text));
+  // **El nivell, pintat només si la sessió parla codis**: `[E]` i prou, tres caràcters, que la resta de la línia és el que una persona llegeix
+  // i el color no l'ha de tenyir tota (docs/30, docs/85).
+  const char* const colour = (used >= 3 && text[0] == '[' && text[2] == ']' && shell::ansi_on()) ? level_colour(text[1]) : nullptr;
+  if (colour == nullptr) {
+    console->write(text, used);
+    return;
+  }
+  console->write(colour, strlen(colour));
+  console->write(text, 3);
+  static const char kReset[] = "\033[0m";
+  console->write(kReset, sizeof(kReset) - 1);
+  console->write(text + 3, used - 3);
 }
 
 void append(const char* data, size_t len) {

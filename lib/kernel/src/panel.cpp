@@ -6,9 +6,12 @@
 
 #include "kernel/apps.h"
 #include "kernel/bar.h"
+#include "kernel/bluetooth.h"
 #include "kernel/cfg.h"
 #include "kernel/display.h"
 #include "kernel/log.h"
+#include "kernel/mesh.h"
+#include "kernel/net.h"
 #include "kernel/power.h"
 #include "kernel/shell.h"
 #include "kernel/touch.h"
@@ -48,11 +51,17 @@ const uint16_t kHandleH = 6;
 const uint16_t kHandleGap = 14;
 // The two rows that close the card, which are the same line the bar has under itself.
 const uint16_t kLineH = 2;
+// **L'aire entre l'última fila de claus i l'ansalada** (0.190.219): six rows, which is what keeps the handle from touching the box of a
+// key —the ink of a key is centred in its box and the box has air of its own, però un handle enganxat a la vora d'una clau es llegeix
+// com una clau més— (docs/30, docs/92).
+const uint16_t kAirUnderTheKeys = 6;
 
-// **Les vuit claus de la targeta, en dues files** (0.185.0; la sisena des de la 0.189.25, **la casa** des de la 0.189.139, **el
-// candau** i les dues files des de la 0.189.151). The card carries **eight keys**: the three that stop the board —the power off,
-// **the deep sleep** and the restart— in a row of their own at the top, and the five of the system below —the way back, the house
-// of the page of the start, the gear of the settings, **the padlock of the lock** and the cross of the way out—. All eight are
+// **Les onze claus de la targeta, en tres files** (0.185.0; la sisena des de la 0.189.25, **la casa** des de la 0.189.139, **el
+// candau** i les dues files des de la 0.189.151, i **les tres de la ràdio** des de la 0.190.219 al mig). The card carries **eleven
+// keys**: the three that stop the board —the power off,
+// **the deep sleep** and the restart— with the padlock in a row of their own at the top, **the three radios** —the Bluetooth, the network
+// and the mesh— in the row of the middle, and the four of the system below —the gear of the settings, the house of the page of the start,
+// the cross of the way out and the way back one page—. All eleven are
 // **one key**: a `UIButton` of this system with **no frame and no
 // shadow** (`framed` false), so what a person
 // sees is the mark and nothing else, and it sinks by turning over while the finger is on it, which is the press every button of
@@ -79,7 +88,16 @@ const uint16_t kTopRowY = 20;      // la fila de les quatre que paren la placa
 const uint16_t kTopW = 104;        // una mica més ampla i més baixa que les de sota
 const uint16_t kTopH = 88;
 const uint16_t kTopGap = 16;       // l'aire entre dues claus d'aquesta fila
-const uint16_t kBottomRowY = 168;  // la fila de les quatre del sistema
+// **I la fila del mig, la de les tres ràdios** (0.190.219, l'amo: *«Posa 3 icones noves al panell de sistema: Una icona de bluetooth per
+// encendre/apagar, un de wifi i un de ble-mesh»*): three keys as wide as the word «Bluetooth» needs and not a pixel more, because what
+// they say is a word and not a mark —the mark is above it, as in every key of this card (docs/30, docs/92).
+const uint16_t kSwitchRowY = 116;
+const uint16_t kSwitchW = 156;
+const uint16_t kSwitchH = 80;
+const uint16_t kSwitchGap = 16;
+// **I les quatre del sistema baixen vuit files** (0.190.219): the row of the radios goes between the ones that stop the board and the
+// ones that walk the pages, o sigui que aquesta és la que es mou —de 168 a 204— i les tres que hi havia més amunt no es toquen (docs/30).
+const uint16_t kBottomRowY = 204;  // la fila de les quatre del sistema
 const uint16_t kBottomW = 96;      // la mida que tenien les quatre del mig
 const uint16_t kBottomH = 104;
 const uint16_t kBottomGap = 8;
@@ -88,9 +106,13 @@ const uint16_t kBottomGap = 8;
 // L'escala de tres era de les cantonades amples, i amb elles se'n va anar quan el dibuix de la targeta es va fer de dues files.
 const uint8_t kWordScale = 2;
 
-// **Quin botó és quin** (0.185.0): the eight of the card, in the order the two rows are drawn —the gear, the house, the cross
-// and the way back below; the power off, **the deep sleep**, the restart and the padlock above, with the sleep between the power off
-// and the restart, which is where the owner asked for it: the closer to off a way down is, the closer they sit— (docs/30).
+// **Quin botó és quin** (0.185.0): the eleven of the card, in the order the three rows are drawn —the gear, the house, the cross
+// and the way back below; the Bluetooth, the wifi and the mesh in the middle, which is where a radio that is switched on lives; the
+// power off, **the deep sleep**, the restart and the padlock above, with the sleep between the power off and the restart, which is
+// where the owner asked for it: the closer to off a way down is, the closer they sit— (docs/30).
+// **I les tres de la ràdio** (0.190.219): the Bluetooth, the network and the mesh, que són les tres coses d'aquesta placa que s'encenen i
+// s'apaguen i que fins ara només es podien canviar des del prompt o des d'una app. La targeta les té perquè una cosa que es toca sovint no ha
+// de demanar un teclat (docs/30, docs/45).
 enum class Key : uint8_t {
   kSettings = 0,
   kHome = 1,
@@ -99,9 +121,12 @@ enum class Key : uint8_t {
   kPowerOff = 4,
   kDeepSleep = 5,
   kReboot = 6,
-  kLock = 7
+  kLock = 7,
+  kBluetooth = 8,
+  kWifi = 9,
+  kMesh = 10
 };
-const uint8_t kKeyCount = 8;
+const uint8_t kKeyCount = 11;
 
 bool g_open = false;
 // **Quina clau té el dit a sobre** (0.185.2): the card is painted on the glass and not by a page of controls, so a press is a
@@ -152,6 +177,22 @@ KeyBox key_box(Key which) {
                                          : "Lock";
     return box;
   }
+  // **I la fila del mig: les tres ràdios** (0.190.219): the Bluetooth, the network and the mesh, centrades i de la mateixa mida, amb la
+  // paraula a sota de la marca com la resta de la targeta. **Són les úniques que diuen un estat** i per això són les úniques que poden estar
+  // apagades: la tinta de la seva marca i de la seva paraula és la que diu si la cosa és encesa (docs/30, docs/92).
+  if (which == Key::kBluetooth || which == Key::kWifi || which == Key::kMesh) {
+    const int16_t total = static_cast<int16_t>(3 * kSwitchW + 2 * kSwitchGap);
+    const int16_t left = static_cast<int16_t>((width - total) / 2);
+    uint8_t place = 0;
+    if (which == Key::kWifi) place = 1;
+    if (which == Key::kMesh) place = 2;
+    box.x = static_cast<int16_t>(left + place * (kSwitchW + kSwitchGap));
+    box.y = static_cast<int16_t>(kSwitchRowY);
+    box.w = kSwitchW;
+    box.h = kSwitchH;
+    box.word = (which == Key::kBluetooth) ? "Bluetooth" : (which == Key::kWifi) ? "WiFi" : "Mesh";
+    return box;
+  }
   // **I la fila de baix: les quatre del sistema** (0.189.152, i l'ordre de la 0.189.158): the gear, the house, the cross of the
   // way out and the arrow of one page back, en aquest ordre —les dues que van a un lloc a l'esquerra i les dues que tanquen a la
   // dreta—, que és el que l'amo va demanar després de veure-hi la fletxa a frec de la casa (docs/30, docs/45).
@@ -195,6 +236,14 @@ const char* key_icon(Key which) {
       return "deepsleep";
     case Key::kReboot:
       return "reboot";
+    // **Les tres de la ràdio** (0.190.219): the rune, the fan and the net, drawn by `ui::draw_icon` with the primitives of this tree
+    // perquè no depenen de cap fitxer del disc i hi són a qualsevol placa (docs/30, docs/45).
+    case Key::kBluetooth:
+      return "bluetooth";
+    case Key::kWifi:
+      return "wifi";
+    case Key::kMesh:
+      return "mesh";
     default:
       return "poweroff";
   }
@@ -261,6 +310,12 @@ bool key_is_there(Key which) {
   // nothing says the system can do something it cannot— and it is asked of the board and not of the model of the glass
   // (docs/30, docs/45, docs/50).
   if (which == Key::kDeepSleep) return power::can_deep_sleep();
+  // **I les tres de la ràdio, quan la placa en té** (0.190.219): the same rule as the cross and the moon —a key that says it can turn a
+  // radio on, on a board whose build carries no radio, says something untrue—, i es pregunta al build i no al model del vidre (docs/30,
+  // docs/45, docs/50).
+  if (which == Key::kBluetooth) return bt::available();
+  if (which == Key::kWifi) return net::available();
+  if (which == Key::kMesh) return mesh::available();
   return true;
 }
 
@@ -290,7 +345,13 @@ uint16_t card_height() {
   const uint16_t glass = display::height();
   const uint16_t top = bar::height();
   if (glass <= top) return 0;
-  return static_cast<uint16_t>((glass - top) / 3);
+  const uint16_t third = static_cast<uint16_t>((glass - top) / 3);
+  // **Un terç, o les files que la targeta té** (0.190.219): the third of the glass was the shape of the card and it is still what it
+  // wants to be, però amb la fila de les tres ràdios les claus arriben més avall que el terç i una targeta més curta que les seves claus
+  // és mitja fila pintada sobre la pàgina de sota. El que mana és la més gran de les dues coses, i així una placa més alta les té totes
+  // i una de més baixa no perd cap clau (docs/30, docs/92).
+  const uint16_t rows = static_cast<uint16_t>(kBottomRowY + kBottomH + kHandleGap + kHandleH + kLineH + kAirUnderTheKeys);
+  return (third > rows) ? third : rows;
 }
 
 // **Whether the finger landed on the card** (0.179.42): the card hangs from the bar, so its rows are the first
@@ -308,11 +369,29 @@ bool on_the_card(const touch::Gesture& gesture) {
 // ombra** (`framed` false): the card's paper is the key's paper, so the mark and its word are the whole of what a person sees, and
 // the press turns the key over —ink face, paper mark and paper word— which is the same press every button of this system has
 // (docs/30, docs/92).
+// **Si la cosa d'aquesta clau és encesa** (0.190.219): the three of the radios are the only keys of the card that have a state, and the
+// state is not a second drawing: **the ink of the mark and of the word is the state**, black when the radio is on and grey when it is
+// off, que és el mateix dos tons de sempre i no un commutador nou (docs/30, docs/92).
+bool key_is_lit(Key which) {
+  if (which == Key::kBluetooth) return cfg::bt_on();
+  // **El wifi és encesa quan el commutador és encesa** (0.190.221, l'amo: *«de moment aquests botons son per apagar i encendre radios»*): és
+  // el `cfg/wifi` que la clau encén i apaga, i no l'estat d'una connexió —aquest sistema usa la xarxa i la deixa anar quan la feina s'acaba,
+  // i una clau que s'apagués tota sola cada cop que una tasca acaba seria una clau que no es pot llegir— (docs/30, docs/50).
+  if (which == Key::kWifi) return cfg::wifi_on();
+  if (which == Key::kMesh) return mesh::is_up();
+  return true;
+}
+
+// **La tinta d'una clau apagada**: vuit és el gris del mig del vidre, que es llegeix com «això hi és i no està encès» i no com una clau que
+// no es pot prémer —la clau que no es pot prémer no es pinta (docs/30, docs/92).
+const uint8_t kInkOff = 8;
+
 void paint_the_key(hal::ISurface& surface, Key which, bool pressed) {
   const KeyBox box = key_box(which);
   ui::paint_a_button(surface, static_cast<uint16_t>(box.x), static_cast<uint16_t>(bar::height() + box.y), box.w,
                      box.h, /*background=*/15, /*border=*/0, pressed, /*focused=*/false, /*primary=*/false,
-                     box.word, /*color=*/0, box.scale, /*framed=*/false, key_icon(which), box.mark);
+                     box.word, key_is_lit(which) ? /*color=*/0 : kInkOff, box.scale, /*framed=*/false,
+                     key_icon(which), box.mark);
 }
 
 void paint() {
@@ -508,7 +587,62 @@ void open_the_home() {
   log_printf(pal::kLogInfo, "PANEL", "the house key: %s comes up", entry.id);
 }
 
-// **Un botó és la seva acció**: the eight of the card, one switch, so the paint, the hit test and the press cannot disagree about what
+// **Les tres claus de la ràdio, i el que fan** (0.190.219): each one is the road the prompt already has, not a second way of doing the same
+// thing —`cfg::set_bt_on` is what `cfg bt on` calls, `cfg::set_wifi_on` is what `cfg wifi on` calls, `mesh::start` is what `mesh on`
+// calls— and the key only says it with a finger (docs/30, docs/45).
+//
+// **I la targeta es queda on és**: turning a radio on is not a page, o sigui que la clau es torna a pintar amb la tinta que li toca i la
+// targeta no es mou; el que ha passat és una línia del registre i, si no ha passat, també.
+void toggle_the_bluetooth() {
+  const bool want = !cfg::bt_on();
+  (void)cfg::set_bt_on(want);
+  // **El que mana és el que la ràdio ha fet i no el que se li ha demanat** (0.190.183): `set_bt_on` desa la tria i, si la ràdio no arrenca,
+  // torna enrere; o sigui que el que es llegeix aquí és el resultat i no el desig (docs/30, docs/50).
+  if (cfg::bt_on() == want) {
+    log_printf(pal::kLogInfo, "PANEL", "the bluetooth key: the radio is %s", want ? "on" : "off");
+  } else {
+    log_printf(pal::kLogWarn, "PANEL", "the bluetooth key: the radio did not come up (the log above says why)");
+  }
+}
+
+void toggle_the_network() {
+  // **Encendre i apagar la ràdio, i res més** (0.190.221, l'amo: *«de moment aquests botons son per apagar i encendre radios»*): el primer
+  // intent d'aquesta tecla connectava amb la xarxa desada, i el que l'amo volia és el commutador —el mateix que `cfg bt`—. `cfg::set_wifi_on`
+  // és la porta que el prompt fa servir igual (`cfg wifi on|off`), o sigui que la tecla no inventa cap camí: encendre instal·la el driver i
+  // arrenca l'estació, i apagar-la atura el driver i deixa anar el que hi hagués (docs/30, docs/45, docs/50).
+  const bool want = !cfg::wifi_on();
+  (void)cfg::set_wifi_on(want);
+  if (cfg::wifi_on() == want) {
+    log_printf(pal::kLogInfo, "PANEL", "the wifi key: the radio is %s", want ? "on" : "off");
+  } else {
+    log_printf(pal::kLogWarn, "PANEL", "the wifi key: the radio did not come up (the log above says why)");
+  }
+}
+
+void toggle_the_mesh() {
+  if (mesh::is_up()) {
+    mesh::stop();
+    log_printf(pal::kLogInfo, "PANEL", "the mesh key: the board is out of the mesh");
+    return;
+  }
+  if (!mesh::start()) {
+    log_printf(pal::kLogWarn, "PANEL", "the mesh key: the mesh did not come up (the log above says why)");
+    return;
+  }
+  log_printf(pal::kLogInfo, "PANEL", "the mesh key: the mesh is up");
+}
+
+// **Tornar a pintar una clau que no tanca la targeta**: one box of the card and not the whole card, perquè el que ha canviat és la tinta
+// d'una clau i el vidre cobra cada passada (docs/30, docs/50).
+void paint_the_key_back(Key which) {
+  hal::ISurface* surface = display::surface();
+  if (surface == nullptr) return;
+  if (!key_is_there(which)) return;
+  paint_the_key(*surface, which, /*pressed=*/false);
+  display::present(hal::UpdateMode::kDu);
+}
+
+// **Un botó és la seva acció**: the eleven of the card, one switch, so the paint, the hit test and the press cannot disagree about what
 // a key does (docs/30, docs/45).
 void run_the_key(Key which) {
   switch (which) {
@@ -532,6 +666,20 @@ void run_the_key(Key which) {
       return;
     case Key::kDeepSleep:
       sleep_with_the_keys();
+      return;
+    case Key::kBluetooth:
+      toggle_the_bluetooth();
+      // **I la clau es torna a pintar amb la tinta que li toca** (0.190.219): the press turned it over and the state it says may have
+      // changed, o sigui que el que hi ha al vidre s'ha de tornar a dir o la clau mentiria fins al pròxim toc (docs/30, docs/92).
+      paint_the_key_back(which);
+      return;
+    case Key::kWifi:
+      toggle_the_network();
+      paint_the_key_back(which);
+      return;
+    case Key::kMesh:
+      toggle_the_mesh();
+      paint_the_key_back(which);
       return;
     default:
       power_the_board_off();

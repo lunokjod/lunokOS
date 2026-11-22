@@ -546,6 +546,32 @@ l'altre cap l'ha tancat, `0x05`/`0x3D`/`0x3E` autenticació i MIC, `0x16` l'altr
 els paràmetres de la connexió (interval, latència, supervisor) i amb **cada accés** al servei a nivell de feina. I les claus que es
 reparteixen porten la identitat (`ENC | ID`), que és el que un telèfon espera d'un teclat de debò.
 
+#### La ràdio del wifi té commutador (0.190.221)
+
+L'amo: *«Si pico l'icona de bluetooth es veu al log: `[I][NVS] cfg/bt = on`. Pero a la de wifi no ho he vist cap reacció. Es ben senzill... igual
+que el cfg/bt cfg/wifi on/off. Si actives la wifi (passes a "on") està apagada en aquell moment, s'inicialitza»*. I tenia raó que no hi havia
+reacció: la clau del wifi cridava `net::connect_stored`, o sigui que **intentava una connexió**, i en una placa que no té cap xarxa desada
+contestava amb un avís d'una connexió que ningú no havia demanat.
+
+- **`cfg/wifi`, una paraula a la botiga com `cfg/bt`**: `cfg wifi on|off` al prompt i la clau de la targeta fan el mateix, i el que es llegeix
+  després és **el resultat i no el desig** —una ràdio que no arrenca desfà la tria i ho diu.
+- **I per fer-ho calia separar el driver de la ràdio**, que aquesta banda tenia en un sol `espWifiReady()`: `esp_netif_init`, el bucle
+  d'esdeveniments, les dues interfícies i `esp_wifi_init` **no es poden fer dues vegades** (la segona contesta `ESP_ERR_INVALID_STATE`), i el
+  que s'encén i s'apaga és `esp_wifi_start`/`esp_wifi_stop`, que sí que es poden fer tantes vegades com calgui. `wifi_driver_up` fa el primer
+  (una vegada) i `wifi_radio_up`/`wifi_radio_off` el segon; el nom vell `espWifiReady` es queda com a àlies del segon, perquè tots els camins
+  que ja hi havia volien dir exactament això.
+- **Encendre la ràdio la instal·la si cal**: això és el que demanava l'amo amb «si passes a on i està apagada en aquell moment, s'inicialitza».
+  Apagar-la deixa anar el que hi hagués (`esp_wifi_disconnect`) i atura el driver **sense desinstal·lar-lo**, o sigui que tornar-la a encendre
+  no torna a pagar el driver.
+- **La paraula desada es compleix a l'arrencada**: `kernel::net::boot` mira `cfg::wifi_on()` i encén la ràdio, com fa el teclat de Bluetooth des
+  de la 0.190.180; si no arrenca, el commutador torna a apagar-se i el registre diu per què.
+- **I el que no vol dir encesa, tampoc**: aquest sistema usa la xarxa i la deixa anar quan la feina s'acaba (`net::poll` tanca la ràdio quan la cua
+  és buida). El commutador diu «la ràdio pot treballar», i per això la clau no s'apaga tota sola quan una tasca acaba: el que fa la feina és
+  `wifi connect`/`http get`/`ntp`, i el commutador és la porta de la persona (docs/30, docs/75).
+- **On és**: `INet::wifi_radio_on/off/is_on` a `hal/hal.h` (amb definició per defecte, com la resta del HAL), `wifi_driver_up` i
+  `wifi_radio_up` a `hal_esp32/src/net.cpp`, l'emulador a `hal_emulator`, `kernel::net::radio_on/off/is_on`, `cfg::wifi_on`/`set_wifi_on` i la
+  clau `WiFi` de la targeta del panell.
+
 #### El mesh: la placa com a node (0.190.212)
 
 L'amo: *«pots posar algun mesh?»*, i és **Bluetooth Mesh**. El que hi ha és el primer pas de debò i no una demo: la pila ESP-BLE-MESH
@@ -569,6 +595,78 @@ node`, `provisioned: this node is 0x…`, `the mesh forgot this node`).
   plaques, que volia dir dues `lunokos.local` a la mateixa xarxa.
 - **I costa**: la pila demana desenes de kilobytes de RAM interna quan arrenca, o sigui que el número que s'ha de mirar després de gravar-lo és
   `mem` amb el node apagat i amb `mesh on` (docs/75).
+
+#### Les claus són d'aquesta placa: el provisionador (0.190.218)
+
+L'amo: *«no puc provisionar jo manualment la clau del mesh per linia de comandaments, com amb el wifi?»*. La resposta curta és que **un node
+no pot rebre les claus a mà, i no és cap mancança de la pila**: la provisió **és** l'intercanvi que les crea —la NetKey viatja xifrada amb la
+clau que surt de l'ECDH, i la DeviceKey en surt d'allà mateix—, o sigui que «posar-hi la clau com amb el wifi» no vol dir escriure-la al node,
+vol dir **ser qui la té**. I això és el que fa aquesta versió: `CONFIG_BLE_MESH_PROVISIONER` encén el provisionador d'Espressif i aquesta
+placa passa a ser-ho de la **seva** xarxa. El que abans s'oferia a un telèfon ara és qui reparteix.
+
+```
+lunok> mesh key
+mesh: this board has a network of its own, and the keys are new
+  net 6f1c…(32 dígits hexadecimals)…
+  app 0b9e…(32 dígits hexadecimals)…
+lunok> mesh find 20
+mesh: 1 device(s) said they are in no network
+  #0 -54 dBm dd00…(la UUID de 16 bytes)…
+lunok> mesh prov 0
+mesh: device #0 gets 0x0005; it takes a moment, and the log says when it is in
+[I][MESH] 0x0005 is in the network: 3 model(s) bound to the application key
+lunok> mesh nodes
+mesh: 1 device(s) in this board's network
+  0x0005
+```
+
+- **Les claus són setze bytes i prou**: el mesh no hi posa cap checksum —a diferència del Thread, que sí—, o sigui que el que es llegeix a
+  `mesh key show` és literalment la clau. `mesh key` les fa amb `esp_fill_random`, i `mesh key <net> <app>` hi posa les que vulgui l'amo
+  (trenta-dos dígits hexadecimals cada una, que és el que dóna `openssl rand -hex 16`). Amb una de sola no n'hi ha prou: la de xarxa mana la
+  xarxa i la d'aplicació és la que fa que els models es puguin parlar.
+- **L'índex el tria la placa i és 0 per a totes dues**, que és el que fa l'exemple d'Espressif (`ESP_BLE_MESH_KEY_PRIMARY`). Si la clau de
+  l'índex 0 canvia, la pila contesta `EEXIST` a l'add i el camí és l'**actualització** —el procediment de refresc de claus del mesh—, no una
+  escriptura a mà.
+- **I es desen, que és el que fa que siguin seves**: `cfg/meshnet` i `cfg/meshapp` a la botiga, en hexadecimal, i `kernel::mesh::start()` les
+  torna a posar quan la placa arrenca. Una xarxa que s'ha de tornar a fer a cada reiniciada no és una xarxa.
+- **Provar no és provisionar**: `mesh find [segons]` escolta els aparells que no són enlloc (deu segons de sèrie, fins a dos minuts) i els
+  deixa en una llista de vuit amb la UUID, qui els ha sentit i amb quina força; `mesh prov <n> [<adreça>]` en tria un. **L'adreça la diu
+  aquesta placa**: 0x0001 és la seva i de 0x0005 ençà les que dóna, amb la primera lliure de la taula, perquè una placa d'aquesta casa sàpiga
+  sempre on és sense dependre del que un telèfon va decidir l'última vegada.
+- **Una sola porta per provisionar**: el full d'Espressif de `provisioner_prov_device_with_addr` diu, a la nota 4, que un provisionador no ha
+  de fer servir alhora `provisioner_add_unprov_dev` i aquesta, i la nota 2 diu que el portador ha de ser exactament el que va arribar a
+  `RECV_UNPROV_ADV_PKT_EVT`. Abans les cridàvem totes dues: era demanar dues provisions del mateix aparell.
+- **I tot seguit la clau d'aplicació, o la provisió no serveix de res**: la provisió deixa el node amb la NetKey i una adreça **i els seus
+  models muts**, perquè cap no té una AppKey lligada. Això no ho fa la provisió: ho fa el provisionador amb el **client de configuració**
+  (`ESP_BLE_MESH_MODEL_CFG_CLI`), que és l'únic que pot manar-li coses amb la clau de dispositiu. Són tres passos i cada un espera la resposta
+  de l'anterior: `COMPOSITION_DATA_GET` (per saber quins models té i a quins elements), `APP_KEY_ADD` (la clau) i `MODEL_APP_BIND` per a cada
+  model de la SIG de la seva composició. Una resposta que no arriba es torna a provar tres vegades, i un lligam que no contesta es deixa estar
+  i els altres segueixen: tot això surt al registre.
+- **El context d'un missatge de configuració porta la clau de dispositiu, no la d'aplicació**, i no és cosa nostra: la capa de la pila que
+  tradueix l'API (`btc_ble_mesh_config_model.c`) hi posa `BLE_MESH_KEY_DEV` passi el que passi, i el model de configuració té
+  `keys[0] = BLE_MESH_KEY_DEV`. O sigui que el que s'escriu a `ctx.app_idx` no decideix res, però s'hi posa l'índex de la xarxa per no deixar
+  un número inventat.
+- **El client de configuració és una opció de menú i no ve amb el provisionador** (`CONFIG_BLE_MESH_CFG_CLI=y`): sense ella
+  `esp_ble_mesh_config_client_set_state`, `…_get_state` i `…_register_config_client_callback` **no existeixen al binari**, i el que es veu és un
+  `undefined reference` a l'enllaç que no diu què falta —va passar exactament així. I com que una opció nova al `sdkconfig.defaults` no entra si
+  el `sdkconfig.<banda>` ja existeix, cal esborrar `sdkconfig.<banda>` **i** `.pio/build/<banda>` abans de tornar a compilar (docs/80). Des
+  d'ara un build amb provisionador i sense aquesta opció s'atura amb un `#error` que ho diu amb paraules.
+- **Els entrebancs de l'API de la 5.1.2** (tots quatre picaven amb `-Werror` i cap era al codi de més amunt): `prov_uuid` i
+  `prov_unicast_addr` són **`const`** dins de `esp_ble_mesh_prov_t`, o sigui que la identitat del provisionador es **declara** amb la variable
+  i no s'assigna després; `provisioner_add_local_app_key` vol l'**índex per valor** (`(app_key, net_idx, app_idx)`) i no per punter, i les
+  dues funcions de les claus viuen a `esp_ble_mesh_networking_api.h` i no a la de provisió; `provisioner_prov_link_open` **no té**
+  `prov_link_idx` (aquell camp és del `prov_read_oob_pub_key`) i el que diu l'event és el portador; i `prov_device_with_addr` vol **sis**
+  arguments, amb la UUID, l'adreça i el tipus d'adreça que va arribar a l'anunci.
+- **L'ordre de la ràdio és el de la 0.190.217 i no es toca**: pila, `esp_ble_mesh_init` (que registra els serveis GATT del mesh) i després la
+  tasca de l'amfitrió. I **`mesh key` amb prou feines arrenca la pila** si no ho era, perquè desar una clau és un missatge a la tasca `btc`
+  que neix amb la pila; `mesh on` sense claus deixa la pila enlaire **sense dir que ha fracassat**, perquè és el primer pas.
+- **On és**: `IMesh` a `hal/hal.h` (les portes del provisionador tenen definició per defecte que contesta que no, com la resta del HAL),
+  `Esp32Mesh` a `hal_esp32/src/mesh.cpp`, tot el provisionador en C a `hal_esp32/src/mesh_node.c`, `kernel::mesh` amb les claus a `cfg`, i les
+  ordres `mesh [on|off|key|find|prov|nodes]` al prompt. Una banda sense `CONFIG_BLE_MESH_PROVISIONER` **continua essent un node** que
+  s'ofereix, i ho diu (`this build is a node only`).
+- **I costa, mesurat i no estimat** (ATOM Matrix, 22/11): la imatge fa 2 131 994 B de 2 621 440 —el **81 %** de la partició d'app— i la RAM
+  estàtica 85 056 B (240 B més que sense el provisionador). O sigui que hi cap a l'ATOM; el T5S3 i el Paper es queden de moment només node fins
+  que es miri si hi caben (docs/75).
 
 #### El que s'hi ha anat afegint (0.190.189 → 0.190.191)
 
@@ -852,6 +950,61 @@ camí d'un byte té **quatre** estacions i les dues que pesaven s'han retallat.
 - **El que no s'ha tocat**: el `wait` del torn (fins a un segon quan no hi ha cap app) no canvia la latència, perquè l'event el desperta;
   i la becaina no hi entra mentre tecleges, perquè cada byte renova el comptador de quietud i el gate és de deu segons.
 
+### El terminal del cable: qui llegeix les tecles ara (0.190.222)
+
+L'amo: *«Vull una migració completa de la shell a aquest terminal serie. Poder moure el cursor, fer efectes, i colors dona molta vidilla :)»*.
+El que hi ha a sota del prompt continua essent el mateix shell, i el que canvia és **qui llegeix els bytes**. Són tres decisions i cap és
+gratuïta:
+
+- **Un sol lector**. El component `console` porta `linenoise`, que llegeix per `stdin`; si el fil `pal_rx` continués avisant el torn i el torn
+  continués llegint, hi hauria **dos editors** sobre el mateix ring i les tecles es repartirien a sorts. Amb el terminal enlaire
+  (`IConsole::has_a_line_editor`) **el torn no llegeix** —`read()` contesta zero— i el fil del PAL **no avisa**, però segueix **buidant la
+  cua d'esdeveniments** del driver: la ISR de la UART hi deixa un `UART_DATA` per ràfega i una cua plena fa que el driver cridi i perdi
+  events, que és una avaria al registre que no és cap avaria.
+- **Un sol camí d'escriptura**. Amb el terminal, tot el que el nucli escriu —el registre, una taula, un avís— passa pel `write` del VFS i
+  no per la FIFO del perifèric. Dues plomes al mateix paper es trepitgen: una línia de registre cauria **al mig** d'una comanda que s'està
+  editant i el cursor de `linenoise` quedaria descol·locat.
+- **El driver del VFS, i les dues consoles no es tracten igual**. `linenoise` llegeix del descriptor 0, i per això la consola ha de ser al
+  VFS amb una lectura que **bloquegi**. A la **UART0** el driver ja hi era des de la 0.190.190 (amb la seva cua) i només cal donar-lo al VFS
+  amb `esp_vfs_dev_uart_use_driver`; els finals de línia es posen explícits (`ESP_LINE_ENDINGS_CR` a l'entrada, `LF` a la sortida) i
+  `stdin` sense buffer. Al **USB-Serial-JTAG** no hi havia driver des de la 0.190.91 —aquella banda llegeix la FIFO amb les crides de baix
+  nivell— i el terminal en demana un: s'instal·la amb `usb_serial_jtag_driver_install` i es dona al VFS. **Si no arrenca, el terminal no
+  s'encén**: `start_the_terminal` contesta que no i aquesta banda es queda amb el camí de bytes de sempre, perquè una placa sense terminal
+  ha de tenir prompt igualment.
+- **La sonda, una vegada i abans de tot**. `linenoise` mesura el prompt i l'amplada preguntant-ho a l'altre cap (`␛[6n`) i espera la
+  resposta per `stdin`: en un conducte que no és un terminal —`pio device monitor`, `cat`— la resposta no arriba i el primer caràcter de
+  cada línia es menjaria la sonda. O sigui que es pregunta amb `linenoiseProbe()` (mig segon, sense bloquejar) i, si no contesta ningú,
+  **`start_the_terminal` diu que no i el shell es queda amb el seu editor**. El REPL d'Espressif (`esp_console_new_repl_uart`) no es fa
+  servir perquè quan falla la sonda es queda amb un `fgets` en mode lleig, i el que aquesta casa té és millor. Els noms de comanda
+  s'enregistren a `esp_console` **només** per al tabulador i les pistes (`esp_console_cmd_register` no demana cap funció), i el `help` de
+  la casa no es toca: qui executa la línia és el `shell` (docs/30).
+- **El que no hi passa**: `linenoise` neteja la línia amb `sanitize()` abans de tornar-la, i el que no és `isprint` en el joc de caràcters C
+  **cau**. O sigui que al terminal del cable una lletra accentuada **no arriba** al shell —el camí de bytes, l'emulador i la consola del
+  vidre no en perden cap—. És una limitació del component i es diu (docs/30, docs/85).
+- **La memòria**: la línia més llarga són cent vint-i-set caràcters, l'historial setze comandes, i les línies acabades passen per una cua de
+  quatre. Si la cua s'omple es deixa caure la més vella: una comanda perduda és pitjor que dues de seguides, però qui llegeix és el torn i el
+  torn pot trigar.
+- **Els codis d'escapament es filtren a la porta i no a l'escriptor** (0.190.226): el codi porta el color sempre i `shell::filter_ansi` el treu
+  quan `ansi off`, a l'única porta del nucli cap a la consola i també a la línia del registre. L'arrencada decideix el valor de la sessió amb
+  `IConsole::speaks_ansi` i **no desa res** —una mesura no és una preferència—; el que la persona tria viu a `cfg/ansi` (docs/30, docs/85).
+- **La placa no s'ha de quedar clavada, i això mana sobre el cursor** (0.190.225, l'amo: *«S'ha quedat pillat i no podia moure el cursor»*,
+  amb `task_wdt: CPU 1: pal_line` al registre): `linenoise` viu d'un **estat a la pila** —el buffer, el prompt i **l'amplada**— i d'una
+  amplada mesurada a l'altre cap. Si la pila s'omple o la mesura surt malament, `refreshMultiLine` **divideix per zero** (en aquest xip, sense
+  divisió al maquinari, la rutina de la llibreria dona voltes per sempre) i `refreshSingleLine` fa baixar un `size_t` fins que dona la volta:
+  la tasca es menja el processador i l'`IDLE` del segon nucli no arriba a córrer. Dues defenses: **vuit kilobytes de pila** per a la tasca
+  —eren quatre— i **l'amplada preguntada abans** (`␛ [ 6 n`, resposta `␛ [ files ; columnes R`); si no és d'un terminal de debò (vint
+  columnes o més), el terminal no s'encén i el shell es queda amb el seu editor. I el registre diu quants bytes de pila queden després de la
+  primera línia (docs/50, docs/75, docs/85).
+- **El fil de la consola torna a fer sondeig** (0.190.225): mira el port cada mil·lisegon en lloc d'adormir-se a la cua del driver.
+  **La interrupció no s'ha esborrat** —és a `pal_esp32.cpp`, dins d'un `#if 0` i amb el seu nom— i amb el sondeig la cua del driver es buida
+  **sencera** a cada volta, perquè quan s'omple la ISR de la UART crida des de la interrupció (docs/50, docs/85).
+
+- **I la sonda es renta quan no contesta ningú** (0.190.224): a un terminal la pregunta és invisible, però en un monitor que no ho és queda
+  escrita com a `␛[5n` i és el primer que llegeix una persona en arrencar. Es tapa amb `\r` i vuit espais, i el registre diu què cal per
+  tenir cursor i colors (`tio`, `screen`, `minicom`, o `pio device monitor --filter direct`). **No hi ha interruptor per forçar-ho**: sense
+  resposta, `linenoise` es menjaria les tecles que una persona escriu fins que en sortís una `R` (docs/85).
+
+
 ## Interfícies de la PAL
 
 ```cpp
@@ -875,6 +1028,13 @@ class IConsole {
   virtual size_t read(void* data, size_t len) = 0;   // el que hi hagi ara; no bloqueja
   virtual bool wait_quiet(uint32_t quiet_ms, uint32_t cap_ms);  // la línia ha callat; `cap_ms` és el sostre
   virtual bool virtual_terminal() const;  // si el que hi ha a l'altra banda és una sessió que es pot penjar
+
+  // **El terminal de debò** (0.190.222): qui edita la línia, i si hi és.
+  virtual bool has_a_line_editor() const { return false; }   // si algú altre que el nucli llegeix les tecles
+  virtual bool speaks_ansi() const { return false; }         // si l'altre cap entén els codis (cursor, color, esborrar)
+  virtual void set_the_prompt(const char* text) {}           // el prompt el dibuixa qui edita la línia
+  virtual int start_the_terminal(const char* const* names, uint8_t count) { return 0; }  // <0: no n'hi ha
+  virtual int take_a_line(char* out, size_t cap) { return -1; }  // 1: línia, 0: cap, <0: paciència
 };
 
 class ISystem {
@@ -893,7 +1053,17 @@ void set_random_seed(uint32_t seed);      // zero és «sembra'm tu»; a la plac
 ```
 
 La consola de la PAL dona **bytes**, no línies. Qui parteix les línies, qui mira la seqüència de sortida
-i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
+i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes. **I aquesta segueix essent la regla**: les quatre portes de
+`IConsole` que hi ha a sota (`has_a_line_editor`, `set_the_prompt`, `start_the_terminal`, `take_a_line`) **neixen totes amb resposta de
+«no»**, i una banda que hi digui que sí assumeix ella l'edició de la línia: aleshores el nucli **no llegeix bytes** i no fa eco, i el que
+li arriba és una línia sencera per `take_a_line`, que desa al mateix `execute` de sempre. Avui només en diu que sí el cable de la IDF
+(`pal_esp32/src/console_line.cpp`, docs/30); l'emulador i la consola del vidre no hi toquen res i es queden amb el camí de bytes (docs/85).
+
+**I `speaks_ansi` és una cinquena pregunta que no és la de l'editor** (0.190.223): diu si el que hi ha a l'altre cap entén els codis
+d'escapament, i és el que el nucli pregunta abans d'escriure'n un —el color del prompt i el `clear` que neteja la pantalla—. El terminal del
+cable ho contesta amb la sonda; una canonada, un fitxer i el monitor d'un `pio` que no és terminal diuen que no. Les dues preguntes se separen
+perquè una banda pot tenir el terminal sense l'editor (el driver del USB que no arrenca) i aleshores el prompt s'ha d'escriure igualment, amb
+el seu color (docs/30, docs/85).
 
 ## Taula de capacitats
 
@@ -918,6 +1088,26 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
 `caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 19: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 19** al Lite, **14 de 19** al Matrix (que hi afegeix `imu`), **15 de 19** al Paper amb el SHT30 contestant, el vidre i el GT911, i sense bateria ni targeta —**16** amb la bateria llegida **o** la targeta, **17** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 19** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **17** al del Paper (que ja hi té la targeta `emulator/sd`, el vidre, el GT911 i **la bateria que es presta sola**; **16** si el terminal no és ANSI), que baixa a **15** amb `--no-touch --no-display`. I les dinou existeixen en algun model, comptant-hi l'emulador.
+
+### Els dos ATOM no escalen el rellotge (0.190.227)
+
+L'amo: *«busca el sistema de LightSleep que va dormitant entre torns de les plaques atom lite i matrix. Desactiva el Dynamic Frequency Scaling
+per l'M5 Atom Lite i l'M5 Atom Matrix. Només per aquests dos models. Que vagin sempre a 240Mhz»*.
+
+**Són dues coses dins d'una sola crida i se'n toca una**: `Esp32Power::set_cpu_range` diu a `esp_pm` el terra i el sostre de la freqüència
+(**el DFS**) i si el xip pot dormir quan el planificador queda sense feina (**el son lleuger**, `light_sleep_enable`). Amb el terra i el sostre
+en el mateix número, el son lleuger continua igual i el que desapareix és el viatge entre 80 i 240.
+
+- **Qui ho diu és la placa**: `board::scales_the_clock()` a `board/identity.h` —**fals** al Lite i al Matrix, **cert** a la resta— i
+  `IPower::scales_the_clock()` (resposta de sí per defecte) que `Esp32Power` llegeix d'allà. És la mateixa regla de sempre: ningú no escriu un
+  `#ifdef` de placa.
+- **El nucli pregunta un cop a l'arrencada** (`kernel::power::boot`): si la resposta és no, **no llegeix ni la velocitat ni la política desades**,
+  posa el repòs a 240 i apaga la política; i el registre ho diu (`this board does not scale its clock: the cpu is always at 240 MHz, and the
+  light sleep is untouched`). **El que hi ha desat no s'esborra** —una targeta NVS pot acabar en una placa que sí que escala—.
+- **Les tres portes que canviaven el rellotge ho diuen i no fan res**: `power auto on`/el commutador de Settings (no toca res i ho diu),
+  `power cpu <mhz>` (refusa tot el que no sigui 240 i diu per què) i el mask de passos (no s'aplica).
+- **I l'emulador ho sap pel model** (`emu::Model::dfs`), o sigui que un ATOM emulat sempre va a 240 i un Paper emulat escala com sempre: és el
+  que el cas `test_a_board_without_dfs_runs_at_the_top_and_the_paper_still_scales` guarda (docs/85).
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 

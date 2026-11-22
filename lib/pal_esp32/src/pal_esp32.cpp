@@ -17,6 +17,7 @@
 #include <esp_timer.h>
 #include <freertos/semphr.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include <bootloader_random.h>
 #include <driver/gpio.h>
@@ -33,8 +34,21 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 #include <hal/uart_ll.h>
+// **`sdkconfig.h` explícit**: en una llibreria del projecte no arriba sol, i el que hi ha aquí a sota és un `#if` sobre un símbol seu
+// (docs/45). **El de la consola**, que diu si aquesta banda parla per la UART o pel USB-Serial-JTAG (docs/50).
+#include "sdkconfig.h"
 
+#include "esp32/console_line.h"
 #include "pal/pal.h"
+
+// **El color de la IDF i el color d'aquest sistema són dues coses, i el guardià d'abans ja no hi és** (0.190.227). Fins ahir hi havia un
+// `#error` aquí que aturava la compilació si `CONFIG_LOG_COLORS` era encesa (l'amo: *«et vaig demanar desactivar l'ANSI de la configuració
+// d'esp_idf… pots trobar-la i treure-ho?»*), perquè una línia de la IDF amb codis arribava al port sense que ningú els pogués treure. **Des
+// de la 0.190.226 el color d'aquest sistema passa per un filtre** (`shell::filter_ansi`, `ansi on|off`) i l'amo ha encès `CONFIG_LOG_COLORS`
+// a totes les bandes amb un `-D` a `platformio.ini`: el que queda del guardià és aquesta nota, perquè **el que la IDF escriu ella mateixa no
+// passa pel filtre** —són les seves línies, no les del registre d'aquesta casa— i qui encén aquest símbol en una sessió sense terminal veurà
+// els codis escrits. El `# CONFIG_LOG_COLORS is not set` dels `sdkconfig.defaults` s'hi queda: és el defecte de la placa, i el `-D` és la
+// tria de la sessió (docs/50, docs/80, docs/85).
 
 // **La consola de la placa quan no hi ha el nucli d'Arduino** (0.190.90): les cinc respostes que aquest fitxer demana, sobre el
 // perifèric que la placa té. Els bytes que arriben es guarden en un anell petit perquè `available()` i `read()` —que és com aquest
@@ -108,6 +122,18 @@ class LunokSerial {
 
   size_t write(const uint8_t* data, size_t len) {
     if (data == nullptr || len == 0) return 0;
+    // **Una sola ploma** (0.190.222): amb el terminal enlaire, el que escriu el nucli i el que dibuixa el cursor de la línia han de sortir
+    // pel mateix camí —el que el driver dona a `stdout`—, o dues escriptures al mateix filferro es trepitjarien i una línia del registre
+    // cauria al mig d'una comanda que s'està editant (docs/30, docs/50).
+    if (pal::the_line_editor_owns_the_console()) {
+      size_t done = 0;
+      while (done < len) {
+        const int wrote = static_cast<int>(::write(STDOUT_FILENO, data + done, len - done));
+        if (wrote <= 0) break;
+        done += static_cast<size_t>(wrote);
+      }
+      return done;
+    }
 #if LUNOK_HAVE_USB_CONSOLE
     // La FIFO del perifèric és de seixanta-quatre bytes i el xip la buida sol; s'escriu el que hi cap i s'espera el torn. **El sostre de
     // voltes és el mateix criteri que el del buidatge**: una línia perduda és pitjor que res, però la placa no es pot quedar aquí (docs/50).
@@ -134,6 +160,13 @@ class LunokSerial {
   // s'acaba; el que es perd si el fil no s'acaba és mitja línia del registre i el que es perdia sense el sostre era la placa.
   void flush() {
 #if LUNOK_HAVE_USB_CONSOLE
+    // **Amb el terminal, la FIFO no és nostra** (0.190.222): el driver del USB-Serial-JTAG té el perifèric i el seu anella, i empènyer
+    // la FIFO amb les crides de baix nivell seria ficar-hi la mà a mitges —el que s'ha escrit pel VFS ja surt sol—. Es deixa passar el
+    // mateix mil·lisegon de sempre i prou (docs/50).
+    if (pal::the_line_editor_owns_the_console()) {
+      vTaskDelay(pdMS_TO_TICKS(1));
+      return;
+    }
     // **El que hi ha a la FIFO surt ara** (0.190.91): el perifèric no té registre de desplaçament que esperar, i el que queda per
     // enviar el porta la línia USB; això empeny el que ja és dins (docs/50).
     usb_serial_jtag_ll_txfifo_flush();
@@ -447,7 +480,27 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
 #endif
   }
 
+  // **El terminal del cable** (0.190.222): mentre edita la línia, aquesta consola no llegeix ni escriu pels camins de sempre —l'editor
+  // té el `stdin`/`stdout` i el que arriba és una línia sencera, no bytes—, i el nucli ho pregunta abans de tocar res (docs/30, docs/50).
+  bool has_a_line_editor() const override { return pal::the_line_editor_is_on(); }
+
+  // **Un cable pot portar codis encara que el monitor no contesti** (0.190.231): són dues coses diferents i fins avui aquesta porta les
+  // barrejava. *Contestar* (la sonda) és el que necessita l'editor de línia per mesurar el prompt i l'amplada; *pintar* el que arriba és una
+  // altra cosa, i el monitor de `pio` pinta i no contesta mai perquè es menja les respostes del terminal. O sigui que per a aquesta banda
+  // la resposta és **sí**, i qui decideix si els codis surten és el commutador `ansi on|off` (docs/30, docs/50, docs/85).
+  bool speaks_ansi() const override { return true; }
+
+  bool start_the_terminal(const char* const* names, uint8_t count) override {
+    return pal::start_the_line_editor(names, count);
+  }
+
+  void set_the_prompt(const char* text) override { pal::set_the_line_prompt(text); }
+
+  bool take_a_line(char* out, size_t capacity) override { return pal::take_a_finished_line(out, capacity); }
+
   size_t read(void* data, size_t len) override {
+    // **Amb l'editor a sobre, qui llegeix és ell**: un segon lector es menjaria les tecles que la persona escriu (docs/50).
+    if (pal::the_line_editor_owns_the_console()) return 0;
     uint8_t* out = static_cast<uint8_t*>(data);
     size_t n = 0;
     while (n < len && LUNOK_SERIAL.available() > 0) {
@@ -513,6 +566,44 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   // FIFO cada mil·lisegon (docs/50).
   void reader_loop() {
     for (;;) {
+      // **El sondeig, que és el de sempre** (0.190.225, l'amo: *«recordes que em vas dir que tornesim al pooling? … va doncs, provem-ho (no
+      // esborris el codi actual de la interrupció, comenta'l)»*): aquest fil mira el port cada mil·lisegon i diu al torn què hi ha. És el
+      // camí que aquesta casa tenia abans de la 0.190.190, quan la cua del driver va substituir el sondeig.
+      //
+      // **I la cua del driver es buida a cada volta, tota**: amb el sondeig ningú més no la llegeix, i una cua plena fa que la ISR de la
+      // UART cridi des de la interrupció (`event queue full`), que és una avaria al registre que no és cap avaria i que es paga amb temps
+      // de filferro dins d'una ISR (docs/50).
+      drain_the_events();
+      vTaskDelay(pdMS_TO_TICKS(kReaderPeriodMs));
+      // **Amb el terminal enlaire aquest fil no té més feina**: qui espera les tecles és l'editor, i despertar el torn per dir-li que hi ha
+      // bytes que no llegirà seria gastar el torn dues vegades (docs/30, docs/50).
+      if (pal::the_line_editor_owns_the_console()) continue;
+      const int waiting = LUNOK_SERIAL.available();
+      if (waiting <= 0) continue;
+      Event ev;
+      ev.type = kEventConsoleRx;
+      ev.a = 0;
+      ev.b = static_cast<int32_t>(waiting);
+      push(ev, 0);
+    }
+  }
+
+#if 0  // **La interrupció, apagada per la 0.190.225 — no esborrada**: això és exactament el que aquest fil feia des de la 0.190.190 i fins a la
+       // 0.190.224, quan la cua del driver despertava el fil en lloc del sondeig. **Per tornar-hi**: es lleva el `#if 0` d'aquí i el bloc de
+       // `drain_the_events()` + `vTaskDelay` del bucle de dalt, que és el que fa la feina mentre això està apagat. **I la diferència que
+       // compta**: amb la interrupció hi ha *un sol* consumidor de la cua —el fil que s'hi adorm, per cada ràfega— i amb el sondeig la cua
+       // es buida sencera a cada volta, perquè la ISR no ha de cridar mai (docs/50).
+  void reader_loop_by_interrupt() {
+    for (;;) {
+      if (pal::the_line_editor_owns_the_console()) {
+#if LUNOK_HAVE_USB_CONSOLE
+        vTaskDelay(pdMS_TO_TICKS(kReaderPeriodMs));
+#else
+        uart_event_t stale = {};
+        (void)xQueueReceive(g_uart_events, &stale, pdMS_TO_TICKS(kReaderPeriodMs));
+#endif
+        continue;
+      }
 #if LUNOK_HAVE_USB_CONSOLE
       vTaskDelay(pdMS_TO_TICKS(kReaderPeriodMs));
 #else
@@ -527,6 +618,19 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
       ev.b = static_cast<int32_t>(waiting);
       push(ev, 0);
     }
+  }
+#endif  // la interrupció
+
+  // **Buidar la cua d'esdeveniments del driver** (0.190.225): la ISR hi deixa un event per ràfega de bytes i, si ningú no la llegeix, la cua
+  // s'omple i el driver crida des de la interrupció. No es mira què diu cap event: el sondeig ja pregunta si hi ha bytes, i el que la cua
+  // diu només era útil quan despertava aquest fil (docs/50).
+  void drain_the_events() {
+#if !LUNOK_HAVE_USB_CONSOLE
+    if (g_uart_events == nullptr) return;
+    uart_event_t stale = {};
+    while (xQueueReceive(g_uart_events, &stale, 0) == pdTRUE) {
+    }
+#endif
   }
 
   QueueHandle_t q_ = nullptr;

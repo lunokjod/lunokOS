@@ -889,6 +889,9 @@ consola no acceptaria (docs/30, docs/70).
   que s'hi lligués sola seria una app decidint per qui té la placa a la mà. Des de la 0.190.192 els dos costats de la ràdio es diuen
   per seu: **`bt dev ...`** és el que la placa **és** (el teclat, i un dia un ratolí) i **`bt host ...`** el que **escolta**
   (`on|off|scan [segons]|pair <n>|reconnect|forget`). **El que el teclat escriu arriba a la consola com si vingués del cable** (docs/50).
+  **El mesh tampoc no té API de Lua, i pel mateix motiu** (0.190.218): `mesh [on|off|key|find|prov|nodes]` és la porta —posar-li la xarxa a
+  la placa, donar-li una adreça a un node, veure qui hi ha—, i això és una decisió d'una persona amb el cable posat i no una cosa que una
+  pàgina faci tota sola mentre mira el vidre (docs/50 § «Les claus són d'aquesta placa»).
 - **El que encara no hi és**: la llista blanca de freqüències de la CPU, la política de miniatures, les sessions al disc, el
   NTP a l'arrencada, el paper pintat de fons, el PIN i els temps de son no són a `cfg` perquè **el nucli encara no els té
   com a ajust**: una porta que no fa res és pitjor que una porta que no hi és (docs/45 § «El panell d'ajustos»).
@@ -4332,13 +4335,68 @@ vidre i es poden provar al PC (docs/85).
 - El que llegeix el panell en bucle i escriu els dits i els gestos ho té al davant: `ui.touch()` torna la
   posició i `ui.touch_progress()` el gest que s'hi està fent.
 
+### El terminal del cable (0.190.222)
+
+L'amo: *«Vull una migració completa de la shell a aquest terminal serie. Poder moure el cursor, fer efectes, i colors dona molta vidilla :)»*.
+El que canvia és **com s'escriu la línia al cable**, i res del que hi ha a sota: la shell continua essent el terminal virtual d'aquest sistema
+—les comandes, les respostes, les sessions, els `execute`— i qui edita la línia és el **component `console` de la IDF**.
+
+- **Qui edita**: `linenoise`. Fletxes esquerra/dreta, Inici/Fi, Suprimir, amunt/avall per l'historial (setze comandes), **tabulador** que
+  completa amb la taula de comandes del shell (`kCommandNames`, la mateixa que `help`), i les pistes en gris quan n'hi hagi.
+- **El prompt el dibuixa qui edita**: el shell li deixa el text i no l'escriu (o n'hi hauria dos, i el del nucli quedaria a sota de la línia).
+  Va amb **color** —cian el `lunok> `, groc el `lua> `— perquè el terminal en parla; **el registre continua essent text pla**
+  (`CONFIG_LOG_COLORS` segueix apagat) i el que es va treure a la 0.190.92/0.190.187 no torna enlloc més.
+- **`clear` neteja de debò** (`ESC [ 2 J` i el cursor a dalt) quan hi ha terminal; sense terminal, quaranta salts de línia com sempre.
+- **La sonda es pregunta un cop, abans d'encendre l'editor**: `linenoise` mesura l'amplada i el prompt preguntant-ho al terminal (`␛[6n`) i espera la
+  resposta; si l'altre cap no és un terminal, el primer caràcter de cada línia es menjaria la sonda. Per això es pregunta primer amb
+  `linenoiseProbe()` (mig segon, sense bloquejar) i, si no contesta ningú, **no hi ha terminal i el shell es queda amb el seu editor**.
+  El REPL d'Espressif (`esp_console_new_repl_uart`) no es fa servir: quan la sonda falla es queda amb un `fgets`, que és pitjor que el que
+  aquesta casa ja té. **Conseqüència pràctica**: cal un monitor que sigui un terminal de debò (minicom, `tio`, `screen`); amb
+  `pio device monitor` no n'hi ha i el que queda és l'editor de sempre (docs/85).
+- **Es pregunta si el terminal parla codis, i es diu** (0.190.223): la sonda no només decideix si s'encén l'editor, sinó que **la seva
+  resposta és la dada** `IConsole::speaks_ansi` —que l'altre cap entén el cursor, el color i l'esborrat de pantalla—. El prompt amb el seu
+  color i el `clear` pregunten això, i **no** si hi ha editor: són dues coses i una banda pot tenir-ne una sense l'altra. I el registre ho diu
+  en els dos sentits —`[I][CONSOLE] the terminal is up and speaks ANSI` o `[W][CONSOLE] the other end of the cable does not answer escape
+  codes (no terminal)`—, perquè qui mira el registre amb la placa a la mà ha de saber si el que falla és el cable o el driver. **La
+  capacitat `ansi` de la 0.190.187 no torna**: allò era un permís per escriure codis des de fora, i això és una dada per a qui ja escriu els
+  que li toquen (docs/50, docs/85).
+- **On és**: `IConsole::has_a_line_editor`/`speaks_ansi`/`start_the_terminal`/`set_the_prompt`/`take_a_line` a `pal/pal.h`, el terminal a
+  `pal_esp32/src/console_line.cpp`, i al nucli el torn tria entre **línies** (terminal) i **bytes** (`feed`, el de sempre) una vegada per
+  torn i mai tots dos (docs/50).
+- **I el que es perd**: `Ctrl+C` i `ESC` són de l'editor (abandonen la línia, que és el que fa un terminal); els **tres ESC** que aturaven una
+  feina de la ràdio i el «qualsevol tecla» que aturava `log follow` passen a ser una línia (Enter). A l'emulador i a la consola del vidre no
+  canvia res: allà no hi ha terminal i el camí de bytes és el de sempre (docs/85).
+- **Un deute que es veu més**: el teclat Bluetooth entra les seves tecles per `shell::feed`, o sigui pel camí de bytes, i amb el terminal del
+  cable enlaire hi hauria **dos editors damunt la mateixa pantalla**. El teclat de l'aire hauria d'entrar per la mateixa porta que el cable;
+  queda dit i pendent (0.190.223).
+- **`terminal`, que torna a preguntar** (0.190.230): la sonda es fa una vegada a l'arrencada i la sessió se'n recorda; si el monitor apareix
+  després —el cas de gravar i obrir-lo a mà—, `terminal` la torna a fer ara mateix, encén l'editor de línia si contesta i torna a decidir el
+  color (`cfg/ansi` i la resposta). Si no contesta, ho diu i tot queda com estava (docs/50, docs/85).
+- **La paleta és la de 256 colors** (0.190.229, l'amo: *«vull un terminal monitor ANSI de 256 colors»*): `ESC [ 38 ; 5 ; N m`, amb el **51**
+  per al `lunok> `, el **220** per al `lua> ` i, al registre, **196** el `[E]`, **214** el `[W]`, **41** el `[I]` i **244** el `[D]` —només els
+  tres caràcters del nivell, no la línia sencera—. **El color és una capa que es posa després del filtre**: el que entra al filtre és el
+  que ha escrit el sistema, i el que en surt és el que arriba a la línia (docs/50, docs/85).
+- **El color és un commutador: `ansi on|off`** (0.190.226, l'amo: *«totes les sortides tenen ansi, però amb aquesta opció es filtra abans
+  d'enviar a la línia»*). El codi porta els codis sempre i **`shell::filter_ansi`** treu cada seqüència `ESC [ … <lletra>` abans que arribi a la
+  línia quan el commutador diu `off`; s'aplica a l'única porta del nucli cap a la consola i també a la línia del registre. La paraula es desa a
+  `cfg/ansi` i neix `on`; **l'arrencada la posa a `off` tota sola si la consola no parla codis** (`speaks_ansi`), sense tocar la preferència, i ho
+  diu al registre. `ansi` sol diu l'estat de la sessió i el desat; `ansi on` en un monitor que no és terminal avisa que els codis li arribaran
+  escrits. **I `clear`**: amb el color apagat no pot netejar amb codis —el filtre se'ls menjaria— i fa pujar quaranta línies (docs/50, docs/85).
+- **`log follow` s'atura amb una línia quan hi ha terminal** (0.190.226): `Control+C` i `Escape` són de l'editor i el registre no s'assabentava
+  de res; amb el terminal del cable el que arriba és **Enter**, i ho diu quan comença. Mentre dura, **el prompt marxa** (l'editor ja n'havia
+  dibuixat un, i un `lunok> ` al davant del registre és brossa) — sense terminal, la tecla de sempre (docs/50).
+- **El comptador de la sessió compta línies i no tecles**: cinc minuts sense res és una sessió que es tanca sola (0.190.184), i amb el
+  terminal el que compta és **l'última línia acabada** —les tecles les té l'editor i el nucli no les veu—. Una persona que teclegi més de cinc
+  minuts sense prémer Enter es trobaria la sessió tancada i la línia perduda; és el preu de no tenir dos lectors i es diu (docs/30, docs/60).
+
 ### El panell del sistema: el gest de la barra (0.179.22)
 
 La barra del sistema és la franja de dalt del vidre, i **el dit que hi cau és del sistema** (docs/50). Des
 d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca que ocupa el
 terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —la forma de la
 barra del sistema, que és l'agafador del camí d'anada: els de tornada són un toc fora de la targeta i un
-lliscament cap amunt que hi comenci (0.179.42, 0.179.49)— i, a dins, **vuit claus en dues files**: a dalt les quatre que
+lliscament cap amunt que hi comenci (0.179.42, 0.179.49)— i, a dins, **onze claus en tres files** (les tres de la ràdio des de la
+0.190.219, al mig): a dalt les quatre que
 paren la placa —`Poweroff`, `Sleep`, `Reboot` i `Lock`— i a baix les quatre del sistema —`Settings`, `Home`, `Close` i
 `Back`, l'ordre de la 0.189.158: les dues que van a un lloc a l'esquerra i les dues que tanquen a la dreta— (0.189.152). Fins a la 0.189.150 la targeta era la creu i la fletxa a les dues cantonades de dalt i una fila de
 quatre al mig, i la forma d'avui és la de les dues files (docs/30 § les claus). **Les maneres de tancar-lo són totes de la
@@ -4448,6 +4506,34 @@ comenci**, i res més (0.179.42, 0.179.49).
   desa igual: mestre de 448 a `tools/icons/system/` i icona de 64 a `data/res/icons/`. `--only <nom>` refà una sola marca,
   que és com es va afegir la casa sense tocar les sis que l'amo ja havia mirat. **Llicències**: glifs SIL OFL 1.1, icones
   CC BY 4.0, crèdit al `README`.
+- **Les tres claus de la ràdio, i el que diuen** (0.190.219, l'amo: *«Posa 3 icones noves al panell de sistema: Una icona de bluetooth
+  per encendre/apagar, un de wifi i un de ble-mesh»*). Són la tercera fila de la targeta, al mig, i són les úniques claus del sistema
+  que **tenen un estat**: `Bluetooth`, `WiFi` i `Mesh`, cadascuna amb la seva marca i la seva paraula, i **la tinta és l'estat** —negra
+  quan la cosa és encesa, grisa quan no ho és—, que és el mateix parell de tons de tota la targeta i no un commutador nou. Cada clau
+  encén i apaga **el camí que el prompt ja té**: `cfg::set_bt_on` (el de `cfg bt on|off`), `cfg::set_wifi_on` (el de
+  `cfg wifi on|off`, 0.190.221) i `mesh::start`/`mesh::stop` (els de `mesh on|off`). En tots tres **el que es llegeix després és el resultat
+  i no el desig**: una ràdio que no arrenca desfà la tria i ho diu al registre.
+  - **La del wifi és un commutador des de la 0.190.221** (l'amo: *«Es ben senzill... igual que el cfg/bt cfg/wifi on/off. Si actives la
+    wifi (passes a "on") està apagada en aquell moment, s'inicialitza»*): la seva tinta diu el que diu `cfg/wifi`, encendre-la **arrenca
+    la ràdio** si no ho era (el driver es queda instal·lat i el que s'encén i s'apaga és `esp_wifi_start`/`esp_wifi_stop`) i apagar-la deixa
+    anar el que hi hagués. El primer intent connectava amb la xarxa desada, i en una placa sense xarxa desada allò era una reacció que no
+    arribava enlloc. **El que continua essent cert** és que aquest sistema usa la xarxa i la deixa anar quan la feina s'acaba: el commutador
+    diu «la ràdio pot treballar», no «connectat», i per això no s'apaga tot sol quan una tasca acaba.
+  - **I les tres no hi són si la placa no les pot fer**: `bt::available()`, `net::available()` i `mesh::available()` són la mateixa
+    pregunta honesta que la creu sobre un llançador i la lluna d'una placa que no sap dormir —una clau que diu que pot encendre un
+    ràdio en un build que no en porta diu una cosa que no és (0.179.25)—.
+  - **On són i com hi caben**: la fila és de tres claus de 156 × 80 amb setze d'aire, i les quatre del sistema baixen de 168 a 204. Amb
+    una fila més, les claus arriben més avall que el **terç del vidre** que era la forma de la targeta, o sigui que `card_height()`
+    passa a ser *el terç o les files que la targeta té, la que sigui més gran*: tres-centes trenta-sis files en un vidre de nou-centes
+    seixanta, contra tres-centes quatre (docs/30, docs/92).
+  - **I les seves marques són del mateix clipart que les altres vuit** (l'amo: *«Els botons aquests nous no se d'on els has tret pero no
+    tenen res en comú. Busca al fontawsome»*): la runa del Bluetooth és **`bluetooth-b`** (`U+F294`, la runa sola i no la insígnia
+    quadrada de `U+F293`), el ventall és **`wifi`** (`U+F1EB`) i la xarxa és **`share-alt`** (`U+F1E0`, tres nodes enllaçats entre ells i
+    ningú a dalt —que és el que fa un mesh i el que no fa una xarxa amb jerarquia; `network-wired`, que era el primer, són tres pantalles en
+    un arbre i es llegia com un org-chart—). `tools/iconart.py` les rasteritza com les altres —el mestre de 448 a `tools/icons/system/` i la icona de 64 a
+    `data/res/icons/`, que és el que el disc porta—, i **el Bluetooth és a la família `brands` del clipart** i no a `solid`, o sigui que
+    una entrada de la taula de `MARKS` pot dir la seva família (docs/45, docs/92). `ui::draw_icon` en dibuixa les tres amb les
+    primitives d'aquest arbre quan la placa no té `/res`, que és el que ja fa amb les vuit altres (docs/50).
 - **I les vuit claus porten la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
   icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*). **La paraula és dins del botó** i no a
   fora, o sigui que prémer el nom és prémer la clau, i des de la 0.189.151 **les vuit són del mateix dibuix** —la marca a sobre i

@@ -31,6 +31,8 @@ Model model_of(const char* name) {
     // **The Paper's build carries the radio too** (0.190.201): its `sdkconfig.defaults` asks for NimBLE now, o sigui que aquest
     // emulador ha de dir el mateix que la placa i no el que deia ahir (docs/50, docs/85).
     out.bt = true;
+    // **El Paper escala el rellotge** (0.190.227): és l'S3 que sempre l'ha escalat, i el que l'amo ha tret és només dels dos ATOM.
+    out.dfs = true;
     out.gauge = true;
     out.slot = true;
     out.fram = true;
@@ -70,6 +72,8 @@ Model model_of(const char* name) {
     out.glass = false;
     out.touch = false;
     out.bt = false;
+    // El T-Koala no és cap dels dos ATOM: escala com sempre (0.190.227).
+    out.dfs = true;
     out.gauge = false;
     out.slot = true;
     out.fram = false;
@@ -96,6 +100,8 @@ Model model_of(const char* name) {
     out.env = false;
     // **The Matrix is the ATOM's firmware with a panel on it**, o sigui que hi porta el mateix ràdio (docs/50, docs/85).
     out.bt = true;
+    // **El Matrix no escala: sempre a 240** (0.190.227, l'amo: *«Que vagin sempre a 240Mhz»*).
+    out.dfs = false;
     out.glass = false;
     out.touch = false;
     out.gauge = false;
@@ -128,6 +134,8 @@ Model model_of(const char* name) {
   // **The ATOM's build carries the radio**: NimBLE and the HID device are in its `sdkconfig.defaults`, and this is the board the
   // keyboard and the host are written for (docs/50, docs/85).
   out.bt = true;
+  // **I l'ATOM Lite tampoc** (0.190.227): els dos ATOM van sempre al cim i la resta de models escalen com sempre.
+  out.dfs = false;
   out.glass = false;
   out.touch = false;
   out.gauge = false;

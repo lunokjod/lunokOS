@@ -399,6 +399,11 @@ al sostre pel seu compte de càrrega entre dos locks:
 - **El que demana algú mana sobre el repòs**: `power cpu <mhz>` a la consola i `power.cpu(mhz)` de Lua fixen **el terra i el sostre
   alhora** (un rang d'un sol valor) i apaguen l'escala automàtica. Així una persona que baixa la placa a 80 per mesurar no es troba
   que la propera app la torna a pujar.
+- **I hi ha plaques on no hi ha res a triar** (0.190.227, l'amo: *«Desactiva el Dynamic Frequency Scaling per l'M5 Atom Lite i l'M5 Atom
+  Matrix. Només per aquests dos models. Que vagin sempre a 240Mhz»*): el Lite i el Matrix diuen `board::scales_the_clock() == false` i el nucli
+  els deixa el rang en un sol número, 240, amb **el son lleuger intacte** —el xip dorm entre torns igual i el que no fa és córrer a mitja
+  marxa—. `power cpu 160` i `power auto on` hi responen que aquesta placa no escala i no canvien res; el que hi hagi desat de velocitat i de
+  política **no es llegeix i no s'esborra** (docs/50).
 - **Els canvis es veuen al registre**, tots i cada un, amb el número que hi havia abans i el motiu:
   `[I][POWER] cpu 240 MHz from 160 (an app is starting)`, i el tancament de la finestra
   `[I][POWER] cpu 160 MHz from 240 (the load is over)`. Una velocitat que el xip no accepta surt com a avís i diu a quina

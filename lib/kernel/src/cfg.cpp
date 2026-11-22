@@ -9,6 +9,7 @@
 
 #include "kernel/calendar.h"
 #include "kernel/log.h"
+#include "kernel/net.h"
 #include "kernel/power.h"
 #include "kernel/splash.h"
 #include "kernel/vfs.h"
@@ -95,6 +96,22 @@ const char kBtKey[] = "bt";
 // bluetooth»*): `keyboard`, `mouse` o `both`, i **desat**, perquè triar-ho no és una cosa d'una tarda. La sessió d'una app només arriba
 // fins al son —el nucli esborra les pàgines a cada arrencada— i una tria que es perdés a cada reiniciada seria una tria que es fa cada cop.
 const char kBtModeKey[] = "btmode";
+// **La ràdio del wifi, encesa o apagada** (0.190.221, l'amo: *«Si actives la wifi (passes a "on") està apagada en aquell moment,
+// s'inicialitza»*): el mateix parell de coses que `cfg bt` —una paraula desada i la ràdio de debò—, perquè el commutador de la targeta de la
+// barra no ha de ser una cosa i el prompt una altra (docs/30, docs/50).
+const char kWifiKey[] = "wifi";
+// **El color i el cursor, encesos o apagats** (0.190.226, l'amo: *«afegeix la comanda ansi on/off (totes les sortides tenen ansi, però amb
+// aquesta opció es filtra abans d'enviar a la línia)»*): el codi porta els codis sempre i aquesta paraula decideix si passen pel filtre que
+// els treu. Neix **encesa** —la font té els codis i el que no els entén els perd— i l'arrencada la posa a `off` sola quan el terminal de
+// l'altre cap no els contesta (docs/30, docs/50).
+const char kAnsiKey[] = "ansi";
+// **Les dues claus del mesh** (0.190.218): trenta-dos dígits hexadecimals cada una, perquè el registre les ha de poder dir i una persona les ha
+// de poder copiar a un altre lloc. Sense això, una placa que s'ha fet la seva xarxa la perdria a cada reiniciada i tornaria a demanar `mesh
+// key` —i una xarxa que canvia de clau a cada arrencada no és una xarxa (docs/30, docs/50, docs/70).
+const char kMeshNetKey[] = "meshnet";
+const char kMeshAppKey[] = "meshapp";
+// Trenta-dos dígits, el zero del final i prou: `char[33]` és exactament una clau escrita (docs/45).
+constexpr size_t kKeyTextCap = 33;
 
 // **I les dues funcions que la llegeixen i la desen són més avall**: la capçalera `kernel/cfg.h` les declara, o sigui que el codi de dalt
 // les pot cridar sense una declaració pròpia (docs/45).
@@ -172,12 +189,22 @@ bool g_wake_on_touch = false;
 bool g_nap_on = true;
 // **Apagat de sèrie** (0.190.180): encès, la placa és un teclat i no fa becaines; o sigui que el que no es demana no es paga (docs/60).
 bool g_bt_on = false;
+// **I la ràdio del wifi** (0.190.221): encesa vol dir el driver enlaire, que no és el mateix que estar connectat —una cosa que aquest
+// sistema fa servir i deixa anar quan la feina s'acaba— (docs/30, docs/50).
+bool g_wifi_on = false;
+// **El valor de sortida d'`ansi`** (0.190.226): neix encès perquè el que hi ha escrit al codi són codis, i el que els ha de treure és el
+// filtre, no l'escriptor (docs/30, docs/50).
+bool g_ansi = true;
 // **La paraula del mode, que és la que la ràdio ha de ser** (0.190.208): se serveix d'aquí i no de la ràdio perquè una placa sense ràdio
 // també ha de poder desar la tria, i el que val per a aquest run és el que aquesta variable diu (docs/30, docs/50).
 // **Dotze i no vuit** (0.190.210): «keyboard» són vuit caràcters i el zero del final, o sigui que en un `char[8]` el nom es quedava en
 // «keyboar» —i la placa va dir exactament això: *«this board will be a keyboar»*—, i després `bt.device('keyboar')` no era cap de les tres
 // paraules. Un buffer d'una paraula porta la paraula sencera o no la porta (docs/45).
 char g_bt_mode[12] = "";
+// **La xarxa d'aquesta placa, tal com es va desar**: dues claus en hexadecimal i res més, perquè el que mana la xarxa és la clau de xarxa i el
+// que fa parlar els models és la d'aplicació (0.190.218, docs/50).
+char g_mesh_net[kKeyTextCap] = "";
+char g_mesh_app[kKeyTextCap] = "";
 bool g_uart_wake = true;
 // **Una frase i prou** (0.190.152): the report of the last deep sleep, as the board wrote it. It is a note for a person and not a setting, o
 // sigui que no té valor per defecte ni es valida: el que hi hagi és el que la placa va dir (docs/50, docs/70).
@@ -361,6 +388,19 @@ bool remember_log_level() {
 bool remember_bt_mode() {
   if (g_nvs == nullptr) return false;
   return keep(kBtModeKey, g_bt_mode);
+}
+
+bool remember_wifi_on() { return keep(kWifiKey, g_wifi_on ? kOn : kOff); }
+
+bool remember_ansi() { return keep(kAnsiKey, g_ansi ? kOn : kOff); }
+
+// **Les dues claus es desen juntes**: una clau de xarxa sense la d'aplicació és una xarxa on ningú no es pot parlar, o sigui que el que es
+// desa és la parella i el que no s'ha pogut desar es diu (docs/70).
+bool remember_the_keys() {
+  if (g_nvs == nullptr) return false;
+  const bool net = keep(kMeshNetKey, g_mesh_net);
+  const bool app = keep(kMeshAppKey, g_mesh_app);
+  return net && app;
 }
 
 bool remember_announce_charge() {
@@ -732,6 +772,32 @@ void boot(hal::IPlatform& platform) {
           log_printf(pal::kLogWarn, "CFG", "bt '%s' is not on or off; the keyboard stays off", raw_bt);
         }
       }
+      // **I la ràdio del wifi** (0.190.221): es llegeix aquí amb tota la resta i s'aplica més avall, perquè `cfg::boot` passa abans que
+      // `net::boot` i la ràdio encara no té porta en aquest moment.
+      char raw_wifi[8] = {0};
+      size_t wifi_len = 0;
+      if (g_nvs->get(kNamespace, kWifiKey, raw_wifi, sizeof(raw_wifi) - 1, wifi_len) && wifi_len > 0 &&
+          wifi_len < sizeof(raw_wifi)) {
+        raw_wifi[wifi_len] = '\0';
+        if (same(raw_wifi, kOn) || same(raw_wifi, kOff)) {
+          g_wifi_on = same(raw_wifi, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "wifi '%s' is not on or off; the radio stays off", raw_wifi);
+        }
+      }
+      // **I el color** (0.190.226): la paraula es llegeix amb tota la resta, i el que no és `on` ni `off` no la toca —el valor de fàbrica és
+      // `on` i una paraula trencada no ha de decidir res (docs/30, docs/50).
+      char raw_ansi[8] = {0};
+      size_t ansi_len = 0;
+      if (g_nvs->get(kNamespace, kAnsiKey, raw_ansi, sizeof(raw_ansi) - 1, ansi_len) && ansi_len > 0 &&
+          ansi_len < sizeof(raw_ansi)) {
+        raw_ansi[ansi_len] = '\0';
+        if (same(raw_ansi, kOn) || same(raw_ansi, kOff)) {
+          g_ansi = same(raw_ansi, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "ansi '%s' is not on or off; the codes stay on", raw_ansi);
+        }
+      }
       // **I què és aquesta placa al Bluetooth** (0.190.208): the word is read here with all the others and given to the radio below, so
       // una placa que es va deixar com a ratolí torna com a ratolí (docs/30, docs/50).
       // **Dotze aquí també** (0.190.210): the buffer that reads the word has to hold «keyboard», o el que es llegia era «keyboar» i la clau es
@@ -746,6 +812,20 @@ void boot(hal::IPlatform& platform) {
         } else {
           log_printf(pal::kLogWarn, "CFG", "btmode '%s' is not keyboard, mouse or both; nothing is offered", raw_mode);
         }
+      }
+      // **I les claus del mesh** (0.190.218): es llegeixen aquí amb tota la resta, o sigui que la xarxa d'aquesta placa torna amb la placa
+      // i no espera que ningú torni a escriure les claus (docs/30, docs/50).
+      char raw_net[kKeyTextCap] = {0};
+      size_t net_len = 0;
+      if (g_nvs->get(kNamespace, kMeshNetKey, raw_net, sizeof(raw_net) - 1, net_len) && net_len == kKeyTextCap - 1) {
+        raw_net[net_len] = '\0';
+        snprintf(g_mesh_net, sizeof(g_mesh_net), "%s", raw_net);
+      }
+      char raw_app[kKeyTextCap] = {0};
+      size_t app_len = 0;
+      if (g_nvs->get(kNamespace, kMeshAppKey, raw_app, sizeof(raw_app) - 1, app_len) && app_len == kKeyTextCap - 1) {
+        raw_app[app_len] = '\0';
+        snprintf(g_mesh_app, sizeof(g_mesh_app), "%s", raw_app);
       }
       char raw_note[sizeof(g_last_sleep)] = {0};
       size_t note_len = 0;
@@ -1074,6 +1154,37 @@ bool nap_on() { return g_nap_on; }
 // Settings ha de poder encendre el ràdio i no esperar la propera arrencada (docs/30, docs/50).
 bool bt_on() { return g_bt_on; }
 
+// **El commutador de la ràdio del wifi** (0.190.221): el que hi ha desat, i res més; qui l'encén és `set_wifi_on`, que és el que el prompt
+// i la targeta criden (docs/30, docs/50).
+bool wifi_on() { return g_wifi_on; }
+
+// **El commutador del color** (0.190.226): no hi ha cap ràdio a encendre ni cap aparell a preguntar, o sigui que el que fa és desar la paraula
+// i prou; qui la llegeix és el filtre de la consola (docs/30, docs/50).
+bool ansi_on() { return g_ansi; }
+
+bool set_ansi(bool on) {
+  g_ansi = on;
+  (void)remember_ansi();
+  return g_ansi == on;
+}
+
+bool set_wifi_on(bool on) {
+  const bool was = g_wifi_on;
+  g_wifi_on = on;
+  if (on && !was) {
+    // **Si la ràdio no arrenca, el commutador no es queda encès**: una paraula desada que no és certa a la placa és pitjor que un
+    // commutador que torna enrere i una línia al registre (0.190.183, docs/30).
+    if (!net::radio_on()) {
+      g_wifi_on = false;
+      log_printf(pal::kLogWarn, "CFG", "the wifi radio did not come up, and the switch stays off");
+    }
+  } else if (!on && was) {
+    (void)net::radio_off();
+  }
+  (void)remember_wifi_on();
+  return g_wifi_on == on;
+}
+
 // **Les tres paraules del mode** (0.190.208): one place that says which words exist, o sigui que la botiga, el prompt i la ràdio no poden
 // discrepar de què vol dir `mouse`. **I la cadena buida vol dir que no s'ha triat mai** (0.190.208, l'amo: *«configurar-se com a dev tampoc
 // sense que hagi escollit si un o l'altre o ambdós»*): un valor per defecte és una tria que la placa ha fet tota sola, i el que ha de fer
@@ -1095,6 +1206,19 @@ const char* set_bt_mode(const char* word) {
   if (bt::is_on()) (void)bt::be(g_bt_mode);
   (void)remember_bt_mode();
   return g_bt_mode;
+}
+
+// **La xarxa que aquesta placa té a les mans** (0.190.218): el que hi ha desat, i res més —qui les fa o les reparteix és el mesh i no la
+// botiga—, o sigui que una placa que no ha fet mai `mesh key` torna la cadena buida (docs/50).
+const char* mesh_net_key() { return g_mesh_net; }
+const char* mesh_app_key() { return g_mesh_app; }
+
+// I desar-les és la parella sencera: la de xarxa i la d'aplicació, que és l'única cosa que fa una xarxa que serveixi (docs/50).
+bool set_mesh_keys(const char* net, const char* app) {
+  if (net == nullptr || app == nullptr) return false;
+  snprintf(g_mesh_net, sizeof(g_mesh_net), "%s", net);
+  snprintf(g_mesh_app, sizeof(g_mesh_app), "%s", app);
+  return remember_the_keys();
 }
 
 // **I la consola, que és una porta del maquinari com la del vidre** (0.190.147): the value of the page is the board's, so moving the switch

@@ -20,6 +20,10 @@ struct Model {
   // Paper i el T-Koala no. No hi ha cap `kCap` per a ella, perquè una placa pot ser un teclat i no un amfitrió: el que es pregunta
   // és `IBluetooth::can_bluetooth`, i aquí només es diu si hi ha ràdio (docs/50, docs/85).
   bool bt;
+  // **Si el xip d'aquest model escala el rellotge sol** (0.190.227): els dos ATOM no —l'amo els vol sempre a 240— i el Paper i el T-Koala
+  // sí. És el que respon `IPower::scales_the_clock` quan l'emulador fa aquesta placa, perquè les proves puguin veure les dues bandes
+  // (docs/50, docs/85).
+  bool dfs;
   // **The screen it draws on**: the IT8951 panel of the Paper, 960x540 and four bits per pixel. The
   // ATOMs of this family have no screen at all, and an emulator of one with a glass would be a board
   // nobody can buy (docs/50, docs/85).

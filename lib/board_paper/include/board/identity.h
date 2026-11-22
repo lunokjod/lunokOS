@@ -39,6 +39,10 @@ inline const char* family() { return "esp32"; }
 // This build is for a board and not for the PC emulator.
 inline bool emulator() { return false; }
 
+// **Whether this board scales its own clock** (0.190.227): **yes**. Els dos ATOM diuen que no i la resta que sí, o sigui que el DFS del
+// xip es queda com estava a tot arreu menys allà on l'amo l'ha tret (docs/50, docs/60).
+inline constexpr bool scales_the_clock() { return true; }
+
 // The Paper has no light of its own: what it has is a screen, and a screen is
 // not an LED (docs/50).
 inline uint32_t led_count() { return 0; }

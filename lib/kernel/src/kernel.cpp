@@ -752,6 +752,21 @@ void boot(hal::IPlatform& platform) {
   // say what this board is, and one of them after the prompt is a line that looks like an answer to
   // something the person has not typed (measured on the board and on the emulator, 1/11: `ui: view ...`
   // came out after `lunok> `).
+  // **I el terminal del cable, abans del primer prompt** (0.190.222, l'amo: *«Vull una migració completa de la shell a aquest terminal
+  // serie»*): si aquesta consola en pot tenir, és qui edita la línia d'aquí endavant —cursor, fletxes, historial i tabulador— i el tauler
+  // de noms és el del shell. Una consola que no en pot tenir (l'emulador, una placa on el controlador no arrenca) contesta que no i el
+  // shell es queda amb el seu editor: **el camí de bytes no desapareix, o una placa sense terminal es quedaria sense prompt** (docs/30,
+  // docs/50, docs/85).
+  {
+    pal::IConsole* the_console = pal::system().console();
+    if (the_console != nullptr) {
+      uint8_t name_count = 0;
+      const char* const* names = shell::command_names(name_count);
+      if (the_console->start_the_terminal(names, name_count)) {
+        log_printf(pal::kLogInfo, "CONSOLE", "the shell is on the terminal of the console component");
+      }
+    }
+  }
   shell::start();
   // **Les alarmes que van tocar mentre la placa no hi era es fan abans que cap pàgina torni** (0.189.175): a board that wakes
   // from a deep sleep is a board that boots, and the session app used to come back *before* the queue was looked at, o sigui
@@ -1035,15 +1050,27 @@ void poll() {
 
   pal::IConsole* console = pal::system().console();
   if (console != nullptr) {
-    char buf[64];
-    size_t n = console->read(buf, sizeof(buf));
-    while (n > 0) {
-      // A person is at the keyboard: the board is being used and does not put itself to
-      // sleep until the prompt has been quiet for a while (docs/60). **Un comptador i prou**: `lock::note_activity` mou el de
-      // `power` des de la 0.190.9 (docs/30, docs/60).
-      lock::note_activity(power::Hand::kConsole);
-      shell::feed(buf, n);
-      n = console->read(buf, sizeof(buf));
+    // **Dues maneres d'arribar una línia i un sol shell** (0.190.222): amb el terminal del cable, el que arriba és la línia que l'editor ha
+    // acabat —amb els colors i el cursor ja dibuixats— i el que se'n fa és el mateix; sense terminal (l'emulador, la consola del vidre,
+    // una placa on el controlador no arrenca) arriben bytes i el shell té el seu editor. **Un sol camí per torn** i mai tots dos, o la
+    // meitat de les tecles anirien a un editor i l'altra meitat a l'altre (docs/30, docs/50).
+    if (console->has_a_line_editor()) {
+      char line[128];
+      while (console->take_a_line(line, sizeof(line))) {
+        lock::note_activity(power::Hand::kConsole);
+        shell::take_a_line(line);
+      }
+    } else {
+      char buf[64];
+      size_t n = console->read(buf, sizeof(buf));
+      while (n > 0) {
+        // A person is at the keyboard: the board is being used and does not put itself to
+        // sleep until the prompt has been quiet for a while (docs/60). **Un comptador i prou**: `lock::note_activity` mou el de
+        // `power` des de la 0.190.9 (docs/30, docs/60).
+        lock::note_activity(power::Hand::kConsole);
+        shell::feed(buf, n);
+        n = console->read(buf, sizeof(buf));
+      }
     }
   }
   // **I un `deepsleep` escrit al prompt és el mateix que la baixada de la política** (0.190.68): la línia ha adormit el xip, o sigui que

@@ -302,6 +302,12 @@ Load load_of(uint32_t percent10, Load current);
 bool cpu_auto();
 void set_cpu_auto(bool on);
 
+// **Si aquesta placa escala el rellotge tota sola** (0.190.227, l'amo: *«Desactiva el Dynamic Frequency Scaling per l'M5 Atom Lite i l'M5 Atom
+// Matrix. Només per aquests dos models. Que vagin sempre a 240Mhz»*). Ho contesta la placa (`IPower::scales_the_clock`) i es pregunta un cop a
+// l'arrencada: amb això fals, el rang és **un sol valor, 240**, la política queda apagada per sempre en aquest run, i el commutador de la
+// pàgina i `power auto` ho diuen i no fan res. **El son lleuger no s'hi toca**: el xip continua dormint entre torns (docs/50, docs/60).
+bool scales_the_clock();
+
 // **Les velocitats que la política pot fer servir** (0.189.107): a mask of the three steps —bit 0 is 80, bit 1 is 160 and
 // bit 2 is 240— and **every step this module takes is clamped to it**, the ones the system asks for with a window and the
 // one a person types too: a board whose owner said `cfg freq 240 off` must not go to 240 even for a paint, or the setting

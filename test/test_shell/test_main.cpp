@@ -959,6 +959,128 @@ void test_the_session_of_the_console_closes_and_opens_again(void) {
   pal::set_virtual_terminal(false);
 }
 
+// **Una línia que arriba del terminal del cable és una línia d'aquest mateix shell** (0.190.222, l'amo: *«Vull una migració completa de la
+// shell a aquest terminal serie»*): el que canvia és **qui ha dibuixat la línia** —l'editor del `console`, amb el cursor i els colors— i el
+// que es comprova aquí és que no se'n perd res: la línia s'executa, la sessió s'obre amb un Enter com al cable, i **la línia no es torna a
+// escriure**, perquè ja és a la pantalla (docs/30, docs/50, docs/80).
+void test_a_line_from_the_terminal_runs_and_is_not_written_twice(void) {
+  ensure_booted();
+  static char said[4096];
+  pal::set_virtual_terminal(false);
+  kernel::execute("logout");
+
+  capture_begin();
+  kernel::shell::take_a_line("");         // the Enter that opens a closed session
+  kernel::shell::take_a_line("version");  // and a line, the way the editor hands it over
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "login: a new session"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "lunokOS "), said);   // the line ran
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "version\r\n"), said);    // and it was not echoed: the editor wrote it
+
+  pal::set_virtual_terminal(false);
+}
+
+// **I la consola d'aquesta banda no edita línies, i ho diu** (0.190.222): les quatre portes del terminal neixen responent que no, i és el
+// que fa que l'emulador —i la consola del vidre— segueixin tenint prompt sense cap terminal a l'altre cap. Una banda que hi digués que sí
+// sense tenir-lo deixaria el nucli esperant línies que no arriben mai (docs/45, docs/50, docs/85).
+void test_a_console_without_a_terminal_keeps_the_byte_path(void) {
+  ensure_booted();
+  pal::IConsole* console = pal::system().console();
+  TEST_ASSERT_NOT_NULL(console);
+  const char* const names[] = {"help", "version"};
+  TEST_ASSERT_FALSE(console->start_the_terminal(names, 2));
+  TEST_ASSERT_FALSE(console->has_a_line_editor());
+  // **I no parla codis**: és el que fa que les proves llegeixin text pla, i el que el prompt i el `clear` pregunten abans d'escriure'n
+  // (0.190.223, docs/50, docs/85).
+  TEST_ASSERT_FALSE(console->speaks_ansi());
+  char line[32];
+  TEST_ASSERT_FALSE(console->take_a_line(line, sizeof(line)));
+}
+
+// **El color és un commutador i el filtre és qui el fa complir** (0.190.226, l'amo: *«totes les sortides tenen ansi, però amb aquesta opció es
+// filtra abans d'enviar a la línia»*): amb `ansi on` el text passa amb els seus codis i amb `ansi off` cada seqüència marxa sencera. És la
+// funció que el nucli crida a l'única porta que té cap a la consola, o sigui que el que es prova aquí és el que arriba a la línia
+// (docs/30, docs/50, docs/80).
+void test_ansi_on_keeps_the_codes_and_off_strips_them(void) {
+  ensure_booted();
+  // **L'arrencada l'ha posat a `off` tota sola** (0.190.226): la consola d'aquesta banda no contesta com un terminal, i el que una persona
+  // va triar no es toca —el que es perd és el color d'aquesta sessió, no la preferència.
+  static char said[4096];
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("ansi"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "ansi: off"), said);
+
+  char out[64];
+  const char coloured[] = "\033[1;36mhi\033[0m!";
+  size_t used = kernel::shell::filter_ansi(coloured, sizeof(coloured) - 1, out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("hi!", out, out);
+  TEST_ASSERT_EQUAL_size_t(3, used);
+
+  TEST_ASSERT_TRUE(kernel::execute("ansi on"));
+  used = kernel::shell::filter_ansi(coloured, sizeof(coloured) - 1, out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE(coloured, out, out);
+  TEST_ASSERT_EQUAL_size_t(sizeof(coloured) - 1, used);
+
+  // **I una `ESC [` que no s'acaba no deixa mitja seqüència a la pantalla**: es pren la resta (docs/30).
+  TEST_ASSERT_TRUE(kernel::execute("ansi off"));
+  used = kernel::shell::filter_ansi("a\033[1;3", 6, out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("a", out, out);
+  TEST_ASSERT_EQUAL_size_t(1, used);
+
+  // **El commutador es queda com estava**: les proves que vénen després llegeixen text pla (docs/80).
+  TEST_ASSERT_TRUE(kernel::execute("ansi off"));
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("ansi"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "ansi: off"), said);
+}
+
+// **Els dos ATOM no escalen el rellotge i la resta sí** (0.190.227, l'amo: *«Desactiva el Dynamic Frequency Scaling per l'M5 Atom Lite i
+// l'M5 Atom Matrix. Només per aquests dos models. Que vagin sempre a 240Mhz»*). El que es guarda aquí és la diferència entre les dues
+// bandes amb el mateix binari: a l'ATOM el rang és un sol valor, el commutador de la pàgina no fa res i un pas més baix es refusa; al
+// Paper el DFS és el de sempre. **I el son lleuger no hi té res a veure** (docs/50, docs/60, docs/85).
+void test_a_board_without_dfs_runs_at_the_top_and_the_paper_still_scales(void) {
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-atom";
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  TEST_ASSERT_FALSE_MESSAGE(power::scales_the_clock(), "the ATOM scales its clock");
+  TEST_ASSERT_FALSE_MESSAGE(power::cpu_auto(), "the ATOM has a policy it cannot use");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(240, power::cpu_mhz(), "the ATOM is not at its top");
+  // **I el que la pàgina demana no canvia res**, que és el que diu la comanda.
+  static char said[4096];
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("power auto on"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "does not scale its clock"), said);
+  TEST_ASSERT_FALSE_MESSAGE(power::cpu_auto(), "the switch moved on a board with no scaling");
+  TEST_ASSERT_EQUAL_UINT32(240, power::cpu_mhz());
+  TEST_ASSERT_FALSE_MESSAGE(power::set_cpu_mhz(80), "a step was taken on a board with no scaling");
+  TEST_ASSERT_EQUAL_UINT32(240, power::cpu_mhz());
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("power cpu 160"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "runs at 240 always"), said);
+
+  // **I el Paper, que és el mateix binari amb un altre model, escala com sempre.**
+  opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE_MESSAGE(power::scales_the_clock(), "the Paper stopped scaling");
+  TEST_ASSERT_TRUE_MESSAGE(power::cpu_auto(), "the Paper lost its policy");
+
+  // **I l'emulador torna a quedar-se com aquesta suite el va trobar** (docs/85).
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 void test_overlong_line_is_cut_not_crashed(void) {
   ensure_booted();
   // 300 bytes of junk: the kernel copies at most its buffer and still answers.
@@ -1959,6 +2081,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_session_of_the_console_closes_and_opens_again);
   RUN_TEST(test_a_session_of_the_shell_is_a_shell_with_three_pipes);
   RUN_TEST(test_an_ampersand_runs_an_app_in_the_background);
+  RUN_TEST(test_a_line_from_the_terminal_runs_and_is_not_written_twice);
+  RUN_TEST(test_ansi_on_keeps_the_codes_and_off_strips_them);
+  RUN_TEST(test_a_board_without_dfs_runs_at_the_top_and_the_paper_still_scales);
+  RUN_TEST(test_a_console_without_a_terminal_keeps_the_byte_path);
   RUN_TEST(test_overlong_line_is_cut_not_crashed);
   RUN_TEST(test_board_has_a_console);
   RUN_TEST(test_kernel_is_running);

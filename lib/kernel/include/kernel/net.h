@@ -35,6 +35,14 @@ bool provisioned();
 // Forgets the stored network.
 bool forget();
 
+// **La ràdio del wifi, encesa i apagada** (0.190.221, l'amo: *«de moment aquests botons son per apagar i encendre radios»*). El que fa
+// aquest sistema amb la xarxa és **usar-la i deixar-la anar** —una tasca, no un estat—, i això continua essent així; el que hi ha aquí és el
+// commutador de la persona, que no vol dir «connectat» sinó «la ràdio pot treballar»: encendre-la instal·la el driver si encara no hi era i
+// arrenca l'estació, i apagar-la atura el driver i deixa anar el que hi hagués (docs/30, docs/50).
+bool radio_on();
+bool radio_off();
+bool radio_is_on();
+
 // Drops whatever is going on: the app that asked is gone and nobody wants the
 // answer any more (docs/30).
 void cancel_public();

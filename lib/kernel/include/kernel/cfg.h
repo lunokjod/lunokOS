@@ -118,6 +118,29 @@ bool set_bt_on(bool on);
 const char* bt_mode();
 const char* set_bt_mode(const char* word);
 bool bt_mode_is_a_word(const char* word);
+
+// **La ràdio del wifi, encesa i apagada** (0.190.221, l'amo: *«de moment aquests botons son per apagar i encendre radios»*). És el mateix
+// parell que `bt_mode`/`bt_on`: una paraula desada a la botiga (`cfg/wifi`) i la ràdio de debò. **Encesa vol dir el driver enlaire**, no
+// connectat —aquest sistema usa la xarxa i la deixa anar quan la feina s'acaba— i per això la clau de la targeta no diu «connectat» sinó
+// «la ràdio pot treballar». Encendre-la quan ja ho era no és un error, i si la ràdio no arrenca el commutador torna enrere i ho diu
+// (docs/30, docs/50).
+bool wifi_on();
+
+// **El color i el cursor, encesos o apagats** (0.190.226): el que hi ha desat, i res més. El que en fa alguna cosa és el filtre de la
+// consola —`shell::filter_ansi`—, que treu els codis de tot el que va al cable quan això diu que no (docs/30, docs/50).
+bool ansi_on();
+bool set_ansi(bool on);
+// Contesta si la ràdio ha quedat com es demanava; el que la botiga n'hagi fet és al registre (`NVS`, docs/70).
+bool set_wifi_on(bool on);
+
+// **Les dues claus de la xarxa de Bluetooth Mesh** (0.190.218, l'amo: *«no puc provisionar jo manualment la clau del mesh per linia de
+// comandaments, com amb el wifi?»*): trenta-dos dígits hexadecimals cada una, guardades perquè una placa que s'ha fet la seva xarxa la torni a
+// tenir quan es reiniciï. La de xarxa és la que mana la xarxa; la d'aplicació és la que fa que els models es puguin parlar, i per això es
+// desen juntes: una clau de xarxa sense la d'aplicació és una xarxa on ningú no diu res (docs/30, docs/50, docs/70). La cadena buida vol dir
+// que aquesta placa no ha fet mai `mesh key`.
+const char* mesh_net_key();
+const char* mesh_app_key();
+bool set_mesh_keys(const char* net, const char* app);
 // **La consola com a porta de la becaina** (0.190.147, l'amo: *«Posa un toggle a Settings->Battery que doni la opció a "Wake from
 // UART"»*): encès de sèrie —el prompt és l'única manera de parlar amb una placa sense teclat— i apagat per a qui vulgui que les esperes
 // només les desfaci un dit (docs/30, docs/50, docs/60).

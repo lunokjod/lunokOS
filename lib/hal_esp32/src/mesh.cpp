@@ -68,13 +68,69 @@ class Esp32Mesh : public IMesh {
     char mine[32];
     the_board_name(mine, sizeof mine);
     mesh_node_set_name(mine);
-    return mesh_node_offer();
+    // **Un provisionador sense claus té la pila enlaire i cap xarxa** (0.190.218): això no és un fracàs sinó el primer pas, i el que falta és
+    // `mesh key`. Un build que només és node sí que falla aquí, perquè el que se li demanava era oferir-se (docs/30, docs/50).
+    if (!mesh_node_offer()) {
+      if (!can_keep_the_keys()) {
+        hal::logf(pal::kLogWarn, "MESH", "this node could not offer itself, and the reason is in the log above");
+        return false;
+      }
+      hal::logf(pal::kLogWarn, "MESH", "the stack is up and this board has no network yet: `mesh key` makes one");
+    }
+    return true;
   }
 
   void stop() override { mesh_node_withdraw(); }
-  bool is_up() const override { return mesh_node_address() != 0 || mesh_node_is_provisioned(); }
+  bool is_up() const override { return mesh_node_is_up(); }
   bool provisioned() const override { return mesh_node_is_provisioned(); }
   uint16_t address() const override { return mesh_node_address(); }
+
+  // ---- la xarxa que aquesta placa té ----
+  // **El provisionador és un build i prou**: `CONFIG_BLE_MESH_PROVISIONER` porta el codi que reparteix les claus, i una banda sense això
+  // continua essent un node que s'ofereix (el T5S3 i el Paper, si no hi caben) i ho diu (docs/45, docs/50).
+#if defined(CONFIG_BLE_MESH_PROVISIONER)
+  bool can_keep_the_keys() const override { return true; }
+#else
+  bool can_keep_the_keys() const override { return false; }
+#endif
+
+  bool has_the_network() const override { return mesh_node_has_the_network(); }
+
+  bool make_keys(uint8_t net_key[16], uint8_t app_key[16]) override {
+    if (!can_keep_the_keys()) return false;
+    return mesh_node_make_keys(net_key, app_key);
+  }
+
+  bool own_the_network(const uint8_t net_key[16], const uint8_t app_key[16]) override {
+    if (!can_keep_the_keys()) return false;
+    return mesh_node_own_the_network(net_key, app_key);
+  }
+
+  bool network_keys(uint8_t net_key[16], uint8_t app_key[16]) const override {
+    return mesh_node_network_keys(net_key, app_key);
+  }
+
+  int watch(uint32_t ms) override { return static_cast<int>(mesh_node_watch(ms)); }
+  int heard_count() const override { return static_cast<int>(mesh_node_heard_count()); }
+
+  bool heard_at(int index, uint8_t uuid[16], int* rssi) const override {
+    if (index < 0 || index > 255) return false;
+    uint8_t bearer = 0;
+    int8_t strength = 0;
+    if (!mesh_node_heard_at(static_cast<uint8_t>(index), uuid, &bearer, &strength)) return false;
+    if (rssi != nullptr) *rssi = strength;
+    return true;
+  }
+
+  bool provision(int index, uint16_t address, uint16_t* given) override {
+    if (index < 0 || index > 255) return false;
+    return mesh_node_provision(static_cast<uint8_t>(index), address, given);
+  }
+
+  int known(uint16_t* addresses, int cap) const override {
+    if (cap <= 0 || cap > 255) return 0;
+    return static_cast<int>(mesh_node_known(addresses, static_cast<uint8_t>(cap)));
+  }
 };
 
 }  // namespace

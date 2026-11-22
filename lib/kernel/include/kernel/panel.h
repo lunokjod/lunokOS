@@ -28,8 +28,9 @@ void boot();
 // with a call of its own (docs/30).
 bool open();
 
-// How many rows the card takes under the bar, which is a third of what the bar leaves: a card that covers everything
-// is a page of the system and not a panel (docs/30).
+// How many rows the card takes under the bar: **a third of what the bar leaves, or the rows its keys need if they are more** —des de la
+// 0.190.219, que la targeta té tres files i les claus arriben més avall que el terç—. A card that covers everything is a page of the
+// system and not a panel (docs/30, docs/92).
 uint16_t height();
 
 // **The hand of the panel**, asked in every turn before the app's: a drag that comes down from the bar opens the card,

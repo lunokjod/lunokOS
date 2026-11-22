@@ -8,8 +8,10 @@
 #include <new>
 #include <string.h>
 
+#include "kernel/cfg.h"
 #include "kernel/fs_ops.h"
 #include "kernel/led.h"
+#include "kernel/log.h"
 #include "kernel/serial.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
@@ -134,6 +136,9 @@ Request* the_queue() {
 uint8_t g_head = 0;
 uint8_t g_count = 0;
 Request g_current;               // the one that is running
+// **Aquest és el flag de les feines i no el commutador** (0.190.221): diu que aquest nucli va encendre la ràdio per fer una cosa i que encara
+// no l'ha deixada anar, i `poll` la tanca quan la cua és buida. El commutador de la persona és una altra cosa i viu a `kernel::net::radio_on/
+// off/is_on` i a `cfg/wifi` (docs/30, docs/50).
 bool g_radio_on = false;         // the radio was used and has not been switched off
 Done g_pending_done = nullptr;   // the waiter of the next request the shell pushes
 
@@ -760,6 +765,14 @@ void boot(hal::IPlatform& platform) {
   ops.state = &state_code;
   ops.features = &features;
   luabind::set_net_ops(ops);
+
+  // **I la ràdio, si la persona la va deixar encesa** (0.190.221): el commutador de la targeta desa la paraula a `cfg/wifi`, i això és el
+  // que la torna a engegar quan la placa arrenca —el mateix que fa `cfg bt` amb el teclat—. Si la ràdio no arrenca, la paraula no es queda
+  // dient una cosa que no és: el commutador torna a apagat i el registre diu per què (docs/30, docs/50).
+  if (cfg::wifi_on() && !radio_on()) {
+    cfg::set_wifi_on(false);
+    log_printf(pal::kLogWarn, "WIFI", "the radio was left on and it did not come up, so the switch is off again");
+  }
 }
 
 bool available() { return g_net != nullptr; }
@@ -784,6 +797,21 @@ const char* state_name() {
 void cancel_public() { cancel(); }
 
 void stop() { stop_all(); }
+
+// **El commutador de la ràdio** (0.190.221): `stop_all` primer, perquè una feina que s'està fent sobre una ràdio que s'apaga és una feina
+// que es quedaria esperant una resposta que no arribarà (docs/30, docs/50).
+bool radio_on() {
+  if (g_net == nullptr) return false;
+  return g_net->wifi_radio_on();
+}
+
+bool radio_off() {
+  if (g_net == nullptr) return false;
+  stop_all();
+  return g_net->wifi_radio_off();
+}
+
+bool radio_is_on() { return g_net != nullptr && g_net->wifi_radio_is_on(); }
 
 void set_done(Done done) { g_pending_done = done; }
 

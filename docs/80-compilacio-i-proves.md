@@ -224,6 +224,29 @@ rm sdkconfig.lilygo-t5s3-idf && pio run -e lilygo-t5s3-idf
 Després el que val és el que diu el generat (`grep FLASHMODE sdkconfig.lilygo-t5s3-idf`), i a la placa, la línia `SPI Mode` del
 bootloader, que la escriu ell mateix (docs/50).
 
+**I un símbol que val `y` de sèrie no s'apaga esborrant-ne la línia** (0.190.220, l'amo: *«et vaig demanar desactivar l'ANSI de la
+configuració d'esp_idf… pots trobar-la i treure-ho?»*): `CONFIG_LOG_COLORS` —el color ANSI de les línies de la IDF i del seu
+bootloader— té **`default "y"`** a `components/log/Kconfig` d'aquesta IDF, o sigui que la línia que el manté apagat és
+`# CONFIG_LOG_COLORS is not set` i **treure-la el torna a encendre**. Les sis bandes la tenen escrita a mà; `pal_esp32.cpp` porta un
+`#error` si el símbol acaba definit, perquè el defecte de la Kconfig no és el que aquest projecte vol. I el que es mira per saber si
+una imatge parla amb codis és el binari i no la configuració: `python3 -c "print(open('firmware.elf','rb').read().count(b'\x1b[0;'))"`
+ha de dir **zero**. El que sí que hi ha a `firmware.elf` és `␛[A`, `␛[B`, `␛[3~` i companyia: són les tecles de cursor que el
+**teclat de Bluetooth** envia a l'altre aparell, i treure-les seria trencar el teclat (docs/50).
+
+**I no n'hi ha cap més** (l'amo: *«hi ha algun altre valor relacionat amb l'ansi?»*). Els quatre símbols que existeixen, i què és cadascun:
+
+| Símbol | On | Valor aquí | Què és |
+|---|---|---|---|
+| `CONFIG_LOG_COLORS` | `components/log/Kconfig` (`default "y"`) | **`is not set`** a les sis bandes | l'**únic** que pinta les línies de la IDF i del seu bootloader |
+| `CONFIG_UNITY_ENABLE_COLOR` | `components/unity/Kconfig` (`default n`) | `is not set` | el color de les proves de Unity; no és al firmware (`UnityBegin` no hi és) |
+| `CONFIG_FATFS_API_ENCODING_ANSI_OEM` | `components/fatfs/Kconfig` (una tria amb `UTF_8`) | **`y`** | **no és color**: és la **pàgina de codi** amb què l'API de la FAT llegeix i escriu els noms. Tocar-ho canvia com es diuen els fitxers del disc |
+| `CONFIG_ARDUHAL_LOG_COLORS` | els frameworks Arduino | no existeix | el mateix símbol de l'Arduino, que aquest projecte ja no compila |
+
+I el **segon que escriu codis de debò a la IDF** no és cap símbol: és `linenoise` (`components/console`), que fa `␛[6n`, `␛[2J` i colors de
+sintaxi — i **no és al binari** (`linenoise` i `esp_console` hi surten zero cops), perquè aquest projecte té el seu propi shell i no enllaça
+`esp_console`. El dia que algú hi afegeixi `esp_console`, els codis tornarien i no vindrien de cap `sdkconfig`. El que sí que **treu** codis és
+`wpa_supplicant` (`utils/common.c`): quan un SSID en porta, els neteja abans de dir-lo.
+
 **I la primera vegada, `pkg_resources`** (0.190.90): el constructor del framework d'ESP-IDF de la plataforma 6.5.0
 importa `pkg_resources`, que el Python 3.14 de `~/.platformio/penv` ja no porta —`setuptools` no hi és— i la
 compilació mor amb `ModuleNotFoundError` abans de començar. Es resol amb una línia i no és cap canvi del projecte:
