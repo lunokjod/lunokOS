@@ -11909,7 +11909,19 @@ namespace kernel {
 //
 // De passada, `make_the_name` del `bluetooth.cpp` deixa de tenir el format a dins i passa a ser la crida a aquest sol lloc, o sigui que el
 // límit dels vint-i-nou bytes de la resposta d'escaneig segueix on era i val per a qui el necessiti.
-static const char kVersion[] = "0.190.215";
+// **0.190.216 — el nom del node anava abans que existís la tasca que l'escolta** (la placa, amb `mesh on`: *«assert failed: osi_thread_post
+// thread.c:332 (thread != NULL)»*).
+//
+// Totes les crides del mesh d'Espressif són **missatges a la tasca `btc`** (`btc_transfer_context` → `btc_task_post` → `osi_thread_post`), i
+// aquesta tasca la crea `esp_ble_mesh_init` (`btc_init` dins de `bt_mesh_host_init`, al bearer de NimBLE). La 0.190.215 va posar
+// `esp_ble_mesh_set_unprovisioned_device_name` **abans** d'aquell `esp_ble_mesh_init`, o sigui que li demanava un missatge a una tasca que
+// encara no existia, i el `assert(thread != NULL)` del sistema operatiu del Bluetooth és el que va sortir. La traça ho deia sense embuts:
+// `mesh_node_set_name → esp_ble_mesh_set_unprovisioned_device_name → btc_transfer_context → btc_task_post → osi_thread_post(NULL)`.
+//
+// L'ordre bo és **ràdio, init, nom, oferir-se**: el nom ha d'anar després del `init` (la tasca hi és) i abans del `offer` (el nom viatja a la
+// resposta de l'escaneig de la provisió). I la resta del camí ja hi era bé: registrar els callbacks és local, i `is_provisioned` i
+// `get_primary_element_address` també (docs/50).
+static const char kVersion[] = "0.190.216";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

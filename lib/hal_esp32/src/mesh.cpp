@@ -52,13 +52,18 @@ class Esp32Mesh : public IMesh {
       return false;
     }
     mesh_node_set_uuid(mac);
+    if (!mesh_node_init()) return false;
     // **El nom, amb els dos últims bytes de l'adreça** (0.190.215): `lunokOS-XXYY`, que és exactament el que aquesta placa diu quan és un
     // teclat de Bluetooth —la mateixa adreça de l'eFuse i el mateix format—, o sigui que un provisionador i un telèfon que aparellen veuen
-    // el mateix nom de la mateixa placa (docs/50). El nom del node no té el límit de trenta-un bytes de l'anunci del Bluetooth.
+    // el mateix nom de la mateixa placa. El nom del node no té el límit de trenta-un bytes de l'anunci del Bluetooth.
+    //
+    // **I va DESPRÉS de `mesh_node_init` i no abans** (0.190.216, i la placa ho va dir amb un assert de debò: `osi_thread_post thread.c:332
+    // (thread != NULL)`): totes les crides del mesh d'Espressif són missatges a la tasca `btc`, i aquesta tasca **la crea
+    // `esp_ble_mesh_init`** (`btc_init`). Posar el nom abans és demanar-li un missatge a una tasca que encara no existeix. I ha de ser abans de
+    // `mesh_node_offer`, perquè el nom viatja a la resposta de l'escaneig de la provisió (docs/50).
     char mine[32];
     the_board_name(mine, sizeof mine);
     mesh_node_set_name(mine);
-    if (!mesh_node_init()) return false;
     return mesh_node_offer();
   }
 
