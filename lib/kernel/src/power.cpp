@@ -1792,7 +1792,12 @@ void restore_session() {
     sayf("power: %s does not come back: %s is in front\r\n", id, shell::app_id());
     return;
   }
-  if (!shell::restore_app(id, has_path ? path : nullptr)) {
+  // **Una pàgina que torna d'una sessió** (0.190.251): `come_back` és el que la fa llegir el seu `state` i no rentar el vidre (docs/90).
+  shell::AStart start;
+  start.id = id;
+  start.path = has_path ? path : nullptr;
+  start.come_back = true;
+  if (!shell::start_a_page(start)) {
     sayf("power: %s could not come back (is it still there?)\r\n", id);
     return;
   }

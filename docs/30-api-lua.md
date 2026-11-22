@@ -398,6 +398,10 @@ fora del fil de sistema, ni `run`, ni `kill`, ni `splash`, ni `panel`.
 - **La cua és de quatre línies de cent vint-i-vuit bytes**, amb **mutex**, i el que no hi cap es refusa en veu alta: una comanda perduda en
   silenci seria una tecla que no ha fet res.
 - **`kill`** és la comanda que faltava: tanca l'app que és al davant, i sense cap app diu que no n'hi ha.
+- **I tota arrencada passa per una sola porta** (0.190.251): `shell::start_a_page(AStart)`, amb els camps nomenats (`id`, `path`, `card`,
+  `come_back`, `alarm`, `late_ms`). Les deu portes que arrenquen una pàgina —la persona, el llaçador, el rellotge, el pany, la memòria i una app
+  que en demana una altra— diuen què volen en lloc de passar sis booleans posicionals, que és el que va fer que la comanda `home` ensenyés la
+  targeta que l'arrencada li treia (docs/40).
 - **`run <una altra>` segueix tancant l'app que hi ha al davant**: una app al vidre alhora, i això no ho canvia qui executi la comanda. El que
   canvia és que ara qui la executa és el torn, o sigui que `run` no pot deixar el vidre a mitges (docs/50).
 - **Al PC no hi ha cua a efectes pràctics** (`pal::tasks_are_here` diu que no): el torn serveix la consola ell mateix i buida la cua dins del

@@ -63,7 +63,11 @@ void bring_it_up(const char* why) {
     log_printf(pal::kLogWarn, "LOCK", "%s: there is no app '%s' on this board", why, id);
     return;
   }
-  if (!shell::raise_app(entry.id)) {
+  // **El pany puja per damunt del que hi hagi** (0.190.251): `start_a_page` tanca la pàgina del davant i posa aquesta amb la seva targeta
+  // —és el moment en què la targeta diu alguna cosa—; el `raise_app` que hi havia feia el mateix i tancava dues vegades (docs/30, docs/90).
+  shell::AStart start;
+  start.id = entry.id;
+  if (!shell::start_a_page(start)) {
     log_printf(pal::kLogWarn, "LOCK", "%s: '%s' did not come up", why, entry.id);
     return;
   }
@@ -97,7 +101,12 @@ const char* boot() {
   // **La pàgina abans que la casa** (0.189.159, l'amo: *«Arrenca abans el lock i després si hi ha home definida l'arrenques
   // desde device_lock»*): the lock is started as the page of the boot and the app it names is what answers for the way back;
   // the kernel starts no home app behind it (docs/30, docs/40).
-  if (!shell::start_app(entry.id, /*splash=*/false)) {
+  // **La pàgina del boot, sense targeta**: el vidre té la imatge de l'arrencada i una segona seria un rentat per una cosa que la persona
+  // acaba de veure (0.179.33, docs/30, docs/40).
+  shell::AStart start;
+  start.id = entry.id;
+  start.card = false;
+  if (!shell::start_a_page(start)) {
     log_printf(pal::kLogWarn, "LOCK", "the board has just started: '%s' did not come up", entry.id);
     return nullptr;
   }

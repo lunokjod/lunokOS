@@ -12,6 +12,14 @@
 // told «yes» and loses the command cannot.
 namespace kernel::orders {
 
+// **Qui demana la línia, i això no és un detall** (0.190.251): a line somebody typed in a closed session **opens the session** and is not
+// executed; an order the system gives itself —the page of the start, at a boot— has to run, and the first one used to be eaten by the login.
+// És el defecte que va fer que al T5S3 la pàgina de casa no sortís mai i a l'emulador sí (docs/30, docs/50).
+enum Who : uint8_t {
+  kPerson = 0,
+  kTheSystem = 1,
+};
+
 // The shell's own line: `linenoise` cuts at a hundred and twenty-seven bytes and the editor of `feed` copies into a `char[128]`, o sigui que
 // aquest és el número que la línia ja té (docs/30).
 constexpr size_t kLineBytes = 128;
@@ -23,12 +31,11 @@ constexpr size_t kWaiting = 4;
 // The queue and its lock, asked for once by the boot. A line posted before it is refused instead of written nowhere.
 void make_the_queue();
 
-// **Una línia acabada que el torn ha d'executar.** False when there is no room, and then nothing was written. An empty line is a line: it opens
-// a closed session, o sigui que també hi va (docs/30).
-bool post_a_line(const char* text);
+// **Una línia acabada que el torn ha d'executar.** False when there is no room, and then nothing was written.
+bool post_a_line(const char* text, Who who = kPerson);
 
-// The turn's door: the oldest line, or false when the shell has typed nothing. The text is copied into `out` and always ends.
-bool take_a_line(char* out, size_t capacity);
+// The turn's door: the oldest line and who asked for it, or false when there is nothing waiting. The text is copied into `out` and always ends.
+bool take_a_line(char* out, size_t capacity, Who& who);
 
 // How many lines are waiting, for the prompt and the log (docs/50).
 size_t waiting();

@@ -1066,7 +1066,10 @@ peces:
   es fa amb el pany del torn a la mà** perquè l'eco d'una tecla no entri mentre es munten el vidre i l'intèrpret.
   **Sis kilobytes** de pila: llegeix, fa l'eco i deixa la línia a la cua, o sigui que les comandes que pinten es fan a la pila del torn, on es
   feien abans de tot això. Prioritat per damunt del torn, i no li lleva res: passa la vida esperant.
-- **`kernel/orders`**, la cua: **quatre línies** de cent vint-i-vuit bytes amb **mutex** (`pal::make_lock`). Des de la 0.190.245 no hi passen
+- **`kernel/orders`**, la cua: **quatre línies** de cent vint-i-vuit bytes amb **mutex** (`pal::make_lock`) i **el qui la demana**. Aquest
+  últim no és un detall: al cable la sessió arrenca **tancada** (0.190.184, perquè el xip pugui fer becaines), i la línia d'una persona tancada
+  **obre la sessió i no s'executa**; una ordre del sistema —la pàgina de casa d'una arrencada— ha de córrer igualment. Sense la distinció, el
+  primer `home` de cada arrencada se'l menjava el `login` i la pàgina del sistema no sortia mai a la placa (0.190.251, docs/30). Des de la 0.190.245 no hi passen
   «arrencades» sinó **comandes senceres**: la shell només llegeix i fa l'eco, i el que ha escrit una persona és una línia en aquesta cua. El que
   no hi cap **es refusa dient-ho**: una comanda perduda en silenci seria una tecla que no ha fet res, i qui la veu refusada pot tornar a prémer
   Enter. El torn les buida al començament de cada volta (`shell::carry_out_the_orders` → `take_a_line`), **abans de l'app**, o sigui que una

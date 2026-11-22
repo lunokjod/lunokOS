@@ -12708,7 +12708,27 @@ namespace kernel {
 // **la política viatja com a booleans** a cada porta: `run_app` té sis paràmetres i cada autor tria el seu subconjunt (`restore`, `splash`,
 // alarma, fons), o sigui que una porta nova pot encertar-los tots i, si se n'oblida d'un, el defecte no és a la porta sino a la pàgina que es veu
 // —el cas de la targeta de la 0.190.249, que era meva (docs/30, docs/40).
-static const char kVersion[] = "0.190.250";
+// **0.190.251 — la cua diu qui demana la línia, i les portes d'arrencada són una** (l'amo, amb el registre a la mà: *«Ara sembla que es crida
+// dos cops? però no es veu cap vegada al T5S3! al emulador es veu dos cops ???»*, i tot seguit *«Revisa tot el codi, reorganitza aquell caos de
+// funcions que criden funcions que comproven que criden funcions»*).
+//
+// **Els «dos cops» no eren dos arrencades**: la 0.190.244 escriu dues línies per una —el pa de pessic abans de l'intèrpret (`[I][APPS] home_eink,
+// stack N B free`) i la nota del fons (`… goes to the background: its console is the log`)—, i totes dues surten del mateix `run_app`. **El que sí
+// que era un defecte és que al T5S3 no sortís mai**: la consola del cable arrenca amb la sessió **tancada** (0.190.184, perquè el xip pugui fer
+// becaines) i el `home` que l'arrencada escriu a la cua anava a `take_a_line`, que amb la sessió tancada **obre la sessió i no executa la
+// línia**. O sigui que la primera ordre de cada arrencada es menjava a si mateixa, i a l'emulador no passava perquè allà la consola no és el cable
+// i la sessió neix oberta. **La cua diu ara qui demana la línia** (`orders::kPerson` / `orders::kTheSystem`): la d'una persona obre la sessió, la
+// del sistema s'executa amb la sessió com estigui (docs/30, docs/50).
+//
+// **I les portes d'arrencada són una**: `run_app(id, path, restore, splash, alarm, late_ms)` —sis arguments posicionals— i els seus tres
+// embolcalls (`start_app`, `restore_app`, `raise_app`) han deixat el lloc a **`start_a_page(AStart)`**, amb els camps nomenats: `id`, `path`,
+// `card`, `come_back`, `alarm`, `late_ms`. Les deu portes que hi ha —la persona, el llaçador, el rellotge, el pany, la memòria i una app que en
+// demana una altra— diuen ara què volen i no una combinació de booleans, o sigui que oblidar-se'n un torna a ser difícil d'escriure. **I han
+// marxat dues coses que eren de més**: `raise_app` tancava la pàgina del davant dues vegades (`run_app` ja ho fa) i la comanda `home` i
+// `start_the_home_app` tenien el mateix cos escrit dues vegades —ara és `start_the_home_page(card, detached)`— (docs/30, docs/40).
+//
+// Prova nova: `test_an_order_of_the_system_runs_with_the_session_closed`, que és el cas del T5S3 amb la consola del cable.
+static const char kVersion[] = "0.190.251";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

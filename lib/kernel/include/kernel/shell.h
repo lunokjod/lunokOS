@@ -181,16 +181,9 @@ bool power_off(const char* reason);
 // chip asleep with the supply still held—. `reason` is what goes in the log (docs/30, docs/50).
 bool deep_sleep(const char* reason);
 
-// The app of the alarm goes to the front: what was in front is closed and this
-// app is started in its place (docs/60).
-//
-// **I el que l'ha fet pujar li és dit** (0.190.7, l'amo: *«les alarmes de les apps es multipliquen»* va destapar que un
-// `raise` no deia res a l'app). A raise is a window that stays, so the entry the alarm carried reaches the app's `on_alarm`
-// exactly as it does in a window: the page is a fresh start and the hook is called after its first turn (docs/30, docs/60).
-// Without it the two alarms of this tree that ask for `raise` —the clock's and the agenda's— could never say that they had
-// rung, because the hook is the only door an alarm has and it never ran (docs/60).
-bool raise_app(const char* id, const alarms::Entry* alarm = nullptr, int64_t late_ms = 0);
-
+// **I el que l'ha fet pujar li és dit quan una alarma la fa pujar** (0.190.7, l'amo: *«les alarmes de les apps es multipliquen»* va
+// destapar que un `raise` no deia res a l'app): the entry the alarm carried reaches the app's `on_alarm` through `AStart::alarm`, exactly as it
+// does in a window, perquè el ganxo és l'única porta que té una alarma (docs/30, docs/60).
 // **An app asks for another one** (0.153.0): what `app.run` does from Lua, and the switch happens after the turn —the app
 // in front goes away with its goodbye hooks and the one asked for comes up in its place—, because the app that asked is
 // the one the interpreter belongs to and closing it inside the call would destroy the state the call is running in.
@@ -202,20 +195,25 @@ bool raise_app(const char* id, const alarms::Entry* alarm = nullptr, int64_t lat
 // already uses. Null or empty is no switches, and the manifest's own are what the app gets then (docs/30, docs/40).
 bool ask_run(const char* id, bool back, const char* flags, char* why, size_t why_cap);
 
-// The app that was in front when the board went to sleep comes back, with
-// `app.args.restore` in its args so it knows to read what it saved (docs/90).
-bool restore_app(const char* id, const char* path);
+// **La porta única d'una pàgina que arrenca, amb cada cosa pel seu nom** (0.190.251, l'amo: *«reorganitza aquell caos de funcions que criden
+// funcions que comproven que criden funcions»*). Fins avui hi havia `run_app(id, path, restore, splash, alarm, late_ms)` —sis arguments
+// posicionals— i tres embolcalls (`start_app`, `restore_app`, `raise_app`) que eren combinacions recordades d'aquells sis. Cada porta nova
+// havia d'encertar-los tots i, si se n'oblidava d'un, el defecte no era a la porta sinó a la pàgina que es veia: la meva comanda `home` va
+// ensenyar la targeta que l'arrencada li treia des de la 0.179.33. Amb els camps nomenats això no pot tornar a passar sense dir-ho.
+struct AStart {
+  const char* id = nullptr;              // which app; empty is refused
+  const char* path = nullptr;            // a file it opens with, when the page opens with a file (docs/30, docs/45)
+  bool card = true;                      // the card of its manifest, when the glass is somebody else's picture
+  bool come_back = false;                // it comes back from a sleep: reads its `state` and does not wash the page (docs/90)
+  const alarms::Entry* alarm = nullptr;  // it is a `raise`: the payload the window would have given it (docs/60)
+  int64_t late_ms = 0;
+};
 
-// **The app the system starts by itself** (0.119.0): the home app of the settings, started the way `run` starts
-// one but without a prompt in between —no restore flag, because it is not coming back from anything— and only when
-// nothing is in front (docs/30, docs/40).
-//
-// **`splash` es diu i no s'endevina** (0.179.33): a start that shows the picture of the manifest and one that does not are
-// two different moments of the same app, and which one it is belongs to the caller. **The boot does not**: the board has
-// already painted the picture of its own boot on that glass and a second one is a wash of the glass and the card of an app
-// for something the person has just seen. **The way back to a launcher does**: a Lua app ends and the page a person comes
-// back to arrives with its card, which is the moment the card was drawn for (docs/30, docs/40).
-bool start_app(const char* id, bool splash = true);
+// **I el perquè de `card`** (0.179.33): a start that shows the picture of the manifest and one that does not are two different moments of the
+// same app, and which one it is belongs to the caller. **The boot does not** —the board has already painted the picture of its own boot and a
+// second one is a wash of the glass for something the person has just seen—; **la tornada a una pàgina sí**, perquè la persona ha de veure
+// quina pàgina arriba (docs/30, docs/40).
+bool start_a_page(const AStart& start);
 
 // The window of an alarm: the app is loaded, turned once and its on_alarm is
 // called, and then the VM goes away. Never runs on top of another app.

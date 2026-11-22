@@ -814,7 +814,8 @@ void test_an_app_runs_and_writes(void) {
 void test_the_queue_of_commands_holds_four_and_the_turn_runs_them(void) {
   TEST_ASSERT_TRUE(boot_once());
   char line[kernel::orders::kLineBytes];
-  while (kernel::orders::take_a_line(line, sizeof(line))) {
+  kernel::orders::Who who = kernel::orders::kPerson;
+  while (kernel::orders::take_a_line(line, sizeof(line), who)) {
   }
   TEST_ASSERT_EQUAL_UINT32(0u, static_cast<uint32_t>(kernel::orders::waiting()));
 
@@ -828,15 +829,16 @@ void test_the_queue_of_commands_holds_four_and_the_turn_runs_them(void) {
   TEST_ASSERT_EQUAL_UINT32(4u, static_cast<uint32_t>(kernel::orders::waiting()));
 
   // The oldest first, and a line comes out whole.
-  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line), who));
   TEST_ASSERT_EQUAL_STRING("version", line);
-  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_TRUE(who == kernel::orders::kPerson);
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line), who));
   TEST_ASSERT_EQUAL_STRING("", line);
-  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line), who));
   TEST_ASSERT_EQUAL_STRING("run words &", line);
-  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line), who));
   TEST_ASSERT_EQUAL_STRING("kill", line);
-  TEST_ASSERT_FALSE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_FALSE(kernel::orders::take_a_line(line, sizeof(line), who));
   TEST_ASSERT_EQUAL_UINT32(0u, static_cast<uint32_t>(kernel::orders::waiting()));
 
   // **Una línia massa llarga es talla i no emprenya la següent**: the queue's line is the shell's own, o sigui que el que arriba més enllà no
@@ -845,7 +847,7 @@ void test_the_queue_of_commands_holds_four_and_the_turn_runs_them(void) {
   for (size_t i = 0; i < sizeof(longer) - 1; ++i) longer[i] = 'x';
   longer[sizeof(longer) - 1] = '\0';
   TEST_ASSERT_TRUE(kernel::orders::post_a_line(longer));
-  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line)));
+  TEST_ASSERT_TRUE(kernel::orders::take_a_line(line, sizeof(line), who));
   TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(kernel::orders::kLineBytes - 1), static_cast<uint32_t>(strlen(line)));
 
   // **I el torn les executa**: una comanda a la cua és la resposta d'aquella comanda al torn següent, que és el que la shell d'una altra tasca

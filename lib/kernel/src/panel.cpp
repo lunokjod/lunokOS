@@ -517,7 +517,10 @@ void open_a_chosen_app(const char* id, const char* name, const char* command) {
   if (!shell::app_running()) {
     g_open = false;
     ui::forget_the_page_hold();
-    if (!shell::start_app(entry.id, /*splash=*/true)) {
+    // **La targeta sí**: la persona ha de veure quina pàgina arriba (0.179.33, docs/30, docs/40).
+    shell::AStart start;
+    start.id = entry.id;
+    if (!shell::start_a_page(start)) {
       log_printf(pal::kLogWarn, "PANEL", "the %s key: '%s' did not come up", name, entry.id);
       return;
     }
@@ -570,7 +573,9 @@ void open_the_home() {
   if (!shell::app_running() || already) {
     g_open = false;
     ui::forget_the_page_hold();
-    if (!shell::start_app(entry.id, /*splash=*/true)) {
+    shell::AStart start;
+    start.id = entry.id;
+    if (!shell::start_a_page(start)) {
       log_printf(pal::kLogWarn, "PANEL", "the house key: '%s' did not come up", entry.id);
       return;
     }

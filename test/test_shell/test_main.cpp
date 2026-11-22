@@ -28,6 +28,7 @@
 #include "kernel/repository.h"
 #include "kernel/serial.h"
 #include "kernel/session.h"
+#include "kernel/orders.h"
 #include "kernel/shell.h"
 #include "kernel/usage.h"
 #include "kernel/vfs.h"
@@ -887,6 +888,44 @@ void test_a_session_of_the_shell_is_a_shell_with_three_pipes(void) {
 // On a **serial port** nobody is at the other end to close the wire and it is the only way into a board with no
 // glass, so the session is not closed at all: the board says so, nothing that arrives is a line, and the **Enter** of
 // the terminal opens a new one. On a **virtual terminal** —the console of the emulator, a program on a PC that somebody
+// **Una ordre del sistema no obre cap sessio** (0.190.251): the page of the start is asked at a boot with a line in the queue, i al cable la
+// sessio arrenca **tancada** (0.190.184) —el xip ha de poder fer becaines—. Si la cua no distingís qui demana la línia, el primer `home` de
+// cada arrencada se'l menjaria el `login` i la pàgina del sistema no sortiria mai: és exactament el que passava al T5S3 i no a l'emulador,
+// perquè allà la consola no és el cable (docs/30, docs/50).
+void test_an_order_of_the_system_runs_with_the_session_closed(void) {
+  ensure_booted();
+  static char said[4096];
+  pal::set_virtual_terminal(false);
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("logout"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "press Enter to open a new one"), said);
+
+  // **La línia d'una persona tanca la sessió oberta i prou**: no s'executa.
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line("version"));
+  capture_begin();
+  kernel::shell::carry_out_the_orders();
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "login: a new session"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "lunokOS 0.190"), said);  // `version` did not run
+
+  // **I la del sistema sí que corre, amb la sessió com estigui**: aquesta és la que arrenca la pàgina de casa.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("logout"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_TRUE(kernel::orders::post_a_line("version", kernel::orders::kTheSystem));
+  capture_begin();
+  kernel::shell::carry_out_the_orders();
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "lunokOS 0.190"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "login: a new session"), said);
+
+  // **And the console comes back the way it was**, or the cases after this one would be on a closed wire (docs/85).
+  kernel::shell::feed("\r", 1);
+  pal::set_virtual_terminal(true);
+}
+
 // started— the session really closes and the run stops, which is what `poweroff` does on the emulator (docs/30, docs/50,
 // docs/85).
 void test_the_session_of_the_console_closes_and_opens_again(void) {
@@ -2078,6 +2117,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_unknown_command_fails);
   RUN_TEST(test_the_serial_port_is_ceded_and_the_system_goes_quiet);
   RUN_TEST(test_empty_line_is_not_an_error);
+  RUN_TEST(test_an_order_of_the_system_runs_with_the_session_closed);
   RUN_TEST(test_the_session_of_the_console_closes_and_opens_again);
   RUN_TEST(test_a_session_of_the_shell_is_a_shell_with_three_pipes);
   RUN_TEST(test_an_ampersand_runs_an_app_in_the_background);

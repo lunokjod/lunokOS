@@ -17,6 +17,7 @@ struct Queue {
   bool made = false;
   pal::Lock lock = nullptr;
   char lines[kWaiting][kLineBytes];
+  Who who[kWaiting];
   size_t head = 0;   // where the oldest waiting line is
   size_t count = 0;  // how many are in it
 };
@@ -33,11 +34,13 @@ void make_the_queue() {
   g_queue.count = 0;
 }
 
-bool post_a_line(const char* text) {
+bool post_a_line(const char* text, Who who) {
   pal::take_lock(g_queue.lock);
   bool posted = false;
   if (g_queue.made && g_queue.count < kWaiting) {
-    snprintf(g_queue.lines[(g_queue.head + g_queue.count) % kWaiting], kLineBytes, "%s", (text == nullptr) ? "" : text);
+    const size_t at = (g_queue.head + g_queue.count) % kWaiting;
+    snprintf(g_queue.lines[at], kLineBytes, "%s", (text == nullptr) ? "" : text);
+    g_queue.who[at] = who;
     ++g_queue.count;
     posted = true;
   }
@@ -45,12 +48,13 @@ bool post_a_line(const char* text) {
   return posted;
 }
 
-bool take_a_line(char* out, size_t capacity) {
+bool take_a_line(char* out, size_t capacity, Who& who) {
   if (out == nullptr || capacity == 0) return false;
   pal::take_lock(g_queue.lock);
   bool taken = false;
   if (g_queue.made && g_queue.count > 0) {
     snprintf(out, capacity, "%s", g_queue.lines[g_queue.head]);
+    who = g_queue.who[g_queue.head];
     g_queue.head = (g_queue.head + 1) % kWaiting;
     --g_queue.count;
     taken = true;

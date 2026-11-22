@@ -408,7 +408,11 @@ void deliver_alarms() {
       // `on_alarm` runs with the payload and the `meta` the window would have given it (0.190.7, docs/30, docs/60).
       log_printf(pal::kLogInfo, "ALARM", "%u raises %s", static_cast<unsigned>(entry.id),
                  entry.app);
-      shell::raise_app(entry.app, &entry, late);
+      shell::AStart raised;
+      raised.id = entry.app;
+      raised.alarm = &entry;
+      raised.late_ms = late;
+      shell::start_a_page(raised);
       // **I el que s'havia apartat no torna**: el vidre és de l'app que ha pujat (docs/60).
       parked[0] = '\0';
     } else if (!owner_running && entry.missed > 0) {
@@ -443,7 +447,10 @@ void deliver_alarms() {
   // **I la pàgina torna com la va deixar la persona**: the app is started the way a wake starts it, with `restore`, so it
   // reads the `state` it parked a moment ago and its page is the one that was on the glass (docs/30, docs/60).
   if (parked[0] != '\0' && !shell::app_running()) {
-    if (shell::restore_app(parked, nullptr)) {
+    shell::AStart back;
+    back.id = parked;
+    back.come_back = true;
+    if (shell::start_a_page(back)) {
       log_printf(pal::kLogInfo, "ALARM", "the page of %s is back", parked);
     } else {
       log_printf(pal::kLogWarn, "ALARM", "the page of %s did not come back", parked);

@@ -67,6 +67,9 @@ const char* const kStyleOn = "\033[0m";
 // **The page that asked for the one that is ending** (0.153.0), said here because a start that ends in its own first turn
 // asks for it from inside `run_app` (0.179.48) and its body is with the rest of the ways out, further down (docs/30).
 bool start_the_one_that_asked();
+// **El que es fa amb una línia acabada** (0.190.251): defined further down with the console service, i el torn la crida des de
+// `carry_out_the_orders`, que és abans (docs/30, docs/50).
+void run_a_line(const char* text);
 
 namespace {
 
@@ -2552,11 +2555,10 @@ bool answer_choice(const char* line) {
     return true;
   }
 
-  char id[40];
-  char path[kChoicePathBytes];
-  copy_text(id, sizeof(id), g_choice_ids[chosen - 1]);
-  copy_text(path, sizeof(path), g_choice_path);
-  return run_app(id, path);
+  AStart start;
+  start.id = g_choice_ids[chosen - 1];
+  start.path = g_choice_path;
+  return start_a_page(start);
 }
 
 // open [app] <path>: the file's extension picks the app, unless the app is named.
@@ -2607,7 +2609,12 @@ bool open_file(const char* argument) {
     return false;
   }
 
-  if (app_id[0] != '\0') return run_app(app_id, path);  // the app was named
+  if (app_id[0] != '\0') {
+    AStart start;
+    start.id = app_id;
+    start.path = path;
+    return start_a_page(start);  // the app was named
+  }
 
   apps::Entry handler;
   uint32_t matches = 0;
@@ -2617,7 +2624,12 @@ bool open_file(const char* argument) {
     newline();
     return false;
   }
-  if (matches == 1) return run_app(handler.id, path);
+  if (matches == 1) {
+    AStart start;
+    start.id = handler.id;
+    start.path = path;
+    return start_a_page(start);
+  }
 
   // More than one app handles it: the shell asks, every time (docs/40).
   return ask_which_app(extension, path);
@@ -4774,7 +4786,9 @@ bool start_the_one_that_asked() {
   // **I la pàgina que torna porta la seva targeta** (0.179.33): the launcher arrives with the card of its manifest, because
   // this is the moment it was drawn for —an app just ended and the person is going back to it— and not a boot the board has
   // already shown a picture for (docs/30, docs/40).
-  return run_app(back_to, nullptr, false, true);
+  AStart start;
+  start.id = back_to;
+  return start_a_page(start);
 }
 
 bool app_run_wanted(char* out, size_t cap, bool& back, char* flags, size_t flags_cap) {
@@ -4877,13 +4891,13 @@ void close_app(bool say) {
   //if (say) out("app closed\r\n");
 }
 
-bool restore_app(const char* id, const char* path) { return run_app(id, path, true); }
-
-bool start_app(const char* id, bool splash) { return run_app(id, nullptr, false, splash); }
-
-bool raise_app(const char* id, const alarms::Entry* alarm, int64_t late_ms) {
-  close_app();
-  return run_app(id, nullptr, false, true, alarm, late_ms);
+// **La porta única, i prou** (0.190.251): the six positional arguments of `run_app` are turned into fields with names here and nowhere else,
+// o sigui que les portes de fora diuen què volen i no una combinació de booleans. Les tres que hi havia (`start_app`, `restore_app`,
+// `raise_app`) eren exactament això i han marxat; **`raise_app` tancava la pàgina del davant dues vegades** perquè `run_app` ja ho fa
+// (docs/30, docs/40).
+bool start_a_page(const AStart& start) {
+  if (start.id == nullptr || start.id[0] == '\0') return false;
+  return run_app(start.id, start.path, start.come_back, start.card, start.alarm, start.late_ms);
 }
 
 // A window of an alarm (docs/60): the app is loaded for one call and thrown
@@ -5022,16 +5036,31 @@ bool the_page_in_front_can_be_left() { return g_app_alive && !app_in_front_is_a_
 // asked for another one and left the **console prompt** in front, which on a board with no cable is a glass with a page nobody
 // painted: the bar still answers, the card still opens, and every key of it says there is no app to ask —and the only way back was
 // the reset. A board that has a page of the start comes back to it, exactly as the boot does (docs/30, docs/40, docs/90).
-bool start_the_home_app() {
+// **La pàgina de casa, amb les dues maneres de demanar-la en un sol cos** (0.190.251): `card` és l'única diferència entre la tornada a una
+// pàgina —una app s'ha acabat i la persona ha de veure quina arriba (0.179.33)— i la comanda `home` de l'arrencada, on el vidre ja té la imatge
+// del boot. Abans eren dos cossos amb les mateixes tres línies i una d'elles es va quedar sense la comprovació de l'app (docs/30, docs/40).
+bool start_the_home_page(bool card, bool detached) {
   const char* home = cfg::home_app();
   if (home == nullptr || home[0] == '\0') return false;
+  AStart start;
+  start.id = home;
+  start.card = card;
+  // **El `&` és d'aquesta arrencada i de cap més** (0.160.0): the flag lives for one start.
+  const bool was = g_start_detached;
+  g_start_detached = detached;
+  const bool started = start_a_page(start);
+  g_start_detached = was;
+  return started;
+}
+
+bool start_the_home_app() {
   // A board with no glass has no page to come back to and its prompt is where a person wants to be (docs/50).
   if (display::surface() == nullptr) return false;
-  if (!start_app(home, /*splash=*/true)) {
-    log_printf(pal::kLogWarn, "HOME", "%s is the page of the start and it did not come up", home);
+  if (!start_the_home_page(/*card=*/true, /*detached=*/false)) {
+    log_printf(pal::kLogWarn, "HOME", "%s is the page of the start and it did not come up", cfg::home_app());
     return false;
   }
-  log_printf(pal::kLogInfo, "HOME", "%s: the page of the start takes the glass back", home);
+  log_printf(pal::kLogInfo, "HOME", "%s: the page of the start takes the glass back", cfg::home_app());
   return true;
 }
 
@@ -5164,12 +5193,21 @@ bool ask_for_the_home_app() {
   // **I prou**: el que queda és una línia a la cua. **No hi ha camí de tornada** (0.190.250): la 0.190.249 tenia un `run_app` directe per si
   // la cua refusava, i era codi mort —a l'arrencada la cua és buida i la fan abans que la shell—, o sigui que una porta que no pot passar mai
   // i que, si passés, arrencaria l'app **dins del `boot`**, que és exactament el que aquesta funció existeix per no fer (docs/30, docs/50).
-  return orders::post_a_line("home");
+  return orders::post_a_line("home", orders::kTheSystem);
 }
 
 void carry_out_the_orders() {
   char line[orders::kLineBytes];
-  while (orders::take_a_line(line, sizeof(line))) take_a_line(line);
+  orders::Who who = orders::kPerson;
+  while (orders::take_a_line(line, sizeof(line), who)) {
+    // **Una ordre del sistema no obre cap sessió** (0.190.251): it runs and says what it has to say, and the login of the wire stays where it
+    // was —waiting for a person to press Enter— (docs/30, docs/50).
+    if (who == orders::kTheSystem) {
+      run_a_line(line);
+      continue;
+    }
+    take_a_line(line);
+  }
 }
 
 bool poll_app() {
@@ -5259,7 +5297,9 @@ bool poll_app() {
       close_app();
       if (back) snprintf(g_run_back, sizeof(g_run_back), "%s", asked_by);
       g_start_detached = was_detached;
-      if (!run_app(wanted, nullptr)) prompt();
+      AStart start_of_the_wish;
+      start_of_the_wish.id = wanted;
+      if (!start_a_page(start_of_the_wish)) prompt();
       g_start_detached = false;
       return g_app_alive;
     }
@@ -7266,8 +7306,11 @@ bool execute(char* line) {
     const char* open_path = (count > 1) ? words[1] : nullptr;
     // **`&` is read by `run_app` and not here** (0.160.0): the flag lives for one start, so an app that asks for
     // another one from its own turns is not detached by accident.
+    AStart start;
+    start.id = words[0];
+    start.path = open_path;
     g_start_detached = background;
-    const bool started = run_app(words[0], open_path);
+    const bool started = start_a_page(start);
     g_start_detached = false;
     return started;
   }
@@ -7300,9 +7343,7 @@ bool execute(char* line) {
       return false;
     }
     // **I al darrere del prompt, com el `&`**: la persona que escriu això vol la pàgina al vidre, no perdre el cable (docs/30).
-    g_start_detached = true;
-    const bool started = start_app(home, /*splash=*/false);
-    g_start_detached = false;
+    const bool started = start_the_home_page(/*card=*/false, /*detached=*/true);
     if (!started) out("home: it did not come up\r\n");
     return started;
   }
@@ -7784,20 +7825,11 @@ bool start_the_task() {
   return pal::start_a_task("lunok_shell", 6 * 1024, 3, &serve_task, nullptr);
 }
 
-void take_a_line(const char* text) {
-  g_last_wire_activity_ms = pal::system().millis();
+// **El que es fa amb una línia acabada, sigui de qui sigui** (0.190.251): `log follow`, la consola d'una app que viu al cable, `execute` i el
+// prompt. La sessió no hi és: obrir-la és de la persona i no d'una ordre del sistema, i barrejar-ho va ser el defecte que menjava la primera
+// comanda de cada arrencada (docs/30, docs/50).
+void run_a_line(const char* text) {
   const size_t len = (text != nullptr) ? strlen(text) : 0;
-  // **Una sessió tancada s'obre amb el primer Enter**, com al cable: el terminal no pot fer-hi res més, i la línia que s'hi escriu no és
-  // la primera lletra de res (docs/30).
-  if (!g_session_open) {
-    g_session_open = true;
-    g_editor.reset();
-    out("login: a new session\r\n");
-    say_the_banner();
-    sync_the_wire_lock();
-    prompt();
-    return;
-  }
   // **`log follow` té el teclat mentre dura**: qualsevol línia l'atura, que és el mateix que feia qualsevol tecla (docs/30).
   if (g_log_follow) {
     g_log_follow = false;
@@ -7818,6 +7850,23 @@ void take_a_line(const char* text) {
   snprintf(line, sizeof line, "%s", (text != nullptr) ? text : "");
   if (line[0] != '\0') execute(line);
   if ((!g_app_alive || g_app_detached) && !g_choosing && !native_running() && !g_log_follow) prompt();
+}
+
+void take_a_line(const char* text) {
+  g_last_wire_activity_ms = pal::system().millis();
+  // **Una sessió tancada s'obre amb el primer Enter**, com al cable: el terminal no pot fer-hi res més, i la línia que s'hi escriu no és
+  // la primera lletra de res (docs/30). **I això només passa amb una línia d'una persona**: una ordre del sistema arrenca la pàgina de casa
+  // amb la sessió tancada, i el que no pot és que el seu primer torn se'l mengi un `login` (0.190.251, docs/30, docs/50).
+  if (!g_session_open) {
+    g_session_open = true;
+    g_editor.reset();
+    out("login: a new session\r\n");
+    say_the_banner();
+    sync_the_wire_lock();
+    prompt();
+    return;
+  }
+  run_a_line(text);
 }
 
 void feed(const char* data, size_t len) {
