@@ -13126,7 +13126,80 @@ namespace kernel {
 // gest que el disc del `About`: el ratolí i el teclat volen dir «aquesta placa és això» i el disc diu «i va per Bluetooth». La runa no
 // s'ha tornat a dibuixar mai: és la de la icona que hi havia, retallada per la seva tinta. Les dues apps pugen a **0.3.1** i **0.1.1**.
 
-static const char kVersion[] = "0.190.268";
+// 0.190.269 (22/11): **la línia de la dormida, en paraules** (l'amo: *«Estría be posar-ho en llenguatge humà, no trobes?»*, amb
+// `[I][POWER] deep sleep until 1794347273309` a la mà). Un epoch de mil·lisegons és un número per a una màquina, i era l'únic que aquella
+// línia deia.
+//
+// **Ara diu tres coses**: quan torna la placa, quant falta i —només si no és avui— quin dia. `deep sleep until 07:18 UTC (in 14 min)`, i
+// `deep sleep until 04:13 UTC on 25/6 (in 1 d)` quan creua la mitjanit. Les paraules del quant són les d'una persona i no les d'un
+// comptador: segons per sota del minut, minuts per sota de l'hora, hores per sota del dia, dies a partir d'aquí, i la unitat de sota només
+// hi va mentre val la pena llegir-la (7 h 58 min sí, 12 min 4 s no).
+//
+// **L'hora és UTC i ho diu, perquè ho és**: la banda que dorm no sap el desplaçament de la persona —el sap el nucli, a `cfg`— i una hora
+// local inventada seria pitjor que una de certa amb el nom al costat. El «quant falta» no enganya mai, perquè és el mateix a qualsevol fus.
+//
+// **I les dues bandes diuen el mateix**: el format viu a `hal/civil.h` (`human_wait` i `human_other_day`, al costat de la conversió de
+// calendari que ja hi era), i l'emulador el fa servir a les seves dues línies de dormida; o sigui que un guió i la placa es poden comparar
+// línia a línia, que és el que docs/85 demana. Provat a l'emulador amb l'hora fixa (`--now`): `light sleep until 07:03 UTC (in 5 s)` i
+// `deep sleep until 04:13 UTC on 25/6 (in 1 d)`, i el format sol amb un banc d'amfitrió de dotze valors.
+
+// 0.190.270 (22/11): **el punt del calendari, i l'Agenda repassada contra el paper** (l'amo: *«Repassa l'app Agenda, no
+// marca els dies amb cites amb un cercle farcit negre sota els números com feia l'anterior (curiosament la cita si la guarda).
+// Revisa l'app original a fons. Troba errors com aquest. A la vista d'edició d'events, he mogut algún botó. o canviat algún
+// text... Per lo demés l'app ha de ser igual a com era l'altre»*).
+//
+// **El punt hi era i no es veia**: `month_draw` marcava el dia amb `put_rect(..., 3, 3, tone)` al peu de la casella, o sigui
+// tres píxels en una cantonada. El paper en feia un quadre de vuit sota el número. Ara és un **disc de nou píxels** centrat sota
+// el número (`draw_disc`, radi 4), amb sis píxels d'aire, i **el número i el punt es tracten com un bloc que es centra a la
+// casella**: la plaça del punt es descompta a totes les cel·les igual, o sigui que tots els números queden a la mateixa línia
+// encara que el mes tingui un sol dia marcat. Una casella massa baixa no dibuixa el punt i no mou mai el número.
+//
+// **I l'app, línia a línia amb l'original**:
+//
+// - **la línia del formulari torna a sobre dels camps** (era a sota): l'original la posa al costat de la data i els camps van
+//   a sota, i el que el formulari està a punt de desar es llegeix abans dels camps i no després;
+// - **tornar del dia al mes assenyala el dia d'on es torna**, com `cal:set_selected(day_)` de l'original, i no el d'avui;
+// - **dos texts que s'havien canviat pel camí**: `in the flash` (deia *on the flash*, que a la targeta sí que és *on the card*)
+//   i `· N unreadable line(s)`;
+// - **el títol del triador de la data no s'escanya**: `Pick the day · November 2026` no cap a la font del títol, i el que cedeix
+//   és la font —el pas més gran que hi cap— i no les paraules, perquè `Pick the day · Nov…` no diu ni el mes ni l'any. El títol
+//   va centrat a la seva línia perquè un pas més petit no deixi un forat a sota;
+// - **i un rellotge amb un any impossible no mata l'app**: `time.date()` pot dir un any que el calendari del nucli refusa
+//   (`a calendar's year is not a value it can use`, vist amb `--now` en mil·lisegons), i ara es tracta com un rellotge sense
+//   posar: el calendari es queda a la vora dels anys i la línia del mes ho diu.
+//
+// El que es va trobar igual —el formulari sencer, l'ordre i les paraules dels nou camps, els quatre botons del dia, les tres
+// frases del peu i el format `AAAA-MM-DD|HH:MM[-HH:MM]|R|títol|nota`— no s'ha tocat.
+
+// 0.190.271 (23/11): **la pulsació llarga de Home obre una targeta de quatre portes, i una app es pot amagar** (l'amo: *«Al fer
+// una polsació llarga sobre una app del grid de home_eink: ara s'obre app info. Enlloc d'info obrirem un modal amb quatre botons:
+// App info, Hide, Show hidden, Back. Que l'app home_ink guardi una llista d'apps que l'usuari no vol que es vegin al home i
+// l'esborri amb "Show hidden". Aquesta llista ha d'estar en una sessió»*).
+//
+// **El pad d'un segon ja no obre la fitxa**: obre una targeta amb les quatre portes que la persona volia —`App info` (la fitxa de
+// sempre, `appinfo -d <id>`), `Hide`, `Show hidden` i `Back`—, i un toc fora de la targeta és el seu `Back`.
+//
+// **I la targeta és un `ui.picker` i no un `ui.menu`, i això es va aprendre mirant-la**: un menú sobre una graella **no rep el
+// dit** —el repartiment del contacte es queda amb el control més fondo de l'arbre, i una cel·la ho és més que la targeta, o sigui
+// que la targeta sortia al vidre i la premuda queia a la cel·la de sota—. El `ui.picker` és la targeta modal del sistema
+// (`__dialog`): mentre és al vidre el camí del dial i del dit és el seu, la pàgina de darrere no respon res i el cercle és seu. Dos
+// detalls més del control: una targeta ampla posa les portes en **dues columnes** i tallava `Show hid…`, i ara l'amplada és la del
+// mot més llarg; i el `menu_grid`/`picker_grid` no donen pas a quatre portes en una targeta curta, sinó una segona pàgina amb claus.
+//
+// **La llista de les amagades viu a la sessió `hidden`** (una línia per id, el text s'acaba al primer zero, i el bloc es pregunta
+// `alive()` abans d'escriure-hi): una app amagada no és una app que no hi és —el disc la té, `apps` la llista, `run <id>` la
+// comença— i el que no hi és és la seva cel·la. `Show hidden` buida la llista i **torna a preguntar la porta**: el nom, la imatge i
+// l'ordre de les que tornen són de la porta i no d'aquest fitxer, o sigui que tornen per la cua de les seves fitxes.
+//
+// **I mentre la targeta és al vidre la pàgina no es toca**: la cua de les fitxes no pinta cap cel·la (una imatge que aterrés a
+// sota seu la taparia), i el `build()` que refà la pàgina va **abans** de la cua, perquè el forat de la targeta el paga la pàgina i
+// una cel·la que arribés abans cauria just a sobre del que la targeta tenia escrit.
+//
+// Provat a l'emulador amb el dit: les quatre portes fan el que diuen (`2048 is hidden`, `1 app(s) shown again` amb la imatge de
+// tornada, la fitxa de l'app i el `Back`), un toc sobre una cel·la amb la targeta a sobre no llança res, i la sessió es desa sola
+// quan una altra app pren el vidre (`home_eink parks 'hidden': 512 B to /session/home`).
+
+static const char kVersion[] = "0.190.271";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

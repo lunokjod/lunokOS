@@ -7,7 +7,9 @@
 #ifndef LUNOK_HAL_CIVIL_H
 #define LUNOK_HAL_CIVIL_H
 
+#include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 namespace hal {
 
@@ -71,6 +73,61 @@ inline void epoch_ms_to_civil(int64_t ms, int& y, int& mo, int& d, int& h, int& 
   h = static_cast<int>(rest / 3600);
   mi = static_cast<int>((rest % 3600) / 60);
   s = static_cast<int>(rest % 60);
+}
+
+// **Quant falta, dit com ho diu una persona** (0.190.269): 733 289 ms is a number for a machine and «12 min» is what a person reads.
+// The unit is the largest one that still says something —seconds under a minute, minutes under an hour, hours under a day— and the
+// next one goes with it only while what is left is worth reading. It lives here, with the calendar, perquè les dues bandes que
+// diuen una dormida —la placa i l'emulador— diguin exactament el mateix (docs/50, docs/60, docs/85).
+inline void human_wait(char* out, size_t cap, int64_t ms) {
+  if (out == nullptr || cap == 0) return;
+  if (ms < 0) ms = 0;
+  const int64_t seconds = (ms + 500) / 1000;
+  if (seconds < 60) {
+    snprintf(out, cap, "in %lld s", static_cast<long long>(seconds));
+    return;
+  }
+  const int64_t minutes = seconds / 60;
+  if (minutes < 60) {
+    const int64_t rest = seconds % 60;
+    if (minutes < 10 && rest > 0) {
+      snprintf(out, cap, "in %lld min %lld s", static_cast<long long>(minutes), static_cast<long long>(rest));
+    } else {
+      snprintf(out, cap, "in %lld min", static_cast<long long>(minutes));
+    }
+    return;
+  }
+  const int64_t hours = minutes / 60;
+  if (hours < 24) {
+    const int64_t rest = minutes % 60;
+    if (hours < 10 && rest > 0) {
+      snprintf(out, cap, "in %lld h %lld min", static_cast<long long>(hours), static_cast<long long>(rest));
+    } else {
+      snprintf(out, cap, "in %lld h", static_cast<long long>(hours));
+    }
+    return;
+  }
+  const int64_t days = hours / 24;
+  const int64_t rest = hours % 24;
+  if (days < 10 && rest > 0) {
+    snprintf(out, cap, "in %lld d %lld h", static_cast<long long>(days), static_cast<long long>(rest));
+  } else {
+    snprintf(out, cap, "in %lld d", static_cast<long long>(days));
+  }
+}
+
+// **I el dia d'una hora, només quan no és el d'ara**: a sleep that ends tomorrow is the one where the date is worth reading.
+// `out` comes back empty when the two moments are the same day.
+inline void human_other_day(char* out, size_t cap, int64_t at_ms, int64_t now_ms) {
+  if (out == nullptr || cap == 0) return;
+  out[0] = '\0';
+  if (at_ms <= 0 || now_ms <= 0) return;
+  int ay = 0, amo = 0, ad = 0, ah = 0, ami = 0, as = 0;
+  int ny = 0, nmo = 0, nd = 0, nh = 0, nmi = 0, ns = 0;
+  epoch_ms_to_civil(at_ms, ay, amo, ad, ah, ami, as);
+  epoch_ms_to_civil(now_ms, ny, nmo, nd, nh, nmi, ns);
+  if (ay == ny && amo == nmo && ad == nd) return;
+  snprintf(out, cap, " on %d/%d", ad, amo);
 }
 
 }  // namespace hal

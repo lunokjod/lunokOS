@@ -29,6 +29,7 @@
 #endif
 
 #include "board/identity.h"
+#include "hal/civil.h"
 #include "hal/log.h"
 #include "esp32/clock.h"
 #include "esp32/power.h"
@@ -310,14 +311,29 @@ bool Esp32Power::battery(int& mv, int& pct, bool& charging) {
   return false;
 }
 
+// **La línia del son, en paraules** (0.190.269, l'amo: *«Estría be posar-ho en llenguatge humà, no trobes?»* sobre
+// `deep sleep until 1794347273309`): an epoch of milliseconds is a number for a machine and it was the only thing this line said.
+// What a person wants to know is **when** the board comes back, **how long** that is, and **which day** when it is not today.
+//
+// **L'hora és UTC i ho diu**: aquesta banda no sap el desplaçament de la persona —el sap el nucli, a `cfg`— i una hora local que
+// s'inventa seria pitjor que una de certa amb el seu nom al costat. El que no enganya mai és el «quant falta», que és el mateix a
+// qualsevol fus (docs/50, docs/60).
 void Esp32Power::say_the_way_down(SleepMode mode, int64_t at_epoch_ms) {
-  if (at_epoch_ms > 0) {
-    hal::logf(pal::kLogInfo, "POWER", "%s sleep until %lld", (mode == SleepMode::kDeep) ? "deep" : "light",
-              static_cast<long long>(at_epoch_ms));
-  } else {
-    hal::logf(pal::kLogInfo, "POWER", "%s sleep until a key of the board",
-              (mode == SleepMode::kDeep) ? "deep" : "light");
+  const char* what = (mode == SleepMode::kDeep) ? "deep sleep" : "light sleep";
+  if (at_epoch_ms <= 0) {
+    hal::logf(pal::kLogInfo, "POWER", "%s until a key of the board", what);
+    return;
   }
+  int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+  hal::epoch_ms_to_civil(at_epoch_ms, y, mo, d, h, mi, s);
+  const int64_t now = esp32_wall_ms();
+  char wait[32] = "in a moment";
+  char other_day[24] = "";
+  if (now > 0) {
+    hal::human_wait(wait, sizeof(wait), at_epoch_ms - now);
+    hal::human_other_day(other_day, sizeof(other_day), at_epoch_ms, now);
+  }
+  hal::logf(pal::kLogInfo, "POWER", "%s until %02d:%02d UTC%s (%s)", what, h, mi, other_day, wait);
 }
 
 bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel) {

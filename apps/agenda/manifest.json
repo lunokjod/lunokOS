@@ -1,7 +1,7 @@
 {
   "title": "Agenda",
   "author": "@lunokjod",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "entry": "agenda.lua",
   "boards": [
     "esp32"

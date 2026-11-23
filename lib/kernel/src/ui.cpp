@@ -5610,6 +5610,13 @@ bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, ui
   static char shown[8];
   const int32_t line_h =
       static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  // **El punt del dia que té alguna cosa, i l'aire que se li guarda** (0.190.270): el número i el seu punt són un bloc que
+  // es centra a la casella, i la plaça es descompta a totes les caselles igual perquè tots els números caiguin a la mateixa
+  // línia (docs/30, docs/45, docs/90).
+  constexpr int32_t kMarkRadius = 4;  // nine pixels across, the weight of the eight the paper drew
+  constexpr int32_t kMarkPad = 6;     // the air between the number and the dot
+  const int32_t mark_room = line_h + kMarkPad + 2 * kMarkRadius;
+  const bool room_for_mark = cells.row_h >= mark_room + 4;
   // **The names of the days are the app's**: the kernel draws them and does not know what a Tuesday is called. They
   // arrive in the order of a week that begins on Monday —the seven names, Monday first— and the columns turn with the
   // setting, so the app writes one list and the glass says the week the person asked for (0.170.0, docs/30).
@@ -5649,18 +5656,21 @@ bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, ui
     }
     snprintf(shown, sizeof(shown), "%d", static_cast<int>(day));
     const int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
-    draw_text(*target.canvas, face, x + (cells.cell_w - taken) / 2, y + (cells.row_h - line_h) / 2, shown, scale,
+    const int32_t num_y = y + (room_for_mark ? (cells.row_h - mark_room) / 2 : (cells.row_h - line_h) / 2);
+    draw_text(*target.canvas, face, x + (cells.cell_w - taken) / 2, num_y, shown, scale,
               chosen ? background : text, mode);
-    // **El punt del dia que té alguna cosa** (0.189.171): a three-pixel mark under the number, at the foot of the cell —
-    // above the frame of today, so the two signals do not touch—, i **en el color del paper quan la cel·la és la triada**,
-    // perquè una marca de tinta sobre tinta és una marca que no hi és (docs/30, docs/45).
+    // **El punt del dia que té alguna cosa** (0.189.171, i des de 0.190.270 un disc que es veu): el paper marcava el dia amb
+    // un quadre de vuit píxels sota el número, i el que una persona hi llegeix és un punt —aquest control el dibuixa rodó i
+    // del mateix pes—, i **en el color del paper quan la cel·la és la triada**, perquè una marca de tinta sobre tinta és una
+    // marca que no hi és (docs/30, docs/45).
     // **I el dia zero no és cap dia**: the cells before the first of the month have no number, and asking for the bit of
     // `day - 1` there was a shift of four thousand million places —undefined behaviour that the board's mask happened to
     // turn into bit 31, que avui ningú no pot encendre i que el dia que algú pugui seria un punt a la casella buida—
     // (0.189.174, docs/30, docs/90).
-    if (day >= 1 && day <= 31 && (marks & (1u << static_cast<uint32_t>(day - 1))) != 0 && cells.row_h > line_h + 8) {
+    if (room_for_mark && day >= 1 && day <= 31 && (marks & (1u << static_cast<uint32_t>(day - 1))) != 0) {
       const uint8_t tone = chosen ? background : text;
-      put_rect(*target.canvas, x + cells.cell_w / 2 - 1, y + cells.row_h - 6, 3, 3, tone);
+      draw_disc(*target.canvas, x + cells.cell_w / 2, num_y + line_h + kMarkPad + kMarkRadius, kMarkRadius, tone,
+                mode);
     }
   }
   // **The calendar as a whole is the control**: its frame says where the dial is, and the cells say the rest.

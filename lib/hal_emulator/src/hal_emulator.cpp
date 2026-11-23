@@ -716,8 +716,19 @@ class FakePower : public IPower {
       // To stderr and not to the console: it is this band talking about itself and
       // it must not be mixed with what the system says to a person (docs/85).
       if (at_epoch_ms > 0) {
-        fprintf(stderr, "power: %s sleep until %lld (the clock jumps; the PC does not sleep)\n", depth,
-                static_cast<long long>(at_epoch_ms));
+        // **La mateixa hora en paraules que la placa** (0.190.269): an epoch of milliseconds is a number for a machine, and the two
+        // bands say the same words so that two runs of the same script can be compared line by line (docs/50, docs/85).
+        int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+        hal::epoch_ms_to_civil(at_epoch_ms, y, mo, d, h, mi, s);
+        char wait[32] = "";
+        char other_day[24] = "";
+        const int64_t now = host_clock().epoch_ms();
+        if (now > 0) {
+          hal::human_wait(wait, sizeof(wait), at_epoch_ms - now);
+          hal::human_other_day(other_day, sizeof(other_day), at_epoch_ms, now);
+        }
+        fprintf(stderr, "power: %s sleep until %02d:%02d UTC%s (%s) (the clock jumps; the PC does not sleep)\n", depth, h, mi,
+                other_day, wait);
       } else {
         // **Zero no és una hora, és la tecla** (0.190.15): the same words as the board, so two runs can be compared line by line.
         fprintf(stderr, "power: %s sleep until a key of the board (the PC does not sleep)\n", depth);
@@ -727,8 +738,17 @@ class FakePower : public IPower {
 
     // **El xip s'atura de debò**: la línia de la placa és la seva, i la de l'emulador diu què ha passat.
     if (at_epoch_ms > 0) {
-      fprintf(stderr, "power: %s sleep until %lld (the chip stops; the hour, a key or the glass wakes it)\n", depth,
-              static_cast<long long>(at_epoch_ms));
+      int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+      hal::epoch_ms_to_civil(at_epoch_ms, y, mo, d, h, mi, s);
+      char wait[32] = "";
+      char other_day[24] = "";
+      const int64_t now = host_clock().epoch_ms();
+      if (now > 0) {
+        hal::human_wait(wait, sizeof(wait), at_epoch_ms - now);
+        hal::human_other_day(other_day, sizeof(other_day), at_epoch_ms, now);
+      }
+      fprintf(stderr, "power: %s sleep until %02d:%02d UTC%s (%s) (the chip stops; the hour, a key or the glass wakes it)\n",
+              depth, h, mi, other_day, wait);
     } else {
       fprintf(stderr, "power: %s sleep until a key of the board (the chip stops)\n", depth);
     }

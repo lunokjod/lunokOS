@@ -3632,9 +3632,15 @@ ui.present()
 - **Dos senyals**: el dia triat s'**inverteix** i el d'avui porta **marc**; en aquest vidre no hi ha color per a dues
   coses.
 - **Els dies amb alguna cosa porten un punt** (`marks`, 0.189.171): l'app diu quins són i el dibuix els converteix en un
-  punt de tres píxels sota el número, **una fila més avall de la lletra del dia**, que és el que fa el calendari del
-  paper. Va en el to del paper quan la cel·la és la triada, perquè si no el punt desapareixeria sota la tinta. El
-  control no en sap res, de què és «alguna cosa»: això és de l'app (l'`Agenda` hi posa els dies amb esdeveniments).
+  punt sota el número, que és el que fa el calendari del paper. Va en el to del paper quan la cel·la és la triada, perquè
+  si no el punt desapareixeria sota la tinta. El control no en sap res, de què és «alguna cosa»: això és de l'app
+  (l'`Agenda` hi posa els dies amb esdeveniments).
+- **I el punt és un disc, no una engruna** (0.190.270, l'amo: *«no marca els dies amb cites amb un cercle farcit negre
+  sota els números com feia l'anterior»*): nou píxels de diàmetre —el pes dels vuit del paper, que allà era un quadre
+  perquè *«a eight pixels a circle drawn by hand is a square with the corners bitten off»*—, centrat sota el número i amb
+  sis píxels d'aire. El número i el punt es tracten com **un bloc que es centra a la casella**, i la plaça del punt es
+  descompta a totes les cel·les igual perquè tots els números caiguin a la mateixa línia encara que el mes en tingui un de
+  sol; una casella massa baixa per al bloc no dibuixa el punt i no deixa mai el número desplaçat.
 - **Les fletxes caminen els dies** i el centre en tria un amb `on_pick(self, day)`; **un dit tria el dia on és**, amb
   les mateixes cel·les que el dibuix.
 

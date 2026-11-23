@@ -135,6 +135,10 @@ local head = 1
 local verify = {}
 local vhead = 1
 local again = false   -- something left the page, so it is laid out again
+-- **La porta s'ha de tornar a preguntar** (0.190.271): el naixement de la pàgina el decideix, i la targeta del dit llarg
+-- també —una app que torna d'amagada la sap la porta i no aquest fitxer—, o sigui que el nom és declarat aquí i no tres-cents
+-- píxels més avall: un `local` de més avall és un global per a la funció que el toca abans, i el que el tocava era la targeta.
+local checked = false
 local grid = nil
 -- **La línia del carregament** (0.189.15, abans 0.186.2): the queue of manifests and pictures takes one app a turn, and
 -- while it runs this is the control that says how far it is. It is a thin line on the top of the page, flush under the
@@ -366,6 +370,228 @@ end
 local function bump_usage(id)
   uses[id] = (uses[id] or 0) + 1
   save_usage()
+end
+
+-- ------------------------------------------------------------------ les apps que la persona ha amagat
+
+-- **Una llista d'apps que la persona no vol veure a la pàgina** (0.190.271, l'amo: *«Que l'app home_ink guardi una llista
+-- d'apps que l'usuari no vol que es vegin al home i l'esborri amb "Show hidden". Aquesta llista ha d'estar en una sessió»*).
+-- Una sessió pròpia, `hidden`, i no la del `state`: el que s'amaga no és la forma de la vista sinó el que aquesta pàgina ha
+-- après de la persona, la mateixa regla que el compte d'usos (docs/30, docs/75). **Una línia per app** i el text s'acaba al
+-- primer zero, perquè un bloc es llegeix sencer i el que hi ha darrere del text és el zero del nucli.
+--
+-- **I la llista dura el que dura l'encesa**: una sessió és memòria de la placa i no del disc, o sigui que el que s'amaga no
+-- sobreviu a un apagat i una app que no es veu bé no es pot perdre per sempre més. El que ha de quedar és una preferència i
+-- llavors el seu lloc seria `fs.data`; això és una manera de treure una cosa del mig durant una estona (docs/30, docs/75).
+local kHiddenKey = 'hidden'
+local kHiddenSteps = { 512, 256, 128 }
+local hidden_block = nil   -- el bloc, o nil quan el sistema no n'ha donat cap
+local hidden = {}          -- l'id d'una app a `true`
+local hidden_ids = {}      -- els mateixos, en l'ordre en què es desaran
+
+local function is_hidden(id) return hidden[id] == true end
+
+local function load_hidden()
+  hidden_block = nil
+  hidden = {}
+  hidden_ids = {}
+  local block, err = nil, nil
+  for i = 1, #kHiddenSteps do
+    block, err = sys.session(kHiddenKey, kHiddenSteps[i])
+    if block ~= nil then break end
+  end
+  if block == nil then
+    console.print('home: no list of the hidden apps: ' .. tostring(err and err.message or err))
+    return
+  end
+  hidden_block = block
+  local text = block:read(0, block:size())
+  local zero = text:find('\0', 1, true)
+  if zero ~= nil then text = text:sub(1, zero - 1) end
+  for id in text:gmatch('[^\n]+') do
+    if not hidden[id] then
+      hidden[id] = true
+      hidden_ids[#hidden_ids + 1] = id
+    end
+  end
+  if #hidden_ids > 0 then
+    console.print(string.format('home: %d app(s) hidden: %s', #hidden_ids, table.concat(hidden_ids, ' ')))
+  end
+end
+
+-- **El bloc es pregunta si encara és nostre abans d'escriure-hi** (docs/30, docs/75): the relief of the allocator gives every
+-- session back the moment a block does not fit, and a write to a block that was given back raises inside the tap that asked
+-- for it —the same reason `save_usage` asks—. **I el zero que tanca el text**: a shorter list over a longer one would leave
+-- the tail of the old one in the block.
+local function save_hidden()
+  if hidden_block == nil then return false end
+  if not hidden_block:alive() then
+    console.print('home: the list of the hidden apps was given back, asked again')
+    hidden_block = nil
+    return false
+  end
+  hidden_block:write(0, table.concat(hidden_ids, '\n') .. '\0')
+  return true
+end
+
+local function hide(id)
+  if hidden[id] then return false end
+  hidden[id] = true
+  hidden_ids[#hidden_ids + 1] = id
+  save_hidden()
+  return true
+end
+
+--- **Tornar-les totes, que és el que fa `Show hidden`**: la llista s'esborra i la pàgina es torna a fer amb el que la porta diu.
+local function show_the_hidden()
+  local back = #hidden_ids
+  hidden = {}
+  hidden_ids = {}
+  save_hidden()
+  return back
+end
+
+-- ------------------------------------------------------------------ la targeta del dit llarg
+
+-- **Una pulsació llarga sobre una app obre una targeta de quatre portes** (0.190.271, l'amo: *«ara s'obre app info. Enlloc
+-- d'info obrirem un modal amb quatre botons: App info, Hide, Show hidden, Back»*): el pad d'un segon sobre una cel·la no és un
+-- llançament, i el que una persona vol saber o fer amb una app és això que la targeta pregunta.
+--
+-- **I la targeta és un `ui.picker` i no un `ui.menu`**, i això es va aprendre mirant-la a l'emulador: un menú sobre una graella
+-- **no rep el dit**, perquè el repartiment del contacte es queda amb el control més fondo de l'arbre i una cel·la (dins de la
+-- graella) ho és més que la targeta —la targeta sortia al vidre i la premuda queia a la cel·la de sota—. El `ui.picker` és
+-- **la targeta modal del sistema** (0.189.102): és `__dialog`, o sigui que mentre és al vidre el camí del dial i del dit és el
+-- seu i la pàgina de darrere no respon res, la banda de tinta és a la fila on és el dit o el cercle, i un toc fora de la
+-- targeta és el seu `on_cancel` —que aquí vol dir `Back`— (docs/30, docs/90). **Un diàleg no hi cap**: el `ui.dialog` té dues
+-- portes —acceptar i cancel·lar— i aquesta pregunta en té quatre, i un control nou per a això seria el que aquest projecte no
+-- vol tenir.
+--
+-- **I la targeta és el que hi ha al vidre mentre és allà**: la cua de la pàgina no pinta cap cel·la —una imatge que aterrés a
+-- sota de la targeta la taparia—, les cel·les no responen encara que la pàgina fos viva, i el cercle és seu (docs/30, docs/90).
+local kDoorInfo, kDoorHide, kDoorShow, kDoorBack = 1, 2, 3, 4
+-- **Les quatre portes, escrites una vegada**: el text de la targeta i l'amplada que ha de tenir surten de la mateixa llista, o
+-- sigui que una porta que canviï de paraula no es pot quedar sense la seva amplada (docs/30, docs/90).
+local kDoors = { 'App info', 'Hide', 'Show hidden', 'Back' }
+local kDoorRows = #kDoors
+local menu_card = nil   -- la targeta, mentre és al vidre
+local menu_id = nil     -- l'app de la cel·la que l'ha oberta
+local wanted_card = nil -- l'app que el dit ha demanat i que la volta obrirà, fora del ganxo
+
+local function the_card_is_up() return menu_card ~= nil end
+
+local function close_the_card()
+  if menu_card == nil then return end
+  -- **Es llegeix l'acció, es tanca i després es fa** (docs/90): a page under a card never moves with the finger still on the
+  -- glass, which is the rule the paper project learned with its own modal.
+  local card = menu_card
+  menu_card = nil
+  menu_id = nil
+  local ok, err = pcall(card.release, card)
+  if not ok then console.print('home: the card of an app is still there: ' .. tostring(err)) end
+end
+
+-- **La mida de la targeta és la de la llei del control i no un número escrit aquí** (docs/90): `picker_grid` gasta dotze de
+-- marge a cada costat, una línia per porta que és la del text més setze —i mai menys de cinquanta-dos, que és el que demana un
+-- dit— i una capçalera de dues vegades el marge més la línia del títol, que va un pas més gran que les portes. Una targeta
+-- curta no ensenya quatre portes: en pinta les que hi caben i les altres es queden a una segona pàgina amb les seves claus al
+-- peu, que és una targeta de dos fulls per a una pregunta de quatre respostes.
+--
+-- **I l'amplada és la del mot més llarg i no la del vidre** (0.190.271): el control reparteix les portes en columnes quan hi
+-- caben dues vegades, i una targeta de quatre portes en dues columnes és la que es va veure a l'emulador amb `Show hid…` tallat.
+-- Una targeta de una columna vol la seva columna i prou: la dels mots que ha d'ensenyar, amb setze píxels d'aire.
+local function the_card_box()
+  local pad = 12
+  local frame = 3
+  local row = kNameLine + 16
+  if row < 52 then row = 52 end
+  local widest = 0
+  for i = 1, #kDoors do
+    local wpx = ui.text_width(kDoors[i], kName)
+    if wpx > widest then widest = wpx end
+  end
+  local w = 2 * pad + 2 * frame + widest + 16
+  local most = view.width - 2 * kMargin
+  if w > most then w = most end
+  if w < 200 then w = 200 end
+  local h = 2 * pad + (kName + 1) * ui.line_height(1) + kDoorRows * row
+  return w, h
+end
+
+local function open_the_card(id)
+  if menu_card ~= nil then return end
+  local w, h = the_card_box()
+  local y = (view.height - h) // 2
+  if y < kTop then y = kTop end
+  local card, why = ui.picker(w, h)
+  if card == nil then
+    console.print('home: no card for ' .. id .. ': ' .. tostring(why and why.message or why))
+    return
+  end
+  local info = known[id]
+  -- **El títol diu de quina app és la targeta**: `Hide` i `App info` parlen d'una app i una targeta sense el seu nom faria
+  -- endevinar de quina cel·la ha sortit (docs/90).
+  card.title = ((info ~= nil and info.title ~= nil and info.title ~= '') and info.title) or id
+  card.scale = kName
+  card.items = kDoors
+  card.index = kDoorInfo
+  card.page = 1
+  card:place((view.width - w) // 2, y)
+  local function the_card_goes()
+    close_the_card()
+    again = true
+    ui.present()
+  end
+  -- **Un toc fora de la targeta és el seu `Back`** (docs/30): the card is the only thing on the glass that answers, and a person
+  -- who does not want any of the four doors has to be able to say so without looking for one.
+  card.on_cancel = function(self) the_card_goes() end
+  card.on_pick = function(self, choice)
+    local which = menu_id
+    close_the_card()
+    if choice == kDoorInfo then
+      -- **La fitxa d'una app és la seva pàgina**: the id of the page is `appinfo` and `-d <id>` is the app whose detail it has
+      -- to open first (0.189.161, docs/30, docs/40). A page that could not start is a card that has just gone and a launcher
+      -- that has to come back, or the hole it leaves is a launcher with no ring anywhere.
+      local ok, err = app.run(kInfoApp, '-d ' .. which)
+      if ok then
+        console.print('home: the details of ' .. which)
+      else
+        console.print('home: the details of ' .. which .. ' cannot start: ' .. tostring(err and err.message or err))
+        again = true
+        ui.present()
+      end
+      return
+    end
+    if choice == kDoorHide then
+      -- **La cel·la marxa en aquesta mateixa volta**: la llista de la pàgina és `ids`, i una app amagada que encara hi fos seria
+      -- una cel·la que la targeta ha tret del món i que el vidre encara ensenya (docs/30, docs/40).
+      if hide(which) then
+        console.print('home: ' .. which .. ' is hidden')
+        for i = #ids, 1, -1 do
+          if ids[i] == which then table.remove(ids, i) end
+        end
+      end
+    elseif choice == kDoorShow then
+      local back = show_the_hidden()
+      console.print(string.format('home: %d app(s) shown again', back))
+      -- **I les que tornen les diu la porta**: el nom, la imatge i l'ordre són seus, o sigui que la pàgina es pregunta una altra
+      -- vegada (`checked`) i `reconcile` porta les cel·les que falten amb la cua de les seves fitxes. Amb res a tornar no hi ha
+      -- res a preguntar: només s'ha de tornar a pintar el forat de la targeta.
+      if back > 0 then
+        checked = false
+      else
+        again = true
+      end
+      ui.present()
+      return
+    end
+    -- **`Back` i `Hide` tornen a fer la pàgina**: el forat de la targeta i el cercle, que era seu, es tornen a pintar amb la
+    -- graella sencera i la cel·la on era la persona (docs/30, docs/50).
+    the_card_goes()
+  end
+  menu_card, menu_id = card, id
+  -- **El cercle és de la targeta i no cal demanar-lo**: `ui.picker` es queda el focus quan neix (0.189.102), perquè és l'única
+  -- parada del camí mentre és al vidre (docs/30, docs/90).
+  ui.present()
 end
 
 -- ------------------------------------------------------------------ the shape of the page (`state`, docs/30)
@@ -634,17 +860,19 @@ local function add_cell(cell_w, cell_h, name_w, id)
   -- —a person who rests a finger on a launcher has not asked for the app yet— and it is the page that says what an app is, which
   -- is what a person does before deciding to run it. **La porta és `app.run` amb commutadors**: the id of the page is `appinfo`
   -- and `-d <id>` is the app whose detail it has to open first (docs/30, docs/40).
+  -- **El dit llarg obre la targeta de l'app** (0.190.271, i abans obria la fitxa: 0.189.161): el pad no llança ni obre res
+  -- pel seu compte —el dit encara és al vidre—, i el que fa és deixar el desig a `wanted_card` perquè el torn següent obri la
+  -- targeta amb el vidre net. És la mateixa regla que el menú de `life` va aprendre (docs/30, docs/90).
   cell.on_long = function()
-    local ok, err = app.run(kInfoApp, '-d ' .. id)
-    if ok then
-      console.print('home: the details of ' .. id)
-    else
-      console.print('home: the details of ' .. id .. ' cannot start: ' .. tostring(err and err.message or err))
-    end
+    if the_card_is_up() or wanted_card ~= nil then return end
+    wanted_card = id
   end
 
   -- The finger and the centre of the dial both come here: the click of a cell is the click of a control (docs/30).
   cell.on_click = function()
+    -- **Una targeta a sobre és una pàgina que no respon** (0.190.271): a finger that falls outside the card is not a launch,
+    -- and the only way out is its own `Back` (docs/90).
+    if the_card_is_up() or wanted_card ~= nil then return end
     -- **The use is counted before the app is asked for** (0.189.13): a launch that fails is still a launch the person made,
     -- and the count is what the page sorts by when `cfg sort` is on.
     bump_usage(id)
@@ -879,8 +1107,11 @@ local function ask_the_door()
     console.print('home: the door of the apps did not answer')
     return false
   end
+  -- **I les que la persona ha amagat no hi són** (0.190.271): la llista és d'aquesta pàgina i no de la porta, o sigui que el
+  -- filtre va aquí, on la pàgina tria les seves cel·les. Una app amagada no és una app que no hi és: el disc la té, `apps` la
+  -- llista, `run <id>` la comença, i el que no hi és és la seva cel·la mentre la persona no demani de veure-la (docs/30).
   for i = 1, #all do
-    if all[i] ~= app.id then
+    if all[i] ~= app.id and not is_hidden(all[i]) then
       ids[#ids + 1] = all[i]
     end
   end
@@ -981,11 +1212,15 @@ load_cache()
 local settings = sys.settings()
 if settings ~= nil then sort_by_usage = settings.sort_by_usage == true end
 load_usage()
+-- **I les apps amagades, abans de la primera cel·la**: `ask_the_door` i la pàgina que ve del bloc pregunten qui s'amaga, i la
+-- llista ha d'existir abans que cap de les dues ompli la graella (0.190.271, docs/30).
+load_hidden()
 local from_cache = false
 if #cached_order > 0 then
   for i = 1, #cached_order do
-    if cached_order[i] ~= app.id then
-      ids[#ids + 1] = cached_order[i]
+    local id = cached_order[i]
+    if id ~= app.id and not is_hidden(id) then
+      ids[#ids + 1] = id
       from_cache = true
     end
   end
@@ -1030,6 +1265,11 @@ function on_resize(width, height)
   page_w = width
   page_h = height
   view = { width = width, height = height }
+  -- **Una targeta no travessa un canvi de mida** (0.190.271): el seu requadre es va mesurar amb la pàgina d'abans i la pàgina
+  -- nova es renta sencera, o sigui que la targeta que hi havia es tanca i el que el dit havia demanat es deixa estar: el que
+  -- queda és la graella de la mida nova, que és el que la persona ha demanat amb el gest (docs/30, docs/50).
+  close_the_card()
+  wanted_card = nil
   -- **A page of another size has cells of another size**, and the pictures in the block were measured for the old one: they
   -- are not painted on this page, and the ones this run draws are kept in their places (the magic is rewritten with the new
   -- side, so a block of two sides is a block of none and is built again at the next start) — docs/30, docs/75.
@@ -1049,7 +1289,7 @@ end
 local kept = false
 -- **The door is asked in the turn after a page that came from the block** (0.179.1): a page of the cache is on the glass
 -- before anything of the disk is read, and the turn that follows is the one that says whether it is still the disk's list.
-local checked = not from_cache
+checked = not from_cache
 -- **I un avís de la porta torna a fer les dues coses** (0.189.23): `on_event` is the knock the system gives the launcher
 -- that `cfg home` names when an app is installed or removed (`repo install`, `apps remove`), and all it does here is drop
 -- these two marks —the knocks never draw, because a hook runs between two turns and the page is drawn in its own turn—.
@@ -1096,17 +1336,32 @@ while true do
     checked = false
     kept = false
   end
-  if head <= #queue then
+  -- **La targeta del dit llarg s'obre aquí i no dins del ganxo** (0.190.271): a card that comes up under the finger that asked
+  -- for it takes that same press as a choice of one of its rows —the rule the menu of `life` learned (docs/90)—, o sigui que
+  -- el dit deixa el desig i el torn obre la targeta amb el vidre net.
+  if wanted_card ~= nil then
+    local id = wanted_card
+    wanted_card = nil
+    if not the_card_is_up() then open_the_card(id) end
+  end
+  -- **I mentre la targeta és al vidre la pàgina no es toca** (0.190.271): una cel·la que aterrés a sota seu la taparia, un
+  -- `build()` que rentés la pàgina esborraria la targeta, i el que la persona està llegint és la targeta. El que espera —la
+  -- cua, la porta, les versions— s'atén quan la targeta marxa, que és un torn o dos d'una pàgina que ja és al vidre
+  -- (docs/30, docs/50).
+  if the_card_is_up() then
+    painted = false
+  elseif again then
+    -- **El refer d'una pàgina va ABANS de la cua** (0.190.271): una targeta que s'ha tancat deixa els seus píxels al vidre —el
+    -- forat el paga la pàgina i no el control—, i una cel·la de la cua que aterrés abans del `build()` cauria just a sobre del
+    -- que la targeta tenia escrit. El que ha canviat la forma de la pàgina es refereix sencer i el que espera ve després.
+    again = false
+    build()
+    painted = true
+  elseif head <= #queue then
     step()
     -- **The bar moves with the turn it has just taken**: one app of the queue is one step of the strip, and the cell it
     -- filled is painted in the same present (0.186.2).
     if bar ~= nil then bar.value = queue_percent() end
-    painted = true
-  elseif again then
-    -- **The page is laid out again once**, and only when an app left it: a grid whose cells are laid out for a name that
-    -- is not an app of this page any more is a grid with a hole in it (0.154.0).
-    again = false
-    build()
     painted = true
   elseif not checked then
     checked = true

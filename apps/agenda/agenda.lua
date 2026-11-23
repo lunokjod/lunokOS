@@ -230,6 +230,7 @@ local dayRows_ = {}
 local wid, hei = 0, 0
 local screen = nil
 local monthTitle, remindLine, monthHint1, monthHint2, cal = nil, nil, nil, nil, nil
+local selected_ = 0     -- the day the month page points at: the one that was opened, or today
 local dayTitle, dayHint1, dayHint2, dayList = nil, nil, nil, nil
 local newBtn, changeBtn, deleteBtn, backBtn = nil, nil, nil, nil
 local titleBox, noteBox, allDayChk, dateBtn, saveBtn, cancelBtn = nil, nil, nil, nil, nil, nil
@@ -316,7 +317,9 @@ local function where_text()
     end
   end
 
-  local where = 'on the ' .. volume
+  -- **La preposició és la de cada volum**: una targeta es llegeix A la targeta i una memòria interna EN el flaix, i és el
+  -- que deia l'original (docs/45).
+  local where = (volume == 'card') and 'on the card' or 'in the flash'
   local n = #events_
   local text
   if n == 0 then
@@ -326,7 +329,7 @@ local function where_text()
   else
     text = string.format('%s, %d events', where, n)
   end
-  if bad_ > 0 then text = text .. string.format(' · %d unreadable', bad_) end
+  if bad_ > 0 then text = text .. string.format(' · %d unreadable line(s)', bad_) end
   return text
 end
 
@@ -337,6 +340,18 @@ local function month_text()
   local text = string.format('%s %04d', MONTHS[seenMo_] or '?', seenY_)
   if picking_ then text = 'Pick the day · ' .. text end
   return text
+end
+
+--- **El pas del títol del mes**: el de sempre, i el més gran que hi cap quan la línia porta la paraula de qui tria.
+--
+-- El text sencer és el de l'original —`Pick the day · November 2026`— i una línia que acaba en tres punts no diu ni el mes
+-- ni l'any, o sigui que el que cedeix és la mida de la font i no les paraules (docs/45).
+local function month_scale()
+  local text = month_text()
+  for scale = kTitle, 1, -1 do
+    if ui.text_width(text, scale) <= wid - 2 * MARGIN then return scale end
+  end
+  return 1
 end
 
 --- The line under the month: what the reminder is holding, or why nothing is.
@@ -570,7 +585,10 @@ paint = function()
   if screen == nil then return end
 
   if page_ == 1 then
-    if monthTitle ~= nil then monthTitle.text = month_text() end
+    if monthTitle ~= nil then
+      monthTitle.text = month_text()
+      monthTitle.scale = month_scale()
+    end
     if remindLine ~= nil then remindLine.text = remind_text() end
     if monthHint1 ~= nil and monthHint2 ~= nil then
       local hint
@@ -613,9 +631,13 @@ shape_state = function() return shape_of() end
 
 -- ------------------------------------------------------------------ the month
 
-open_month = function(y, mo)
+open_month = function(y, mo, select)
   if y ~= nil then seenY_ = y end
   if mo ~= nil then seenMo_ = mo end
+
+  -- **El dia que la pàgina assenyala**: el que s'ha obert, quan es torna del dia, i el d'avui quan la pàgina s'obre de zero
+  -- —l'original feia el mateix amb `cal:set_selected(day_)` abans de tornar-hi— (docs/45).
+  selected_ = select or 0
 
   page_, marked_, hint_ = 1, -1, ''
 
@@ -629,6 +651,9 @@ open_month = function(y, mo)
 
   monthTitle = make_label(wid - 2 * MARGIN, line(kTitle), '', kTitle, 'left')
   if monthTitle == nil then return end
+  -- **El títol es queda dins de la seva línia encara que la font sigui més petita**: quan la línia porta la paraula de qui
+  -- tria la data el pas baixa, i un text que s'enganxa a dalt deixaria un forat a sota (docs/45).
+  monthTitle.valign = 'middle'
   root:add(monthTitle)
 
   remindLine = make_label(wid - 2 * MARGIN, line(kSmall), '', kSmall, 'left')
@@ -645,7 +670,7 @@ open_month = function(y, mo)
   end
   cal.year = (seenY_ > 0) and seenY_ or FirstYear
   cal.month = (seenMo_ > 0) and seenMo_ or 1
-  cal.selected = today_in(cal.year, cal.month)
+  cal.selected = (selected_ > 0) and selected_ or today_in(cal.year, cal.month)
   cal.weekdays = WEEKDAYS
   cal.scale = kBody
   cal.on_pick = function(self, day)
@@ -816,7 +841,7 @@ open_day = function(d, push)
     backBtn.on_click = function()
       marked_ = -1
       app.view_pop()
-      open_month(seenY_, seenMo_)
+      open_month(seenY_, seenMo_, day_)
     end
     root:add(backBtn)
   end
@@ -944,6 +969,8 @@ open_form = function(which, push, keep)
     end
   end
 
+  -- **Nou files d'alçada variable** —les dues caixes, la fila de `All day` i `Date`, els quatre selectors i les dues tecles—:
+  -- la línia del formulari té la seva plaça comptada a part (`hint_h`) i no és una fila d'aquestes (docs/45).
   local rows = 9
   local hint_h = line(kSmall) * 2
   local room = hei - band
@@ -953,6 +980,17 @@ open_form = function(which, push, keep)
   if row_h < 44 then row_h = 44 end
   console.print(string.format('agenda: the form is laid out in %d px: the band takes %d of %d and a row is %d',
                               room, band, hei, row_h))
+
+  -- **La línia del formulari és A SOBRE dels camps**, que és on era: la pàgina del dia hi té la data i el que el formulari
+  -- està a punt de desar, i els camps van a sota (docs/45). El títol del dia no hi és quan hi ha formulari, i la línia que
+  -- el substitueix és la que diu què se'n farà.
+  dayHint1 = make_label(wid - 2 * MARGIN, line(kSmall), '', kSmall, 'left')
+  if dayHint1 == nil then return end
+  root:add(dayHint1)
+
+  dayHint2 = make_label(wid - 2 * MARGIN, line(kSmall), '', kSmall, 'left')
+  if dayHint2 == nil then return end
+  root:add(dayHint2)
 
   titleBox = ui.textbox(wid - 2 * MARGIN, row_h)
   if titleBox == nil then return end
@@ -1068,14 +1106,6 @@ open_form = function(which, push, keep)
     root:add(cancelBtn)
   end
 
-  dayHint1 = make_label(wid - 2 * MARGIN, line(kSmall), '', kSmall, 'left')
-  if dayHint1 == nil then return end
-  root:add(dayHint1)
-
-  dayHint2 = make_label(wid - 2 * MARGIN, line(kSmall), '', kSmall, 'left')
-  if dayHint2 == nil then return end
-  root:add(dayHint2)
-
   paint()
   ui.present()
 
@@ -1162,6 +1192,7 @@ shape_of = function()
     day = day_,
     y = seenY_,
     mo = seenMo_,
+    sel = selected_,
     marked = (marked_ >= 0) and (marked_ + 1) or nil,
     editing = editing_,
     hour = hour_pick_,
@@ -1241,6 +1272,7 @@ do
     local y = number('y', FirstYear, LastYear)
     local mo = number('mo', 1, 12)
     if y ~= nil and mo ~= nil then seenY_, seenMo_ = y, mo end
+    selected_ = number('sel', 1, 31) or selected_
     local marked = number('marked', 1, MaxRows)
     if marked ~= nil then marked_ = marked - 1 end
     editing_ = number('editing', 0, 9999) or editing_
@@ -1265,7 +1297,14 @@ end
 -- the edge of the years it may show and the title says so.
 do
   local now = time.date()
-  if now ~= nil and now.year ~= nil and now.month ~= nil then
+  -- **Un rellotge que diu un any que aquesta agenda no sap comptar és un rellotge sense posar** (0.190.270): el calendari
+  -- del nucli refusa un any fora del que una data pot ser, i l'app que li'n passava un petava en obrir-se. El que no és
+  -- d'aquest calendari es queda a la vora i la línia del mes ho diu, que és el que ja fa un rellotge sense hora.
+  if now ~= nil and now.year ~= nil and now.month ~= nil and
+     (now.year < FirstYear or now.year > LastYear or now.month < 1 or now.month > 12) then
+    now = nil
+  end
+  if now ~= nil then
     if seenY_ == 0 then seenY_, seenMo_ = now.year, now.month end
     if day_ == 0 then day_ = now.day or 1 end
     if formY_ == 0 then formY_, formMo_, formD_ = seenY_, seenMo_, day_ end
@@ -1291,7 +1330,7 @@ elseif page_ == 2 then
   open_month(seenY_, seenMo_)
   open_day(day_)
 else
-  open_month(seenY_, seenMo_)
+  open_month(seenY_, seenMo_, selected_)
 end
 
 -- **El dia que ha sonat s'obre sol**: the hook has left the day and the turn of the page does the rest. **I és el dia de

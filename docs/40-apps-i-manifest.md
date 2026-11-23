@@ -694,7 +694,13 @@ and a board left at the prompt when the lock opens (docs/30, docs/60).
 **I el dit llarg sobre una cel·la del llançador obre la fitxa d'aquella app** (0.189.161, l'amo: *«al fer polsació llarga a Home
 sobre una app: Inicia l'app App Info amb l'app de paràmetre perquè mostri la finestra detalls directament run <id_app_info> -d
 <id_app>»*): `home_eink` penja `on_long` de cada cel·la i fa `app.run('appinfo', '-d <id>')`, i `appinfo` obre aquella fitxa de
-seguida en lloc de la llista. El commutador viatja com qualsevol altre (`app.args.flags`, com els `opensArgs` d'un manifest) i el
+seguida en lloc de la llista.
+**I des de la 0.190.271 el dit llarg obre una targeta de quatre portes** (l'amo: *«Enlloc d'info obrirem un modal amb quatre
+botons: App info, Hide, Show hidden, Back»*): `App info` fa el de sempre, `Hide` treu l'app de la graella, `Show hidden` les
+torna totes i `Back` (o un toc fora de la targeta) la tanca. **Les amagades viuen a la sessió `hidden`** de l'app —una línia per
+id— i no al disc: no és una preferència sinó una manera de treure una cosa del mig durant una estona, i una app que no es veu bé
+no es pot perdre per sempre més. Una app amagada **no és una app que no hi és**: el disc la té, `apps` la llista i `run <id>` la
+comença; el que no hi és és la seva cel·la (docs/30, docs/40, docs/75). El commutador viatja com qualsevol altre (`app.args.flags`, com els `opensArgs` d'un manifest) i el
 prompt el sap escriure igual: `run appinfo -d battery`, on un segon mot que comença per `-` és un commutador i no un camí i **la
 resta de la línia és seva**, sense comptar-se com a mots (0.189.163: amb la partició de sempre, tres mots eren «too many words» i
 la comanda no arrencava res) (docs/30, docs/40).

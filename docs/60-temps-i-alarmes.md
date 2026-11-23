@@ -950,6 +950,28 @@ rellotge de `test_calendar`, que ja dona la volta a l'època, `test_the_time_zon
 `test_the_panel_of_settings_writes_through_the_doors_of_the_system`, que és el que escriu una hora des d'una pàgina i la
 compara amb l'època del rellotge amb la zona que hi ha en aquell moment.
 
+### La línia de la dormida, en paraules (0.190.269)
+
+L'amo, amb una línia del registre a la mà —`[I][POWER] deep sleep until 1794347273309`—: *«Estría be posar-ho en llenguatge humà, no
+trobes?»*. I sí: un epoch de mil·lisegons és el que necessita una màquina, i era **l'únic** que aquella línia deia.
+
+Ara diu tres coses, i la tercera només quan cal:
+
+```
+[I][POWER] deep sleep until 07:18 UTC (in 14 min)
+[I][POWER] deep sleep until 04:13 UTC on 25/6 (in 1 d)
+```
+
+- **Quan torna** —l'hora de la placa—, **quant falta** i, si creua la mitjanit, **quin dia**. Les paraules del quant són les d'una
+  persona: segons per sota del minut, minuts per sota de l'hora, hores per sota del dia i dies a partir d'aquí, amb la unitat de sota
+  només mentre val la pena llegir-la (`7 h 58 min` sí, `12 min 4 s` no).
+- **L'hora és UTC i ho diu, perquè ho és**: la banda que dorm no sap el desplaçament de la persona —el sap el nucli, a `cfg`— i una
+  hora local inventada seria pitjor que una de certa amb el nom al costat. El «quant falta» no enganya mai, perquè és el mateix a
+  qualsevol fus.
+- **El format és un de sol per a les dues bandes**: viu a `hal/civil.h` (`human_wait` i `human_other_day`, al costat de la conversió
+  del calendari que ja hi era) i l'emulador el fa servir a les seves dues línies de dormida, o sigui que un guió i la placa es poden
+  comparar línia a línia, que és el que demana docs/85.
+
 ## El calendari: la regla dels anys de traspàs, una sola vegada (0.75.0)
 
 L'època és un número i un calendari necessita dos més: **quants dies té un mes** i **quin dia de la setmana cau una

@@ -791,10 +791,15 @@ carregar els mòduls de la seva carpeta. Les altres tres coses que aquest port v
 controls UI i es nostres crides a sistema»*):
 
 - **El calendari del paper marcava els dies que tenen alguna cosa, i el calendari d'aquí no en sabia res**: `ui.month`
-  guanya **`marks`**, la llista dels dies que porten un punt, i el dibuix la converteix en un punt de tres píxels sota el
-  número (en el to del paper quan la cel·la és la triada, que si no desapareixeria sota la tinta). El control **no en sap
-  res, de què és «alguna cosa»**: això és de l'app. És la mateixa llei de la `ui.chart` de la `Meteo` —una cosa que demanaran
-  el calendari d'una app i el d'una altra no s'escriu dins de l'app.
+  guanya **`marks`**, la llista dels dies que porten un punt, i el dibuix la converteix en un punt sota el número (en el to
+  del paper quan la cel·la és la triada, que si no desapareixeria sota la tinta). El control **no en sap res, de què és
+  «alguna cosa»**: això és de l'app. És la mateixa llei de la `ui.chart` de la `Meteo` —una cosa que demanaran el calendari
+  d'una app i el d'una altra no s'escriu dins de l'app.
+- **I el punt s'havia perdut pel camí** (0.190.270, l'amo: *«Repassa l'app Agenda, no marca els dies amb cites amb un
+  cercle farcit negre sota els números com feia l'anterior»*): la marca hi era, però de tres píxels enganxada al peu de la
+  casella, que en aquest vidre és una engruna que no es veu. El paper en feia un quadre de vuit; aquí és **un disc de nou
+  píxels centrat sota el número**, amb el número i el punt moguts com un sol bloc. La lliçó és la de sempre en aquest
+  projecte: **una cosa que hi és no és una cosa que es llegeix**, i qui l'havia de llegir era una persona a un metre.
 - **Un mes no és una pàgina: es gira**. El control no té cap `on_month` ni botons de costat, i l'original tampoc no en tenia:
   el mes i l'any es giren amb el mateix gest del paper —un `drag` del dit, amb quaranta píxels de llindar— que la pàgina llegeix
   de `touch.gesture()` després que els controls s'hagin quedat els seus (docs/30).
