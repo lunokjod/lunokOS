@@ -2161,6 +2161,11 @@ char g_start_flags[48] = {0};
 // which is what makes a launcher usable on a board whose only way out of an app is three presses of a key. Empty when
 // the app that asked handed the glass over for good (docs/30, docs/90).
 char g_run_back[40] = {0};
+// **The console that page had, saved with its name** (0.190.276): the launcher that asked for an app was in the background
+// (the boot's page is), and a return that forgets it puts the app's console in front of a prompt the person was typing at.
+// It is taken by `close_app`, which is the only moment the state still exists, and it is the same capture the wish makes for
+// the app it asks for (0.160.0, docs/30).
+bool g_run_back_detached = false;
 // Whether the app that asked wants the glass back when the other one ends.
 bool g_run_wanted_back = false;
 
@@ -4804,7 +4809,16 @@ bool start_the_one_that_asked() {
   // already shown a picture for (docs/30, docs/40).
   AStart start;
   start.id = back_to;
-  return start_a_page(start);
+  // **I la consola que tenia, que és el que faltava** (0.190.276, l'amo: *«si tanco l'app desde el panell desplegable i uso el
+  // botó "Home" tot va bé, però si uso "Close" o el gest de pinch per tancar l'app, el shell perd el control del serial i es veu el
+  // log del programa»*): the return was started attached whatever it was before, o sigui que el llaçador del boot —que és del fons
+  // des de la 0.160.0— tornava amb la consola a la mà i el prompt deixava de veure-hi. El botó Home no ho ensenyava perquè no passa
+  // per aquí: hereta l'estat en el torn del desig, i el fil sencer era del fons. Ara les dues tornades diuen el mateix (docs/30).
+  const bool was = g_start_detached;
+  g_start_detached = g_run_back_detached;
+  const bool started = start_a_page(start);
+  g_start_detached = was;
+  return started;
 }
 
 bool app_run_wanted(char* out, size_t cap, bool& back, char* flags, size_t flags_cap, char* path,
@@ -4891,7 +4905,10 @@ void close_app(bool say) {
   // open with pages on top of its first one, which are pages nobody pushed (docs/30).
   apps::reset_views();
   // **The console is the shell's again** (0.160.0): an app that goes takes its detachment with it, so the prompt
-  // that comes after it is a prompt that answers (docs/30).
+  // that comes after it is a prompt that answers (docs/30). **I la pàgina que la va demanar se'l queda com era** (0.190.276):
+  // the state is copied here because here is the last moment it exists —two lines below it is gone—, and the page that comes
+  // back after this one has no other way of knowing whether it had the wire (docs/30).
+  g_run_back_detached = g_app_detached;
   g_app_detached = false;
   luabind::set_console_attached(true);
   // **A wish dies with the app that wished it**: an app that asked for another one and was closed by something else
@@ -4914,9 +4931,25 @@ void close_app(bool say) {
 // o sigui que les portes de fora diuen què volen i no una combinació de booleans. Les tres que hi havia (`start_app`, `restore_app`,
 // `raise_app`) eren exactament això i han marxat; **`raise_app` tancava la pàgina del davant dues vegades** perquè `run_app` ja ho fa
 // (docs/30, docs/40).
+//
+// **I la pàgina de casa no és mai de la consola** (0.190.276, l'amo: *«si tanco l'app desde el panell desplegable i uso el botó "Home" tot
+// va bé, però si uso "Close" o el gest de pinch per tancar l'app, el shell perd el control del serial i es veu el log del programa»*). La regla
+// és de la porta i no de cada mà que la demana, perquè una porta que se n'oblida **és** el defecte: la tornada a la pàgina de casa des de la
+// creu i des del pessic l'arrencava amb la consola a la mà (el boot la demanava al darrere del prompt i la clau de la casa del tauler també),
+// i el que es veia era un tauler que s'havia menjat el terminal fins al reset. Una pàgina que el sistema posa al vidre perquè no quedi buit no
+// té res a dir al cable de ningú, i el prompt que hi havia darrere ha de continuar contestant (docs/30, docs/50).
+static bool a_page_of_the_start(const char* id) {
+  const char* home = cfg::home_app();
+  return home != nullptr && home[0] != '\0' && strcmp(id, home) == 0;
+}
+
 bool start_a_page(const AStart& start) {
   if (start.id == nullptr || start.id[0] == '\0') return false;
-  return run_app(start.id, start.path, start.come_back, start.card, start.alarm, start.late_ms);
+  const bool was = g_start_detached;
+  if (a_page_of_the_start(start.id)) g_start_detached = true;
+  const bool started = run_app(start.id, start.path, start.come_back, start.card, start.alarm, start.late_ms);
+  g_start_detached = was;
+  return started;
 }
 
 // A window of an alarm (docs/60): the app is loaded for one call and thrown
@@ -5058,24 +5091,26 @@ bool the_page_in_front_can_be_left() { return g_app_alive && !app_in_front_is_a_
 // **La pàgina de casa, amb les dues maneres de demanar-la en un sol cos** (0.190.251): `card` és l'única diferència entre la tornada a una
 // pàgina —una app s'ha acabat i la persona ha de veure quina arriba (0.179.33)— i la comanda `home` de l'arrencada, on el vidre ja té la imatge
 // del boot. Abans eren dos cossos amb les mateixes tres línies i una d'elles es va quedar sense la comprovació de l'app (docs/30, docs/40).
-bool start_the_home_page(bool card, bool detached) {
+//
+// **I la pàgina de casa no és mai de la consola** (0.190.276, l'amo: *«si uso "Close" o el gest de pinch per tancar l'app, el shell perd el
+// control del serial i es veu el log del programa»*): el `&` va deixar de ser un paràmetre perquè les dues portes que la demanen el volien i
+// una d'elles no el deia —la del boot sí i la de la tornada no—, i el que sortia era la mateixa pàgina amb dues consoles diferents: tancar una
+// app amb la creu o amb el pessic deixava el llaçador amb el cable a la mà i el prompt mut fins al reset. La regla viu a `start_a_page`, que
+// és per on passen totes les portes —aquesta, la clau de la casa del tauler, una alarma i el despertar—, o sigui que aquí no hi ha res a dir-ne
+// (docs/30, docs/50).
+bool start_the_home_page(bool card) {
   const char* home = cfg::home_app();
   if (home == nullptr || home[0] == '\0') return false;
   AStart start;
   start.id = home;
   start.card = card;
-  // **El `&` és d'aquesta arrencada i de cap més** (0.160.0): the flag lives for one start.
-  const bool was = g_start_detached;
-  g_start_detached = detached;
-  const bool started = start_a_page(start);
-  g_start_detached = was;
-  return started;
+  return start_a_page(start);
 }
 
 bool start_the_home_app() {
   // A board with no glass has no page to come back to and its prompt is where a person wants to be (docs/50).
   if (display::surface() == nullptr) return false;
-  if (!start_the_home_page(/*card=*/true, /*detached=*/false)) {
+  if (!start_the_home_page(/*card=*/true)) {
     log_printf(pal::kLogWarn, "HOME", "%s is the page of the start and it did not come up", cfg::home_app());
     return false;
   }
@@ -5143,9 +5178,18 @@ bool power_off(const char* reason) {
   if (g_app_alive) close_app();
   // **Una placa que no es pot tallar ho diu abans de gastar el repòs** (0.189.18): the picture, the wait and the margin are
   // for a board that is really going to lose its supply; one that is powered by its cable says so and goes on running.
+  //
+  // **I ara de debò, i no després de pintar** (0.190.272): la imatge de la baixada es pintava abans de mirar si la placa pot
+  // baixar, o sigui que una placa endollada —que és l'única que arriba aquí dient que no— ensenyava «apagant-me» i tot seguit
+  // es quedava encesa. El que la placa té a dir es diu **abans** de la primera tinta i abans de dos segons de repòs (docs/50, docs/60).
   const bool can_go = platform().power() != nullptr && platform().power()->can_power_off();
-  splash::show(power::going_down_picture(/*deep=*/false));
   pal::IConsole* console = pal::system().console();
+  if (!can_go) {
+    log_printf(pal::kLogWarn, "POWER", "the board goes on: it has no hold on its supply, or a cable is keeping it up");
+    if (console != nullptr) console->flush();
+    return false;
+  }
+  splash::show(power::going_down_picture(/*deep=*/false));
   if (console != nullptr) console->flush();  // the line has to be out before the supply goes
   splash::wait();
   // **I totes les sessions van al disc abans que el corrent es talli** (0.189.11): this is the last moment the memory of the
@@ -5156,14 +5200,14 @@ bool power_off(const char* reason) {
   // really on the disk, the console and the two volumes, the store, and the two seconds a card needs after the last sector
   // —which is the part no call of the filesystem can do for it—. All of it before the supply goes, and only if the supply
   // can go (docs/70, docs/75).
-  if (can_go) {
+  {
     const session::Checked parked = session::check_parked();
     log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
                "%u of %u session file(s) are on the disk", static_cast<unsigned>(parked.ok),
                static_cast<unsigned>(parked.files));
     power::settle_before_leaving("the board is going off");
   }
-  if (!can_go || platform().power() == nullptr || !platform().power()->power_off()) return false;
+  if (platform().power() == nullptr || !platform().power()->power_off()) return false;
   shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
   return true;
 }
@@ -5371,11 +5415,10 @@ bool poll_app() {
   if (g_run_back[0] != '\0') {
     ui::give_back_the_glass();
     bar::title("");
-    // The page the person comes back to is the one that sent this app to run, so it goes back to wherever it was:
-    // detached stays detached (0.160.0).
-    g_start_detached = was_detached;
+    // **I la consola torna com era** (0.190.276): the page the person comes back to is the one that sent this app to run, so
+    // it comes back the way it was —the state travels with the name, in `g_run_back_detached`— and the `was_detached` of this
+    // path is only what the line above says (docs/30).
     if (start_the_one_that_asked()) return g_app_alive;
-    g_start_detached = false;
     prompt();
     return false;
   }
@@ -7367,7 +7410,7 @@ bool execute(char* line) {
       return false;
     }
     // **I al darrere del prompt, com el `&`**: la persona que escriu això vol la pàgina al vidre, no perdre el cable (docs/30).
-    const bool started = start_the_home_page(/*card=*/false, /*detached=*/true);
+    const bool started = start_the_home_page(/*card=*/false);
     if (!started) out("home: it did not come up\r\n");
     return started;
   }
@@ -7551,7 +7594,7 @@ bool execute(char* line) {
     // asks for, so the prompt and a finger do exactly the same thing to the glass (0.185.0, docs/50).
     out("powering off...\r\n");
     if (!power_off("the prompt")) {
-      error_out("this board cannot cut its own power: it holds nothing to switch off\r\n");
+      error_out("this board cannot cut its own power: it holds nothing to switch off, or the cable is keeping it up\r\n");
       return false;
     }
     return true;

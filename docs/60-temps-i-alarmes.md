@@ -654,6 +654,17 @@ Com està avui:
    la baixada sola en gasta més) i cap app ni `keep_awake` enmig. `power idle off` la desactiva mentre una persona
    treballa al prompt.
 
+   **I la pregunta era la que no tocava** (0.190.272, l'amo: *«l'M5Paper funciona genial i s'apaga/deepsleep, aquesta
+   versió no sembla fer-ho bé. Tampoc sembla que els temportizadors d'apagar backlight i entrar en deepSleep quan hi ha
+   inactivitat»*). `idle_sleep` començava mirant `deep_powers_off()`, que diu **com** baixa la placa —una apagada de debò,
+   amb el rellotge del xip tornant-la a engegar, que és el Paper—, i la T5 E-Paper S3 Pro hi contestava que no perquè el seu
+   son profund és un son de l'ESP32: **la seva política no dormia mai**, i ni `Sleep after` ni el respir de la llum tenien
+   res a fer-hi. Ara la pregunta és `can_sleep_on_idle()` —«aquesta placa estalvia si baixa?»—, que per defecte val el mateix
+   que abans i que la T5 contesta que sí; el que decideix després és el que ja hi era: la porta per tornar-ne. **I el mateix
+   error tenia la llum**: `Dim when idle` demanava que el cable no estigués carregant, o sigui que a la T5 —que sap dir-ho pel
+   BQ25896— el vidre no s'apagava mai amb el cable a dins; a la M5Paper no es veia perquè el seu `battery()` no pot dir si
+   carrega. Ara el comptador de la quietud mana sobre el respir, i el respir s'atura amb el negre (docs/50).
+
    **I "ningú l'està fent servir" era només la consola** (0.190.5, l'amo: *«sembla que s'adorm sola quasi
    d'inmediat... perqué?»*). El comptador del silenci el movien les tecles del terminal i prou: un dit al
    vidre —la targeta del sistema, una pàgina del launcher, la banda del teclat— i una tecla del dial no

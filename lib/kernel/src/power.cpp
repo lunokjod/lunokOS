@@ -1291,8 +1291,14 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
     say_the_fact("the switch of the idle sleep is off (Settings, Sleep when idle)");
     return;
   }
-  if (!g_power->deep_powers_off()) {
-    say_the_fact("this board's deep sleep is not a power off");
+  // **I la pregunta és si aquesta placa pot dormir, no com baixa** (0.190.272, l'amo: *«l'M5Paper funciona genial i s'apaga/deepsleep,
+  // aquesta versió no sembla fer-ho bé. Tampoc sembla que els temporizadors d'apagar backlight i entrar en deepSleep quan hi ha
+  // inactivitat»*). Aquí hi havia `deep_powers_off()`, que diu que la baixada és una apagada de debò —el Paper, amb el rellotge del xip
+  // de rellotge engegant-lo—, i la T5 E-Paper S3 Pro hi contestava que no perquè el seu son profund és un son de l'ESP32 i no una
+  // apagada: o sigui que **la seva política d'oci tornava aquí a cada torn i no dormia mai**. El que mana és si baixar estalvia la placa
+  // i si hi ha una porta per tornar-ne, i les dues coses es pregunten més avall (docs/50, docs/60).
+  if (!g_power->can_sleep_on_idle()) {
+    say_the_fact("this board's deep sleep is not a way to put it down");
     return;
   }
   // A stage of a longer wait has its hour already written down, and it is not in the queue, so

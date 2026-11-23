@@ -795,6 +795,12 @@ controls UI i es nostres crides a sistema»*):
   del paper quan la cel·la és la triada, que si no desapareixeria sota la tinta). El control **no en sap res, de què és
   «alguna cosa»**: això és de l'app. És la mateixa llei de la `ui.chart` de la `Meteo` —una cosa que demanaran el calendari
   d'una app i el d'una altra no s'escriu dins de l'app.
+- **I la marca d'avui també, i aquesta és una lliçó d'un altre tipus** (0.190.274): el paper marcava el dia d'avui amb una
+  anella **dins** de la casella (`c.inset(kCellPad)`) i la portada la va posar **a la vora**, d'un píxel. El senyal hi era i el
+  codi era correcte; el que fallava era el lloc —dues caselles veïnes deixaven dos marcs a dos píxels l'un de l'altre i el que
+  es veia era una línia de graella—. **Una forma que existeix no és una forma que es llegeix**, i això és el mateix que li va
+  passar al punt de les cites dues versions abans: el que es copia d'una app original no és només *què* es dibuixa, sinó **on i
+  amb quant de gruix**, perquè el vidre i la casella són els d'aquí.
 - **I el punt s'havia perdut pel camí** (0.190.270, l'amo: *«Repassa l'app Agenda, no marca els dies amb cites amb un
   cercle farcit negre sota els números com feia l'anterior»*): la marca hi era, però de tres píxels enganxada al peu de la
   casella, que en aquest vidre és una engruna que no es veu. El paper en feia un quadre de vuit; aquí és **un disc de nou

@@ -5617,6 +5617,17 @@ bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, ui
   constexpr int32_t kMarkPad = 6;     // the air between the number and the dot
   const int32_t mark_room = line_h + kMarkPad + 2 * kMarkRadius;
   const bool room_for_mark = cells.row_h >= mark_room + 4;
+  // **L'anella d'avui, i per què va endins i no a la vora** (0.190.274): el marc del dia d'avui era d'un píxel a un píxel de
+  // la casella, i amb caselles de setanta-un píxels els marcs de dues veïnes queden a dos píxels l'un de l'altre: l'ull ho llegeix
+  // com una **línia de graella** i no com «avui», que és el mateix error que tenia el punt de les cites quan era de tres píxels.
+  // Quatre píxels endins i dos de gruix la separen de la graella i de la vora, i deixen un píxel d'aire sobre el punt (el bloc
+  // del número i el punt acaba set píxels abans del peu de la casella) (docs/30, docs/45, docs/90).
+  constexpr int32_t kTodayInset = 4;
+  constexpr int32_t kTodayRing = 2;
+  constexpr int32_t kTodayRadius = 8;
+  // **I les cantonades, arrodonides** (0.190.274, l'amo: *«Aprofita i fes l'anella amb cantonades arrodonides perqué quedi mes
+  // bonic»*): vuit píxels sobre una anella de seixanta-tres és una cantonada que es llegeix com una corba i no com un angle, i és
+  // el mateix radi que la targeta del sistema —no un número inventat per a aquest control— (docs/50, docs/90).
   // **The names of the days are the app's**: the kernel draws them and does not know what a Tuesday is called. They
   // arrive in the order of a week that begins on Monday —the seven names, Monday first— and the columns turn with the
   // setting, so the app writes one list and the glass says the week the person asked for (0.170.0, docs/30).
@@ -5642,23 +5653,46 @@ bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, ui
     const int32_t x = target.x + column * cells.cell_w;
     const int32_t y = target.y + row * cells.row_h;
     const bool chosen = static_cast<uint8_t>(day) == selected;
-    // **The chosen day is inverted and today wears a frame**: two signals for two facts, because a page has no
-    // colour to spend on the second one (docs/90).
-    if (chosen) {
+    const bool is_today = static_cast<uint8_t>(day) == today;
+    // **El negre és el cursor del teclat, i només hi és quan les tecles s'usen** (0.190.275, l'amo: *«El recuadre negre usa'l
+    // per el focus de teclat (aquest model T5S3 no en té)»*). La casella invertida era el dia triat per tothom, i en una placa que
+    // només té un dit això volia dir una casella negra que **no és cap cursor de res**: el dit no camina, tria. La regla del sistema
+    // ja existeix i és la dels altres controls —`g_ui_ring_shown` és fals fins que arriba una tecla de debò i torna a caure amb el
+    // primer dit (0.179.7)—, i el que arriba aquí com a `focused` ja la porta aplicada: o sigui que **la casella invertida segueix
+    // sent el dia on ets, però només quan el dial o les fletxes són a la mà**. En una T5 E-Paper S3 Pro, que té un botó i cap
+    // fletxa, no hi surt mai i el que queda és el senyal que no menteix: l'anella d'avui (docs/30, docs/90).
+    const bool lit = chosen && focused;
+    if (lit) {
       draw_fill_rect(*target.canvas, static_cast<uint16_t>(x + 1), static_cast<uint16_t>(y + 1),
                      static_cast<uint16_t>(cells.cell_w - 2), static_cast<uint16_t>(cells.row_h - 2), text,
                      mode);
-    } else if (static_cast<uint8_t>(day) == today) {
-      put_rect(*target.canvas, x + 1, y + 1, cells.cell_w - 2, 1, text);
-      put_rect(*target.canvas, x + 1, y + cells.row_h - 2, cells.cell_w - 2, 1, text);
-      put_rect(*target.canvas, x + 1, y + 1, 1, cells.row_h - 2, text);
-      put_rect(*target.canvas, x + cells.cell_w - 2, y + 1, 1, cells.row_h - 2, text);
+    }
+    // **I tot el que es marca en una casella és del mateix to** (0.190.274): sobre la tinta del dia triat, el número, el punt
+    // i l'anella van en el color del paper —una marca de tinta sobre tinta és una marca que no hi és—, i tenint-lo en un sol
+    // lloc cap de les tres no es pot descol·locar de les altres (docs/30, docs/90).
+    const uint8_t tone = lit ? background : text;
+    if (is_today) {
+      const int32_t left = x + kTodayInset;
+      const int32_t top = y + kTodayInset;
+      const int32_t wide = cells.cell_w - 2 * kTodayInset;
+      const int32_t tall = cells.row_h - 2 * kTodayInset;
+      int32_t radius = kTodayRadius;
+      if (radius > ((wide < tall ? wide : tall) / 2)) radius = (wide < tall ? wide : tall) / 2;
+      if (wide > 2 * kTodayRing && tall > 2 * kTodayRing) {
+        // **Una anella arrodonida és un ple i el seu forat** (0.190.274): the control has no primitive for a rounded edge of two
+        // pixels —`draw_round_bevel` en fa un d'un píxel i partit en dos tons, que és el relleu d'una tecla—, i la manera que no
+        // deixa cap píxel a mitges és **pintar el ple del to de la marca i tornar a pintar el seu interior amb el to de la casella**,
+        // que és la tinta quan la casella és la triada i el paper quan no (docs/50, docs/90).
+        const uint8_t cell_tone = lit ? text : background;
+        draw_round_fill(*target.canvas, left, top, wide, tall, radius, tone, mode);
+        draw_round_fill(*target.canvas, left + kTodayRing, top + kTodayRing, wide - 2 * kTodayRing,
+                        tall - 2 * kTodayRing, (radius > kTodayRing) ? (radius - kTodayRing) : 0, cell_tone, mode);
+      }
     }
     snprintf(shown, sizeof(shown), "%d", static_cast<int>(day));
     const int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
     const int32_t num_y = y + (room_for_mark ? (cells.row_h - mark_room) / 2 : (cells.row_h - line_h) / 2);
-    draw_text(*target.canvas, face, x + (cells.cell_w - taken) / 2, num_y, shown, scale,
-              chosen ? background : text, mode);
+    draw_text(*target.canvas, face, x + (cells.cell_w - taken) / 2, num_y, shown, scale, tone, mode);
     // **El punt del dia que té alguna cosa** (0.189.171, i des de 0.190.270 un disc que es veu): el paper marcava el dia amb
     // un quadre de vuit píxels sota el número, i el que una persona hi llegeix és un punt —aquest control el dibuixa rodó i
     // del mateix pes—, i **en el color del paper quan la cel·la és la triada**, perquè una marca de tinta sobre tinta és una
@@ -5668,7 +5702,6 @@ bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, ui
     // turn into bit 31, que avui ningú no pot encendre i que el dia que algú pugui seria un punt a la casella buida—
     // (0.189.174, docs/30, docs/90).
     if (room_for_mark && day >= 1 && day <= 31 && (marks & (1u << static_cast<uint32_t>(day - 1))) != 0) {
-      const uint8_t tone = chosen ? background : text;
       draw_disc(*target.canvas, x + cells.cell_w / 2, num_y + line_h + kMarkPad + kMarkRadius, kMarkRadius, tone,
                 mode);
     }

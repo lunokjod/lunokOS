@@ -81,6 +81,12 @@ const uint8_t kExpanderAddress = 0x20;
 const int kExpanderIntPin = 38;
 // **La llum de fons**: GPIO11 va a l'`EN` de l'elevador PT4103B23F, i el PWM és com es regula (docs/50).
 const int kBacklightPin = 11;
+// **Els dos resets que la placa té i que el son ha de subjectar** (0.190.272, els pins del fabricant: `BOARD_TOUCH_RST` 9 i
+// `BOARD_LORA_RST` 1): en un son profund el domini digital s'apaga i els pads queden flotants, i el fabricant els deixa baixos
+// i subjectats al seu `ui_sleep()`. El tàctil és el mateix que el driver no governa (només en toca la interrupció) i el LoRa ja
+// es queda fora del bus a l'arrencada (`kSdQuietPins`), o sigui que el que faltava era subjectar-los (docs/50).
+const int kTouchResetPin = 9;
+const int kLoraResetPin = 1;
 // **Què és entrada i què és sortida, en el registre de configuració del propi xip** (0.190.34, i és la segona trampa
 // d'aquesta placa): en un PCA9535 un `1` en aquest registre vol dir **entrada**, o sigui que `0xC400` són les tres
 // entrades de la placa —IO1_2 el botó `S3`, IO1_6 el `PWR_GOOD` de la font i IO1_7 la interrupció de la font— i tota la
@@ -230,14 +236,18 @@ class T5Power : public Esp32Power {
   bool can_sleep_with_the_keys() const override { return true; }
 
 
-  // **Les portes del son profund, i la tecla no n'és una** (0.190.102, l'amo: *«segur? no desperta mai»*). Waking from a deep sleep is
-  // a **reset**, i el xip torna a mirar els seus *strapping* en aquell reset: GPIO0 és el BOOT, o sigui que la mateixa tecla que demana
-  // tornar el deixa **baix** just quan el xip decideix què arrencar, i la placa arrenca en **mode de descàrrega de la ROM** en lloc de
-  // lunokOS —la pantalla no canvia, la consola calla i la placa sembla morta fins que un gravador hi parla—. No és cap error de la IDF ni
-  // del codi: és el pin. Les dues portes que sí que serveixen són les dues línies que la placa cableja a GPIOs de l'RTC i que es queden
-  // **baixes mentre volen dir alguna cosa**: l'alarma del rellotge (GPIO2) i el controlador del tàctil mentre un dit és a sobre del vidre
-  // (GPIO3, que en repòs és alt i baixa amb el contacte). O sigui que aquesta placa es desperta **tocant el vidre** o quan sona l'alarma,
-  // i la tecla BOOT es queda per a la becaina i per a entrar al mode de descàrrega (docs/50, docs/60).
+  // **Les portes del son profund, i què té cadascuna** (0.190.102 i 0.190.108, l'amo: *«segur? no desperta mai»*). Waking from a deep
+  // sleep is a **reset**, i el xip torna a mirar els seus *strapping* en aquell reset: GPIO0 és el BOOT, o sigui que la mateixa tecla que
+  // demana tornar el deixa **baix** just quan el xip decideix què arrencar, i una premuda llarga pot fer que la placa arrenqui en **mode
+  // de descàrrega de la ROM** —la pantalla no canvia, la consola calla i la placa sembla morta fins que un gravador hi parla—. No és cap
+  // error de la IDF ni del codi: és el pin.
+  //
+  // **I tot i així el BOOT s'arma**, i això és una decisió i no un descuit: és el que arma el fabricant al seu `ui_sleep()`
+  // (`esp_sleep_enable_ext0_wakeup(BOARD_BOOT_BTN, 0)`), i sense ell una placa sense alarma i amb «Wake on touch» apagat **no tindria
+  // cap porta** i es negaria a dormir (`arm_the_doors` amb la màscara a zero). Les altres dues són les línies que la placa cableja a GPIOs
+  // de l'RTC i que es queden **baixes mentre volen dir alguna cosa**: l'alarma del rellotge (GPIO2) i el controlador del tàctil mentre un
+  // dit és a sobre del vidre (GPIO3, que en repòs és alt i baixa amb el contacte). O sigui que aquesta placa torna amb un toc al vidre, amb
+  // l'alarma, o amb el BOOT —i el BOOT és l'última, i demana un toc curt (docs/50, docs/60).
   size_t describe_the_last_sleep(char* out, size_t cap) override {
     if (out == nullptr || cap == 0) return 0;
     if (g_doors_armed == 0 && g_doors_open == 0 && g_up_at_arming == 0) return 0;  // a boot that did not come from a sleep
@@ -354,8 +364,62 @@ class T5Power : public Esp32Power {
   // only switch between its cell and the board —the maker's `LilyGoT5_Shutdown` example is that one write—, o sigui que
   // `poweroff` aquí és una apagada de debò i no un son. **Amb el cable a dins no fa res**, perquè la placa no es pot
   // desconnectar d'una font que no és la seva (docs/50).
-  bool can_power_off() const override { return true; }
-  bool power_off() override { return gauge_.shut_down(); }
+  //
+  // **Amb el cable a dins no es pot, i el fabricant ho diu**: `PPM.shutdown()` és el mateix bit i el seu exemple de la fàbrica
+  // comença preguntant `battery_25896_is_vbus_in()` i, si hi ha cable, **no apaga res i ho escriu al vidre** —*«The shutdown
+  // function can only be used when the battery is connected alone, and cannot be shut down when connected to USB»*—. Sense
+  // aquesta pregunta, `poweroff` amb el cable escrivia el bit, no passava res i el nucli cridava `kernel::shutdown()`: la placa
+  // es quedava viva, muda i amb l'última imatge, i només en sortia amb el QON o traient el cable (0.190.272, l'amo: *«aquesta
+  // versió no sembla fer-ho bé»*) (docs/50, docs/60).
+  bool can_power_off() const override { return !gauge_.on_a_cable(); }
+
+  // **La baixada d'aquesta placa, que no és la del xip i prou** (0.190.272). El camí comú d'un son profund d'ESP32 arma les
+  // portes i atura els rellotges, i aquí això deixa tres coses enceses que el fabricant apaga a mà al seu `ui_sleep()`:
+  //
+  //   - **la llum del vidre**, que és un PWM i que en el son queda en el que la persona va triar —el fabricant hi escriu un
+  //     zero (`analogWrite(BOARD_BL_EN, 0)`) i després subjecta els pins—;
+  //   - **els rails del panell**, que el TPS65185 té amunt perquè s'acaba de pintar la imatge del son i `Epd47::poll` —el
+  //     torn dels dos segons— ja no tornarà a córrer: el fabricant hi crida `epd_poweroff()` i la imatge es queda igual,
+  //     perquè la tinta és pigment i no memòria (docs/50);
+  //   - **els resets del tàctil i del LoRa**, que sense cap hold queden flotants mentre el domini digital és apagat, i el
+  //     fabricant els subjecta amb `gpio_hold_en` i `gpio_deep_sleep_hold_en()`.
+  //
+  // **I el que es pinta a la pantalla no es toca quan la baixada és d'una alarma** (0.190.19): `keep_the_panel` vol dir que
+  // algú tornarà a aquesta imatge sense ningú al davant, o sigui que els rails es queden on són i el despert següent no ha de
+  // reinicialitzar el panell ni repintar res (docs/50, docs/60).
+  bool sleep(hal::SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel) override {
+    if (mode == hal::SleepMode::kDeep) {
+      // **La llum, a zero, abans que res**: the pins lose their state with the chip and a floating `EN` of the boost is a
+      // backlight nobody decided about (docs/50).
+      if (ILed* light = hal::platform().led()) {
+        light->fill(0, 0, 0);
+        light->show();
+      }
+      if (!keep_the_panel) {
+        if (ISurface* glass = hal::platform().display()) {
+          if (glass->rest()) logf(pal::kLogDebug, "PANEL", "the panel's supply is down for the sleep");
+        }
+      }
+      // **Els dos resets que el fabricant subjecta**: el del tàctil (GPIO9) i el del LoRa (GPIO1), tots dos baixos, i el hold
+      // del son profund perquè el que s'ha escrit no es perdi quan el domini digital s'apaga (docs/50).
+      gpio_set_direction(static_cast<gpio_num_t>(kTouchResetPin), GPIO_MODE_OUTPUT);
+      gpio_set_level(static_cast<gpio_num_t>(kTouchResetPin), 0);
+      gpio_hold_en(static_cast<gpio_num_t>(kTouchResetPin));
+      gpio_set_direction(static_cast<gpio_num_t>(kLoraResetPin), GPIO_MODE_OUTPUT);
+      gpio_set_level(static_cast<gpio_num_t>(kLoraResetPin), 0);
+      gpio_hold_en(static_cast<gpio_num_t>(kLoraResetPin));
+      gpio_deep_sleep_hold_en();
+    }
+    return Esp32Power::sleep(mode, at_epoch_ms, keep_the_panel);
+  }
+  bool power_off() override {
+    if (gauge_.on_a_cable()) {
+      logf(pal::kLogWarn, "POWER",
+           "the board cannot switch itself off on a cable: the charger's supply keeps it up (the maker's own rule)");
+      return false;
+    }
+    return gauge_.shut_down();
+  }
   bool battery(int& mv, int& pct, bool& charging) override { return gauge_.read(mv, pct, charging); }
   // **I el que el comptador de coulombs sap de més** (0.190.155): the current going in or out of the cell and the capacity that is
   // left, which a board with a divider on an ADC cannot say. The gauge answers false when the bus is not there (docs/50, docs/60).

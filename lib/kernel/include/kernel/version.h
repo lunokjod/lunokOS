@@ -13199,7 +13199,115 @@ namespace kernel {
 // tornada, la fitxa de l'app i el `Back`), un toc sobre una cel·la amb la targeta a sobre no llança res, i la sessió es desa sola
 // quan una altra app pren el vidre (`home_eink parks 'hidden': 512 B to /session/home`).
 
-static const char kVersion[] = "0.190.271";
+// 0.190.272 (23/11): **la T5 E-Paper S3 Pro no dormia per inactivitat, i la llum no s'apagava** (l'amo: *«l'M5Paper funciona
+// genial i s'apaga/deepsleep, aquesta versió no sembla fer-ho bé. Tampoc sembla que els temportizadors d'apagar backlight i
+// entrar en deepSleep quan hi ha inactivitat»*). Tres forats, i els tres eren el mateix error de forma: una pregunta que volia
+// dir una cosa i es feia servir com si en volgués dir una altra.
+//
+// **1. La política d'oci no podia córrer en aquesta placa.** `idle_sleep` començava amb `if (!deep_powers_off()) return;`, i
+// `deep_powers_off` diu **com** és la baixada —una apagada de debò, amb el rellotge del xip de rellotge tornant-la a engegar, que
+// és el Paper—. A la T5 el son profund és un son profund de l'ESP32 i no una apagada, o sigui que contestava que no, i **la seva
+// política tornava a cada torn sense fer res**: `Sleep after` no disparava mai, ni amb bateria. Ara hi ha una pregunta pròpia,
+// `can_sleep_on_idle()`, que per defecte és la de sempre (cap de les altres cinc bandes canvia) i que la T5 contesta que sí; el
+// que mana després és el que ja hi era: si hi ha porta per tornar-ne (`can_sleep_with_the_keys`, el dit, la cua d'alarmes).
+//
+// **2. El respir del cable manava sobre el comptador del negre.** `dim_when_idle` demanava `!g_breathe_on_a_cable`, i una placa
+// que sap dir que carrega —aquesta, pel BQ25896— es quedava amb el vidre encès per sempre mentre el cable fos a dins. A la M5Paper
+// no es veia perquè el seu `battery()` no pot dir si carrega i respon sempre que no (docs/50). Ara **la quietud guanya**: passats
+// els seixanta segons el vidre fa el negre, el respir s'atura amb ell (i es torna a preguntar quan la llum torna). També era el
+// motiu d'un segon bloqueig de la política: `led::animating()` era cert mentre respirava.
+//
+// **3. `poweroff` amb el cable no apagava res i el nucli no ho sabia.** El fabricant ho pregunta abans (`battery_25896_is_vbus_in()`)
+// i, si hi ha cable, no apaga i ho escriu al vidre. Aquí es responia `can_power_off()` que sí sempre, s'escrivia el `BATFET_DIS` —que
+// amb cable no fa res— i el nucli cridava `kernel::shutdown()`: la placa es quedava **viva, muda i amb l'última imatge**, i només en
+// sortia amb el QON o traient el cable. Ara `can_power_off()` és fals amb `VBUS` i la seqüència **diu per què abans de la primera
+// tinta** —pintar «apagant-me» i quedar-se encesa era el pitjor dels dos mons—, i el prompt ho diu amb les paraules del cicle.
+//
+// **I la baixada d'aquesta placa té el que li faltava en comparació amb el `ui_sleep()` del fabricant**: `T5Power::sleep` override
+// posa la llum a zero, baixa els rails del panell (`Epd47::rest()`, que amb la imatge del son a sobre quedava encesa tota la
+// dormida perquè el torn dels dos segons ja no torna a córrer) i subjecta els dos resets que el fabricant subjecta —tàctil a GPIO9
+// i LoRa a GPIO1— amb `gpio_deep_sleep_hold_en()`. Respecta `keep_the_panel` (0.190.19), que és la baixada d'una alarma i no ha de
+// tocar la imatge.
+//
+// El que **no** s'ha tocat és la tercera porta del son profund d'aquesta placa, la tecla BOOT de GPIO0: el fabricant l'arma amb
+// `ext0` igual que nosaltres, i si el despert cau en mode de descàrrega ho ha de dir una prova a la placa (docs/50, docs/60).
+
+// 0.190.273 (23/11): **les normes de casa, dites senceres** (l'amo: *«Has d'usar sempre Xvfb per fer proves en el pc i l'emulador»*).
+// `.github/copilot-instructions.md` ja deia que no s'obre cap finestra a l'escriptori de l'amo, i el que faltava era el que es va veure
+// avui: la regla no és «no obrir finestres» sinó **«tota prova del PC va amb un Xvfb propi»** —l'emulador amb finestra, l'emulador sense,
+// una captura, un `xdotool`—, i **res no s'executa amb el `DISPLAY` que hi hagi a l'entorn**. El que s'hi ha afegit és el que fa que es
+// pugui complir: el número de pantalla és meu i es tria lliure, el `DISPLAY` s'escriu sempre a la comanda, una comanda que no ha de
+// tocar cap pantalla ho diu amb `env -u DISPLAY` o amb `--no-gui`, i el servidor i el procés es maten amb els seus PID concrets (`kill
+// <pid>`, mai `pkill` per nom). Sense `DISPLAY` propi no es fa la prova i es demana permís. **I el número que la màquina hereta està
+// escrit a la regla** (`DISPLAY=:0`, la pantalla de l'amo), perquè el que fa complir una norma no és recordar-la sinó no haver-la de
+// recordar (docs/80, docs/85).
+
+// 0.190.274 (23/11): **el dia d'avui porta una anella que es veu** (l'amo: *«De quina forma marcaríes el dia actual al calendari?»*,
+// i després el que volia: una anella de dos píxels). El senyal hi era des de la portada, però **al pitjor lloc possible**: un marc d'un
+// píxel a un píxel de la casella, i amb caselles de setanta-un píxels els marcs de dues veïnes queden a **dos píxels l'un de l'altre** —
+// l'ull ho llegeix com una línia de graella i no com «avui»—. És el mateix error que el punt de les cites quan era de tres píxels
+// (0.190.270): una forma que hi és no és una forma que es llegeix.
+//
+// **Ara és una anella de dos píxels, quatre píxels endins**, que és el que feia el calendari del paper (`c.inset(6, 6)`) amb la tinta
+// d'aquest vidre. Les tres marques d'una casella són tres formes diferents i no es poden confondre: el dia triat és una **casella
+// plena**, el dia d'avui és una **anella** i un dia amb cites és un **disc** sota el número. La inseta de quatre deixa **un píxel
+// d'aire** sobre el punt, perquè el bloc del número i el punt acaba set píxels abans del peu de la casella.
+//
+// **I les cantonades, arrodonides** (l'amo: *«Aprofita i fes l'anella amb cantonades arrodonides perqué quedi mes bonic»*). El control
+// no té cap primitiva d'una vora arrodonida de dos píxels —`draw_round_bevel` en fa una d'un píxel i partida en dos tons, que és el
+// relleu d'una tecla—, o sigui que l'anella és **un ple arrodonit de radi vuit i el seu forat tornat a pintar amb el to de la casella**:
+// la tinta quan la casella és la triada i el paper quan no. El radi és el de la targeta del sistema (vuit sobre seixanta-tres), no un
+// número inventat per a aquest control, i es limita a la meitat del costat quan la casella és petita.
+//
+// **I tot el que es marca en una casella surt del mateix to**: el número, el punt i l'anella comparteixen `tone`, que és el color de la
+// tinta o el del paper quan la casella és la triada, o sigui que sobre la casella negra del dia triat l'anella d'avui és **blanca** i
+// les tres coses no es poden descol·locar l'una de l'altra. Provat a l'emulador amb el mes de novembre de 2026: el 22 amb l'anella
+// sobre paper, i el 22 triat amb l'anella en paper dins de la casella de tinta.
+
+// 0.190.275 (23/11): **la casella negra és el cursor del teclat, i en aquesta placa no hi és** (l'amo: *«Espera.. acabo de
+// fixar-me, el recuadre negre es el día actual?»* i, quan li vaig dir que era el dia on ets, *«El recuadre negre usa'l per el
+// focus de teclat (aquest model T5S3 no en té)»*).
+//
+// Tenia raó i el senyal era dolent: la casella invertida es dibuixava **sempre** que el calendari tingués un dia triat, i en una
+// placa que només té un dit —una T5 E-Paper S3 Pro té un botó i cap fletxa— allò era una casella negra que no és cap cursor de
+// res: el dit no camina, tria. I a sobre es confonia amb el senyal d'avui quan les dues coses queien al mateix dia, que és el cas
+// de quan s'obre l'app per primera vegada.
+//
+// **Ara la inversió és el cursor i va lligada a les tecles**: el que arriba a `month_draw` com a `focused` ja porta aplicada la
+// regla de la casa (`g_ui_ring_shown`, fals fins que arriba una tecla de debò i tornar a caure amb el primer dit, 0.179.7), o
+// sigui que la casella negra surt **quan el dial o les fletxes són a la mà** i desapareix quan la persona toca el vidre. En una
+// placa sense fletxes no surt mai, i el que queda és l'anella d'avui, que és l'únic senyal que no pot mentir.
+//
+// **Pel camí, un sol to per a totes les marques d'una casella**: el número, el punt i l'anella surten del mateix `tone`, o sigui
+// que sobre la casella negra del cursor les tres coses són de paper i no es poden descol·locar l'una de l'altra. Provat a
+// l'emulador amb el meu Xvfb: amb el dit, el mes ensenya el 22 amb l'anella i cap casella negra; amb la fletxa avall premuda,
+// apareix el marc del control i la casella negra al 23 amb l'anella del 22 intacta al seu lloc (docs/30, docs/90).
+
+// 0.190.276 (23/11): **el Close i el pessic es menjaven el prompt, i el botó Home no** (l'amo: *«si tanco l'app desde el panell
+// desplegable i uso el botó "Home" tot va bé, però si uso "Close" o el gest de pinch per tancar l'app, el shell perd el control
+// del serial i es veu el log del programa»*).
+//
+// Les tres portes són la mateixa i les tres acaben igual —l'app es tanca i una altra pàgina ocupa el vidre—, o sigui que el
+// defecte no era al gest sinó en **una sola variable**: `detached`, que és qui té el cable. `feed` dona cada byte a l'app mentre
+// no és del fons, i `console.print` d'una app del davant va al cable: per això es veia el log del programa i el prompt deixava
+// de contestar.
+//
+// **La casa arrencava attached per una porta i detached per l'altra**: el boot la demanava amb `detached=true` i la tornada
+// —`start_the_home_app`, la que fan la creu i el pessic— amb `detached=false`, que és l'últim que `close_app` acaba de deixar
+// posat. El botó Home no passa per cap de les dues: demana l'app amb un desig i el torn del desig **hereta** el `was_detached`
+// de la que marxa, que és del fons perquè tota la cadena del boot ho és. El que semblava que funcionava era la sort d'una
+// herència, i el que fallava era una constant escrita a mà.
+//
+// **Dues regles i prou**: (1) la pàgina de casa no és mai de la consola, i això es decideix **a `start_a_page`**, la porta única
+// per on passen totes les mans —el boot, la tornada, la clau de la casa del tauler, una alarma i el despertar—, perquè una porta
+// que se n'oblida és el defecte; (2) la pàgina que torna d'una app que ha acabat o que algú ha tancat **torna com era**, i
+// `close_app` deixa l'estat del cable al costat del nom (`g_run_back_detached`) perquè `start_the_one_that_asked` el trobi. El
+// paràmetre `detached` de `start_the_home_page` ha marxat: les dues portes el volien igual i una no el deia.
+//
+// Provat a l'emulador amb el meu Xvfb: després de tancar una app amb la creu i amb el pessic, el `lunok>` torna al cable i el
+// que el tauler escriu queda al registre (docs/30, docs/50).
+
+static const char kVersion[] = "0.190.276";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

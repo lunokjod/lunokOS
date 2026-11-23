@@ -1143,14 +1143,25 @@ void dim_when_idle() {
   if (g_led == nullptr) return;
   const bool it_is_mine = is_a_backlight() && cfg::backlight();
   const int64_t quiet = power::quiet_ms();
-  // **I el cable guanya al comptador** (0.190.162): a board that is charging is a board saying something, o sigui que el minut de quietud no
-  // apaga el respir que la persona ha demanat (docs/30, docs/50).
-  const bool dark =
-      it_is_mine && cfg::dim_when_idle() && no_one_is_talking() && !g_breathe_on_a_cable && quiet >= kDimAfterMs;
+  // **I el cable no mana sobre el comptador** (0.190.272, l'amo: *«Tampoc sembla que els temporitzadors d'apagar backlight …
+  // quan hi ha inactivitat»*): el respir era una segona condició que el comptador no podia guanyar mai, i en una placa que sap
+  // dir que carrega —aquesta, amb el BQ25896— volia dir que **el vidre no s'apagava mai** mentre el cable fos a dins. A la M5Paper
+  // no es veia perquè el seu `battery()` no pot dir si carrega i respon sempre que no. El respir és una cosa que la placa diu
+  // mentre algú és a prop i el negre és la resposta a una hora sense ningú: **la quietud guanya**, i el respir es para quan el
+  // negre arriba i torna quan el vidre s'encén (docs/30, docs/50).
+  const bool dark = it_is_mine && cfg::dim_when_idle() && no_one_is_talking() && quiet >= kDimAfterMs;
   if (dark == g_dimmed) return;
   g_dimmed = dark;
   if (g_dimmed) {
     paint_the_dark();
+    // **I el respir s'atura amb el negre**: si seguís encès, el fotograma següent tornaria a encendre el vidre i, a més, el nucli
+    // veuria una llum que anima i no deixaria la placa adormir-se per inactivitat (`led::animating`). Es torna a preguntar quan la
+    // llum torna, perquè `ask_the_cable` no mira res mentre el vidre és fosc (docs/30, docs/50).
+    if (g_breathe_on_a_cable) {
+      g_breathe_on_a_cable = false;
+      g_cable_asked_ms = -1;
+      log_markf("LED", "the glass stops breathing: the quiet took the light");
+    }
     // **L'apagada, dita** (0.190.122): és la resposta a «surt al log l'apagada i l'encesa del backlight?» —no hi sortia— i el número que fa falta per
     // saber si el minut és el que una persona creu. Com les línies dels ajustos, és una marca i no una traça: no la filtra el nivell (docs/30, docs/75).
     log_markf("LED", "the glass's light is out: %lld s with nobody on the board", static_cast<long long>(quiet / 1000));

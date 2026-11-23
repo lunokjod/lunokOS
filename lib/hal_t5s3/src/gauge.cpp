@@ -78,6 +78,16 @@ uint16_t little_endian(const uint8_t* bytes, size_t len) {
 
 }  // namespace
 
+// **El cable, preguntat sol** (0.190.272): `VBUS_GD` de REG11 és el bit que el carregador posa quan el cable hi és i la
+// tensió d'entrada és bona, i és el mateix registre que `charger()` llegeix per dir els mil·livolts. Una lectura que no
+// arriba contesta que no: una placa no es declara endollada per un bus que calla (docs/50, docs/95).
+bool T5Gauge::on_a_cable() const {
+  if (bus_ == nullptr) return false;
+  uint8_t vbus = 0;
+  if (!bus_->read(kChargerAddress, kChargerVbus, &vbus, 1)) return false;
+  return (vbus & 0x80) != 0;
+}
+
 bool T5Gauge::shut_down() {
   if (bus_ == nullptr) return false;
   // **Read, or, write**: the register has other bits in it and the maker's own example keeps them, o sigui que el que

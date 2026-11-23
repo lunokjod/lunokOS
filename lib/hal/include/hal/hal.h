@@ -703,6 +703,19 @@ class IPower {
   // the least current a board can draw, and it means the wake does not come from the
   // chip's own timer but from the clock, which is why the system says so at boot.
   virtual bool deep_powers_off() const { return false; }
+
+  // **Si la política d'oci pot posar aquesta placa a dormir** (0.190.272, l'amo: *«l'M5Paper funciona genial i s'apaga/deepsleep,
+  // aquesta versió no sembla fer-ho bé»*). És una pregunta diferent de la de dalt i la diferència va costar un forat: `deep_powers_off`
+  // diu **com** és la baixada —una apagada de debò, amb el rellotge del xip de rellotge que torna a engegar la placa— i el nucli la feia
+  // servir com a **si aquesta placa pot dormir quan no hi ha ningú**, o sigui que la T5 E-Paper S3 Pro, on el son profund és un son
+  // profund de l'ESP32 i no una apagada, no dormia mai per inactivitat: el temporitzador de `Sleep after` no disparava i la placa es
+  // quedava encesa amb el vidre il·luminat. **El que la política ha de saber és si baixar estalvia la placa i si hi ha una porta per
+  // tornar-ne**, i això és el que responen `can_sleep_with_the_keys`, `can_wake_on_touch` i la cua d'alarmes, que el nucli ja mira
+  // després (docs/50, docs/60).
+  //
+  // La resposta per defecte és la de sempre —una placa que no diu res només dorm si la seva baixada és una apagada—, o sigui que cap
+  // de les altres cinc bandes canvia de comportament per aquesta línia (docs/50, docs/60).
+  virtual bool can_sleep_on_idle() const { return deep_powers_off(); }
   // Cuts the board's own supply, and **nothing comes back from it**: it is not a sleep, no alarm is
   // armed, and only the button —or the cable, on a board that cannot switch itself off while it is
   // plugged in— brings the board up again (docs/50). False is a board that cannot do it, said out

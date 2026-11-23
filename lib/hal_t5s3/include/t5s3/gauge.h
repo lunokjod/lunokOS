@@ -44,6 +44,12 @@ class T5Gauge {
   // (docs/50).
   bool shut_down();
 
+  // **Si hi ha un cable a dins** (0.190.272): REG11 bit 7 is the charger's own `VBUS_GD`, i és la pregunta que el fabricant fa
+  // abans d'apagar res —el seu exemple de `shutdown` ho diu amb totes les paraules: *«The shutdown function can only be used
+  // when the battery is connected alone, and cannot be shut down when connected to USB»*—. **False també vol dir que no s'ha
+  // pogut preguntar**, o sigui que una placa que no contesta no es declara endollada (docs/50, docs/95).
+  bool on_a_cable() const;
+
  private:
   II2c* bus_;
 };

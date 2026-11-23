@@ -2,19 +2,36 @@
 
 Aquestes són les coses que l'amo ha hagut de repetir més d'un cop. No es negocien i no cal preguntar-les.
 
-## L'entorn gràfic és SEU, i jo no el toco mai
+## L'entorn gràfic és SEU, i jo no el toco mai: **tota prova del PC va amb el meu Xvfb**
 
 **Mai no executo res que obri una finestra al seu escriptori.** Ni l'emulador amb `--gui`, ni cap eina amb X11/SDL/Wayland, ni
-`pio device monitor` en una terminal seva. Si una prova necessita pantalla —l'emulador amb finestra, una captura, qualsevol cosa
-que dibuixi— es fa **amb el meu propi Xvfb**:
+`pio device monitor` en una terminal seva.
+
+**I la regla és més ampla que «no obrir finestres»**: **qualsevol prova que faci al PC o amb l'emulador —amb finestra o sense,
+amb captures o sense— es fa amb un Xvfb propi**, encara que el que executi sigui una comanda que no dibuixa res. El que no es fa
+**mai** és córrer res amb el `DISPLAY` de l'amo ni amb el `DISPLAY` que hi hagi a l'entorn:
 
 ```sh
-Xvfb :99 -screen 0 1600x1200x24 &
-DISPLAY=:99 ./programa ...
+# sempre: el meu servidor, el meu número de pantalla, i mort en acabar
+Xvfb :99 -screen 0 1600x1200x24 >/tmp/xvfb.log 2>&1 &
+XPID=$!
+sleep 2
+DISPLAY=:99 .pio/build/emulator/program --board … > /tmp/run.log 2>&1 &
+EPID=$!
+# … la prova …
+kill $EPID; kill $XPID
 ```
 
-i es mata en acabar. Sense `DISPLAY` propi, **no es fa la prova**: es diu que no es pot fer així i es demana permís, però no
-s'usa la pantalla de l'amo. *(L'amo: «t'he dit molts cops que no usis les meves X per proves, USA LES TEVES AMB Xvfb.»)*
+- **Res s'executa amb el `DISPLAY` heretat.** Si una comanda no ha de tocar cap pantalla, es diu explícitament amb
+  `env -u DISPLAY …` o amb `--no-gui`; si n'ha de tocar una, és `DISPLAY=:99` i prou. **En aquesta màquina l'entorn porta
+  `DISPLAY=:0`, que és la pantalla de l'amo**: tota comanda que no sigui `env -u DISPLAY` hi ha de portar el `DISPLAY` escrit.
+- **Les captures també**: `DISPLAY=:99 import -window root`, `xwd`, `xdotool`… sempre contra el meu servidor.
+- **El número de pantalla és meu** i es tria lliure (`:99` si és lliure); si ja hi ha un `Xvfb` meu corrent es pot reutilitzar,
+  però **no s'agafa mai el de l'amo**.
+- **Es mata en acabar**, amb els PID concrets (`kill <pid>`, mai `pkill` per nom), i es diu que no queda res obert.
+- **Sense `DISPLAY` propi no es fa la prova**: es diu que no es pot fer així i es demana permís, però no s'usa la pantalla de
+  l'amo. *(L'amo: «t'he dit molts cops que no usis les meves X per proves, USA LES TEVES AMB Xvfb.» i, més tard, «Has d'usar
+  sempre Xvfb per fer proves en el pc i l'emulador.»)*
 
 ## El port sèrie és seu
 

@@ -20,7 +20,7 @@ que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 | `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space, **`flush`** (0.189.18: el que el backend tingui a mig fer; a l'emulador és un `sync()` del PC i a l'ESP32 no n'hi ha cap d'enllaçable, perquè cada fitxer es tanca dins la crida que l'escriu) | ✓ | ✓ | ✓ | ✓ (LittleFS i targeta) | ✓ |
 | `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs`, i **`commit`** (0.189.18: la baixada el demana abans de tallar el corrent, i el backend de la placa ja el fa a cada `set`) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | ✓ (provat a la placa) | ✓ (el mateix codi; pendent de provar a la placa) | **la ràdio és de mentida i la pàgina no**: `curl` la baixa de debò (docs/85) |
-| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada**; **`can_power_off()`** (0.189.18) diu si la placa té el corrent a la mà **sense intentar-ho**, perquè la baixada no gasti el repòs d'una targeta en una placa que no es pot apagar | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | ✓ (son i velocitat; **no hi ha indicador de bateria** i no es pot apagar) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
+| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada**; **`can_power_off()`** (0.189.18) diu si la placa té el corrent a la mà **sense intentar-ho**, perquè la baixada no gasti el repòs d'una targeta en una placa que no es pot apagar; **`can_sleep_on_idle()`** (0.190.272) és una altra pregunta —si la política d'oci pot posar-la a dormir— perquè «el son és una apagada» i «el son estalvia la placa» no són el mateix, i confondre-les deixava la T5 sense `Sleep after` | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | ✓ (la bateria pel **BQ27220** i el cable pel **BQ25896**; el son profund és un son de l'ESP32 i **no** una apagada, però `can_sleep_on_idle` diu que sí; `power_off` talla el **`BATFET`** del carregador i **no pot amb el cable a dins**, que és la regla del fabricant; la baixada posa la llum a zero, baixa els rails del panell i subjecta els resets del tàctil i del LoRa, com el seu `ui_sleep()`) | ✓ (son i velocitat; **no hi ha indicador de bateria** i no es pot apagar) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
 | `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | 1 (LED verd a GPIO5, només encès/apagat) | el del model: 1, 25, 0 o 1 |
 | `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | — (cap tecla; el botó és RST) | ✓ (les del model) |
 | `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | — | de mentida |
@@ -1544,6 +1544,23 @@ d'alimentació —el corrent de la cel·la arriba al xip i prou— i l'única ma
 i la placa. És el que fa `LilyGoT5_Shutdown` al repositori del fabricant, i per això `can_power_off()`
 és cert en aquesta placa i `poweroff` és una apagada de debò. **Amb el cable a dins no fa res**, o sigui
 que una placa endollada que diu que s'ha apagat és una placa que no s'ha apagat.
+
+**I des de la 0.190.272 ho pregunta abans** (l'amo: *«aquesta versió no sembla fer-ho bé»*): `can_power_off()`
+és fals amb `VBUS_GD` alt i la seqüència de la baixada s'atura **abans de la primera tinta**, amb una línia
+que diu per què. Sense això el bit s'escrivia, no passava res —el cable manté la placa encesa— i el nucli
+cridava `kernel::shutdown()`: la placa es quedava **viva, muda i amb l'última imatge**, i només en sortia
+amb el QON o traient el cable. És la regla que el fabricant té escrita al seu exemple de `shutdown` i a la
+pantalla de la seva fàbrica: *«The shutdown function can only be used when the battery is connected alone,
+and cannot be shut down when connected to USB.»*
+
+**I la baixada d'aquesta placa té tres coses més que la del xip** (0.190.272), que són les que el seu
+`ui_sleep()` fa a mà i que aquí no es feien: la **llum del vidre a zero** abans que els pads perdin el seu
+estat; els **rails del panell avall** (`Epd47::rest()`) —després de pintar la imatge del son el TPS65185 es
+quedava encesa tota la dormida, perquè el torn dels dos segons que els baixa ja no torna a córrer, i la
+imatge es queda igual perquè la tinta és pigment—; i els **dos resets subjectats** amb `gpio_hold_en` i
+`gpio_deep_sleep_hold_en()` (tàctil a **GPIO9** i LoRa a **GPIO1**), perquè en un son profund el domini
+digital s'apaga i un pad flotant no és cap decisió. **La baixada d'una alarma no hi passa** (`keep_the_panel`,
+0.190.19): allà el que s'ha de trobar el següent despert és exactament la imatge que hi ha.
 
 **El que aquesta placa comparteix amb el Paper i no s'ha escrit dues vegades**: el GT911 (el mateix
 controlador, altres pins: `INT` 3 i `RST` 9) i el rellotge —el **PCF8563 és el xip que el BM8563
