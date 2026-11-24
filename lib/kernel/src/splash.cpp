@@ -593,7 +593,13 @@ bool wait() {
   return glass->idle();
 }
 
-bool hide() {
+bool hide() { return wash(hal::UpdateMode::kGld16); }
+
+// **El vidre sencer, a paper, amb la qualitat de qui crida** (0.191.8, l'amo: *«al tornar de deepsleep has de netejar la pantalla a fons»*):
+// el dibuix del son no passa per la pàgina de ningú, o sigui que el que el treu de tots els forats és un rentat del **vidre** i no de la
+// vista —les dues franges del sistema també hi són, i una pàgina que no les toca les deixa com estaven—. `hide()` fa servir aquesta mateixa
+// passada amb un `gld16`, i el retorn d'un son demana un `gc16`, que és el que esborra de debò (docs/30, docs/50).
+bool wash(hal::UpdateMode mode) {
   g_error = "";
   g_showing = kNone;
   hal::ISurface* glass = display::surface();
@@ -611,7 +617,7 @@ bool hide() {
   // (docs/30, docs/50).
   glass->clear(15);
   display::hold_for_a_paint();
-  return glass->flush(hal::UpdateMode::kGld16);
+  return glass->flush(mode);
 }
 
 Kind showing() { return g_showing; }

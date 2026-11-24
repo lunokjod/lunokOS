@@ -683,7 +683,24 @@ void boot(hal::IPlatform& platform) {
   const bool show_it =
       ((booted != power::BootKind::kSleep) || (boot_moment == splash::kLowBattery)) && !display::the_glass_is_asleep();
   if (!show_it) {
-    ui::owe_the_page();
+    // **I el retorn d'un son neteja el vidre sencer, a fons** (0.191.8, l'amo: *«al tornar de deepsleep has de netejar la pantalla a fons»*).
+    // El dibuix del son no ha passat per la pàgina de ningú: la pàgina que arriba pinta el seu damage i deixa la tinta vella a tots els
+    // forats —i a les dues franges del sistema, que no són de cap app—. El que ho esborra és un `gc16` del **vidre** i no de la vista, o
+    // sigui que es paga aquí, abans que cap pàgina dibuixi, i després la pàgina no deu res (docs/30, docs/50).
+    //
+    // **I no es paga quan el vidre dorm**: un despert per una alarma no toca ni un píxel a posta (0.190.19) i el que hi ha al vidre és
+    // la imatge que el son hi va deixar; quan la persona hi sigui, la pàgina que arribi sí que neteja.
+    if (booted == power::BootKind::kSleep && !display::the_glass_is_asleep()) {
+      if (splash::wash(hal::UpdateMode::kGc16)) {
+        log_printf(pal::kLogInfo, "UI", "the glass comes back from a sleep: washed whole with gc16");
+      } else {
+        log_printf(pal::kLogWarn, "UI", "the glass comes back from a sleep and the wash did not take: %s",
+                   splash::last_error());
+        ui::owe_the_page();
+      }
+    } else {
+      ui::owe_the_page();
+    }
   } else if (!splash::show(boot_moment)) {
     log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
   } else {

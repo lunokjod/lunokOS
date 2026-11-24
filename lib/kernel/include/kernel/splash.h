@@ -22,6 +22,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "hal/hal.h"
+
 namespace kernel {
 namespace splash {
 
@@ -77,6 +79,12 @@ bool show(Kind kind);
 bool show(const char* path);
 // **Gives the glass back**: paper, washed whole, and no picture of any moment.
 bool hide();
+// **El vidre sencer, a paper, amb la qualitat que demani qui crida** (0.191.8, l'amo: *«al tornar de deepsleep has de netejar la pantalla a
+// fons»*): the same pass as `hide()` —the whole panel, not the view— with the mode named by the caller. The boot asks for a `gc16` when it
+// comes back from a deep sleep, perquè el dibuix del son és tinta de debò i el que el treu de tots els forats és el rentat de setze
+// nivells; `hide()` es queda amb el `gld16` que va triar la 0.190.42 perquè allà el que s'esborra és una foto i el parpelleig no es vol
+// (docs/30, docs/50).
+bool wash(hal::UpdateMode mode);
 // **Waits until the ink of the last picture is over** (0.165.1): `show` waits for the ink that was moving **before** its
 // picture and then asks for a `gc16` of the whole glass, which is half a second of ink — and a caller that cuts the power
 // or restarts the board in the middle of it shows the page of before and not the picture. A restart, a power-off and a

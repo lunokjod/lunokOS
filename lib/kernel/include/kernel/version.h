@@ -13661,7 +13661,21 @@ namespace kernel {
 // de la 0.191.6 va regenerar `apps/about/res/libs.txt` amb les versions noves de `hal`, `hal_esp32` i `kernel` i no va pujar el número de
 // l'app que les ensenya. La llei 10 val per a tothom, o sigui que aquest commit només fa això).
 
-static const char kVersion[] = "0.191.7";
+// 0.191.8 (24/11): **el retorn d'un son neteja el vidre sencer, a fons** (l'amo: *«al tornar de deepsleep has de netejar la pantalla a
+// fons»*).
+
+// El dibuix del son el pinta `splash` **fora de la pàgina de ningú**, o sigui que la primera pàgina d'un run que torna el deixa a tots els
+// forats: pinta el seu damage i la tinta vella es queda on l'app no té res —i a les dues franges del sistema, que no són de cap app—. El
+// deute de la pàgina (`ui::owe_the_page`, 0.179.5) ho tapava a mitges, perquè el que paga és la **vista** i no el vidre.
+
+// **Ara es paga al vidre i abans que cap pàgina dibuixi**: `splash::wash(mode)` és la mateixa passada que `hide()` —el panell sencer, no la
+// vista— amb la qualitat que demana qui crida, i l'arrencada en demana un **`gc16`** quan ve d'un son i el vidre no dorm. Després la pàgina
+// no deu res i el que queda sota la primera pàgina és paper.
+
+// **I no es paga quan el vidre dorm**: un despert per una alarma no toca ni un píxel a posta (0.190.19) i el que hi ha al vidre és la imatge
+// que el son hi va deixar; quan la persona hi sigui, la pàgina que arribi neteja (docs/30, docs/50).
+
+static const char kVersion[] = "0.191.8";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

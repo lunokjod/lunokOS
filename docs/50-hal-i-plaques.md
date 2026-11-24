@@ -1169,6 +1169,30 @@ les dues línies ho diuen amb el seu nom:
 [I][POWER] last sleep #3 after 184203 ms up: armed clock+key+glass, open nothing, low lines c1 k0 g0, and it came back by the key of the board
 ```
 
+### El retorn d'un son neteja el vidre a fons (0.191.8)
+
+L'amo: *«al tornar de deepsleep has de netejar la pantalla a fons»*.
+
+El dibuix del son el pinta `splash` **fora de la pàgina de ningú** (`hal::ISurface`, no el canvas), o sigui que la primera pàgina d'un run
+que torna el deixava a tots els forats: l'app pinta **el seu damage** i la tinta vella es queda on ella no té res —i a les dues franges del
+sistema, que no són de cap app—. El deute de la pàgina (`ui::owe_the_page`) ho tapava a mitges, perquè el que paga és **la vista** i no el
+vidre.
+
+**Ara es paga al vidre i abans que cap pàgina dibuixi**: `splash::wash(mode)` és la mateixa passada que `hide()` —el panell sencer, no la
+vista— amb la qualitat que demana qui crida, i l'arrencada en demana un **`gc16`** quan ve d'un son i el vidre no dorm:
+
+```
+[I][BOOT] back from a deep sleep, woken by the power coming back: a person, the page comes back
+[I][UI] the glass comes back from a sleep: washed whole with gc16
+```
+
+Després d'aquest rentat la pàgina **no deu res**: el que queda sota la primera pàgina és paper, i el primer dibuix de l'app només pinta les
+seves caixes.
+
+**I no es paga quan el vidre dorm**: un despert per una alarma no toca ni un píxel a posta (0.190.19) i el que hi ha al vidre és la imatge
+que el son hi va deixar; quan la persona hi sigui, la pàgina que arribi neteja. El preu del rentat és una passada sencera del panell —al
+T5S3, uns vuit-cents mil·lisegons— i és el que val un vidre net.
+
 ## La consola
 
 Els primers bytes que surten per un terminal a 115200 **no són nostres**: abans que el PAL obri la consola el
