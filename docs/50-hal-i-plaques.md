@@ -1108,6 +1108,67 @@ contesta que no, perquè la seva consola és el USB del xip. Amb les dues a favo
 becaina que es mengi el que una persona escriu és pitjor que no estalviar res, i tancar aquesta porta deixa un avís a `CFG`
 (docs/30, docs/60).
 
+### Les portes del son profund de la T5S3, i la que no ho pot ser (0.191.5)
+
+L'amo: *«el T5S3 pro te problemes amb el deep sleep…. revisa el codi del fabricant i descobreix com fer deepsleep amb IO48, alarma rtc i
+touch al panell táctil com a fonts de wake»*.
+
+**Primer, la resposta dura: `IO48` no pot despertar aquest xip d'un son profund, i no hi ha cap manera de fer-ho per programari.** Un
+ESP32-S3 només accepta com a porta una línia del domini de l'RTC, que són **GPIO0 a GPIO21** —`SOC_RTCIO_PIN_COUNT` val 22, i
+`esp_sleep_is_valid_wakeup_gpio()` és literalment `RTC_GPIO_IS_VALID_GPIO()`—, i la crida de l'IDF ho diu pel seu nom:
+`gpio 48 is an invalid deep sleep wakeup IO`. I a aquesta placa **GPIO48 és `EP_CKV`**, el rellotge vertical del panell
+(`#define EP_CKV (48)` al `docs/pin_define.md` del fabricant): una **sortida** que aquesta casa mou per pintar i que no té res a dir sobre
+quan s'ha de despertar. El son lleuger sí que accepta qualsevol GPIO (`gpio_wakeup_enable` + `esp_sleep_enable_gpio_wakeup`), i per això
+el botó `S3` i la consola hi són com a portes de la becaina; el son profund, no.
+
+**Les tres portes que aquesta placa té de debò**, i totes tres són al domini de l'RTC:
+
+| porta | pin | qui la baixa | què cal perquè sigui una porta |
+|---|---|---|---|
+| el BOOT del mòdul | **GPIO0** | una persona | res: és el que arma el fabricant (`esp_sleep_enable_ext0_wakeup(BOARD_BOOT_BTN, 0)`). **El defecte**: és un pin *strapping* i premut en el moment del reset, la placa arrenca en mode de descàrrega |
+| l'alarma del rellotge | **GPIO2** | el PCF8563, quan salta la seva alarma | que la seva línia sigui alta abans d'armar —si ja és baixa, la porta és oberta i el despert seria immediat, i el codi la deixa fora i ho diu— |
+| el tàctil | **GPIO3** | el GT911, quan una escombrat té un dit a sobre | «Wake on touch» encès, el controlador **despert** i escombrant tot el son |
+
+**I el que el fabricant deixa comentat al seu codi és una pista falsa**: `// esp_sleep_enable_ext1_wakeup((1UL << KEY_BTN),
+ESP_EXT1_WAKEUP_ANY_LOW);`. Aquell `KEY_BTN` **no està definit enlloc** del seu repositori, i el botó de debò de la placa —el `S3`— penja
+de l'expansor amb la seva interrupció a **GPIO38**, que tampoc és de l'RTC. No és que no el volgués: és que no hi ha cap pin per on fer-ho.
+
+**El que aquesta placa fa amb el mínim** (la decisió de l'amo, 24/11: *«Res més: el BOOT i l'alarma, i prou (consum mínim)»*): el
+commutador «Wake on touch» queda **apagat de sèrie** i el controlador del tàctil es subjecta en reset abans de dormir, que és el que menys
+gasta; el botó `S3` no s'hi afegeix (no pot). O sigui que les portes d'una placa així són **el temporitzador, el BOOT i l'alarma del
+rellotge**, i la línia de la baixada les diu abans de baixar:
+
+```
+[I][POWER] deep sleep with nothing to come back for: its doors are the timer, the BOOT key (a short press: held down
+           it wakes in the ROM's download mode) and the clock's alarm (the board's own key cannot wake a deep sleep)
+```
+
+**I l'avís de la premuda curta no és un detall**: GPIO0 és el pin *strapping* del mode de descàrrega i el xip el torna a mirar en el reset
+que és un despert, o sigui que una premuda llarga arrenca la placa al carregador de la ROM i sembla morta. No hi ha res a fer per
+programari —quan el xip mira el pin, aquest codi encara no corre—, i el que es pot fer és dir-ho on una persona ho llegeix.
+
+**I dues coses estaven malament d'aquesta banda**, les dues trobades llegint el seu `ui_sleep()` al costat del nostre `sleep()`:
+
+- **El reset del tàctil es subjectava baix sempre.** El fabricant ho fa (`digitalWrite(BOARD_TOUCH_RST, LOW)`, `gpio_hold_en`,
+  `gpio_deep_sleep_hold_en()`) perquè el seu son només torna amb el BOOT, però nosaltres ho copiàvem **també quan «Wake on touch» era
+  encès**: un reset baix i subjectat deixa el GT911 en repòs forçat, o sigui que no escombra, la seva línia no baixa mai i la porta que
+  s'acabava d'armar no s'obria mai. El dit no podia despertar la placa, i el codi deia que sí. Ara el reset només es subjecta quan el vidre
+  **no** és una porta, i un controlador que s'havia adormit (perquè el commutador era apagat en una dormida anterior) es desperta amb
+  `wake_up()` abans de ser-ne una.
+- **El rail del LoRa i del GPS** només s'apagava a l'arrencada. El fabricant el tanca al seu `ui_sleep()`
+  (`io_extend_lora_gps_power_on(false)`) i ara també es tanca abans de baixar: una placa on el mesh hagués encès aquell rail dormiria amb el
+  mòdul alimentat i el GPS escrivint al seu port.
+
+**I la línia del despert ja no enganya.** `esp_sleep_get_wakeup_cause()` només sap dir «una línia de l'`ext1`», i el rellotge del xip ho
+traduïa a *«woken by a finger on the glass»* tant si havia estat un dit com el BOOT com l'alarma. Ara la placa contesta quina de les tres
+ha baixat —`esp_sleep_get_ext1_wakeup_status()`, que dona el mapa de pins— per una porta nova del HAL (`IPower::the_door_that_opened()`), i
+les dues línies ho diuen amb el seu nom:
+
+```
+[I][BOOT] back from a deep sleep, woken by the clock chip's alarm: an alarm, nobody in front, the glass is not touched
+[I][POWER] last sleep #3 after 184203 ms up: armed clock+key+glass, open nothing, low lines c1 k0 g0, and it came back by the key of the board
+```
+
 ## La consola
 
 Els primers bytes que surten per un terminal a 115200 **no són nostres**: abans que el PAL obri la consola el

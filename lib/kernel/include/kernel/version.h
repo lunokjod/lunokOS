@@ -13613,7 +13613,51 @@ namespace kernel {
 
 // **I la memòria que li queda es diu quan es connecta**, perquè el pròxim que falli es llegeixi d'un cop i no es desxifri:
 // `internal memory: N B free (M B in the biggest block), of the DMA ones N B free (M B in one block)` (docs/50, docs/75).
-static const char kVersion[] = "0.191.4";
+// 0.191.5 (24/11): **les tres portes del son profund de la T5S3, i la que no ho pot ser** (l'amo: *«el T5S3 pro te problemes amb el
+// deep sleep…. revisa el codi del fabricant i descobreix com fer deepsleep amb IO48, alarma rtc i touch al panell táctil com a fonts de
+// wake»*).
+
+// **IO48 no és cap porta i no ho pot ser**: en un ESP32-S3 només despertes d'un son profund per una línia del domini de l'RTC, que són
+// GPIO0..GPIO21 (`SOC_RTCIO_PIN_COUNT` = 22; `esp_sleep_is_valid_wakeup_gpio()` és `RTC_GPIO_IS_VALID_GPIO()`), i la crida de l'IDF refusa
+// qualsevol altra amb `gpio 48 is an invalid deep sleep wakeup IO`. A aquesta placa **GPIO48 és `EP_CKV`**, el rellotge vertical del panell
+// (`docs/pin_define.md` del fabricant). Les tres portes de debò són GPIO0 (BOOT), GPIO2 (l'alarma del PCF8563) i GPIO3 (el tàctil), i el
+// codi de la placa ho diu ara on es declaren. El que sí que pot despertar-se per qualsevol GPIO és el **son lleuger**.
+
+// **I dues coses que estaven malament i que feien que el dit no fos una porta mai**:
+
+//   - **el reset del tàctil es subjectava baix SEMPRE** abans de baixar, copiant el `ui_sleep()` del fabricant —que el subjecta perquè el seu
+//     son només torna amb el BOOT—. Amb «Wake on touch» encès això deixava el GT911 en repòs forçat: no escombrava, la seva línia no baixava
+//     mai i la porta que s'acabava d'armar no s'obria mai. Ara el reset només es subjecta quan el vidre **no** és una porta, i un controlador
+//     que s'havia adormit es desperta (`wake_up()`) abans de ser-ne una;
+//   - **el rail del LoRa i del GPS** només s'apagava a l'arrencada. El fabricant el tanca al seu `ui_sleep()`
+//     (`io_extend_lora_gps_power_on(false)`) i ara també es tanca abans de baixar: una placa on el mesh hagués encès el rail dormiria amb el
+//     mòdul alimentat i el GPS escrivint al seu port.
+
+// **I la línia de l'arrencada ja no enganya**: `esp_sleep_get_wakeup_cause()` només sap dir «una línia de l'ext1» i el rellotge del xip ho
+// traduïa a «a finger on the glass» tant si havia estat un dit com el BOOT com l'alarma. Ara la placa contesta quina de les tres ha baixat
+// (`esp_sleep_get_ext1_wakeup_status()`), el nucli la posa a la línia del despert i la nota de la darrera dormida diu «and it came back by
+// the glass» o «by the clock chip's alarm» (docs/50, docs/60).
+
+// 0.191.6 (24/11): **la baixada diu per on torna** (l'amo: *«quina solució em dones? tan tal deepsleep per el botó del panell com el
+// d'idle»*).
+
+// **Les dues baixades ja són la mateixa crida** des de la 0.190.15 —el botó de la lluna de la targeta del sistema i el temporitzador d'oci
+// passen tots dos per `sleep(kDeep, …)`—, o sigui que el que faltava no era el camí sinó **saber per on es torna**. Ara la línia de la
+// baixada ho diu amb el nom de cada porta, i les portes les diu la placa (`IPower::wakes()`): *«deep sleep with nothing to come back for: its
+// doors are the timer, the BOOT key and the clock's alarm (the board's own key cannot wake a deep sleep)»*.
+
+// **I per què el botó de la placa no hi pot ser**, dit on es llegeix: el `S3` penja de l'expansor i la seva línia és `PCA_INT` a GPIO38, que
+// no és del domini de l'RTC — i en un S3 el son profund només accepta GPIO0..GPIO21. El que sí que hi és és **el dit**: amb «Wake on touch»
+// encès el vidre és una porta de debò, i des de la 0.191.5 funciona, perquè el reset del controlador ja no es subjecta baix quan el vidre ha
+// de sentir (docs/50, docs/60).
+
+// **I la decisió de l'amo per a aquesta placa és el mínim** (24/11, després de la pregunta: *«Res més: el BOOT i l'alarma, i prou (consum
+// mínim)»*). O sigui: el dit queda com un commutador apagat de sèrie —i amb el controlador subjectat en reset, que és el que menys gasta— i
+// el botó `S3` no s'hi afegeix. **El que sí que s'hi afegeix és l'avís de la premuda curta**, perquè GPIO0 és el pin *strapping* del mode de
+// descàrrega i una premuda llarga fa que la placa arrenqui al carregador de la ROM: la línia de la baixada ho diu amb el nom de cada porta i
+// amb aquest avís, que és l'única mitigació possible (quan el xip mira el pin, aquest codi encara no hi és).
+
+static const char kVersion[] = "0.191.6";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

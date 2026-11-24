@@ -966,6 +966,17 @@ rellotge de `test_calendar`, que ja dona la volta a l'època, `test_the_time_zon
 `test_the_panel_of_settings_writes_through_the_doors_of_the_system`, que és el que escriu una hora des d'una pàgina i la
 compara amb l'època del rellotge amb la zona que hi ha en aquell moment.
 
+### Quina porta s'ha obert, dita per la placa (0.191.5)
+
+Un despert d'un son profund és un reset, i el xip només en diu el motiu amb la paraula **`ext1`**: una de les línies de l'RTC que estaven
+armades. En una placa amb tres línies alhora —el BOOT, l'alarma del PCF8563 i el tàctil de la T5S3— això és el mateix que no dir res, i la
+línia de l'arrencada deia *«woken by a finger on the glass»* tant si havia estat un dit com si havia estat un botó.
+
+Ara **la placa contesta** (`IPower::the_door_that_opened()`, i a la T5S3 qui ho sap és `esp_sleep_get_ext1_wakeup_status()`, que dona el
+mapa de pins de l'`ext1`), i el nucli la fa servir en lloc de la traducció del xip. Una placa que no ho sàpiga diu `nullptr` i tot queda com
+era. La nota de la darrera dormida diu la tercera cosa —**per què ha tornat**— a la mateixa línia on ja deia quines portes s'havien armat i
+quines eren obertes abans de baixar.
+
 ### La línia de la dormida, en paraules (0.190.269)
 
 L'amo, amb una línia del registre a la mà —`[I][POWER] deep sleep until 1794347273309`—: *«Estría be posar-ho en llenguatge humà, no

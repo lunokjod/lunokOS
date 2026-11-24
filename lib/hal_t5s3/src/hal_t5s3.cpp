@@ -102,6 +102,33 @@ const uint16_t kExpanderInputs = 0xC400;
 // totes dues alhora amb `ext1` en el seu mode «qualsevol baixa» (docs/50, docs/60).
 const int kClockIntPin = 2;
 
+// **LES TRES PORTES DEL SON PROFUND, I LA QUE NO HO POT SER** (0.191.5, l'amo: *«descobreix com fer deepsleep amb IO48, alarma rtc i touch
+// al panell tàctil com a fonts de wake»*).
+//
+// Un ESP32-S3 només pot despertar d'un son profund per una línia que sigui del domini de l'RTC, i aquest domini són **vint-i-dos pins**:
+// GPIO0 a GPIO21 (`SOC_RTCIO_PIN_COUNT` val 22 a `soc_caps.h`, i `esp_sleep_is_valid_wakeup_gpio()` és literalment
+// `RTC_GPIO_IS_VALID_GPIO()`). Una línia de fora d'aquest rang —**GPIO48 inclòs**— no és una porta: la mateixa crida de l'IDF la refusa amb
+// `ESP_ERR_INVALID_ARG` i diu `gpio 48 is an invalid deep sleep wakeup IO`. I a aquesta placa **GPIO48 és `EP_CKV`**, el rellotge vertical del
+// panell (`docs/pin_define.md` del fabricant: `#define EP_CKV (48)`), o sigui una sortida que aquesta casa mou per pintar i que no té res a
+// dir sobre quan s'ha de despertar. El que sí que és una porta d'aquesta placa són exactament tres línies, i totes tres hi són:
+//
+//   - **`kBootKeyPin` = GPIO0**, el BOOT del mòdul. És el que arma el fabricant al seu `ui_sleep()`
+//     (`esp_sleep_enable_ext0_wakeup(BOARD_BOOT_BTN, 0)`), i té el defecte d'una tecla *strapping*: premuda en el moment del reset, el xip
+//     arrenca en mode de descàrrega (docs/50, docs/60);
+//   - **`kClockIntPin` = GPIO2**, la interrupció del PCF8563: baixa quan salta la seva alarma i torna a pujar quan es netegen els flags. És
+//     l'alarma de debò, la que compta amb el quars i no amb el rellotge del xip (docs/60);
+//   - **`kTouchIntPin` = GPIO3**, la interrupció del GT911: la baixa el controlador quan una escombrat té un dit a sobre. **Només és una
+//     porta si algú ha encès «Wake on touch»**, perquè sentir un dit vol dir deixar el controlador escombrant tot el son (docs/30, docs/50).
+//
+// **Les que no hi són, i per què**: el botó `S3` de la placa penja de l'expansor i la seva línia és `PCA_INT` a **GPIO38** (fora del domini de
+// l'RTC); la llum de fons és GPIO11 i no és una entrada; i el LoRa i el GPS no tenen cap línia d'avís a l'RTC. El fabricant va provar el
+// `S3` i el va deixar comentat al seu codi —`// esp_sleep_enable_ext1_wakeup((1UL << KEY_BTN), ESP_EXT1_WAKEUP_ANY_LOW);`—: no és que no el
+// volgués, és que aquell `KEY_BTN` no era cap pin d'aquesta placa (no està definit enlloc del seu repositori).
+//
+// **I la manera de despertar-se per qualsevol altra línia és una altra cosa**: el son lleuger sí que accepta qualsevol GPIO
+// (`gpio_wakeup_enable()` i `esp_sleep_enable_gpio_wakeup()`), i per això el botó `S3` i la consola hi són com a portes de la becaina. Una
+// placa que vol que GPIO48 la desperti d'un son profund ha de cablejar-lo a un pin de l'RTC, i no hi ha cap manera de fer-ho per programari.
+
 // **El rellotge del xip del rellotge**: the PCF8563 has a coin cell behind it and keeps the hour
 // across the cable, and its registers are the ones the BM8563 driver already speaks (both are
 // PCF8563 clones). Its own interrupt line is GPIO2, which is a wake pin of the chip and the door
@@ -199,6 +226,36 @@ void doors_words(uint8_t bits, char* said, size_t cap) {
   }
 }
 
+// **Quina porta s'ha obert**, en les paraules de dalt (0.191.5): `esp_sleep_get_ext1_wakeup_status()` és l'única manera de saber-ho, perquè
+// `esp_sleep_get_wakeup_cause()` diu «ext1» i prou —les tres línies d'aquesta placa són la mateixa font de despert— i una línia que digui
+// «la tecla del dial» quan el que ha despertat la placa és un dit és una línia que enganya just el que se li demana (docs/50, docs/60).
+uint8_t the_doors_that_opened() {
+  if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_EXT1) return 0;
+  const uint64_t opened = esp_sleep_get_ext1_wakeup_status();
+  uint8_t doors = 0;
+  if (opened & (1ULL << kClockIntPin)) doors |= kDoorClock;
+  if (opened & (1ULL << kBootKeyPin)) doors |= kDoorKey;
+  if (opened & (1ULL << kTouchIntPin)) doors |= kDoorGlass;
+  return doors;
+}
+
+// **L'expansor de la placa, un de sol i per a tothom** (0.191.5): el panell el demana per obrir les seves portes, el botó `S3` per
+// llegir-lo i el son per deixar el rail del LoRa i del GPS apagat. Els tres han de parlar del **mateix** objecte, perquè el que es desa a
+// `outputs_` és l'estat del xip i un segon objecte el tornaria a escriure a zero quan es configurés (docs/50).
+Pca9535* the_expander() {
+  static Pca9535 chip(esp32_i2c(kI2cSdaPin, kI2cSclPin), kExpanderAddress);
+  if (!chip.configured()) {
+    if (chip.configure(kExpanderInputs)) {
+      // **El rail de la ràdio i el GPS comença apagat** (docs/50): the board says it is not always enabled, and a
+      // module that nobody uses does not have to draw current.
+      chip.write(Expander::kLoraEnable, false);
+    } else {
+      logf(pal::kLogWarn, "BOARD", "the expander is not usable: %s", chip.last_error());
+    }
+  }
+  return &chip;
+}
+
 bool the_line_is_free(ITouch* glass, int pin) {
   const int64_t deadline = pal::system().millis() + static_cast<int64_t>(kTouchReleaseMostMs);
   for (;;) {
@@ -260,11 +317,23 @@ class T5Power : public Esp32Power {
     if (g_doors_armed == 0 && g_doors_open == 0 && g_up_at_arming == 0) return 0;  // a boot that did not come from a sleep
     char armed[32] = {0};
     char open[32] = {0};
+    char came_back[64] = {0};
     doors_words(g_doors_armed, armed, sizeof(armed));
     doors_words(g_doors_open, open, sizeof(open));
-    snprintf(out, cap, "last sleep #%u after %u ms up: armed %s, open %s, low lines c%d k%d g%d",
+    // **I per què ha tornat** (0.191.5): the run that reads this is the one that came back, o sigui que el xip encara porta al registre
+    // quina línia de l'`ext1` ha baixat. Amb un temporitzador es diu el temporitzador, i sense res (una placa que no ha dormit) no es diu.
+    const uint8_t opened = the_doors_that_opened();
+    if (opened != 0) {
+      char doors[16] = {0};
+      doors_words(opened, doors, sizeof(doors));
+      snprintf(came_back, sizeof(came_back), ", and it came back by the %s", doors);
+    } else if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+      snprintf(came_back, sizeof(came_back), ", and it came back by the timer of the chip");
+    }
+    snprintf(out, cap, "last sleep #%u after %u ms up: armed %s, open %s, low lines c%d k%d g%d%s",
              static_cast<unsigned>(g_sleeps_in_a_row), static_cast<unsigned>(g_up_at_arming), armed, open,
-             (g_lines_low & kDoorClock) ? 1 : 0, (g_lines_low & kDoorKey) ? 1 : 0, (g_lines_low & kDoorGlass) ? 1 : 0);
+             (g_lines_low & kDoorClock) ? 1 : 0, (g_lines_low & kDoorKey) ? 1 : 0, (g_lines_low & kDoorGlass) ? 1 : 0,
+             came_back);
     return strlen(out);
   }
 
@@ -309,6 +378,11 @@ class T5Power : public Esp32Power {
     }
     ITouch* glass = t5s3_touch();
     if (wake_on_touch() && glass != nullptr) {
+      // **I un controlador que s'havia adormit s'ha de despertar abans de ser una porta** (0.191.5): `sleep_now()` deixa la línia com una
+      // **sortida a zero** (és el que fa el driver del fabricant perquè el xip no escolti), i amb la línia subjecta a zero el que s'arma no
+      // és una porta sinó un despert immediat —i `the_line_is_free` la refusaria i el dit no obriria mai res—. El parell és el del driver:
+      // `wake_up()` dona un pols i torna la línia a entrada amb la seva vora (docs/50, docs/60).
+      glass->wake_up();
       // **El vidre baixa al terra abans de dormir** (0.190.107): whether the glass is adaptive or at its top speed while the board is awake,
       // a deep sleep that is only waiting for a line to fall does not need a hundredth of a second of resolution (docs/50, docs/60).
       glass->quiet_now();
@@ -407,15 +481,27 @@ class T5Power : public Esp32Power {
           if (glass->rest()) logf(pal::kLogDebug, "PANEL", "the panel's supply is down for the sleep");
         }
       }
-      // **Els dos resets que el fabricant subjecta**: el del tàctil (GPIO9) i el del LoRa (GPIO1), tots dos baixos, i el hold
-      // del son profund perquè el que s'ha escrit no es perdi quan el domini digital s'apaga (docs/50).
-      gpio_set_direction(static_cast<gpio_num_t>(kTouchResetPin), GPIO_MODE_OUTPUT);
-      gpio_set_level(static_cast<gpio_num_t>(kTouchResetPin), 0);
-      gpio_hold_en(static_cast<gpio_num_t>(kTouchResetPin));
+      // **El reset del tàctil NO es subjecta quan el vidre és una porta** (0.191.5, i era el forat que feia impossible despertar-se amb
+      // un dit): el fabricant subjecta `TOUCH_RST` baix al seu `ui_sleep()` perquè el seu son només torna amb el BOOT, i nosaltres ho
+      // copiàvem **sempre** —però un reset baix i subjectat deixa el GT911 en repòs forçat, o sigui que el controlador no escombra mai,
+      // la seva línia no baixa mai i la porta que `arm_the_doors` acaba d'armar no s'obre mai. Amb «Wake on touch» encès el controlador
+      // s'ha de quedar despert i escombrant, que és exactament el que el commutador diu (docs/50, docs/60).
+      if (!wake_on_touch()) {
+        gpio_set_direction(static_cast<gpio_num_t>(kTouchResetPin), GPIO_MODE_OUTPUT);
+        gpio_set_level(static_cast<gpio_num_t>(kTouchResetPin), 0);
+        gpio_hold_en(static_cast<gpio_num_t>(kTouchResetPin));
+      }
       gpio_set_direction(static_cast<gpio_num_t>(kLoraResetPin), GPIO_MODE_OUTPUT);
       gpio_set_level(static_cast<gpio_num_t>(kLoraResetPin), 0);
       gpio_hold_en(static_cast<gpio_num_t>(kLoraResetPin));
       gpio_deep_sleep_hold_en();
+      // **I el rail del LoRa i del GPS, apagat abans de baixar** (0.191.5): el fabricant ho fa al seu `ui_sleep()`
+      // —`io_extend_lora_gps_power_on(false)`— i aquí només es feia a l'arrencada, o sigui que una placa on el mesh hagués encès el rail
+      // dormiria amb el mòdul alimentat i el GPS escrivint al seu port. El commutador de l'expansor és la font d'aquell rail i la seva
+      // memòria sobreviu al son perquè el xip no es desconnecta de la cel·la (docs/50, docs/60).
+      if (Pca9535* rail = the_expander(); rail->configured()) {
+        (void)rail->write(Expander::kLoraEnable, false);
+      }
     }
     return Esp32Power::sleep(mode, at_epoch_ms, keep_the_panel);
   }
@@ -435,7 +521,33 @@ class T5Power : public Esp32Power {
   bool charger_detail(ChargerDetail& out) override { return gauge_.charger(out); }
   // **El que de debò la desperta** (0.190.108): la tecla del xip (el BOOT), el rellotge i —si una persona ha encès «Wake on touch»— el dit.
   // El temporitzador del xip és el quart, quan hi ha una hora (docs/50, docs/60).
-  const char* wakes() override { return wake_on_touch() ? "timer, button, clock, glass" : "timer, button, clock"; }
+  // **Les portes, dites amb el seu nom i amb la veritat d'aquesta placa** (0.191.6): the word `button` is the BOOT of the module, i el botó
+  // de la placa —el `S3` de l'expansor— **no hi és** perquè la seva línia (GPIO38) no és del domini de l'RTC; el que sí que hi ha és el dit
+  // quan la persona l'ha demanat. Una línia que digués «button» i prou faria pensar que qualsevol botó torna la placa (docs/50, docs/60).
+  const char* wakes() override {
+    if (wake_on_touch()) return "the timer, the BOOT key, the clock's alarm and a finger on the glass";
+    // **I el BOOT demana una premuda curta** (0.191.6, i és l'única cosa que es pot fer des d'aquí): GPIO0 és el pin *strapping* del mode de
+    // descàrrega, i el xip el torna a mirar en el reset que és un despert. Amb el dit a sobre durant l'arrencada, la placa entra al carregador
+    // de la ROM i sembla morta —no hi ha res a fer per programari, perquè aquest codi encara no corre—, o sigui que el que sí que es pot fer és
+    // dir-ho on una persona ho llegeix abans de deixar la placa en una prestatgeria (docs/50, docs/60).
+    return "the timer, the BOOT key (a short press: held down it wakes in the ROM's download mode) and the clock's alarm "
+           "(the board's own key cannot wake a deep sleep)";
+  }
+  // **Quina porta ha despertat la placa, dita per qui té el mapa de les línies** (0.191.5, l'amo: *«descobreix com fer deepsleep amb IO48,
+  // alarma rtc i touch al panell tàctil com a fonts de wake»*). Tres línies poden despertar aquesta placa i el xip no en diu quina: el que
+  // diu és que ha estat una línia de l'`ext1`, i amb tres armades alhora això és el mateix que res. El que sap quines eren és aquest fitxer
+  // —les tres estan declarades aquí—, o sigui que la resposta es fa aquí i el nucli la posa a la línia de l'arrencada en lloc de la seva.
+  const char* the_door_that_opened() const override {
+    const uint8_t opened = the_doors_that_opened();
+    if (opened == (kDoorClock | kDoorKey | kDoorGlass)) return "more than one line of the board";
+    if (opened == kDoorClock) return "the clock chip's alarm";
+    if (opened == kDoorKey) return "the key of the board";
+    if (opened == kDoorGlass) return "a finger on the glass";
+    if (opened != 0) return "two lines of the board";
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) return "the timer of the chip";
+    return nullptr;
+  }
+
   // **Aquesta placa no fa becaines, i és la consola qui ho diu** (0.190.63): its console is the chip's own USB (`ARDUINO_USB_CDC_ON_BOOT`),
   // and a light sleep stops that peripheral: the prompt would go deaf for every nap and the bytes typed meanwhile are gone. Until the USB
   // side of a nap is worked out, the honest answer is that this board waits awake (docs/50, docs/95).
@@ -631,19 +743,7 @@ class T5Platform : public IPlatform {
     return static_cast<T5Platform*>(context)->s3_button_pressed();
   }
 
-  Pca9535* expander() {
-    static Pca9535 chip(esp32_i2c(kI2cSdaPin, kI2cSclPin), kExpanderAddress);
-    if (!chip.configured()) {
-      if (chip.configure(kExpanderInputs)) {
-        // **El rail de la ràdio i el GPS comença apagat** (docs/50): the board says it is not always enabled, and a
-        // module that nobody uses does not have to draw current.
-        chip.write(Expander::kLoraEnable, false);
-      } else {
-        logf(pal::kLogWarn, "BOARD", "the expander is not usable: %s", chip.last_error());
-      }
-    }
-    return &chip;
-  }
+  Pca9535* expander() { return the_expander(); }
 
   // The hour: the PCF8563 is the memory and the chip's counter is the clock, exactly as on the Paper
   // —the chip is adopted once, when somebody first asks for the clock, which is before the boot reads

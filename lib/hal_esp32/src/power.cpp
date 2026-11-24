@@ -320,8 +320,13 @@ bool Esp32Power::battery(int& mv, int& pct, bool& charging) {
 // qualsevol fus (docs/50, docs/60).
 void Esp32Power::say_the_way_down(SleepMode mode, int64_t at_epoch_ms) {
   const char* what = (mode == SleepMode::kDeep) ? "deep sleep" : "light sleep";
+  // **I les portes que tindrà, a la mateixa línia** (0.191.6, l'amo: *«quina solució em dones?»* sobre per què la placa no torna): el que
+  // una persona necessita saber abans de deixar la placa en una prestatgeria és **per on torna**, i les portes les sap la placa
+  // (`wakes()`), no aquest fitxer. Una línia que digui «deep sleep until a key» sense dir quina tecla és una línia que no ajuda ningú
+  // (docs/50, docs/60).
+  const char* doors = wakes();
   if (at_epoch_ms <= 0) {
-    hal::logf(pal::kLogInfo, "POWER", "%s until a key of the board", what);
+    hal::logf(pal::kLogInfo, "POWER", "%s with nothing to come back for: its doors are %s", what, doors);
     return;
   }
   int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
@@ -333,7 +338,7 @@ void Esp32Power::say_the_way_down(SleepMode mode, int64_t at_epoch_ms) {
     hal::human_wait(wait, sizeof(wait), at_epoch_ms - now);
     hal::human_other_day(other_day, sizeof(other_day), at_epoch_ms, now);
   }
-  hal::logf(pal::kLogInfo, "POWER", "%s until %02d:%02d UTC%s (%s)", what, h, mi, other_day, wait);
+  hal::logf(pal::kLogInfo, "POWER", "%s until %02d:%02d UTC%s (%s), and its doors are %s", what, h, mi, other_day, wait, doors);
 }
 
 bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel) {

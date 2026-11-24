@@ -1936,25 +1936,32 @@ BootKind note_the_boot(hal::IPlatform& platform) {
   // **El motiu del despert, dit clar i en una línia** (0.190.19, l'amo: *«Posa ben clar al despertar de DeepSleep quin es el motiu del
   // wake»*): the board knows which of its doors opened —the clock chip, the chip's timer, the dial's key or the glass— and this is the line
   // that says it, with what it means: an alarm is nobody in front and the glass stays as it was; a person is the page coming back.
-  const char* by = "the power coming back";
-  switch (woke) {
-    case hal::WakeCause::kClock:
-      by = "the clock chip";
-      break;
-    case hal::WakeCause::kTimer:
-      by = "the timer of the chip";
-      break;
-    case hal::WakeCause::kTouch:
-      by = "a finger on the glass";
-      break;
-    case hal::WakeCause::kOther:
-      by = "the key of the dial";
-      break;
-    case hal::WakeCause::kConsole:
-      by = "the console";
-      break;
-    default:
-      break;
+  // **I la paraula de la placa mana sobre la del xip** (0.191.5): `esp_sleep_get_wakeup_cause()` només sap dir que ha estat una línia, i
+  // en una placa amb tres línies armades alhora aquesta resposta és «un dit al vidre» tant si ha estat un dit com si ha estat el BOOT o
+  // l'alarma del rellotge. La placa sí que ho sap, i aquesta línia és la que una persona llegeix per entendre per què s'ha despertat la
+  // seva placa (docs/50, docs/60).
+  const char* board_door = (g_power != nullptr) ? g_power->the_door_that_opened() : nullptr;
+  const char* by = (board_door != nullptr) ? board_door : "the power coming back";
+  if (board_door == nullptr) {
+    switch (woke) {
+      case hal::WakeCause::kClock:
+        by = "the clock chip";
+        break;
+      case hal::WakeCause::kTimer:
+        by = "the timer of the chip";
+        break;
+      case hal::WakeCause::kTouch:
+        by = "a finger on the glass";
+        break;
+      case hal::WakeCause::kOther:
+        by = "the key of the dial";
+        break;
+      case hal::WakeCause::kConsole:
+        by = "the console";
+        break;
+      default:
+        break;
+    }
   }
   switch (g_boot_kind) {
     case BootKind::kSleep:

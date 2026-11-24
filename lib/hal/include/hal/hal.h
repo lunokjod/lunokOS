@@ -673,6 +673,11 @@ class IPower {
   // `kernel::boot` i no segueixi amb el que hi havia a la RAM. False per a tota placa: allà la resposta no arriba mai perquè la crida
   // no torna.
   virtual bool take_the_restart() { return false; }
+  // **Quina porta ha despertat la placa, en una paraula** (0.191.5): `esp_sleep_get_wakeup_cause()` diu «ho ha fet una línia» i prou, i en
+  // una placa amb tres línies armades alhora això és el mateix que no dir res —el 2026/11 la línia de l'arrencada deia «a finger on the
+  // glass» quan el que havia baixat era el BOOT—. El que sap quines línies hi havia és la placa, i és ella qui ho contesta; una placa que
+  // no ho sàpiga diu `nullptr` i el nucli es queda amb el que diu el seu rellotge (docs/50, docs/60).
+  virtual const char* the_door_that_opened() const { return nullptr; }
 
   virtual bool nap(int32_t max_ms) {
     (void)max_ms;
