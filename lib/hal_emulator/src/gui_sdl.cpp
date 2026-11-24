@@ -23,6 +23,9 @@ uint32_t* g_pixels = nullptr;
 bool g_close_requested = false;
 uint16_t g_width = 0;
 uint16_t g_height = 0;
+// **El gir del vidre** (0.190.283): what the last paint said the page is turned by, which is what a click on a turned page
+// needs to land where it was aimed (docs/85).
+uint16_t g_turn = kChipPageDegrees;
 uint8_t g_scale = 1;
 uint8_t g_requested_scale = 0;
 bool g_button_down = false;
@@ -245,25 +248,17 @@ void put_the_finger(int window_x, int window_y, bool moving) {
   if (!options().touch) return;
   Gt911Panel* panel = touch_panel();
   if (panel == nullptr) return;
-  if (g_width != Gt911Panel::kFrameWidth || g_height != Gt911Panel::kFrameHeight) {
-    static bool said = false;
-    if (!said) {
-      said = true;
-      fprintf(stderr,
-              "gui: the page is %ux%u and the touch panel counts in %ux%u, so the mouse does not reach it\n",
-              static_cast<unsigned>(g_width), static_cast<unsigned>(g_height),
-              static_cast<unsigned>(Gt911Panel::kFrameWidth),
-              static_cast<unsigned>(Gt911Panel::kFrameHeight));
-    }
-    return;
-  }
   uint16_t x = 0;
   uint16_t y = 0;
   gui_page_point(window_x, window_y, g_scale, g_width, g_height, x, y);
+  // **A turned page is walked back to the frame of the chip** (0.190.283), the same way the X11 backend does it (docs/50).
+  uint16_t chip_x = 0;
+  uint16_t chip_y = 0;
+  gui_chip_point(x, y, g_width, g_height, gui_page_turn(g_turn), chip_x, chip_y);
   if (moving) {
-    panel->finger_move(0, x, y);
+    panel->finger_move(0, chip_x, chip_y);
   } else {
-    panel->finger_down(0, x, y);
+    panel->finger_down(0, chip_x, chip_y);
   }
 }
 
@@ -372,7 +367,8 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   return true;
 }
 
-void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
+void gui_show(const uint8_t* packed, uint16_t width, uint16_t height, uint16_t degrees) {
+  g_turn = degrees;
   if (g_window == nullptr || packed == nullptr) return;
   if (width != g_width || height != g_height) {
     const uint8_t keys = g_keys_count;

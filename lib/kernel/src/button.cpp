@@ -70,7 +70,21 @@ int64_t now_ms() {
 // **La frase de les tres pulsacions va al log i el port sèrie la copia** (0.179.55): aquestes línies són decisions del
 // sistema i han de ser al ring com les altres —`log` les ha de poder ensenyar—, i el text es queda com és perquè és el
 // que una persona llegeix (docs/30, docs/50). Abans anaven escrites directament al port i no eren al log.
-void say(const char* text) { log_say(text); }
+// **Every line of this file has the shape of the log** (0.190.289, l'amo: *«També hi ha alguns missatges al log que no estàn en el format
+// del sistema»*): a sentence with the words of a person but the prefix of every other line —`[I][BUTTON]`—, perquè es pugui buscar i grepejar
+// com la resta del registre. Fins ara anaven per `log_say`, que les deixava sense etiqueta (docs/30, docs/50).
+void say(const char* text) {
+  if (text == nullptr) return;
+  char words[96];
+  size_t len = 0;
+  while (text[len] != '\0' && len + 1 < sizeof(words)) {
+    if (text[len] == '\r' || text[len] == '\n') break;
+    words[len] = text[len];
+    ++len;
+  }
+  words[len] = '\0';
+  log_printf(pal::kLogInfo, "BUTTON", "%s", words);
+}
 
 // The press goes to the app: the promise it is waiting for, or the hook it
 // declared. A promise first, because an app that is waiting for a press is waiting
@@ -356,16 +370,16 @@ void software_button_went(uint32_t ms, bool walked) {
   // *«Farà de "back"»*— (docs/30, docs/45).
   switch (shell::leave_one_page()) {
     case shell::LeaveOutcome::kBack:
-      say("the button under the glass: back one view\r\n");
+      say("the button under the glass: back one view");
       break;
     case shell::LeaveOutcome::kClosedHome:
-      say("the button under the glass: the page that asked is back\r\n");
+      say("the button under the glass: the page that asked is back");
       break;
     case shell::LeaveOutcome::kLauncher:
-      say("the button under the glass: a launcher is the one page that is not left\r\n");
+      say("the button under the glass: a launcher is the one page that is not left");
       break;
     default:
-      say("the button under the glass: closing the app\r\n");
+      say("the button under the glass: closing the app");
       break;
   }
 }
@@ -443,16 +457,16 @@ void poll() {
           // close the app and leave the prompt where his launcher had been— (docs/30, docs/45).
           switch (shell::leave_one_page()) {
             case shell::LeaveOutcome::kBack:
-              say("button: three taps, back one view\r\n");
+              say("button: three taps, back one view");
               break;
             case shell::LeaveOutcome::kClosedHome:
-              say("button: three taps, the page that asked is back\r\n");
+              say("button: three taps, the page that asked is back");
               break;
             case shell::LeaveOutcome::kLauncher:
-              say("button: three taps, a launcher is the one page that is not left\r\n");
+              say("button: three taps, a launcher is the one page that is not left");
               break;
             default:
-              say("button: three taps, closing the app\r\n");
+              say("button: three taps, closing the app");
               break;
           }
         } else {

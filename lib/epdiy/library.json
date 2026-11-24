@@ -1,7 +1,7 @@
 {
   "name": "epdiy",
-  "version": "2.0.0",
-  "description": "epdiy 2.0.0, the e-paper driver the board ships with (LGPL-3), copied from lib/epdiy of Xinyuan-LilyGO/T5S3-4.7-e-paper-PRO",
+  "version": "2.0.1",
+  "description": "epdiy 2.0.0, the e-paper driver the board ships with (LGPL-3), copied from lib/epdiy of Xinyuan-LilyGO/T5S3-4.7-e-paper-PRO, with the kernel's own patch on top: the wait for POWER_GOOD of the TPS65185 has a ceiling, so a supply that never comes up cannot hang a paint",
   "keywords": "epd, driver, e-ink",
   "repository": {
     "type": "git",

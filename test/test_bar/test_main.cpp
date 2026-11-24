@@ -57,7 +57,8 @@ emu::MemorySurface& glass() { return *emu::memory_surface(); }
 static void test_the_bar_keeps_the_top_of_the_glass() {
   boot_with_a_panel();
   TEST_ASSERT_EQUAL_UINT16(48, bar::height());
-  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::height());
+  TEST_ASSERT_EQUAL_UINT16(20, bar::bottom_height());
+  TEST_ASSERT_EQUAL_UINT16(540 - 48 - bar::bottom_height(), ui::height());
   TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
   TEST_ASSERT_EQUAL_UINT16(0, ui::canvas().x);
   // A present of the whole view cannot reach the bar, because the view does not start there.
@@ -68,7 +69,7 @@ static void test_the_bar_keeps_the_top_of_the_glass() {
   const emu::MemorySurface::Paint* last = glass().paint_at(paints - 1);
   TEST_ASSERT_NOT_NULL(last);
   TEST_ASSERT_EQUAL_UINT16(48, last->y);
-  TEST_ASSERT_EQUAL_UINT16(540 - 48, last->h);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48 - bar::bottom_height(), last->h);
 }
 
 // The bar draws itself: white behind, a black line under it, and the hour on the left.
@@ -96,6 +97,28 @@ static void test_the_bar_paints_its_own_strip() {
   TEST_ASSERT_TRUE(ink);
 }
 
+// **La franja de baix és del sistema** (0.190.287): vint files blanques amb la línia a sobre, i la vista de l'app s'hi acaba
+// —el dit que hi cau no arriba a cap pàgina, que és el que fa que el botó fals de sota el vidre no hi actuï i el que el segon
+// panell lliscant podrà llegir sense que el gest arribi a l'app— (docs/30, docs/50).
+static void test_the_strip_at_the_bottom_is_the_systems() {
+  boot_with_a_panel();
+  TEST_ASSERT_EQUAL_UINT16(20, bar::bottom_height());
+  // The view ends where the strip begins.
+  TEST_ASSERT_EQUAL_UINT16(540 - bar::bottom_height(), static_cast<uint16_t>(ui::canvas().y + ui::canvas().height));
+  // Its line is the two rows above it and the paper below is the page's white, in the very corners.
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(0, 540 - 20));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(959, 540 - 20 + 1));
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(0, 540 - 1));
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(959, 540 - 2));
+  // And an app that has asked for the whole glass takes the two strips with it: there is nothing of the system to be under.
+  ui::attach();
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  TEST_ASSERT_EQUAL_UINT16(0, bar::bottom_height());
+  TEST_ASSERT_EQUAL_UINT16(540, ui::canvas().height);
+  TEST_ASSERT_TRUE(ui::full_screen(false));
+  TEST_ASSERT_EQUAL_UINT16(20, bar::bottom_height());
+}
+
 // **The page turns and the bar goes with it**: the same call moves the glass, the strip and the view,
 // because they all read the one value (docs/50).
 static void test_turning_the_page_turns_the_bar_and_the_view() {
@@ -103,7 +126,7 @@ static void test_turning_the_page_turns_the_bar_and_the_view() {
   TEST_ASSERT_TRUE(ui::set_rotation(90));
   TEST_ASSERT_EQUAL_UINT16(90, ui::rotation());
   TEST_ASSERT_EQUAL_UINT16(540, ui::width());
-  TEST_ASSERT_EQUAL_UINT16(960 - 48, ui::height());
+  TEST_ASSERT_EQUAL_UINT16(960 - 48 - bar::bottom_height(), ui::height());
   TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
   // And back, so the tests after this one see the frame they expect.
   TEST_ASSERT_TRUE(ui::set_rotation(0));
@@ -355,7 +378,7 @@ static void test_the_bar_comes_back_when_the_app_gives_the_glass_back() {
   TEST_ASSERT_TRUE(ui::full_screen(false));
   TEST_ASSERT_FALSE(ui::is_full_screen());
   TEST_ASSERT_EQUAL_UINT16(960, ui::canvas().width);
-  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48 - bar::bottom_height(), ui::canvas().height);
   TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
   const uint32_t before = glass().paint_count();
   bar::poll();
@@ -411,13 +434,13 @@ static void test_the_view_of_every_app_comes_back_when_the_app_ends() {
   ui::give_back_the_glass();
   TEST_ASSERT_FALSE(ui::is_full_screen());
   TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
-  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48 - bar::bottom_height(), ui::canvas().height);
   // And the app that comes next is attached in the view of every app even when the one before did not give it back.
   TEST_ASSERT_TRUE(ui::full_screen(true));
   ui::attach();
   TEST_ASSERT_FALSE(ui::is_full_screen());
   TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
-  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48 - bar::bottom_height(), ui::canvas().height);
 }
 
 // **The whole glass turns with the page**: a page that took the panel keeps the whole panel when it is turned, and the
@@ -613,6 +636,7 @@ int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_the_bar_keeps_the_top_of_the_glass);
   RUN_TEST(test_the_bar_paints_its_own_strip);
+  RUN_TEST(test_the_strip_at_the_bottom_is_the_systems);
   RUN_TEST(test_turning_the_page_turns_the_bar_and_the_view);
   RUN_TEST(test_a_turn_with_nothing_new_paints_nothing);
   RUN_TEST(test_a_new_title_repaints_the_bar);

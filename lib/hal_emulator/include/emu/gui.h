@@ -42,9 +42,24 @@ void gui_expand(const uint8_t* packed, uint16_t width, uint16_t height, uint32_t
 void gui_page_point(int window_x, int window_y, uint8_t scale, uint16_t page_width, uint16_t page_height,
                     uint16_t& out_x, uint16_t& out_y);
 
+// **The turn between the chip of the model and the page** (0.190.283): the GT911 of the emulator counts in the panel's own
+// frame —a `Gt911Panel` is 540×960 whatever the page is— and a turned glass draws in another one, so a mouse that landed on
+// `gui_page_point` still has to walk back the turn the kernel applies to a finger (`touch.cpp` asks the same pair of frames
+// the other way round). `gui_page_turn` is that turn for a page at `degrees`, and it is 270 there because the chip of the
+// model is glued to the page the way the one of the Paper is: at 270 the two frames are one and the turn is nothing (docs/50,
+// docs/85).
+// **The turn the chip of the model is glued to the page at**: at 270 the panel's page is 540×960 and the chip counts in the
+// same frame, which is the board this model copies (`kChipPage` is the kernel's name for the same number) (docs/50, docs/85).
+constexpr uint16_t kChipPageDegrees = 270;
+
+uint16_t gui_page_turn(uint16_t degrees);
+void gui_chip_point(uint16_t page_x, uint16_t page_y, uint16_t page_width, uint16_t page_height,
+                    uint16_t page_turn, uint16_t& out_x, uint16_t& out_y);
+
 // **The glass, as it is now.** The buffer is the packed four-bit image the surface keeps, so the window
-// costs one conversion per paint and not one per turn (docs/85).
-void gui_show(const uint8_t* packed, uint16_t width, uint16_t height);
+// costs one conversion per paint and not one per turn (docs/85). `degrees` is the turn the glass is at, which is what lets a
+// click on a landscape page land on the row it was aimed at (0.190.283).
+void gui_show(const uint8_t* packed, uint16_t width, uint16_t height, uint16_t degrees);
 
 // What the window has to say, without waiting for it: an expose means draw again, and the corner that
 // closes it means the run is over.

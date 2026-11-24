@@ -44,8 +44,8 @@ class Esp32Bluetooth : public IBluetooth {
   void host_forget() override;
   void host_sink(HostSink sink) override;
   uint8_t keyboard_leds() const override;
-  hal::IBluetooth::Device device_is() const override;
-  bool device_be(hal::IBluetooth::Device what) override;
+  bool report_enabled(hal::IBluetooth::Report which) const override;
+  void device_forget() override;
   bool mouse_move(int8_t dx, int8_t dy) override;
   bool mouse_press(uint8_t buttons) override;
   bool mouse_click(uint8_t buttons) override;

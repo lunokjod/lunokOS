@@ -13267,23 +13267,9 @@ int l_cfg_nap(lua_State* L) {
 // **`cfg.bt([true|false])`: el teclat de Bluetooth** (0.190.180). With no argument it answers whether the radio is offered; with one it
 // opens or closes it and answers what stands. **En aquesta placa la resposta no és només un gust**: mentre és encès el xip no fa becaines,
 // o sigui que la persona que l'encén canvia com es passa l'estona la placa (docs/30, docs/50, docs/60).
-// **`cfg.btmode([word])`** (0.190.208, l'amo: *«com escullo el mouse? vull usar el panell tàctil com a mouse bluetooth»*): `keyboard`,
-// `mouse` o `both`, i el que s'hi posa **es desa**. És el que fan els tres botons de l'app `bthid` i la comanda `cfg btmode` del prompt, i
-// és una lectura i escriptura com les altres: sense argument contesta què és aquesta placa, i amb una el canvia i contesta què ha quedat
-// (docs/30, docs/45).
-int l_cfg_btmode(lua_State* L) {
-  if (g_cfg_ops.bt_mode == nullptr || g_cfg_ops.set_bt_mode == nullptr) {
-    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
-  }
-  if (!lua_isnoneornil(L, 1)) {
-    const char* word = luaL_checkstring(L, 1);
-    const char* now = g_cfg_ops.set_bt_mode(word);
-    if (now == nullptr) return push_nil_error(L, "E_INVAL", "this board is a keyboard, a mouse or both");
-  }
-  lua_pushstring(L, g_cfg_ops.bt_mode());
-  return 1;
-}
-
+// **`cfg.btmode` ja no hi és** (0.191.0): hi havia hagut tres modes i una paraula per triar-los, i el mode era el que obligava a
+// esborrar el vincle de l'altre cap cada cop que canviava. La placa publica sempre el teclat i el ratolí, o sigui que no hi ha res a
+// triar; el que queda és encendre-la o apagar-la, que és `cfg.bt` (docs/30, docs/50).
 int l_cfg_bt(lua_State* L) {
   if (g_cfg_ops.bt_on == nullptr || g_cfg_ops.set_bt_on == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
@@ -13330,29 +13316,20 @@ int l_bt_type(lua_State* L) {
   return 1;
 }
 
-// **`bt.device([<word>])`** (0.190.204): el que aquesta placa és com a aparell HID, i el que ha de ser. Sense argument contesta la
-// paraula; amb `'keyboard'`, `'mouse'` o `'both'` la canvia i contesta què ha quedat. Una paraula que no és cap d'aquestes tres, o una
-// placa sense ràdio, responen `nil, error`: una pàgina que ensenya un ratolí i es troba un teclat és pitjor que una que sap que no.
-int l_bt_device(lua_State* L) {
-  if (g_bt_ops.device == nullptr || g_bt_ops.be == nullptr) {
-    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
-  }
-  if (!lua_isnoneornil(L, 1)) {
-    const char* what = luaL_checkstring(L, 1);
-    if (!g_bt_ops.be(what)) {
-      return push_nil_error(L, "E_INVAL", "this board is a keyboard, a mouse or both");
-    }
-  }
-  lua_pushstring(L, g_bt_ops.device());
-  return 1;
-}
-
-// **`bt.ready()`**: si l'altre cap ha encès els reports (0.190.208). `bt.connected()` diu que hi ha un aparell a l'altre costat; això
-// diu que a més a més escolta, que és el que fa que una tecla hi arribi. És la diferència que una pàgina ha de poder ensenyar, perquè
-// entremig les notificacions es descarten i sembla que la placa no enviï (docs/30, docs/50).
+// **`bt.ready([<which>])`**: si l'altre cap ha encès els reports (0.190.208). `bt.connected()` diu que hi ha un aparell a l'altre
+// costat; això diu que a més a més escolta, que és el que fa que una tecla hi arribi. És la diferència que una pàgina ha de poder
+// ensenyar, perquè entremig les notificacions es descarten i sembla que la placa no enviï (docs/30, docs/50).
+//
+// **I des de la 0.191.0 la placa en publica dos i es poden preguntar un a un** (l'amo: *«i no podem anunciar els dos dispositius sempre?»*):
+// una pàgina que mou un punter vol saber del report del ratolí, i prendre el del teclat per bo és una pàgina que es creu viva mentre el dit
+// no mou res. Sense argument contesta el «algun» de sempre, que és el que una persona vol saber d'un cop d'ull (docs/30, docs/50).
 int l_bt_ready(lua_State* L) {
   if (g_bt_ops.ready == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no keyboard");
-  lua_pushboolean(L, g_bt_ops.ready() ? 1 : 0);
+  const char* which = luaL_optstring(L, 1, nullptr);
+  if (which != nullptr && strcmp(which, "keyboard") != 0 && strcmp(which, "mouse") != 0) {
+    return push_nil_error(L, "E_INVAL", "the report is keyboard, mouse, or nothing for the two of them");
+  }
+  lua_pushboolean(L, g_bt_ops.ready(which) ? 1 : 0);
   return 1;
 }
 
@@ -13665,7 +13642,6 @@ void seal_globals(lua_State* L) {
   set_function(L, "uart_wake", l_cfg_uart_wake);
   set_function(L, "nap", l_cfg_nap);
   set_function(L, "bt", l_cfg_bt);
-  set_function(L, "btmode", l_cfg_btmode);
   set_function(L, "loglevel", l_cfg_loglevel);
   set_function(L, "touch_adaptive", l_cfg_touch_adaptive);
   set_function(L, "software_button", l_cfg_software_button);
@@ -13687,7 +13663,6 @@ void seal_globals(lua_State* L) {
   set_function(L, "connected", l_bt_connected);
   set_function(L, "ready", l_bt_ready);
   set_function(L, "type", l_bt_type);
-  set_function(L, "device", l_bt_device);
   set_function(L, "name", l_bt_name);
   set_function(L, "move", l_bt_move);
   set_function(L, "click", l_bt_click);

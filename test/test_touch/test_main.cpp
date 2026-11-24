@@ -606,7 +606,7 @@ static void test_three_taps_take_the_app_out_of_the_whole_glass() {
   // page of before the turn.
   TEST_ASSERT_FALSE(ui::is_full_screen());
   TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
-  TEST_ASSERT_EQUAL_UINT16(960 - 48, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(960 - 48 - kernel::bar::bottom_height(), ui::canvas().height);
   // **And the app never heard them**: there is no gesture of three taps in the queue it reads (docs/30).
   kernel::touch::Gesture gesture;
   while (kernel::touch::take_gesture(gesture)) {
@@ -856,7 +856,7 @@ static void test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system() {
   ui::present();
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(3, glass().level_at(270, 200), "the page of the app is not on the glass");
   TEST_ASSERT_FALSE(kernel::panel::open());
-  TEST_ASSERT_EQUAL_UINT16((ui::canvas().height) / 3, kernel::panel::height());
+  TEST_ASSERT_EQUAL_UINT16((960 - 48) / 3, kernel::panel::height());
 
   // **Twenty rows of the chip are the bar's** —the view starts at forty-eight— **and the finger goes a hundred down**:
   // a pull and not a drawing, so the card comes out and the page never learns that a hand was on it (docs/30).

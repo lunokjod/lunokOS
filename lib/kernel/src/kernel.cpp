@@ -518,6 +518,22 @@ void dispatch(const pal::Event& ev) {
 
 }  // namespace
 
+// **Què queda de la pila en cada passa de l'arrencada** (0.190.290, l'amo: *«posa les linies, son informatives»*). `stack_free` és el
+// *high-water mark* de FreeRTOS —el mínim que ha quedat lliure en aquesta tasca des que va arrencar—, o sigui que un número per passa diu
+// **quina** de les passes cava els kilobytes que una Paper i una T5S3 no comparteixen, i costa una línia de registre a cada una
+// (docs/75). Una placa sense FreeRTOS contesta un negatiu i no s'escriu res: el número del PC és el del PC (docs/85).
+namespace {
+
+void say_the_stack(const char* when) {
+  const int32_t left = pal::system().stack_free();
+  if (left <= 0) return;
+  // **`log_bootf` i no `log_printf`** (0.190.292): the mirror of the log is closed on a serial wire since 0.190.185, o sigui que aquestes
+  // quatre línies no arribaven a la placa que les demanava; són d'un moment que passa una vegada i es queden al cable (docs/30, docs/75).
+  log_bootf(pal::kLogInfo, "STACK", "%s: %d B of the task's stack left", when, static_cast<int>(left));
+}
+
+}  // namespace
+
 void boot(hal::IPlatform& platform) {
   // **El corrent de la placa, abans de qualsevol altra cosa** (0.189.24, l'amo: *«El poweroff deixa la placa tonta? no puc
   // arrencar-la sense punxarla a un usb?!»*): a board whose supply is held by a pin —the Paper, with the SY7088— gives up
@@ -539,6 +555,11 @@ void boot(hal::IPlatform& platform) {
   // més— (docs/60, docs/85).
   power::clear_the_restart();
   log_init();
+  // **La primera mesura de la pila, aquí i no a `main_idf`** (0.190.291): the number that was asked for before the kernel —the one of the PAL
+  // and of everything the IDF did on the way in— is this one, said by the system's own log. **No pot anar per `ESP_LOGI`**: the Paper keeps
+  // the IDF at WARN on purpose (0.190.167, the drivers' `I (39632) gpio: …` would fall in the middle of the log a person reads), o sigui que
+  // una línia de la IDF no arriba mai a aquella placa i les dues bandes no es podrien comparar (docs/50, docs/75).
+  say_the_stack("the kernel starts");
   // **A call from an app into the system is counted from the first line an app runs**: the interpreter
   // asks for the clock and for a way to add, and knows nothing else about the kernel (docs/30).
   luabind::set_meter_ops(
@@ -616,7 +637,27 @@ void boot(hal::IPlatform& platform) {
   // page owes are one thing, and a board without a screen has neither the code nor the settings that name a drawing
   // (`LUNOK_GLASS`, docs/50, docs/75). What follows —the alarms, the radio, the sensors— is the same on both.
 #if LUNOK_GLASS
+  // **El que el panell necessitarà, dit abans de demanar-l'hi** (0.191.1): la taula de conversió d'epdiy és **un bloc de 64 KiB de
+  // memòria interna** i `heap_caps_malloc` no el pot fer si el més gran que queda és més petit —i llavors epdiy crida `abort()` sense
+  // dir res més—. Aquesta línia és el número que diu si hi cap, i va per `log_bootf` perquè és d'un moment que passa una vegada
+  // (docs/50, docs/75).
+  {
+    const pal::HeapInfo memory = pal::system().heap();
+    if (memory.valid) {
+      log_bootf(pal::kLogInfo, "MEMORY", "before the panel: %u B free of internal memory, the biggest block is %u B",
+                static_cast<unsigned>(memory.free_bytes), static_cast<unsigned>(memory.largest_free_bytes));
+    }
+  }
   display::boot(platform);
+  // **El gir que la persona va triar, abans de la primera tinta** (0.190.281, l'amo: *«Afegeix comanda»*): the driver is turned
+  // here and not when the page of the day is made, perquè tot el que ve després —la imatge del boot, la barra i la primera
+  // pàgina— neixi amb la forma que la persona va triar. Un vidre que no en vol cap ho diu i es queda com va venir; i la imatge
+  // del boot, que és un pla de 540 × 960, es refusa amb el seu motiu en una pàgina apaïsada, que és el que aquesta casa fa amb
+  // un pla d'una altra mida (docs/30, docs/50).
+  if (display::rotation() != cfg::rotation() && !display::set_rotation(cfg::rotation())) {
+    log_printf(pal::kLogWarn, "UI", "this glass cannot be turned to %u degrees: it stays as the panel came",
+               static_cast<unsigned>(cfg::rotation()));
+  }
   // **La bateria decideix la imatge de l'arrencada** (0.183.0): the gauge is asked here and not by `power::boot`, which has
   // not run yet —it is after the shell— because this is the one page a person sees before anything else can tell them, and
   // a board with a cell under the mark has to say it before it says its name. `power::boot_picture` is the rule and this is
@@ -653,6 +694,12 @@ void boot(hal::IPlatform& platform) {
     ui::owe_the_page();
   }
 #endif  // LUNOK_GLASS
+
+  // **I la ràdio, amb el vidre ja fet** (0.191.1, l'amo: *«abort() was called … could not allocate LUT»*): la taula de conversió del
+  // panell és **un bloc de 64 KiB de memòria interna** i NimBLE en deixa trenta en un grapat de trossos; amb la ràdio a dalt el bloc més
+  // gran que queda no arriba als seixanta-quatre i epdiy crida `abort()` a l'arrencada. El que encén la ràdio és `cfg::start_the_radio`
+  // i això és el seu lloc: després del panell i de la imatge del començament, i abans que cap app pugui voler-la (docs/50, docs/75).
+  cfg::start_the_radio();
 
   // The alarms that survived the power cut come back before anything else can
   // look at the queue.
@@ -764,6 +811,7 @@ void boot(hal::IPlatform& platform) {
   // system —and the hour, which is the one box of the strip that waits for its own minute, stayed five rows above the title
   // beside it (found by the owner on the glass, 15/11). A strip owed whole is a strip painted whole at the first turn.
   bar::refresh();
+  say_the_stack("the view is up");
   // **The book of the disk is given to the interpreter** (0.132.0): the door of Lua asks the kernel what a mount, a
   // zip and a page are, and it asks through a table of calls, the same way the canvases are (docs/20, docs/46).
   book::bind();
@@ -887,7 +935,7 @@ void boot(hal::IPlatform& platform) {
   // so this is where the board goes back to a hundred and sixty. An app started after the boot —`run`, another app, an
   // alarm— asks for its own window (docs/50, docs/60).
   power::rest_cpu("the system is loaded");
-
+  say_the_stack("the first page is up");
 }
 
 void alarms_restore() {
@@ -934,6 +982,12 @@ void turns(uint32_t& with_event, uint32_t& on_timeout) {
 
 void poll() {
   if (!g_running) return;
+  // **El primer torn, mesurat un sol cop**: és el que diu quant queda després que l'app del davant hagi fet el seu primer torn (docs/75).
+  static bool said_the_first_turn = false;
+  if (!said_the_first_turn) {
+    said_the_first_turn = true;
+    say_the_stack("the first turn");
+  }
   // **Un torn sencer amb el pany a la mà** (0.190.244): the shell of the board executes its lines in another task, o sigui que el torn i la
   // shell es fan la tornada i cap dels dos no troba la pissarra a mitges (docs/30, docs/50).
   TurnGuard the_turn_is_mine;

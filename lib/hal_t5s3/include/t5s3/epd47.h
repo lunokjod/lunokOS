@@ -81,8 +81,9 @@ class Epd47 : public ISurface {
   // **La VCOM del vidre** (0.190.60): the number the TPS65185 is told before a paint, in millivolts. És l'únic paràmetre elèctric
   // que un driver pot moure i el firmware de fàbrica el deixa calibrar per unitat, o sigui que no és cap invent exposar-lo
   // (docs/50, docs/95).
-  // **La forma d'ona, triada pel nom** (0.190.134): `tc2` és la que aquest build porta de sèrie i `tc1` la que el panell físic potser
-  // demana. Canviar-la en calent és canviar el punter de l'estat d'epdiy, o sigui que la pàgina que hi ha al vidre no es toca (docs/50).
+  // **La forma d'ona, triada pel nom** (0.190.134): `tc2` és la que aquest build porta de sèrie —la que LilyGO va calibrar per a aquest
+  // panell— i `tc1` la genèrica dels exemples, que es posa en calent amb `panel wave tc1`. Canviar-la és canviar el punter de l'estat
+  // d'epdiy, o sigui que la pàgina que hi ha al vidre no es toca (docs/50).
   const char* waveform() const override { return waveform_; }
   const char* waveform_at(uint8_t index, uint8_t* modes = nullptr, uint8_t* ranges = nullptr) const override;
   bool set_waveform(const char* name) override;
@@ -106,6 +107,10 @@ class Epd47 : public ISurface {
   void flip_the_area(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
 
   // The glass's own frame: 960 × 540, four bits a pixel, and it is **epdiy's buffer**, not a copy (docs/50).
+  // **La VCOM d'aquest vidre**, in millivolts: **1560**, which is the value both examples of the board set (`epd_set_vcom(1560)`)
+  // and the one the board ships with (docs/50, docs/95). It lives here, next to the member that keeps it, because a number written
+  // twice is a number that can drift: the driver reads `vcom_mv_` and this is what it starts as.
+  static constexpr uint16_t kVcomMillivolts = 1560;
   static const uint16_t kGlassW = 960;
   static const uint16_t kGlassH = 540;
   static const uint16_t kGlassStride = kGlassW / 2;
@@ -128,7 +133,7 @@ class Epd47 : public ISurface {
   bool begun_ = false;
   bool powered_ = false;
   uint16_t rotation_ = 270;
-  uint16_t vcom_mv_ = 1560;
+  uint16_t vcom_mv_ = kVcomMillivolts;
   // **Quina taula és a l'estat d'epdiy ara mateix** (0.190.134): el nom, perquè el prompt pugui dir quina hi ha.
   const char* waveform_ = "tc2";
   // **Quan es va pintar per última vegada** (0.190.140): és el que decideix quan les tensions poden baixar.

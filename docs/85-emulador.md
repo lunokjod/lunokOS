@@ -138,6 +138,7 @@ Aquestes són les opcions del binari:
 | `--bt-fail` | **La ràdio hi és i la pila no arrenca**: `keyboard_start` i `host_on` contesten fals i el prompt ho diu amb el motiu del HAL |
 | `--bt-scan <n>` | Quants aparells veu la **ràdio de mentida** en una exploració (per defecte 4). Amb `0` és una habitació buida i `bt host scan` torna una llista de cap línia |
 | `--bt-connected` | **Un mòbil a l'altre cap del nostre teclat**: `keyboard_connected` és cert i `bt type` escriu en lloc de dir que no hi ha ningú |
+| `--swbutton` | **Una caixa amb el cercle de sota el vidre** (0.190.288): `a_button_under_the_glass` és cert i la segona tecla del sistema —el mig de la franja de baix, que fa de *back*— existeix com a la T5S3. Cap model d'aquest emulador té el cercle, o sigui que sense aquesta línia el commutador de la pestanya Input no tindria cap tecla per provar (docs/50, docs/85) |
 | `--bt-type <s>` | **El que aquell teclat escriu quan el vincle es fa**: els vuit bytes d'un report de boot, una tecla cada cop, pel camí de sempre (`host_sink` → `keys_arrived` → `shell::feed`). El retorn de línia no s'hi fingeix: una tecla que executés una comanda des de dins d'una altra tornaria a entrar al shell (docs/50) |
 | `--run <id>` | Arrenca una app pel mateix camí que `run <id>` de la shell i **surt** amb el resultat: `0` si l'app ha acabat bé i `1` si no s'ha pogut arrencar, ha mort amb un error o ha sortit amb un codi diferent de zero |
 | `--script <fitxer>` | Mode lot: executa ordres i surt |
@@ -411,7 +412,9 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
 - **Un gir de la pàgina torna a obrir la finestra** (2/11): si `ui.rotation` canvia el marc del vidre,
   `gui_show` tanca la finestra i l'obre amb la pàgina nova —les tecles i l'escala demanada no canvien— i
   la pàgina girada torna a prendre l'escala que hi cap. El que no es fa és deixar l'últim marc congelat a
-  la pantalla mentre el vidre ja és un altre rectangle (docs/30, docs/85).
+  la pantalla mentre el vidre ja és un altre rectangle (docs/30, docs/85). **I el gir viatja amb la
+  pàgina** (0.190.283): `gui_show` en rep els graus perquè el ratolí pugui desfer'ls, i no cal preguntar-li
+  res al nucli.
 - **Tancar la finestra acaba el run**, com tres ESC.
 - **El ratolí és un dit** (0.32.0): la finestra és el vidre i el vidre d'aquesta placa s'hi toca. Prémer el
   botó esquerre és el dit que baixa **al píxel de la pàgina** que hi ha sota el punter, moure'l amb el botó
@@ -419,8 +422,15 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   llegeixen les proves). Amb escala 2, el píxel de la finestra és un bloc de 2 × 2 de la pàgina i el dit
   cau **al mig del bloc** (`emu::gui_page_point`, amb prova a `test_ui`); un punter fora de la pàgina
   s'enganxa a la vora.
-  Sense `--touch` no s'hi envia res, i amb el vidre girat en un altre marc l'emulador ho diu una vegada en
-  comptes de callar. **El que el ratolí no pot fer és un pessic de dos dits**: això és del test o del guió.
+  Sense `--touch` no s'hi envia res.
+  **I amb el vidre girat el ratolí hi arriba igual** (0.190.283): el xip del model compta en el marc del
+  panell —540x960, el d'`emu::Gt911Panel`, sempre— i la pàgina apaïsada és un altre rectangle, o sigui que
+  el punt del punter, que és el de la pàgina, es camina enrere el quart de gir que el nucli li aplica al dit
+  (`gui_page_turn` i `gui_chip_point`, les quatre cantonades copiades de `kernel::orientation::turn` perquè
+  el HAL és a sota del nucli). Fins a la 0.190.282 una pàgina de 960x540 deixava anar el clic amb una línia
+  —*«the page is 960x540 and the touch panel counts in 540x960»*— i des d'aleshores el dit cau a la tecla
+  que s'hi apunta: mesurat amb el teclat apaïsat de `btkbd` a la finestra, tres tecles de la banda i
+  l'<intro> que buida la caixa. **El que el ratolí no pot fer és un pessic de dos dits**: això és del test o del guió.
   **Un clic és un dit i no un marc**: el xip escombra cada deu mil·lisegons i qui no hi és en un escombrat no
   hi és enlloc, o sigui que l'emulador guarda el toc fins que una lectura se l'emporta i la cua del nucli
   s'escurça a vint mil·lisegons amb la finestra oberta (0.83.0). Mesurat a la banqueta, dotze clics de 90 ms
@@ -578,7 +588,8 @@ demanar-li que pinti (`It8951::flush`), i aquell enviament té dos preus: els by
 | Una fila | **100 µs** | **comptats pel driver** (15/11, docs/95 E-11): amb els microsegons presos al voltant de cada transacció, una pàgina de 540 files de 480 bytes va gastar **282 ms** amb una fila per transacció i **229 ms** en esclats, o sigui que la transacció costa **uns cent microsegons** i no el mil·lisegon que s'havia inferit l'1/11 (una pàgina sencera de text de 1 985 ms menys la tinta i el cable). La inferència era **deu vegades** el que és |
 
 - **La pàgina sencera, amb la barra de 48 files, són 360 ms de bus**: **912 files** de 270 bytes a
-  0,8 µs més les 912 transaccions de cent microsegons (la vista d'una app fa 540 × 912). La barra dels setze
+  0,8 µs més les 912 transaccions de cent microsegons (la vista d'una app fa 540 × 892 des de la 0.190.287,
+  que la franja de baix en pren vint). La barra dels setze
   nivells, 37 ms. Amb la tinta (120 del `du` i 450 del `gc16`), una pàgina sencera de text dona **902 ms al model**.
   **La mesura de l'1/11** —amb la barra de 28 files, 1 970 ms a l'emulador i 1 985 ms a la placa— quadrava amb
   una fila d'1 100 µs perquè la fila era **una inferència**; el 15/11 el driver la va comptar i és de cent
@@ -1190,7 +1201,7 @@ The owner read that line and asked whether the `(` had ever been closed: it had,
 (docs/30, docs/50).
 
 **I el log de l'emulador és el de la placa** (1/11, 0.20.0): les mateixes línies amb la mateixa forma
-(`[I][CFG] /cfg on littlefs (asked for littlefs)`, `[I][UI] view 540x912 at 0,48, 246240 bytes of
+(`[I][CFG] /cfg on littlefs (asked for littlefs)`, `[I][UI] view 540x892 at 0,48, 240840 bytes of
 canvas`) i els mateixos comptadors, amb una diferència que és honesta i s'ha de saber: **a l'emulador el temps
 d'un dispositiu és el del PC**. `vfs.list` pot costar 40 ms aquí per la lectura simulada d'1 ms per
 fitxer. Des de la 0.22.0 una pintada **sí que costa** el que costa la seva qualitat —450 ms un `gc16`,

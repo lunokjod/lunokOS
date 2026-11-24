@@ -161,7 +161,8 @@ void usage() {
   printf("  --no-bt           a board with no Bluetooth at all (the ATOM carries one)\n");
   printf("  --bt-fail         the radio is there and the stack does not come up\n");
   printf("  --bt-scan <n>     how many devices the fake radio sees (4; 0 is an empty room)\n");
-  printf("  --bt-connected    a phone on the other side of our keyboard\n");
+  printf("  --bt-connected    a phone on the other side of our keyboard and mouse\n");
+  printf("  --swbutton        a case with the circle under the glass, which is the T5S3's front\n");
   printf("  --bt-type <text>  what the paired keyboard of the other side types into this console\n");
   printf("  --run <app>       start an app\n");
   printf("  --script <file>   batch mode: run and exit\n");
@@ -597,6 +598,10 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       opts.bt_connected = true;
       continue;
     }
+    if (strcmp(arg, "--swbutton") == 0) {
+      opts.button_under_the_glass = true;
+      continue;
+    }
     if (strcmp(arg, "--bt-scan") == 0) {
       if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) return false;
       opts.bt_peers = static_cast<int32_t>(number);
@@ -810,7 +815,7 @@ void pump_gui(uint32_t& shown_frames) {
   shown_frames = frames;
   // **What the glass shows and not what was painted**: the ink of a `du` keeps part of the page before
   // it, and that is exactly what a person is looking at (docs/85).
-  emu::gui_show(glass->shown_bits(), glass->width(), glass->height());
+  emu::gui_show(glass->shown_bits(), glass->width(), glass->height(), glass->rotation());
 }
 
 // **The glass while it waits.** A paint holds its caller for the wires and for the ink, and the panel

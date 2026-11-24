@@ -33,6 +33,9 @@ namespace {
 // letters are the ones the paper project gives its bar (docs/50, docs/92): **a line of 33 px** —its `fontSmall`—
 // with six rows of air above, six below and the black line of two at the bottom, which is 6 + 33 + 7 + 2 = 48.
 const uint16_t kBarHeight = 48;
+// **La franja de baix** (0.190.287): vint files, que és prou perquè un dit la trobi i prou poc perquè la pàgina no se'n ressenti (la
+// vista d'un Paper apaïsat passa de 492 a 472 files). És del sistema i no d'una app (docs/30, docs/50).
+const uint16_t kBottomHeight = 20;
 
 // **`scale` 3 of the face of the system is a line of 33 px**, which is the line the paper project's bar has: `kOutlineLine`
 // is eleven pixels and a title bar is not the place for the text of a page (docs/92).
@@ -415,10 +418,18 @@ void draw_figure(hal::ISurface& surface, const Layout& at, const Status& status)
 }
 
 // The paper of the strip, and the line under it, which belong to all three boxes and are painted with the strip.
+//
+// **I la franja de baix** (0.190.287): white like the one above and with its line at the top, which is the edge it shares with the
+// page of the app; it is painted in the same whole pass, o sigui que no costa ni una pintada més. Va amb la barra: una app que ha
+// demanat el vidre sencer no té cap de les dues (docs/30, docs/50).
 void paint_ground(hal::ISurface& surface) {
   const uint16_t panel_w = surface.width();
   surface.fill_rect(0, 0, panel_w, kBarHeight, 15);
   surface.fill_rect(0, static_cast<uint16_t>(kBarHeight - kLineHeight), panel_w, kLineHeight, 0);
+  if (!g_visible || surface.height() <= kBottomHeight) return;
+  const uint16_t top = static_cast<uint16_t>(surface.height() - kBottomHeight);
+  surface.fill_rect(0, top, panel_w, kBottomHeight, 15);
+  surface.fill_rect(0, top, panel_w, kLineHeight, 0);
 }
 
 // One paint of the whole strip, of **the values it was given**: it reads nothing, so what is on the glass is exactly
@@ -477,6 +488,8 @@ void paint_boxes(hal::UpdateMode mode, const Status& status, bool time, bool tit
 }  // namespace
 
 uint16_t height() { return kBarHeight; }
+
+uint16_t bottom_height() { return g_visible ? kBottomHeight : 0; }
 
 void demo(bool on) { g_demo_signs = on; }
 

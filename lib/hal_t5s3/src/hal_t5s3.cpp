@@ -228,6 +228,13 @@ class T5Power : public Esp32Power {
   // false, and the policy does not treat this board as one that is powered off between two alarms
   // (docs/50, docs/60).
   bool deep_powers_off() const override { return false; }
+  // **I tot i no ser una apagada, aquesta placa sí que es pot deixar anar quan no hi ha res a fer** (0.190.293, l'amo: *«la placa T5S3 encara
+  // no es posa a dormir quan toca amb el timeout»*). La política d'oci pregunta `can_sleep_on_idle` i la resposta de sèrie és
+  // `deep_powers_off` —la de dalt, que aquí és **falsa** a posta—: o sigui que la 0.190.272 va canviar la pregunta i **no va donar mai la
+  // resposta a aquesta banda**, i el temporitzador de `Sleep after` seguia sense disparar res. El que mana és si baixar estalvia —sí: el
+  // llum a zero, els carrils del TPS65185 avall, el vidre descansat i el xip aturat— i si hi ha porta per tornar, que n'hi ha tres (el
+  // BOOT, el rellotge del xip i el dit, `can_wake_on_touch`). O sigui que la resposta és sí (docs/50, docs/60).
+  bool can_sleep_on_idle() const override { return true; }
   // **I la tecla que torna d'un son profund és el BOOT del xip** (0.190.108, l'amo: *«El botó fisic no desperta de deepsleep. Revisa els
   // exemples del fabricant»*). El botó de debò de la placa —el `S3` de l'expansor— **no pot** ser una porta: la seva línia és `PCA_INT` a
   // GPIO38 i GPIO38 no és cap GPIO de l'RTC; el fabricant ho va provar i ho va deixar comentat al seu exemple (`// esp_sleep_enable_ext1_wakeup((1UL <<

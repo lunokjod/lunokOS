@@ -1212,20 +1212,19 @@ void test_sys_settings_answers_what_the_prompt_prints(void) {
 // person (docs/30).
 namespace {
 
-// **La porta del ràdio, apuntada** (0.190.204): the four doors a page of `bt` has on the device side record what they were told,
-// perquè el que es mira sigui que la paraula i els dos números arriben sencers i no que la pàgina s'ho inventi.
-const char* g_bt_word = "keyboard";
+// **La porta del ràdio, apuntada** (0.190.204): the doors a page of `bt` has on the device side record what they were told, perquè el
+// que es mira sigui que la paraula dels reports i els dos números arriben sencers i no que la pàgina s'ho inventi. **Des de la 0.191.0
+// no hi ha cap mode a triar**: la placa publica sempre el teclat i el ratolí, o sigui que la paraula que arriba és la de `bt.ready`.
 char g_bt_asked[16] = {};
+bool g_bt_mouse_heard = true;
 int g_bt_dx = 0;
 int g_bt_dy = 0;
 char g_bt_button[8] = {};
 
-const char* fake_bt_device() { return g_bt_word; }
-bool fake_bt_be(const char* what) {
-  if (what == nullptr) return false;
-  if (strcmp(what, "both") != 0 && strcmp(what, "mouse") != 0 && strcmp(what, "keyboard") != 0) return false;
-  snprintf(g_bt_asked, sizeof(g_bt_asked), "%s", what);
-  g_bt_word = (strcmp(what, "both") == 0) ? "both" : ((strcmp(what, "mouse") == 0) ? "mouse" : "keyboard");
+bool fake_bt_ready(const char* which) {
+  snprintf(g_bt_asked, sizeof(g_bt_asked), "%s", (which != nullptr) ? which : "");
+  if (which == nullptr) return true;
+  if (strcmp(which, "mouse") == 0) return g_bt_mouse_heard;
   return true;
 }
 const char* fake_bt_name() { return "lunokOS-TEST"; }
@@ -1241,40 +1240,41 @@ bool fake_bt_click(const char* button) {
 
 }  // namespace
 
-// **`bt.device`, `bt.name`, `bt.move` i `bt.click`** (0.190.204, l'amo: *«una app lua... amb un teclat i un mouse»*): the four doors
-// a page needs to be the two things at once, i el que la prova guarda és l'acord sencer —la paraula que es demana, la que queda, el
-// nom amb què la placa s'anuncia i els dos números del moviment— perquè una pàgina que arrossega un dit i rep un cursor quiet no té
-// res més a preguntar (docs/30, docs/50).
+// **`bt.ready`, `bt.name`, `bt.move` i `bt.click`** (0.190.204, i sense `bt.device` des de la 0.191.0, l'amo: *«i no podem anunciar els
+// dos dispositius sempre? després que hi hagi una app de teclat o de mouse és indiferent»*): the doors a page needs to be the two things
+// at once, i el que la prova guarda és l'acord sencer —la paraula dels reports que es pregunta, el nom amb què la placa s'anuncia i els
+// dos números del moviment— perquè una pàgina que arrossega un dit i rep un cursor quiet no té res més a preguntar (docs/30, docs/50).
 //
 // **I un moviment de quatre-cents píxels arriba sencer a la porta** (0.190.259): el report d'un ratolí en porta de −127 a 127 i el
 // qui el parteix és el nucli (`bt::move_for_a_page`), o sigui que el que la pàgina demana és el que el dit ha caminat i no el que cap
 // en un byte. Abans aquesta porta el refusava amb `E_INVAL`, i un dit que arrossegava es quedava a mig camí (docs/30, docs/50).
-void test_bt_device_move_and_click_reach_the_radio(void) {
+void test_bt_ready_move_and_click_reach_the_radio(void) {
   pal::init();
   luabind::BtOps ops = {};
-  ops.device = &fake_bt_device;
-  ops.be = &fake_bt_be;
   ops.name = &fake_bt_name;
   ops.move = &fake_bt_move;
   ops.click = &fake_bt_click;
+  ops.ready = &fake_bt_ready;
   luabind::set_bt_ops(ops);
-  g_bt_word = "keyboard";
   g_bt_asked[0] = '\0';
+  g_bt_mouse_heard = true;
   TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
-  TEST_ASSERT_TRUE(run("assert(bt.device() == 'keyboard', tostring(bt.device()))\n"
-                       "local now = bt.device('both')\n"
-                       "assert(now == 'both', tostring(now))\n"
+  TEST_ASSERT_TRUE(run("assert(bt.ready() == true)\n"
+                       "assert(bt.ready('keyboard') == true)\n"
+                       "assert(bt.ready('mouse') == true)\n"
                        "assert(bt.name() == 'lunokOS-TEST', tostring(bt.name()))\n"
                        "assert(bt.move(12, -8) == true)\n"
                        "assert(bt.click() == true)\n"
                        "assert(bt.click('right') == true)\n"
-                       "local bad, err = bt.device('mouse-and-toaster')\n"
+                       "local bad, err = bt.ready('mouse-and-toaster')\n"
                        "assert(bad == nil, tostring(bad))\n"
                        "assert(type(err) == 'table' and err.code == 'E_INVAL', tostring(err and err.code))\n"
                        "assert(bt.move(400, 0) == true)\n"
                        "local which, e2 = bt.click('toaster')\n"
                        "assert(which == nil and type(e2) == 'table' and e2.code == 'E_INVAL', tostring(e2 and e2.code))"));
-  TEST_ASSERT_EQUAL_STRING("both", g_bt_asked);
+  // **El darrer que la porta de `ready` va veure és la paraula dolenta**, que la crida refusa abans d'arribar-hi; o sigui que el que
+  // queda és la del ratolí, que és l'última de debò (0.191.0).
+  TEST_ASSERT_EQUAL_STRING("mouse", g_bt_asked);
   // **El darrer moviment és el que la porta va veure**, i és el de quatre-cents: la pàgina no l'ha de partir (0.190.259).
   TEST_ASSERT_EQUAL_INT(400, g_bt_dx);
   TEST_ASSERT_EQUAL_INT(0, g_bt_dy);
@@ -1433,7 +1433,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_rle_packs_and_unpacks_a_text_of_lua);
   RUN_TEST(test_sys_settings_answers_what_the_prompt_prints);
   RUN_TEST(test_sys_settings_without_a_door_says_unsupported);
-  RUN_TEST(test_bt_device_move_and_click_reach_the_radio);
+  RUN_TEST(test_bt_ready_move_and_click_reach_the_radio);
   RUN_TEST(test_sys_session_destroy_says_how_much_went);
   RUN_TEST(test_an_alarm_that_is_already_there_is_named_and_not_added);
   UNITY_END();

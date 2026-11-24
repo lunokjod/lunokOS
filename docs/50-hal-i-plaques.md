@@ -443,9 +443,10 @@ seu:
 
 ```
 bt                       l'estat de les dues meitats, en tres o quatre línies
-bt dev [on|off]          aquesta placa com a dispositiu
-bt dev keyboard on|off   i el teclat tot sol
-bt dev mouse on|off      i un ratolí propi (encara no hi és: ho diu)
+bt dev [on|off]          aquesta placa com a dispositiu: un teclat i un ratolí
+bt dev forget            oblidar l'altre cap (i cal treure'l de la seva llista)
+bt dev move <dx> <dy>    moure el cursor de l'altre aparell (la prova de l'enllaç)
+bt dev click [left|right|middle]
 bt host [on|off]         aquesta placa com a amfitriona, sense oferir-se a ningú
 bt host scan [segons]    qui hi ha a l'aire
 bt host pair <n>         quedar-se amb un
@@ -468,70 +469,84 @@ fals a `host_off`.
 **`bt host off` baixa la ràdio només si el dispositiu també és fora**: les dues meitats comparteixen la pila de NimBLE i matar-la per una
 banda seria tancar l'altra.
 
-### I la placa també pot ser un ratolí (0.190.193)
+### Un sol mapa: el teclat i el ratolí, sempre (0.191.0)
 
-L'amo: *«opció B»*. Dues col·leccions en un sol servei HID voldrien **report ids** i renunciar al **boot protocol**, que és el que fa que
-aquest teclat escrigui a qualsevol lloc; o sigui que **la placa és un teclat o un ratolí, i es tria**:
+L'amo: *«i no podem anunciar els dos dispositius sempre? després que hi hagi una app de teclat o de mouse és indiferent, treu del bt dev
+<device> on/off fes-lo bt dev on/off i es publiquen sempre ambdós»*.
 
-```
-bt dev mouse          què és ara
-bt dev mouse on       un ratolí, ofert com a "lunokOS"
-bt dev mouse off      un teclat una altra vegada
-bt dev mouse move 10 -5   moure el cursor
-bt dev mouse click [left|right|middle]
-```
+**El que hi havia** (i per què es va deixar de fer): des de la 0.190.193 la placa era **un teclat o un ratolí i es triava**, i des de la
+0.190.204 hi havia un tercer mode, `both`, amb els dos reports i report IDs. La tria tenia un preu que no es veia fins que un telèfon hi
+era: **un mapa nou no cap en un vincle vell**. L'amfitrió llegeix el report map quan aparella i no el torna a llegir mai, o sigui que
+canviar de mode volia dir esborrar el vincle de l'altre cap i tornar a aparellar —i, entremig, la placa podia quedar-se amb el mapa d'una
+banda i el vincle de l'altra, que és el «connecta però no envia» que l'amo va veure una vegada i una altra—.
 
-- **El servei GATT no es toca**: el que canvia és el **report map** que el host llegeix (`0x2A4B` es llegeix de nou a cada petició, o sigui
-  que el canvi és en calent), el **report** que s'envia —vuit bytes de teclat o quatre de ratolí— i l'**aparença de l'anunci** (`0x03C1`
-  teclat, `0x03C2` ratolí), que obliga a tornar-se a anunciar.
-- **Cal tornar a aparellar des de l'altre cap**: el mòbil va llegir el mapa d'un teclat i no endevina el d'un ratolí. La comanda ho diu.
+**El que hi ha ara**: un sol mapa, sempre el mateix, amb els dos reports i els seus IDs.
+
+| | |
+|---|---|
+| Report map (`0x2A4B`) | el del teclat **i** el del ratolí, amb `Report ID 1` i `2` — el de `kBothReportMap`, llegeixi's quan es llegeixi |
+| Reports d'entrada | **8 bytes** pel teclat (modificadors, reservat i sis tecles) i **4** pel ratolí (botons, x, y i roda), cadascun per la seva característica. **L'ID no hi és dins**: el porta el descriptor *Report Reference* de cada característica |
+| Descriptor de referència (`0x2908`) | 1 al teclat i 2 al ratolí |
+| Aparença de l'anunci | `0x03C1`, teclat: el Bluetooth no té cap paraula per a «les dues coses» i el que aquesta placa fa sobretot és escriure |
+| Boot protocol | **no**: un aparell amb report IDs no el pot servir, i el que el volia era el teclat d'un PC abans del sistema operatiu |
+
+- **No hi ha res a triar ni res a tornar a anunciar**: `bt dev on` encén el dispositiu i `bt dev off` l'apaga. L'aparença, el mapa i el
+  servei són els mateixos sempre, o sigui que **cap canvi de la placa no invalida un vincle** —que és el motiu de debò d'aquesta feina—.
+- **El que una app faci amb la placa és cosa de l'app**: `apps/btkbd` escriu tecles i `apps/bthid` mou el punter, i el que l'altre aparell
+  va llegir quan va aparellar serveix per a les dues. Canviar d'app **no demana tornar a aparellar**.
 - **El moviment és relatiu i el report de repòs va darrere del de moviment**, o sigui que el cursor es queda quiet quan el dit s'atura; i
   el report d'un ratolí porta de **−127 a 127**, o sigui que un moviment més gran es fa en més d'un report i ho parteix el sistema
   (`bt::move_for_a_page`) en lloc de refusar-lo.
 - **El clic és pressió, trenta mil·lisegons i deixar anar**, la mateixa forma que una tecla: un botó premut per sempre és el que l'altre cap
   veu si no es deixa anar.
+- **Els llums del teclat** (`0x2A32` i el report de sortida) són cinc bits en un byte i prou: el report de sortida té la seva pròpia
+  característica amb la referència `(1, sortida)`, i el que arriba és el byte de les llums sense cap ID al davant.
 
-#### Les dues coses alhora: el mode `both` (0.190.204)
+#### El report no porta l'ID (0.191.3)
 
-L'amo: *«fem una app lua, una app per aixicar un bluetooth HID device amb un teclat i un mouse… la pantalla buida serà el mouse i es
-trasmetrà amb el dit. El teclat gracies a un Textbox»*. Un teclat de boot i un ratolí de boot en un sol vincle no existeixen: dues
-col·leccions en un mapa volen **report IDs**, i un aparell amb IDs no pot servir el boot protocol. O sigui que el que la 0.190.193 va
-triar com a `opció B` es queda com és i se n'hi afegeix un tercer, amb el preu escrit a la cara:
+L'amo, amb el mapa dels dos reports a la placa: *«el Mouse no va bé… Només es mou verticalment i horitzontalment… tenia pinta d'estar en mode
+rodeta o algo… però anava malament amb l'eix i m'ha penjat el pc»*, i després de tornar a aparellar: *«en quan emparello tot s'en va a la
+merda, em deixa el pc mig penjat»*.
 
-| Mode | Mapa | Report | Boot protocol |
-|---|---|---|---|
-| `keyboard` (de sèrie) | el del teclat, sense IDs | 8 bytes per la característica del teclat | **sí** |
-| `mouse` | el del ratolí, sense IDs | **4 bytes** (botons, x, y i la roda) per la del ratolí | sí |
-| **`both`** | el del teclat **i** el del ratolí, amb `Report ID 1` i `2` | 9 i **5** bytes, l'ID al davant | **no** |
+**El culpable era aquest codi i no l'amfitrió.** Des de la 0.190.204 el report s'enviava amb **l'ID del HID al davant** —`[2, botons, x, y,
+roda]`, nou bytes al teclat—, i a HID-over-GATT **l'ID no viatja dins del valor**: el porta el descriptor *Report Reference* de cada
+característica, i el valor és exactament el que declara el mapa. Qui ho diu és el mateix exemple que aquesta casa va copiar (Zephyr/Nordic:
+`Report ID (1)` al mapa i una notificació amb l'`sizeof` de la seva estructura de botons, sense cap byte d'ID), i és la raó per la qual els
+modes d'un sol report —que no el posaven— sí que funcionaven.
 
-- **El servei GATT és el mateix en els tres**: info, mapa, **dues** característiques de report d'entrada (teclat i ratolí, cadascuna amb
-  el seu handle i la seva subscripció), la del boot, la de sortida dels llums, la de sortida del report, el control point i el protocol
-  mode. El que canvia és el mapa que es llegeix (`0x2A4B`, a cada petició), l'**ID que diu el descriptor de referència** (`0x2908`: 0
-  als dos modes d'un sol report, 1 i 2 al compost) i el report que s'envia. Engegar i apagar una característica a cada canvi de mode
-  voldria tornar a registrar el servei, i el servei és el mateix.
-- **Els dos UUIDs repetits es distingeixen per l'adreça**: `hid_access` i `report_access` reben l'`arg` i no el valor, o sigui que hi ha
-  dos `ble_uuid16_t` de `0x2A4D` i dos de `0x2908` i la comparació és de punter.
-- **Els llums del teclat** (`0x2A32` i el report de sortida) arriben amb l'ID al davant al mode compost, i qui els llegeix salta el
-  primer byte.
-- **L'aparença de l'anunci** és el teclat (0x03C1) al mode compost: el Bluetooth no té cap paraula per a «les dues coses», i el que
-  aquesta placa fa sobretot és escriure.
-- **I l'altre aparell ha de tornar a aparellar-se un cop**: va llegir el mapa d'un teclat i no endevina un altre mapa. La comanda ho diu
-  i la pàgina també.
+Amb el byte de més, l'amfitrió llegeix:
 
-**I per què un ratolí sol no movia res** (0.190.208, l'amo: *«connecta, pero encara no envia bé sembla»*). En un mode d'un sol report el mapa
-declara **un** report i cap ID, o sigui que les dues característiques d'entrada porten la **mateixa** Report Reference (ID zero, tipus entrada)
-i descriuen els mateixos bytes: a quina de les dues es subscriu l'amfitrió és cosa seva. El codi enviava el ratolí sempre a la segona i el
-teclat sempre a la primera, i un aparell subscrit a l'altra no rebia res mentre la placa deia «connectat». Ara `send_report_to_every_char`
-empenta el report **a totes dues** quan el mode és d'un sol report (la que ningú ha demanat es descarta), i el mode compost continua enviant
-cada report a la seva, perquè allà l'ID del davant és el que diu de qui és.
+| el que envia la placa | el que l'amfitrió hi veu |
+|---|---|
+| `[2, botons, x, y, roda]` | botons = `2` → **el botó dret premut sempre**; `x` = botons; `y` = `x`; **roda = `y`** |
+| `[1, mods, 0, tecla, 0…]` (teclat) | mods = `1` → **Ctrl esquerre premut sempre**; i una tecla més al joc de les sis |
 
-**I connectat no és escoltat**: el CCCD de cada característica d'entrada és el que decideix si una notificació arriba, i fins ara no es mirava.
-`BLE_GAP_EVENT_SUBSCRIBE` es llegeix i es diu al registre —*«the other side asked for the mouse report»*—, i `IBluetooth::reports_enabled()`
-(amb `bt::reports_enabled()` i **`bt.ready()`** a Lua) diu si l'altre aparell ja hi sent. L'entremig és el que una persona veu com «connecta
-però no envia».
+D'aquí surt tot el que es va veure: un punter que només camina d'un eix, una roda que es mou amb el dit, un escriptori amb un botó premut que
+no es deixa anar i —al teclat— **dreceres de teclat a dojo amb el Ctrl clavat**, que és el que deixa un PC mig penjat.
 
-**I la tria es desa**: `cfg.btmode keyboard|mouse|both` viu a la botiga perquè la sessió d'una app només arriba fins al son, i `bt::start`
-aplica el mode desat quan la ràdio arrenca —una placa que es va deixar com a ratolí torna com a ratolí (docs/30)—.
+**El que s'ha canviat**: el teclat envia vuit bytes (modificadors, reservat i sis tecles), el ratolí quatre (botons, x, y i roda), la lectura
+del report contesta les mateixes mides i el report de sortida de les llums llegeix el **primer** byte i no el segon. **I el report de sortida
+té la seva referència** (`1, sortida`), que no en tenia cap: una característica `0x2A4D` sense *Report Reference* és una que el perfil no sap
+llegir.
+
+**I la lliçó, que val per a qualsevol mapa**: el mapa i el report han de dir el mateix i l'ID només viu al descriptor. Una prova que es podia
+haver fet abans de gravar és comptar els bytes: **vuit i quatre**, i si en surten nou i cinc algú ha posat l'ID on no toca.
+
+**`bt dev forget` s'hi queda** (0.191.2) perquè un amfitrió **es guarda el report map que va llegir quan va aparellar** i no el torna a llegir
+mai: si mai es torna a canviar el mapa, el vincle vell s'ha de desfer a les dues bandes —la placa amb aquesta comanda i l'altre cap traient
+l'aparell de la seva llista—. Amb aquest canvi el mapa no s'ha tocat, o sigui que **el que ja és aparellat no s'ha de tornar a aparellar**.
+
+**I el que es va aprendre pel camí, que val per a qualsevol mapa**: dues característiques d'entrada que diuen el mateix `Report ID` són un
+servei que no compleix el HID-over-GATT (per això el mapa porta IDs de debò); la lectura del report ha de tenir **la mida que el mapa
+declara** (una mida que no és la de cap report fa que un amfitrió seriós tanqui l'enllaç); i `send_report` **mira el CCCD** abans
+d'enviar, perquè una notificació en una característica que l'altre cap no ha encès és una violació del protocol i alguns amfitrions la
+contesten tancant.
+
+**I connectat no és escoltat**: el CCCD de cada característica d'entrada és el que decideix si una notificació arriba.
+`BLE_GAP_EVENT_SUBSCRIBE` es llegeix i es diu al registre —*«the other side asked for the mouse report»*—, i `IBluetooth::report_enabled()`
+(amb `bt::reports_enabled(<paraula>)` i **`bt.ready([<paraula>])`** a Lua) diu si l'altre aparell ja hi sent **un report o l'altre**: la
+placa en publica dos i l'altre cap pot haver encès el del teclat i no el del punter. `bt.ready()` sense paraula contesta «algun dels dos»,
+que és el que una persona vol saber d'un cop d'ull. L'entremig és el que una persona veu com «connecta però no envia».
 
 **I per què l'enllaç queia tot sol** (0.190.211, l'amo: *«a device is connected» → «the device went away»*, una vegada i una altra, *«No es
 realitza la conexio»*). Tres coses, totes tres de protocol:
@@ -557,7 +572,7 @@ coses, i les tres són de protocol i no de gustos:
   `Maximum (127)` i `Report Count (3)`, o sigui **quatre bytes de report** —botons, x, y, roda—, que és el que el seu `send_mouse()`
   envia amb `esp_hidd_dev_input_set(dev, 0, 0, buffer, 4)`. Abans el mapa declarava dos eixos i el report era de tres bytes: legal, i
   és el que aquesta casa tenia, però **el que tothom prova primer és el de tres eixos** i una roda que el mapa no declara és una roda
-  que el report no pot portar. El mode `both` porta la mateixa roda (cinc bytes amb l'ID al davant).
+  que el report no pot portar. El mapa dels dos reports porta la mateixa roda (quatre bytes: botons, x, y i roda).
 - **Dues característiques d'entrada que diuen el mateix `Report ID` són un servei que no compleix el HID-over-GATT.** Al mode d'un sol
   report el mapa declara **un** report i cap ID, i les dues característiques (les que el mode compost necessita) contestaven totes dues
   `0, input`: un amfitrió que les llegeix no sap quina és la del mapa i la que triï pot ser la que té la mida de l'altra. Ara la
@@ -573,15 +588,50 @@ quelcom per enviar i l'altre cap encara no ha escrit el CCCD —*«this board ha
 the reports yet»*— i una quan el primer report surt de debò —*«the first report went out: 4 bytes on 0x…»*—. Són una vegada per vincle,
 no una per fotograma, perquè un ratolí envia un report per cada fotograma del dit (docs/50, docs/95).
 
-**I l'app és un ratolí i prou** (`apps/bthid`, títol *btHID Mouse*, 0.3.1): o sigui que la pàgina d'espera té **un sol botó** (el
-commutador del ràdio, que no s'encén sol) i la vista viva és el pad: el dit que camina mou el cursor de l'altre aparell i el toc que no
-camina és un clic. El que la placa és es desa a `cfg btmode`, i el que s'ha deixat la persona és la vista (la sessió `state`).
+#### El canvi de cara i els vincles (0.190.296)
+
+**`bt dev mouse on` reiniciava la placa** (0.190.296, l'amo: *«bt dev mouse on → Guru Meditation Error … LoadProhibited»*, i tot seguit
+*«en canvi: bt dev keyboard on … device: on, a keyboard, offered»*). El `LoadProhibited` no era del camí del ratolí sinó de l'esborrat dels
+vincles: `ble_store_util_delete_all(<type>, nullptr)` passa a NimBLE una clau **nul·la** i `ble_store_config_find_sec` la desreferencia
+(`ble_addr_cmp(&key_sec->peer_addr, BLE_ADDR_ANY)`). **El bucle només s'obre quan la botiga té una entrada**, o sigui que una placa sense
+vincles no ho va ensenyar mai i la primera que en tenia —un telèfon aparellat— va reiniciar-se just en el moment de canviar de cara. Ara
+s'esborren amb **`ble_store_clear()`**, que és la porta que NimBLE documenta per això, que fa servir una clau a zero i que a més se'n porta
+el registre de CCCD.
+
+**I això explica el «connecta però no envia» d'abans**: cada intent d'arreglar-ho canviant de cara reiniciava la placa, i la placa tornava
+**amb el vincle de l'altra cara** —un mapa que l'altre cap ja va llegir i no tornarà a llegir—.
+
+**I la 0.190.296 va fer que les dues paraules compressin el mode** (`bt dev keyboard on` no el desava i podia dir «the keyboard is
+offered» oferint un ratolí)… **i va durar unes hores**: a la 0.191.0 el mode va desaparèixer i les dues paraules es van fondre en `bt dev
+on|off`, o sigui que el problema que aquella simetria arreglava ja no existeix. El que queda d'aquella tarda és el crash, que era de debò.
+
+**I el mode triat amb la ràdio apagada ja no és una pregunta** (0.191.0): no hi ha mode, o sigui que no hi ha res a aplicar en arrencar ni
+cap vincle que una arrencada pugui deixar orfe. Aquesta era l'última cosa que la tria tenia a canvi de no servir per a res.
+
+**I `bt status` diu quins reports ha demanat l'altre cap** (0.190.295, i més fi des de la 0.191.0): la línia del dispositiu deia *«and a
+device is connected»* i prou, o sigui que un enllaç on l'altre cap encara no havia escrit el CCCD es veia igual que un que ja rebia —que és
+exactament el «connecta però no envia» que la pàgina ja sabia dir i el prompt no—. Ara diu *«…and it asked for both reports»*, *«…and it
+asked for the mouse report»*, *«…and it asked for the keyboard report»* o *«…and it has not asked for the reports yet»*, i és el mateix
+número que una pàgina llegeix amb `bt.ready(<paraula>)`.
+
+**I l'app és un punter** (`apps/bthid`, títol *btHID Mouse*, 0.4.0): o sigui que la pàgina d'espera té **un sol botó** (el commutador
+del ràdio, que no s'encén sol) i la vista viva és el pad: el dit que camina mou el cursor de l'altre aparell i el toc que no camina és un
+clic. **Ja no tria res** (0.191.0): encén la ràdio i prou, perquè la placa publica el teclat i el ratolí sempre; el que s'ha deixat la
+persona és la vista (la sessió `state`).
 
 **I el ratolí té els seus tres botons** (0.190.267, i la icona del teclat amb la insígnia a la 0.190.268, l'amo: *«afegeix 2 o 3 botons a l'app “btHID Mouse” a la part de dalt del panell que fa
 de mouse, sota la barra de sistema per fer de botons del mouse»*): a la vista viva hi ha una fila de tres caixes —`Left`, `Middle` i
 `Right`— a dalt de tot, sota la barra del sistema, i **el pad del punter comença sota la fila**. Un botó que el dit prem és un `bt.click`
 de la seva paraula i **el pad no el veu**, perquè el rectangle que el dit camina (`pad_rect`) no arriba a la fila; un clic que no surt es
 diu a la línia i al registre, i un que surt no diu res —un ratolí que escriu al registre cada clic és un registre que no es pot llegir.
+
+**I el moviment també parla quan no viatja** (0.190.295, l'amo: *«connecta, pero no sembla enviar les senyals del mouse, ni els botons :-(»*):
+`bt.move` torna fals quan l'altre cap encara no ha encès el report del ratolí, i la pàgina llençava aquesta resposta —o sigui que callava
+just quan calia una frase—. El primer moviment que no viatja d'un vincle deixa la seva línia («the other device has not switched the reports
+on yet», o «the movement does not travel: the other side is not taking the pointer») i prou: un dit que es mou és un report cada fotograma, i
+una frase per fotograma és un registre que no es pot llegir. **El camí del ratolí no s'hi va tocar**: el que hi havia era una pàgina muda,
+no un report perdut. I des de la 0.191.0 la pregunta és pel report del ratolí i no pel «algun» (`bt.ready('mouse')`), que era una pàgina
+que es creia punter amb la porta del teclat oberta.
 
 #### El teclat, i la caixa que ha d'estar a dalt (0.190.267)
 
@@ -610,10 +660,9 @@ de la 0.190.204 (docs/50); **el que l'article recorda i aquí es compleix** és 
 teclat són vuit bytes i les tecles que en surten no en són mai més de sis alhora, amb els modificadors al primer octet— i que el que
 arriba de l'amfitrió (el *Control Point* i el *Protocol Mode*) es llegeix i no s'ignora.
 
-**I el que queda dit a les dues pàgines, perquè no enganyi**: les dues apps **no comparteixen vincle**. El mode es desa a `cfg btmode` i
-canviar-lo torna a anunciar el mapa, o sigui que l'altre aparell s'ha de **tornar a aparellar** en passar d'una app a l'altra. El mode
-`both` ho estalviaria —dos report IDs en un sol mapa— i no s'ha tocat perquè encara no s'ha vist funcionar en un amfitrió de debò, i el
-ratolí sí que hi ha de funcionar.
+**I el que queda dit a les dues pàgines, perquè no enganyi** (0.191.0): les dues apps **comparteixen el vincle**, perquè el mapa és un de
+sol —el teclat i el ratolí amb els seus IDs— i no depèn de quina app hi hagi al davant. Passar d'una a l'altra **no demana tornar a
+aparellar**; aquesta frase deia el contrari fins a la 0.190.296 i és el motiu pel qual la tria va desaparèixer.
 **I la icona és el que l'app fa** (0.190.265, i refeta a la 0.190.268, l'amo: *«canvía el logo, ara es el logo de bluetooth, posa un mouse
 amb logo bluetooth millor»* i després *«L'icona del mouse tampoc te garie detall.. curra't-ho»*): el cos d'un ratolí amb els dos botons en
 el to clar i el cos en l'ombra, la ratlla que els separa i la roda amb les seves crestes, i **el logo de Bluetooth en una insígnia** a la
@@ -628,10 +677,10 @@ primer intent, amb els dibuixos de Lucide tal com venen, era de línia fina i bl
 De la placa de l'amo, en obrir *bt HID* i prémer el commutador:
 
 ```
-[I][APP] bt hid: bringing the radio up as a mouse
-[I][NVS] cfg/btmode = mouse
+[I][APP] bt hid: bringing the radio up
+[I][NVS] cfg/bt = on
 E (83461) BLE_INIT: controller init failed
-[W][BT] the radio did not come up (259): the keyboard has nothing to use
+[W][BT] the radio did not come up (259): the keyboard and the mouse have nothing to use
 ```
 
 **259 és `ESP_ERR_INVALID_STATE`** i diu exactament una cosa: `esp_bt_controller_init()` ha trobat el controlador **ja inicialitzat**. És
@@ -1176,6 +1225,11 @@ gratuïta:
   del vidre, el verd i el vermell de `log.cpp`), i les taules es fan amb `title`, `row` —una clau de divuit columnes comptada en caràcters
   visibles— i `row_inline`. `stats` no passa pel shell i per això filtra la seva taula amb el mateix `shell::filter_ansi` i la mateixa decisió
   `shell::ansi_on`: una segona regla per al mateix commutador seria la mena de cosa que aquesta casa no vol (docs/30, docs/85).
+- **I cada línia del registre té la forma del registre** (0.190.289, l'amo: *«També hi ha alguns missatges al log que no estàn en el format
+  del sistema»*): `log_say` deixava una frase **sense** el prefix `[I][TAG]`, i una línia que no té la forma de les altres no es pot grepejar
+  amb elles. Les del botó de sota el vidre i les de tres pulsacions van ara per `log_printf(KLogInfo, "BUTTON", …)` i les de la son i el
+  despert per `log_printf(KLogInfo, "POWER", …)`. Les paraules són les mateixes i l'etiqueta diu qui parla; el `power: ` del començament sí
+  que ha marxat —era la manera de dir la mateixa etiqueta dues vegades— (docs/30, docs/50).
 - **I una sessió oberta pel cable ensenya l'art de l'amo** (0.190.232): cinc línies de caixes en blanc i blau (`ESC[0;97m`, `ESC[0;94m`,
   `ESC[0;34m`), el dibuix que l'amo va triar a `data/res/logo2.ans`, que es diu quan una sessió s'obre —el primer Enter amb el terminal
   tancat— **i no a l'arrencada**, on sortiria a cada flaix. Va **darrere** `login: a new session`, que segueix dient què ha passat, i **només
@@ -1613,8 +1667,10 @@ físic qualsevol (definexi-lo com a tal) però en realitat serà un toc en aques
 ser un botó tàctil, i es fals... S'exposarà al sistema com a 2on botó, es al frontal, just sota la pantalla eink, centrat horitzontalment, com un
 botó d'iphone. Farà de "back"»*). La caixa té un **cercle** mòuldejat sota el vidre que no és cap botó: prémer-lo és tocar el panell amb la punta
 del dit, i el que el sistema en fa és **una tecla de debò** —cara `front`, lloc `centre`, `kSimple`, sola— que es declara com les altres i que
-`button.list()` ensenya com qualsevol altra. La zona és la **franja de baix de la vista** (centrada, 120 × 80 px): el cercle és petit i un polze
-no, i una zona de la mida del cercle seria un botó que funciona de vegades. **El contacte és del sistema des del primer marc** —la pàgina no en
+`button.list()` ensenya com qualsevol altra. La zona és la **franja de baix del sistema** —vint files des de la 0.190.288, l'alçada de la barra
+de baix— i **només el centre**: 120 × 20 px, o sigui que la resta de la franja és de la franja i un dit que hi cau fora del mig no prem res. El
+cercle és petit i un polze no, i una zona de la mida del cercle seria un botó que funciona de vegades, però una zona de vuitanta files es menjava
+l'últim control de la pàgina (l'amo: *«ara fes que el software button tingui l'alçada d'aquella barra, però només el centre»*). **El contacte és del sistema des del primer marc** —la pàgina no en
 rep ni el toc ni el gest, i el que hi hagi dibuixat a sota del cercle no s'ha de prémer— i actua **quan el dit s'aixeca**: una premuda curta és
 el **camí de tornada** (el mateix que tres pulsacions del dial: enrere una vista, o tancar l'app i tornar a la pàgina que la va demanar), un
 dit que camina més de setze píxels no és cap premuda, i una premuda llarga és un `long` que sent l'app (docs/30, docs/45, docs/50).
@@ -1773,8 +1829,10 @@ el firmware de fàbrica fa servir, i porta coses que un bucle no pot donar —
 - la **neteja** (`MODE_GC16` renta) i la diferència (`MODE_GL16` no renta), que és el que fa que una pàgina
   cremada i una hora que canvia no costin el mateix.
 
-El que queda del nostre costat és **la pàgina i prou**: el mapa entre la pàgina de 540 × 960 i el vidre de
-960 × 540, el nivell d'un píxel, el rectangle que ha canviat, i la traducció de les quatre qualitats del nucli
+El que queda del nostre costat és **la pàgina i prou**: el mapa entre la pàgina i el vidre de
+960 × 540 —**els quatre girs des de la 0.190.281**: un quart de volta dona la pàgina vertical de 540 × 960 de sempre i cap
+volta el vidre mateix, 960 × 540, que és el que demana el teclat de `btkbd` per tenir les tecles del doble d'amples—, el
+nivell d'un píxel, el rectangle que ha canviat, i la traducció de les quatre qualitats del nucli
 als seus modes (`kGc16`/`kInit` → `MODE_GC16`, `kGl16`/`kGlr16`/`kGld16` → `MODE_GL16`, `kDu`/`kDu4`/`kA2` →
 `MODE_DU`). Les palanques `panel gate` i `panel bus` ja no existeixen: el rellotge i la porta són del seu
 `epd_board_v7` i el prompt ho diu.
@@ -1800,6 +1858,24 @@ ha, i el gir és el mateix mapa de pàgina que fa aquest fitxer. El que faltava 
 - l'exemple dels setze grisos fa **`epd_clear()` abans** de `MODE_GC16`, i és el que posa el paper blanc que la taula suposa;
 - la **VCOM** és 1560 mV a la seva NVS i **ajustable des del seu menú de fàbrica** (0 a 5,1 V, passos de 10 mV): és un
   número per unitat, i per això `panel vcom <mv>` l'exposa.
+
+**I el TPS65185, revisat sencer** (0.190.285). El valor és **1560 mV** i és **el mateix que fan servir els dos exemples del
+fabricant** (`display_bw_cycle` i `display_test`, tots dos amb `epd_set_vcom(1560)`, `epd_board_v7`, `ED047TC1`,
+`EPD_LUT_64K`, `Wire.begin(39, 40)` i `EPD_ROT_INVERTED_PORTRAIT`). El camí complet: `set_vcom` només **guarda** el número
+a l'estat d'epdiy, i qui l'escriu al xip és `epd_board_poweron` a cada encesa —`VCOM2` (`0x04`) amb el bit de dalt i `VCOM1`
+(`0x03`) amb els vuit de baix, o sigui `0x00` i `0x9C` per als 156 passos de 10 mV—, després de `ENABLE = 0x3F` i abans de
+comprovar el `PG`. Tres coses s'han arreglat aquí:
+
+- **l'espera del `POWER_GOOD` té sostre** (`lib/epdiy/src/board/epd_board_v7.c`): el bucle d'epdiy no tenia temps límit **ni
+  cedia el torn** (`while (!(… & PWRGOOD)) {}`), o sigui que un rail que no puja era una placa penjada dins d'una pintada i
+  sense cap línia al log —ni el gos de la tasca inactiva podia córrer per dir-ho—. Mig segon, com el del `PG` del costat, i
+  el que no hi és es diu (`TPS65185 did not raise POWER_GOOD`) i la pintada segueix sense ell;
+- **`panel vcom <mv>` deixa els rails com estaven**: la VCOM només arriba al xip quan les tensions són amunt, o sigui que la
+  comanda les baixa, escriu i les torna a pujar — i fins ara **es quedaven enceses** encara que el vidre estigués dormint,
+  que és exactament el que el driver promet no fer. Ara es recorda si eren amunt, i el log ho diu («… and the rails are
+  up/down»);
+- **el número és en un sol lloc** (`kVcomMillivolts` al costat de `vcom_mv_`): la constant del `.cpp` no la llegia ningú i el
+  valor de debò era el membre del header, o sigui dues veritats per a la mateixa xifra.
 
 **I el rentat del vidre sencer, fora** (0.190.82). La 0.190.60 va copiar el `epd_clear()` de l'exemple de setze
 grisos sense mirar què fa: neteja **tot el vidre**, i després es repintava només la finestra marcada — o sigui que cada
@@ -2127,6 +2203,10 @@ rangs de temperatura** (3 °C cadascun, de 0 a 48) i **tres modes** —`du`, `gc
 d'un paper blanc o d'un paper negre i que l'altra taula no porta. **El mode de setze grisos de la C1 és el que el nostre driver vell anomenava
 així** («quinze empentes en què cada nivell rep cap al negre mentre li calgui, i només per a un píxel que ve de blanc»); si els grisos de la C2
 no surten, el candidat és aquest, i demana una neteja a blanc abans de la matriu (docs/50, docs/95).
+**I la C1 s'ha provat i s'ha deixat**: la 0.190.284 va arrencar amb la taula dels exemples del fabricant (`ED047TC1` amb
+`EPD_BUILTIN_WAVEFORM`) i la 0.190.286 torna a la C2 (l'amo: *«deixa la C2 al final»*). Les dues són al binari i el que decideix
+quina es pinta és un punter de l'estat d'epdiy: `panel wave tc1|tc2` les canvia en calent, i el log de l'arrencada diu quina hi ha
+(«the waveform is the …»). Els mil·lisegons de `panel bench` de més amunt són els de la C2, que és la que es queda.
 
 **I el frame no es pot tallar amb el pipeline d'epdiy** (0.190.126, l'amo va provar `panel bands on` i la placa va quedar penjada per *task watchdog*). La
 idea era bona i el driver d'aquesta casa la feia abans de l'epdiy —acabar el frame a l'última fila bruta, que és el que fa que una franja de quaranta-vuit
@@ -2812,6 +2892,14 @@ l'hora a l'esquerra, el títol de l'app del davant al mig i la càrrega a la dre
 línia negra de dos píxels a sota. **48 files**, i la vista d'una app comença a la fila 48: una pàgina que
 surt malament no es pot emportar l'hora per davant (docs/30).
 
+**I des de la 0.190.287 n'hi ha una segona a baix, de vint files** (l'amo: *«Afegirem unaltra barra de sistema a baix. Això fará la
+vista de les aplicacions una mica mes petita»*): blanca, amb la línia de dos píxels **a sobre** —l'aresta que comparteix amb la
+pàgina— i buida de moment. No és decoració: les vint files són del sistema, el dit que hi cau **no és de cap app ni del botó fals de
+sota el vidre** (`touch.cpp` decideix el propietari amb la fila on cau el dit, abans de la banda del teclat), i és on anirà el gest
+del segon panell lliscant que l'amo té al cap. Es pinta amb la mateixa passada que la de dalt (`paint_ground`), o sigui que no costa
+cap pintada més, i desapareix amb ella quan una app demana el vidre sencer. La vista d'una app passa a ser **540 × 892** al Paper
+(960 − 48 − 20) i 240 840 B de llenç (docs/30, docs/75, docs/85).
+
 - **Es pinta ella mateixa i només quan canvia alguna cosa seva**: un minut nou, un títol nou, una càrrega
   nova. Cada repàs és un `present` de la seva franja i res més. **Un torn sense novetat és dues
   comparacions i prou**: ni lectura del rellotge, ni de l'ADC, ni pintada. I el que es compara és el que
@@ -2996,7 +3084,7 @@ pintava un botó i comprovava si l'han tocat havia de girar els números ella ma
 | Qui | Què dona |
 |---|---|
 | `display.rotation()` | 0, 90, 180 o 270: quant està girat el contingut del vidre respecte del marc del xip (270 de fàbrica) |
-| `touch.caps()` | **la mida de la vista de l'app** (540 × 912 amb la barra de 48 files), que és on es dibuixa |
+| `touch.caps()` | **la mida de la vista de l'app** (540 × 892 amb les 48 files de dalt i les 20 de baix), que és on es dibuixa |
 | `touch.read()` i `touch.gesture()` | coordenades **de la vista de l'app**, no del xip |
 
 La conversió es fa **una sola vegada**, a `turn_frame()` de `lib/kernel/src/touch.cpp`, just quan el marc

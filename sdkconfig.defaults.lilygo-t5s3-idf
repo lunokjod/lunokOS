@@ -39,3 +39,21 @@ CONFIG_BLE_MESH_SETTINGS=y
 # **I l'anunci normal al costat del mesh**: és el que fa possible que el teclat i el node convisquin quan el mesh hi és; sense això el
 # mesh es queda l'anunciador per a ell tot sol (docs/50).
 CONFIG_BLE_MESH_SUPPORT_BLE_ADV=y
+
+# **Els búfers d'ACL, reservats a l'arrencada i no demanats a cada paquet** (0.191.4, de la placa de l'amo: `E (77948) BLE_INIT: Malloc
+# failed` just després que el PC llegís el mapa del report). El controlador té dues maneres de tenir els búfers de transmissió: reservar-los
+# **una vegada a `esp_bt_controller_init`** o demanar-ne un **abans de cada paquet i deixar-lo anar després** —amb `malloc_internal_wrapper`,
+# que vol RAM interna **i DMA**—. Amb zero reservats, la segona és la que mana, i si en aquell moment el bloc més gran de la memòria interna
+# no arriba a la mida d'un paquet, el paquet es perd i el que queda al registre és un `Malloc failed` sense número. Quatre reservats es paguen
+# a l'arrencada, quan la memòria encara és sencera, i a partir d'aquí transmetre no depèn de com estigui el heap (docs/50, docs/75).
+CONFIG_BT_CTRL_BLE_STATIC_ACL_TX_BUF_NB=4
+
+# **I sis instàncies d'aire per a una placa que en fa servir tres** (0.191.4): cada instància són 828 B de memòria interna, i aquesta placa
+# en té tres de possibles alhora —un anunci, una exploració i **un** enllaç—, perquè el que escolta i el que s'anuncia no conviuen amb dos
+# aparells (docs/50).
+CONFIG_BT_CTRL_BLE_MAX_ACT=3
+
+# **I el host, amb un sol enllaç** (0.191.4): `MAX_CONNECTIONS` a tres li fa reservar l'estat de tres aparells alhora, que en aquesta placa no
+# hi són mai. **No afecta el costat amfitrió**: el teclat d'algú altre i el teclat que aquesta placa ofereix no viuen alhora per disseny
+# (docs/50).
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1

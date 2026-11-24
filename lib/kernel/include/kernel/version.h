@@ -13307,7 +13307,313 @@ namespace kernel {
 // Provat a l'emulador amb el meu Xvfb: després de tancar una app amb la creu i amb el pessic, el `lunok>` torna al cable i el
 // que el tauler escriu queda al registre (docs/30, docs/50).
 
-static const char kVersion[] = "0.190.276";
+// 0.190.277 (23/11): **la llista d'apps era l'única taula sense la paleta de la casa** (l'amo: *«a la comanda apps li falten
+// colors»*).
+//
+// `ls`, `mounts`, `caps` i `help` tenen color des de la 0.190.238 —el cian del prompt per al nom, el gris del mig del vidre per
+// al que no s'ha vingut a llegir, el verd i el vermell del registre per a un sí i un no— i `apps` s'havia quedat de text pla: el
+// nom de l'app en el cian d'un nom que mana, la versió en el gris d'una unitat, el títol en el blanc d'un valor, els marcs de la
+// fila en el seu color (`[card]` en gris, que és un apart, i `[needs …]` en l'ambre d'un avís, perquè diu que allò no arrencarà
+// aquí), i el `no apps` d'una taula buida en gris com el `(nothing here)` d'`ls`.
+//
+// **Res no es mou d'on era**: els codis no compten com a caràcters, o sigui que l'alineació és exactament la d'abans, i amb
+// `ansi off` la llista surt lletra per lletra com sortia (docs/30, docs/85). Provat a l'emulador: amb `ansi off` la fila és la de
+// sempre i amb `ansi on` s'hi veuen els codis, que és el que fa que el cable d'un terminal els pinti.
+
+// 0.190.278 (23/11): **les apps hereten la consola, i la pàgina de casa ja no és una excepció** (l'amo: *«vull que les apps heretin
+// l'estat del terminal. Si tanco o vaig a home o faig back… Si he arrencat amb una app a primer plà de terminal tot a primer plà. Si
+// ho faig amb una app desenganxada els seus fills també ho han de ser. L'app home s'arrenca com a detached el primer cop»*).
+//
+// La 0.190.276 li va treure el forat —tancar una app amb la creu o amb el pessic deixava el llaçador amb el cable a la mà— però ho va
+// fer amb una regla que no és la seva: **la pàgina de casa sempre del fons**. Això deixava l'amo sense cap manera de veure el log de la
+// seva pròpia pàgina al cable —*«si ara l'app home sempre arrenca desenganxada del serial, com la depuro llavors?»*— i era una excepció
+// dins d'un sistema que a la resta ja hereten tots (0.160.0).
+//
+// **Ara la regla és una i la diu la porta**: `AStart::wire` té tres respostes —`kOfThePageBefore` (hereta: la sèrie), `kAttached` (el
+// prompt ha preguntat) i `kDetached` (l'arrencada i el `&`)— i `start_a_page` la tradueix a la marca que `run_app` llegeix. L'estat de
+// la pàgina que marxa el deixa `close_app` a `g_was_detached`, i l'hereten la tornada, el desig d'`app.run`, la casa que torna, una
+// alarma que puja, el pany, la clau de la casa i el despertar. **El primer graó és el que compta**: la casa del boot al darrere del
+// prompt i els seus fills al darrere; un `run x` al davant i els seus fills al davant, la casa inclosa.
+//
+// **I el son ja no trenca la cadena**: la sessió aparcada desa també `session/detached`, o sigui que una app que dormia al fons torna
+// al fons i el prompt que hi havia darrere torna a contestar (docs/30, docs/60, docs/75, docs/90).
+//
+// Provat a l'emulador amb el meu Xvfb: el boot deixa el prompt viu; una app oberta des del tauler i tancada amb la creu torna al tauler
+// del fons amb el prompt contestant; `run agenda` pel cable i creu (i els tres tocs) tornen el tauler **al davant**, i els tres ESC el
+// tanquen i retornen el prompt; `run home_eink` deixa el log de la casa al cable; i `run files &` obre l'editor al fons i el torna al
+// fons.
+
+// 0.190.279 (24/11): **el sostre del llaçador era una constant, i el text no hi cabia** (l'amo: *«home: too many apps for the
+// cache of the session — No ho entenc. Se suposa que no hi ha limits…»* i, quan li vaig ensenyar l'aritmètica, *«Fes el que
+// m'havies recomanat i també lo de treure el sostre»*).
+//
+// La caché del llaçador tenia **1 528 B de finestra per als registres, escrits a mà** quan el disc tenia vint-i-pocs apps. Amb
+// trenta-dues el text fa **1 659 B** i l'app, en lloc d'escriure el que hi cabia, **no escrivia res**: cada arrencada tornava a
+// llegir els manifests i a descodificar totes les icones. I el que ocupava no eren els títols (247 B) sinó **el camí absolut de
+// la icona, 802 B**, perquè `apps.info` el dona com `/apps/about/res/icon.png` i 31 de les 32 apps diuen exactament
+// `res/icon.png`: el mateix sufix trenta-un cops, amb el nom de l'app que ja té al costat.
+//
+// **Tres coses i cap límit** (docs/30, docs/75): el registre desa la icona relativa a l'app i **res** quan és la de sèrie (la
+// llista baixa de 1 659 a ~900 B); la capçalera diu quants bytes fan els registres i **els registres viuen al final del bloc**,
+// amb les imatges davant i a llocs fixos, o sigui que una llista que creix no refreda ni un píxel; i si no hi cap, **el bloc
+// creix** (el nucli ja ho permetia) i, si la placa no el pot donar, s'escriuen les línies senceres que hi caben en lloc de no
+// escriure'n cap.
+//
+// Provat a l'emulador amb el meu Xvfb i el disc de debò: el bloc vell ('HEC2') es refà, el nou diu `cache kept, 32 apps, 12
+// pictures, 895 bytes of list`, i al segon arrencament `cache warm, 32 apps, 12 pictures` sense cap línia de «the picture is
+// read again».
+
+// 0.190.280 (24/11): **el teclat bluetooth no enviava l'Intro** (l'amo: *«A l'app btHID Keyboard hi ha un problemet… no s'envía
+// l' <intro>»*).
+//
+// Dues meitats del mateix forat. La tecla Enter del HID és la 0x28 i la taula del nucli la tenia per al `\n` i prou; la banda del
+// sistema, en canvi, dona a la caixa un **13** (`\r`) i una caixa d'**una línia** no l'escriu enlloc: el converteix en `on_enter`
+// —l'enter acaba l'edició, no és cap lletra (docs/30)—, o sigui que el mirall de la caixa no el veia mai i l'altre aparell no rebia
+// res. El `\r` és ara la mateixa tecla que el `\n` a `key_of`, i l'app envia l'Enter des del seu `on_enter`, que és on el sistema diu
+// que algú l'ha premut.
+//
+// Provat a l'emulador amb el meu Xvfb: `bt.type('\n')` amb la ràdio engegada i un aparell a l'altre cap torna 1 (una tecla enviada),
+// i el camí de la banda —`ui_keyboard_typed(13)`, `on_enter`, `bt.type`— és el que fa servir qualsevol altra caixa del sistema.
+
+// 0.190.281 (24/11): **el gir del vidre és una comanda, i el teclat s'obre apaïsat** (l'amo: *«El sistema podia rotar la pantalla
+// oi?»* → *«Afegeix comanda. I fes una millora a l'app de "btHID Keyboard", que giri al iniciar per posar-se horitzontal (teclat
+// mes gran) i que la deixi com estava al sortir o tancar-se»*).
+//
+// **`rotate [0|90|180|270]`**: el gir que la pàgina, la barra i els dits comparteixen (0.18.1) era només una crida de Lua i **cap
+// comanda**; ara hi és, i el que es decideix es desa a `cfg/rotate` i s'aplica a l'arrencada **abans de la primera tinta**, o sigui
+// que la pàgina del dia neix amb la forma triada. Sense argument diu el gir de la sessió i el desat, com `ansi`. Una paraula que no
+// és cap dels quatre no és un gir i es diu (docs/30, docs/50).
+//
+// **I la T5 pot tenir pàgina apaïsada** (0.190.281): `Epd47::set_rotation` refusava 0 i 180 dient que «la pàgina només hi cap a 90
+// o 270», que era cert de la pàgina de 540 × 960 i no del maquinari. Ara la pàgina segueix el gir —un quart de volta dona la vertical
+// de sempre i cap volta el vidre mateix, 960 × 540— amb els quatre mapes a `to_glass` i les mides que en surten. **Cal veure-ho a la
+// placa**: aquí no hi ha model de la T5 a l'emulador, i el que es pot assegurar des d'aquí és que compila i que el mapa és el mateix
+// d'abans per als dos girs que ja es feien servir.
+//
+// **I el teclat bluetooth s'obre apaïsat**: `btkbd` demana el gir que deixa el vidre al seu propi marc (0, i 180 si no es pot), es
+// queda el que hi havia i el torna a `on_close` —una pàgina que ve després no ha de trobar-se un teclat girat—. Amb 960 de pàgina,
+// les deu tecles de la banda són gairebé el doble d'amples (docs/30, docs/50).
+
+// 0.190.282 (24/11): **l'Intro del teclat envia la tecla però no tanca la línia** (l'amo: *«L'app de teclat bluetooth no esborra el
+// text del control al polsar <enter>»*).
+//
+// La 0.190.280 va fer que l'Enter viatgés, i el mirall de la caixa es quedava amb el que s'havia escrit: un teclat que acaba
+// d'enviar l'enter té una línia nova al davant i cap al darrere. Ara `on_enter` buida el text, el cursor i **`sent` amb ells**, que
+// és la meitat que no es veu: el que hi havia ja és a l'altre aparell i no s'hi deu res, o sigui que la lletra següent no envia cap
+// retrocés (era el que hauria passat si només s'hagués buidat la caixa). I només es buida quan l'enter ha viatjat de debò: sense
+// aparell a l'altre cap el que una persona ha escrit es queda a la caixa, que és el que aquell camí ja fa amb les lletres.
+
+// 0.190.283 (24/11): **el ratolí no arribava a una pàgina girada**.
+
+// El xip del model (`emu::Gt911Panel`) compta sempre en el marc del panell, 540 × 960, i una pàgina apaïsada és un altre
+// rectangle: el punter de la finestra és el píxel de la pàgina i el nucli el gira cap al marc del xip, o sigui que el camí del
+// ratolí havia de desfer exactament aquell quart de volta. Fins ara no ho feia i deia una línia (*«the page is 960x540 and the
+// touch panel counts in 540x960, so the mouse does not reach it»*) i deixava anar el clic: `gui_chip_point` i `gui_page_turn`
+// són aquest camí de tornada, amb les quatre cantonades copiades de `kernel::orientation::turn` perquè el HAL és a sota del
+// nucli. `gui_show` rep els graus del vidre perquè el backend els sàpiga sense preguntar res.
+//
+// Es va veure amb el teclat bluetooth apaïsat a la finestra (0.190.281): tres tecles de la banda i l'<intro> que ara buida la
+// caixa (0.190.282). Abans d'això, tot el que una app apaïsada tenia per tocar era una prova que no es podia fer.
+
+// 0.190.284 (24/11): **la forma d'ona del vidre torna a la C1** (l'amo: *«posa la C1 per provar...»*).
+
+// El build arrencava amb la TC2 —la taula que LilyGO porta a la branca vella d'aquesta placa— des de la 0.190.78. Els dos exemples
+// del fabricant, en canvi, declaren `ED047TC1` i `EPD_BUILTIN_WAVEFORM`, que és la **TC1**: la genèrica d'epdiy, un sol rang de
+// temperatura (20-30 °C) i cinc modes. O sigui que qui encén la placa es troba ara la taula dels exemples, que és el que es volia
+// provar, i la C2 no marxa enlloc: és un punter de l'estat d'epdiy i `panel wave tc2` la posa en calent. El log de l'arrencada diu
+// quina hi ha.
+
+// 0.190.285 (24/11): **el TPS65185 revisat** (l'amo: *«Vols que arregli el 2 i el 3 (i de passada el número duplicat de l'1)?»*).
+
+// Tres coses, i cap de nova: (1) el número de la VCOM era a dos llocs i el del `.cpp` no el llegia ningú; ara és una constant del
+// header al costat del membre que el guarda. (2) `panel vcom <mv>` deixava les tensions **enceses** sempre —la comanda les baixa
+// perquè el xip només accepta la VCOM amb els rails amunt, i en tornar-les a pujar s'hi quedava—, o sigui que un vidre que dormia
+// es despertava per una ordre que només volia dir un número; ara es recorda si eren amunt i es tornen a baixar, i el log ho diu.
+// (3) el bucle que espera el `POWER_GOOD` d'epdiy no tenia temps límit ni cedia el torn: un rail que no puja era una placa
+// penjada dins d'una pintada i sense cap línia. Mig segon, com el `PG` del costat, i el que no hi és es diu.
+//
+// El valor no es toca: **1560 mV**, el dels dos exemples del fabricant.
+
+// 0.190.286 (24/11): **la C2 es queda** (l'amo: *«deixa la C2 al final»*).
+
+// La 0.190.284 va arrencar amb la TC1 —la genèrica dels exemples del fabricant— per provar-la, i el que es queda és la TC2, la taula
+// que LilyGO va calibrar per a aquest panell. La C1 no marxa enlloc: és un punter de l'estat d'epdiy i `panel wave tc1` la posa en
+// calent. Els tres arreglos del TPS65185 de la 0.190.285 no es toquen.
+
+// 0.190.287 (24/11): **una segona barra de sistema, a baix** (l'amo: *«Afegirem unaltra barra de sistema a baix. Això fará la vista de
+// les aplicacions una mica mes petita»*).
+
+// Vint files blanques amb la línia de dos píxels a sobre, al peu del vidre, pintades amb la mateixa passada que la de dalt i fora de la
+// vista de les apps (540 × 892 al Paper, 240 840 B de llenç). El que fa és **reservar la banda**: el dit que hi cau és del sistema —la
+// franja es decideix amb la fila on cau el dit i va abans que la banda del teclat i que el botó fals de sota el vidre, que és el que hi
+// feia males passades— i és on anirà el gest del segon panell lliscant, sense que arribi a l'app, com el de dalt. Una app que demana el
+// vidre sencer no té cap de les dues franges.
+//
+// **El que es va veure provant-ho**: amb la banda del teclat amunt, un dit a la franja escrivia la tecla de sota perquè la fila que
+// arriba a l'app és la de dalt de tot de la vista (el clam) i no la on havia caigut; ara la franja es mira abans que la banda i no
+// escriu res. I el botó fals de sota el vidre no la veu mai.
+
+// 0.190.288 (24/11): **el botó de sota el vidre té l'alçada de la franja, i només el centre** (l'amo: *«ara fes que el software button tingui
+// l'alçada d'aquella barra, però només el centre»*).
+
+// La zona del cercle fals era l'últim vuitantena de files de la vista, centrada: es menjava l'últim control de la pàgina i no tenia res a veure
+// amb la franja que el sistema acaba de reservar. Ara és **la franja de baix sencera d'alçada (vint files) i cent vint píxels d'ample**: el mig
+// de la franja és la tecla i la resta de la franja és de la franja. I es pregunta amb la **fila de debò** del dit (`g_landing_page_y`) i no amb
+// la que rep l'app, que ve clampejada a l'última fila de la vista: per això el botó i un control de la pàgina no es podien distingir.
+//
+// **Amb una pàgina de vidre sencer no hi ha franja, i el botó és l'última vintena de files del vidre**: el mateix cantó i la mateixa alçada.
+// I l'emulador té `--swbutton`, que fingeix la caixa de la T5S3, perquè cap model seu té el cercle i el camí no es podia provar al PC.
+
+// 0.190.289 (24/11): **colors a `mem blocks`, i les línies del registre amb la forma del registre** (l'amo: *«la comanda "mem blocks" no
+// te colors. Busca les comandes que no tinguin colors»* i *«També hi ha alguns missatges al log que no estàn en el format del sistema»*).
+
+// `mem blocks` era l'única taula que s'escrivia amb `snprintf` i prou: ara té el títol, el qui de cada fila en el gris d'un subjecte, els
+// comptes i els bytes en el cian del que mana, les unitats i els punters en el gris del que ningú ha vingut a llegir, i els que no hi caben
+// en ambre. `version` també. I les dues famílies de frases que anaven per `log_say` —les del botó de sota el vidre i les de la son i el
+// despert— porten el prefix de tota la resta, `[I][BUTTON]` i `[I][POWER]`, o sigui que es poden grepejar amb les altres.
+//
+// **I la llista del que encara és de text pla**, que és el que demanava la primera pregunta: `bt`, `wifi`, `ntp`, `provision`, `serial`,
+// `mesh`, `panel`, `splash`, `hexdump`, `ansi` i `verbose`. Cada un és d'un mòdul i s'hi ha d'anar un a un (docs/30).
+
+// 0.190.290 (24/11): **l'arrencada diu la pila a cada passa** (l'amo: *«posa les linies, son informatives»*).
+
+// Quatre línies del nucli —`[I][STACK] the kernel starts`, `the view is up`, `the first page is up` i `the first turn`— i una de la IDF
+// abans (`the stack after the pal`), amb els bytes que queden a la tasca. `stack_free` és el *high-water mark* de FreeRTOS, o sigui que la
+// sèrie diu quina passa cava els kilobytes i permet comparar dues bandes al mateix moment; el número només baixa, i per això dues lectures
+// de moments diferents d'una sessió no volen dir el mateix. Una placa sense FreeRTOS no escriu res (el número del PC és del PC).
+
+// 0.190.291 (24/11): **la pila de l'arrencada també a la Paper** (l'amo: *«el codi del M5 no ho te!»*).
+
+// La 0.190.290 va posar cinc línies: quatre del registre del sistema i una per `ESP_LOGI` («the stack after the pal»). La Paper té la IDF a
+// `WARN` a posta des de la 0.190.167 —els `I (39632) gpio: …` dels conductors caurien al mig del registre que una persona llegeix—, o sigui
+// que aquella cinquena línia no hi arribava mai i les dues bandes no es podien comparar. Ara són quatre i totes del registre del sistema: la
+// primera (`the kernel starts`) és la que fa de número d'abans del nucli.
+
+// 0.190.292 (24/11): **les línies de la pila surten al cable** (l'amo: *«he fet full clean i pujat … i no veig cap canv»*).
+
+// El codi de la 0.190.291 hi era a la Paper —el rètol deia `lunokOS 0.190.291  m5stack-paper`—, però les quatre línies no arribaven al port
+// perquè **el mirall del registre cap al cable està tancat a posta des de la 0.190.185** (`g_echo = console->virtual_terminal()`, i una UART
+// no és un terminal virtual). Es veien les de la IDF (que van pel seu camí) i la de la consola, i cap de les nostres. Ara aquestes quatre
+// passen per `log_bootf`: al cercle com totes i **al cable encara que el mirall sigui tancat**, perquè diuen un moment que passa una vegada
+// i el cercle de dos kilobytes ja les ha tirades fora quan una persona escriu `log`.
+
+// 0.190.293 (24/11): **la T5S3 es torna a adormir quan toca** (l'amo: *«la placa T5S3 encara no es posa a dormir quan toca amb el timeout»*).
+
+// La 0.190.272 va canviar la pregunta de la política d'oci —de `deep_powers_off` a `can_sleep_on_idle`, perquè una baixada que no és una
+// apagada de debò també pot ser un son— i **la resposta per defecte és la de sempre**, o sigui que la banda que va motivar el canvi —aquesta,
+// on `deep_powers_off` és fals a posta— es va quedar sense donar-la i el temporitzador de `Sleep after` no disparava res. Ara la T5S3 diu
+// que sí: baixar estalvia (llum a zero, carrils avall, vidre descansat, xip aturat) i hi ha tres portes per tornar (el BOOT, el rellotge i el
+// dit). **La Paper i les altres quatre bandes no canvien**: la resposta de sèrie és la que ja tenien.
+
+// 0.190.294 (24/11): **el dibuix del son no es queda a sota de la pàgina que torna** (l'amo: *«la pantalla queda bruta del dibuix d'sleep i es
+// queda al tornar a home… afegeix un paràmetre bool per netejar abans de tornar a l'app (per defecte false)»*).
+
+// La primera pàgina d'una app pinta **el seu damage**, no el vidre: la tinta del dibuix del son es quedava a tots els forats (el launcher
+// només dibuixa les seves cel·les) i el `wash` és la resposta. `AStart::wash` i un paràmetre de més a `run_app`, **fals de sèrie**: una pàgina
+// que torna a un vidre que ja era seu no paga res. El que el posa és `power::come_back`, que és el camí del son, i el rentat és **tota la
+// vista amb un `gc16` pagat abans que l'app dibuixi** (mesurat a l'emulador: `paint 0,0 540x892 mode 2 gc16` abans del `Launch app`).
+//
+// **I el que NO el treu**: `splash hide` neteja amb `gld16` (0.190.42, sense parpelleig), i sobre un dibuix fosc aquest mode deixa el
+// fantasma; el que l'esborra de debò és el `gc16`.
+
+// 0.190.295 (24/11): **el ratolí diu per què no viatja** (l'amo: *«l'app de teclat bluetooth va de vici, perqué la de moise ja no
+// funciona? connecta, pero no sembla enviar les senyals del mouse, ni els botons :-( abans funcionava..»*).
+
+// El codi del camí del ratolí no s'ha tocat: el que callava era l'app. `bt.move` torna fals quan la placa s'anuncia de teclat o quan
+// l'altre cap encara no ha encès els reports (els dos CCCD), i [bthid.lua] llençava aquest resultat —el clic ja deia el seu, el moviment
+// no. Ara el primer moviment que no viatja dóna una frase, **una vegada per sessió**: un dit que es mou és un report cada fotograma.
+
+// 0.190.296 (24/11): **el canvi de cara no reinicia la placa, i el teclat es tria quan es diu teclat** (l'amo:
+// *«bt dev mouse on → Guru Meditation Error … LoadProhibited»*, i tot seguit *«en canvi: bt dev keyboard on … bluetooth: on / device: on, a
+// keyboard, offered»*).
+
+// **El `LoadProhibited` era de NimBLE i el convidava aquesta casa**: `ble_store_util_delete_all(<type>, nullptr)` rep una clau que la botiga
+// desreferencia (`ble_store_config_find_sec` fa `ble_addr_cmp(&key_sec->peer_addr, …)`), i el bucle només s'obre quan la botiga **té** una
+// entrada —per això una placa sense vincles no el va ensenyar mai i la primera que en tenia va reiniciar-se—. Ara els vincles s'esborren amb
+// `ble_store_clear()`, que és la porta documentada i que a més se'n porta el registre de CCCD. **I `bt dev keyboard on` desa el mode com ja
+// feia `bt dev mouse on`**: abans només encenia la ràdio i la placa podia dir «the keyboard is offered» oferint un ratolí.
+
+// 0.191.0 (24/11): **la placa és un teclat i un ratolí, sempre i alhora** (l'amo: *«i no podem anunciar els dos dispositius sempre?
+// després que hi hagi una app de teclat o de mouse és indiferent, treu del bt dev <device> on/off fes-lo bt dev on/off i es publiquen sempre
+// ambdós. Revisa les apps també»*).
+
+// **El mode desapareix**: hi havia hagut `keyboard`, `mouse` i `both`, una paraula desada a `cfg btmode`, una porta de Lua (`bt.device`)
+// i un `device_be` que esborrava els vincles de l'altre cap quan canviava de cara. El mode era, de fet, un problema de l'amfitrió —un
+// telèfon llegeix el mapa quan aparella i no el torna a llegir mai, o sigui que canviar-lo volia dir tornar a aparellar— i la 0.190.296 va
+// ensenyar el preu: el codi que esborrava els vincles petava amb un `LoadProhibited` quan n'hi havia. Ara hi ha **un sol mapa, el dels dos
+// reports amb els seus IDs**, i no hi ha res a canviar: ni vincle a esborrar, ni cara a tornar a anunciar, ni res a aplicar en arrencar.
+
+// **El que això treu**: `bt.device` de Lua (cap app de la imatge el fa servir: les dues que hi havia s'han revisat en aquest mateix canvi),
+// `cfg.btmode` del prompt i de `cfg`, `bt::be`/`bt::device_word`/`bt::has_a_mouse`, `hal::IBluetooth::Device`/`device_is`/`device_be`, i els
+// mapes d'un sol report (`kReportMap`, `kMouseReportMap`) i `send_report_to_every_char`. **I el que afegeix**: `bt.ready([<quin>])` i
+// `bt::reports_enabled(<paraula>)`, perquè amb dos reports l'altre cap pot encendre el del teclat i no el del punter, i `bt dev on|off`
+// amb `bt dev move|click` per provar el punter des del prompt.
+
+// **El preu, dit a la cara**: un mapa amb report IDs **no pot servir el boot protocol**, i el que el volia era el teclat d'un PC abans
+// del sistema operatiu. Els mòbils i els sistemes operatius llegeixen el mapa i no el demanen (docs/50).
+
+// **Les apps**: `apps/bthid` 0.4.0 i `apps/btkbd` 0.2.0 ja no trien res —encenen la ràdio i prou—, i el que és de debò nou és que
+// **comparteixen el vincle**: passar d'una a l'altra no demana tornar a aparellar (docs/45, docs/50).
+
+// 0.191.1 (24/11): **la ràdio s'obre DESPRÉS del panell, no abans** (l'amo, amb la placa a la mà: *«abort() was called at PC 0x420c49d7 on
+// core 0»* just després del rètol de la 0.191.0).
+
+// Desxifrat amb l'ELF del firmware gravat: `abort` ← `epd_renderer_init` (render.c:285) ← `epd_init` ← `Epd47::begin` ←
+// `T5Platform::display()` ← `display::boot`. La línia 285 és **la taula de conversió del panell**: `heap_caps_malloc(64 KiB,
+// MALLOC_CAP_INTERNAL)` i `abort()` si torna nul —epdiy no en té cap de camí de sortida—.
+
+// **El que li prenia el bloc era la ràdio d'aquesta casa**: `cfg::boot` encenia el dispositiu de Bluetooth quan la persona l'havia deixat
+// encès (0.190.180), i això passa **abans** de `display::boot`. NimBLE s'hi queda 29 544 B de memòria interna en un grapat de blocs
+// (`the radio is up … 29544 B spent`) i el que queda són cent quaranta kilobytes **en trossos**: el bloc més gran ja no arriba als
+// seixanta-quatre i el panell d'aquesta placa no es pot construir. La 0.190.296 hi passava per poc; la 0.191.0, que va tancar el sprite
+// de versions i va moure unes desenes de bytes de dades, va moure el tall just prou.
+
+// **Ara `cfg::start_the_radio()` es crida tot just després de `display::boot`**, i no costa res: el vidre no llegeix la ràdio per a res i
+// el primer que la vol és una app, que ve molt després. **I el número que diu si hi cap queda escrit**: `[I][MEMORY] before the panel: … B
+// free of internal memory, the biggest block is … B` surt per `log_bootf` a cada arrencada, o sigui que la propera vegada que això es
+// trenqui no caldrà desxifrar cap adreça.
+
+// 0.191.2 (24/11): **el ratolí no anava malament: l'altre cap el llegia amb el mapa vell** (l'amo: *«el Mouse no va bé… Només es mou
+// verticalment i horitzontalment… tenia pinta d'estar en mode rodeta o algo… però anava malament amb l'eix i m'ha penjat el pc»*).
+
+// Els bytes que envia la placa són els del mapa —`[2, botons, x, y, roda]`, comprovats—, i el que es veia és el mateix report llegit un byte
+// desplaçat: els botons són l'ID (2, el botó dret sempre premut), la `x` són els botons, la `y` és la `x` i la roda és la `y`. Un punter que
+// només camina d'un eix, una roda que es mou amb el dit i un escriptori que es torna boig amb un botó premut que no es deixa anar: tot el
+// que l'amo va descriure, i cap error de la placa.
+
+// **El motiu és que un amfitrió no torna a llegir el report map**: se'l guarda quan aparella i el reutilitza mentre el vincle visqui. Aquell
+// PC va aparellar quan aquesta placa era un ratolí sol, amb quatre bytes i sense IDs, i amb la 0.191.0 el mateix vincle en rep cinc.
+
+// **El que s'hi pot fer**: `bt dev forget` (nou) tanca l'enllaç, esborra els vincles d'aquesta banda amb `ble_store_clear()` i es torna a
+// anunciar; **la meitat de l'altre costat és d'una persona**, treure l'aparell de la seva llista. És una migració d'una vegada: el mapa ja
+// no torna a canviar (docs/50).
+// 0.191.3 (24/11): **el report no porta l'ID del HID** (l'amo, després de tornar a aparellar: *«no hi ha manera… en quan emparello tot
+// s'en va a la merda, em deixa el pc mig penjat»*).
+
+// El culpable era aquest codi. Des de la 0.190.204 el report s'enviava amb **l'ID al davant** —nou bytes al teclat, cinc al ratolí— i a
+// HID-over-GATT l'ID **no viatja dins del valor**: el porta el descriptor *Report Reference* de cada característica i el valor és exactament el
+// que declara el mapa (ho diu el mateix exemple de Zephyr/Nordic que es va copiar). Amb el byte de més l'amfitrió llegeix `[2, botons, x, y,
+// roda]` com a botons=2 (el dret premut sempre), x=botons, y=x i **roda=y** —el punter d'un sol eix i la «rodeta»—, i el teclat com a
+// mods=1, o sigui **Ctrl esquerre premut sempre** amb una tecla més al joc: dreceres a dojo, que és el PC mig penjat.
+
+// **Ara**: vuit bytes el teclat, quatre el ratolí, la lectura del report amb les mateixes mides, el report de sortida lligint el primer byte
+// i una referència `(1, sortida)` per a la característica de les llums, que no en tenia cap. **El mapa no s'ha tocat**, o sigui que el que ja
+// és aparellat no s'ha de tornar a aparellar (docs/50).
+// 0.191.4 (24/11): **la ràdio deixa de demanar memòria a cada paquet** (l'amo, amb el mapa del report ja ben enviat: *«E (77948)
+// BLE_INIT: Malloc failed»* just després que l'altre cap el llegís).
+
+// El controlador del BLE té dues maneres de tenir els búfers de transmissió: **reservar-los a `esp_bt_controller_init`** o **demanar-ne un
+// abans de cada paquet i deixar-lo anar després**, i amb zero reservats mana la segona —que vol RAM interna **i DMA**, la mateixa que el
+// panell i les piles es disputen—. Si en aquell moment el bloc més gran que queda no arriba, el paquet es perd i el que resta al registre
+// és un `Malloc failed` sense número, ni mida ni perquè. Ara **se'n reserven quatre a l'arrencada**, quan la memòria encara és sencera.
+
+// **I el controlador demanava sis instàncies d'aire per a una placa que en fa servir tres** (`BLE_MAX_ACT`): 828 B cadascuna, i un anunci,
+// una exploració i **un** enllaç són totes les que aquesta placa pot tenir alhora. El host baixa igual: `MAX_CONNECTIONS` a tres reservava
+// l'estat de tres aparells que no hi són mai.
+
+// **I la memòria que li queda es diu quan es connecta**, perquè el pròxim que falli es llegeixi d'un cop i no es desxifri:
+// `internal memory: N B free (M B in the biggest block), of the DMA ones N B free (M B in one block)` (docs/50, docs/75).
+static const char kVersion[] = "0.191.4";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

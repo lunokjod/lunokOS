@@ -1,12 +1,12 @@
 {
   "title": "btHID Mouse",
   "author": "@lunokjod",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "entry": "bthid.lua",
   "boards": [
     "m5stack-paper",
     "lilygo-t5s3-epaper-pro"
   ],
   "icon": "res/icon.png",
-  "description": "This board as the mouse of another device: the empty page is the pointer, a finger that walks moves it and a tap clicks. Turn the radio on, pair with the name on the page, and the pad is live.\nOne device for now: the keyboard comes next."
+  "description": "This board as the mouse of another device: the empty page is the pointer, a finger that walks moves it and a tap clicks. Turn the radio on, pair with the name on the page, and the pad is live.\nThis board is a keyboard and a mouse at once: the keys are the app beside this one, and switching between them does not ask the other device to pair again."
 }

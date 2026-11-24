@@ -1691,21 +1691,11 @@ class FakeBluetooth : public IBluetooth {
   // **La ràdio falsa escolta quan hi ha algú**: el que el model vol és que una pàgina es comporti igual que a la placa, i allà el CCCD
   // arriba de seguida (0.190.208).
   bool reports_enabled() const override { return keyboard_connected(); }
-
-  hal::IBluetooth::Device device_is() const override {
-    if (!is_mouse_) return hal::IBluetooth::Device::kKeyboard;
-    return both_ ? hal::IBluetooth::Device::kBoth : hal::IBluetooth::Device::kMouse;
-  }
-  bool device_be(hal::IBluetooth::Device what) override {
-    if (emu::options().bt_fail) return false;
-    if (what == hal::IBluetooth::Device::kKeyboard) {
-      is_mouse_ = false;
-      both_ = false;
-      return true;
-    }
-    is_mouse_ = true;
-    both_ = (what == hal::IBluetooth::Device::kBoth);
-    return true;
+  // **Les dues coses, i cap tria** (0.191.0): la placa publica sempre el teclat i el ratolí, o sigui que el model contesta el mateix que
+  // la placa de debò i no hi ha cap porta per canviar-ho (docs/50, docs/85).
+  bool report_enabled(hal::IBluetooth::Report which) const override {
+    (void)which;
+    return keyboard_connected();
   }
   bool mouse_move(int8_t dx, int8_t dy) override {
     (void)dx;
@@ -1749,8 +1739,6 @@ class FakeBluetooth : public IBluetooth {
   char name_[32] = "lunokOS";
   bool device_on_ = false;
   bool host_on_ = false;
-  bool is_mouse_ = false;
-  bool both_ = false;
   int8_t paired_ = -1;
   uint8_t leds_ = 0;
   uint8_t buttons_ = 0;
@@ -1771,6 +1759,10 @@ class EmulatorPlatform : public IPlatform {
   // **Un PC no té cap pin que aguanti la seva alimentació** (0.189.24): the call is counted so a case of this suite can say
   // that the boot asks for it, which is the half of the Paper's problem a host can check (docs/50, docs/85).
   void hold_the_power() override { ++g_held_the_power; }
+
+  // **El cercle de sota el vidre, si el run el posa** (0.190.288): no model of this emulator has the false button of the T5S3's front, o
+  // sigui que el commutador de la pestanya Input no tindria cap tecla on provar-se (docs/50, docs/85).
+  bool a_button_under_the_glass() const override { return emu::options().button_under_the_glass; }
 
   // One board, and it is the one this emulator was told to be: an app is accepted or
   // refused here exactly as it would be on that board, which is the only way a manifest

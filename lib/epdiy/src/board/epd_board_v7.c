@@ -235,7 +235,18 @@ static void epd_board_poweron(epd_ctrl_state_t *state) {
   // give the IC time to powerup and set lines
   vTaskDelay(1);
 
+  // **L'espera del POWER_GOOD té sostre, com la del PG de més avall** (0.190.285): the loop upstream has none and does not
+  // yield either, so a supply that never comes up is a board that hangs inside a paint with nothing in the log —and the idle
+  // task's watchdog cannot even run to say it—. Half a second is what the PG wait gives itself, and the same number here; a
+  // supply that is not good by then is said and the paint goes on without it (docs/50, docs/95).
+  int tries = 0;
   while (!(pca9555_read_input(config_reg.port, 1) & CFG_PIN_PWRGOOD)) {
+    if (tries >= 500) {
+      ESP_LOGE("epdiy", "TPS65185 did not raise POWER_GOOD");
+      return;
+    }
+    tries++;
+    vTaskDelay(1);
   }
 
   ESP_ERROR_CHECK(tps_write_register(config_reg.port, TPS_REG_ENABLE, 0x3F));
@@ -248,7 +259,7 @@ static void epd_board_poweron(epd_ctrl_state_t *state) {
   };
   epd_board_set_ctrl(state, &mask);
 
-  int tries = 0;
+  tries = 0;
   while (!((tps_read_register(config_reg.port, TPS_REG_PG) & 0xFA) == 0xFA)) {
     if (tries >= 500) {
       ESP_LOGE("epdiy", "Power enable failed! PG status: %X", tps_read_register(config_reg.port, TPS_REG_PG));

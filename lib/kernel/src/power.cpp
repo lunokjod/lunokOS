@@ -49,6 +49,10 @@ int64_t g_pending_at = 0;
 const char kNs[] = "session";
 const char kAppKey[] = "app";
 const char kPathKey[] = "path";
+// **I qui tenia el cable** (0.190.278): an app that went to sleep in the background has to come back in the background, or a board that
+// wakes with the launcher on the glass leaves the prompt mute —the app in front owns the console and the person is not typing at it—.
+// The console travels with the chain, i el son profund és l'única cosa que trenca la cadena (docs/30, docs/60, docs/90).
+const char kDetachedKey[] = "detached";
 const char kWakeKey[] = "wake_at";
 const size_t kIdCap = 32;
 const size_t kPathCap = 128;
@@ -206,18 +210,23 @@ int64_t epoch_now() {
 
 // **Every line this file says to a person goes through the log** (0.179.55): the serial port is a copy of the ring, so a
 // line written straight to the port is a line the `log` command never shows —and these are the lines a person wants
-// afterwards, the wake the clock made and the sleep that was cut short—. `log_say` keeps the words and puts them in the
-// ring; `printf` is still not used, because it is buffered and its lines come out in another order than the shell's
-// (measured on the PC, 31/10, docs/30, docs/50).
-void say(const char* text) { log_say(text); }
-
+// afterwards, the wake the clock made and the sleep that was cut short—. `printf` is still not used, because it is
+// buffered and its lines come out in another order than the shell's (measured on the PC, 31/10, docs/30, docs/50).
+//
+// **I amb la forma de tota la resta del registre** (0.190.289, l'amo: *«També hi ha alguns missatges al log que no estàn en el format del
+// sistema»*): these lines went through `log_say`, which keeps the words and leaves them without the `[I][TAG]` prefix, and a log line that is
+// not shaped like the others cannot be grepped with them. The words are the same and the prefix is `[I][POWER]`, o sigui que el `power: `
+// del començament ja no cal —la etiqueta el diu— (docs/30, docs/50).
 void sayf(const char* format, ...) {
   char line[128];
   va_list args;
   va_start(args, format);
-  vsnprintf(line, sizeof(line), format, args);
+  const int written = vsnprintf(line, sizeof(line), format, args);
   va_end(args);
-  say(line);
+  if (written <= 0) return;
+  size_t len = strlen(line);
+  while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == '\n')) line[--len] = '\0';
+  log_printf(pal::kLogInfo, "POWER", "%s", line);
 }
 
 void write_in(const char* ns, const char* key, const char* text) {
@@ -263,10 +272,13 @@ void save_session() {
   if (id == nullptr || id[0] == '\0') {
     write_text(kAppKey, nullptr);
     write_text(kPathKey, nullptr);
+    write_text(kDetachedKey, nullptr);
     return;
   }
   write_text(kAppKey, id);
   write_text(kPathKey, luabind::app_path());
+  // **La consola viatja amb la sessió** (0.190.278): two letters and not a flag, because what a board that restarts reads is text.
+  write_text(kDetachedKey, shell::app_detached() ? "on" : "off");
 }
 
 // The hour this sleep was told to come back at, written where a board that
@@ -338,7 +350,7 @@ void report_wake(bool restarted) {
   const int64_t error = hal::wake_error_ms(epoch, uptime, at, slept);
   if (at > 0 && epoch >= at) {
     keep_measurement(error, cause);
-    sayf("power: woke on the %s, %+lld ms from the hour it was given\r\n", cause,
+    sayf("woke on the %s, %+lld ms from the hour it was given", cause,
          static_cast<long long>(error));
     // Picked up by the log ring as well, so `log` shows it after the console has
     // scrolled.
@@ -358,7 +370,7 @@ void report_wake(bool restarted) {
   if (by_clock) {
     save_deadline(at);
     g_coming_back_at = at;
-    sayf("power: the clock woke the board early to arm again, %+lld ms to go\r\n",
+    sayf("the clock woke the board early to arm again, %+lld ms to go",
          static_cast<long long>(epoch - at));
     return;
   }
@@ -369,7 +381,7 @@ void report_wake(bool restarted) {
   if (woke == hal::WakeCause::kOther || woke == hal::WakeCause::kTouch) {
     log_printf(pal::kLogInfo, "POWER", "%s woke the board %lld ms before its hour, and nothing is measured",
                how, static_cast<long long>(at - epoch));
-    sayf("power: %s woke the board, %lld ms before the hour it was given\r\n", how,
+    sayf("%s woke the board, %lld ms before the hour it was given", how,
          static_cast<long long>(at - epoch));
     return;
   }
@@ -381,7 +393,7 @@ void report_wake(bool restarted) {
   char marked[24];
   snprintf(marked, sizeof(marked), "%s, cut short", cause);
   keep_measurement(-early, marked);
-  sayf("power: the sleep was cut short by %s, %lld ms before the hour it was given\r\n", how,
+  sayf("the sleep was cut short by %s, %lld ms before the hour it was given", how,
        static_cast<long long>(early));
   log_printf(pal::kLogInfo, "POWER", "sleep cut short by %s, %lld ms before its hour", cause,
              static_cast<long long>(early));
@@ -1378,7 +1390,7 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // **I una represa que arriba aquí sense haver-se adormit al primer torn és una mà**: `straight_back_down` només salta el comptador
   // si ningú no ha tocat la placa, i la línia de dalt ja diu quants segons de quietud hi ha hagut (docs/60).
   if (hour <= 0) {
-    sayf("power: nothing to do for %lld s, sleeping until a key\r\n", static_cast<long long>(quiet / 1000));
+    sayf("nothing to do for %lld s, sleeping until a key", static_cast<long long>(quiet / 1000));
     log_printf(pal::kLogInfo, "POWER",
                "idle deep sleep: no alarm to come back for, %lld s of quiet (the policy asks %lld), a key wakes the board",
                static_cast<long long>(quiet / 1000), static_cast<long long>(idle_quiet_ms() / 1000));
@@ -1396,7 +1408,7 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   // falta per a la propera alarma, quanta estona fa que la placa està quieta i quants segons de quietud li demana la política —i si és una
   // represa d'una alarma ho diu, perquè aquesta és l'única decisió que no espera el comptador— (docs/60, docs/90).
   const int64_t wait = hour - now_epoch;
-  sayf("power: nothing to do for %lld s, sleeping until the next alarm\r\n",
+  sayf("nothing to do for %lld s, sleeping until the next alarm",
        static_cast<long long>(wait / 1000));
   log_printf(pal::kLogInfo, "POWER",
              "idle deep sleep: %lld s to the next alarm, %lld s of quiet (the policy asks %lld), %s",
@@ -1781,11 +1793,17 @@ void restore_session() {
   if (!read_text(kAppKey, id, sizeof(id))) return;
   char path[kPathCap];
   const bool has_path = read_text(kPathKey, path, sizeof(path));
+  // **La consola que tenia quan va quedar-se a la memòria** (0.190.278): una app que dormia al fons torna al fons, i una que era al cable
+  // torna al cable —perquè el que la va aparcar és el son i no una decisió de ningú (docs/30, docs/90).
+  char was_detached[8] = {0};
+  const bool detached = read_text(kDetachedKey, was_detached, sizeof(was_detached)) && was_detached[0] == 'o' &&
+                        was_detached[1] == 'n';
   // Read once: an app that cannot start must not make the board boot into it for
   // ever, and a boot that comes back to the same app is the same as a boot loop
   // nobody asked for (docs/90).
   write_text(kAppKey, nullptr);
   write_text(kPathKey, nullptr);
+  write_text(kDetachedKey, nullptr);
 
   // **La línia diu el que passa i no el que s'intentava** (0.190.24): it was printed before the two guards, so a boot that
   // came back for an alarm said `home_eink comes back where it was` and then, in the next line, `home_eink does not come
@@ -1795,7 +1813,7 @@ void restore_session() {
   // **Una app que ha pujat al davant es queda amb el vidre** (0.189.175): a `raise` alarm delivered at boot has already put
   // its app in front, and a second `run_app` on top of it is refused by the interpreter.
   if (shell::app_running()) {
-    sayf("power: %s does not come back: %s is in front\r\n", id, shell::app_id());
+    sayf("%s does not come back: %s is in front", id, shell::app_id());
     return;
   }
   // **Una pàgina que torna d'una sessió** (0.190.251): `come_back` és el que la fa llegir el seu `state` i no rentar el vidre (docs/90).
@@ -1803,16 +1821,22 @@ void restore_session() {
   start.id = id;
   start.path = has_path ? path : nullptr;
   start.come_back = true;
+  // **I el vidre es renta abans que la pàgina torni** (0.190.294): el que hi ha al vidre és la imatge del son, i la primera pàgina de
+  // l'app pagava el deute amb el seu mode i la deixava a sota (l'amo: *«la pantalla queda bruta del dibuix d'sleep i es queda al tornar
+  // a home»*). El rentat és el de la vista sencera i el paga el sistema abans que l'app dibuixi (docs/30, docs/50, docs/90).
+  start.wash = true;
+  start.wire = detached ? shell::Wire::kDetached : shell::Wire::kAttached;
   if (!shell::start_a_page(start)) {
-    sayf("power: %s could not come back (is it still there?)\r\n", id);
+    sayf("%s could not come back (is it still there?)", id);
     return;
   }
-  sayf("power: %s comes back where it was\r\n", id);
+  sayf("%s comes back where it was", id);
 }
 
 void forget_session() {
   write_text(kAppKey, nullptr);
   write_text(kPathKey, nullptr);
+  write_text(kDetachedKey, nullptr);
   write_text(kWakeKey, nullptr);
 }
 

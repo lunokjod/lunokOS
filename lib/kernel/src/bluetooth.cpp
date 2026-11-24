@@ -38,6 +38,11 @@ Key key_of(char c) {
   switch (c) {
     case '0': return {0x00, 0x27};
     case ' ': return {0x00, 0x2C};
+    // **L'<intro>** (0.190.280, l'amo: *«a l'app btHID Keyboard… no s'envía l' <intro>»*): the key Enter of the HID is usage 0x28 and a
+    // page that mirrors a box asks for it with the character a line ends in. The band of the system hands the box a **13** (`\r`) and
+    // a box of one line turns it into `on_enter` and not into a letter —so the app sends this one itself—, while a box of several
+    // lines writes the 10. Les dues són la mateixa tecla i la taula no les ha de distingir (docs/30, docs/50).
+    case '\r':
     case '\n': return {0x00, 0x28};
     // **El retrocés** (0.190.204, l'amo: *«el teclat gracies a un Textbox»*): a page that mirrors a box into somebody else's cursor needs
     // the key that erases, i el `\b` és el caràcter que una caixa esborra quan en té un. Usage 0x2A és Backspace al HID (docs/50).
@@ -93,19 +98,9 @@ bool start(const char* name) {
   // **El que costa encendre-la**: la pila de NimBLE i els seus trenta kilobytes de heap, que és la xifra que decideix si el ràdio
   // es pot quedar en una placa sense PSRAM (docs/50, docs/75).
   meter::Scope metering(meter::kRadioUp);
-  // **I la placa torna a ser el que es va triar, ABANS que la ràdio arrenqui** (0.190.208, i mogut aquí a la 0.190.259): the mode is kept
-  // by `cfg` and the radio is born a keyboard, o sigui que el que s'ha d'aplicar és el de la botiga —una placa que es va deixar com a ratolí
-  // ha de tornar com a ratolí (docs/30, docs/50)—.
-  //
-  // **I això va abans i no després per un motiu que es va veure al ratolí**: `device_be` sobre una ràdio ja engegada **esborra els vincles**,
-  // perquè un amfitrió que va llegir un mapa no endevina l'altre; aplicar-ho DESPRÉS d'encendre-la volia dir que cada arrencada d'una placa
-  // que és un ratolí esborrava el vincle que ella mateixa havia fet, i el telèfon s'havia de tornar a aparellar a cada reinici. Abans
-  // d'encendre no hi ha res a esborrar: el mapa que el servei servirà és el que la ràdio llegirà en néixer.
-  const char* wanted = cfg::bt_mode();
-  if (wanted != nullptr && wanted[0] != '\0' && strcmp(wanted, device_word()) != 0) {
-    (void)be(wanted);
-    log_printf(pal::kLogInfo, "BT", "this board comes up as %s, as it was left", wanted);
-  }
+  // **I no hi ha cap mode a tornar a aplicar** (0.191.0): el mapa d'aquesta placa és sempre el mateix, o sigui que l'únic que calia
+  // abans d'encendre la ràdio —que el que la pila servís fos el de la botiga i no un teclat de sèrie— ja no existeix, i amb ell se'n va
+  // la parella de perills que hi havia al darrere: esborrar un vincle viu o néixer amb el mapa d'una altra arrencada (docs/30, docs/50).
   const bool ok = radio->keyboard_start(name);
   if (ok) {
     // **El començament és el de la ràdio i no el d'un costat** (0.190.195): the breath of the light starts when the radio starts doing
@@ -113,7 +108,9 @@ bool start(const char* name) {
     if (!was_working) g_on_since_ms = pal::system().millis();
     // **I el ràdio mana sobre la son** (0.190.179): un son lleuger atura els rellotges que el link viu, o sigui que el torn rep la
     // resposta de `wants_the_chip_awake` i no obre el pany mentre això és engegat (docs/50, docs/60).
-    log_printf(pal::kLogInfo, "BT", "the keyboard is on: the waits of this board are spent awake while it lasts");
+    // **El registre diu el que la placa és i no el nom de la porta** (0.191.0): la placa publica el teclat i el ratolí, o sigui que la línia
+    // que deia «the keyboard is on» deixava mitja veritat a fora (docs/50).
+    log_printf(pal::kLogInfo, "BT", "the keyboard and the mouse are on: the waits of this board are spent awake while it lasts");
   }
   return ok;
 }
@@ -283,9 +280,17 @@ bool host_remembers() {
 
 // **Connectat i escoltat són dues coses** (0.190.208): the host writes the CCCD of the report it wants a moment after it connects, i
 // una pàgina que només mira `connected()` pot estar enviant tecles a un aparell que encara no les rep (docs/30, docs/50).
-bool reports_enabled() {
+//
+// **I des de la 0.191.0 es pot preguntar per un dels dos reports** (l'amo: *«i no podem anunciar els dos dispositius sempre?»*): la placa
+// en publica dos i l'altre cap pot encendre'n un i no l'altre, o sigui que una pàgina que mou un punter vol saber del ratolí. `which` a
+// nul vol dir «algun dels dos», que és el que una persona vol saber d'un cop d'ull (docs/30, docs/50).
+bool reports_enabled(const char* which) {
   hal::IBluetooth* radio = the_radio();
-  return radio != nullptr && radio->reports_enabled();
+  if (radio == nullptr) return false;
+  if (which == nullptr) return radio->reports_enabled();
+  if (strcmp(which, "mouse") == 0) return radio->report_enabled(hal::IBluetooth::Report::kMouse);
+  if (strcmp(which, "keyboard") == 0) return radio->report_enabled(hal::IBluetooth::Report::kKeyboard);
+  return false;
 }
 
 bool can_host() {
@@ -370,41 +375,16 @@ void host_off() {
   if (radio != nullptr) radio->host_off();
 }
 
-// **El que aquesta placa és, en una paraula** (0.190.204): `keyboard`, `mouse` o `both`, que és el mode que una pàgina necessita per
-// tenir un ratolí i un teclat alhora.
-const char* device_word() {
-  hal::IBluetooth* radio = the_radio();
-  if (radio == nullptr) return "keyboard";
-  switch (radio->device_is()) {
-    case hal::IBluetooth::Device::kMouse: return "mouse";
-    case hal::IBluetooth::Device::kBoth: return "both";
-    default: return "keyboard";
-  }
-}
+// **Ja no hi ha mode a triar** (0.191.0, l'amo: *«i no podem anunciar els dos dispositius sempre? després que hi hagi una app de teclat
+// o de mouse és indiferent»*): `device_word`, `has_a_mouse` i `be` vivien aquí perquè la placa era una cosa o l'altra i el mapa es
+// publicava segons la tria. Ara el mapa és el dels dos reports —el teclat l'1 i el ratolí el 2— i no es toca mai, o sigui que no hi ha
+// res a canviar ni cap vincle a esborrar: el que una app faci amb la placa és cosa de l'app (docs/30, docs/50).
 
-bool has_a_mouse() {
+// **Oblidar l'altre cap** (0.191.2): el que es fa és dir-ho a la ràdio, que és qui té els vincles; i el registre i la resposta del prompt
+// diuen el que queda per fer a l'altre costat, que és treure l'aparell de la seva llista (docs/50).
+void forget_the_device() {
   hal::IBluetooth* radio = the_radio();
-  return radio != nullptr && radio->device_is() != hal::IBluetooth::Device::kKeyboard;
-}
-
-// **Triar què és la placa** (0.190.204): the three words are the three modes, and a word this file does not know is a refusal and not
-// an «I did it» —a page that shows a mouse and finds itself a keyboard is worse than one that is told no (docs/30, docs/50).
-bool be(const char* what) {
-  hal::IBluetooth* radio = the_radio();
-  if (radio == nullptr || what == nullptr) return false;
-  hal::IBluetooth::Device mode;
-  if (strcmp(what, "mouse") == 0) {
-    mode = hal::IBluetooth::Device::kMouse;
-  } else if (strcmp(what, "both") == 0) {
-    mode = hal::IBluetooth::Device::kBoth;
-  } else if (strcmp(what, "keyboard") == 0) {
-    mode = hal::IBluetooth::Device::kKeyboard;
-  } else {
-    return false;
-  }
-  const bool ok = radio->device_be(mode);
-  if (ok) log_printf(pal::kLogInfo, "BT", "the device of this board is %s now", device_word());
-  return ok;
+  if (radio != nullptr) radio->device_forget();
 }
 
 bool move(int8_t dx, int8_t dy) {

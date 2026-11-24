@@ -46,7 +46,9 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
   que fa dormir la placa), **`sys.delay(ms)`** i **`sys.caps()`**, i des de la
   0.189.108 **`sys.stats([<paraula>])`**, els comptadors que `stats` imprimeix.
 - **`console.read_line()`** i, amb ella, **el teclat de l'app**: mentre una app viu, tot el que s'escriu va a ella i no a la shell.
-- **`term`**: `clear`, `reset`, `color`, `move`, `hide_cursor`, `show_cursor`, `width`, `height` i les constants. Si la consola no fa ANSI, no fan res i no donen error.
+- **`term`**: només `width` i `height`, la mida d'una pàgina de text. **Cap codi d'escapament** —els sis que hi havia (`clear`,
+  `reset`, `color`, `move` i els dos del cursor) van marxar a la 0.190.187, i amb ells les constants de color— (vegeu la secció `term`
+  més avall): el que una app vol dir al terminal ho diu amb `console.print` i espais.
 - **`Promise`**: `p:await()`, `p:and_then(ok[, err])`, `p:catch(err)`, `p:finally(fn)`,
   `p:timeout(ms)`, `p.state`, i `Promise.resolve/reject/is`. Errors `E_NOTASK`, `E_TIMEOUT`,
   `E_INVAL` i `E_BUSY` amb taula `{code, message}`.
@@ -165,7 +167,7 @@ funció.
 | `sys.reboot([reason])` | no torna | **Reinicia la placa** (0.171.0): la imatge del moment (el dibuix `reboot` del splash) va al vidre, s'espera la tinta i la placa torna a arrencar. `reason` és el que queda al log —`[I][APPS] wipe restarts the board: the NVS was erased`—, i el que fa la feina és el mateix `reboot` del prompt (docs/50). **No torna**: la VM de l'app mor amb la placa, i per això el que calgui desar s'ha de desar abans |
 | `sys.deepsleep([reason])` | no torna, o `nil, error` | **La placa s'adorm amb les tecles vives** (0.189.25): la imatge del `sleep` va al vidre, l'app es tanca amb els seus comiats, les sessions s'escriuen i el xip dorm **mantenint el corrent**, amb la **tecla del dial (GPIO38)** com a despertar. És la lluna de la targeta de la barra i el `deepsleep` del prompt, i les tres coses són el mateix camí (docs/50). **I des de la 0.190.15 és el mateix camí que la resta de baixades**: amb una alarma a la cua la placa també es desperta a l'hora dita (`the_hour_of_a_sleep`), perquè dormir no és endur-se les alarmes. **No és `power.off()`**, que talla el corrent i no arma res, ni `sys.reboot`, que torna sol: aquí torna quan una persona prem una tecla o quan arriba la propera alarma, i **l'app torna a començar** —un son profund és un reset— amb la pàgina a la tinta mentrestant. `reason` va al log amb el nom de qui ho demana. Una placa que no té cap tecla en un pin que el xip vigili **ni cap alarma a la cua** respon `nil, E_UNSUPPORTED` **sense gastar la imatge**. **I hi ha una placa on el botó de debò no pot ser la porta**: a la T5 E-Paper S3 Pro el `S3` penja de l'expansor i la seva línia (`PCA_INT`, GPIO38) no és cap GPIO de l'RTC, o sigui que **no pot** despertar un son profund; el que sí que pot és el **BOOT del xip** (GPIO0), que és el que arma el fabricant, i el dit al vidre (GPIO3) quan «Wake on touch» ho diu (0.190.108, docs/50) |
 | `sys.shell()` | objecte de sessió o `nil, error` | **Una sessió del shell del sistema** (0.159.0): el mateix shell que atén el prompt, amb **tres canonades** en comptes d'un terminal. Vegeu «Una sessió del shell» més avall |
-| `sys.commands()` | **una taula de paraules** | **Les comandes que respon el prompt** (0.189.9): `49` paraules, les mateixes que el nucli llegeix a `help` i a la línia de text, perquè una pàgina que les llista i el prompt no es poden contradir. És el que fa servir el selector de comandes de l'app `shell`, que hi posa una fila per paraula i deixa la triada a la línia del prompt **sense enviar-la** |
+| `sys.commands()` | **una taula de paraules** | **Les comandes que respon el prompt** (0.189.9, i `55` des de la 0.190.281 amb `rotate`), les mateixes que el nucli llegeix a `help` i a la línia de text, perquè una pàgina que les llista i el prompt no es poden contradir. És el que fa servir el selector de comandes de l'app `shell`, que hi posa una fila per paraula i deixa la triada a la línia del prompt **sense enviar-la** |
 | `sys.stats([<paraula>])` | **una taula de paraules** o **dos números**, o `nil, error` | **Els comptadors del sistema, per a una pàgina** (0.189.108, l'amo: *«si pot ser agafa de les estadístiques els tempos de les apps lua, així es pot valorar quin es el numero mágic i quins valors son segurs per ambdos sistemes»*): sense arguments, **les paraules dels comptadors que aquest build té** (`kernel.loop`, `lua.run`, `lua.own`, `lua.call`, `glass.flush`, `sd.read`…), o sigui que una pàgina llista el que hi ha i no se'n copia la llista; amb una paraula, **les crides i els microsegons** d'aquell comptador (dos enters), i `nil` per a una paraula que no és cap comptador. **El que una pàgina vol és la mitjana i no el total**: `us / calls` és el que costa una volta del sistema, un `lua.run` entre els torns del nucli és el que hi ha de Lua a dins, i `lua.call` és el preu d'una crida d'una app al sistema (docs/30, docs/75, docs/95) |
 | `sys.settings()` | **una taula de dotze camps** o `nil, error` | **Els ajustos del sistema, llegits per una app** (0.189.13): el mateix que `cfg` imprimeix al prompt, perquè una pàgina que ha d'obeir un interruptor no el pot inventar. Els camps són `unit` (la unitat on viuen les apps: `sd`, `littlefs` o buit), `keyboard`, `boot` (la imatge de l'arrencada), `home` (l'app que surt amb la placa, o buit), **`settings_app`** (l'app que obre el botó dels ajustos del panell, o buit; 0.189.109), `week` (`monday`/`sunday`), `tz` (l'offset escrit com el prompt, `+01:00`), `leap`, `dst` i **`sort_by_usage`** (booleans), `turn` (les instruccions de Lua que val un torn) i **`cursor`** (el parpalleig del cursor, en mil·lisegons; 0.189.106). **És només de lectura**: qui escriu un ajust és `cfg`, i les preferències són de la persona —una app que necessiti un commutador propi el guarda a la seva sessió (docs/30, docs/75)—. Un sistema que no en sàpiga (o que no tingui el magatzem) respon `nil, E_UNSUPPORTED` o `nil, E_UNAVAIL`, i una pàgina que ho toleri es queda amb l'ordre i els valors que tenia. El primer lector és `home_eink`, que dibuixa el grid de més usada a menys quan `sort_by_usage` és cert (docs/40) |
 
@@ -401,7 +403,10 @@ fora del fil de sistema, ni `run`, ni `kill`, ni `splash`, ni `panel`.
   silenci seria una tecla que no ha fet res.
 - **`kill`** és la comanda que faltava: tanca l'app que és al davant, i sense cap app diu que no n'hi ha.
 - **I tota arrencada passa per una sola porta** (0.190.251): `shell::start_a_page(AStart)`, amb els camps nomenats (`id`, `path`, `card`,
-  `come_back`, `alarm`, `late_ms`). Les deu portes que arrenquen una pàgina —la persona, el llaçador, el rellotge, el pany, la memòria i una app
+  `come_back`, `wash`, `alarm`, `late_ms`). **`wash`** (0.190.294, l'amo: *«la pantalla queda bruta del dibuix d'sleep i es queda al tornar a
+  home… afegeix un paràmetre bool per netejar abans de tornar a l'app (per defecte false)»*) és el que fa que el sistema renti **tota la vista
+  amb un `gc16` abans que l'app dibuixi res**: la primera pàgina d'una app pinta només el seu damage, i la tinta del dibuix del son es quedava
+  als forats. El posa el camí del son i, de sèrie, és fals. Les deu portes que arrenquen una pàgina —la persona, el llaçador, el rellotge, el pany, la memòria i una app
   que en demana una altra— diuen què volen en lloc de passar sis booleans posicionals, que és el que va fer que la comanda `home` ensenyés la
   targeta que l'arrencada li treia (docs/40).
 - **`run <una altra>` segueix tancant l'app que hi ha al davant**: una app al vidre alhora, i això no ho canvia qui executi la comanda. El que
@@ -421,15 +426,21 @@ torn l'executa al primer torn.
   tabulador ja oferia i que no tenia cap mà que la contestés, i ara la té.
 - **`&` perquè el cable és de la persona**: l'app és al vidre i el prompt és viu, que és el que es volia. Una app que en demana una altra des
   del llaçador **segueix essent del fons** (0.160.0), o sigui que el comportament és el mateix per a tot el que s'arrenqui des d'allà.
-- **I la casa no és mai de la consola, per cap porta** (0.190.276): el `&` de la pàgina de casa no és un paràmetre de la crida sinó una regla de
-  `start_a_page`, perquè hi ha cinc mans que la posen al vidre —el boot, la tornada quan una app s'ha acabat o l'han tancada, la clau de la casa
-  del tauler, una alarma i el despertar— i una d'elles no la deia: tancar una app amb la creu o amb el pessic arrencava el llaçador **amb la
-  consola a la mà**, i el prompt deixava de contestar i s'hi veia el log del programa fins al reset (l'amo: *«si uso "Close" o el gest de pinch
-  per tancar l'app, el shell perd el control del serial i es veu el log del programa»*). El botó Home no ho ensenyava perquè no passa per cap
-  porta: demana l'app amb un desig i el torn del desig **hereta** el `was_detached` de la que marxa (docs/30, docs/50).
-- **I la pàgina que torna d'una app torna com era** (0.190.276): `close_app` deixa l'estat del cable al costat del nom de qui la va demanar
-  (`g_run_back_detached`), que és l'últim moment en què existeix, i `start_the_one_that_asked` el torna a posar. Un llaçador del fons i un
-  llaçador arrencat del cable es distingeixen només per això (docs/30).
+- **La consola viatja amb la cadena, i això és la regla** (0.190.278, l'amo: *«vull que les apps heretin l'estat del terminal. Si tanco o vaig a
+  home o faig back… Si he arrencat amb una app a primer plà de terminal tot a primer plà. Si ho faig amb una app desenganxada els seus fills
+  també ho han de ser. L'app home s'arrenca com a detached el primer cop»*). Cada pàgina que arrenca es queda la consola de la que hi havia:
+  `app.run`, la tornada quan una app s'ha acabat o l'han tancada, la pàgina de casa que torna, una alarma que puja, la clau de la casa del
+  tauler, el pany i el despertar. El que decideix és **qui ha arrencat el primer graó**: el boot arrenca la casa **al darrere del prompt**
+  (`Wire::kDetached`) i tot el que en pengi és del fons; un `run x` escrit al prompt arrenca **al davant** (`Wire::kAttached`) i tot el que en
+  pengi és del cable, home inclòs.
+- **Per què va caldre dir-ho dues vegades** (0.190.276 i 0.190.278): la primera versió va fer que la pàgina de casa fos **sempre** del fons, i
+  allò tancava el forat (tancar una app amb la creu o amb el pessic deixava el llaçador amb el cable a la mà: *«el shell perd el control del
+  serial i es veu el log del programa»*) però deixava l'amo sense cap manera de veure la seva pròpia pàgina al cable —*«si ara l'app home
+  sempre arrenca desenganxada del serial, com la depuro llavors?»*—. La regla d'ara no té excepcions per app i sí un sol lloc on es diu:
+  `AStart::wire`, que la porta única llegeix (`kOfThePageBefore` hereta, `kAttached` i `kDetached` ho diuen). `close_app` deixa l'estat de la
+  pàgina que marxa a `g_was_detached`, que és el que hereten les que arriben quan no n'hi ha cap al davant (docs/30, docs/50).
+- **Una app enganxada no és cap presó**: `␛` tres cops i `!!exit` continuen tancant el que hi ha al davant encara que el cable sigui seu,
+  i el prompt torna tot seguit (docs/30).
 - **El que es deixa enrere**: la imatge de l'error (`splash::kOops`) d'una placa que no troba la seva app; el que la diu ara és el `run` mateix
   al cable, que és una resposta més precisa i no una imatge (docs/50).
 - **La pàgina del pany no canvia**: `device_lock` la demana ell quan s'obre (`cfg home`), com sempre (docs/40, docs/60).
@@ -595,8 +606,20 @@ pàgina ja és al vidre—. Quan el número ha canviat, la cel·la es torna a pi
 el seu dibuix es torna a desar **al mateix número** (l'app és la mateixa app) i el bloc queda amb la versió d'avui; el log
 diu `home: alpha is 0.2.0 (was 0.1.0), the picture is read again`. Un manifest que avui no es pot llegir **no esborra** el
 que hi havia, i una versió buida al manifest també compta com un canvi (una app sense número no és una app que no ha
-canviat). Com que el registre va néixer sense aquest camp, el bloc porta ara la marca `HEC2`: el primer arrencada després
-de la 0.189.22 és una caché freda i prou.
+canviat). Com que el registre va néixer sense aquest camp, el bloc porta ara la marca `HEC3` (0.190.279, i abans `HEC2` per
+aquest mateix motiu): el primer arrencament després d'un canvi de format és una caché freda i prou.
+
+**I el registre diu la icona pel nom de dins i no pel camí sencer** (0.190.279): `apps.info` dona el camí absolut
+(`/apps/about/res/icon.png`) i trenta-una de les trenta-dues apps del disc diuen exactament `res/icon.png`, o sigui que el
+bloc desava 802 B del 1 697 de la llista —gairebé la meitat— repetint a cada línia el nom de l'app que ja hi és al costat. Ara
+el camp és buit quan és la de sèrie, `-` quan el manifest no en nomena cap, i el camí de dins de l'app quan és una altra: la
+llista baixa a 808 B amb les trenta-dues i el que llegia el bloc és el mateix camí que donaria la porta (docs/40, docs/75).
+
+**I el text no té cap sostre** (0.190.279, l'amo: *«Se suposa que no hi ha limits…»*): la llista viu **al final del bloc** i la
+capçalera en diu la llargada, amb les imatges davant i a llocs fixos —o sigui que una llista que creix un dia per una app
+instal·lada no refreda ni un píxel de les que ja hi eren—. El pressupost és el bloc: si la llista no hi cap, el llaçador en
+demana un de més gran (`sys.session` deixa créixer un bloc) i, si la placa no el pot donar, escriu les línies senceres que hi
+caben en lloc de no escriure res —que és el que passava amb la finestra fixa de 1 528 B que hi havia des de la 0.179.0—.
 
 **I un registre del bloc no és un manifest** (0.189.28, i és un error que es va veure a la placa): `reconcile` decideix què
 ha de tenir la graella preguntant `launcher` i `works_here`, i **el que ve del bloc només porta títol, icona i versió** —
@@ -646,7 +669,7 @@ pàgina** i no una taula del nucli:
 | `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer. **`opens` és la llista sencera** que el manifest declara, amb els noms separats per espais —`"txt md lua"`—; una app que no n'obre cap rep `""` (0.120.0) |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
-| `app.run(id[, back[, flags[, path]]])` | `true`, o `nil, error` | **Arrenca una altra app** (0.153.0): l'app que hi ha davant es tanca amb els seus comiats i la del `id` ocupa el seu lloc. És **un desig i no un canvi immediat** —qui pregunta és la mateixa app que el intèrpret té a sota, i tancar-la dins la crida destruiria l'estat on la crida corre—: el nucli el porta a terme al final del torn, i fins aleshores `app.run` ha contestat `true` i no ha passat res. **`back` és la tornada i val `true` si no es diu**: quan l'app que s'ha obert s'acaba —o tres tecles la tanquen— la que va preguntar torna a la pantalla, que és el que vol un llançador i l'única manera de tornar en una placa de tres tecles. `app.run(id, false)` és un traspàs sense tornada. **El motiu del no és del sistema**: l'app que es demana a si mateixa, un `id` que no és al disc i una app d'una altra placa es diuen amb el seu `message` (`E_INVAL`), i no passa res més. **`flags` són els commutadors de l'app que s'arrenca** (0.189.161) i li arriben com `app.args.flags`, la mateixa porta que els `opensArgs` d'un manifest; `app.run('appinfo', '-d battery')` és una segona cadena i vol dir els commutadors amb la tornada de sèrie, i `app.args` hi és encara que l'app no rebi cap fitxer. **I el quart argument és el fitxer** (0.190.257): `app.run('editor', true, nil, '/sd/notes.txt')` dona a l'app el camí com el `run` del prompt, i el llegeix a `app.args.path`; és la segona meitat de `apps.opener`, perquè un navegador que ja sap qui obre un fitxer no tindria cap manera de donar-l'hi sense això. Un camí que no hi cap es refusa amb el motiu i no es talla (docs/45, docs/70). **I la consola viatja amb l'app** (0.190.276): una app arrencada des d'una app que té el cable se'l queda, i una que ve d'una que era al fons hi deixa la persona —la pàgina de casa no és mai de la consola, perquè existeix perquè el vidre no quedi buit— |
+| `app.run(id[, back[, flags[, path]]])` | `true`, o `nil, error` | **Arrenca una altra app** (0.153.0): l'app que hi ha davant es tanca amb els seus comiats i la del `id` ocupa el seu lloc. És **un desig i no un canvi immediat** —qui pregunta és la mateixa app que el intèrpret té a sota, i tancar-la dins la crida destruiria l'estat on la crida corre—: el nucli el porta a terme al final del torn, i fins aleshores `app.run` ha contestat `true` i no ha passat res. **`back` és la tornada i val `true` si no es diu**: quan l'app que s'ha obert s'acaba —o tres tecles la tanquen— la que va preguntar torna a la pantalla, que és el que vol un llançador i l'única manera de tornar en una placa de tres tecles. `app.run(id, false)` és un traspàs sense tornada. **El motiu del no és del sistema**: l'app que es demana a si mateixa, un `id` que no és al disc i una app d'una altra placa es diuen amb el seu `message` (`E_INVAL`), i no passa res més. **`flags` són els commutadors de l'app que s'arrenca** (0.189.161) i li arriben com `app.args.flags`, la mateixa porta que els `opensArgs` d'un manifest; `app.run('appinfo', '-d battery')` és una segona cadena i vol dir els commutadors amb la tornada de sèrie, i `app.args` hi és encara que l'app no rebi cap fitxer. **I el quart argument és el fitxer** (0.190.257): `app.run('editor', true, nil, '/sd/notes.txt')` dona a l'app el camí com el `run` del prompt, i el llegeix a `app.args.path`; és la segona meitat de `apps.opener`, perquè un navegador que ja sap qui obre un fitxer no tindria cap manera de donar-l'hi sense això. Un camí que no hi cap es refusa amb el motiu i no es talla (docs/45, docs/70). **I la consola viatja amb l'app** (0.190.278): una app arrencada des d'una que té el cable se'l queda, i una que ve d'una que era al fons hi deixa la persona, sigui quina sigui —la pàgina de casa inclosa— (docs/30) |
 | `app.view()` | enter | **La vista d'una app, per què és el nombre de pàgines que té a sobre de la primera** (0.163.0): `0` és una app que només té una pàgina, i és el que el sistema llegeix quan un pessic demana tornar (vegeu `app.view_push`) |
 | `app.view_push()` | enter | **Una pàgina a sobre de la que hi havia** (0.163.0): una app que obre un detall sobre la llista ho diu amb aquesta crida, i torna el nombre nou. És el número el que fa que un pessic doni el detall en lloc de tancar l'app |
 | `app.view_pop()` | enter | **La pàgina de dalt, tornada** (0.163.0): la mateixa que baixa el pessic i la que baixa un botó de Tornar. Es queda a zero i no baixa de zero |
@@ -901,7 +924,7 @@ consola no acceptaria (docs/30, docs/70).
 | `cfg.lock_on([on])` | booleà | **Si el bloqueig és actiu** (0.189.150, `cfg lockon on`): amb el commutador cert el sistema obre `cfg.lock` **a l'arrencada —abans de la casa—** i **al despertar d'un sleep lleuger**, i el torna a obrir quan la placa porta `cfg.lock_after` minuts sense cap contacte, cap tecla i cap byte de consola (docs/60) |
 | `cfg.lock_after([minuts])` | enter | **Els minuts sense tocar res abans de bloquejar** (0.189.150, `cfg lockafter <minuts>`): cinc, deu o quinze —el de sèrie són deu— i qualsevol altre número és `E_INVAL` i no es desa, perquè és la llista que la pàgina sap ensenyar (docs/30, docs/60) |
 | `cfg.sleep([on])` | booleà | **Si la placa s'adorm sola** (0.190.5, `cfg sleep on|off` i el commutador *Sleep when idle* de la pestanya Battery): cert —el de sèrie— vol dir que, quan ningú no l'ha tocada el temps de `cfg.idle` (cinc minuts de sèrie), la placa **s'apaga**: fins a la propera alarma si n'hi ha una a més de vint segons, i **fins a una tecla del dial** si la cua és buida (docs/60). Fals, la placa es queda desperta fins que algú digui el contrari, i la resposta es desa, o sigui que el pròxim boot no torna a la política del sistema. El valor que torna és el que té la política (`power::idle_sleep_allowed`), no el que la pàgina ha demanat. **Nota**: `power idle off` és el mateix interruptor però només per a aquest run; aquest és el que recorda (docs/30, docs/60) |
-| `cfg.software_button([on])` | booleà | **Si el botó de sota el vidre és una tecla** (0.190.110, `cfg swbutton on\|off` i el commutador *Use software button* de la pestanya Input): **encès de sèrie** a les caixes que tenen el cercle. El que fa és convertir la franja de baix del vidre en la segona tecla del sistema, que **fa de *back*** —el mateix camí que tres pulsacions de la tecla del dial: enrere una vista, o tancar l'app— i que no arriba mai a la pàgina; una premuda llarga és un `long` que sí que sent l'app (docs/30, docs/50) |
+| `cfg.software_button([on])` | booleà | **Si el botó de sota el vidre és una tecla** (0.190.110, `cfg swbutton on\|off` i el commutador *Use software button* de la pestanya Input): **encès de sèrie** a les caixes que tenen el cercle. El que fa és convertir **el mig de la franja de baix** del vidre (vint files d'alçada des de la 0.190.288, 120 px d'ample, i la resta de la franja no és la tecla) en la segona tecla del sistema, que **fa de *back*** —el mateix camí que tres pulsacions de la tecla del dial: enrere una vista, o tancar l'app— i que no arriba mai a la pàgina; una premuda llarga és un `long` que sí que sent l'app (docs/30, docs/50) |
 | `cfg.touch_adaptive([on])` | booleà | **El règim dels escombrats del vidre** (0.190.107, `cfg touchscan on\|off` i el commutador *Adaptative touch scan* de la pestanya Input): **encès de sèrie**, el vidre baixa a deu escombrats per segon quan no hi ha ningú i puja al ritme de la unitat amb un dit; apagat, es queda **al màxim mentre la placa és desperta**. **El son no hi passa**: una becaina o un son profund posen el vidre al règim que necessiten (baix o apagat), i en tornar es recupera el que la persona havia triat (docs/30, docs/50, docs/60) |
 | `cfg.backlight([on])` | booleà | **Si la placa il·lumina el vidre** (0.190.106, `cfg backlight on\|off` i el commutador *Use backlight* de la pestanya System): **apagat de sèrie**, perquè una llum que ningú no ha demanat és corrent que ningú no ha demanat. Encès, la llum de la placa es queda **al nivell triat** quan no ha de dir res —els efectes i el color d'una app manen mentre duren i en acabar-s'hi torna— i una placa que no té cap llum declarada com a retroil·luminació l'accepta i no en fa res (docs/30, docs/50) |
 | `cfg.backlight_level([v])` | enter | **Quanta llum** (0.190.106): el nivell del desplegable de la pestanya System, d'**u** fins al sostre de la llum de la placa (`led.caps().max`, 255 en aquesta). El zero no hi és: apagar-la és el commutador, i així el nivell triat no es perd (docs/30, docs/50) |
@@ -911,13 +934,11 @@ consola no acceptaria (docs/30, docs/70).
 | `cfg.touch_wake([on])` | booleà | **Si un dit al vidre desperta la placa d'un son profund** (0.190.16, `cfg touchwake on\|off` i el commutador *Wake on touch* de la pestanya Battery): **apagat de sèrie**, perquè sentir un dit vol dir deixar encesos el rail del panell i el controlador del tàctil tota la son —el corrent que un son profund existeix per estalviar— (docs/50, docs/60). Amb el commutador encès, la baixada **no talla el rail del panell** i arma la línia del GT911 (`GPIO36`, que el xip porta avall quan té un marc) a més de la tecla i de l'hora, que s'armen sempre. El valor que torna és **el que s'ha desat**, i una placa sense tàctil **l'accepta i no en fa res** —el paràmetre s'ignora, no es refusa (0.190.17)—. **I a la T5 E-Paper S3 Pro és la porta que estalvia més** (0.190.105): encès, el controlador es queda despert en el seu règim de menys consum —deu escombrats per segon i la línia en nivell baix— i el primer dit el torna, no el primer contacte que el xip ja tenia a dins; apagat, el controlador **s'adorm amb el xip** i la placa només torna pel BOOT o pel rellotge, que s'armen sempre (0.190.108, docs/50) |
 | `cfg.uart_wake([on])` | booleà | **Si la consola pot despertar una becaina** (0.190.147, `cfg uartwake on|off` i el commutador *Wake from UART* de la pestanya Battery): **encès de sèrie**, `esp_sleep_enable_uart_wakeup(0)` arma el cable com una porta més del son lleuger, al costat del temporitzador, la tecla i el vidre —sense ell, un xip que dorm a trossos es menja el que una persona escriu al prompt—. Apagat, la becaina només la desfà una tecla o un dit, i el registre ho diu amb un avís, perquè la consola és l'única manera de parlar amb una placa sense teclat. **El son profund no l'escolta mai, ni encès ni apagat**: el camí de `SleepMode::kDeep` neteja totes les fonts abans d'armar les seves portes, o sigui que aquest commutador és de la becaina i prou (0.190.152). Una placa amb la consola al mateix USB del xip —la T5 E-Paper S3 Pro— **l'accepta i no en fa res**, i la línia de `POWER` de l'arrencada ho diu (docs/50, docs/60) |
 | `cfg.nap([on])` | booleà | **Si les esperes de la placa es passen dormint** (0.190.63, `cfg nap on|off` i el commutador *Light sleep instead of wait* de la pestanya Battery): cert —el de sèrie— vol dir que cada espera prou llarga del sistema és un **son lleuger** en lloc d'una espera desperta: el torn del nucli quan no hi ha res, la tinta del vidre i el marge de la targeta abans de tallar el corrent. La RAM, l'intèrpret i la pàgina hi són en tornar (un son lleuger no és un reset) i el temporitzador del RTC el desfà, o una tecla, el dit o la consola abans d'hora. Una placa que no en sap —l'emulador, la que té el USB com a consola— **l'accepta i no en fa res** (docs/50, docs/60, docs/95) |
-| `cfg.btmode([<paraula>])` | cadena o `nil, error` | **Què és aquesta placa per a un altre aparell** (0.190.208, l'amo: *«com escullo el mouse? vull usar el panell tàctil com a mouse blutooth»*): `'keyboard'`, `'mouse'` o `'both'`, i el que s'hi posa **es desa** —la sessió d'una app només arriba fins al son, i una tria que s'ha de fer a cada arrencada no és una tria—. Sense argument contesta **el que hi ha desat, o la cadena buida si no s'ha triat mai** —una placa que no ha triat res no s'ofereix a ningú, i el valor de sèrie que hi havia era una decisió que prenia tota sola (0.190.209)—; amb una, ho canvia i contesta què ha quedat. **Triar no encén la ràdio**: això és `cfg.bt(true)`, i és el que fa el commutador de la pàgina. **El mapa del report viatja a l'anunci i a la lectura del servei**, o sigui que canviar-ho vol dir que l'altre aparell s'ha de tornar a aparellar un cop. Una paraula que no és cap de les tres és `nil, E_INVAL` i no canvia res; una placa sense ràdio l'accepta i el desa, i `bt.available()` ho diu. És el que fan els tres botons de l'app `bthid` i la comanda `cfg btmode` del prompt (docs/30, docs/50) |
 | `cfg.bt([on])` | booleà | **Si la placa s'ofereix com a teclat de Bluetooth** (0.190.180, `cfg bt on|off` i el commutador *Bluetooth keyboard* de la pestanya Input): encendre'l obre el ràdio de debò —NimBLE, BLE-only, amb el servei HID i l'aparença de teclat— i el desa a la botiga, i apagar-lo el tanca i torna els **29 544 B** de heap que ocupa (mesurats a l'ATOM el 21/11, docs/75). **Ve apagat de sèrie**, i no pel que costa sinó perquè mentre és encès el xip **no fa becaines**: un son lleuger atura els rellotges que viu el link, o sigui que `wants_the_chip_awake` tanca el pany del torn i les esperes es passen despertes. Una placa sense ràdio al build **l'accepta i no en fa res**, i `bt.available()` ho diu (docs/50, docs/60) |
 | `bt.available()` | booleà | **Si aquesta placa té ràdio de Bluetooth** i el build la porta a dins (0.190.180). Una pàgina que ho pregunta no ha d'ensenyar un control que no pot fer res (docs/50) |
 | `bt.connected()` | booleà | **Si hi ha un aparell connectat a l'altre cap** (0.190.180): un teclat que no ho diu envia caràcters al buit (docs/50) |
 | `bt.type(<text>)` | enter | **Escriure un text a l'aparell connectat** (0.190.180), caràcter a caràcter, i la resposta és quants n'han sortit. **Zero no és un error**: vol dir que el teclat és apagat o que no hi ha ningú a l'altre cap, i el que no ha sortit no s'inventa. La taula de caràcters és la del teclat dels EUA (lletres, dígits, espai, retorn de carro, tabulador i els símbols amb Shift); un caràcter que no hi és no envia res. **I des de la 0.190.204 el `\b` és la tecla de retrocés** (Usage 0x2A), que és el que una caixa esborra quan en té un (docs/30) |
-| `bt.ready()` | booleà | **Si l'altre cap ha encès els reports** (0.190.208, l'amo: *«connecta, pero encara no envia bé sembla»*): `bt.connected()` diu que hi ha un aparell a l'altre costat; això diu que a més a més ha escrit el CCCD de la característica d'entrada, que és el que fa que una notificació hi arribi. Entre les dues coses hi ha un moment en què la placa envia i l'altre cap encara no rep res, i una pàgina que ho sap ho diu en comptes de deixar una persona escrivint al buit (docs/50) |
-| `bt.device([<mode>])` | cadena o `nil, error` | **Què és aquesta placa com a aparell HID, i què ha de ser** (0.190.204): `'keyboard'` (el de sèrie), `'mouse'` o **`'both'`**, que és un teclat i un ratolí en un sol vincle. Sense argument contesta la paraula que hi ha ara; amb una, la canvia i contesta què ha quedat. **`'both'` vol report IDs** —el teclat l'1 i el ratolí el 2— i per tant **no serveix el boot protocol**: és per a un mòbil o un ordinador i no per a la BIOS d'un PC, i l'altre aparell ha de tornar a aparellar-se un cop perquè va llegir el mapa de quan això era només un teclat. Una paraula que no és cap de les tres, o una placa sense ràdio, responen `nil, E_INVAL` o `nil, E_UNSUPPORTED` (docs/50) |
+| `bt.ready([<quin>])` | booleà | **Si l'altre cap ha encès els reports** (0.190.208, l'amo: *«connecta, pero encara no envia bé sembla»*): `bt.connected()` diu que hi ha un aparell a l'altre costat; això diu que a més a més ha escrit el CCCD de la característica d'entrada, que és el que fa que una notificació hi arribi. Entre les dues coses hi ha un moment en què la placa envia i l'altre cap encara no rep res, i una pàgina que ho sap ho diu en comptes de deixar una persona escrivint al buit (docs/50). **I des de la 0.191.0 es pot preguntar un dels dos reports** (`'keyboard'` o `'mouse'`), perquè la placa els publica tots dos i l'altre cap pot haver encès el del teclat i no el del punter —una pàgina que mou un punter vol saber del ratolí i no del parell—; sense argument contesta «algun dels dos». Una paraula que no és cap de les dues és `nil, E_INVAL` (docs/30, docs/50) |
 | `bt.name()` | cadena | **El nom amb què aquesta placa s'anuncia** (0.190.204), o sigui el que una persona busca a la llista del telèfon: `lunokOS-A1B2`, amb els dos últims bytes de l'adreça del ràdio (docs/50) |
 | `bt.move(<dx>, <dy>)` | booleà o `nil, error` | **Un moviment relatiu del punter** (0.190.204), i el report de repòs va darrere del de moviment perquè el cursor es quedi quiet quan el dit s'atura. **El report en porta de −127 a 127 i el moviment més gran el parteix el sistema** (`bt::move_for_a_page`, 0.190.259): un dit que arrossega sis-cents píxels són cinc reports i no un `E_INVAL`, perquè una pàgina no ha de saber el signe d'un byte i un moviment refusat és un punter que es queda a mig camí. Fals vol dir que no hi ha ningú a l'altre cap o que aquesta placa no és un ratolí (docs/30, docs/50) |
 | `bt.click([<button>])` | booleà o `nil, error` | **Un clic** (0.190.204): `'left'` si no es diu res, `'right'` o `'middle'`. Prem, espera el que un dit hi posa i deixa anar, perquè un botó premut per sempre és el que l'altre cap veu si no es deixa anar (docs/50) |
@@ -935,7 +956,7 @@ consola no acceptaria (docs/30, docs/70).
 - **L'amfitrió de Bluetooth no té API de Lua, i és a propòsit** (0.190.188): les comandes del prompt són l'única porta, perquè el
   que fan és **lligar-se a un aparell que hi ha a l'aire** —una acció d'una persona en un moment, com endollar un teclat— i una app
   que s'hi lligués sola seria una app decidint per qui té la placa a la mà. Des de la 0.190.192 els dos costats de la ràdio es diuen
-  per seu: **`bt dev ...`** és el que la placa **és** (el teclat, i un dia un ratolí) i **`bt host ...`** el que **escolta**
+  per seu: **`bt dev ...`** és el que la placa **és** (`on|off`, i el punter per provar-lo: `move <dx> <dy>|click`) i **`bt host ...`** el que **escolta**
   (`on|off|scan [segons]|pair <n>|reconnect|forget`). **El que el teclat escriu arriba a la consola com si vingués del cable** (docs/50).
   **El mesh tampoc no té API de Lua, i pel mateix motiu** (0.190.218): `mesh [on|off|key|find|prov|nodes]` és la porta —posar-li la xarxa a
   la placa, donar-li una adreça a un node, veure qui hi ha—, i això és una decisió d'una persona amb el cable posat i no una cosa que una
@@ -1097,7 +1118,8 @@ dit marxa és el dibuix d'un botó— (docs/50, docs/80).
 
 **I el dit anava quaranta-vuit píxels per sota del botó** (0.190.4, trobat fent això mateix). La pàgina es pinta **sobre el vidre
 sencer** (`display::surface`, 540x960 a la Paper) i els dits que el nucli lliura —els punts de `touch::points` i el punt de cada
-gest— vénen en el marc de la **vista** de l'app, que és la pàgina que queda per sota de la barra del sistema (540x912 a 0,48):
+gest— vénen en el marc de la **vista** de l'app, que és la pàgina que queda per sota de la barra del sistema (aleshores 540x912 a 0,48; des de la 0.190.287
+540x892, que la franja de baix en pren vint):
 `turn_frame` els treu el desplaçament de la vista. Comparar-los era comparar dues mides diferents, o sigui que el `Dismiss` responia a
 un dit que queia a la barra de baix i no al que es veu —el cas de la suite que hi posa el dit va ser el que ho va dir—. Ara la pàgina
 demana `touch::on_the_glass` abans de preguntar res: el camí de tornada de `turn_frame`, que és el desplaçament de la vista sumat al
@@ -1901,7 +1923,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.damage()` | número | Quantes regions esperen un `present` |
 | `ui.present_over()` | `true` o `nil, error` | **El present d'un arrencament** (0.189.38, l'amo: *«així es queda l'splash amb la barra de progrés que creix mentre l'app carrega completament»*): l'app ha posat una imatge al manifest, el sistema ha rentat el vidre amb ella i **deu la pàgina sencera**, i aquest deute és el que la fa fora. Aquesta crida posa al vidre **les caixes del que l'app ha dibuixat** —la barra de progrés, i prou— damunt de la imatge i **deixa el deute sencer**, o sigui que la pàgina de l'app arriba tota amb el `ui.present()` del final. Amb una pàgina que no es deu fa el mateix que `ui.present()`, i amb una targeta del sistema a sobre val la regla de la targeta (no hi puja res). **Una app que no paga mai el deute no ensenya mai la seva pàgina** (docs/50) |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema**. **No fa falta per posar-hi el nom de l'app**: el sistema ja hi escriu el `title` del `manifest.json` quan obre l'app. La crida és per dir-hi **una altra cosa** i per un motiu concret — el lector hi posa el llibre obert, el rellotge de fitxatge hi posa el dia— |
-| `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
+| `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova. **No es desa**: el gir que una persona tria es diu amb la comanda `rotate` (0.190.281) i és el que la pàgina del dia té a l'arrencada; una app que en demani un per a ella el torna al comiat (ho fa `btkbd`) |
 | `ui.full_screen([on])` | si té la pantalla sencera, amb argument; `true` o `nil, error`, sense | **La pantalla sencera** (0.136.0): la barra de les 48 files marxa i la vista és tot el vidre, `540 × 960` des de la fila 0, i l'app rep `on_resize`. Sense argument només respon si la té (la mateixa forma que `ui.rotation`). **El camí de tornada és del sistema i no de l'app**: tres tocs seguits al vidre tornen la barra, l'app no els sent mai i només rep `on_resize` amb la mida de tornada; i una app que s'acaba —per les bones o per un error— torna el vidre tota sola. **Mentre una app d'administrador té la pantalla bloquejada, tornar-la és refusat amb `E_PERM`** i els tres tocs no hi són (vegeu `admin`, 0.189.99) |
 | `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present`. **I és el moment en què el sistema pinta el que el panell li va refusar** (0.118.2): esperar aquí una pàgina que no ha pujat és la manera de veure-la arribar (docs/50) |
 | `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
@@ -2015,8 +2037,8 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   coordenades són sempre de la vista— i és el sistema qui les tradueix al vidre, tallant el que queda
   fora (docs/50).
 - **La vista és de l'app i no del vidre.** `ui.clear`, `ui.rect` i `ui.pixel` escriuen en un canvas que
-  el sistema fa quan l'app arrenca (**246 240 B al Paper**, 4 bits per píxel: 540 × 912, que és la pàgina
-  de 540 × 960 menys les 48 files de la barra); res no arriba a la pantalla fins a `ui.present`. Una app que dibuixa una cantonada deixa la pàgina anterior al voltant, i una que vol
+  el sistema fa quan l'app arrenca (**240 840 B al Paper**, 4 bits per píxel: 540 × 892, que és la pàgina
+  de 540 × 960 menys les 48 files de la barra i les 20 de la franja de baix); res no arriba a la pantalla fins a `ui.present`. Una app que dibuixa una cantonada deixa la pàgina anterior al voltant, i una que vol
   la pàgina sencera comença amb `ui.clear(15)`.
 - **Els nivells són 0 (negre) a 15 (blanc)**, que és el que tenen els quatre bits del panell (docs/50).
 - **Els modes són els del propi xip**, i una app tria el preu: `du` (text i menús), `du4`, `gc16`
@@ -2911,7 +2933,7 @@ que proven.
 **No hi ha cap número de controls.** La taula de controls la pren el nucli de la **memòria extra** (la PSRAM de la
 Paper) quan arrenca, i `ui::canvas_count()` diu quants n'hi ha: mig megabyte de taula són **2 978 controls** de 176
 bytes cada un (mesurat al registre, `[I][UI] the table of canvases: 2978 slots of 176 bytes`, i el que sobra de PSRAM
-queda per als buffers, que és el que de debò costa (una vista de 540 × 912 són 246 KB). Si el bloc no hi cap, la mida
+queda per als buffers, que és el que de debò costa (una vista de 540 × 892 són 241 KB). Si el bloc no hi cap, la mida
 es parteix per dos fins que hi càpiga, o sigui que una placa amb poca memòria extra en té menys i no es queda sense
 pantalla. **`allocate` cau a la RAM del xip quan no hi ha memòria extra**, i això és el que fa que en una placa sense
 PSRAM la taula mengi RAM interna abans que cap app corri: és el risc pendent que explica
@@ -3389,7 +3411,7 @@ falla i la banda no hi és (docs/30, docs/50, docs/90).
 | `kb:height()` | **La banda que pren** —256 al Paper des de 0.107.0, quatre files de 64—, que des de 0.84.0 ja no cal restar de res: és el que es pregunta per pintar una barra pròpia just a sobre |
 | `kb:visible()` | Si és al vidre |
 
-**La vista de l'app és el que queda sobre la banda** (0.84.0). `ui.caps().height` i `ui.height()` diuen **656 i no 912**
+**La vista de l'app és el que queda sobre la banda** (0.84.0). `ui.caps().height` i `ui.height()` diuen **636 i no 892**
 mentre el teclat és al vidre, i l'app rep **`on_resize(width, height)`** quan la banda surt i quan marxa —el mateix hook
 d'una vista que canvia de mida o de gir—, o sigui que una pàgina que es fa a partir de `ui.caps()` ja queda bé i no ha de
 restar res. El llenç de sota no es torna a demanar (no costa ni un byte: la banda es pinta a sobre dels seus últims 256
@@ -4249,14 +4271,19 @@ fila que no existeix en aquesta placa, i una fila a zero és una fila que existe
   mirall només s'obre sol on la consola és un emulador o el vidre, i al cable es demana —`log` aboca el **cercle de
   2 KB** i `log follow` el fa córrer fins que es prem Control+C o un sol Escape—. Una línia `[E]` hi passa sempre i
   fora de torn: la placa que no arriba a pintar el prompt no té cap `log` per demanar-li res (docs/50, docs/85).
+  **I l'arrencada és l'excepció** (0.190.292, l'amo: *«el codi del M5 no ho te!»*): les quatre línies de la pila
+  (`[I][STACK] …`) surten al cable encara que el mirall sigui tancat, perquè diuen un moment que passa una vegada i,
+  quan una persona arriba a escriure `log`, el cercle de dos kilobytes ja les ha tirades fora. Passen per
+  `log_bootf`, que les deixa al cercle com totes i al cable si el mirall no l'hi ha dutes ell (docs/75).
 - **Els conductors no depenen del nucli i no poden cridar-lo**: formategen la línia i la donen a un *sink* que el
   nucli instal·la, i per això la línia d'un conductor acaba al mateix cercle que les altres (docs/50, docs/85).
 - **Una línia diu números**: quants bytes, quants mil·lisegons, quina adreça. Una frase sense cap número
   és una línia que no serveix per a res quan la placa és a la mà.
 - **el port sèrie, quan en rep, és una còpia del cercle i no una segona sortida** (0.179.55): tot el que surt pel port
   del sistema és al cercle, i `log` ho torna a ensenyar. Les línies que es van escriure directament al port
-  i no al cercle —les tres pulsacions (`button: three taps, closing the app`) i el son (`power: woke on
-  the timer…`)— ara hi passen amb `log_say`, que les desa **amb les seves paraules**: són frases per a una
+  i no al cercle —les tres pulsacions i el son— hi van passar amb `log_say`, que les desava **amb les seves paraules**; i des de la
+  0.190.289 hi passen **amb etiqueta** (`[I][BUTTON]`, `[I][POWER]`), perquè una línia sense la forma de les altres no es pot grepejar
+  amb elles (l'amo: *«També hi ha alguns missatges al log que no estàn en el format del sistema»*). Són frases per a una
   persona i no fitxes, i per això no porten `[nivell][etiqueta]`. Són l'única excepció a la forma, i no una
   segona mena de log.
 - **qui no passa pel cercle és la shell i les apps**: el prompt i el que una app escriu amb `console.print`
@@ -4473,7 +4500,15 @@ El que canvia és **com s'escriu la línia al cable**, i res del que hi ha a sot
   s'ha d'escriure `<així>` en blanc i negreta i el que es pot afegir `[així]` en gris, amb els claudàtors llegits un a un perquè n'hi ha de
   niuats. `ls` diu el camí a dalt, el tipus i la mida en gris, el nom d'una carpeta en cian i quantes coses hi ha al final, i `stats` pinta les
   crides en gris, el total i la mitjana en blanc, i el més curt en verd i el més llarg en ambre. I `free` i `history`, que sortien al tabulador sense tenir cap mà que les
-  contestés, ja no hi surten (docs/50, docs/70, docs/75).
+  contestés, ja no hi surten (docs/50, docs/70, docs/75). **`apps` s'hi va afegir a la 0.190.277** (l'amo: *«a la comanda apps li falten
+  colors»*), que era l'única taula de text pla: el nom en el cian del que mana, la versió en gris, el títol en blanc, `[card]` en gris
+  perquè és un apart i `[needs …]` en l'ambre d'un avís perquè diu que allò no arrencarà aquí. **I `mem blocks` i `version` a la 0.190.289**
+  (l'amo: *«la comanda "mem blocks" no te colors. Busca les comandes que no tinguin colors»*): la llista dels blocs porta el títol, el qui de
+  cada fila en el gris d'un subjecte, els comptes en el cian del que mana, les unitats i els punters en el gris del que ningú ha vingut a
+  llegir, i **els que no hi caben en ambre**; `version` posa el número en el cian i la placa en el gris. Les files tenen un ajudant propi
+  (`field_left` i `field_right`) perquè el farcit d'una columna es compta en lletres i no en codis. **El que encara és de text pla**, perquè
+  la resposta és d'un altre mòdul i s'hi ha d'anar mòdul a mòdul: `bt`, `wifi`, `ntp`, `provision`, `serial`, `mesh`, `panel`, `splash`,
+  `hexdump`, `ansi` i `verbose` — `log` i `stats` ja tenen color (el nivell de la línia i la paleta del mesurador).
 - **I l'historial sobreviu al reinici** (0.190.236, l'amo: *«pero usant el disc prefrit per l'usuari, si hi ha SD instal·lada, es l'SD per
   evitar danyar la flash»*): es desa en **`/<disc>/data/history.txt`** quan la sessió es tanca —no a cada comanda, que seria una escriptura
   de disc per tecla— i es torna a carregar quan el terminal s'encén. El disc és el **preferit** de la persona (`cfg auto|sd|littlefs`, la fila
@@ -4770,6 +4805,24 @@ console.print('kind ' .. press.kind .. ', held ' .. press.held_ms .. ' ms')
   tecla és la de l'expansor, i cap de les dues no està feta per això. O sigui que **cada pulsació és de l'app** (`button.wait`, la cua o
   `on_button`) també en una pàgina amb controls, i el cercle es mou amb el dit. La placa ho diu (`keys_are_for_the_page`), i les tres
   pulsacions que tanquen l'app no hi perden res: es compten **abans** de la cua (docs/50).
+
+### La franja de baix (0.190.287)
+
+**El sistema té una segona franja, de vint files, al peu del vidre** (l'amo: *«Afegirem unaltra barra de sistema a baix. Això fará la
+vista de les aplicacions una mica mes petita»*). És blanca, amb la línia de dos píxels a sobre —l'aresta que comparteix amb la pàgina—
+i de moment no hi ha res dibuixat a dins. El que fa és **reservar la banda**, i té tres conseqüències que una app notarà:
+
+- **la vista és vint files més curta**: `ui.caps()`, `ui.height()` i `ui.canvas().height` donen 892 i no 912 al Paper, i una app que
+  es fa a partir de `ui.caps()` ja queda bé (docs/30 § la vista);
+- **el dit que hi cau és del sistema**, com el de la barra de dalt: no arriba a cap control de la pàgina, **no escriu cap lletra de
+  la banda del teclat** i **no prem el botó fals de sota el vidre** (`cfg swbutton`), que era el que feia males passades en aquella
+  banda. El propietari es decideix amb la fila on cau el dit i la franja va **abans** que la banda i que el botó (docs/50);
+- **una app que demana el vidre sencer no té cap de les dues franges**: `ui.full_screen(true)` les pren totes dues i el llenç torna a
+  ser la pàgina sencera.
+
+El gest del **segon panell lliscant** (un lliscament cap amunt que hi comenci) no hi és encara: el que hi ha avui és la franja i el
+propietari del contacte, que és el que farà que el dia que hi sigui el gest es llegeixi aquí i **no arribi a l'app**, com passa amb el
+panell de dalt (docs/30 § el panell del sistema).
 
 ### On és cada tecla, i com està feta
 

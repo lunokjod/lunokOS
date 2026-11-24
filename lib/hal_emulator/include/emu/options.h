@@ -216,6 +216,11 @@ struct Options {
   bool bt_connected = false;
   const char* bt_type = nullptr;
 
+  // **La caixa amb el cercle de sota el vidre** (0.190.288): a case that answers yes to `a_button_under_the_glass`, which is what the T5S3
+  // does and what no model of this emulator has —el Paper no en té i l'ATOM no té vidre—. Without it, the false button of the front cannot be
+  // tried on the PC at all (docs/50, docs/85).
+  bool button_under_the_glass = false;
+
   Options();
 };
 

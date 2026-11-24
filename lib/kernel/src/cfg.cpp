@@ -92,10 +92,9 @@ const char kTouchWakeKey[] = "touchwake";
 const char kNapKey[] = "nap";
 // **El teclat de Bluetooth, que és una altra porta i un altre commutador** (0.190.180) (docs/30, docs/50).
 const char kBtKey[] = "bt";
-// **Què és aquesta placa com a aparell de Bluetooth** (0.190.208, l'amo: *«com escullo el mouse? vull usar el panell tàctil com a mouse
-// bluetooth»*): `keyboard`, `mouse` o `both`, i **desat**, perquè triar-ho no és una cosa d'una tarda. La sessió d'una app només arriba
-// fins al son —el nucli esborra les pàgines a cada arrencada— i una tria que es perdés a cada reiniciada seria una tria que es fa cada cop.
-const char kBtModeKey[] = "btmode";
+// **La clau `btmode` ja no es llegeix** (0.191.0): hi havia hagut un mode a triar —`keyboard`, `mouse` o `both`— i la placa publica sempre
+// les dues coses, o sigui que la paraula que hi hagi a la botiga no és de ningú. No s'esborra perquè no cal tocar el que ja hi és, i una
+// placa que ve d'una versió anterior no ha de fer res (docs/30, docs/50).
 // **La ràdio del wifi, encesa o apagada** (0.190.221, l'amo: *«Si actives la wifi (passes a "on") està apagada en aquell moment,
 // s'inicialitza»*): el mateix parell de coses que `cfg bt` —una paraula desada i la ràdio de debò—, perquè el commutador de la targeta de la
 // barra no ha de ser una cosa i el prompt una altra (docs/30, docs/50).
@@ -144,6 +143,11 @@ const char kBreatheKey[] = "breathe";
 const char kAnnounceChargeKey[] = "announcecharge";
 const char kBacklightKey[] = "backlight";
 const char kBacklightLevelKey[] = "backlightlevel";
+// **El gir del vidre** (0.190.281, l'amo: *«Afegeix comanda»*): the turn a person chose with `rotate 90`, desat com qualsevol altre
+// gust del vidre. `270` és el de sempre —la pàgina vertical sobre el vidre apaïsat— i el que no és cap dels quatre girs no és un gir
+// (docs/30, docs/50).
+const char kRotateKey[] = "rotate";
+const uint16_t kRotationDefault = 270;
 const size_t kLogLevelCap = 8;
 const char kLockAfterKey[] = "lockafter";
 const size_t kLockCap = 40;
@@ -195,12 +199,6 @@ bool g_wifi_on = false;
 // **El valor de sortida d'`ansi`** (0.190.226): neix encès perquè el que hi ha escrit al codi són codis, i el que els ha de treure és el
 // filtre, no l'escriptor (docs/30, docs/50).
 bool g_ansi = true;
-// **La paraula del mode, que és la que la ràdio ha de ser** (0.190.208): se serveix d'aquí i no de la ràdio perquè una placa sense ràdio
-// també ha de poder desar la tria, i el que val per a aquest run és el que aquesta variable diu (docs/30, docs/50).
-// **Dotze i no vuit** (0.190.210): «keyboard» són vuit caràcters i el zero del final, o sigui que en un `char[8]` el nom es quedava en
-// «keyboar» —i la placa va dir exactament això: *«this board will be a keyboar»*—, i després `bt.device('keyboar')` no era cap de les tres
-// paraules. Un buffer d'una paraula porta la paraula sencera o no la porta (docs/45).
-char g_bt_mode[12] = "";
 // **La xarxa d'aquesta placa, tal com es va desar**: dues claus en hexadecimal i res més, perquè el que mana la xarxa és la clau de xarxa i el
 // que fa parlar els models és la d'aplicació (0.190.218, docs/50).
 char g_mesh_net[kKeyTextCap] = "";
@@ -228,6 +226,8 @@ bool g_breathe_on = true;
 bool g_announce_charge = true;
 bool g_backlight = false;
 uint8_t g_backlight_level = 128;
+// **El gir del vidre, i neix on el sistema sempre ha començat** (0.190.281): the portrait page of 540 × 960 over the landscape glass.
+uint16_t g_rotation = kRotationDefault;
 uint8_t g_lock_after = kLockAfterDefault;
 // **Quant de quietud abans del son profund** (0.190.9, l'amo: *«afegir selector de temps per l'idle de settings->battery (per fer el
 // DeepSleep)»*): segons, i la política de `power` el llegeix d'aquí en lloc de la constant de deu (docs/30, docs/60).
@@ -380,14 +380,16 @@ bool remember_backlight() {
   return on_kept && level_kept;
 }
 
+bool remember_rotation() {
+  if (g_nvs == nullptr) return false;
+  char word[8] = {0};
+  snprintf(word, sizeof(word), "%u", static_cast<unsigned>(g_rotation));
+  return keep(kRotateKey, word);
+}
+
 bool remember_log_level() {
   if (g_nvs == nullptr) return false;
   return keep(kLogLevelKey, g_log_level);
-}
-
-bool remember_bt_mode() {
-  if (g_nvs == nullptr) return false;
-  return keep(kBtModeKey, g_bt_mode);
 }
 
 bool remember_wifi_on() { return keep(kWifiKey, g_wifi_on ? kOn : kOff); }
@@ -798,21 +800,6 @@ void boot(hal::IPlatform& platform) {
           log_printf(pal::kLogWarn, "CFG", "ansi '%s' is not on or off; the codes stay on", raw_ansi);
         }
       }
-      // **I què és aquesta placa al Bluetooth** (0.190.208): the word is read here with all the others and given to the radio below, so
-      // una placa que es va deixar com a ratolí torna com a ratolí (docs/30, docs/50).
-      // **Dotze aquí també** (0.190.210): the buffer that reads the word has to hold «keyboard», o el que es llegia era «keyboar» i la clau es
-      // descartava a cada arrencada amb un avís que deia que no era cap de les tres paraules.
-      char raw_mode[12] = {0};
-      size_t mode_len = 0;
-      if (g_nvs->get(kNamespace, kBtModeKey, raw_mode, sizeof(raw_mode) - 1, mode_len) && mode_len > 0 &&
-          mode_len < sizeof(raw_mode)) {
-        raw_mode[mode_len] = '\0';
-        if (bt_mode_is_a_word(raw_mode)) {
-          snprintf(g_bt_mode, sizeof(g_bt_mode), "%s", raw_mode);
-        } else {
-          log_printf(pal::kLogWarn, "CFG", "btmode '%s' is not keyboard, mouse or both; nothing is offered", raw_mode);
-        }
-      }
       // **I les claus del mesh** (0.190.218): es llegeixen aquí amb tota la resta, o sigui que la xarxa d'aquesta placa torna amb la placa
       // i no espera que ningú torni a escriure les claus (docs/30, docs/50).
       char raw_net[kKeyTextCap] = {0};
@@ -955,6 +942,21 @@ void boot(hal::IPlatform& platform) {
                      static_cast<unsigned>(g_backlight_level));
         }
       }
+      // **I el gir del vidre** (0.190.281): a word that is not one of the four leaves the page where it has always been —270— and
+      // ho diu, com fa la resta de gustos del vidre (docs/30, docs/50).
+      char raw_rotate[8] = {0};
+      size_t rotate_len = 0;
+      if (g_nvs->get(kNamespace, kRotateKey, raw_rotate, sizeof(raw_rotate) - 1, rotate_len) && rotate_len > 0 &&
+          rotate_len < sizeof(raw_rotate)) {
+        raw_rotate[rotate_len] = '\0';
+        const long asked = strtol(raw_rotate, nullptr, 10);
+        if (asked == 0 || asked == 90 || asked == 180 || asked == 270) {
+          g_rotation = static_cast<uint16_t>(asked);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "rotate '%s' is not 0, 90, 180 or 270; the page stays at %u", raw_rotate,
+                     static_cast<unsigned>(g_rotation));
+        }
+      }
       char raw_touch[8] = {0};
       size_t touch_len = 0;
       if (g_nvs->get(kNamespace, kTouchWakeKey, raw_touch, sizeof(raw_touch) - 1, touch_len) && touch_len > 0 &&
@@ -1075,9 +1077,11 @@ void boot(hal::IPlatform& platform) {
   // the panel; una línia que diu el que ha tornat, perquè un commutador que no sobreviu a un reinici es vegi en una línia i no en tres pantalles
   // (docs/30, docs/70).
   log_printf(pal::kLogInfo, "CFG",
-             "the glass: backlight %s at %u, out when idle %s, button under it %s, adaptive scan %s, wake on touch %s",
+             "the glass: backlight %s at %u, out when idle %s, button under it %s, adaptive scan %s, wake on touch %s, "
+             "turned %u",
              g_backlight ? kOn : kOff, static_cast<unsigned>(g_backlight_level), g_dim_when_idle ? kOn : kOff,
-             g_software_button ? kOn : kOff, g_touch_adaptive ? kOn : kOff, g_wake_on_touch ? kOn : kOff);
+             g_software_button ? kOn : kOff, g_touch_adaptive ? kOn : kOff, g_wake_on_touch ? kOn : kOff,
+             static_cast<unsigned>(g_rotation));
   log_printf(pal::kLogInfo, "CFG", "and on a cable the glass breathes %s and the picture of the charge is %s",
              g_breathe_on ? kOn : kOff, g_announce_charge ? kOn : kOff);
   // **I la consola com a porta de la becaina, i només de la becaina** (0.190.147, 0.190.152, l'amo: *«l'UART si que ha de despertar el
@@ -1102,9 +1106,20 @@ void boot(hal::IPlatform& platform) {
   }
   log_markf("NVS", "the store was read at the boot: %u setting(s) in '%s', and /cfg is on %s", static_cast<unsigned>(kept),
             kNamespace, (g_unit[0] != '\0') ? g_unit : "nowhere");
-  // **I el teclat s'obre aquí, si la persona el va deixar encès** (0.190.180): el ràdio puja abans que es pinti la primera pàgina, perquè
-  // una app que escriu amb ell no hagi de demanar-ho cada cop. Una placa sense ràdio desa el commutador i no fa res, que és el que
-  // `bt::start` contesta (docs/30, docs/50).
+}
+
+// **I el teclat s'obre quan el vidre ja hi és, i no abans** (0.191.1, l'amo: *«abort() was called at PC 0x420c49d7 … could not allocate LUT»*):
+// això era la meitat del `cfg::boot` que encén la ràdio si la persona la va deixar encesa, i el seu lloc era **abans de la primera pàgina**
+// —una app que escriu amb ella no ho ha de demanar cada cop— però no abans del **panell**: NimBLE s'hi queda gairebé trenta kilobytes de
+// memòria interna en un grapat de blocs (`the radio is up … 29544 B spent`), i el panell d'aquesta placa en demana **un de sol de 64 KiB**
+// per a la seva taula de conversió (`epd_init(…, EPD_LUT_64K)` → `heap_caps_malloc(64 KiB, MALLOC_CAP_INTERNAL)`). Amb la ràdio a dalt
+// queden cent quaranta kilobytes lliures **en trossos** i el bloc més gran no arriba als seixanta-quatre: la taula no es pot fer i epdiy
+// crida `abort()`. **El que es paga amb aquest ordre no és res**: el vidre no llegeix la ràdio per a res i el primer que la vol és una app,
+// que ve molt després (docs/50, docs/75).
+//
+// **I la lliçó és per a qualsevol cosa gran**: el que demana un bloc contigu es fa abans del que deixa un munt de blocs petits, i el que és
+// gran i contigu en aquesta casa és la taula del panell.
+void start_the_radio() {
   if (g_bt_on && !bt::is_on()) {
     if (!bt::start(nullptr)) g_bt_on = false;
   }
@@ -1183,29 +1198,6 @@ bool set_wifi_on(bool on) {
   }
   (void)remember_wifi_on();
   return g_wifi_on == on;
-}
-
-// **Les tres paraules del mode** (0.190.208): one place that says which words exist, o sigui que la botiga, el prompt i la ràdio no poden
-// discrepar de què vol dir `mouse`. **I la cadena buida vol dir que no s'ha triat mai** (0.190.208, l'amo: *«configurar-se com a dev tampoc
-// sense que hagi escollit si un o l'altre o ambdós»*): un valor per defecte és una tria que la placa ha fet tota sola, i el que ha de fer
-// una placa que no ha triat res és no oferir-se a ningú. És el que `cfg.bt_mode()` torna quan la clau no hi és.
-bool bt_mode_is_a_word(const char* word) {
-  return word != nullptr &&
-         (strcmp(word, "keyboard") == 0 || strcmp(word, "mouse") == 0 || strcmp(word, "both") == 0);
-}
-
-const char* bt_mode() { return g_bt_mode; }
-
-// **Triar què és aquesta placa és canviar el mapa del report, i això es diu** (docs/50): the radio is told the moment it is asked for and the
-// word is kept, perquè la propera arrencada no torni a ser un teclat sense que ningú ho hagi demanat.
-const char* set_bt_mode(const char* word) {
-  if (!bt_mode_is_a_word(word)) return nullptr;
-  snprintf(g_bt_mode, sizeof(g_bt_mode), "%s", word);
-  // **I s'aplica si la ràdio és enlaire, sigui qui sigui que l'ha encesa**: `bt dev mouse on` obre el ràdio sense passar pel commutador de
-  // `cfg`, o sigui que mirar `g_bt_on` deixaria la comanda canviant el que es desa i no el que la ràdio és (0.190.208).
-  if (bt::is_on()) (void)bt::be(g_bt_mode);
-  (void)remember_bt_mode();
-  return g_bt_mode;
 }
 
 // **La xarxa que aquesta placa té a les mans** (0.190.218): el que hi ha desat, i res més —qui les fa o les reparteix és el mesh i no la
@@ -1341,6 +1333,15 @@ bool set_sleep_on(bool on) {
   g_sleep_on = on;
   power::set_idle_sleep_allowed(on);
   return remember_sleep_on();
+}
+
+uint16_t rotation() { return g_rotation; }
+
+bool set_rotation(uint16_t degrees) {
+  if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) return false;
+  g_rotation = degrees;
+  (void)remember_rotation();
+  return g_rotation == degrees;
 }
 
 bool set_sort_by_usage(bool on) {

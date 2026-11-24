@@ -24,6 +24,9 @@ bool g_close_requested = false;
 Atom g_wm_delete = 0;
 uint16_t g_width = 0;
 uint16_t g_height = 0;
+// **El gir del vidre** (0.190.283): what the last paint said the page is turned by, which is what a click on a turned page
+// needs to land where it was aimed (docs/85).
+uint16_t g_turn = kChipPageDegrees;
 uint8_t g_scale = 1;
 // The scale the run asked for (`--gui-scale`) or zero for the one that fits: a window that has to reopen
 // after a turn of the glass asks for the same one again (docs/85).
@@ -182,34 +185,26 @@ void draw_keys() {
 // **A mouse on the window is a finger on the glass**: the glass of this emulator is the panel of the model,
 // and an app that draws with a finger has no way to be tried on a machine that has no touch screen. A
 // press is the finger coming down, the move while the button is held is the finger moving, and letting go
-// is the finger coming up — in the frame the chip counts in, which on this board is the page's own
-// (docs/50, docs/85).
+// is the finger coming up — in the frame the chip counts in, which is the panel's own and not the page's when
+// the glass is turned (0.190.283, docs/50, docs/85).
 void put_the_finger(int window_x, int window_y, bool moving) {
   // `--no-touch`: the panel of the model is there and nobody reads it, so the mouse has nothing to say.
   if (!options().touch) return;
   Gt911Panel* panel = touch_panel();
   if (panel == nullptr) return;
-  if (g_width != Gt911Panel::kFrameWidth || g_height != Gt911Panel::kFrameHeight) {
-    // **The window and the chip do not count in the same frame**, which is a turned glass: saying it once
-    // is better than a mouse that silently does nothing (docs/85).
-    static bool said = false;
-    if (!said) {
-      said = true;
-      fprintf(stderr,
-              "gui: the page is %ux%u and the touch panel counts in %ux%u, so the mouse does not reach it\n",
-              static_cast<unsigned>(g_width), static_cast<unsigned>(g_height),
-              static_cast<unsigned>(Gt911Panel::kFrameWidth),
-              static_cast<unsigned>(Gt911Panel::kFrameHeight));
-    }
-    return;
-  }
   uint16_t x = 0;
   uint16_t y = 0;
   gui_page_point(window_x, window_y, g_scale, g_width, g_height, x, y);
+  // **A turned page is walked back to the frame of the chip** (0.190.283): the mouse counts in the page's own frame and the
+  // GT911 of the model in 540×960, so a click on a landscape page used to land nowhere and now lands where it was aimed
+  // (docs/50, docs/85).
+  uint16_t chip_x = 0;
+  uint16_t chip_y = 0;
+  gui_chip_point(x, y, g_width, g_height, gui_page_turn(g_turn), chip_x, chip_y);
   if (moving) {
-    panel->finger_move(0, x, y);
+    panel->finger_move(0, chip_x, chip_y);
   } else {
-    panel->finger_down(0, x, y);
+    panel->finger_down(0, chip_x, chip_y);
   }
 }
 
@@ -367,7 +362,14 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   return true;
 }
 
-void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
+// Declared before the turn needs it and defined below, with `gui_close`: **el que és de la finestra i el que és de la connexió**
+// són dues coses des de la 0.190.282 (docs/85).
+namespace {
+void forget_the_window();
+}
+
+void gui_show(const uint8_t* packed, uint16_t width, uint16_t height, uint16_t degrees) {
+  g_turn = degrees;
   if (g_display == nullptr || packed == nullptr) return;
   if (width != g_width || height != g_height) {
     // **The glass turned and the page is another rectangle**: the window follows it instead of keeping
@@ -379,7 +381,7 @@ void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
     // **The colours of the lights outlive the window**: the strip is still latched and a window made again for a turned
     // page shows the frame that is on the board, not a dark panel (docs/85).
     const uint8_t lights = g_lights_count;
-    gui_close();
+    forget_the_window();
     if (!gui_open(width, height, keys, side, requested, lights, g_light_max)) return;
   }
   if (g_image == nullptr) return;
@@ -460,7 +462,15 @@ bool gui_showing() { return g_display != nullptr; }
 
 uint8_t gui_scale() { return (g_display != nullptr) ? g_scale : 0; }
 
-void gui_close() {
+namespace {
+
+// **Una finestra que marxa, i la connexió que es queda** (0.190.282): a turn of the page is not the end of the run —the window
+// is made again for the new rectangle and the connection to the X server is the same one—, i tancar la connexió i tornar-la a
+// obrir al mig d'un gir deixava el vidre **sense finestra** de tant en tant: la segona `XOpenDisplay` podia dir que no i
+// `gui_open` tornava sense dir res (vist en un run amb `--gui`, l'1 de cada tres cops, amb la pàgina a 960 × 540 i sense cap
+// error a la sortida). El que s'ha de tornar quan canvia la mida és el que és de la finestra: el dibuix, el context, la lletra
+// i la finestra (docs/85).
+void forget_the_window() {
   if (g_display == nullptr) return;
   // A key the pointer was holding is let go: a window that goes away with a key down would leave the emulator
   // with a key nobody can lift, and the same goes for a finger the pointer was dragging (docs/85).
@@ -491,6 +501,13 @@ void gui_close() {
     XDestroyWindow(g_display, g_window);
     g_window = 0;
   }
+}
+
+}  // namespace
+
+void gui_close() {
+  if (g_display == nullptr) return;
+  forget_the_window();
   XCloseDisplay(g_display);
   g_display = nullptr;
 }

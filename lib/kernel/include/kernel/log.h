@@ -32,6 +32,16 @@ void log_markf(const char* tag, const char* fmt, ...)
 #endif
     ;
 
+// **Una línia de l'arrencada, al cable encara que el mirall sigui tancat** (0.190.292): the mirror that a wire no longer gets since
+// 0.190.185 is the right rule for a session —a line of the log in the middle of what a person writes is noise—, i no per a un moment que
+// passa una vegada: quan una persona escriu `log`, l'anella de dos kilobytes ja ha tirat fora el que va dir l'arrencada. La línia va a
+// l'anella com totes i surt al cable si el mirall no l'hi ha dut (docs/30, docs/75).
+void log_bootf(pal::LogLevel level, const char* tag, const char* fmt, ...)
+#if defined(__GNUC__)
+    __attribute__((format(printf, 3, 4)))
+#endif
+    ;
+
 // **A line of the system that is a sentence and not a record** (0.179.55): the shape of this log is `[I][TAG] text`, and a
 // handful of lines of this tree are written for a person and not for a reader of tags —`button: three taps, closing the
 // app`, `power: woke on the timer, +2 ms from the hour it was given`—. **They go to the ring like everything else**,

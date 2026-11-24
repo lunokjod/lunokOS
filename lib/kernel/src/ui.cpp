@@ -721,8 +721,11 @@ bool make_view(bool full) {
   hal::ISurface* surface = display::surface();
   if (surface == nullptr) return false;
   const uint16_t top = full ? 0 : bar::height();
-  if (surface->height() <= top) return false;
-  if (!make_root(surface->width(), static_cast<uint16_t>(surface->height() - top))) return false;
+  // **Les dues franges són del sistema** (0.190.287): amb el vidre sencer no n'hi ha cap, i amb la barra la vista perd la de dalt
+  // i la de baix (docs/30, docs/46 D1).
+  const uint16_t bottom = full ? 0 : bar::bottom_height();
+  if (surface->height() <= top + bottom) return false;
+  if (!make_root(surface->width(), static_cast<uint16_t>(surface->height() - top - bottom))) return false;
   // The view of an app starts at the left corner of the page whether the bar is there or not: the bar is above it or
   // it is not, and never a margin on the side (docs/30).
   root().x = 0;
@@ -2279,8 +2282,11 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   if (!display::available()) return false;
   // **The view of an app is the glass **under the bar of the system**, and never the bar: a page that goes
   // wrong cannot take the hour with it (docs/30).
-  if (display::height() <= top_rows) return false;
-  const uint16_t usable = static_cast<uint16_t>(display::height() - top_rows);
+  // **I la franja de baix** (0.190.287): the rows the system keeps under the page of the app go with the bar, o sigui que un
+  // arrencament sense barra —el de les suites, que passen zero— tampoc no en té (docs/30, docs/50).
+  const uint16_t bottom_rows = (top_rows == 0) ? 0 : bar::bottom_height();
+  if (display::height() <= top_rows + bottom_rows) return false;
+  const uint16_t usable = static_cast<uint16_t>(display::height() - top_rows - bottom_rows);
   if (!make_root(display::width(), usable)) return false;
   root().y = top_rows;
   luabind::set_ui_ops(luabind::UIOps{caps_for_lua,
@@ -9289,7 +9295,8 @@ bool set_rotation(uint16_t degrees) {
   // **A page that has the whole glass turns with it** (0.136.0): the strip of the bar is not there, so the view of the
   // app is the whole page and no rows are given away (docs/30, docs/46 D1).
   const uint16_t top = g_full_screen ? 0 : bar::height();
-  if (display::height() <= top) {
+  const uint16_t bottom = g_full_screen ? 0 : bar::bottom_height();
+  if (display::height() <= top + bottom) {
     display::set_rotation(was);
     return false;
   }
@@ -9297,7 +9304,7 @@ bool set_rotation(uint16_t degrees) {
   // top of the new page. The app is the one that draws it: `on_resize` is how it knows (docs/30, docs/50).
   // If there is no memory for it the glass is put back where it was: a panel turned one way and a view
   // of the other size is the one state this system must never be in (docs/50).
-  if (!make_root(display::width(), static_cast<uint16_t>(display::height() - top))) {
+  if (!make_root(display::width(), static_cast<uint16_t>(display::height() - top - bottom))) {
     display::set_rotation(was);
     return false;
   }

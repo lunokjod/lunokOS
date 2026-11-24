@@ -33,10 +33,6 @@ namespace {
 EpdiyHighlevelState g_state;
 bool g_ready = false;
 
-// **La VCOM d'aquest vidre**, in millivolts: **1560**, which is the value every example of the board sets (`epd_set_vcom(1560)`)
-// and the one the board ships with (docs/50, docs/95).
-const uint16_t kVcomMillivolts = 1560;
-
 // **La temperatura que epdiy demana per triar la forma d'ona**: the board has no sensor of its own —`epd_board_v7` answers its own
 // twenty degrees— o sigui que el número surt del propi panell i no s'inventa aquí (docs/50).
 int the_temperature() { return static_cast<int>(epd_ambient_temperature()); }
@@ -65,8 +61,12 @@ enum EpdDrawMode mode_of(UpdateMode mode) {
 
 Epd47::Epd47(Pca9535* expander, II2c* bus) : expander_(expander), bus_(bus) {}
 
-uint16_t Epd47::width() const { return kPageW; }
-uint16_t Epd47::height() const { return kPageH; }
+// **La pàgina segueix el gir** (0.190.281): the glass is 960 × 540 and the page is the glass frame turned, o sigui que un quart de
+// volta dona la pàgina de 540 × 960 que aquesta casa ha fet servir sempre i **cap volta dona el vidre mateix**, 960 × 540. És el
+// que demana el teclat de `btkbd` per tenir les tecles del doble d'amples, i fins avui el driver ho refusava dient que «la pàgina
+// només hi cap a 90 o 270», que era cert de la pàgina que hi havia i no del maquinari (docs/50).
+uint16_t Epd47::width() const { return (rotation_ == 90 || rotation_ == 270) ? kPageW : kGlassW; }
+uint16_t Epd47::height() const { return (rotation_ == 90 || rotation_ == 270) ? kPageH : kGlassH; }
 
 bool Epd47::begin() {
   if (begun_) return true;
@@ -74,19 +74,19 @@ bool Epd47::begin() {
   // glass and the built-in waveform. Epdiy owns the I2C, the PCA9535 and the TPS65185 from here on (docs/50).
   epd_init(&epd_board_v7, &ED047TC1, EPD_LUT_64K);
   epd_set_vcom(vcom_mv_);
-  // **I la forma d'ona és la del fabricant d'aquest vidre, no la genèrica** (0.190.78). Two files exist in the board's own repository
-  // and they are not the same thing:
+  // **La forma d'ona amb què arrenca el build és la TC2** (0.190.286, l'amo: *«deixa la C2 al final»*, després de la 0.190.284 que
+  // va posar la C1 per provar-la). Les dues que aquest panell té compilades no són el mateix:
   //
-  //   - `waveforms/epdiy_ED047TC1.h`, 37 KB: the generic table, **one** temperature range (20-30 °C) and five modes. It is what
-  //     `ED047TC1` selects by default, and it is what we have been painting with.
-  //   - `waveforms/epdiy_ED047TC2.h`, 266 KB of text: **byte for byte** the file LilyGO ships in this board's older branch as
-  //     `lib/LilyGo-EPD47-esp32s3/Waveform_header/ED047TC2.h` (48 192 bytes of table, compared value by value), with **seven**
-  //     temperature ranges from 0 to 48 °C. Epdiy's own `builtin_waveforms.c` says where it comes from: *«Alternative Waveform added
-  //     by Lilygo on Oct 2021»*.
+  //   - `waveforms/epdiy_ED047TC1.h`, 37 KB: la genèrica, **un** rang de temperatura (20-30 °C) i **cinc** modes —els tres de la C2
+  //     més `WHITE_TO_GL16` i `BLACK_TO_GL16`. És la que els dos exemples del fabricant fan servir de debò (`ED047TC1` amb
+  //     `EPD_BUILTIN_WAVEFORM`) i també la que `ED047TC1` tria per defecte.
+  //   - `waveforms/epdiy_ED047TC2.h`, 266 KB de text: **byte for byte** el fitxer que LilyGO porta a la branca vella d'aquesta placa
+  //     com a `lib/LilyGo-EPD47-esp32s3/Waveform_header/ED047TC2.h` (48 192 bytes de taula, comparats valor a valor), amb **set**
+  //     rangs de 0 a 48 °C i tres modes. `builtin_waveforms.c` d'epdiy diu d'on surt: *«Alternative Waveform added by Lilygo on Oct
+  //     2021»*.
   //
-  // O sigui que **la forma d'ona calibrada per a aquest panell és la TC2**, i epdiy ja la porta compilada: l'única cosa que faltava
-  // era triar-la. És el que fa aquesta línia, i és el que els seus exemples acaben fent servir quan el panell es declara com el que
-  // és (docs/50, docs/95).
+  // O sigui que **la taula calibrada per a aquest panell és la C2** i és la que es queda. La C1 no marxa: és un punter de l'estat
+  // d'epdiy i `panel wave tc1` la posa en calent, sense reiniciar (docs/50, docs/95).
   g_state = epd_hl_init(&epdiy_ED047TC2);
   frame_ = epd_hl_get_framebuffer(&g_state);
   if (frame_ == nullptr) {
@@ -105,20 +105,34 @@ bool Epd47::begin() {
   // paràmetre del driver, aquí (docs/50, docs/95).
   const uint32_t kGlassMhz = 24;
   if (epd_lcd_pixel_clock_MHz() != static_cast<int>(kGlassMhz)) epd_lcd_set_pixel_clock_MHz(static_cast<int>(kGlassMhz));
-  logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass at %u MHz, the waveform of the maker (%s)", "2.0.0",
+  logf(pal::kLogInfo, "PANEL", "epdiy %s, %ux%u of glass at %u MHz, the waveform is the %s", "2.0.0",
        static_cast<unsigned>(epd_width()), static_cast<unsigned>(epd_height()),
        static_cast<unsigned>(epd_lcd_pixel_clock_MHz()), waveform_);
   return true;
 }
 
+// **Els quatre girs, i cadascun és el mapa de la pàgina al marc del xip** (0.190.281): amb la pàgina de 540 × 960 els dos talls
+// creuen els eixos; amb la pàgina apaïsada de 960 × 540 el gir zero és la identitat i el de cent vuitanta és la volta sencera —
+// els dos costats menys un— (docs/50).
 void Epd47::to_glass(uint16_t px, uint16_t py, uint16_t& gx, uint16_t& gy) const {
-  if (rotation_ == 90) {
-    gx = static_cast<uint16_t>(kPageH - 1 - py);
-    gy = px;
-    return;
+  switch (rotation_) {
+    case 90:
+      gx = static_cast<uint16_t>(kPageH - 1 - py);
+      gy = px;
+      return;
+    case 180:
+      gx = static_cast<uint16_t>(kGlassW - 1 - px);
+      gy = static_cast<uint16_t>(kGlassH - 1 - py);
+      return;
+    case 0:
+      gx = px;
+      gy = py;
+      return;
+    default:  // 270, the turn the system has always used
+      gx = py;
+      gy = static_cast<uint16_t>(kPageW - 1 - px);
+      return;
   }
-  gx = py;
-  gy = static_cast<uint16_t>(kPageW - 1 - px);
 }
 
 void Epd47::put(uint16_t gx, uint16_t gy, uint8_t level) {
@@ -139,9 +153,11 @@ uint8_t Epd47::get(uint16_t gx, uint16_t gy) const {
 }
 
 void Epd47::mark(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
-  if (w == 0 || h == 0 || x >= kPageW || y >= kPageH) return;
-  const uint16_t x1 = static_cast<uint16_t>(x + w - 1 >= kPageW ? kPageW - 1 : x + w - 1);
-  const uint16_t y1 = static_cast<uint16_t>(y + h - 1 >= kPageH ? kPageH - 1 : y + h - 1);
+  const uint16_t page_w = width();
+  const uint16_t page_h = height();
+  if (w == 0 || h == 0 || x >= page_w || y >= page_h) return;
+  const uint16_t x1 = static_cast<uint16_t>(x + w - 1 >= page_w ? page_w - 1 : x + w - 1);
+  const uint16_t y1 = static_cast<uint16_t>(y + h - 1 >= page_h ? page_h - 1 : y + h - 1);
   if (x < dirty_x0_) dirty_x0_ = x;
   if (y < dirty_y0_) dirty_y0_ = y;
   if (x1 > dirty_x1_) dirty_x1_ = x1;
@@ -186,17 +202,17 @@ void Epd47::clear(uint8_t level) {
   if (frame_ == nullptr) return;
   const uint8_t nibble = static_cast<uint8_t>(level & 0x0F);
   memset(frame_, static_cast<int>((nibble << 4) | nibble), static_cast<size_t>(kGlassW) * kGlassStride);
-  mark(0, 0, kPageW, kPageH);
+  mark(0, 0, width(), height());
 }
 
 void Epd47::fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level) {
   mark(x, y, w, h);
   for (uint16_t j = 0; j < h; ++j) {
     const uint16_t py = static_cast<uint16_t>(y + j);
-    if (py >= kPageH) return;
+    if (py >= height()) return;
     for (uint16_t i = 0; i < w; ++i) {
       const uint16_t px = static_cast<uint16_t>(x + i);
-      if (px >= kPageW) break;
+      if (px >= width()) break;
       uint16_t gx = 0;
       uint16_t gy = 0;
       to_glass(px, py, gx, gy);
@@ -206,7 +222,7 @@ void Epd47::fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t le
 }
 
 void Epd47::pixel(uint16_t x, uint16_t y, uint8_t level) {
-  if (x >= kPageW || y >= kPageH) return;
+  if (x >= width() || y >= height()) return;
   mark(x, y, 1, 1);
   uint16_t gx = 0;
   uint16_t gy = 0;
@@ -219,11 +235,11 @@ void Epd47::blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* 
   mark(x, y, w, h);
   for (uint16_t j = 0; j < h; ++j) {
     const uint16_t py = static_cast<uint16_t>(y + j);
-    if (py >= kPageH) return;
+    if (py >= height()) return;
     const uint8_t* line = packed + static_cast<uint32_t>(j) * stride;
     for (uint16_t i = 0; i < w; ++i) {
       const uint16_t px = static_cast<uint16_t>(x + i);
-      if (px >= kPageW) break;
+      if (px >= width()) break;
       // The left pixel of a byte is the high nibble (docs/50): the source is indexed by its own column and not by the
       // column it lands on, which is what makes an odd `x` read the right pixel.
       const uint8_t pair = line[i >> 1];
@@ -237,13 +253,16 @@ void Epd47::blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* 
 }
 
 bool Epd47::set_rotation(uint16_t degrees) {
-  // **Only the two that fit**: the glass is 960 × 540 and the page is 540 × 960, o sigui que girar-la noranta o dues-
-  // centes setanta és el que la fa cabre; els altres dos demanarien una pàgina de la mateixa forma que el vidre.
-  if (degrees != 90 && degrees != 270) {
-    error_ = "the page only fits on this glass at 90 or 270 degrees";
+  // **Els quatre, i el que decideix és la forma de la pàgina** (0.190.281): a quarter turn gives the portrait page of 540 × 960
+  // and no turn at all gives the glass frame, 960 × 540; el que no és cap volta es refusa (docs/50).
+  if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) {
+    error_ = "a turn is 0, 90, 180 or 270";
     return false;
   }
   rotation_ = degrees;
+  // **I la pàgina torna a ser el que cal pintar**: el que hi ha al framebuffer es va dibuixar en el marc de la pàgina d'abans, o
+  // sigui que el vidre sencer es torna a enviar quan algú pinta (docs/50, docs/95).
+  mark(0, 0, width(), height());
   return true;
 }
 
@@ -439,7 +458,12 @@ bool Epd47::set_vcom_mv(uint16_t mv) {
   vcom_mv_ = mv;
   if (!begun_) return true;
   // **I s'ha de tornar a encendre perquè l'agafi**: the value is written to the supply when the rails come up, o sigui que el que es
-  // fa és baixar-les, dir-ho i tornar-les a pujar; la imatge no es mou perquè és tinta (docs/50, docs/95).
+  // fa és baixar-les, escriure-hi i tornar-les a pujar; la imatge no es mou perquè és tinta (docs/50, docs/95).
+  //
+  // **I es deixen com estaven** (0.190.285): un vidre que dormia no s'ha de quedar amb el corrent obert només per haver-li dit una
+  // VCOM nova —el que xiuxiueja a la tinta tot el dia és precisament el que `begin()` promet no fer—, o sigui que el que es recorda
+  // és si eren amunt i, si no hi eren, es tornen a baixar (docs/50, docs/95).
+  const bool was_powered = powered_;
   if (powered_) {
     epd_poweroff();
     powered_ = false;
@@ -447,7 +471,12 @@ bool Epd47::set_vcom_mv(uint16_t mv) {
   epd_set_vcom(mv);
   epd_poweron();
   powered_ = true;
-  logf(pal::kLogInfo, "PANEL", "the supply now holds VCOM at %u mV", static_cast<unsigned>(mv));
+  if (!was_powered) {
+    epd_poweroff();
+    powered_ = false;
+  }
+  logf(pal::kLogInfo, "PANEL", "the supply now holds VCOM at %u mV, and the rails are %s", static_cast<unsigned>(mv),
+       powered_ ? "up" : "down");
   return true;
 }
 

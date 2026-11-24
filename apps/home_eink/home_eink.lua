@@ -100,26 +100,41 @@ local kBarH = 6
 
 -- ------------------------------------------------------------------ the cache of the session
 
--- **What is kept, and where**: a header of eight bytes —the magic and the side of a picture, so a cache of another size of
--- cell is not painted on this one—, the records of the apps and then their pictures, four bits a pixel and in the order of
--- the block (`cv:capture` and `cv:blit` are a copy and not a decode). A record is `id`, the title, the icon, the number of
--- the picture and **the version of the manifest** (0.189.22), and the number is how this file knows whether a picture is in
--- the block or has to be read from the disk.
--- **The size asked for, and what it falls back to when the board cannot give it** (0.179.1): a block that holds the records
--- and no picture is still worth having —the manifests are what the queue pays for one per turn— and a block that holds
--- neither is not the end of the page. The pieces come down and the last one is the records alone —1 536 B, plus the eight of
--- the header— which is what a board with a crowd of apps or with the memory spent gets (docs/30, docs/75).
+-- **What is kept, and where**: a header of eight bytes, the pictures of the apps, and the records **at the end of the
+-- block** (0.190.279). Les imatges van davant i a llocs fixos (`cv:capture` i `cv:blit` són una còpia i no una descodificació)
+-- perquè el text creixi o minvi sense moure ni un píxel: una app instal·lada un dia fa la llista més llarga i el que hi havia
+-- a la caché segueix sent vàlid. A record is `id`, the title, the icon, the number of the picture, whether its picture is in
+-- the block and **the version of the manifest** (0.189.22).
+--
+-- ```
+-- [ 0..3] 'HEC3'   [4..5] how many bytes the records take   [6] the side of a picture   [7] how many pictures
+-- [ 8 .. 8 + n*picture)  the pictures, four bits a pixel
+-- [ size - text .. size) the records, in the order of the page
+-- ```
+--
+-- **I no hi ha cap sostre** (0.190.279, l'amo: *«Se suposa que no hi ha limits. Haviem parlat de fer-ho tot dinamic, recordes?»*
+-- i *«també lo de treure el sostre»*): fins avui els registres tenien 1 528 B de finestra escrita a mà —una constant triada
+-- quan el disc tenia vint-i-pocs apps— i amb trenta-dues el text feia 1 659 i **l'app no escrivia res**, o sigui que el
+-- llaçador tornava a llegir i a descodificar totes les icones a cada arrencada. Ara el pressupost és el bloc: es demana el
+-- que calgui (el bloc creix, el nucli ho permet), i si ni així no hi cap —una placa sense memòria— s'escriuen les línies
+-- senceres que hi caben i prou, en lloc de no escriure-ne cap (docs/30, docs/75).
 local kCacheSteps = { 32768, 24576, 16384, 8192, 1544 }
-local kCacheMagic = 'HEC2'
-local kCacheText = 8
-local kCacheTextBytes = 1528
-local kCachePictures = kCacheText + kCacheTextBytes
+local kCacheMagic = 'HEC3'
+local kCacheHead = 8
+-- **Quantes imatges vol la pàgina** quan el bloc encara no en té cap de decidida: és el que es demana en créixer, i no un
+-- sostre del text (docs/75).
+local kWantedPictures = 12
+-- **La icona de sèrie no es desa** (0.190.279): 31 de les 32 apps del disc diuen `res/icon.png` i el camí absolut que en fa
+-- la porta repeteix a cada línia el nom de l'app que ja hi és —802 B dels 1 697, gairebé la meitat de la llista—. Un camp
+-- buit vol dir aquesta, i es torna a escriure en llegir; `-` vol dir que el manifest no en nomena cap.
+local kHouseIcon = 'res/icon.png'
 
 local cache = nil          -- the block, or nil when the system gave none
 local cached = {}          -- the id of an app to { title=, icon=, slot=, version= }, as the block says
 local cached_order = {}    -- the ids the block gave, in the order it gave them (the sorted order of the page)
 local slots = 0            -- how many pictures the block holds
 local warm = {}            -- the ids whose picture is in the block, so a paint is a copy
+local text_len = 0         -- how many bytes of records the block has, at its end
 
 -- **The names of the door, the manifests that have arrived, and the queue between the two** (0.154.0). `known` is filled
 -- as the queue runs, and a page laid out again uses it instead of asking the disk a second time.
@@ -162,6 +177,34 @@ local function picture_bytes()
   return ((kIcon + 1) // 2) * kIcon
 end
 
+-- **La icona, escurçada i tornada a fer** (0.190.279): the door hands the absolute path of the picture —`/apps/about/res/
+-- icon.png`— and the block keeps the part inside the app, with an empty field for the one that every app of this disk has.
+-- El que es llegeix és el mateix camí que donaria la porta, o sigui que una cel·la que ve del bloc pinta exactament el que
+-- pintava del disc (docs/30, docs/40).
+local function icon_field(id, icon)
+  if icon == nil or icon == '' then return '-' end
+  local root = '/apps/' .. id .. '/'
+  if icon == root .. kHouseIcon then return '' end
+  if icon:sub(1, #root) == root then return icon:sub(#root + 1) end
+  return icon
+end
+
+local function icon_of(id, field)
+  if field == '-' then return '' end
+  if field == '' then return '/apps/' .. id .. '/' .. kHouseIcon end
+  if field:sub(1, 1) == '/' then return field end
+  return '/apps/' .. id .. '/' .. field
+end
+
+-- **On és el dibuix d'un registre, si hi és** (0.190.279): the pictures grow from the front of the block and the records
+-- live at its end, o sigui que un dibuix que arribaria a tocar el text no hi és i s'ha de tornar a fer (docs/75).
+local function cache_at(slot)
+  if cache == nil or slot == nil then return nil end
+  local at = kCacheHead + slot * picture_bytes()
+  if at + picture_bytes() > cache:size() - text_len then return nil end
+  return at
+end
+
 -- **The block is asked once and read**: a cold one has no magic —the kernel gives it zeroed— and every record of it is
 -- taken back into `cached`. A block whose side is not the side of this page is not read at all: the pictures in it were
 -- measured for another cell. A record says whether its picture is really in the block, because an app whose picture failed
@@ -172,6 +215,7 @@ local function load_cache()
   cached_order = {}
   slots = 0
   warm = {}
+  text_len = 0
   local block, err = nil, nil
   for i = 1, #kCacheSteps do
     block, err = sys.session('apps', kCacheSteps[i])
@@ -182,34 +226,45 @@ local function load_cache()
     return
   end
   cache = block
-  if cache:read(0, 4) ~= kCacheMagic then
-    console.print(string.format('home: cache cold, %d bytes', cache:size()))
+  -- **Els registres es compten i es llegeixen del final** (0.190.279): the header says how many bytes the list takes and the
+  -- list is the last ones of the block, so a longer list one day does not move a single picture.
+  local head = cache:read(0, kCacheHead)
+  local length = 0
+  if #head == kCacheHead and head:sub(1, 4) == kCacheMagic and head:byte(7) == kIcon then
+    length = head:byte(5) + head:byte(6) * 256
+  end
+  if length <= 0 or length > cache:size() - kCacheHead then
+    if #head ~= kCacheHead or head:sub(1, 4) ~= kCacheMagic then
+      console.print(string.format('home: cache cold, %d bytes', cache:size()))
+    elseif head:byte(7) ~= kIcon then
+      console.print('home: cache of another size of cell, building it again')
+    else
+      console.print('home: the cache has no list of records, building it again')
+    end
+    -- **El que encara no té text es reserva** (0.190.279): a cold block has no list to measure and this first run captures
+    -- its pictures from the front, so a quarter of the block (four kilobytes at most) is kept for a list that is not there
+    -- yet. A picture is never kept where the records will go, and the real length takes the reservation's place at the
+    -- first `save_cache` (docs/75).
+    text_len = cache:size() // 4
+    if text_len > 4096 then text_len = 4096 end
     return
   end
-  if cache:read(4, 1):byte(1) ~= kIcon then
-    console.print('home: cache of another size of cell, building it again')
-    return
-  end
-  -- **The text ends at the first zero** (0.179.0): the block is read whole —the records are shorter than their window— and a
-  -- zero is not in any of them, so what is after the last one is the kernel's zeroing and not a record with a broken tail
-  -- (a launcher that lost the last app of its cache asked for it again at every start, which is how this was found).
-  local text = cache:read(kCacheText, kCacheTextBytes)
-  local zero = text:find('\0', 1, true)
-  if zero ~= nil then text = text:sub(1, zero - 1) end
+  local text = cache:read(cache:size() - length, length)
+  text_len = length
   local count = 0
   local drawn = 0
-  -- **Un registre porta la versió** (0.189.22): `id`, the title a person reads, the path of the picture, the number of its
-  -- picture in the block and **the version of the manifest it was read from**. Without that number the block cannot tell an
-  -- app that has been updated from one that has not, and the icon and the title of the old version would outlive the app that
-  -- wrote them —which is the one thing a cache of pictures cannot be allowed to do— (docs/30, docs/40).
+  -- **Un registre porta la versió** (0.189.22): `id`, the title a person reads, the picture inside the app, the number of its
+  -- picture in the block, whether that picture is there and **the version of the manifest it was read from**. Without that
+  -- number the block cannot tell an app that has been updated from one that has not, and the icon and the title of the old
+  -- version would outlive the app that wrote them —which is the one thing a cache of pictures cannot be allowed to do— (docs/30, docs/40).
   for line in text:gmatch('[^\n]+') do
     local id, title, icon, slot, has, version = line:match('^([^\t]+)\t([^\t]*)\t([^\t]*)\t(%d+)\t([01])\t([^\t]*)$')
     if id ~= nil then
       slot = tonumber(slot)
-      cached[id] = { title = title, icon = icon, slot = slot, version = version }
+      cached[id] = { title = title, icon = icon_of(id, icon), slot = slot, version = version }
       cached_order[#cached_order + 1] = id
       if slot + 1 > slots then slots = slot + 1 end
-      if has == '1' then
+      if has == '1' and cache_at(slot) ~= nil then
         warm[id] = true
         drawn = drawn + 1
       end
@@ -242,43 +297,93 @@ end
 -- **And it is written when the page is whole**: the magic goes last, so a run that ends in the middle of the queue does not
 -- leave a header that promises records the block does not have. A title or a path with the two characters of the format in
 -- it is not written —a cache that breaks the parse is a cache that is never read again— and the app is asked next time.
+--
+-- **I el que hi cap ho diu el bloc, no una constant** (0.190.279): the list is built first —a line is the same length
+-- whether its picture is in the block or not, so the length is known before the flags are— and then the room of the
+-- pictures is what the block has left before the records' end. If the list does not fit, **the block grows** (the kernel
+-- lets a session block grow, 0.189.x) and the page asks for it with twelve pictures under it; a board that cannot give them
+-- stays as it was and the lists that fit are written, because a cache of half the apps is worth a page that is warm for half
+-- of them and not worth nothing at all (docs/30, docs/75).
 local function save_cache()
   if not the_cache_is_ours() then return end
-  local text = {}
-  local slot = 0
-  local held = 0
+  local rows = {}
   for i = 1, #ids do
     local id = ids[i]
     local info = known[id]
     if info ~= nil then
       local title = info.title
-      local icon = info.icon
+      local icon = info.icon or ''
       local version = info.version or ''
       if not title:find('[\t\n]') and not icon:find('[\t\n]') and not id:find('[\t\n]') and
          not version:find('[\t\n]') then
         local was = cached[id]
+        local mine
         if was ~= nil then
-          slot = was.slot
+          mine = was.slot
         else
-          slot = slots
+          mine = slots
           slots = slots + 1
         end
-        cached[id] = { title = title, icon = icon, slot = slot, version = version }
-        local has = warm[id] and '1' or '0'
-        if has == '1' then held = held + 1 end
-        text[#text + 1] = string.format('%s\t%s\t%s\t%d\t%s\t%s', id, title, icon, slot, has, version)
+        cached[id] = { title = title, icon = icon, slot = mine, version = version }
+        rows[#rows + 1] = { id = id, title = title, icon = icon, slot = mine, version = version }
       end
     end
   end
-  local body = table.concat(text, '\n')
-  if #body > kCacheTextBytes then
-    console.print('home: too many apps for the cache of the session')
+  -- **El text d'una pàgina sencera** (0.190.279): `fit` és quantes imatges hi caben, i només el sap el que ha vingut abans de
+  -- dir-ho a la línia; les línies amb `fit` absent es fan amb el que hi ha i la llargada és la mateixa.
+  local function the_text(count, fit)
+    local lines = {}
+    for i = 1, count do
+      local r = rows[i]
+      local has = '0'
+      if warm[r.id] and (fit == nil or r.slot < fit) then has = '1' end
+      lines[i] = string.format('%s\t%s\t%s\t%d\t%s\t%s', r.id, r.title, icon_field(r.id, r.icon), r.slot, has,
+                               r.version)
+    end
+    return table.concat(lines, '\n')
+  end
+  local count = #rows
+  local body = the_text(count)
+  local room = cache:size() - kCacheHead - #body
+  if room < 0 then
+    local want = kCacheHead + #body + kWantedPictures * picture_bytes()
+    local bigger = sys.session('apps', want)
+    if bigger ~= nil then
+      cache = bigger
+      room = cache:size() - kCacheHead - #body
+      console.print(string.format('home: the cache grows to %d bytes, %d of them for the list', cache:size(), #body))
+    end
+  end
+  -- **I el que no hi cap, per línies senceres** (0.190.279): a board with the memory spent writes the apps that fit and asks
+  -- the disk for the rest next time —the tail of the page, which with `cfg sort on` is the least opened—.
+  local written = count
+  while (room < 0 or #body > 65535) and written > 0 do
+    written = written - 1
+    body = the_text(written)
+    room = cache:size() - kCacheHead - #body
+  end
+  if room < 0 then
+    console.print('home: no room for the list of the page in the cache of the session')
     return
   end
-  cache:write(kCacheText, body)
-  cache:write(4, string.char(kIcon))
+  if written < count then
+    console.print(string.format('home: %d of %d apps fit in the cache of the session', written, count))
+  end
+  local fit = room // picture_bytes()
+  body = the_text(written, fit)
+  local held = 0
+  for i = 1, written do
+    if warm[rows[i].id] and rows[i].slot < fit then held = held + 1 end
+  end
+  -- **Els registres van al final del bloc** (0.190.279): the pictures keep the places they had, so a list that grows one day
+  -- does not make cold the pictures that were warm, i la capçalera diu on comença el text i prou.
+  cache:write(4, string.char(#body % 256, #body // 256))
+  cache:write(6, string.char(kIcon))
+  cache:write(7, string.char(held))
+  cache:write(cache:size() - #body, body)
   cache:write(0, kCacheMagic)
-  console.print(string.format('home: cache kept, %d apps, %d pictures', #text, held))
+  text_len = #body
+  console.print(string.format('home: cache kept, %d apps, %d pictures, %d bytes of list', written, held, #body))
 end
 
 -- **And what the person has opened, which is the other thing this page remembers** (0.189.13): one line an app,
@@ -773,8 +878,8 @@ local function paint_picture(id, picture, info, inverted)
   -- the cache holds one picture per app and not two (docs/30, docs/75).
   local ours = the_cache_is_ours()
   local record = ours and cached[id] or nil
-  if record ~= nil and warm[id] and cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
-    local at = kCachePictures + record.slot * picture_bytes()
+  local at = record and cache_at(record.slot) or nil
+  if at ~= nil and warm[id] then
     if picture:blit(cache, at, 0, 0, kIcon, kIcon, kCellMode) then
       if inverted then picture:invert(0, 0, kIcon, kIcon, kCellMode) end
       return
@@ -803,11 +908,14 @@ local function paint_picture(id, picture, info, inverted)
 
   -- **And what was just drawn is kept**: the paper face only, because the ink is the invert of the same pixels, and only
   -- when the block has a place for it —an app whose manifest has not arrived has no record yet, and a block of a board with a
-  -- crowd of apps may hold the records and no picture at all— (docs/30, docs/75).
-  if record ~= nil and not inverted and info ~= nil and the_cache_is_ours() and
-      cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
-    local at = kCachePictures + record.slot * picture_bytes()
-    if picture:capture(cache, at) ~= nil then warm[id] = true end
+  -- crowd of apps may hold the records and no picture at all— (docs/30, docs/75). **I el lloc el diu `cache_at`** (0.190.279):
+  -- the pictures grow from the front of the block and the records live at its end, o sigui que el que decideix si hi ha
+  -- lloc és on comença el text i no una constant.
+  if record ~= nil and not inverted and info ~= nil and the_cache_is_ours() then
+    local room = cache_at(record.slot)
+    if room ~= nil then
+      if picture:capture(cache, room) ~= nil then warm[id] = true end
+    end
   end
 
   if inverted then picture:invert(0, 0, kIcon, kIcon, kCellMode) end

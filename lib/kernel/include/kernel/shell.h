@@ -196,6 +196,18 @@ bool deep_sleep(const char* reason);
 bool ask_run(const char* id, bool back, const char* flags, const char* path, char* why,
               size_t why_cap);
 
+// **De qui és la consola quan aquesta pàgina arrenca** (0.190.278, l'amo: *«vull que les apps heretin l'estat del terminal. Si tanco o
+// vaig a home o faig back… Si he arrencat amb una app a primer plà de terminal tot a primer plà. Si ho faig amb una app desenganxada els
+// seus fills també ho han de ser. L'app home s'arrenca com a detached el primer cop»*). Tres respostes i prou, i la de sèrie és la que
+// fa que una cadena de pàgines sigui una sola sessió:
+//
+//   - `kOfThePageBefore` — **la consola viatja amb la cadena**: la pàgina que arriba es queda el cable que tenia la que marxa, sigui
+//     quin sigui. És el que fa que el llaçador del boot sigui del fons i el que fa que un `run x` pel cable no es desfaci mai sol.
+//   - `kAttached` — **el terminal és el que ha preguntat**: `run`, `open` i la resposta a «quina app?», que només es poden escriure
+//     des d'un prompt viu.
+//   - `kDetached` — **la pàgina va al darrere del prompt**: l'arrencada de la casa (la comanda `home`) i el `&`.
+enum class Wire : uint8_t { kOfThePageBefore, kAttached, kDetached };
+
 // **La porta única d'una pàgina que arrenca, amb cada cosa pel seu nom** (0.190.251, l'amo: *«reorganitza aquell caos de funcions que criden
 // funcions que comproven que criden funcions»*). Fins avui hi havia `run_app(id, path, restore, splash, alarm, late_ms)` —sis arguments
 // posicionals— i tres embolcalls (`start_app`, `restore_app`, `raise_app`) que eren combinacions recordades d'aquells sis. Cada porta nova
@@ -206,8 +218,14 @@ struct AStart {
   const char* path = nullptr;            // a file it opens with, when the page opens with a file (docs/30, docs/45)
   bool card = true;                      // the card of its manifest, when the glass is somebody else's picture
   bool come_back = false;                // it comes back from a sleep: reads its `state` and does not wash the page (docs/90)
+  // **I el vidre es renta abans de la pàgina del que torna** (0.190.294, l'amo: *«la pantalla queda bruta del dibuix d'sleep i es queda al
+  // tornar a home… afegeix un paràmetre bool per netejar abans de tornar a l'app (per defecte false)»*). Off by default, perquè una pàgina
+  // que torna a un vidre que ja era seu no ha de pagar cap rentat; el que el posa és el camí del son, on el que hi ha al vidre és la imatge
+  // del son i la pàgina es pagaria amb el mode de l'app —un `du` sobre una tinta que no és la seva— (docs/30, docs/50, docs/90).
+  bool wash = false;
   const alarms::Entry* alarm = nullptr;  // it is a `raise`: the payload the window would have given it (docs/60)
   int64_t late_ms = 0;
+  Wire wire = Wire::kOfThePageBefore;    // who has the console after this start (docs/30)
 };
 
 // **I el perquè de `card`** (0.179.33): a start that shows the picture of the manifest and one that does not are two different moments of the
@@ -215,6 +233,10 @@ struct AStart {
 // second one is a wash of the glass for something the person has just seen—; **la tornada a una pàgina sí**, perquè la persona ha de veure
 // quina pàgina arriba (docs/30, docs/40).
 bool start_a_page(const AStart& start);
+
+// **I si la pàgina del davant és al fons** (0.190.278): the parking of a session across a deep sleep writes down whether the app had the wire,
+// perquè una app que dormia desenganxada torni desenganxada i el prompt que hi havia darrere torni a contestar (docs/30, docs/60, docs/90).
+bool app_detached();
 
 // The window of an alarm: the app is loaded, turned once and its on_alarm is
 // called, and then the VM goes away. Never runs on top of another app.

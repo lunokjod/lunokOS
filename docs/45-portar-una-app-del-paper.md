@@ -556,10 +556,11 @@ I a part, **les que no són ports**:
   fletxes apagades). La pàgina es torna de dues maneres: el dit a sobre d'una fletxa, o el dial fins a la fletxa i el
   centre; la volta la fa el bucle de l'app i no el clic, perquè el control que l'ha pres no es pot donar a si mateix
   mentre corre.
-- **`bthid` i `btkbd`** (*btHID Mouse* 0.3.1 i *btHID Keyboard* 0.1.1), les dues apps que fan d'aquesta placa el ratolí i el teclat
+- **`bthid` i `btkbd`** (*btHID Mouse* 0.4.0 i *btHID Keyboard* 0.2.0), les dues apps que fan d'aquesta placa el ratolí i el teclat
   d'un altre aparell. No vénen del projecte del paper: allà el Bluetooth no hi era i el panell no feia d'HID. El que sí que és de
   casa és el seu aspecte —la pàgina d'espera amb un sol commutador, la línia d'estat i el log de cada pas— i el que les fa servir,
-  que és el HAL de la 0.190.204 (docs/30, docs/50).
+  que és el HAL de la 0.190.204 (docs/30, docs/50). **Des de la 0.191.0 les dues comparteixen el vincle**: la placa publica el teclat i
+  el ratolí sempre, o sigui que passant d'una app a l'altra l'altre aparell no s'ha de tornar a aparellar.
 - **`probe`**, que **no és una pantalla**: és un instrument temporal de l'emulador que repeteix l'arrencada del lector
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.

@@ -660,7 +660,12 @@ Com està avui:
    amb el rellotge del xip tornant-la a engegar, que és el Paper—, i la T5 E-Paper S3 Pro hi contestava que no perquè el seu
    son profund és un son de l'ESP32: **la seva política no dormia mai**, i ni `Sleep after` ni el respir de la llum tenien
    res a fer-hi. Ara la pregunta és `can_sleep_on_idle()` —«aquesta placa estalvia si baixa?»—, que per defecte val el mateix
-   que abans i que la T5 contesta que sí; el que decideix després és el que ja hi era: la porta per tornar-ne. **I el mateix
+   que abans i que la T5 contesta que sí; el que decideix després és el que ja hi era: la porta per tornar-ne.
+   **I la resposta de la T5 es va quedar escrita i no pas posada** (0.190.293, l'amo: *«la placa T5S3 encara no es posa a dormir
+   quan toca amb el timeout»*): aquesta mateixa frase deia que la T5 contesta que sí i la classe `T5Power` no tenia
+   l'`override` de `can_sleep_on_idle`, o sigui que la resposta de sèrie —la de `deep_powers_off`, falsa en aquesta banda— era
+   la que arribava i el temporitzador no disparava res. Ara hi és, i és `true`: baixar estalvia (llum a zero, carrils del TPS65185
+   avall, vidre descansat i xip aturat) i les portes de tornada són tres (el BOOT, el rellotge del xip i el dit). **I el mateix
    error tenia la llum**: `Dim when idle` demanava que el cable no estigués carregant, o sigui que a la T5 —que sap dir-ho pel
    BQ25896— el vidre no s'apagava mai amb el cable a dins; a la M5Paper no es veia perquè el seu `battery()` no pot dir si
    carrega. Ara el comptador de la quietud mana sobre el respir, i el respir s'atura amb el negre (docs/50).

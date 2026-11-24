@@ -226,6 +226,23 @@ void log_printf(pal::LogLevel level, const char* tag, const char* fmt, ...) {
   emit(line, used);
 }
 
+// **Una línia de l'arrencada que surt al cable encara que el mirall sigui tancat** (0.190.292, l'amo: *«el codi del M5 no ho te!»* — i el
+// codi hi era, però el mirall del registre cap al port sèrie està tancat des de la 0.190.185 a posta: el cable només rep el que és una
+// fallada, i la resta es llegeix amb `log`, `log follow` o `verbose on`). **L'arrencada és l'excepció que té sentit**: el que diu passa
+// una vegada, i quan una persona arriba a escriure `log` l'anella de dos kilobytes ja ho ha tirat fora. La línia va a l'anella com totes
+// i, si el mirall no la hi ha dut ell, es queda al cable amb el mateix filtre i el mateix color de nivell (docs/30, docs/75).
+void log_bootf(pal::LogLevel level, const char* tag, const char* fmt, ...) {
+  char line[kLineBytes];
+  va_list args;
+  va_start(args, fmt);
+  const size_t used = hal::vformat_log(line, sizeof(line), level, tag, fmt, args);
+  va_end(args);
+  if (used == 0) return;
+  emit(line, used);
+  if (g_echo) return;
+  write_line(serial::console(), line, used);
+}
+
 void log_markf(const char* tag, const char* fmt, ...) {
   char line[kLineBytes];
   va_list args;

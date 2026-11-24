@@ -491,6 +491,24 @@ void row_inline(const char* label, const char* measure, const char* value) {
   out(value);
 }
 
+// **Un camp d'una taula amb la seva amplària** (0.190.289): `%6u` pads on the left and a code of the palette is not a letter, o sigui
+// que el farcit es compta aquí i el text va sol. És el que fa que `ansi off` deixi la taula exactament com era (docs/30).
+void field_left(const char* text, size_t width, const char* style) {
+  out(style);
+  out(text);
+  const size_t len = strlen(text);
+  if (len < width) spaces(width - len);
+  out(kStyleOn);
+}
+
+void field_right(const char* text, size_t width, const char* style) {
+  const size_t len = strlen(text);
+  if (len < width) spaces(width - len);
+  out(style);
+  out(text);
+  out(kStyleOn);
+}
+
 // **A number of bytes that a person can read** (0.190.238): bytes below a kilobyte, and one decimal above it —kilobytes, megabytes,
 // gigabytes— because `917504 B` is a number nobody counts and what the eye wants is `896.0 KB`. **La rodonesa és a la unitat que es diu**:
 // el número es parteix en dècimes i s'arrodoneix a la dècima més propera, i el que una persona llegeix és el que hi ha, no el que hi havia
@@ -728,6 +746,7 @@ void print_help(const char* only) {
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot,", only);
   help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
   help_line("  panel [edge|box]  where a partial paint starts: the edge of the image or the change", only);
+  help_line("  rotate [n]        the turn of the glass (0, 90, 180 or 270), saved for the next boot", only);
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
   help_continuation(
       "                    lives (and `/data`, which a flash does not keep), the keyboard, the picture of the boot and", only);
@@ -771,7 +790,6 @@ void print_help(const char* only) {
   help_line("                    of them an address; `mesh nodes` says who is in this network", only);
   help_line("  cfg wifi on|off   the wifi radio, on or off: it is the switch of the card of the bar,", only);
   help_line("                    and turning it on starts the radio if it was off", only);
-  help_line("  cfg btmode [keyboard|mouse|both]  what this board is to another device, and it is", only);
   help_line("                    kept: a mouse makes the glass the pointer of the other one", only);
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
   help_line("  power last        how far the last sleep was from the hour it was given", only);
@@ -828,11 +846,20 @@ void print_help(const char* only) {
   }
 }
 
+// **La versió, amb els colors de la casa** (0.190.289): el nom i la xifra són el que una persona ha vingut a llegir (el cian del títol), i
+// la placa és el context (el gris del mig) —el text és exactament el de sempre i `ansi off` el deixa igual (docs/30).
 void print_version() {
+  out(kStyleKey);
   out("lunokOS ");
+  out(kStyleHead);
   out(kVersion);
-  out("  board ");
+  out(kStyleOn);
+  out("  ");
+  out(kStyleQuiet);
+  out("board ");
+  out(kStyleKey);
   out(platform().id());
+  out(kStyleOn);
   // The board and the emulator are both true at once on the PC (docs/85).
   if (platform().emulator()) {
     out(" (emulator)");
@@ -1029,14 +1056,10 @@ void print_mem_himem() {
 // el tipus, ni cap info adicional (senyal batería… no sé alguna dada mes)»*). L'anunci porta l'**aparença** —una paraula de setze bits del
 // registre del Bluetooth— i els **serveis** que ofereix, i són la resposta a «què és això» quan l'aparell no diu com es diu. Les taules són
 // curtes a propòsit: el que no hi és no s'inventa (docs/50, docs/85).
-// **La paraula del mode, en una frase** (0.190.204): `bt::device_word()` answers `keyboard`, `mouse` or `both` perquè és el que una
-// pàgina llegeix i el que es compara; el que una persona llegeix al prompt és una frase, i «on, a both» no ho és.
-const char* device_phrase() {
-  const char* word = bt::device_word();
-  if (strcmp(word, "mouse") == 0) return "a mouse";
-  if (strcmp(word, "both") == 0) return "a keyboard and a mouse";
-  return "a keyboard";
-}
+// **Què és aquesta placa, en una frase** (0.190.204, i la mateixa des de la 0.191.0): era la paraula del mode escrita en una frase perquè
+// «on, a both» no ho és; ara el mode no existeix i la frase tampoc no canvia —el que una persona llegeix al prompt és el que la placa és
+// per a l'altre cap, i és sempre el mateix— (docs/30, docs/50).
+const char* device_phrase() { return "a keyboard and a mouse"; }
 
 const char* appearance_name(uint16_t appearance) {
   switch (appearance) {
@@ -1084,20 +1107,51 @@ const char* service_name(uint16_t service) {
 const uint32_t kShownBlocks = 12;
 const uint32_t kShownOwners = 8;
 
+// **La taula dels llibres, amb la paleta de la casa** (0.190.289, l'amo: *«la comanda "mem blocks" no te colors»*): the same numbers and
+// the same columns as before —`ansi off` leaves every line exactly as it was— with the who of a row in the grey of a subject, the counts in
+// the cyan of what matters and the units in the grey of what nobody came to read. **Els que no hi caben, en ambre**: a row that did not fit
+// is the number that says the books are losing something (docs/30, docs/75).
 void print_mem_blocks() {
   if (pal::memory_slots() == 0) {
-    out("  the books are off on this build: no block is written down\r\n");
+    out("  ");
+    out(kStyleQuiet);
+    out("the books are off on this build: ");
+    out(kStyleWarn);
+    out("no block is written down");
+    out(kStyleOn);
+    out("\r\n");
     return;
   }
+  title("the blocks of the memory");
   pal::MemoryBlock rows[kShownBlocks] = {};
   const uint32_t total = pal::memory_blocks(rows, kShownBlocks);
-  char line[96];
-  snprintf(line, sizeof(line), "  %u block(s) written down in %u rows, %u ask(s) did not fit\r\n", static_cast<unsigned>(total),
-           static_cast<unsigned>(pal::memory_slots()), static_cast<unsigned>(pal::memory_lost()));
+  char line[32];
+  out("  ");
+  snprintf(line, sizeof(line), "%u", static_cast<unsigned>(total));
+  out(kStyleHead);
   out(line);
+  out(kStyleOn);
+  out(" block(s) written down in ");
+  snprintf(line, sizeof(line), "%u", static_cast<unsigned>(pal::memory_slots()));
+  out(kStyleHead);
+  out(line);
+  out(kStyleOn);
+  out(" rows, ");
+  snprintf(line, sizeof(line), "%u", static_cast<unsigned>(pal::memory_lost()));
+  out(pal::memory_lost() > 0 ? kStyleWarn : kStyleOn);
+  out(line);
+  out(kStyleOn);
+  out(" ask(s) did not fit");
+  newline();
   pal::MemoryBill bills[kShownOwners] = {};
   const uint32_t owners = pal::memory_bills(bills, kShownOwners);
-  if (owners > 0) out("  who                 blocks        bytes\r\n");
+  if (owners > 0) {
+    out("  ");
+    out(kStyleHead);
+    out("who                 blocks        bytes");
+    out(kStyleOn);
+    newline();
+  }
   for (uint32_t i = 0; i < owners; ++i) {
     char who[32];
     if (bills[i].app[0] != '\0') {
@@ -1105,11 +1159,28 @@ void print_mem_blocks() {
     } else {
       snprintf(who, sizeof(who), "%s", pal::memory_owner_word(static_cast<pal::MemoryOwner>(bills[i].owner)));
     }
-    snprintf(line, sizeof(line), "  %-18s %6u  %11u B\r\n", who, static_cast<unsigned>(bills[i].blocks),
-             static_cast<unsigned>(bills[i].bytes));
-    out(line);
+    char number[16];
+    out("  ");
+    field_left(who, 18, kStyleKey);
+    out(" ");
+    snprintf(number, sizeof(number), "%u", static_cast<unsigned>(bills[i].blocks));
+    field_right(number, 6, kStyleHead);
+    out("  ");
+    snprintf(number, sizeof(number), "%u", static_cast<unsigned>(bills[i].bytes));
+    field_right(number, 11, kStyleHead);
+    out(" ");
+    out(kStyleQuiet);
+    out("B");
+    out(kStyleOn);
+    newline();
   }
-  if (total > 0) out("  the blocks, the biggest first:\r\n");
+  if (total > 0) {
+    out("  ");
+    out(kStyleHead);
+    out("the blocks, the biggest first:");
+    out(kStyleOn);
+    newline();
+  }
   for (uint32_t i = 0; i < total && i < kShownBlocks; ++i) {
     char who[32];
     if (rows[i].app[0] != '\0') {
@@ -1117,13 +1188,38 @@ void print_mem_blocks() {
     } else {
       snprintf(who, sizeof(who), "%s", pal::memory_owner_word(static_cast<pal::MemoryOwner>(rows[i].owner)));
     }
-    snprintf(line, sizeof(line), "  %11u B  %p  %s\r\n", static_cast<unsigned>(rows[i].bytes), rows[i].block, who);
-    out(line);
+    char number[16];
+    out("  ");
+    snprintf(number, sizeof(number), "%u", static_cast<unsigned>(rows[i].bytes));
+    field_right(number, 11, kStyleHead);
+    out(" ");
+    out(kStyleQuiet);
+    out("B");
+    out(kStyleOn);
+    out("  ");
+    out(kStyleQuiet);
+    snprintf(number, sizeof(number), "%p", static_cast<const void*>(rows[i].block));
+    out(number);
+    out(kStyleOn);
+    out("  ");
+    out(kStyleKey);
+    out(who);
+    out(kStyleOn);
+    newline();
   }
   if (total > kShownBlocks) {
-    snprintf(line, sizeof(line), "  ... and %u more; the smallest is %u B\r\n", static_cast<unsigned>(total - kShownBlocks),
-             static_cast<unsigned>(rows[kShownBlocks - 1].bytes));
-    out(line);
+    char number[16];
+    out("  ");
+    out(kStyleQuiet);
+    out("... and ");
+    snprintf(number, sizeof(number), "%u", static_cast<unsigned>(total - kShownBlocks));
+    out(number);
+    out(" more; the smallest is ");
+    snprintf(number, sizeof(number), "%u", static_cast<unsigned>(rows[kShownBlocks - 1].bytes));
+    out(number);
+    out(" B");
+    out(kStyleOn);
+    newline();
   }
 }
 
@@ -1144,35 +1240,54 @@ bool print_app(const apps::Entry& entry, void* context) {
   if (print != nullptr && print->skip_used && opened > 0) return true;
   const size_t id_len = strlen(entry.id);
   const size_t version_len = strlen(entry.version);
+  // **El nom mana i el que l'envolta és el marc** (0.190.277, l'amo: *«a la comanda apps li falten colors»*): the listing was the
+  // only one of this house that printed without the palette —`ls`, `mounts`, `caps` and `help` have had it since the 0.190.238 and
+  // this table was left plain—, so the id takes the cyan of a name that matters (the folder of `ls`, the mount of `mounts`), the
+  // version the grey of what nobody came to read, and the title stays the white of a value. **Els codis no compten com a caràcters**:
+  // the padding is the same and `ansi off` leaves this line exactly as it was, letter for letter (docs/30, docs/85).
   out("  ");
+  out(kStyleHead);
   out(entry.id);
   spaces((id_len < 16) ? (16 - id_len) : 1);
+  out(kStyleQuiet);
   out(entry.version);
   spaces((version_len < 10) ? (10 - version_len) : 1);
+  out(kStyleOn);
   out(entry.title);
   // **The app of the card says so** (0.87.1): the same id may sit on the flash and on the card, and the two are presented
   // apart —`<id>` and `<id>-SD`— so a person who is trying a version can read which of the two copies each line is
-  // (0.88.20, docs/40, docs/70).
+  // (0.88.20, docs/40, docs/70). **En el gris d'allò que no és el que s'ha vingut a llegir** (0.190.277): it is an aside, not a
+  // warning and not a value (docs/30).
   if (entry.on_card) {
-    out("  [card]");
+    out("  ");
+    out(kStyleQuiet);
+    out("[card]");
+    out(kStyleOn);
   }
   // An app of another board is not hidden: it says so, with the boards it wants, so
-  // that a person does not have to guess where it went (docs/40).
+  // that a person does not have to guess where it went (docs/40). **I en el ambre de l'avís** (0.190.277): és una línia que diu
+  // que allò no arrencarà aquí, i el color del registre per a un avís és aquest (docs/30, docs/50).
   if (!entry.works_here) {
-    out("  [needs ");
+    out("  ");
+    out(kStyleWarn);
+    out("[needs ");
     for (uint32_t i = 0; i < entry.board_count; ++i) {
       out((i == 0) ? "" : " or ");
       out(entry.boards[i]);
     }
     out("]");
+    out(kStyleOn);
   }
   // **Why this line is above the one under it** (0.189.14): the listing is ordered by how many times an app has been
   // opened, and a list in an order nobody can see the reason of is a list that looks shuffled. The number is only said
   // when the person asked for that order with `cfg sort on` (docs/30, docs/40).
   if (opened > 0) {
-    out("  [");
+    out("  ");
+    out(kStyleQuiet);
+    out("[");
     out_num(opened);
     out(opened == 1 ? " use]" : " uses]");
+    out(kStyleOn);
   }
   newline();
   if (print != nullptr) ++print->printed;
@@ -1207,7 +1322,15 @@ void print_apps() {
   }
 
   (void)apps::for_each(nullptr, &print_app, &print);
-  if (print.printed == 0) out("  no apps\r\n");
+  if (print.printed == 0) {
+    // **Una taula buida ho diu en el gris de la casa** (0.190.277), com el `(nothing here)` d'`ls`: no és un error i no ha de cridar
+    // més que el que hi hauria hagut (docs/30).
+    out("  ");
+    out(kStyleQuiet);
+    out("no apps");
+    out(kStyleOn);
+    newline();
+  }
 }
 
 
@@ -2161,11 +2284,11 @@ char g_start_flags[48] = {0};
 // which is what makes a launcher usable on a board whose only way out of an app is three presses of a key. Empty when
 // the app that asked handed the glass over for good (docs/30, docs/90).
 char g_run_back[40] = {0};
-// **The console that page had, saved with its name** (0.190.276): the launcher that asked for an app was in the background
-// (the boot's page is), and a return that forgets it puts the app's console in front of a prompt the person was typing at.
-// It is taken by `close_app`, which is the only moment the state still exists, and it is the same capture the wish makes for
-// the app it asks for (0.160.0, docs/30).
-bool g_run_back_detached = false;
+// **La consola que tenia la pàgina que se n'ha anat** (0.190.276, i el nom diu el que és des de la 0.190.278): the launcher that asked
+// for an app was in the background (the boot's page is), and a page that comes after it —the one that asked, or the home page that takes
+// the glass back— has to come the way it was. It is taken by `close_app`, which is the only moment the state still exists, and it is the
+// value every start inherits (`Wire::kOfThePageBefore`, docs/30).
+bool g_was_detached = false;
 // Whether the app that asked wants the glass back when the other one ends.
 bool g_run_wanted_back = false;
 
@@ -2177,7 +2300,7 @@ bool g_run_wanted_back = false;
 static char g_switches_of_this_start[48] = {0};
 
 bool run_app(const char* id, const char* open_path, bool restore = false, bool splash = true,
-             const alarms::Entry* alarm = nullptr, int64_t late_ms = 0) {
+             const alarms::Entry* alarm = nullptr, int64_t late_ms = 0, bool wash = false) {
   // **A start needs the interpreter, and the one in front still has it** (0.166.3): `luabind::start` answers no while a
   // state is alive —`if (g_state != nullptr) return false`—, so `run <id>` asked for while an app was in front said
   // `cannot start the interpreter` **for every app of the disk**, which a person reads as a name that does not resolve
@@ -2244,6 +2367,12 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   } else {
     ui::attach();
   }
+  // **I la pàgina que torna paga el deute del vidre abans de dibuixar-hi res** (0.190.294): with `wash` the view goes to the glass
+  // **whole and clean now**, which is the pass that takes the picture of the sleep away. Sense això el deute el pagava la primera
+  // pàgina de l'app **amb el mode que ella demanava** —un `du` o un `gl16` sobre la tinta d'una imatge que no és seva— i el dibuix del
+  // son s'hi quedava a sota, que és el que l'amo va veure en tornar a casa (docs/30, docs/50). Una pàgina amb la imatge del seu manifest
+  // no en paga cap: la imatge renta el vidre sencer unes línies més avall.
+  if (wash && !shows_a_picture) ui::present();
   // **The app's own picture, before the app is loaded and before the Lua machine
   // exists** (0.151.17, and 0.114.0 before it): a manifest that names one gets
   // the whole glass washed and the image in the middle —the system's `splash` and
@@ -2572,11 +2701,17 @@ bool answer_choice(const char* line) {
   AStart start;
   start.id = g_choice_ids[chosen - 1];
   start.path = g_choice_path;
+  // **La resposta s'escriu al prompt** (0.190.278): l'app que es tria es queda el cable, que és el que la persona està fent servir per
+  // triar-la (docs/30).
+  start.wire = Wire::kAttached;
   return start_a_page(start);
 }
 
 // open [app] <path>: the file's extension picks the app, unless the app is named.
-bool open_file(const char* argument) {
+//
+// **`background` és el `&` de la línia** (0.190.278): the console this start takes is the prompt's, and the only thing that changes
+// it is the `&`—which `execute` has already taken out of the line— (docs/30).
+bool open_file(const char* argument, bool background) {
   // One word is a path; two are an app and a path. The words come from the one
   // tokenizer, so a path with spaces goes between quotes and a long path is
   // refused instead of being cut (docs/70).
@@ -2627,6 +2762,7 @@ bool open_file(const char* argument) {
     AStart start;
     start.id = app_id;
     start.path = path;
+    start.wire = background ? Wire::kDetached : Wire::kAttached;  // the prompt is asking (0.190.278)
     return start_a_page(start);  // the app was named
   }
 
@@ -2642,6 +2778,7 @@ bool open_file(const char* argument) {
     AStart start;
     start.id = handler.id;
     start.path = path;
+    start.wire = background ? Wire::kDetached : Wire::kAttached;  // the prompt is asking (0.190.278)
     return start_a_page(start);
   }
 
@@ -4727,6 +4864,10 @@ void prompt() {
 
 bool app_running() { return g_app_alive; }
 
+// **I si la que hi ha al davant és del fons** (0.190.278): the parking of a session writes this down with the name of the app, so a board
+// that wakes with an app in front comes back with the console where the person left it —the app on the wire, or the prompt— (docs/30, docs/90).
+bool app_detached() { return g_app_detached; }
+
 // **The picture of the moment goes up before the board goes**: a restart is a moment a person sees, and the glass it
 // leaves is the one the boot paints over (docs/50). A board without the picture is a board that restarts all the same.
 // **And it goes up whole** (0.165.1): a restart cut in the middle of the `gc16` of the picture leaves the page of before
@@ -4809,16 +4950,12 @@ bool start_the_one_that_asked() {
   // already shown a picture for (docs/30, docs/40).
   AStart start;
   start.id = back_to;
-  // **I la consola que tenia, que és el que faltava** (0.190.276, l'amo: *«si tanco l'app desde el panell desplegable i uso el
-  // botó "Home" tot va bé, però si uso "Close" o el gest de pinch per tancar l'app, el shell perd el control del serial i es veu el
-  // log del programa»*): the return was started attached whatever it was before, o sigui que el llaçador del boot —que és del fons
-  // des de la 0.160.0— tornava amb la consola a la mà i el prompt deixava de veure-hi. El botó Home no ho ensenyava perquè no passa
-  // per aquí: hereta l'estat en el torn del desig, i el fil sencer era del fons. Ara les dues tornades diuen el mateix (docs/30).
-  const bool was = g_start_detached;
-  g_start_detached = g_run_back_detached;
-  const bool started = start_a_page(start);
-  g_start_detached = was;
-  return started;
+  // **I la consola, que és el que faltava** (0.190.276, l'amo: *«si tanco l'app desde el panell desplegable i uso el botó "Home" tot
+  // va bé, però si uso "Close" o el gest de pinch per tancar l'app, el shell perd el control del serial i es veu el log del programa»*):
+  // the return came attached whatever it was before, o sigui que el llaçador del boot —que és del fons— tornava amb la consola a la mà i
+  // el prompt deixava de veure-hi. Des de la 0.190.278 no ho diu aquesta funció i ho diu la porta: `kOfThePageBefore` és la consola de la
+  // pàgina que se n'acaba d'anar, que és exactament la que tenia aquesta quan va preguntar per l'altra (docs/30).
+  return start_a_page(start);
 }
 
 bool app_run_wanted(char* out, size_t cap, bool& back, char* flags, size_t flags_cap, char* path,
@@ -4905,10 +5042,11 @@ void close_app(bool say) {
   // open with pages on top of its first one, which are pages nobody pushed (docs/30).
   apps::reset_views();
   // **The console is the shell's again** (0.160.0): an app that goes takes its detachment with it, so the prompt
-  // that comes after it is a prompt that answers (docs/30). **I la pàgina que la va demanar se'l queda com era** (0.190.276):
-  // the state is copied here because here is the last moment it exists —two lines below it is gone—, and the page that comes
-  // back after this one has no other way of knowing whether it had the wire (docs/30).
-  g_run_back_detached = g_app_detached;
+  // that comes after it is a prompt that answers (docs/30). **I qui ve després se'l queda com era** (0.190.276, i el nom de la
+  // variable ho diu des de la 0.190.278): the state is copied here because here is the last moment it exists —two lines below it is
+  // gone—, and every start that replaces this page inherits it (`Wire::kOfThePageBefore`), que és el que fa que una cadena de pàgines
+  // sigui una sola sessió i no dues (docs/30).
+  g_was_detached = g_app_detached;
   g_app_detached = false;
   luabind::set_console_attached(true);
   // **A wish dies with the app that wished it**: an app that asked for another one and was closed by something else
@@ -4932,22 +5070,26 @@ void close_app(bool say) {
 // `raise_app`) eren exactament això i han marxat; **`raise_app` tancava la pàgina del davant dues vegades** perquè `run_app` ja ho fa
 // (docs/30, docs/40).
 //
-// **I la pàgina de casa no és mai de la consola** (0.190.276, l'amo: *«si tanco l'app desde el panell desplegable i uso el botó "Home" tot
-// va bé, però si uso "Close" o el gest de pinch per tancar l'app, el shell perd el control del serial i es veu el log del programa»*). La regla
-// és de la porta i no de cada mà que la demana, perquè una porta que se n'oblida **és** el defecte: la tornada a la pàgina de casa des de la
-// creu i des del pessic l'arrencava amb la consola a la mà (el boot la demanava al darrere del prompt i la clau de la casa del tauler també),
-// i el que es veia era un tauler que s'havia menjat el terminal fins al reset. Una pàgina que el sistema posa al vidre perquè no quedi buit no
-// té res a dir al cable de ningú, i el prompt que hi havia darrere ha de continuar contestant (docs/30, docs/50).
-static bool a_page_of_the_start(const char* id) {
-  const char* home = cfg::home_app();
-  return home != nullptr && home[0] != '\0' && strcmp(id, home) == 0;
-}
-
+// **La regla de la consola és aquí i prou** (0.190.278, l'amo: *«vull que les apps heretin l'estat del terminal. Si tanco o vaig a home o
+// faig back… Si he arrencat amb una app a primer plà de terminal tot a primer plà. Si ho faig amb una app desenganxada els seus fills també
+// ho han de ser. L'app home s'arrenca com a detached el primer cop»*). La 0.190.276 va fer que la pàgina de casa fos sempre del fons i això
+// deixava l'amo sense cap manera de veure el log de la seva pròpia pàgina al cable; el que vol és que la consola **viatgi amb la cadena** i
+// que l'única cosa que la decideixi sigui qui ha arrencat el primer graó: `start.wire` diu qui parla, i les portes que no ho diuen reben
+// l'estat de la pàgina que se n'acaba d'anar (`g_was_detached`, pres a `close_app`) —o sigui que heretar és la sèrie i no l'excepció— (docs/30).
 bool start_a_page(const AStart& start) {
   if (start.id == nullptr || start.id[0] == '\0') return false;
+  // **La consola de la cadena**: la de la pàgina que hi ha al davant, i si no n'hi ha cap, la de l'última que se'n va anar —que és el
+  // mateix valor, perquè és el que `close_app` hi va deixar—. Es mira **abans** de `run_app`, que és qui tanca la del davant (docs/30).
+  const bool of_the_chain = g_app_alive ? g_app_detached : g_was_detached;
   const bool was = g_start_detached;
-  if (a_page_of_the_start(start.id)) g_start_detached = true;
-  const bool started = run_app(start.id, start.path, start.come_back, start.card, start.alarm, start.late_ms);
+  switch (start.wire) {
+    case Wire::kAttached: g_start_detached = false; break;
+    case Wire::kDetached: g_start_detached = true; break;
+    case Wire::kOfThePageBefore:
+    default: g_start_detached = of_the_chain; break;
+  }
+  const bool started =
+      run_app(start.id, start.path, start.come_back, start.card, start.alarm, start.late_ms, start.wash);
   g_start_detached = was;
   return started;
 }
@@ -5092,25 +5234,26 @@ bool the_page_in_front_can_be_left() { return g_app_alive && !app_in_front_is_a_
 // pàgina —una app s'ha acabat i la persona ha de veure quina arriba (0.179.33)— i la comanda `home` de l'arrencada, on el vidre ja té la imatge
 // del boot. Abans eren dos cossos amb les mateixes tres línies i una d'elles es va quedar sense la comprovació de l'app (docs/30, docs/40).
 //
-// **I la pàgina de casa no és mai de la consola** (0.190.276, l'amo: *«si uso "Close" o el gest de pinch per tancar l'app, el shell perd el
-// control del serial i es veu el log del programa»*): el `&` va deixar de ser un paràmetre perquè les dues portes que la demanen el volien i
-// una d'elles no el deia —la del boot sí i la de la tornada no—, i el que sortia era la mateixa pàgina amb dues consoles diferents: tancar una
-// app amb la creu o amb el pessic deixava el llaçador amb el cable a la mà i el prompt mut fins al reset. La regla viu a `start_a_page`, que
-// és per on passen totes les portes —aquesta, la clau de la casa del tauler, una alarma i el despertar—, o sigui que aquí no hi ha res a dir-ne
-// (docs/30, docs/50).
-bool start_the_home_page(bool card) {
+// **I quina consola se la queda, que és el que va canviar dues vegades** (0.190.276 i 0.190.278): la 0.190.276 li va treure el paràmetre i
+// la va fer sempre del fons —l'amo: *«si uso "Close" o el gest de pinch per tancar l'app, el shell perd el control del serial»*—, i allò va
+// deixar-lo sense cap manera de veure la seva pròpia pàgina al cable (*«com la depuro llavors?»*). Ara `wire` torna a ser un paràmetre i diu
+// el que és: **la tornada hereta** la consola de la pàgina que ha marxat (una cadena de pàgines és una sola sessió) i **l'arrencada la deixa
+// al prompt** (una placa que acaba d'engegar no té ningú escrivint-hi). Les dues coses es diuen aquí perquè aquesta funció és l'única que sap
+// quina de les dues portes és (docs/30, docs/50).
+bool start_the_home_page(bool card, Wire wire) {
   const char* home = cfg::home_app();
   if (home == nullptr || home[0] == '\0') return false;
   AStart start;
   start.id = home;
   start.card = card;
+  start.wire = wire;
   return start_a_page(start);
 }
 
 bool start_the_home_app() {
   // A board with no glass has no page to come back to and its prompt is where a person wants to be (docs/50).
   if (display::surface() == nullptr) return false;
-  if (!start_the_home_page(/*card=*/true)) {
+  if (!start_the_home_page(/*card=*/true, Wire::kOfThePageBefore)) {
     log_printf(pal::kLogWarn, "HOME", "%s is the page of the start and it did not come up", cfg::home_app());
     return false;
   }
@@ -5357,18 +5500,16 @@ bool poll_app() {
       snprintf(asked_by, sizeof(asked_by), "%s", app_id());
       // **A detached app that asks for another one stays detached** (0.160.0): `close_app` gives the console back
       // and the one that comes in its place is the continuation of the same wish and not a new page in front of a
-      // prompt somebody is typing at (docs/30).
-      const bool was_detached = g_app_detached;
+      // prompt somebody is typing at (docs/30). **I això ja no es copia a mà** (0.190.278): `close_app` deixa l'estat a
+      // `g_was_detached` i la porta el torna a posar, que és la mateixa regla per a aquesta arrencada i per a la tornada.
       close_app();
       if (back) snprintf(g_run_back, sizeof(g_run_back), "%s", asked_by);
-      g_start_detached = was_detached;
       AStart start_of_the_wish;
       start_of_the_wish.id = wanted;
       // **I el fitxer del desig, si en porta** (0.190.257): the app that asked was a browser, and what it resolved is the
       // file the new page opens with —`app.args.path`, the same door the prompt's `run` uses— (docs/30, docs/45).
       if (wanted_path[0] != '\0') start_of_the_wish.path = wanted_path;
       if (!start_a_page(start_of_the_wish)) prompt();
-      g_start_detached = false;
       return g_app_alive;
     }
     return true;
@@ -5416,8 +5557,8 @@ bool poll_app() {
     ui::give_back_the_glass();
     bar::title("");
     // **I la consola torna com era** (0.190.276): the page the person comes back to is the one that sent this app to run, so
-    // it comes back the way it was —the state travels with the name, in `g_run_back_detached`— and the `was_detached` of this
-    // path is only what the line above says (docs/30).
+    // it comes back the way it was —the state is in `g_was_detached`, captured when this app replaced it— and the `was_detached`
+    // of this path is only what the line above says (docs/30).
     if (start_the_one_that_asked()) return g_app_alive;
     prompt();
     return false;
@@ -5609,37 +5750,6 @@ bool command_cfg(const char* argument) {
     out(" ms (this build's default is ");
     out_num(cfg::cursor_delay_default());
     out(")\r\n");
-    return true;
-  }
-
-  // **`cfg btmode [keyboard|mouse|both]`** (0.190.208, l'amo: *«com escullo el mouse? vull usar el panell tàctil com a mouse bluetooth»*):
-  // què és aquesta placa per a un altre aparell, dit pel prompt i **desat**, perquè és una tria de la placa i no d'una tarda. És el que fan
-  // els tres botons de l'app `bthid`, i ho mana el mateix lloc: `cfg::set_bt_mode` (docs/30, docs/50). **Va aquí i no dins del bloc de
-  // dues paraules** perquè preguntar-ho és una paraula sola, i un `cfg btmode` que no digués res seria una comanda que no contesta.
-  if (strcmp(words[0], "btmode") == 0 && count <= 2) {
-    if (count == 1) {
-      if (cfg::bt_mode()[0] == '\0') {
-        out("settings: nothing has been chosen for this board yet (btmode keyboard|mouse|both)\r\n");
-        return true;
-      }
-      out("settings: this board is ");
-      out(device_phrase());
-      out(" (btmode ");
-      out(cfg::bt_mode());
-      out(")\r\n");
-      return true;
-    }
-    if (!bt::available()) {
-      out("cfg: this board has no radio, and the choice is kept all the same\r\n");
-    }
-    if (cfg::set_bt_mode(words[1]) == nullptr) {
-      out("cfg: this board is a keyboard, a mouse or both\r\n");
-      return false;
-    }
-    out("settings: this board is ");
-    out(device_phrase());
-    newline();
-    out("  pair it again from the other side: it read the map of the other one\r\n");
     return true;
   }
 
@@ -6858,7 +6968,23 @@ bool execute(char* line) {
       if (device) {
         out(", ");
         out(device_phrase());
-        out(bt::connected() ? ", and a device is connected" : ", offered");
+        // **Connectat i escoltat són dues coses, i `bt status` només en deia una** (0.190.295, l'amo: *«connecta, pero no sembla enviar les
+        // senyals del mouse»*): a link where the other side has not written the CCCD yet is a link where nothing travels, o sigui que la
+        // línia diu les dues coses —`bt::reports_enabled()` és el mateix número que la pàgina llegeix amb `bt.ready()`— (docs/30, docs/50).
+        if (!bt::connected()) {
+          out(", offered");
+        } else {
+          out(", a device is connected");
+          // **I quin dels dos reports** (0.191.0): la placa en publica dos, i l'altre cap pot haver encès un i no l'altre —o sigui que
+          // «ha demanat els reports» es quedava curt i el que una persona vol saber és si el punter té porta (docs/30, docs/50).
+          if (!bt::reports_enabled()) {
+            out(" and it has not asked for the reports yet");
+          } else if (bt::reports_enabled("keyboard") && bt::reports_enabled("mouse")) {
+            out(" and it asked for both reports");
+          } else {
+            out(bt::reports_enabled("mouse") ? " and it asked for the mouse report" : " and it asked for the keyboard report");
+          }
+        }
       }
       newline();
       out("  host: ");
@@ -6894,7 +7020,7 @@ bool execute(char* line) {
     // que fa és dir les dues que hi ha (docs/30).
     if (strcmp(words[0], "on") == 0) {
       out("bluetooth: this board has two ends and each one is asked for itself:\r\n");
-      out("  bt dev on    be something for another device (a keyboard, or a mouse)\r\n");
+      out("  bt dev on    offer this board as a keyboard and a mouse\r\n");
       out("  bt host on   listen to somebody else's keyboard or mouse\r\n");
       return true;
     }
@@ -6907,176 +7033,111 @@ bool execute(char* line) {
     }
 
     // ---- el dispositiu: el que aquesta placa és per a un altre ----
+    //
+    // **Una paraula per encendre'l i una per apagar-lo** (0.191.0, l'amo: *«treu del bt dev <device> on/off fes-lo bt dev on/off i es
+    // publiquen sempre ambdós»*): hi havia hagut `bt dev keyboard|mouse|both on|off` perquè la placa triava què publicava, i ara publica
+    // sempre el teclat i el ratolí —un sol mapa, el dels dos reports amb els seus IDs—, o sigui que el que quedava era una tria que no
+    // canviava res i que, a més, es pagava esborrant el vincle de l'altre cap (docs/30, docs/50). El que sí que queda és el punter, que
+    // són les dues comandes que diuen si un report surt de debò.
     if (strcmp(words[0], "dev") == 0) {
       const char* which = (count > 1) ? words[1] : nullptr;
-      // **`bt dev keyboard on|off`**, que és el teclat i prou.
-      if (which != nullptr && strcmp(which, "keyboard") == 0) {
-        const char* how = (count > 2) ? words[2] : nullptr;
-        if (how == nullptr) {
-          out(bt::is_on() ? "bluetooth: the keyboard is on\r\n" : "bluetooth: the keyboard is off\r\n");
-          return true;
+      if (which == nullptr) {
+        if (bt::is_on()) {
+          snprintf(buf, sizeof(buf), "bluetooth: this board offers %s as \"%s\"\r\n", device_phrase(), bt::name());
+          out(buf);
+          out("  bt dev off takes it away; bt dev move <dx> <dy> and bt dev click try the pointer\r\n");
+        } else {
+          out("bluetooth: this board offers nothing (bt dev on offers it as a keyboard and a mouse)\r\n");
         }
-        if (strcmp(how, "on") == 0) {
-          if (!bt::available()) {
-            out("bluetooth: this board has no radio\r\n");
-            return true;
-          }
-          if (bt::start(nullptr)) {
-            snprintf(buf, sizeof(buf), "bluetooth: the keyboard is offered as \"%s\"\r\n", bt::name());
-            out(buf);
-            out("  the waits of this board are spent awake while it is on\r\n");
-          } else {
-            out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
-          }
-          return true;
-        }
-        if (strcmp(how, "off") == 0) {
-          bt::stop();
-          out("bluetooth: the keyboard is off\r\n");
-          return true;
-        }
-        out("bluetooth: bt dev keyboard on|off\r\n");
         return true;
       }
-      // **El ratolí d'aquesta placa** (0.190.193, l'amo: *«opció B»*): the board is a keyboard **or** a mouse and never both, o sigui que
-      // el que fa `on` és canviar de cara —el report map, el report i l'aparença de l'anunci— i demanar que es torni a aparellar des de
-      // l'altre cap, que va llegir el mapa d'un teclat (docs/50).
-      if (which != nullptr && strcmp(which, "mouse") == 0) {
-        const char* how = (count > 2) ? words[2] : nullptr;
-        if (how == nullptr) {
-          snprintf(buf, sizeof(buf), "bluetooth: this board is %s\r\n", device_phrase());
-          out(buf);
-          return true;
-        }
-        if (strcmp(how, "on") == 0 || strcmp(how, "off") == 0) {
-          const bool mouse = (strcmp(how, "on") == 0);
-          if (!bt::available()) {
-            out("bluetooth: this board has no radio\r\n");
-            return true;
-          }
-          if (mouse && !bt::is_on() && !bt::start(nullptr)) {
-            out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
-            return true;
-          }
-          // **I la tria es desa** (0.190.208): `bt dev` i els botons de l'app `bthid` són la mateixa decisió i han de deixar el mateix
-          // rastre a la botiga, o el que es tria amb una mà es perd quan la placa s'arrenca (docs/30, docs/50).
-          (void)cfg::set_bt_mode(mouse ? "mouse" : "keyboard");
-          snprintf(buf, sizeof(buf), "bluetooth: this board is %s, offered as \"%s\"\r\n", device_phrase(), bt::name());
-          out(buf);
-          out("  pair it again from the other side: it read the map of the other one\r\n");
-          return true;
-        }
-        if (strcmp(how, "move") == 0) {
-          if (count < 5) {
-            out("bluetooth: bt dev mouse move <dx> <dy>\r\n");
-            return true;
-          }
-          if (!bt::has_a_mouse()) {
-            out("bluetooth: this board has no mouse (bt dev mouse on, or bt dev both on)\r\n");
-            return true;
-          }
-          if (!bt::connected()) {
-            out("bluetooth: nobody is connected, so there is nowhere to move\r\n");
-            return true;
-          }
-          int dx = atoi(words[3]);
-          int dy = atoi(words[4]);
-          // **El report d'un ratolí de boot és de cent vint-i-set ençà**: un moviment més gran s'ha de fer a trossos, i el que es fa
-          // aquí és dir-ho en lloc de deixar que el signe es desbordi (docs/50).
-          if (dx < -127 || dx > 127 || dy < -127 || dy > 127) {
-            out("bluetooth: a report carries -127 to 127; ask for it in more than one move\r\n");
-            return true;
-          }
-          snprintf(buf, sizeof(buf), "bluetooth: moved by %d, %d\r\n", dx, dy);
-          out(buf);
-          bt::move(static_cast<int8_t>(dx), static_cast<int8_t>(dy));
-          return true;
-        }
-        if (strcmp(how, "click") == 0) {
-          if (!bt::has_a_mouse()) {
-            out("bluetooth: this board has no mouse (bt dev mouse on, or bt dev both on)\r\n");
-            return true;
-          }
-          if (!bt::connected()) {
-            out("bluetooth: nobody is connected, so there is nothing to click\r\n");
-            return true;
-          }
-          const char* button = (count > 3) ? words[3] : "left";
-          uint8_t bits = 0x01;
-          if (strcmp(button, "right") == 0) bits = 0x02;
-          if (strcmp(button, "middle") == 0) bits = 0x04;
-          if (bits == 0x01 && strcmp(button, "left") != 0) {
-            out("bluetooth: bt dev mouse click [left|right|middle]\r\n");
-            return true;
-          }
-          bt::click(bits);
-          snprintf(buf, sizeof(buf), "bluetooth: clicked %s\r\n", button);
-          out(buf);
-          return true;
-        }
-        out("bluetooth: bt dev mouse [on|off|move <dx> <dy>|click [left|right|middle]]\r\n");
-        return true;
-      }
-      // **Les dues coses alhora** (0.190.204, l'amo: *«una app lua... amb un teclat i un mouse»*): the composite mode, with report ids
-      // and without the boot protocol. És el que una pàgina necessita per tenir un ratolí sota el dit i una caixa de text al costat, i
-      // el preu és el que la línia diu (docs/50).
-      if (which != nullptr && strcmp(which, "both") == 0) {
-        const char* how = (count > 2) ? words[2] : nullptr;
-        if (how == nullptr) {
-          snprintf(buf, sizeof(buf), "bluetooth: this board is a %s\r\n", bt::device_word());
-          out(buf);
-          return true;
-        }
-        if (strcmp(how, "on") == 0 || strcmp(how, "off") == 0) {
-          if (!bt::available()) {
-            out("bluetooth: this board has no radio\r\n");
-            return true;
-          }
-          if (strcmp(how, "on") == 0) {
-            if (!bt::is_on() && !bt::start(nullptr)) {
-              out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
-              return true;
-            }
-            (void)cfg::set_bt_mode("both");
-            snprintf(buf, sizeof(buf), "bluetooth: a keyboard and a mouse, offered as \"%s\"\r\n", bt::name());
-            out(buf);
-            out("  pair it again from the other side: it read the map of the one before\r\n");
-            out("  and this mode has report ids: the boot protocol is not served\r\n");
-          } else {
-            (void)cfg::set_bt_mode("keyboard");
-            snprintf(buf, sizeof(buf), "bluetooth: a keyboard again, offered as \"%s\"\r\n", bt::name());
-            out(buf);
-            out("  pair it again from the other side: the map has changed\r\n");
-          }
-          return true;
-        }
-        out("bluetooth: bt dev both on|off\r\n");
-        return true;
-      }
-      if (which != nullptr && (strcmp(which, "on") == 0 || strcmp(which, "off") == 0)) {
-        if (strcmp(which, "off") == 0) {
-          bt::stop();
-          out("bluetooth: this board offers nothing\r\n");
-          return true;
-        }
+      if (strcmp(which, "on") == 0) {
         if (!bt::available()) {
           out("bluetooth: this board has no radio\r\n");
           return true;
         }
-        if (bt::start(nullptr)) {
-          snprintf(buf, sizeof(buf), "bluetooth: this board is a keyboard, offered as \"%s\"\r\n", bt::name());
-          out(buf);
-          out("  the waits of this board are spent awake while it is on\r\n");
-        } else {
+        if (!bt::start(nullptr)) {
           out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
+          return true;
         }
+        snprintf(buf, sizeof(buf), "bluetooth: this board offers %s as \"%s\"\r\n", device_phrase(), bt::name());
+        out(buf);
+        out("  the waits of this board are spent awake while it is on\r\n");
         return true;
       }
-      if (which == nullptr) {
-        out(bt::is_on() ? "bluetooth: this board is a keyboard, offered\r\n" : "bluetooth: this board offers nothing\r\n");
+      if (strcmp(which, "off") == 0) {
+        bt::stop();
+        out("bluetooth: this board offers nothing\r\n");
         return true;
       }
-      out("bluetooth: bt dev [on|off|keyboard on|off|mouse [on|off|move <dx> <dy>|click]]\r\n");
+      // **Oblidar l'altre cap** (0.191.2): un amfitrió es queda el report map que va llegir quan va aparellar, o sigui que el mapa que aquesta
+      // placa publica des de la 0.191.0 només li arriba si el vincle es torna a fer. Això esborra els vincles d'aquesta banda i tanca
+      // l'enllaç; **la meitat de l'altre costat és d'una persona** —treure l'aparell de la llista— i la resposta ho diu (docs/50).
+      if (strcmp(which, "forget") == 0) {
+        if (!bt::available()) {
+          out("bluetooth: this board has no radio\r\n");
+          return true;
+        }
+        bt::forget_the_device();
+        out("bluetooth: this board forgot the other side and is offering itself again\r\n");
+        out("  remove it from the other side's list too, or it keeps the map it read when it paired\r\n");
+        return true;
+      }
+      // **El punter, provat des del prompt**: un moviment i un clic són les dues coses que una persona pot veure a l'altre aparell, o sigui
+      // que són la prova que separa un enllaç d'un pad que no envia (docs/30, docs/50).
+      if (strcmp(which, "move") == 0) {
+        if (count < 4) {
+          out("bluetooth: bt dev move <dx> <dy>\r\n");
+          return true;
+        }
+        if (!bt::connected()) {
+          out("bluetooth: nobody is connected, so there is nowhere to move\r\n");
+          return true;
+        }
+        const int dx = atoi(words[2]);
+        const int dy = atoi(words[3]);
+        // **El report d'un ratolí és de cent vint-i-set ençà**: un moviment més gran s'ha de fer a trossos, i el que es fa aquí és dir-ho
+        // en lloc de deixar que el signe es desbordi (docs/50).
+        if (dx < -127 || dx > 127 || dy < -127 || dy > 127) {
+          out("bluetooth: a report carries -127 to 127; ask for it in more than one move\r\n");
+          return true;
+        }
+        if (bt::move(static_cast<int8_t>(dx), static_cast<int8_t>(dy))) {
+          snprintf(buf, sizeof(buf), "bluetooth: moved by %d, %d\r\n", dx, dy);
+        } else {
+          snprintf(buf, sizeof(buf), "bluetooth: the movement did not go out (%s)\r\n",
+                   bt::reports_enabled() ? (!bt::reports_enabled("mouse") ? "the other side has not asked for the mouse report"
+                                                                        : "the report did not leave")
+                                         : "the other side has not asked for the reports yet");
+        }
+        out(buf);
+        return true;
+      }
+      if (strcmp(which, "click") == 0) {
+        if (!bt::connected()) {
+          out("bluetooth: nobody is connected, so there is nothing to click\r\n");
+          return true;
+        }
+        const char* button = (count > 2) ? words[2] : "left";
+        uint8_t bits = 0x01;
+        if (strcmp(button, "right") == 0) bits = 0x02;
+        if (strcmp(button, "middle") == 0) bits = 0x04;
+        if (bits == 0x01 && strcmp(button, "left") != 0) {
+          out("bluetooth: bt dev click [left|right|middle]\r\n");
+          return true;
+        }
+        if (bt::click(bits)) {
+          snprintf(buf, sizeof(buf), "bluetooth: clicked %s\r\n", button);
+        } else {
+          snprintf(buf, sizeof(buf), "bluetooth: the click did not go out (%s)\r\n",
+                   bt::reports_enabled() ? (!bt::reports_enabled("mouse") ? "the other side has not asked for the mouse report"
+                                                                        : "the report did not leave")
+                                         : "the other side has not asked for the reports yet");
+        }
+        out(buf);
+        return true;
+      }
+      out("bluetooth: bt dev [on|off|forget|move <dx> <dy>|click [left|right|middle]]\r\n");
       return true;
     }
 
@@ -7331,6 +7392,51 @@ bool execute(char* line) {
   if (strncmp(line, "panel", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
     return command_panel(line + 5);
   }
+  // **`rotate [0|90|180|270]`** (0.190.281, l'amo: *«Afegeix comanda»*): the turn of the glass, the one the page, the bar and the
+  // fingers share —a quarter turn gives the portrait page of 540 × 960 and no turn gives the glass frame, 960 × 540— i el que es
+  // decideix aquí **es desa**, perquè un gust del vidre que s'esborra a cada reinici no és cap gust: la pàgina del dia neix amb
+  // aquest gir (docs/30, docs/50).
+  if (strncmp(line, "rotate", 6) == 0 && (line[6] == '\0' || line[6] == ' ')) {
+    // **Una placa sense vidre no gira res i ho diu**: the command exists on every build —la llista de paraules del prompt és una
+    // sola— i el que canvia és la resposta (docs/30, docs/50).
+#if LUNOK_GLASS
+    char word[kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 6, &word, 1, count)) return false;
+    if (count == 0) {
+      out("rotate: ");
+      out_num(display::rotation());
+      out(" (the saved turn is ");
+      out_num(cfg::rotation());
+      out("); 0, 90, 180 or 270, and the page is made again with it\r\n");
+      return true;
+    }
+    const long asked = strtol(word, nullptr, 10);
+    if (asked != 0 && asked != 90 && asked != 180 && asked != 270) {
+      usage_out("usage: rotate [0|90|180|270]\r\n");
+      return false;
+    }
+    if (!ui::set_rotation(static_cast<uint16_t>(asked))) {
+      error_out("rotate: this glass cannot be turned that way; it stays as it is\r\n");
+      return false;
+    }
+    (void)cfg::set_rotation(static_cast<uint16_t>(asked));
+    out("rotate: ");
+    out_num(static_cast<uint32_t>(asked));
+    out(" degrees, and the glass is ");
+    out_num(display::width());
+    out("x");
+    out_num(display::height());
+    newline();
+    // **I el prompt es torna a dibuixar amb la pàgina nova** (0.190.231): changing the turn and not seeing it until the next line
+    // is guessing whether it worked (docs/30).
+    prompt();
+    return true;
+#else
+    out("rotate: this board has no glass to turn\r\n");
+    return true;
+#endif
+  }
   if (strncmp(line, "run", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
     // A second word is the file the app is pointed at: `run txt res/notes.txt` is the app and what
     // it has to look at, which is the same thing `open txt res/notes.txt` says. The app reads it from
@@ -7376,16 +7482,13 @@ bool execute(char* line) {
     AStart start;
     start.id = words[0];
     start.path = open_path;
-    g_start_detached = background;
-    const bool started = start_a_page(start);
-    g_start_detached = false;
-    return started;
+    // **El cable és del prompt i prou** (0.190.278): `run` només es pot escriure amb el prompt viu, o sigui que el que arrenca es queda
+    // la consola que la persona està fent servir —llevat del `&`, que vol dir exactament el contrari— (docs/30).
+    start.wire = background ? Wire::kDetached : Wire::kAttached;
+    return start_a_page(start);
   }
   if (strncmp(line, "open", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
-    g_start_detached = background;
-    const bool opened = open_file(line + 4);
-    g_start_detached = false;
-    return opened;
+    return open_file(line + 4, background);
   }
   if (strncmp(line, "kill", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
     // **Matar una app des del prompt** (0.190.245, l'amo: *«Per matar una app el mateix. S'envía a la tasca del torn i allà es mata o s'arrenca
@@ -7410,7 +7513,7 @@ bool execute(char* line) {
       return false;
     }
     // **I al darrere del prompt, com el `&`**: la persona que escriu això vol la pàgina al vidre, no perdre el cable (docs/30).
-    const bool started = start_the_home_page(/*card=*/false);
+    const bool started = start_the_home_page(/*card=*/false, Wire::kDetached);
     if (!started) out("home: it did not come up\r\n");
     return started;
   }
@@ -8285,7 +8388,7 @@ uint32_t session_dropped(uint8_t id) {
 // one list that will disagree with itself (docs/30).
 const char* const kCommandNames[] = {
     "help",     "version",  "caps",     "mem",      "sessions", "apps",     "mounts",   "splash",
-    "panel",    "cfg",      "run",      "kill",     "stop",     "home",     "repo",     "lua",      "keys",
+    "panel",    "rotate",   "cfg",      "run",      "kill",     "stop",     "home",     "repo",     "lua",      "keys",
     "fonts",    "wifi",     "provision", "ntp",     "tz",       "date",     "alarm",    "sleep",
     "bt",
     "load",

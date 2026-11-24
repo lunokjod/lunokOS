@@ -501,6 +501,22 @@ class IBluetooth {
   // **Si l'altre cap ha encès els reports** (0.190.208): un aparell es connecta i tot seguit escriu el CCCD de cada característica
   // d'entrada que vol rebre, i fins que no ho fa una notificació no arriba enlloc. És la diferència entre «connectat» i «connectat i
   // escoltat», i una pàgina que ho sap ho pot dir en comptes de deixar una persona prement tecles al buit (docs/50).
+  //
+  // **I des de la 0.191.0 se'n pot preguntar un de sol** (l'amo: *«i no podem anunciar els dos dispositius sempre? després que hi hagi
+  // una app de teclat o de mouse és indiferent»*): la placa publica sempre el teclat i el ratolí, o sigui que l'altre cap pot encendre'n
+  // un i no l'altre —i una pàgina que mou un punter vol saber del ratolí, no del parell—. `reports_enabled()` és el «algun», que és el
+  // que una persona vol saber d'un cop d'ull (docs/50, docs/30).
+  // **Oblidar l'altre cap** (0.191.2): un amfitrió es queda **el report map que va llegir quan va aparellar** i no el torna a llegir mai, o
+  // sigui que un mapa que ha canviat —com el d'aquesta placa, que va passar de tres mapes a un— deixa un vincle que parseja els reports
+  // amb el mapa vell. El que la placa pot fer és oblidar el vincle per la seva banda i tancar l'enllaç, perquè l'altre cap hagi de tornar a
+  // aparellar; **el que no pot fer és esborrar la memòria de l'altre**: allà el que cal és treure l'aparell de la llista (docs/50).
+  virtual void device_forget() {}
+
+  enum class Report : uint8_t { kKeyboard = 0, kMouse = 1 };
+  virtual bool report_enabled(Report which) const {
+    (void)which;
+    return false;
+  }
   virtual bool reports_enabled() const { return false; }
 
   virtual bool host_remembers() const { return true; }
@@ -510,24 +526,14 @@ class IBluetooth {
   // **Els cinc llums del teclat virtual**, tal com els va deixar l'altre aparell (0.190.191). Zero en una placa sense ràdio.
   virtual uint8_t keyboard_leds() const { return 0; }
 
-  // ---- el que aquesta placa és, no el que escolta (0.190.193) ----
+  // ---- el que aquesta placa és, no el que escolta (0.190.193, i sempre les dues coses des de la 0.191.0) ----
   //
-  // **Un teclat o un ratolí, i no les dues coses alhora** (l'amo: *«opció B»*). Two reports in one HID service mean report ids and
-  // giving up the boot protocol, que és el que fa que aquest teclat escrigui a qualsevol lloc; o sigui que la placa tria, i el que
-  // canvia és el report map que el host llegeix, el report que s'envia i l'aparença de l'anunci. El servei GATT és el mateix (docs/50).
-  //
-  // **I des de la 0.190.204 hi ha un tercer mode, que és el que una pàgina necessita** (l'amo: *«fem una app lua... un bluetooth HID device
-  // amb un teclat i un mouse»*): `kBoth` és el teclat i el ratolí alhora, en un sol vincle i amb **report IDs** —el teclat és l'1 i el
-  // ratolí el 2—, perquè dues col·leccions en un mateix mapa sense IDs no existeixen. **El preu és el boot protocol**: un aparell amb
-  // report IDs no el pot servir, i és exactament el que l'`opció B` de la 0.190.193 protegia; o sigui que `kKeyboard` i `kMouse` es
-  // queden com eren (amb el seu report de vuit i de tres bytes, i el boot protocol), i qui vol les dues coses tria `kBoth` i sap què
-  // deixa (docs/50).
-  enum class Device : uint8_t { kKeyboard = 0, kMouse = 1, kBoth = 2 };
-  virtual Device device_is() const { return Device::kKeyboard; }
-  virtual bool device_be(Device what) {
-    (void)what;
-    return false;
-  }
+  // **El teclat i el ratolí, sempre i alhora** (0.191.0, l'amo: *«i no podem anunciar els dos dispositius sempre? després que hi hagi una
+  // app de teclat o de mouse és indiferent»*): hi havia hagut tres modes —teclat, ratolí i els dos— i el mode era una decisió que
+  // l'amfitrió pagava, perquè un mapa nou no cap en un vincle vell (un telèfon llegeix el mapa quan aparella i no el torna a llegir mai).
+  // Amb un sol mapa, amb **report IDs** (el teclat l'1 i el ratolí el 2), no hi ha res a canviar i no hi ha res a esborrar: el que una
+  // app faci amb la placa és cosa de l'app i no de l'anunci (docs/50). **El preu és el boot protocol**, que un aparell amb report IDs no
+  // pot servir; el que el vol era només el teclat d'un PC abans del sistema operatiu (docs/50).
   // Un moviment relatiu, i el report torna a zero de seguida perquè el cursor no se'n vagi.
   virtual bool mouse_move(int8_t dx, int8_t dy) {
     (void)dx;

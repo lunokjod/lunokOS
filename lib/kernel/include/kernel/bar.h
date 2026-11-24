@@ -21,6 +21,13 @@ namespace bar {
 // The rows the system keeps at the top of the glass. Everything an app can draw starts below them.
 uint16_t height();
 
+// **The rows the system keeps at the bottom** (0.190.287, l'amo: *«Afegirem unaltra barra de sistema a baix. Això fará la vista de les
+// aplicacions una mica mes petita»*). Vint files blanques amb la línia a sobre, i la vista de l'app s'acaba dos mil·límetres més amunt:
+// són del sistema i no de ningú, perquè el dit que hi cau no arribi a la pàgina (el botó fals de sota el vidre hi fa males passades) i
+// perquè el dia que hi hagi un segon panell lliscant, el gest de pujar es llegeixi aquí i no a l'app (docs/30, docs/50). Zero quan la
+// barra no és a la pàgina, que és el cas d'una app que ha demanat el vidre sencer.
+uint16_t bottom_height();
+
 // **La franja d'una demostració** (0.189.57): les cinc icones enceses alhora —el ventall, la runa, la marca del port, el
 // rellotge de sorra i el despertador— perquè es pugui mirar la barra sencera d'un cop. Només l'emulador la posa, amb `--signs`;
 // a la placa no hi ha res que la posi a cert i les icones diuen el que passa de debò (docs/50, docs/85).

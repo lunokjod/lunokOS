@@ -78,6 +78,42 @@ void gui_page_point(int window_x, int window_y, uint8_t scale, uint16_t page_wid
   out_y = static_cast<uint16_t>(page_y);
 }
 
+// **The chip counts in its own frame** (0.190.283): the GT911 of the model is 540×960 and the page of a turned glass is
+// 960×540, so the point of the mouse —which is the page's— is not the point the chip would have measured. The kernel turns
+// every finger by `kChipPage` minus the rotation of the glass (`touch.cpp`), and this walks the same quarter turn back, with
+// the four cases copied from `kernel::orientation::turn`: the HAL is under the kernel and a window backend that included the
+// kernel to ask for ten lines would be the wrong way round (docs/50, docs/85).
+uint16_t gui_page_turn(uint16_t degrees) {
+  return static_cast<uint16_t>((kChipPageDegrees + 360 - (degrees % 360)) % 360);
+}
+
+void gui_chip_point(uint16_t page_x, uint16_t page_y, uint16_t page_width, uint16_t page_height,
+                    uint16_t page_turn, uint16_t& out_x, uint16_t& out_y) {
+  const uint16_t back = static_cast<uint16_t>((360 - (page_turn % 360)) % 360);
+  const int32_t x = page_x;
+  const int32_t y = page_y;
+  const int32_t w = page_width;
+  const int32_t h = page_height;
+  switch (back) {
+    case 90:
+      out_x = static_cast<uint16_t>(h - 1 - y);
+      out_y = static_cast<uint16_t>(x);
+      return;
+    case 180:
+      out_x = static_cast<uint16_t>(w - 1 - x);
+      out_y = static_cast<uint16_t>(h - 1 - y);
+      return;
+    case 270:
+      out_x = static_cast<uint16_t>(y);
+      out_y = static_cast<uint16_t>(w - 1 - x);
+      return;
+    default:
+      out_x = static_cast<uint16_t>(x);
+      out_y = static_cast<uint16_t>(y);
+      return;
+  }
+}
+
 // **The geometry of the keys**, which is the one the descriptor of the input asks for: a dial on a side face
 // is a **column** down that side —up, centre and down from the top, the way the wheel of the board is— and a
 // key on the top or the front is a **row** under the page. The buttons are measured in window pixels and not

@@ -72,6 +72,14 @@ uint16_t g_start_y = 0;
 // frame cannot say and this flag is what the drag of the shade reads (docs/30).
 bool g_on_the_bar = false;
 bool g_start_on_the_bar = false;
+// **I la franja de baix** (0.190.287): the rows under the view are the system's the same way the bar is, i el dit que hi cau no és
+// de cap app. És el que fa que el botó fals de sota el vidre no hi actuï i el que el segon panell lliscant podrà llegir sense que el
+// gest arribi a la pàgina (docs/30, docs/50).
+bool g_on_the_strip = false;
+bool g_start_on_the_strip = false;
+// **La fila on el dit ha caigut, en números de la pàgina** (0.190.288): the frames the kernel keeps are the view's —the strips' rows are
+// taken off them— i el botó de sota el vidre viu a la franja de baix, o sigui que la pregunta del botó necessita el número de debò.
+uint16_t g_landing_page_y = 0;
 uint16_t g_last_x = 0;
 uint16_t g_last_y = 0;
 bool g_moved = false;
@@ -203,25 +211,34 @@ uint32_t isqrt(uint32_t value) {
 const uint16_t kChipPage = 270;
 
 // **La zona del botó de sota el vidre** (0.190.110, l'amo: *«sota el panell hi ha un cercle que sembla ser un botó tàctil, i es fals... es al
-// frontal, just sota la pantalla eink, centrat horitzontalment, com un botó d'iphone»*). The zone is the **bottom strip of the view**, centred:
-// the circle is under the visible glass, so the finger that presses it lands on the last rows of the panel, i el que es mesura a la placa ho
-// diu —un toc a `270,905` d'una vista de 540×912— (docs/30, docs/50).
+// frontal, just sota la pantalla eink, centrat horitzontalment, com un botó d'iphone»*). The circle is under the visible glass, so the finger
+// that presses it lands on the last rows of the panel, i el que es mesura a la placa ho diu —un toc a `270,905` d'una vista de 540×912—
+// (docs/30, docs/50).
 //
-// **S'estira i no s'apunta**: the circle is small and a thumb is not, so the strip is a hundred and twenty pixels wide and eighty tall —from
-// `h - 80` to the last row— which is the smallest zone that a person can hit without looking; a zone of the size of the circle would be a
-// button that works sometimes (docs/30).
+// **I des de la 0.190.288 té l'alçada de la franja de baix, i només el centre** (l'amo: *«ara fes que el software button tingui l'alçada
+// d'aquella barra, però només el centre»*): the strip of the system is nineteen rows of nothing and two of line, and the button is the band
+// those rows are —un dit a la franja que no és al mig és de la franja i prou—. When the page has the whole glass there is no strip and the
+// band is the last rows of it, que és el mateix cantó del vidre; the height is the strip's and not eighty rows, o sigui que el botó no es
+// menja cap control de la pàgina.
+//
+// **S'estira i no s'apunta**: the circle is small and a thumb is not, so the band is a hundred and twenty pixels wide, which is the smallest
+// zone that a person can hit without looking; a zone of the size of the circle would be a button that works sometimes (docs/30).
 const uint16_t kButtonHalfWidth = 60;
-const uint16_t kButtonRows = 80;
+// The height of the strip at the bottom of the glass (`bar::kBottomHeight`), which is the band of the false circle.
+const uint16_t kButtonRows = 20;
 
-bool a_finger_on_the_button(uint16_t x, uint16_t y) {
+// **It is asked with the real row of the finger** (0.190.288): a finger in the strip arrives at the view clamped to its last row, and that
+// row is the one of the last control of the page, o sigui que el botó i un control de la pàgina no es podien distingir. El número que compta
+// és el de la pàgina.
+bool a_finger_on_the_button(uint16_t x, uint16_t page_y) {
   if (button::software_button_key() < 0) return false;
   const ui::Canvas& view = ui::canvas();
-  if (view.width == 0 || view.height == 0) return false;
+  const uint16_t glass = display::height();
+  if (view.width == 0 || glass <= kButtonRows) return false;
   const uint16_t middle = static_cast<uint16_t>(view.width / 2);
-  const uint16_t top = (view.height > kButtonRows) ? static_cast<uint16_t>(view.height - kButtonRows) : 0;
   const uint16_t left = (middle > kButtonHalfWidth) ? static_cast<uint16_t>(middle - kButtonHalfWidth) : 0;
   const uint16_t right = static_cast<uint16_t>(middle + kButtonHalfWidth);
-  return x >= left && x <= right && y >= top;
+  return x >= left && x <= right && page_y >= static_cast<uint16_t>(glass - kButtonRows);
 }
 
 void turn_frame() {
@@ -248,10 +265,15 @@ void turn_frame() {
       // first rows of the page (docs/30).
       const bool landed = (i == 0) && (page.y < off_y);
       if (i == 0) g_on_the_bar = landed;
+      // **The strip at the bottom is the same question at the other edge** (0.190.287): the page row where the view ends is the
+      // first one of the system's, i el dit que hi cau es queda a la franja tot el gest com el de dalt (docs/30).
+      const bool below = (i == 0) && (page.y >= static_cast<uint16_t>(off_y + view.height));
+      if (i == 0) g_on_the_strip = below;
+      if (i == 0) g_landing_page_y = page.y;
       // **And the finger that landed there keeps the bar's rows for the whole gesture**: subtracting the offset from the
       // frames that follow but not from the one it landed on would make a pull of a hundred pixels a pull of fifty-two on a
       // bar of forty-eight, and a finger that never left the strip would be a finger that went up (docs/30).
-      const bool on_the_strip = (i == 0) && (g_down ? g_start_on_the_bar : landed);
+      const bool on_the_strip = (i == 0) && (g_down ? (g_start_on_the_bar || g_start_on_the_strip) : (landed || below));
       if (page.x >= off_x) page.x = static_cast<uint16_t>(page.x - off_x);
       if (page.y >= off_y && !on_the_strip) page.y = static_cast<uint16_t>(page.y - off_y);
       // A finger that lands on the bar belongs to the system, but it is still a finger: it is clamped to
@@ -591,21 +613,19 @@ void poll() {
       return;
     }
     // **La primera passada del contacte, i el propietari es decideix aquí**: `on_the_bar` is the strip of the system,
-    // which is not part of any view —the first rows of the bar and the first rows of the page are the same numbers—; then
-    // the band of the keyboard, asked with the row the finger landed on, so a page under it cannot be pressed through it;
-    // and everything else is the page. **A card of the system over the page** (0.179.22) is the system's too: a button
+    // which is not part of any view —the first rows of the bar and the first rows of the page are the same numbers—; **la
+    // franja de baix és la mateixa cosa a l'altre cantó** (0.190.287), i va abans que tot perquè el dit que hi cau no ha
+    // d'escriure cap lletra ni prémer el botó fals; després la banda del teclat, asked with the row the finger landed on, so a
+    // page under it cannot be pressed through it; and everything else is the page. **A card of the system over the page** (0.179.22) is the system's too: a button
     // under a card that acts is a button acting on a page nobody is looking at (docs/30, docs/50).
     if (g_on_the_bar || ui::page_held()) {
       g_contact = kTheSystem;
       log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the system's: bar %d, page held %d",
                  static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y), g_on_the_bar ? 1 : 0,
                  ui::page_held() ? 1 : 0);
-    } else if (ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true)) {
-      g_contact = kTheKeyboard;
-    } else if (a_finger_on_the_button(g_frame[0].x, g_frame[0].y)) {
-      // **El botó de sota el vidre és una tecla i no una part de la pàgina** (0.190.110): the contact belongs to the system from its first frame,
-      // o sigui que la pàgina no en rep ni el toc ni el gest —el que hi hagi dibuixat a sota del cercle no s'ha de prémer— i el botó actua quan
-      // el dit s'aixeca (docs/30, docs/50).
+    } else if (a_finger_on_the_button(g_frame[0].x, g_landing_page_y)) {
+      // **The button of the false circle goes before the strip** (0.190.288): it lives in the middle of the strip, o sigui que el mig de
+      // la franja és la tecla i la resta de la franja és de la franja. Un dit a la franja que no és al mig no arriba enlloc.
       g_contact = kTheButton;
       // **Els números del contacte, presos aquí perquè el camí del gest no els prendrà** (0.190.110): the button's contact leaves `poll` before
       // the machine that records where a finger landed, o sigui que la primera i l'última posició es guarden amb el propietari (docs/30).
@@ -614,8 +634,19 @@ void poll() {
       g_last_x = g_start_x;
       g_last_y = g_start_y;
       button::software_button_held(true);
-      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the button under the glass",
+      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the button under the glass (%u of the glass)",
+                 static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y),
+                 static_cast<unsigned>(g_landing_page_y));
+    } else if (g_on_the_strip) {
+      // **I la franja de baix és del sistema abans que de ningú** (0.190.287): the flag is read from the row the finger landed on
+      // and not from the one an app is given —that one is clamped into the view, i la fila on cau el clam és la de sota del
+      // teclat—, o sigui que un dit a la franja no escriu cap lletra, no prem el botó fals de sota el vidre i no tanca res
+      // (docs/30, docs/50).
+      g_contact = kTheSystem;
+      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the system's: the strip at the bottom",
                  static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y));
+    } else if (ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true)) {
+      g_contact = kTheKeyboard;
     } else {
       g_contact = kThePage;
       // **I el gir amb què s'ha llegit, a la mateixa línia** (0.188.5): the page turn between the chip's frame and the page's
@@ -751,6 +782,7 @@ void poll() {
     g_start_x = g_frame[0].x;
     g_start_y = g_frame[0].y;
     g_start_on_the_bar = g_on_the_bar;
+    g_start_on_the_strip = g_on_the_strip;
     g_last_x = g_start_x;
     g_last_y = g_start_y;
     g_moved = false;

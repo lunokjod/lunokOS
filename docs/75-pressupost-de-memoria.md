@@ -417,8 +417,9 @@ fondàries al HAL de l'ATOM, `power.*` a Lua i el camí per tornar d'una app.
 | Partició de 3 MB | 62,2 % | **62,7 %** (lliures: 1 174 447 B) |
 
 Els +184 B són el comptador de la feina d'energia i el que costa a la política saber si hi ha una app
-esperant la resposta. **No hi ha cap buffer nou**: una nota de son són tres cadenes curtes a la NVS
-(`session/app`, `session/path`, `session/wake_at`) i la marca de l'època viu a la memòria del RTC.
+esperant la resposta. **No hi ha cap buffer nou**: una nota de son són quatre cadenes curtes a la NVS
+(`session/app`, `session/path`, `session/detached` —des de la 0.190.278, perquè una app que dormia al
+fons torni al fons— i `session/wake_at`) i la marca de l'època viu a la memòria del RTC.
 
 **El que queda per mesurar, i es diu**:
 - **Consum en repòs i en actiu.** L'ATOM no té bateria i el consum es mesura amb un **mesurador USB**
@@ -637,9 +638,9 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   `sys.heap()` per ensenyar `limit 4194304  extra 4194304`. És la prova que la memòria és
   transparent: el mateix codi, la mateixa crida, i el que canvia és la placa.
 - **El canvas de la vista és un bloc de debò, i el número és el de la comptabilitat**: la línia de
-  l'arrencada diu avui `ui: view 540x912 at 0,48, 246240 bytes of canvas`, que és **540 × 912 / 2**
-  —quatre bits per píxel— en **un sol bloc** de la PSRAM (el 1/11, amb la barra de 28 files, deia
-  `540x932 at 0,28, 251640 bytes`). **El sostre de vuit canvas ja no hi és** (0.174.5): mentre hi era, vuit
+  l'arrencada diu avui `ui: view 540x892 at 0,48, 240840 bytes of canvas`, que és **540 × 892 / 2**
+  —quatre bits per píxel— en **un sol bloc** de la PSRAM (des de la 0.190.287; abans deia `540x912` i
+  246 240 B, i el 1/11, amb la barra de 28 files, `540x932 at 0,28, 251640 bytes`). **El sostre de vuit canvas ja no hi és** (0.174.5): mentre hi era, vuit
   canvas de pàgina sencera haurien estat **1 969 920 B** (1 924 KiB) dels 4 096 que té una app —**gairebé la
   meitat**—, i per això **cada control és de la seva mida** i un control **sense vista no gasta ni un byte**, que
   continua sent el que mana ara que el número no hi és: el que es demana és el que es reserva i el que no hi cap
@@ -719,8 +720,17 @@ ha i quants bytes: `session memory  32 KB in 1 block(s)`.
 **I el número de versió cap al mateix registre** (0.189.22): el que el bloc desa d'una app és
 `id<TAB>title<TAB>icon<TAB>slot<TAB>picture<TAB>version`, amb la versió del manifest al darrere, que és el que deixa saber
 a la pàgina que la cel·la que té al bloc és d'una app d'abans. Un registre de la forma vella no s'ha de llegir a mitges, i
-per això la marca del bloc puja a `HEC2`: la primera arrencada després de la 0.189.22 és una caché freda i prou (docs/30,
-docs/40).
+per això la marca del bloc puja (`HEC2` a la 0.189.22 i `HEC3` a la 0.190.279): la primera arrencada després d'un canvi de
+format és una caché freda i prou (docs/30, docs/40).
+
+**I la llista ja no té finestra ni cap sostre** (0.190.279, l'amo: *«home: too many apps for the cache of the session — No ho
+entenc. Se suposa que no hi ha limits…»*): el bloc era `[8 B de capçalera][1 528 B de registres][la resta, imatges]`, i amb
+trenta-dues apps el text en feia 1 659 i el llaçador **no escrivia res** —cada arrencada tornava a llegir els manifests i a
+descodificar totes les icones—. Ara és `[8 B][imatges a llocs fixos][registres al final]`, la capçalera diu quants bytes fan
+els registres i el pressupost és el bloc: amb trenta-dues apps la llista fa **808 B** (era 1 659, i 802 dels que hi havia eren
+el camí absolut de la icona, que trenta-una de les trenta-dues apps diu igual) i el bloc de 32 768 en té 31 200 de sobres per
+a les imatges. Si un dia no hi cap, `sys.session` deixa créixer el bloc i, si la placa no el pot donar, s'escriuen les línies
+senceres que hi caben en lloc de no escriure'n cap (docs/30, docs/75).
 
 **I l'avís de la llista d'apps costa vuit bytes de DRAM, comptats** (0.189.23): el primer intent guardava el nom de l'app
 que havia canviat i el verb en un `struct` de 56 B, i l'enllaç de la placa va dir el que el pressupost no perdona —
@@ -911,7 +921,7 @@ per dos, **2 978, 1 489, 744, 372, 186, 93 i 46** ranures —**524 128, 262 064,
 s'atura abans, quan la meitat ja no hi arriba.
 
 **I la meitat dolenta és que aquests bytes es paguen abans que res més** i surten del mateix lloc on aniran la
-vista de l'app (a la Paper, 540 × 912 = **246 KB**) i el seu sostre. En una placa sense memòria extra, un
+vista de l'app (a la Paper, 540 × 892 = **241 KB**) i el seu sostre. En una placa sense memòria extra, un
 `130 944 B` de taula sobre 338 864 B és **el 39 % del que hi ha**, i el que queda ha de passar pel terra de
 `kHomeReserveBytes` (64 KB) que protegeix els buffers del sistema (aquesta mateixa secció, més amunt).
 
@@ -1160,7 +1170,7 @@ pot fer servir les files reservades encara que la resta sigui plena; els petits 
   ... and 186 more; the smallest is 192 B
 ```
 
-Les tres files del davant són la pàgina del llançador sencera: **el canvas de 540×912 (524 216 B), la vista (246 240 B) i la caché
+Les tres files del davant són la pàgina del llançador sencera: **el canvas de 540×892 (524 216 B), la vista (240 840 B) i la caché
 d'`apps` (32 768 B)**, i totes tres amb `ui` i `session` com a amo. És la resposta que es volia: qui té els megabytes.
 
 **El preu, mesurat abans d'escriure'l** (emulador, `--run about`, dotze segons): **24 070 peticions de menys de 256 B, 478 de
@@ -1301,6 +1311,17 @@ n'hi ha lliure en arrencar** (`stack 7320 B free`) i el GIF en demanava el doble
   `(kMaxSide+1)/2` —2 048 B, la pàgina més ampla possible—. És al bloc, darrere l'estat, alineada a quatre bytes.
 - **I el GIF va deixar de copiar una fila**: la fila comprimida que sortia del LZW era **la mateixa** que la que
   s'escrivia al bloc, així que la còpia a una local de 2 048 B va desaparèixer.
+- **I l'arrencada diu la pila a cada passa** (0.190.290, l'amo: *«posa les linies, son informatives»*): `[I][STACK] the kernel starts`,
+  `the view is up`, `the first page is up` i `the first turn`, amb els bytes que queden a la tasca. **Les quatre surten a totes les bandes
+  perquè són del registre del sistema**: la 0.190.290 en tenia una cinquena per `ESP_LOGI` («the stack after the pal») i a la Paper no
+  s'hauria vist mai —aquesta placa té la IDF a `WARN` a posta des de la 0.190.167, que els seus avisos de cada pin caurien al mig del
+  registre que una persona llegeix (l'amo ho va veure: *«el codi del M5 no ho te!»*)—, o sigui que el número d'abans del nucli és el
+  primer d'aquests quatre. **I surten al cable encara que el mirall del registre sigui tancat** (`log_bootf`, 0.190.292): el cable no
+  rep el registre des de la 0.190.185, però aquestes quatre diuen un moment que passa una vegada i el cercle de 2 KB ja no les té quan
+  una persona escriu `log`. El número és el *high-water mark* de FreeRTOS —el mínim que ha quedat lliure mai—, o sigui que la sèrie diu
+  **quina passa cava** els kilobytes i permet comparar dues bandes al mateix moment de la vida de la sessió; dues lectures de moments
+  diferents no es poden comparar, perquè el número només baixa. Les dues bandes tenen la mateixa pila (`CONFIG_ESP_MAIN_TASK_STACK_SIZE`
+  a 16384, comprovat al `sdkconfig.h` compilat de cada entorn): el que canvia és fins on arriba el codi de cada placa (docs/50, docs/75).
 - **El sostre que ho vigila**: `tools/check_stack.py` compila una llibreria amb `-fstack-usage` i falla si una funció
   passa del pressupost (1 024 B per a `lib/img`, que és el que crida la tasca de l'app). Amb `--all --budget 4096`
   dona el mapa de tot el firmware i les llibreries que necessiten les capçaleres de la placa es **diuen saltades** i
@@ -1530,3 +1551,68 @@ encenent el provisionador d'Espressif (`CONFIG_BLE_MESH_PROVISIONER`, només a l
   motiu pel qual el T5S3 i el Paper es queden de moment **només node**: primer es mira si hi caben amb el número a la mà, com sempre.
 - **El mesh no és alhora que el teclat** (docs/50), o sigui que el que s'ha de mirar a la placa és `mem` amb el mesh apagat i amb `mesh on`:
   la pila demana desenes de kilobytes de RAM interna quan arrenca, i això és heap i no `.bss`.
+
+## Un bloc de 64 KiB i el munt de trossos de la ràdio (0.191.1)
+
+L'amo, amb la T5S3 a la mà i la 0.191.0 gravada: *«abort() was called at PC 0x420c49d7 on core 0»*, just després del rètol. Desxifrat amb
+l'ELF del mateix firmware: `abort` ← `epd_renderer_init` (render.c:285) ← `epd_init` ← `Epd47::begin` ← `display::boot`.
+
+**La línia 285 no és cap error del panell: és la seva taula de conversió**, `heap_caps_malloc(64 KiB, MALLOC_CAP_INTERNAL)`, i epdiy hi
+crida `abort()` si torna nul perquè no té cap camí de sortida. La taula no es pot fer petita (amb `EPD_LUT_1K` el `gc16` respon
+`EPD_DRAW_LOOKUP_NOT_IMPLEMENTED`, ja provat i descartat).
+
+**El que li prenia el bloc era el Bluetooth**, i l'ordre d'arrencada és tota la història:
+
+| Moment | Memòria interna de la T5S3 |
+|---|---|
+| Abans del panell, amb la ràdio apagada | ~169 KB lliures, un sol bloc gran |
+| `cfg::boot` encén el dispositiu (la persona el va deixar encès) | **−29 544 B** en un grapat de blocs: pools de NimBLE, cues i piles de tasca |
+| `display::boot` demana **un** bloc de 64 KiB | el més gran que queda no hi arriba → `abort()` |
+
+O sigui que **el total no era el problema i el tros més gran sí**: cent quaranta kilobytes lliures no fan una taula de seixanta-quatre si
+estan partits. La 0.190.296 hi passava per poc; la 0.191.0 va moure unes desenes de bytes de dades i el tall va caure de l'altre costat.
+
+**El que s'ha fet**: `cfg::boot` ja no encén la ràdio. El que fa és llegir els ajustos, i `cfg::start_the_radio()` es crida **després de
+`display::boot`**, quan el vidre ja té la seva taula. No costa res —el vidre no llegeix la ràdio per a res i el primer que la vol és una
+app— i és la regla que val per a qualsevol cosa gran d'aquesta casa: **el que demana un bloc contigu es fa abans del que deixa el munt de
+blocs petits**.
+
+**I el número queda escrit a cada arrencada**, perquè la propera vegada no calgui desxifrar cap adreça:
+
+```
+[I][MEMORY] before the panel: 162728 B free of internal memory, the biggest block is 162712 B
+```
+
+Va per `log_bootf` (0.190.292) i no per `log_printf`: és d'un moment que passa una vegada i ha d'arribar al cable.
+
+## Els búfers del ràdio, reservats a l'arrencada (0.191.4)
+
+L'amo, amb el mapa del report ja ben enviat: `E (77948) BLE_INIT: Malloc failed`, just després que l'altre cap llegís `0x2A4B`.
+
+**D'on surt aquesta línia**: `components/bt/controller/esp32c3/bt.c` té un `malloc_internal_wrapper` que és el que el controlador del BLE
+fa servir per als seus búfers —`heap_caps_malloc(size, DEFAULT | INTERNAL | DMA)`— i que **només diu «Malloc failed»**: ni la mida, ni el
+bloc més gran que hi havia, ni qui el demanava. És la pitjor mena de línia i és la que es va passar tota una tarda mirant.
+
+**El controlador té dues maneres de tenir els búfers de transmissió** (ho diu el mateix Kconfig):
+
+| `BT_CTRL_BLE_STATIC_ACL_TX_BUF_NB` | Com viatja un paquet |
+|---|---|
+| `0` (el de sèrie) | es demana un búfer **abans de cada TX** i es deixa anar després: cada paquet depèn del bloc més gran que hi hagi en aquell moment |
+| `> 0` | es reserven **una vegada a `esp_bt_controller_init`** i no es tornen fins que el controlador es desfà |
+
+Amb `0`, una lectura de mapa, un anunci o una tecla poden fallar per com estigui el heap en aquell instant —i el heap d'aquesta placa té el
+panell demanant **un sol bloc de 64 KiB** i les piles dient la seva. **Ara se'n reserven quatre** i el que fallava deixa de dependre del
+moment.
+
+**I el que es demanava de més**: `BT_CTRL_BLE_MAX_ACT` era **sis** instàncies d'aire de **828 B** cadascuna, i aquesta placa només en pot fer
+servir tres alhora —un anunci, una exploració i **un** enllaç, perquè el teclat que s'ofereix i el que s'escolta no conviuen amb dos aparells—.
+Es queda a tres. I `BT_NIMBLE_MAX_CONNECTIONS` baixa de tres a **un**: l'estat de tres aparells que no hi són mai.
+
+**I el número que faltava, a partir d'ara, es diu sol** cada cop que un aparell es connecta:
+
+```
+[I][BT] internal memory: N B free (M B in the biggest block), of the DMA ones N B free (M B in one block)
+```
+
+El que compta **no és el total sinó el bloc més gran**, i encara més el més gran que és DMA: cent kilobytes lliures en cinquanta trossos no
+fan un paquet de dos-cents seixanta bytes, i això és el que aquesta línia ha de dir la pròxima vegada que alguna cosa no hi càpiga.

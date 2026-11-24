@@ -28,10 +28,11 @@ void gui_show_lights(const LightColour* lights, uint8_t count) {
   (void)count;
 }
 
-void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
+void gui_show(const uint8_t* packed, uint16_t width, uint16_t height, uint16_t degrees) {
   (void)packed;
   (void)width;
   (void)height;
+  (void)degrees;
 }
 
 void gui_pump() {}

@@ -56,7 +56,9 @@ bool host_connected();
 // **Tornar amb el teclat que ja hi era**, sense explorar: els vincles són a la botiga del ràdio.
 bool host_remembers();
 // **Si l'altre cap ha encès els reports**: connectat no és escoltat, i el CCCD de cada característica d'entrada és el que ho diu.
-bool reports_enabled();
+// **Si l'altre cap escolta**, i des de la 0.191.0 es pot preguntar per un dels dos reports: `"keyboard"`, `"mouse"`, o `nullptr` per
+// a «algun dels dos» (docs/30, docs/50).
+bool reports_enabled(const char* which = nullptr);
 bool host_reconnect();
 // **Encendre i apagar el costat amfitrió**, sense oferir-se com a teclat.
 bool host_on();
@@ -67,14 +69,15 @@ bool host_is_up();
 // on… kRadio ha de saltar amb bt on/off i prou»*): the blue breath says the radio is doing something, and being a host is doing something.
 bool radio_is_working();
 
-// ---- el que aquesta placa és, no el que escolta (0.190.193) ----
+// ---- el que aquesta placa és, que ja no es tria (0.191.0) ----
 //
-// **Un teclat o un ratolí, i es tria** (l'amo: *«opció B»*): two reports in one HID service would mean report ids and giving up the boot
-// protocol, o sigui que la placa és una cosa o l'altra. `be(true)` la fa un ratolí —i demana tornar a aparellar des de l'altre cap,
-// perquè el mapa que aquell va llegir era el d'un teclat— i `be(false)` la torna a fer un teclat (docs/50).
-const char* device_word();
-bool has_a_mouse();
-bool be(const char* what);
+// **Un teclat i un ratolí, sempre i alhora** (l'amo: *«i no podem anunciar els dos dispositius sempre? després que hi hagi una app de
+// teclat o de mouse és indiferent»*): el mapa és el dels dos reports amb els seus IDs i no es toca mai, o sigui que no hi ha paraula a
+// triar ni cara que canviar. El que queda és el punter (docs/30, docs/50).
+// **Oblidar l'altre cap** (0.191.2): un amfitrió es queda el report map que va llegir quan va aparellar i no el torna a llegir mai, o sigui
+// que un mapa que ha canviat deixa un vincle que parseja el que li arriba amb el mapa vell. Això esborra els vincles d'aquesta banda i
+// tanca l'enllaç; **treure l'aparell de la llista de l'altre costat ho ha de fer una persona** (docs/50).
+void forget_the_device();
 bool move(int8_t dx, int8_t dy);
 bool press(uint8_t buttons);
 bool click(uint8_t buttons);

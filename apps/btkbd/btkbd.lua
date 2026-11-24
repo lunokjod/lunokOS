@@ -15,12 +15,34 @@
 -- sortir (256 px al Paper). O sigui que la caixa va **a dalt de la vista, a tocar de la barra**, i la pàgina li dona el focus i li
 -- aixeca la banda tot just entrar (`kb.target` i `kb:show`) en comptes d'esperar que el dit la trobi.
 --
--- **El que aquesta pàgina no fa**: no és el ratolí. El mode es desa a `cfg btmode` abans d'encendre res —el nucli arrenca el
--- dispositiu amb el que hi ha desat— i el mapa del report del teclat és el de sempre (vuit bytes: modificadors, reservat i sis
--- tecles). **L'altre aparell s'ha de tornar a aparellar** quan es passa d'una app a l'altra: un amfitrió que va llegir el mapa d'un
--- ratolí no endevina el d'un teclat (docs/50).
+-- **El que aquesta pàgina no fa**: no és el ratolí. **I no ha de triar res** (0.191.0, l'amo: *«després que hi hagi una app de teclat o de
+-- mouse és indiferent»*): la placa publica sempre el teclat i el ratolí —el mapa porta els dos reports amb els seus IDs, l'1 i el 2—, o
+-- sigui que aquesta pàgina només encén la ràdio i escriu; el que l'altre aparell va llegir quan va aparellar és el mateix que llegiria
+-- amb l'app del ratolí oberta, i **no s'ha de tornar a aparellar mai més** per canviar d'app (docs/50).
 
+-- **La pàgina apaïsada mentre aquesta app és oberta** (0.190.281, l'amo: *«que giri al iniciar per posar-se horitzontal
+-- (teclat mes gran) i que la deixi com estava al sortir o tancar-se»*): les tecles de la banda són tan amples com la pàgina
+-- dividida per deu, o sigui que una pàgina girada és un teclat pràcticament del doble. Es demana el gir que deixa el vidre al
+-- seu propi marc —el zero, i el de cent vuitanta si el primer no es pot—, i el que hi havia es queda aquí per tornar-l'hi al
+-- comiat. Una placa que no en vol cap es queda com era i la pàgina es dibuixa exactament igual.
+local turn_it_was = ui.rotation()
+local turned = false
 local caps = ui.caps()
+if caps ~= nil and caps.width > 0 and caps.height > 0 and caps.width < caps.height then
+  local tries = { 0, 180 }
+  for i = 1, #tries do
+    ui.rotation(tries[i])
+    caps = ui.caps()
+    if caps.width > caps.height then
+      turned = true
+      break
+    end
+  end
+  if not turned then
+    ui.rotation(turn_it_was)
+    caps = ui.caps()
+  end
+end
 local view = { width = caps.width, height = caps.height }
 if view.width <= 0 or view.height <= 0 then
   console.print('bt kbd: this board has no view')
@@ -111,28 +133,19 @@ end
 -- ================================================================ the radio
 
 -- **La ràdio no s'encén tota sola** (0.190.209): obtenir-la costa trenta kilobytes i atura les becaines, o sigui que és una decisió
--- d'una persona. El mode es desa **abans** d'encendre res, perquè el nucli arrenca el dispositiu amb el que hi ha desat (docs/30).
+-- d'una persona. **I no hi ha res a triar**: la placa és un teclat i un ratolí des del primer moment (0.191.0), o sigui que encendre-la
+-- i prou (docs/30, docs/50).
 local function radio_on()
   if not bt.available() then
     announce('this board has no radio')
     return false
   end
-  announce('bringing the radio up as a keyboard')
-  local mode, why = cfg.btmode('keyboard')
-  if mode == nil then
-    announce(string.format('this board cannot keep the choice (%s)', tostring(why ~= nil and why.code or 'no reason')))
-    return false
-  end
+  announce('bringing the radio up')
   if not cfg.bt(true) then
     announce('the radio did not come up')
     return false
   end
-  local got, dev_why = bt.device('keyboard')
-  if got == nil then
-    announce(string.format('this board cannot be a keyboard (%s)', tostring(dev_why ~= nil and dev_why.code or 'no reason')))
-    return false
-  end
-  announce(string.format('radio up: this board is a %s, offered as \'%s\'', got, bt.name()))
+  announce(string.format('radio up: this board offers a keyboard and a mouse as \'%s\'', bt.name()))
   return true
 end
 
@@ -149,7 +162,9 @@ end
 local function state_words()
   if not cfg.bt() then return 'Bluetooth is off.' end
   if not bt.connected() then return 'Waiting for a device...' end
-  if bt.ready ~= nil and not bt.ready() then return 'Connected. The other device is switching the reports on.' end
+  -- **I el report del teclat, no el del ratolí** (0.191.0): la placa en publica dos i l'altre cap pot haver encès el del punter i no el
+  -- de les tecles, o sigui que la pregunta porta la paraula (docs/30, docs/50).
+  if bt.ready ~= nil and not bt.ready('keyboard') then return 'Connected. The other device is switching the reports on.' end
   return 'A device is connected: what you type here goes to it.'
 end
 
@@ -273,6 +288,31 @@ end
 box.scale = kBody
 box.keyboard = 'alpha'
 
+-- **I l'<intro> de la banda és una tecla i no una lletra** (0.190.280, l'amo: *«no s'envía l' <intro>»*): a box of one line turns the
+-- Enter into `on_enter` and writes **nothing** in its text —the enter ends the edition, it is not a letter (docs/30)—, o sigui que el
+-- mirall de la caixa no el veia mai i l'altre aparell no rebia cap Enter.
+--
+-- **I la línia es tanca** (0.190.282, l'amo: *«no esborra el text del control al polsar <enter>»*): the box is the mirror of what has
+-- gone out, i un teclat que acaba d'enviar l'enter té una línia nova al davant i cap al darrere, o sigui que la caixa s'ha de buidar i
+-- **`sent` amb ella**: el que hi havia ja és a l'altre aparell i no s'hi deu res, i d'aquí surt que la lletra següent no enviï cap
+-- retrocés. Una caixa que es buida amb el cable, doncs, només quan l'enter ha viatjat de debò: sense aparell a l'altre cap el que
+-- s'escriu es queda a la caixa perquè marxi quan algú s'hi connecti (docs/30, docs/50).
+box.on_enter = function(self)
+  typed = self.text or typed
+  local went = 0
+  if bt.connected() then went = bt.type('\n') end
+  if went < 1 then
+    if bt.connected() then inform('the enter did not travel to the other device') end
+    save_state()
+    return
+  end
+  typed = ''
+  sent = ''
+  self.text = ''
+  self.cursor = 0
+  save_state()
+end
+
 box.on_change = function(self, text)
   local what = text or ''
   -- **El retorn de carro de la banda és la tecla Enter** (docs/90): viatja com a tecla i la caixa no se'l queda, perquè una caixa d'una
@@ -344,7 +384,12 @@ end
 
 function on_pause() save_state() end
 function on_save() save_state() end
-function on_close() save_state() end
+function on_close()
+  save_state()
+  -- **I el gir torna al sistema amb aquesta pàgina** (0.190.281): la que vingui després —la casa, una altra app— es troba el
+  -- vidre com era quan aquesta es va obrir, i no un teclat apaïsat que ningú no ha demanat.
+  if turned and ui.rotation() ~= turn_it_was then ui.rotation(turn_it_was) end
+end
 
 -- **El bucle de la pàgina**: el que mira cada volta és el món —la ràdio i l'aparell—, perquè les tecles les porta el sistema i no cal
 -- preguntar res. Cent vint mil·lisegons és prou perquè una pàgina que espera algú es giri abans que una persona aixequi el dit.

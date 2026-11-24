@@ -1469,6 +1469,31 @@ static void test_a_pixel_of_the_window_lands_in_the_middle_of_its_block() {
   TEST_ASSERT_EQUAL_UINT16(0, y);
 }
 
+// **A page that is not the chip's frame** (0.190.283): the GT911 of the model counts in 540x960 and a turned glass draws in
+// another rectangle, so the point of the mouse has to walk back the quarter turn the kernel applies to a finger. At the turn
+// the chip's page is the page itself (`kChipPageDegrees`), the point does not move at all; at the glass's own frame the two
+// corners of the page are the two corners of the chip, which is the whole of the mapping in one line (docs/50, docs/85).
+static void test_a_page_that_is_not_the_frame_of_the_chip() {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  // The chip of the model is glued to the page at 270: there the turn is nothing and every other turn comes out of it.
+  TEST_ASSERT_EQUAL_UINT16(0, emu::gui_page_turn(270));
+  TEST_ASSERT_EQUAL_UINT16(270, emu::gui_page_turn(0));
+  TEST_ASSERT_EQUAL_UINT16(180, emu::gui_page_turn(90));
+  TEST_ASSERT_EQUAL_UINT16(90, emu::gui_page_turn(180));
+  // The page of the model, which is the frame of the chip: the finger is the pixel.
+  emu::gui_chip_point(10, 20, 540, 960, emu::gui_page_turn(270), x, y);
+  TEST_ASSERT_EQUAL_UINT16(10, x);
+  TEST_ASSERT_EQUAL_UINT16(20, y);
+  // The page at the glass's own frame: 960x540, and the two corners of the page are the two of the chip.
+  emu::gui_chip_point(0, 539, 960, 540, emu::gui_page_turn(0), x, y);
+  TEST_ASSERT_EQUAL_UINT16(0, x);
+  TEST_ASSERT_EQUAL_UINT16(0, y);
+  emu::gui_chip_point(959, 0, 960, 540, emu::gui_page_turn(0), x, y);
+  TEST_ASSERT_EQUAL_UINT16(539, x);
+  TEST_ASSERT_EQUAL_UINT16(959, y);
+}
+
 // **The size of the page in the window is decided once** (docs/85): without asking, the window takes the
 // smallest scale that fits the screen with the strip of the keys, and a run that asks for one gets it even
 // when the screen would hold the page whole — which is how the page is watched at half on a big display.
@@ -4655,6 +4680,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_only_the_board_that_has_a_glass_announces_one);
   RUN_TEST(test_the_t_koala_model_is_one_light_a_slot_and_four_megabytes_of_psram);
   RUN_TEST(test_a_pixel_of_the_window_lands_in_the_middle_of_its_block);
+  RUN_TEST(test_a_page_that_is_not_the_frame_of_the_chip);
   RUN_TEST(test_the_window_is_the_page_at_the_scale_that_fits_or_the_one_asked_for);
   RUN_TEST(test_a_label_cuts_its_text_with_three_dots);
   RUN_TEST(test_a_label_places_its_line_by_alignment);

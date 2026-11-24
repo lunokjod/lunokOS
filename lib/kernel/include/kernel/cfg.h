@@ -19,6 +19,10 @@ namespace cfg {
 // flash), and points `/cfg` at it. A preference the board cannot honour falls back and
 // says so in the log: a person who asked for the card has to know where the settings went.
 void boot(hal::IPlatform& platform);
+// **I la ràdio, quan el vidre ja hi és** (0.191.1): la taula del panell és **un sol bloc de 64 KiB de memòria interna** i NimBLE se'n
+// queda trenta en un grapat de trossos, o sigui que obrir la ràdio abans del panell és demanar-li a l'allocator un bloc que ja no hi
+// cap. El kernel crida això tot just després de `display::boot` (docs/50, docs/75).
+void start_the_radio();
 
 // The unit behind `/cfg`: "sd", "littlefs", or "" when neither is there.
 const char* unit();
@@ -112,15 +116,11 @@ bool set_nap_on(bool on);
 // docs/60).
 bool bt_on();
 bool set_bt_on(bool on);
-// **Què és aquesta placa com a aparell de Bluetooth** (0.190.208, l'amo: *«com escullo el mouse?»*): `keyboard`, `mouse` o `both`, desat a
-// la botiga. `set_bt_mode` contesta la paraula que ha quedat, o `nullptr` si no és cap de les tres —i llavors no canvia res, ni el que la
-// ràdio és ni el que hi ha desat (docs/30, docs/50).
-const char* bt_mode();
-const char* set_bt_mode(const char* word);
-bool bt_mode_is_a_word(const char* word);
+// **I què és aquesta placa ja no es tria** (0.191.0): `bt_mode`/`set_bt_mode` desaven `keyboard`, `mouse` o `both` a la botiga, i la placa
+// publica sempre el teclat i el ratolí —un mapa que no canvia no és un vincle a esborrar— (docs/30, docs/50).
 
 // **La ràdio del wifi, encesa i apagada** (0.190.221, l'amo: *«de moment aquests botons son per apagar i encendre radios»*). És el mateix
-// parell que `bt_mode`/`bt_on`: una paraula desada a la botiga (`cfg/wifi`) i la ràdio de debò. **Encesa vol dir el driver enlaire**, no
+// parell que `bt_on`: una paraula desada a la botiga (`cfg/wifi`) i la ràdio de debò. **Encesa vol dir el driver enlaire**, no
 // connectat —aquest sistema usa la xarxa i la deixa anar quan la feina s'acaba— i per això la clau de la targeta no diu «connectat» sinó
 // «la ràdio pot treballar». Encendre-la quan ja ho era no és un error, i si la ràdio no arrenca el commutador torna enrere i ho diu
 // (docs/30, docs/50).
@@ -193,6 +193,13 @@ bool backlight();
 bool set_backlight(bool on);
 uint8_t backlight_level();
 bool set_backlight_level(uint8_t level);
+
+// **El gir del vidre** (0.190.281, l'amo: *«Afegeix comanda»*, i l'app del teclat que vol la pàgina apaïsada mentre és oberta):
+// the turn a person chose with `rotate 90`, kept like every other preference of the glass so a board comes back the way it was
+// left. `270` is the one the system has always used —the portrait page of 540 × 960 over the landscape glass— and anything that
+// is not one of the four is not a turn and is refused with a word (docs/30, docs/50).
+uint16_t rotation();
+bool set_rotation(uint16_t degrees);
 
 const char* log_level();
 bool set_log_level(const char* word);

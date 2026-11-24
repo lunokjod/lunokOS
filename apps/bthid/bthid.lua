@@ -83,6 +83,7 @@ local state = nil
 local radio_button = nil
 local the_buttons = {}  -- els tres botons del ratolí: esquerre, mig i dret
 local drag = nil        -- { id, x, y, travelled }
+local move_refused = false  -- a movement that did not travel, said once (0.190.295)
 local paint = nil
 local layout = nil
 
@@ -136,30 +137,21 @@ end
 
 -- ================================================================ the radio
 
--- **La ràdio no s'encén tota sola** (0.190.209) i ara tampoc no hi ha res a triar: aquesta placa és un ratolí, i això es desa a `cfg`
--- abans d'encendre res, perquè el nucli arrenca el dispositiu amb el que hi ha desat i una placa que es va deixar com a teclat tornaria
--- com a teclat (docs/30, docs/50).
+-- **La ràdio no s'encén tota sola** (0.190.209) i no hi ha res a triar (0.191.0, l'amo: *«i no podem anunciar els dos dispositius sempre?
+-- després que hi hagi una app de teclat o de mouse és indiferent»*): la placa publica sempre el teclat i el ratolí, o sigui que aquesta
+-- pàgina només encén la ràdio i mou el punter —i el mapa que l'altre aparell va llegir quan va aparellar és el mateix que llegiria amb
+-- l'app del teclat oberta, o sigui que **ja no s'ha de tornar a aparellar** en canviar d'app— (docs/30, docs/50).
 local function radio_on()
   if not bt.available() then
     announce('this board has no radio')
     return false
   end
-  announce('bringing the radio up as a mouse')
-  local mode, why = cfg.btmode('mouse')
-  if mode == nil then
-    announce(string.format('this board cannot keep the choice (%s)', tostring(why ~= nil and why.code or 'no reason')))
-    return false
-  end
+  announce('bringing the radio up')
   if not cfg.bt(true) then
     announce('the radio did not come up')
     return false
   end
-  local got, dev_why = bt.device('mouse')
-  if got == nil then
-    announce(string.format('this board cannot be a mouse (%s)', tostring(dev_why ~= nil and dev_why.code or 'no reason')))
-    return false
-  end
-  announce(string.format('radio up: this board is a %s, offered as \'%s\'', got, bt.name()))
+  announce(string.format('radio up: this board offers a keyboard and a mouse as \'%s\'', bt.name()))
   return true
 end
 
@@ -173,10 +165,19 @@ end
 -- **Connectat i escoltat són dues coses** (0.190.208): `bt.connected()` diu que hi ha un aparell a l'altre costat; `bt.ready()` diu que
 -- a més a més ha encès els reports, que és el que fa que un moviment hi arribi. Entremig hi ha un moment en què la placa envia i l'altre
 -- cap encara no rep res —el que una persona veu com «connecta però no envia»— i aquesta línia és la que ho diu (docs/30, docs/50).
+--
+-- **I la pregunta porta el report del ratolí** (0.191.0): la placa en publica dos, i un amfitrió pot haver encès el del teclat i no el del
+-- punter —o sigui que mirar el «algun» era una pàgina que es creia punter sense tenir porta— (docs/30, docs/50).
+local function the_mouse_is_heard()
+  if bt.ready == nil then return true end
+  if not bt.ready('mouse') then return false end
+  return true
+end
+
 local function state_words()
   if not cfg.bt() then return 'Bluetooth is off.' end
   if not bt.connected() then return 'Waiting for a device...' end
-  if bt.ready ~= nil and not bt.ready() then return 'Connected. The other device is switching the reports on.' end
+  if not the_mouse_is_heard() then return 'Connected. The other device is switching the reports on.' end
   return 'A device is connected: this page is its pointer.'
 end
 
@@ -279,6 +280,8 @@ end
 local function poll_the_finger()
   if page ~= 2 or not bt.connected() then
     drag = nil
+    -- **The sentence of the movement belongs to a link** (0.190.295): one that falls and comes back earns a fresh one.
+    move_refused = false
     return
   end
   local fingers = touch.read()
@@ -303,7 +306,16 @@ local function poll_the_finger()
     local dx = seen.x - drag.x
     local dy = seen.y - drag.y
     if dx ~= 0 or dy ~= 0 then
-      bt.move(dx, dy)
+      -- **Un moviment que no viatja ho diu un cop** (0.190.295, l'amo: *«connecta, però no sembla enviar les senyals del mouse… abans
+      -- funcionava»*): `bt.move` answers false when this board is a keyboard or when the other side has not switched the reports on
+      -- yet, and this page used to throw that answer away —so it kept quiet exactly when a sentence was what was needed—. The click
+      -- already says its own; the movement did not. Once per link and no more: a finger that moves is a report per frame.
+      local went = bt.move(dx, dy)
+      if not went and not move_refused then
+        move_refused = true
+        inform(the_mouse_is_heard() and 'the movement does not travel: the other side is not taking the pointer'
+               or 'the other device has not switched the reports on yet')
+      end
       drag.travelled = drag.travelled + math.abs(dx) + math.abs(dy)
       drag.x = seen.x
       drag.y = seen.y
@@ -351,7 +363,7 @@ end
 if #the_buttons == 0 then console.print('bt hid: there is no room for the buttons of the mouse') end
 
 -- **El que s'ha deixat la persona**: la vista. L'aparell connectat no hi és —és el món i no la forma— i no hi ha res més a recordar,
--- perquè aquesta placa és un ratolí i prou (docs/30).
+-- perquè el que aquesta placa és no depèn d'aquesta pàgina (0.191.0: el teclat i el ratolí, sempre) (docs/30).
 local restored = read_state()
 if restored == nil then restored = 1 end
 page = (restored == 2 and bt.connected() and cfg.bt()) and 2 or 1
