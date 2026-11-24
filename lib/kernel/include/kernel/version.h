@@ -13657,7 +13657,11 @@ namespace kernel {
 // descàrrega i una premuda llarga fa que la placa arrenqui al carregador de la ROM: la línia de la baixada ho diu amb el nom de cada porta i
 // amb aquest avís, que és l'única mitigació possible (quan el xip mira el pin, aquest codi encara no hi és).
 
-static const char kVersion[] = "0.191.6";
+// 0.191.7 (24/11): **la pàgina About puja de versió quan la seva llista canvia** (res a veure amb el fil, i és una errada meva: el commit
+// de la 0.191.6 va regenerar `apps/about/res/libs.txt` amb les versions noves de `hal`, `hal_esp32` i `kernel` i no va pujar el número de
+// l'app que les ensenya. La llei 10 val per a tothom, o sigui que aquest commit només fa això).
+
+static const char kVersion[] = "0.191.7";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
