@@ -389,6 +389,8 @@ local function open_theme(index)
     close_the_theme()
     if word ~= nil then insert_command(word) end
   end
+  -- **El menú de la barra el plega el sistema quan el dit cau fora** (0.192.39), i aquí l'app oblida el que tenia a la mà (docs/90).
+  theme.on_cancel = function() close_the_theme() end
   ui.present()
 end
 

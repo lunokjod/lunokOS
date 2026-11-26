@@ -115,6 +115,8 @@ const char* memory_owner_word(MemoryOwner who) {
       return "session";
     case kMemoryBook:
       return "book";
+    case kMemoryThumb:
+      return "thumb";
     case kMemorySplash:
       return "splash";
     case kMemoryLua:

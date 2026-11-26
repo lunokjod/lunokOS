@@ -403,6 +403,9 @@ enum MemoryOwner : uint8_t {
   kMemoryUi,
   kMemorySession,
   kMemoryBook,
+  // **La cara d'una foto** (0.192.38): the block of the picture being scaled into a cache, which is neither the page
+  // nor the book and is worth its own word in `mem blocks` (docs/75).
+  kMemoryThumb,
   kMemorySplash,
   kMemoryLua,
   kMemoryMeter,

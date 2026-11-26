@@ -622,8 +622,9 @@ amb un visor a dins**, i l'amo el va tallar de soca-rel el dia que se'n parlava 
 d'imatges! ja tenim "Files" per això»*—: l'arbre és de `Files`, i `apps/images` és **només el vidre que una imatge es mereix**.
 S'obre amb un fitxer (una fila de `Files`, `open png /sd/foto.png`, `run images <path>`), l'ensenya sencer al més gran que en
 mantingui la forma, i els costats del vidre passen a la imatge del costat **de la mateixa carpeta**, que és el que el vell feia
-quan li donaven un camí. El mig amaga el peu i el camí de sortida és el del sistema. La miniatura `.cache.ics` tampoc no hi és:
-el format el llegeix el nucli (`ICS1`) i el `Files` d'aquí no en dibuixa cap.
+quan li donaven un camí. El mig amaga el peu i el camí de sortida és el del sistema. **I la miniatura ja no la fa ell**: les cares
+`.cache.ics` les escriu el sistema quan un fitxer es dibuixa com a icona (`fs.thumbnail`, 0.192.38) i el visor només dibuixa la foto
+sencera —el que l'amo va demanar: *«no han de ser les apps qui facin els thumbnails, sinó el sistema … Les apps no tenen que fer res»*—.
 
 **El que va ensenyar el `Tetris`** (0.190.253, i les tres coses les va demanar l'amo abans de començar: *«El Tetris, com amb
 l'snake, molta cura al fer el port. Fixa't que el tauler dibuixa el menys possible i tot es blanc i negre. No facis el gamePad.
@@ -700,8 +701,10 @@ unitat. Analitza bé el codi, revisa totes les funcionalitats que te, vull una c
   un `per_page` que omple la caixa fins a l'últim píxel en demana dues (docs/30, docs/90).
 - **El dibuix d'una fila és de les primitives i no d'una font** (the old app took `f114` and `f016` from its icon font at 64
   px): a folder and a page of lines, which costs no file, is sharp at any size and —the reason it matters— **es gira amb la
-  fila** quan la fila és la triada, cosa que un PNG no fa. Les miniatures del visor d'imatges no hi són encara: el `Files` del
-  vell llegia el `.nom.cache.ics` que deixava el seu `ImageViewer`, i aquí aquesta app no s'ha portat.
+  fila** quan la fila és la triada, cosa que un PNG no fa. **I una fila d'una foto dibuixa la foto** (0.192.38, l'amo: *«que
+  l'app Files els utilitzi com icona per aquell arxiu»*): demana la cara del fitxer amb `fs.thumbnail` —el cau que el sistema troba
+  o escriu al costat, `.<nom>.cache.ics`— i la dibuixa al quadre de la icona, sense engrandir-la; si el sistema no en pot fer cap
+  (un text, una carpeta, un volum que no s'hi pot escriure) la fila és el dibuix de la seva mena, com abans.
 - **I la vista que es recorda és el camí i la pàgina** (the `state` session): no la tria, que és una cosa que una persona està
   fent i que la fila on era pot no existir quan la pàgina torna, i no els fitxers amagats, que són una decisió sobre mirar i
   viuen a `/cfg/files/settings.txt` —la carpeta de l'app dins dels ajustos, que amb la porta ampla de l'administrador s'ha de

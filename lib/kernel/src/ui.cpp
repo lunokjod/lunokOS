@@ -622,8 +622,12 @@ void request_release(int16_t slot, bool top) {
             radius = ((hole_w < hole_h) ? hole_w : hole_h) / 3;
             if (radius > 12) radius = 12;
           }
+          // **I el forat nomena la seva qualitat** (0.192.39): the hole is a wash asked for by the system at the moment a
+          // card goes away, and the present that pays it is the one of the touch —`a2`—, which writes its own quality over
+          // every region that named nothing. What was left on the emulator was the grey of the menu with the page under it
+          // sanded at `a2`: the hole was right in the buffer and wrong on the glass (docs/30, docs/50).
           draw_round_fill(g_canvases[painter], offset_x, offset_y, hole_w, hole_h, radius, g_paper_level,
-                          hal::UpdateMode::kGl16);
+                          hal::UpdateMode::kGl16, /*named=*/true);
         }
         // **And what was under it comes back**: the controls that were inside the hole paint themselves again in the same
         // turn, with a buffer of their own or without one (0.173.2, docs/30).
@@ -2069,6 +2073,100 @@ uint8_t list_page_of_for_lua(uint16_t height, uint16_t row_height, uint16_t item
   return page.pages;
 }
 
+// **El desplegable que una barra va pintar al paper** (0.192.39): the bar has no buffer —its card goes into the page's own pixels—
+// o sigui que el rectangle s'ha de recordar aquí per poder-lo tornar a paper quan el menú es plega. N'hi ha prou amb un: una pàgina
+// té una barra i un desplegable obert alhora (docs/30, docs/90).
+struct BarCard {
+  int16_t slot = kNoSlot;
+  uint16_t x = 0;
+  uint16_t y = 0;
+  uint16_t w = 0;
+  uint16_t h = 0;
+};
+BarCard g_bar_card;
+
+// **What was under the card comes back from its own buffer** (0.192.39): the rectangle a card of a bar painted into the page's
+// pixels is owed to the page, and the controls that stay are the ones that know what was there —but they are asked for **the
+// hole and not their whole box**, because a menu of two hundred pixels is not a reason to paint a terminal of eight hundred
+// lines. A control with a buffer is **composed and not drawn again**: its buffer is still the truth of what it holds —the
+// children inside it are already in it—, and drawing it again with its box open paints what the page never showed: the line of
+// the page of `Files` that came out at the bottom of the glass was a label of a panel that the app keeps cut (docs/30, docs/90).
+static void compose_the_hole(int16_t under, int32_t x, int32_t y, uint16_t w, uint16_t h) {
+  for (int16_t index = g_canvases[under].first_child; index != kNoSlot; index = g_canvases[index].next_sibling) {
+    if (!live(index) || g_canvases[index].pending_release) continue;
+    Canvas& child = g_canvases[index];
+    const int32_t at_x = child.x;
+    const int32_t at_y = child.y;
+    if (at_x + child.width <= x || at_y + child.height <= y || at_x >= x + static_cast<int32_t>(w) ||
+        at_y >= y + static_cast<int32_t>(h)) {
+      continue;
+    }
+    if (child.bits != nullptr) {
+      const int32_t rx0 = (x > at_x) ? (x - at_x) : 0;
+      const int32_t ry0 = (y > at_y) ? (y - at_y) : 0;
+      const int32_t rx1 = ((x + static_cast<int32_t>(w)) < (at_x + child.width)) ? (x + w - at_x) : child.width;
+      const int32_t ry1 = ((y + static_cast<int32_t>(h)) < (at_y + child.height)) ? (y + h - at_y) : child.height;
+      if (rx1 > rx0 && ry1 > ry0) {
+        damage_add(child, static_cast<uint16_t>(rx0), static_cast<uint16_t>(ry0),
+                   static_cast<uint16_t>(rx1 - rx0), static_cast<uint16_t>(ry1 - ry0), hal::UpdateMode::kGl16);
+        compose_self(index);
+      }
+      // **The children of a control with a buffer are already inside it**, so there is nothing under it to ask (docs/90).
+      continue;
+    }
+    // **A control without a buffer paints into the same pixels**, so it has to paint itself again and its children with it.
+    invalidate(index);
+    compose_the_hole(index, x - at_x, y - at_y, w, h);
+  }
+}
+
+// **El forat del desplegable** (0.192.39, l'amo: *«El menú contextual de Files no reacciona gaire bé i passa l'event a la vista … El
+// menú contextual es comporta com un modal, sempre sobre el resta de la vista i s'ha de tancar per tornar a enviar events a la
+// vista»*): when the menu of a bar is folded the rectangle it painted has to go back to paper and **the controls that were under it
+// have to come back**, which is the rule of the hole of a card that goes away (`request_release`): nobody keeps a copy of what was
+// underneath, and the system's answer to «what was there» is the app's own controls (docs/30, docs/90).
+bool menu_bar_hole(int16_t slot) {
+  const Canvas* bar = find(slot);
+  if (bar == nullptr || g_bar_card.slot != slot || g_bar_card.w == 0 || g_bar_card.h == 0) return false;
+  const int16_t painter = painting_holder(bar->parent);
+  if (painter < 0) return false;
+  int32_t offset_x = bar->x + static_cast<int32_t>(g_bar_card.x);
+  int32_t offset_y = bar->y + static_cast<int32_t>(g_bar_card.y);
+  for (int16_t walk = bar->parent; walk != painter && walk >= 0; walk = g_canvases[walk].parent) {
+    offset_x += g_canvases[walk].x;
+    offset_y += g_canvases[walk].y;
+  }
+  const int32_t page_w = static_cast<int32_t>(g_canvases[painter].width);
+  const int32_t page_h = static_cast<int32_t>(g_canvases[painter].height);
+  if (offset_x < 0) offset_x = 0;
+  if (offset_y < 0) offset_y = 0;
+  const int32_t hole_w = (offset_x + static_cast<int32_t>(g_bar_card.w) <= page_w)
+                             ? static_cast<int32_t>(g_bar_card.w)
+                             : (page_w - offset_x);
+  const int32_t hole_h = (offset_y + static_cast<int32_t>(g_bar_card.h) <= page_h)
+                             ? static_cast<int32_t>(g_bar_card.h)
+                             : (page_h - offset_y);
+  g_bar_card.slot = kNoSlot;
+  if (hole_w <= 0 || hole_h <= 0) return false;
+  // **El desplegable és una targeta i la seva cantonada és la de la pàgina**: twelve pixels of corner, the same arithmetic
+  // `menu_bar_draw` uses, so the paper does not eat four pieces of the page the card never touched (docs/92).
+  int32_t radius = ((hole_w < hole_h) ? hole_w : hole_h) / 3;
+  if (radius > 12) radius = 12;
+  draw_round_fill(g_canvases[painter], offset_x, offset_y, hole_w, hole_h, radius, g_paper_level,
+                  hal::UpdateMode::kGl16, /*named=*/true);
+  // **I el que hi havia sota el desplegable torna del seu propi buffer** (0.192.39): only the rectangle of the hole is composed,
+  // and a control is never drawn again for it —its buffer is still the truth of what it holds—. Asking the whole subtree to draw
+  // painted the terminal of the `shell` from end to end, and the ink the menu had never touched came back a shade greyer (measured
+  // on the emulator: 54 against 26 of the black), and it painted a line of the page of `Files` that the app never shows
+  // (docs/30, docs/90).
+  compose_the_hole(painter, offset_x, offset_y, static_cast<uint16_t>(hole_w), static_cast<uint16_t>(hole_h));
+  invalidate_rect(painter, static_cast<uint16_t>(offset_x), static_cast<uint16_t>(offset_y),
+                  static_cast<uint16_t>(hole_w), static_cast<uint16_t>(hole_h));
+  // **I la barra mateixa**, que ha de treure el mot que era invertit.
+  invalidate(slot);
+  return true;
+}
+
 // **The options of a menu, said in the kernel's words**: the bridge reads them from the app's table and the drawing
 // takes the system's array, because the two sides of a control do not share a struct (docs/90).
 bool menu_draw_for_lua(int16_t slot, const char* title, const luabind::UIOps::UIMenuOption* items, uint8_t count,
@@ -2405,6 +2503,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      menu_bar_draw_for_lua,
                                      menu_bar_title_at_for_lua,
                                      menu_bar_entry_at_for_lua,
+                                     menu_bar_hole,
                                      textbox_multiline_draw,
                                      textbox_multiline_hit,
                                      textbox_multiline_rows,
@@ -7656,6 +7755,14 @@ bool menu_bar_draw(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint
   const int32_t menu_h = menu_bar_height_of(title, grid.row_h);
   const int32_t menu_x = target.x + grid.menu_x;
   const int32_t menu_y = target.y + grid.menu_y;
+  // **El rectangle del desplegable, recordat per qui l'ha de tornar a paper** (0.192.39): a bar of menus paints its card straight
+  // into the page —it has no buffer of its own— i o sigui que quan el desplegable es plega el que hi havia sota no torna sol. El
+  // rectangle es desa aquí, que és l'únic lloc que el sap, i `menu_bar_hole` el torna a paper quan el menú es plega (docs/30, docs/90).
+  g_bar_card.slot = slot;
+  g_bar_card.x = static_cast<uint16_t>((target.x + grid.menu_x > 0) ? (target.x + grid.menu_x) : 0);
+  g_bar_card.y = static_cast<uint16_t>((target.y + grid.menu_y > 0) ? (target.y + grid.menu_y) : 0);
+  g_bar_card.w = static_cast<uint16_t>(grid.menu_w);
+  g_bar_card.h = static_cast<uint16_t>((menu_h > 0) ? menu_h : 0);
   // **The unfolded menu is a card of the system and not a box with a hairline** (docs/92): the paper project's
   // `Modal::drawCard()` —paper inside, **twelve pixels of corner and three rings of one pixel**—, because a dropdown of
   // a bar is the same thing as the card of a modal: a white sheet over the app. One pixel of frame on this panel reads
@@ -7668,7 +7775,8 @@ bool menu_bar_draw(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint
   // sheet with the words of the page showing through it —the editor's `File` on the emulator—. The paper goes down with
   // the same quality the hole of a card that goes away uses, and the rings and the words over it with the cheap pass
   // (docs/30, docs/50, docs/90).
-  draw_round_fill(*target.canvas, menu_x, menu_y, grid.menu_w, menu_h, radius, background, hal::UpdateMode::kGl16);
+  draw_round_fill(*target.canvas, menu_x, menu_y, grid.menu_w, menu_h, radius, background, hal::UpdateMode::kGl16,
+                  /*named=*/true);
   for (int32_t i = 0; i < 3; ++i) {
     if (grid.menu_w - 2 * i < 2 || menu_h - 2 * i < 2) break;
     const int32_t r = (radius > i) ? (radius - i) : 1;

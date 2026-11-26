@@ -625,6 +625,9 @@ open_week_menu = function(field)
     console.print('tz: week ' .. ((week == 7) and 'sunday' or 'monday'))
     ui.present(kPageMode)
   end
+  -- **Un dit fora del menú el tanca el sistema** (0.192.39): the app hears `on_cancel` and forgets the object, which is what makes
+  -- the list open again the next time the field is pressed (docs/30, docs/90).
+  menu.on_cancel = function() close_week_menu() end
   weekmenu = menu
   ui.present(kMoveMode)
 end

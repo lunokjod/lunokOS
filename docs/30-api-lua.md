@@ -1583,9 +1583,10 @@ memòria quan hi cap.
 | `fs.write(path, data)` | enters | Escriu sencers (temporal + reanomenar) |
 | `fs.data([sub])` | cadena | `/data/<id>` (sense barra final, que és el que diu el codi) o `/data/<id>/<sub>` amb un nom a dins |
 | `fs.cfg([unitat])` | taula o `nil, error` | `{unit, dir}`: on van els ajustos d'aquesta app. Amb `"auto"`, `"sd"` o `"littlefs"` els mou (docs/70) |
+| `fs.thumbnail(path[, max])` | camí o `nil, error` | **La cara d'un fitxer, feta pel sistema** (0.192.38, l'amo: *«no han de ser les apps qui facin els thumbnails, sinó el sistema. Que revisi si hi ha thumbnail i si no hi ha, el genera»*): el camí del cau que hi ha **al costat** de la foto —`.<nom>.cache.ics`, un `ICS1` de quatre bits per píxel— i, si no hi és, el sistema l'escriu abans de contestar; o **el camí de la foto mateixa** quan ja és tan petita com una cara. `max` és el costat més llarg del cau, `64` si no es diu i `256` com a sostre. **L'app no escala, no codifica i no escriu res**: diu quin fitxer dibuixa i rep una foto que `ui.image` sap pintar, i així la icona d'un fitxer pot ser el fitxer. Un cau que hi és i és sencer **no s'escriu**, l'espai es pregunta **abans** d'escalar i una escriptura que falla **esborra** el que ha deixat; el cap del fitxer es llegeix abans que el fitxer sencer, o sigui que un text o un llibre es refusen amb mig kilobyte. El que s'escriu és **del sistema** i no de l'app, com el cau d'un llibre (docs/46, C11, docs/70) |
 
 **Avui hi ha** `fs.open`, `fs.list`, `fs.stat`, `fs.read`, `fs.read_at`, `fs.write`, `fs.mkdir`,
-`fs.remove`, `fs.rename`, `fs.format`, `fs.data`, `fs.mounts`, `fs.space` i `fs.cfg`.
+`fs.remove`, `fs.rename`, `fs.format`, `fs.data`, `fs.mounts`, `fs.space`, `fs.thumbnail` i `fs.cfg`.
 
 De l'**objecte fitxer** (`f = fs.open(path[, "r"|"w"|"a"|"r+"])`):
 
@@ -1937,7 +1938,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.progress(w, h)` | **un objecte** o `nil, error` | Una **barra**: fons, pista i el tros fet, tot del sistema. `value` és 0 a 100 i **un negatiu és «encara no ho sé»**. **No és enfocable** (3/11, 0.69.0) |
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mouen el dial i el dit**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)`. **Des de la 0.117.0 cal entrar-hi amb el botó central** (`editing`): fora, les fletxes segueixen caminant el dial; dins, són el número, i el centre les torna al sistema (3/11, 0.69.0, 0.117.0). **I des de la 0.192.34 un dit al tub hi posa el número on ha caigut**, que és l'única manera de moure un slider en una placa amb vidre i sense dial —l'app ho sent igualment per `on_change` i el control **no** entra en `editing`— (docs/90) |
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
-| `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El VBox o l'HBox de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)`, i cada cel·la diu **el seu percentatge del box amb `child.share`** (0.103.0) o la seva part del lloc lliure amb `child.weight` (3/11, 0.70.0) |
+| `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El VBox o l'HBox de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)`, i cada cel·la diu **el seu percentatge del box amb `child.share`** (0.103.0) o la seva part del lloc lliure amb `child.weight` (3/11, 0.70.0). **`panel.background` no el pinta** —un panel és el lloc que col·loca, no una caixa opaca—: el paper d'una vista és un `ui.label` amb `background` (0.192.40) |
 | `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable, amb una parada per pestanya**: les fletxes van d'una pestanya a la següent, el centre tria la del cercle i `on_change(self, index)` avisa; `focus_index` diu quina té el cercle (3/11, 0.70.0 i 0.99.0). **I una tira que es pot tancar** (0.161.0): amb `closeable = true` cada pestanya porta una **`X` a la dreta, centrada verticalment**, i `tabs:tap(x, y)` diu què ha fet el dit —si era una creu crida **`on_close(self, index)`** i és l'app qui allibera el que hi havia darrere— i `on_change` si era el mot d'una pestanya |
 | `ui.focus(control)` | **res** | **On és el dial**: l'app el posa en un control seu quan la seva pàgina s'ha tornat a construir i el que hi havia ja no hi és. Sense això la volta comença al primer control de l'arbre —la tira de pestanyes— i les fletxes canvien la pestanya per sempre (7/11, 0.97.4). Un control que no es pot enfocar no fa res |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **El paginador del sistema**: `pages`, `current`, `level` (la tinta, 0 per defecte) i `background`, amb la bola de la pàgina on ets plena i més gran (25) i les altres d'anella (19), unides per un pal de 3 (0.94.1); si les pàgines no hi caben, la finestra de les que hi caben i **tres boles més petites a cada cap** que no arriba (0.139.0). **No és enfocable**, i amb una sola pàgina dibuixa el seu paper i cap bola (0.176.0). **La caixa del disseny és de 37** (la bola de 25 i dotze d'aire a sota) i una caixa més baixa encongeix tota la tira amb el mateix factor: **el peu d'una llista i el d'una graella li demanen sempre aquesta caixa**, o sigui que el paginador és el mateix a tot arreu (0.176.0, docs/92 §27). **Accepta fins a 512 pàgines** (0.138.0): abans eren un byte amb un topall de 32, i un capítol d'un llibre en té més |
@@ -1951,7 +1952,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.chart(w, h)` | **un objecte** o `nil, error` | **Una sèrie en el temps, amb escala i hores** (0.189.144): `values` (els números, el més vell primer), `times` (el minut del dia de cada un, **negatiu quan la placa no té rellotge**), `suffix` (el que s'escriu després dels tres números, `'%'`), `scale` (el pas dels números), `min`/`max` (el **rang físic** de la sèrie, zero i cent per defecte), **`decimals`** (0, 1 o 2: el valor arriba multiplicat per la potència de deu que diu aquest camp, 0.189.169), **`left`/`right`** (els dos textos de l'eix, que són de l'app perquè una hora no és una data) i **`gap`** (els minuts de forat, `60` per defecte —sis mostres d'un registre de deu minuts— i **`0` = no n'hi ha cap**, que és el que demana una sèrie ja aprimada), i els dos tons. Dibuixa el marc, tres guies amb el seu número a l'esquerra, la línia pels punts, el quadrat de l'última mostra i les dues puntes de l'eix; **quaranta-vuit mostres com a molt** i la línia es talla on el registre té un forat. **No és enfocable** |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
 | `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app **i van de dilluns a diumenge**), **`marks`** (la llista dels dies que porten un punt, 0.189.171), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix **mentre les tecles s'usen** (és el cursor) i el d'avui porta una anella arrodonida. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0). **Des de la 0.170.0 la primera columna i els noms giren amb `time.week`** i el febrer té els dies que digui `time.leap` |
-| `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` porta **un filet d'un píxel** i la del dial és una **banda de tinta d'extrem a extrem** (0.177.0: era una tecla amb relleu i la primària s'invertia). Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
+| `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` porta **un filet d'un píxel** i la del dial és una **banda de tinta d'extrem a extrem** (0.177.0: era una tecla amb relleu i la primària s'invertia). Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0). **És una targeta** (0.192.39): la pàgina del darrere no rep el dit i un toc fora el tanca per `on_cancel` |
 | `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc, que neix apagat com el de la caixa d'una línia), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |
 | `ui.picker(w, h)` | **un objecte** o `nil, error` | **El desplegable d'una tria** (0.189.102): la targeta del sistema amb `title`, `items`, `index` (1..n, 0 = cap) i `page` (1..n, 0 = la del triat), les files d'una pàgina amb les columnes que demana el text més llarg, i **dues claus al peu** que giren la pàgina. El dit, el dial i el centre són seus: una fila tria (`on_pick`), una clau gira i **no tria**, i el centre tria on és la banda |
@@ -3603,7 +3604,13 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
   `ui.focus(card)` ni tornar el focus a mà —l'única cosa que li toca és tancar la targeta quan en rep la
   resposta—. **I un dit que cau fora de la targeta és el seu cancel·lar**: el toc no arriba a la pàgina del
   darrere, i el contacte queda gastat, perquè el dit que ha tancat una pregunta no premi el botó que hi havia
-  a sota (0.173.1). Un `ui.menu` i un `ui.month` no són targetes i no tenen aquesta regla (docs/30, docs/90).
+  a sota (0.173.1). **Un `ui.menu` obert i el desplegable d'un `ui.menu_bar` també són targetes** (0.192.39, l'amo:
+  *«Si un menú contextual està desplegat només hi han les seves opcions i fora del menú … Es tanca com el teclat virtual o
+  un modal: tocant fora»*): mentre un és obert, el camí del dit només veu la targeta, i un dit que cau fora **crida
+  `on_cancel` de l'app i després el sistema plega el menú** —un `ui.menu` s'allibera i un desplegable posa `open = 0`—, o
+  sigui que l'app ha de fer dues coses i prou: dir `menu.on_cancel = function(self) self:release(); menu = nil end` i no
+  tornar a obrir-lo mentre la variable no sigui `nil`. Un `ui.month` no és una targeta i no té aquesta regla (docs/30,
+  docs/90).
 - **I la targeta no té píxels propis, o sigui que el forat que deixa s'ha de tornar a pintar** (0.173.2 i
   0.173.3): una targeta sense buffer pinta la seva tinta **dins dels píxels de la pàgina**, i ningú no guarda una
   còpia del que hi havia a sota. Quan l'app la deixa anar, el requadre queda **degut a la pàgina**, i qui el paga
@@ -3623,6 +3630,13 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
   - **La recepta**: una app que pinta la seva pàgina a mà posa `ui.root().on_draw` i **no ha de fer res més** quan
     una targeta marxa —el sistema li demana el requadre i prou—. L'editor ho feia a mà (`ui.clear` i tornar a
     pintar-ho tot quan la targeta tancava); amb `on_draw` això és la mateixa funció que ja té (docs/30, docs/90).
+- **Una pàgina que una app aixeca com una pregunta és una targeta amb `modal = true`** (0.192.40): a `ui.panel` that covers the
+  glass —with its own paper (a `ui.label` of background), its title and its doors— is a card in everything but its name, and the
+  field `modal = true` says so. **Mentre és a sobre, el dit només veu la targeta** i la pàgina del darrere no respon —which is what
+  keeps a button of the question from pressing the row under it—, i **el cursor d'una caixa calla** (una pintada d'una cel·la sota
+  una targeta és una pintada que ningú veu). A card of the system over it —a `ui.menu`, a `ui.dialog`, the dropdown of a bar— **is
+  the one that answers**, and a finger outside the app's card does nothing unless the app gives it an `on_cancel` (docs/30,
+  docs/50, docs/90).
 
 ### `ui.sparkline`, `ui.chart` i `ui.pie`: la forma d'uns números (0.74.0, i el gràfic a la 0.189.144)
 
@@ -3762,6 +3776,22 @@ les opcions i el col·loca on vol —normalment on és el dit, i per això és c
 - **Les fletxes caminen les opcions que són a la targeta** (les amagades les salta) i **el centre en tria una** amb
   `on_pick(self, index)`, on `index` és el número de l'opció dins d'`items`. **Un dit tria la caixa que prem**, no la
   que tenia l'anella. **Tancar el menú és de l'app**: la regla de sempre, llegir l'acció, tancar i llavors fer-la.
+- **Una pàgina que una app aixeca com una pregunta és una targeta amb `modal = true`** (0.192.40): `ui.panel` que cobreix el vidre,
+  amb el seu paper (un `ui.label` de fons), el títol, les seves portes i `card.modal = true`. Mentre és a sobre, **el dit només
+  veu la targeta** i la pàgina del darrere no respon —que és el que fa que un botó de la pregunta no acabi prement la fila que hi
+  ha a sota— i **el cursor d'una caixa calla**. Una targeta del sistema (un `ui.menu`, un `ui.dialog`, un desplegable) que hi hagi
+  a sobre seu **mana ella**, i un dit fora de la targeta de l'app no fa res si l'app no li posa `on_cancel` (docs/30, docs/90).
+- **I el dit de fora el tanca el sistema** (0.192.39): mentre el menú és obert, **la pàgina del darrere no veu el dit** —
+  un menú desplegat no és una capa que es pugui traspassar, i el que queda a sota no és una resposta a res—. Un contacte
+  que cau fora de la caixa crida el teu `on_cancel(self)` i després **allibera el menú** (si tu no ho has fet abans), o
+  sigui que l'app ha de fer exactament dues coses:
+  ```lua
+  menu.on_cancel = function(self)
+    self:release()
+    menu = nil          -- sense això, el `if menu ~= nil then return end` no el deixa tornar a obrir
+  end
+  ```
+  El contacte queda gastat, com el d'una targeta: el dit que ha tancat un menú no prem la fila que hi havia a sota.
 - **Si `index` apunta a una opció amagada no es dibuixa cap anella** —l'app està assenyalant una cosa que no és a la
   targeta— i la primera fletxa la porta a la que hi ha en aquella direcció. I una targeta que no hi cap és una targeta
   que l'app ha mida malament: les opcions que no hi tenen caixa no es dibuixen.
@@ -3813,6 +3843,11 @@ pàgina amb feina a fer —un editor, un gestor de fitxers— on les accions no 
   barra sigui un cul-de-sac.
 - **Una elecció crida `on_pick(self, title, entry)` amb el menú ja plegat**: la regla de sempre, llegir l'acció, plegar i
   llavors fer-la. `title` i `entry` són els números dins d'`items` del títol i del seu menú.
+- **I el desplegable és una targeta** (0.192.39): mentre un és obert la pàgina del darrere no veu el dit, i un contacte
+  fora crida `on_cancel(self)`, posa `open = 0` i **neteja el rectangle que la targeta havia pintat** —la barra no té
+  buffer i la seva tinta viu als píxels de la pàgina, o sigui que plegar-se sense netejar-lo deixava el menú pintat a
+  sota, amb les files de debò a trossos (docs/30, docs/90)—. Un toc a la barra que no encerta ni un títol ni una entrada
+  també plega, i **no executa l'`index` que hi havia d'abans**.
 
 ```lua
 local bar = ui.menu_bar(500, 300)

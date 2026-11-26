@@ -676,6 +676,14 @@ local function openTimeMenu(field)
     ui.focus(field)
     presentASmallBox()
   end
+  -- **I el dit de fora el tanca el sistema** (0.192.39): the app forgets the card it was holding, and the field it came from is
+  -- given back the ring, which is what the pick does (docs/30, docs/90).
+  card.on_cancel = function()
+    sett.menu = nil
+    field.choosing = false
+    ui.focus(field)
+    presentASmallBox()
+  end
   sett.menu = card
   field.choosing = true
   presentASmallBox()

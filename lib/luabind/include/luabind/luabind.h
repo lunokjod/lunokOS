@@ -89,6 +89,12 @@ struct FileOps {
   // say it, and that is not the same as there being none (docs/70).
   bool (*space)(const char* path, uint64_t& total, uint64_t& free_bytes, FsError& err);
 
+  // **La cara d'un fitxer, feta pel sistema** (0.192.38, l'amo: *«no han de ser les apps qui facin els thumbnails, sinó el
+  // sistema»*): the thumbnail of a picture, written beside it as `.<name>.cache.ics` if it is not there yet, answered as the
+  // path of that cache —or of the picture itself when it is already as small as a face—. The kernel scales, encodes and
+  // writes it; the app only says which file it is drawing (docs/30, docs/46).
+  bool (*thumbnail)(const char* path, int32_t max, char* out, size_t cap, const char*& why);
+
   // Where the settings go: the unit behind /cfg, which is "sd" or "littlefs". An app
   // does not need to know it —it writes /cfg/... and the kernel decides— but the person
   // has to be able to ask and to change it, and that is what these three are for
@@ -1173,6 +1179,10 @@ struct UIOps {
                                uint8_t scale, uint16_t x, uint16_t y);
   uint8_t (*menu_bar_entry_at)(int16_t slot, const UIMenuBarTitle* titles, uint8_t count, uint8_t open,
                                uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y);
+  // **El forat del desplegable d'una barra** (0.192.39): the bar paints its card straight into the page and has no buffer, so the
+  // rectangle it left has to be turned back to paper and the controls under it asked to paint themselves again — which is what the
+  // hole of a card that goes away does. The box is the one the bar remembers from its last paint (docs/30, docs/90).
+  bool (*menu_bar_hole)(int16_t slot);
   // **A box of several lines** (docs/30, docs/90): the window that keeps the caret on the glass, the caret as a block
   // with the letter under it in paper, where a point of the box puts the caret, and how many rows the box shows.
   bool (*textbox_multiline_draw)(int16_t slot, const char* text, uint16_t cursor, bool caret, bool wrap,

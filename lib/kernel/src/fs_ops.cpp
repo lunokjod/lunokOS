@@ -16,6 +16,7 @@
 #include "kernel/apps.h"
 #include "kernel/cfg.h"
 #include "kernel/log.h"
+#include "kernel/thumb.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
 
@@ -995,6 +996,25 @@ bool app_make_way(const char* path) {
   return true;
 }
 
+// **`fs.thumbnail`: la cara d'una foto, i la fa el sistema** (0.192.38): l'app ha de poder **llegir** el fitxer —la mateixa
+// pregunta que `fs.read_at`— i el cau que s'escriu al seu costat és del sistema i no de l'app, o sigui que no demana el permís
+// d'escriptura de l'app: és el mateix repartiment que el cau d'un llibre, que l'escriu `book::thumbnail` perquè una app no
+// escriu al costat del llibre (docs/46 C6 i C11, docs/70).
+bool thumbnail(const char* path, int32_t max, char* out, size_t cap, const char*& why) {
+  why = nullptr;
+  char full[128];
+  if (!absolute(path, full, sizeof(full))) {
+    why = "that is not a path an app may name";
+    return false;
+  }
+  luabind::FsError err = luabind::FsError::kOk;
+  if (!allowed(full, false, err)) {
+    why = "that is not a path an app may name";
+    return false;
+  }
+  return kernel::thumb::of_the_picture(full, max, out, cap, why);
+}
+
 void install_fs_ops() {
   luabind::FileOps ops;
   ops.read_at = &read_at;
@@ -1015,6 +1035,7 @@ void install_fs_ops() {
   ops.file_close = &file_close;
   ops.mounts = &mounts;
   ops.space = &space_at;
+  ops.thumbnail = &thumbnail;
   ops.cfg_unit = &cfg_unit;
   ops.cfg_set_unit = &cfg_set_unit;
   ops.cfg_dir = &cfg_dir;

@@ -79,10 +79,16 @@ local asked_path = (asked ~= '' and asked:find('keys') == nil) and asked or nil
 -- What a `+` can create, in the order of the dropdown. Two, and the day there is a third it is one more line here.
 local kinds = { 'Folder', 'File' }
 
--- **A picture the row does not draw**: the thumbnail beside a photo is a cache of the viewer, and a row wants a one-bit
--- drawing of a folder or of a file —the two shapes are drawn with the primitives, so they turn over with the row and no
--- file of the disk is read for a name— (docs/45).
-local imageExt = { png = true, jpg = true, jpeg = true, gif = true, bmp = true, icn = true, bm = true }
+-- **La icona d'un fitxer és el fitxer** (0.192.38, i és el que l'amo demanava: *«que l'app Files els utilitzi com icona per aquell
+-- arxiu»*): a row of a picture draws the picture, scaled down, i el dibuix de la mena només hi és quan el sistema no en té, de cara
+-- —una carpeta, un text, una foto que no s'ha pogut escalar—. **El cau el fa el sistema i no aquesta pàgina**: `fs.thumbnail` el
+-- troba al costat del fitxer o l'escriu, i el que arriba aquí és un camí d'una foto que `ui.image` sap pintar (docs/30, docs/46).
+local imageExt = { png = true, jpg = true, jpeg = true, gif = true, bmp = true, icn = true, bm = true,
+                   -- **I un llibre, que té la seva portada al mateix lloc** (0.192.38): the cache of a cover is the one the
+                   -- reader wrote with `epub.thumbnail` (docs/46, C11), and a book that has never been opened has none and the
+                   -- row keeps the drawing of a file —the system refuses it in half a kilobyte, because a zip is not a picture.
+                   epub = true }
+local kFaceSide = 64        -- el costat més llarg del cau que es demana al sistema, que és el de la casa (docs/46, C11)
 
 -- ---------------------------------------------------------------- the session `state`
 
@@ -154,6 +160,12 @@ local first_view = ui.caps()
 local wid, hei = first_view.width, first_view.height
 
 local path = '/'               -- where the screen is
+-- **El camí d'un fill d'una carpeta**, que és el que demanen la fila d'una foto i la còpia d'un arbre.
+local function join_path(dir, name)
+  if dir == '/' then return '/' .. name end
+  return dir .. '/' .. name
+end
+
 local page = 1                 -- the page of the folder on the glass (one based, as a person says it)
 local per_page = 8             -- the rows that fit a page, measured from the box of the list
 local pages = 1                -- how many pages the folder has
@@ -187,6 +199,7 @@ local the_list = nil
 local the_dots = nil
 local the_bar = nil
 local card_panel = nil
+local card_sheet = nil
 local card_title = nil
 local card_kind = nil
 local card_box = nil
@@ -272,6 +285,8 @@ read_settings()
 -- The four doors the rows and the cards call, declared here because a row is built while the file is still being read
 -- (a Lua local is not a global: without this line the first tap on a row would call nothing).
 local reload, apply_doors, open_entry, open_delete, refresh_rows
+local build_page, measure_page
+local page_panel
 
 -- ---------------------------------------------------------------- the drawing of a row
 
@@ -348,6 +363,25 @@ local function chosen_entries()
   return out
 end
 
+-- **La cara d'una fila** (0.192.38): the path of the picture the system keeps beside the file and the box it is drawn in, or
+-- nothing at all —a folder, a text, a picture the system could not scale— and then the row draws the shape of its kind. **La cara
+-- no s'engrandeix**: a picture of sixteen pixels is drawn at sixteen, perquè una foto ampliada és una foto pitjor (docs/30, docs/45).
+local function the_face_of(e)
+  if e.dir or e.name == nil then return nil end
+  local ext = e.name:match('%.([^.]+)$')
+  if ext == nil or not imageExt[ext:lower()] then return nil end
+  local face = fs.thumbnail(join_path(path, e.name), kFaceSide)
+  if face == nil then return nil end
+  local info = ui.image_info(face)
+  if info == nil or (info.width or 0) < 1 or (info.height or 0) < 1 then return nil end
+  local side = math.max(info.width, info.height)
+  local scale = kIcon / side
+  if scale > 1 then scale = 1 end
+  local w = math.max(1, math.floor(info.width * scale + 0.5))
+  local h = math.max(1, math.floor(info.height * scale + 0.5))
+  return face, w, h
+end
+
 -- One row of the page: the drawing, the name and the line under it. **The star in front of a chosen name is the mark of the
 -- selection** —the list of the system frames one row and a selection is not one— and it is also what a test reads.
 local function add_row(the_row, width, index)
@@ -380,7 +414,15 @@ local function add_row(the_row, width, index)
   local icon = ui.canvas(kIcon, kIcon)
   if icon ~= nil then
     icon:place(kIconX, (kRowHeight - kIcon) // 2)
+    -- **El camí de la cara es pregunta una vegada per fila i no a cada pintada**: `fs.thumbnail` pot arribar a escalar la foto la
+    -- primera vegada, i això no es fa dins d'un `on_draw` —que és el moment de pintar i no el de treballar— (docs/30, docs/50).
+    local face, face_w, face_h = the_face_of(e)
     icon.on_draw = function(self, inverted)
+      if face ~= nil then
+        self:clear(inverted and 0 or 15)
+        local drawn = self:image((kIcon - face_w) // 2, (kIcon - face_h) // 2, face, face_w, face_h, kPageMode)
+        if drawn then return end
+      end
       if e.dir then draw_folder(self, inverted) else draw_file(self, inverted) end
     end
     entry:add(icon)
@@ -592,10 +634,14 @@ apply_doors = function()
   if the_bar == nil then return end
   local busy = (task ~= nil) or (card ~= '')
   local how_many = count_of(chosen)
+  -- **L'arrel no és un disc i no s'hi fa res nou** (0.192.40, l'amo: *«a l'arrel no ofereixin “New...” no es un disc real»*): `/` is
+  -- where the units are mounted and not a folder of one, so `fs.mkdir('/x')` answers *«that path is not one this app may use»* —
+  -- the door was offered and the disk said no, which is a page that lies about what can be done— (docs/30, docs/70).
+  local on_a_disk = (path ~= '/')
   the_bar.items = {
     { title = 'File', items = {
         { label = 'Up', enabled = (not busy) and (path ~= '/') },
-        { label = 'New...', enabled = not busy },
+        { label = 'New...', enabled = (not busy) and on_a_disk },
         { label = 'Rename...', enabled = (not busy) and (how_many == 1) },
     } },
     { title = 'Edit', items = {
@@ -673,11 +719,6 @@ end
 local BLOCK = 4096          -- the unit of the bar, which is the unit of the read
 local STEP_BLOCKS = 4       -- blocks per turn of the loop: 16 KB
 local WALK_STEPS = 32       -- entries examined per turn of the loop
-
-local function join_path(dir, name)
-  if dir == '/' then return '/' .. name end
-  return dir .. '/' .. name
-end
 
 local function push_dir(t, from, to)
   t.stack[#t.stack + 1] = { from = from, to = to, at = 0, items = nil }
@@ -1134,18 +1175,41 @@ local function drop_kinds_menu()
   kinds_menu = nil
 end
 
+-- **La pàgina marxa mentre hi ha la pregunta** (0.192.40, l'amo: *«Fes-lo en una vista nova i menys problema»*): the page of the
+-- list is given back and the question is the only thing in the view, which is what a view of its own means. It was a card over a
+-- page and every frame the list asked for was a frame that painted the list over the question —the owner saw the folders of the
+-- list on top of the card— and a finger on a button of the card could land on a row under it. Giving the page back is the same
+-- door the app already has for the size of the view: one page, built when it is needed (docs/30, docs/90).
+local function hide_the_page()
+  if page_panel == nil then return end
+  page_panel:release()
+  page_panel, content, the_bar, the_list, the_dots = nil, nil, nil, nil, nil
+  status_label, where_line, where_label, room_label = nil, nil, nil, nil
+  row_controls = {}
+end
+
+-- **The page is built again when the answer is over**, with the size the glass has then: the band of the keyboard has changed
+-- it while the question was up, and the list was never asked to fit the old one (0.192.40, docs/40, docs/90).
+local function show_the_page()
+  build_page()
+  ui.present(kPageMode)
+  measure_page()
+  reload()
+  ui.present(kPageMode)
+end
+
 -- **The card is given back when it is answered**, and so is the band: a card that stays is a page nobody can press, and a
 -- band that stays is the bottom of the screen taken by a question that is over (docs/30, docs/90).
 local function close_card()
   if card == '' and card_panel == nil then return end
   drop_kinds_menu()
   if card_panel ~= nil then card_panel:release() end
-  card_panel, card_title, card_kind, card_box, card_no, card_yes = nil, nil, nil, nil, nil, nil
+  if card_sheet ~= nil then card_sheet:release() end
+  card_panel, card_sheet, card_title, card_kind, card_box, card_no, card_yes = nil, nil, nil, nil, nil, nil, nil
   card, victim = '', nil
   local kb = the_keyboard()
   if kb ~= nil then kb:hide() end
-  apply_doors()
-  ui.present(kPageMode)
+  show_the_page()
 end
 
 local function a_button(parent, width, text, on_click)
@@ -1168,16 +1232,31 @@ local function a_button(parent, width, text, on_click)
   return button
 end
 
--- The card of a question is one panel with a background at the top of the page: the band of the keyboard takes the bottom
--- 256 px when a name is being typed, so a card in the middle of the glass would be a card under a keyboard (docs/30).
+-- **La pregunta s'obre en una vista seva i no en una targeta sobre la llista** (0.192.40, l'amo: *«Fes-lo en una vista nova i
+-- menys problema»*): a card over a page is a card that the page under it can paint over —the band of the keyboard gives the view
+-- another size, the page is built again, and the question ends up under a page nobody draws again—, and its paper is a white
+-- sheet the list shows through. **A page of its own covers the glass whole**, so nothing of the list is under the question and
+-- the only thing that changes size is the question itself, which is four controls at the top (docs/30, docs/90).
 local function new_card(title)
   local width = wid - 2 * kMargin
-  card_panel = ui.panel(width, kCardHeight, 'vertical')
+  hide_the_page()
+  -- **El full de paper és un control i no el fons d'un panel**: a panel does not paint its `background` —it is the room that
+  -- arranges what it holds—, and the sheet of the question was the list showing through the card. A label is opaque and fills
+  -- its own box, which is the whole view here (docs/92, docs/30).
+  card_sheet = ui.label(wid, hei)
+  if card_sheet == nil then return false end
+  card_sheet.background = 15
+  card_sheet.color = 15
+  card_sheet.text = ''
+  card_sheet:place(0, 0)
+  card_panel = ui.panel(wid, hei - kBarHeight - 16, 'vertical')
   if card_panel == nil then return false end
-  card_panel.padding = 24
+  card_panel.padding = kMargin
   card_panel.gap = 12
-  card_panel.background = 15
-  card_panel:place(kMargin, kBarHeight + 16)
+  card_panel:place(0, kBarHeight + 16)
+  -- **La pregunta és una targeta per al sistema** (0.192.40): while it is up the page under it answers nothing, a finger that
+  -- lands outside it is its cancel, and the cursor of a box under the question keeps quiet (docs/30, docs/90).
+  card_panel.modal = true
 
   card_title = a_word(card_panel, width - 48, title, kNameScale, 'left')
   return true
@@ -1188,7 +1267,6 @@ local function kind_name()
 end
 
 local function show_kind()
-  if card_title ~= nil then card_title.text = 'New ' .. kind_name():lower() end
   if card_box ~= nil then card_box.text = 'New ' .. kind_name():lower() end
   if card_yes ~= nil then
     local words = card_yes.children[1]
@@ -1209,6 +1287,10 @@ local function open_kinds()
     kinds_menu = nil
     show_kind()
   end
+  -- **I el dit de fora la tanca el sistema i aquesta pàgina ho ha de saber** (0.192.39): a context menu is the card of the system
+  -- while it is up, and the finger that lands outside it folds it —the app hears `on_cancel` and forgets the object it was holding,
+  -- or a second press on the kind would find a menu it can no longer open (docs/30, docs/90).
+  kinds_menu.on_cancel = function() kinds_menu = nil end
   kinds_menu:place(kMargin, kBarHeight + 16 + 150)
   ui.root():add(kinds_menu)
   ui.present(kCheapMode)
@@ -1278,7 +1360,7 @@ end
 local function open_new()
   card = 'new'
   victim = nil
-  if not new_card('New folder') then return end
+  if not new_card('New what?') then return end
 
   kind = 1
   card_kind = ui.selector(wid - 2 * kMargin - 48, 40)
@@ -1452,7 +1534,6 @@ end
 
 -- ---------------------------------------------------------------- the page
 
-local page_panel = nil
 local want_rows = false         -- a row changed and the rows have to be built again, once, in the loop
 
 -- **The rows are built again when the loop says so and not inside the finger's hook**: the control the finger pressed is one
@@ -1470,7 +1551,7 @@ end
 
 -- **The page is built once per size** and every navigation only fills the list again: the bar, the line of the path and the
 -- strip of pages are the same controls all the time, which is what makes a page turn cost one repaint of the list.
-local function build_page()
+build_page = function()
   if page_panel ~= nil then page_panel:release() end
   row_controls = {}
   the_bar, the_list, the_dots = nil, nil, nil
@@ -1592,7 +1673,7 @@ end
 -- **How many rows fit is asked to the box the list has**, and not guessed: the panel gives it the room that the bar, the
 -- line of the path, the line of state and the strip leave, and a hand-measured number is a riddle that leaves paper under
 -- the last row (the old screen learned it, and the list of this system asks for `weight` for the same reason).
-local function measure_page()
+measure_page = function()
   if the_list == nil then return end
   local box = the_list:caps()
   if box == nil or box.height <= 0 then return end
@@ -1682,11 +1763,9 @@ while true do
   local view = ui.caps()
   if view.width ~= wid or view.height ~= hei then
     wid, hei = view.width, view.height
-    build_page()
-    ui.present(kPageMode)
-    measure_page()
-    reload()
-    ui.present(kPageMode)
+    -- **Mentre hi ha la pregunta no hi ha pàgina a qui canviar la mida** (0.192.40): the question is a view of its own and the
+    -- page under it is given back, so the numbers are taken and the page is built when the answer comes (docs/40, docs/90).
+    if page_panel ~= nil then show_the_page() end
   end
 
   -- **The gestures of the system are taken and not left in the queue**: a drag is a swipe and anything else is read and

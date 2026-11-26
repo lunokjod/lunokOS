@@ -14431,7 +14431,102 @@ namespace kernel {
 // ensenyant encara el dibuix del son; i l'arrencada amb algú al davant rentant com sempre (`this board cleans the whole paper and there is
 // somebody in front: splash hide, gc16 of the glass`).
 
-static const char kVersion[] = "0.192.37";
+// **0.192.38 — la cara d'un fitxer la fa el sistema, i la fila de `Files` és el fitxer** (l'amo: *«no han de ser les apps qui facin els
+// thumbnails, sinó el sistema. Que revisi si hi ha thumbnail i si no hi ha, el genera. Les apps no tenen que fer res. L'unic thumbnail
+// complicat es el de la portada del llibre de l'epub i diría que ja funciona»*, i abans: *«L'app Files carrega els thumbnails com icona de
+// l'arxiu relacionat? … que l'app Files els utilitzi com icona per aquell arxiu»*).
+//
+//   - **`kernel::thumb` i la porta `fs.thumbnail(path[, max])`**: the cache of a picture —the `ICS1` beside it, `.<name>.cache.ics`, the
+//     same file the reader writes for a book (docs/46 C11)— is now made by the system for **any** picture: a whole cache is not
+//     written again, the room is asked before scaling, a write that fails is removed, and a picture that is already as small as a face
+//     is its own answer. **L'app no escala, no codifica i no escriu res**; diu quin fitxer dibuixa. El cap del fitxer es llegeix abans
+//     del fitxer sencer, o sigui que un text o un zip es refusen amb mig kilobyte i no amb els seus megabytes a la PSRAM.
+//   - **`apps/files` 0.2.0**: la icona d'una fila d'una foto és la foto, escalada al quadre de quaranta-vuit i sense engrandir-se; el
+//     dibuix de la mena (una carpeta, un full) hi és quan el sistema no en pot fer cap. El camí de la cara es pregunta una vegada per
+//     fila i no dins d'un `on_draw`.
+//   - **I l'etiqueta de memòria `thumb`**, perquè el bloc que escala una foto no és ni el de la pàgina ni el del llibre i `mem blocks`
+//     ho ha de poder dir.
+//
+// El que s'ha vist a l'emulador de la T5S3: una carpeta de la targeta amb un PNG, un altre i un JPEG de 231 KB dibuixats a les seves
+// files —`the face of /sd/pics/tetris.jpg is written at /sd/pics/.tetris.jpg.cache.ics, 64x36, 422 ms`—, la segona visita amb les
+// mateixes cares i **cap** línia `THUMB` (el cau no s'escriu dues vegades), i un `readme.txt` que es queda amb el dibuix del seu full.
+
+// **0.192.39 — el menú contextual és una targeta: només hi ha les seves opcions, i un dit de fora el tanca** (l'amo: *«El menú
+// contextual de Files no reacciona gaire bé i passa l'event a la vista. Si un menú contextual està desplegat només hi han les seves
+// opcions i fora del menú (que vol dir tancar el menú i tornar a la vista) … Es tanca com el teclat virtual o un modal: tocant
+// fora»*).
+//
+//   - **`ui.menu` i el desplegable d'un `ui.menu_bar` són targetes** (docs/30): mentre un és obert, el camí del dit només veu la
+//     targeta, o sigui que la pàgina de sota no rep l'event; i un dit que cau fora crida `on_cancel` de l'app i després **el sistema
+//     plega el menú** (un `ui.menu` s'allibera, un desplegable posa `open = 0`). **La porta de cancel·lar ja existia** per a un
+//     `__dialog` (0.172.0), i el que faltava era dir-ho dels menús.
+//   - **I un `ui.menu_bar` que no encerta ni el títol ni l'entrada també plega**, sense executar l'`index` que hi havia d'abans.
+//   - **El forat del desplegable de la barra** (0.192.39): la barra pinta la seva targeta **directament a la pàgina** —no té buffer—,
+//     o sigui que en plegar-se el que hi havia era el menú encara pintat; `menu_bar_hole` posa el paper de la pàgina al rectangle que
+//     la targeta havia ocupat, amb la cantonada de dotze píxels, i torna a demanar les files de sota.
+//   - **I el forat d'una targeta que se'n va nomena la seva qualitat** (0.192.39): el forat es pinta amb `gl16`, que és el rentat que
+//     no deixa fantasma, però el `present` que el pagava és el del dit —`a2`— i escrivia la seva qualitat sobre tota regió que no hagués
+//     nomenat res. Al vidre quedava el gris del menú amb la pàgina sota suaument ratllada; a l'emulador es va veure i es va mesurar
+//     (paper 234 contra 193 del forat), i ara el forat diu la seva i el `present` la respecta.
+//   - **I la targeta del desplegable també diu la seva** (0.192.39): the paper of the card went down with `gl16` and the present
+//     wrote its `a2` over it, so a menu over a page of words came out as a sheet the page showed through —the owner, with the
+//     board in his hand: *«ara es dibuixen malament i al tancar-se deixen restes»*—. Nomenada, la targeta és opaca i el paper que
+//     havia de tapar no es veu; **i no s'ha de dibuixar res dues vegades**: `quality_of_the_damage()` fa que el present sencer pugi
+//     a `gl16`, que és el que vol la targeta i el que el paper blanc agraeix.
+//   - **I el que hi havia sota la targeta torna del seu buffer** (`compose_the_hole`, 0.192.39): **només el rectangle del forat** es
+//     compon, i un control amb buffer **no es torna a dibuixar**. Demanar el dibuix de tot el subarbre pintava el terminal del
+//     `shell` de cap a cap —el seu negre tornava a 54 en lloc de 26— i pintava una línia de la pàgina de `Files` que l'app té
+//     tallada (el peu, a la vora del vidre).
+//   - **El que queda i per què** (0.192.39): **la fila d'una barra de menús encara es pinta amb la qualitat del present** —`a2`, la
+//     d'un dit—, o sigui que mentre el desplegable és obert la fila queda una mica grisa i el plegar la torna a netejar. Nomenar-la
+//     també s'ha provat i **empitjora el terminal del `shell`**: `quality_of_the_damage()` pren la qualitat dels nomenats i la imposa
+//     a tot el present, o sigui que la fila amb el seu `du` baixa la pàgina sencera a `du` i el negre del terminal torna a 54
+//     (mesurat a l'emulador, contra 26). És una feina del repartiment de qualitats d'un present, i no d'aquest canvi.
+//   - **`on_cancel` a `files`, `tz`, `life` i `shell`**: l'app sent que el dit ha caigut fora i oblida l'objecte que tenia, que és el
+//     que fa que el menú es pugui tornar a obrir.
+//
+// El vist a l'emulador, dues vegades:
+//
+//   - `--run tz`, el menú de la setmana: el desplegable s'obre amb les dues files i la pàgina de sota no respon; un dit al mig de la
+//     pàgina el tanca, deixa el paper net i **no** obre res; i el camp torna a obrir el menú quan se'l torna a tocar.
+//   - `--run files`, la barra `File`/`Edit`/`View`: `File` desplega les seves tres portes; un dit a la llista el plega, **no navega
+//     enlloc**, i el toc següent torna a obrir el menú; `View` → `Refresh` plega el desplegable, executa l'ordre (`[MENU] Refresh` al
+//     log) i deixa el paper del desplegable i la pàgina a 234.
+//   - `--run shell`, el mateix amb la barra `File`/`Commands` sobre el terminal negre: el desplegable s'obre **opac** (el títol
+//     `Shell 1` de la pàgina no es veu a través seu, que és el que es veia amb la targeta sense qualitat), es plega i el negre del
+//     terminal torna sencer (26 del model, el mateix que abans del canvi, i 234 on hi havia la targeta).
+
+// **0.192.40 — la pregunta d'una app és una vista seva, i el cursor calla quan hi ha una targeta a sobre** (l'amo: *«File -> New
+// No funciona, surt un modal molt petit i després desapareix sol, es queda el cursor “N” parpallejant... controla aquest modal.
+// Recorda que durant els modals o menús contextuals o desplegables el cursor calla per evitar problemes de redibuixat»*, i
+// després: *«Fes-lo en una vista nova i menys problema»*, i *«al títol posa “New folder”, millor que posi “New what?”»*).
+//
+//   - **`modal = true` en un control** (docs/30): una app pot dir que el seu control és una targeta —una pàgina seva que cobreix
+//     el vidre i porta la pregunta— i el sistema el tracta com el que ja feia amb un `ui.dialog`: mentre és a sobre, el dit només
+//     veu la targeta, la pàgina del darrere no respon i el cursor calla. Sense això, `Create` no creava res i obria la carpeta que
+//     hi havia a sota, perquè el dit anava a la fila de la llista (més profunda a l'arbre que el botó).
+//   - **I les targetes del sistema van primer**: un desplegable obert sobre la pàgina d'una pregunta és el que respon. El walk que
+//     busca la targeta trobava la pàgina de l'app abans que el menú del `Kind`, i el desplegable no responia al dit.
+//   - **El cursor calla mentre hi ha una targeta** (docs/30, docs/50): el bloc d'una caixa és una pintada d'una cel·la cada sis-cents
+//     mil·lisegons, i sota una targeta és una pintada que ningú veu i que el paper de la targeta ha de tornar a tapar. El comptador
+//     es reinicia perquè el bloc no salt quan la targeta marxa.
+//   - **`apps/files` 0.3.0: la pregunta és una vista sencera i la pàgina marxa mentre és oberta**. Una targeta sobre la pàgina era
+//     una targeta que la pàgina podia tapar —la banda del teclat canvia la mida de la vista, la pàgina es tornava a construir i la
+//     pregunta quedava sota una pàgina que ningú no tornava a dibuixar—, i el seu paper deixava veure la llista a través. Ara la
+//     pàgina es dona al sistema en obrir la pregunta i es torna a construir en contestar-la, amb la mida que el vidre té llavors:
+//     **una pàgina, feta quan cal** (docs/30, docs/90).
+//   - **I el títol de la pregunta és «New what?»**: the kind is what the person is choosing, so the question is the choice and not
+//     the answer that is already in the selector.
+//
+//   - **I `New...` no s'ofereix a l'arrel** (l'amo: *«a l'arrel no ofereixin “New...” no es un disc real»*): `/` is where the units are
+//     mounted and not a folder of one, and the door was there while the disk answered *«that path is not one this app may use»* —
+//     a door that is offered and refused is a page that lies about what can be done (docs/30, docs/70).
+//
+// El vist a l'emulador (`--run files`): a `/` la porta `New...` surt apagada; dins `/session` obre la seva vista amb «New what?»,
+// el selector `Kind` desplega `Folder`/`File` i el camp passa a «New file»; `Create` fa la carpeta (`[SAY] created: New folder`) i
+// torna a la llista amb la fila nova; `Cancel` torna a la llista amb la mida bona.
+
+static const char kVersion[] = "0.192.40";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

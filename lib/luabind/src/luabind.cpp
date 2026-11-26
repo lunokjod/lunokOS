@@ -2162,6 +2162,30 @@ int l_fs_space(lua_State* L) {
   return 1;
 }
 
+// **`fs.thumbnail(path[, max])`: la cara d'un fitxer, feta pel sistema** (0.192.38, l'amo: *«no han de ser les apps qui facin els
+// thumbnails, sinó el sistema. Que revisi si hi ha thumbnail i si no hi ha, el genera. Les apps no tenen que fer res»*). Answers
+// the path of the cache beside the picture —`.<name>.cache.ics`— and writes it if it is not there, or the path of the picture
+// itself when it is already as small as a face. **L'app no escala, no codifica i no escriu res**: diu quin fitxer dibuixa i rep
+// una foto que sap pintar, que és el que fa que la icona d'un fitxer sigui el fitxer i no un dibuix del seu tipus (docs/30,
+// docs/46). `max` is the longest side of the cache, 64 if it is not said (docs/46, C11).
+int l_fs_thumbnail(lua_State* L) {
+  const char* path = luaL_checkstring(L, 1);
+  const lua_Integer max = luaL_optinteger(L, 2, 0);
+  if (max < 0 || max > 4096) {
+    return push_nil_error(L, "E_INVAL", "a face is up to 4096 pixels a side");
+  }
+  if (g_file_ops.thumbnail == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system cannot make a face of a picture");
+  }
+  char out[200];
+  const char* why = nullptr;
+  if (!g_file_ops.thumbnail(path, static_cast<int32_t>(max), out, sizeof(out), why)) {
+    return push_nil_error(L, "E_INVAL", (why != nullptr) ? why : "there is no face for that file");
+  }
+  lua_pushstring(L, out);
+  return 1;
+}
+
 // fs.cfg([unit]): where this app's settings go, and how to move them.
 //
 // With no argument it answers a table {unit=..., dir=...}: the unit behind /cfg ("sd" or
@@ -11301,6 +11325,13 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
 // app does not have to hide its controls while a card is up —an app that had to would be an app that forgets— because the walk
 // of the focus is the system's and the system is what knows there is a card (docs/30, docs/90).
 int16_t g_modal_slot = -1;
+// **Quina mena de targeta és** (0.192.39, l'amo: *«El menú contextual de Files no reacciona gaire bé i passa l'event a la vista … El
+// menú contextual es comporta com un modal, sempre sobre el resta de la vista i s'ha de tancar per tornar a enviar events a la
+// vista. Es tanca com el teclat virtual o un modal: tocant fora»*): a question of the app closes when the app says so, and a **menu**
+// is the system's to fold —the finger that lands outside it is not an answer to anything, and a menu that stays because the app
+// forgot to close it is a page nobody can press—. The kind is what the press asks before it decides who closes what (docs/30, docs/90).
+enum ModalKind : uint8_t { kModalCard = 0, kModalMenu, kModalBar };
+ModalKind g_modal_kind = kModalCard;
 // **Who had the ring when the card came up** (0.172.0): a card is a question and the ring goes to its first door; when the card
 // goes the ring goes back to the control it was on, which is what the owner asked for —*«quan el modal desapareix, tornen els
 // focus de l'app»*—. The three numbers are the three of a stop, because a slot alone is a number a released control forgets
@@ -11380,11 +11411,30 @@ bool ui_push_slot_from(lua_State* L, int object, int16_t slot, int depth) {
 
 // Pushes the card if there is one, walking the tree the way the dial walks it; the object stays on the stack and nothing else
 // does. A nested card is the one that answers, which is why the walk stops at the first one it finds.
-bool ui_push_modal_from(lua_State* L, int object, int depth) {
+bool ui_push_modal_from(lua_State* L, int object, int depth, bool with_the_apps_card = true) {
   object = lua_absindex(L, object);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
   if (!ui_control_alive(canvas)) return false;
-  if (ui_field_bool(L, object, "__dialog", false)) {
+  // **I una pàgina que una app aixeca com una pregunta, també** (0.192.40, l'amo: *«Fes-lo en una vista nova i menys problema»*):
+  // a `ui.panel` that covers the glass and carries the question is a card in everything but its name, and the field an app
+  // writes —`modal = true`— is the one this walk reads. Without it the finger of a button of the question went to the row of
+  // the list that was under it —the list is deeper in the tree and `ui_hit` takes the deepest— and `Create` created nothing and
+  // opened a folder instead (found on the emulator with `Files` → `New...`) (docs/30, docs/90).
+  if (ui_field_bool(L, object, "__dialog", false) ||
+      (with_the_apps_card && ui_field_bool(L, object, "modal", false))) {
+    lua_pushvalue(L, object);
+    return true;
+  }
+  // **Un menú és una targeta mentre és a la pàgina** (0.192.39): a `ui.menu` is open for as long as it exists —the app makes it
+  // when the question is asked and gives it back when the answer arrives— o sigui que mentre hi és, el que hi ha sota no és el
+  // que el dit toca. És el que fa que un menú contextual sigui el mateix cas que una targeta i no un control de més (docs/30, docs/90).
+  if (ui_field_bool(L, object, "__menu", false)) {
+    lua_pushvalue(L, object);
+    return true;
+  }
+  // **I una barra de menús amb un desplegable obert, també**: the rest of the page is not the page while a menu is down, and the
+  // bar is the one that gives the finger its entries and its titles (docs/30, docs/90).
+  if (ui_field_bool(L, object, "__menu_bar", false) && ui_field_number(L, object, "open", 0) > 0) {
     lua_pushvalue(L, object);
     return true;
   }
@@ -11403,7 +11453,7 @@ bool ui_push_modal_from(lua_State* L, int object, int depth) {
   const lua_Integer children = static_cast<lua_Integer>(lua_rawlen(L, -1));
   for (lua_Integer i = 1; i <= children; ++i) {
     lua_rawgeti(L, -1, i);
-    const bool found = ui_push_modal_from(L, lua_gettop(L), depth + 1);
+    const bool found = ui_push_modal_from(L, lua_gettop(L), depth + 1, with_the_apps_card);
     if (found) {
       // **The card goes down to where the walk was and the walk's own levels go**: `lua_replace` is the one that keeps the
       // value and drops everything above it. Two earlier versions of these three lines were wrong in two different ways —a
@@ -11439,17 +11489,30 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity) {
   // **A card over the page takes the whole walk** (0.172.0): the list of stops is the card's doors and nothing else, so the
   // dial cannot leave a question unanswered and a finger on the page behind it is not a press of what is there (docs/30).
   g_modal_slot = -1;
+  g_modal_kind = kModalCard;
   // **The walk is the root's and the card is a filter** (0.172.0): walking **from** the card was the first attempt and it gave
   // no stops at all —the walk adds a control after its children, so starting at the card asked for the doors of a card that
   // has none in the tree—, and every box of the walk has to be in the page's own pixels anyway. So the tree is walked whole
   // and every control that is not the card, or inside it, is not a stop (docs/30, docs/90).
-  if (ui_push_modal_from(L, root_at, 0)) {
+  // **Les targetes del sistema primer, i la de l'app després** (0.192.40): a menu or a dialog that an app has put up over its own
+  // page of a question is the one that answers —the dropdown of the `Kind` of `Files` was unreachable because the page under it
+  // was found first—, and the app's own card is the answer only when the system has nothing over it (docs/30, docs/90).
+  int modal_up = 0;
+  if (ui_push_modal_from(L, root_at, 0, /*with_the_apps_card=*/false)) {
+    modal_up = 1;
+  } else if (ui_push_modal_from(L, root_at, 0, /*with_the_apps_card=*/true)) {
+    modal_up = 2;
+  }
+  if (modal_up != 0) {
     const int modal = lua_gettop(L);
     LuaCanvas* card = static_cast<LuaCanvas*>(luaL_testudata(L, modal, kCanvasMeta));
     if (card != nullptr) {
       g_modal_slot = card->slot;
       g_modal_card_slot = card->slot;
       g_modal_card_generation = card->generation;
+      g_modal_kind = ui_field_bool(L, modal, "__menu", false)
+                         ? kModalMenu
+                         : (ui_field_bool(L, modal, "__menu_bar", false) ? kModalBar : kModalCard);
     }
     lua_pop(L, 1);  // the card
   }
@@ -11932,6 +11995,11 @@ bool ui_activate(lua_State* L, int count, int objects, int index, bool by_finger
         lua_setfield(L, -2, "open");
       }
       lua_pop(L, 1);
+      // **I el rectangle del desplegable torna a paper** (0.192.39): a pick folds the menu, and the bar has no buffer of its own —
+      // the card it painted went straight into the page—, o sigui que sense això el menú triat es quedava pintat sobre la pàgina
+      // amb les files de sota a trossos. És el mateix forat que fa una targeta que marxa (docs/30, docs/90).
+      LuaCanvas* bar = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+      if (bar != nullptr && g_ui_ops.menu_bar_hole != nullptr) g_ui_ops.menu_bar_hole(bar->slot);
       ui_invalidate(L, object);
       ui_call_hook_pair(L, object, "on_pick", open, entry);
     }
@@ -13969,7 +14037,7 @@ void seal_globals(lua_State* L) {
   // **The memory of a session** (0.179.0): `sys.session(key, bytes)` answers a block the kernel keeps for this app until
   // the board goes off or the memory runs short (docs/30, docs/75).
   open_session_library(L);
-  lua_createtable(L, 0, 13);
+  lua_createtable(L, 0, 14);
   set_function(L, "open", l_fs_open);
   set_function(L, "list", l_fs_list);
   set_function(L, "stat", l_fs_stat);
@@ -13983,6 +14051,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "data", l_fs_data);
   set_function(L, "mounts", l_fs_mounts);
   set_function(L, "space", l_fs_space);
+  set_function(L, "thumbnail", l_fs_thumbnail);
   set_function(L, "cfg", l_fs_cfg);
   lua_setglobal(L, "fs");
 
@@ -15757,9 +15826,32 @@ void ui_draw_and_present(const char* mode) {
 // clock and not the app's: a page that only waits still has a cursor, and a page that types does not have to keep a
 // second loop for it. A focus or a key marked the caret dirty, and that turn shows the block before the clock restarts
 // (docs/30, docs/90).
+// **Hi ha una targeta a sobre de la pàgina** (0.192.40): the same question the finger asks —a `ui.dialog`, a `ui.menu` that
+// exists, or a bar of menus with its dropdown down is the card of the page while it is up—  asked by whoever needs to know it
+// without a touch. A control released mid-question is not alive, so the answer is read from the tree and the stack is left as
+// it was found (docs/30, docs/90).
+bool ui_a_card_is_up() {
+  if (g_state == nullptr) return false;
+  const int top = lua_gettop(g_state);
+  bool up = false;
+  if (l_ui_root(g_state) == 1) up = ui_push_modal_from(g_state, lua_gettop(g_state), 0);
+  lua_settop(g_state, top);
+  return up;
+}
+
 void caret_poll() {
   if (g_state == nullptr) return;
   const int64_t now = now_ms();
+  // **El cursor calla mentre hi ha una targeta a sobre** (0.192.40, l'amo: *«Recorda que durant els modals o menús contextuals o
+  // desplegables el cursor calla per evitar problemes de redibuixat»*): the block of a box is a paint of one cell every six hundred
+  // milliseconds, and under a card it is a paint nobody sees that the card's paper has to cover again —and the queued redraw of a
+  // box that the card took the focus from is a page asking to be drawn in the middle of a question—. The clock is restarted so
+  // the block does not jump the moment the card goes (docs/30, docs/50, docs/90).
+  if (ui_a_card_is_up()) {
+    g_caret_dirty = false;
+    g_caret_next_ms = now + caret_blink_ms();
+    return;
+  }
   // **Per què no es pinta el bloc** (0.179.65): the caret is asked every turn and one of its four exits says nothing, so
   // a glass with no cursor and no `paint … du` line in the log cannot be told apart from a caret that was never started.
   // One debug line per reason, only when the turn does not paint (docs/30, docs/90).
@@ -16725,7 +16817,26 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     for (int i = 0; i < count; ++i) {
       if (targets[i].slot != g_modal_slot) continue;
       lua_rawgeti(g_state, objects, i + 1);
-      ui_call_hook(g_state, -1, "on_cancel", false, false);
+      const int card = lua_gettop(g_state);
+      ui_call_hook(g_state, card, "on_cancel", false, false);
+      // **I el que és del sistema el tanca el sistema** (0.192.39): a context menu and the dropdown of a bar of menus are folded
+      // here, after the app has heard `on_cancel` (which is where it forgets the object it was holding). **Un menú que es queda
+      // perquè l'app no l'ha tancat és una pàgina que no respon a res**, i un desplegable obert la mateixa cosa: el que l'amo
+      // demana és que el dit de fora tanqui i prou, com el teclat o una targeta (docs/30, docs/90).
+      LuaCanvas* menu = static_cast<LuaCanvas*>(luaL_testudata(g_state, card, kCanvasMeta));
+      if (g_modal_kind == kModalMenu && ui_control_alive(menu) && g_ui_ops.canvas_release != nullptr) {
+        g_ui_ops.canvas_release(menu->slot);
+      } else if (g_modal_kind == kModalBar && ui_control_alive(menu)) {
+        // **I el rectangle que el desplegable havia pintat torna a paper abans que la barra es torni a pintar** (0.192.39): the
+        // bar has no buffer of its own, o sigui que sense això el que quedava era el fantasma del menú sobre la pàgina, amb les
+        // files de sota a trossos (docs/30, docs/90).
+        if (g_ui_ops.menu_bar_hole != nullptr) g_ui_ops.menu_bar_hole(menu->slot);
+        if (ui_set_field_number(g_state, card, "open", 0)) {
+          ui_set_field_number(g_state, card, "index", 0);
+          ui_invalidate(g_state, card);
+          ui_draw_and_present(nullptr);
+        }
+      }
       lua_pop(g_state, 1);
       break;
     }
@@ -16962,6 +17073,26 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         }
         lua_pop(g_state, 1);
         ui_invalidate(g_state, base);
+      } else if (open > 0) {
+        // **Un dit fora del desplegable el plega, i no pren res més** (0.192.39, l'amo: *«El menú contextual … s'ha de tancar per
+        // tornar a enviar events a la vista. Es tanca com el teclat virtual o un modal: tocant fora»*). A bar with a menu down is
+        // the card of this run (`g_modal_kind == kModalBar`), so a finger that is neither on a title nor on an entry asks for the
+        // menu to go —and **it does not run the entry the dial was left on**, which is what the release would have done with the
+        // old `index` still written: a page that answers a tap nobody meant. The contact is spent, so the lift activates nothing
+        // (docs/30, docs/90).
+        lua_getiuservalue(g_state, base, 1);
+        if (lua_istable(g_state, -1)) {
+          lua_pushinteger(g_state, 0);
+          lua_setfield(g_state, -2, "open");
+          lua_pushinteger(g_state, 0);
+          lua_setfield(g_state, -2, "index");
+        }
+        lua_pop(g_state, 1);
+        // **I el paper que hi havia sota el desplegable torna abans**, o el menú plegat es quedaria pintat (0.192.39, docs/90).
+        if (g_ui_ops.menu_bar_hole != nullptr) g_ui_ops.menu_bar_hole(targets[hit].slot);
+        ui_invalidate(g_state, base);
+        ui_draw_and_present(nullptr);
+        g_ui_touch_inside = false;
       }
     } else if ((ui_field_bool(g_state, -1, "__textbox_multiline", false) ||
                 ui_field_bool(g_state, -1, "__textbox", false)) &&
