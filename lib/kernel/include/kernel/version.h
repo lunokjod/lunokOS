@@ -14526,7 +14526,108 @@ namespace kernel {
 // el selector `Kind` desplega `Folder`/`File` i el camp passa a «New file»; `Create` fa la carpeta (`[SAY] created: New folder`) i
 // torna a la llista amb la fila nova; `Cancel` torna a la llista amb la mida bona.
 
-static const char kVersion[] = "0.192.40";
+// **0.192.41 — la pregunta del nom d'una sessió del `shell` és una vista seva** (l'amo: *«El modal de nom de sessió al fer File->New
+// session a l'app Shell es molt petit i no es veuen els controls de dins. No es pot utilitzar. Fes-lo en una vista nova, com em fet
+// amb Files»*).
+//
+//   - **`apps/shell` 0.5.0**: la targeta del nom era un panel de quatre controls al mig del vidre —un títol, un camp d'una línia i
+//     dues portes que no hi cabien— i la banda del teclat la tapava per sota. Ara la pregunta és una pàgina pròpia: el terminal, les
+//     pestanyes i la barra **es donen al sistema** mentre és oberta (el paper del terminal és negre i el pintava a sobre), un full de
+//     paper cobreix el vidre, i el nom es demana amb el lloc de tota la pàgina. En contestar-la la pàgina es fa de nou i la caixa del
+//     terminal es torna a escriure des de la pestanya, que és on viu el text (docs/30, docs/90).
+//   - **`File` → `New session` demana el nom**: it was a tab made with a number and no question at all, and the question the owner
+//     opens the menu for is a name. **I si el sistema no la deixa fer, ho diu a la mateixa vista** —aquest nucli té
+//     `kMaxSessions = 1`, o sigui que la segona sessió es refusa amb *«this board holds one session at a time»* i la pregunta es
+//     queda oberta amb el motiu— (docs/30, docs/70).
+//   - **La pregunta s'obre al torn del bucle i no dins del control que l'ha demanada**: the bar of menus and the strip of tabs are
+//     two controls this page gives back to make room for the question, and giving back the control that is running its own callback
+//     is a door the system asks for afterwards (docs/30, docs/90).
+//   - **I el motiu d'un sistema es diu en la cara petita i no al títol**: a reason of one line said in the title of the page was a
+//     sentence cut in the middle (*«there is already a se…»*), i el títol és la pregunta i no la resposta (docs/30, docs/92).
+//   - **El missatge del nucli, més curt**: *«this board holds one session at a time»* és el que el sistema vol dir i cap en una línia.
+//
+// El vist a l'emulador (`--run shell`): `File` → `New session` obre la vista amb «Name of the session», el camp amb `Shell 2` i les
+// portes `Cancel`/`Create`; `Create` diu *«this board holds one session at a time»* en la cara petita i deixa la pregunta oberta;
+// `Cancel` torna al terminal amb la línia i el cursor on eren i **sense** aixecar la banda; `Rename session` canvia el nom de la
+// pestanya i torna a la pàgina.
+
+// **0.192.42 — tres sessions de `shell` alhora** (l'amo: *«kMaxSessions = 3»*).
+//
+//   - **`kMaxSessions` de 1 a 3** (docs/30, docs/75): la segona pestanya del `shell` era una crida que deia no. Els blocs són
+//     els mateixos —1 KB d'avisos, 256 B de queixes i 128 B de la línia, 1 408 B per sessió—, o sigui que el que faltava era
+//     el lloc i no la màquina: tres sessions són poc més de quatre kilobytes mentre viuen i res quan es tanquen. `open_session`
+//     ja buscava el primer lloc lliure, i el que s'ha fet és donar-li'n tres i dir el número al missatge del refús
+//     —*«this board holds 3 sessions at a time»*— en comptes de la frase que deia una.
+//   - **`apps/shell` 0.5.1**: els comentaris de l'app deien que la placa només en té una; ara diuen tres (la porta del nom
+//     continua dient el motiu si mai s'arriba al quart).
+//
+// El vist a l'emulador (`--run shell`): `File` → `New session` → «Name of the session» → `Create` obre la pestanya `Shell 2` i
+// hi porta el terminal, i una segona repetició dóna `Shell 3`; la quarta diu el motiu a la mateixa vista.
+
+// **0.192.43 — una pestanya del `shell` és una pestanya: un toc canvia i prou** (l'amo: *«Al tocar la pestanya de shell surt la vista
+// per reanomenar-la i no es pot seleccionar (canviar de pestanya)»*).
+//
+//   - **`apps/shell` 0.5.2: fora el toc llarg de la pestanya.** El renombrar es mesurava amb el rellotge del bucle de la pàgina, i
+//     un torn d'aquest bucle és un `sys.delay` de cent cinquanta mil·lisegons **més** el que la sessió hagi de dir: un toc ràpid
+//     podia caure a dos torns de distància i llegir-se com a sis-cents mil·lisegons, o sigui que **cada toc a una pestanya obria la
+//     pregunta del nom** en lloc de canviar-la. El nom es canvia des de `File` → `Rename session`, que és una porta i obre la
+//     pestanya que hi ha al davant; i una pestanya torna a ser una pestanya (docs/30, docs/90).
+//
+// El vist a l'emulador (`--run shell`): amb `Shell 1` i `Shell 2`, un toc a `Shell 1` la porta al davant; `File` →
+// `Rename session` obre la vista del nom de la pestanya que hi ha al davant.
+
+// **0.192.44 — un desplegable de menú es plega abans que el següent s'obri** (l'amo: *«Quan un menú contextual s'obre, tanca els
+// demés oberts (he notat que al passar de menu en menú horitzontalment es van desplegant i no estanquen fins sortir del menú)»*).
+//
+//   - **La barra pinta el desplegable als píxels de la pàgina i no té buffer**, o sigui que canviar de títol deixava la targeta de
+//     `File` pintada al vidre i la de `Edit` a sobre: dos menús a la pàgina i un de sol que podia respondre. El camí del títol ara
+//     crida `menu_bar_hole` **abans** de canviar `open`, i el forat és el mateix que fa el dit de fora (docs/30, docs/90).
+//   - **I el rectangle del forat era dotze píxels enfora** en una barra que no és a l'origen de la pàgina: `menu_bar_draw` desa
+//     `target.x + menu_x`, que ja és absolut dins del canvas del pare, i `menu_bar_hole` hi sumava `bar->x` una segona vegada. Amb la
+//     barra del `shell` al marge (12,12) el paper queia on ningú havia pintat i la targeta del menú anterior es quedava al vidre; amb
+//     el terminal del `shell` a sota, el forat es veia com una banda blanca (trobat a l'emulador) (docs/30, docs/90).
+//   - **`compose_the_hole` i prou, sense tornar a dibuixar la pàgina sencera**: un control amb buffer es compon del seu buffer i un
+//     que no en té es torna a dibuixar, de manera que el que hi havia sota el menú torna sol. Repintar tot el pintor pel forat posava
+//     el terminal del `shell` a `gl16` de punta a punta i el deixava gris (54 contra 26 del negre) (docs/30, docs/50).
+//   - **El pintor deixa de quedar-se tallat** (`clipped`) en acabar el forat: un `clipped` que sobreviu al dibuix que el va posar és
+//     una pàgina que només pinta dins d'un rectangle que ningú no veu (docs/30, docs/90).
+//
+// El vist a l'emulador (`--run shell`, i el mateix a `--run files`): `File` obert i després `Commands` deixa **un sol** desplegable,
+// i el títol anterior torna a paper; anar i tornar entre títols no apila targetes; tancar amb el títol o amb un dit fora torna la
+// pàgina sencera —pestanyes, terminal i llista— sense restes i amb el negre a 26.
+
+// **0.192.45 — l'`ansi` és de cada terminal, i el del `shell` de Lua neix apagat** (l'amo: *«Treu l'ansi dels terminals de l'app lua
+// Shell, el valor d'ansi (si/no) ha de ser per terminal, no global del sistema»*).
+//
+//   - **Cada sessió té el seu commutador** (`Session::ansi`): el color era una sola resposta del sistema (`g_ansi` + `cfg/ansi`) i la
+//     resposta d'una comanda dins d'una sessió **no passava pel filtre gens** —`out_bytes` desviava al ring i tornava abans del filtre—,
+//     o sigui que les taules, els avisos i el `clear` (`ESC[2J`) arribaven al quadre de l'app com a lletres. Ara una sessió neix **de text
+//     pla** i el filtre és el mateix per a la línia i per al tub (un sol bucle, a trossos i sense reservar res) (docs/30, docs/50).
+//   - **`ansi on|off` dins d'una sessió canvia només aquella pestanya**: ni el commutador de la consola, ni `cfg/ansi`, ni les altres tres.
+//     `ansi` sol ho diu amb les paraules del terminal on s'escriu, i `clear` mira el commutador d'on va la línia (docs/30, docs/85).
+//
+// El vist al codi: `Session::ansi` neix `false` a `open_session` i torna a `false` a `reset_session`, `out_bytes` pregunta `ansi_here()`
+// —la sessió o la consola, mai les dues— i la comanda `ansi` no toca `cfg` quan `g_sink != 0`.
+
+// **0.192.46 — les tres ràdios del panell de dalt: sempre en negre, i un cercle que diu l'estat** (l'amo: *«Els botons del panell
+// superior desplegable del sistema: Bluetooth, Wifi i l'altre han de ser sempre visibles, color negre i un cercle negre al voltant
+// (sense farcit de negre) i en cas d'estar activat icona blanca amb cercle farcit negre. Fes les icones una mica més grans»*).
+//
+//   - **La tinta ja no és l'estat**: era negra encesa i grisa (nivell 8) apagada, i un mot gris sobre paper es llegeix com una clau que
+//     no es pot prémer. Ara les tres claus són negres sempre i l'estat el diu el cercle: `kMarkRingOff` —un cercle de tres píxels al
+//     voltant de la marca, sense farcir— i `kMarkRingOn` —el cercle farcit i la marca en el paper—, dues constants noves de `ui.h` i un
+//     paràmetre de `ui::paint_a_button` (`kMarkPlain` de sèrie, o sigui que res del que ja hi havia canvia) (docs/30, docs/92).
+//   - **La marca dins del cercle és la de les línies i no la del PNG**: `picture_of_a_mark` posa el paper del dibuix a tot el **quadre**
+//     de la imatge, i dins d'un cercle els seus quatre cantons són un requadre negre que sobresurt del disc —`data/res/icons/bluetooth.png`,
+//     `wifi.png` i `mesh.png` tenen fons quadrat i el cercle és rodó (trobat a l'emulador)—. Les tres tenen el dibuix de línies a
+//     `ui::draw_icon` i el cercle es queda aquell (docs/30, docs/92).
+//   - **Claus de 156 × 80 a 156 × 100**: el cercle s'endú una banda i la icona ha de quedar una mica més gran i no més petita —la marca
+//     passa de 58 a 68 píxels de caixa i el dibuix de 40 a 46—, o sigui que la clau creix el que el cercle s'emporta.
+//
+// El vist a l'emulador: les tres claus en negre amb el cercle buit o ple segons `cfg bt`, `cfg wifi` i el mesh, sense cap requadre darrere
+// la marca, i la targeta vint files més alta.
+
+static const char kVersion[] = "0.192.46";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

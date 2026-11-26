@@ -86,7 +86,11 @@ const uint16_t kTopGap = 16;       // l'aire entre dues claus d'aquesta fila
 // encendre/apagar, un de wifi i un de ble-mesh»*): three keys as wide as the word «Bluetooth» needs and not a pixel more, because what
 // they say is a word and not a mark —the mark is above it, as in every key of this card (docs/30, docs/92).
 const uint16_t kSwitchW = 156;
-const uint16_t kSwitchH = 80;
+// **I una mica més altes des de la 0.192.46**: the circle of the state takes a band of three pixels off the square of the mark and the
+// drawing has to keep the size it had —the owner: *«Fes les icones una mica més grans»*—, o sigui que la clau creix el que el cercle
+// s'endú i uns píxels més: the mark of a key of 100 is a square of 78 and the drawing inside the ring is 68, against the 58 of before
+// (docs/30, docs/92).
+const uint16_t kSwitchH = 100;
 const uint16_t kSwitchGap = 16;
 // **L'aire entre les dues files** (0.192.24): the card kept the third of the glass it has always wanted, and with two rows instead of three the
 // switches hang from the handle at the bottom instead of leaving a band of paper under them (docs/30, docs/92).
@@ -350,16 +354,22 @@ bool key_is_lit(Key which) {
   return true;
 }
 
-// **La tinta d'una clau apagada**: vuit és el gris del mig del vidre, que es llegeix com «això hi és i no està encès» i no com una clau que
-// no es pot prémer —la clau que no es pot prémer no es pinta (docs/30, docs/92).
-const uint8_t kInkOff = 8;
+// **Les tres ràdios es veuen sempre, i el que diu l'estat és el cercle** (0.192.46, l'amo: *«Els botons del panell superior
+// desplegable del sistema: Bluetooth, Wifi i l'altre han de ser sempre visibles, color negre i un cercle negre al voltant (sense
+// farcit de negre) i en cas d'estar activat icona blanca amb cercle farcit negre»*). The ink of the mark and of the word used to be
+// the state —black on and grey off—, and a grey word on paper read as a key that cannot be pressed, which is the one thing this card
+// never draws. Now **the key is black whether the radio is on or off** and the circle says it: an empty circle around the mark is a
+// radio that is off, and a filled one with the mark in paper is a radio that is on (docs/30, docs/92).
+bool a_radio_key(Key which) {
+  return which == Key::kBluetooth || which == Key::kWifi || which == Key::kMesh;
+}
 
 void paint_the_key(hal::ISurface& surface, Key which, bool pressed) {
   const KeyBox box = key_box(which);
+  const uint8_t ring = a_radio_key(which) ? (key_is_lit(which) ? ui::kMarkRingOn : ui::kMarkRingOff) : ui::kMarkPlain;
   ui::paint_a_button(surface, static_cast<uint16_t>(box.x), static_cast<uint16_t>(bar::height() + box.y), box.w,
                      box.h, /*background=*/15, /*border=*/0, pressed, /*focused=*/false, /*primary=*/false,
-                     box.word, key_is_lit(which) ? /*color=*/0 : kInkOff, box.scale, /*framed=*/false,
-                     key_icon(which), box.mark);
+                     box.word, /*color=*/0, box.scale, /*framed=*/false, key_icon(which), box.mark, ring);
 }
 
 void paint() {

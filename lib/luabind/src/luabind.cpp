@@ -6416,7 +6416,10 @@ int l_button_draw(lua_State* L) {
                          focused && !off.on, primary, title, tag,
                          ink_or_dim(off, (color >= 0 && color <= 15) ? color : 0),
                          static_cast<uint8_t>((scale >= 1 && scale <= 16) ? scale : 1), framed_field,
-                         (icon[0] != '\0') ? icon : nullptr, mark_side);
+                         (icon[0] != '\0') ? icon : nullptr, mark_side,
+                         // **Un botó d'una app no porta cercle** (0.192.46): the ring is the system's way of saying the state of a
+                         // radio on its own panel, and a page that wants a circle draws one (docs/30, docs/92).
+                         /*ring=*/0);
   }
   return 0;
 }
@@ -17065,6 +17068,12 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
             lua_setfield(g_state, -2, "index");
           } else {
             // The title that was down folds, another one switches, and the entry the dial was on is forgotten.
+            // **El desplegable que hi havia es plega abans que el nou es pinti** (0.192.44, l'amo: *«Quan un menú contextual
+            // s'obre, tanca els demés oberts … al passar de menú en menú horitzontalment es van desplegant i no estanquen fins
+            // sortir del menú»*): the bar paints its card **into the page** and it has no buffer, so a title that switched from
+            // `File` to `Edit` left the card of `File` on the glass and painted `Edit` over it —two menus on the page, one of
+            // them nobody could press (docs/30, docs/90).
+            if (open > 0 && g_ui_ops.menu_bar_hole != nullptr) g_ui_ops.menu_bar_hole(targets[hit].slot);
             lua_pushinteger(g_state, (open == title) ? 0 : title);
             lua_setfield(g_state, -2, "open");
             lua_pushinteger(g_state, 0);

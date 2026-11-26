@@ -55,6 +55,9 @@ local function scale_for(line_px)
 end
 
 local kBody = scale_for(43)
+--  **La cara petita de les notes**: the reason a system door gave is a sentence of one line and the face of the body cuts it in
+--  the middle (0.192.41, docs/92).
+local kSmall = scale_for(26)
 
 local function line(scale)
   local step = ui.line_height(1)
@@ -76,7 +79,6 @@ local kMargin = 12
 --  **Vuit pestanyes és el que el control sap dibuixar** (`ui.tabs`, docs/30): a ninth one would be a tab nobody can read.
 local kTabCap = 8
 --  **Un toc és llarg a partir de mig segon**: the press that a finger makes to type is not a press to name a tab.
-local kLongPressMs = 600
 
 --  The tabs of the page: each one keeps the session and the text it has printed.
 local tabs = {}
@@ -190,14 +192,13 @@ end
 
 --  The controls of the page, made once (see the header): the bar, the strip, the terminal and the card of a name.
 local bar, strip, box
+local create, layout         -- the page and where its controls are, made below and asked for by the question of a name
 local bar_tall = false       -- the bar takes the page's height while a menu hangs from it (docs/30)
 local theme, theme_at          -- the menu of a theme, while it is open and where it is
-local card, card_title, card_field, card_ok, card_cancel
+local card, card_sheet, card_title, card_note, card_field, card_ok, card_cancel
 local asking = 0               -- the tab a name is being asked for, or 0
+local want_the_name = 0        -- the tab the loop has to open the question for, and 0 when there is none
 local kb = nil                 -- the band of the system, asked for when the card needs it
---  **Un toc llarg** is a press a finger holds: it is decided where the finger lifts and read by the strip's own hooks, so
---  it is one of the page's own values and not the control's (docs/30, docs/90).
-local long_press = false
 --  The hook of the line: written below, and called by the box that `create()` makes.
 local on_the_line
 --  The value the line writes while the box's text is being put back, so a change the page made is not read as a change of
@@ -259,8 +260,12 @@ local function new_tab(title, history)
   end
   local session, why = sys.shell()
   if session == nil then
-    console.print('shell: no session: ' .. tostring(why))
-    return
+    --  **El motiu i no la taula** (0.192.41): the system says what went wrong with a table `{code, message}` and `tostring` of
+    --  it is `table: 0x…`, which says nothing to the person reading it. This board holds three sessions at a time
+    --  (`kMaxSessions` of the kernel), and that is the answer the fourth one gets (docs/30, docs/70).
+    local said = (type(why) == 'table') and tostring(why.message or why.code or '') or tostring(why)
+    console.print('shell: no session: ' .. said)
+    return false, said
   end
   opened = opened + 1
   tabs[#tabs + 1] = {
@@ -272,6 +277,7 @@ local function new_tab(title, history)
   keep_the_strip()
   show(#tabs)
   ui.present()
+  return true
 end
 
 local function drop(index)
@@ -416,89 +422,160 @@ function insert_command(word)
   ui.present('du')
 end
 
---  **The card of a name** (0.189.29): a panel of the system with the name of the tab in a box of one line and the two
---  doors —`Cancel` and `Name it`—, which is the same card the editor asks a path with (docs/30, docs/90).
-local function card_size()
-  local w = math.min(view.width - 4 * kMargin, 420)
-  local h = ui.line_height(kBody) * 2 + line(kBody) + 40
-  return w, h
-end
-
+--  **La pregunta del nom és una vista sencera** (0.192.41, l'amo: *«El modal de nom de sessió al fer File->New session a
+--  l'app Shell es molt petit i no es veuen els controls de dins. No es pot utilitzar. Fes-lo en una vista nova, com em fet amb
+--  Files»*): a card of four controls in the middle of the glass was a card with one line of title, one box of one line and two
+--  buttons that did not fit —and the band of the keyboard took the bottom where it was sitting—, so the question is a page of
+--  its own now: the terminal, the tabs and the bar are given back, a sheet of paper covers the glass, and the name is asked
+--  with the room of the whole page (docs/30, docs/90).
 local function place_the_card()
   if card == nil then return end
-  local w, h = card_size()
-  card:place((view.width - w) // 2, (view.height - h) // 2)
-  local half = (w - 40) // 2
-  if card_title ~= nil then card_title:place(16, 10) end
-  if card_field ~= nil then card_field:place(16, ui.line_height(kBody) + 18) end
-  local at = h - line(kBody) - 26
-  if card_cancel ~= nil then card_cancel:place(16, at) end
-  if card_ok ~= nil then card_ok:place(24 + half, at) end
+  if card_sheet ~= nil then
+    card_sheet:resize(view.width, view.height)
+    card_sheet:place(0, 0)
+  end
+  card:resize(view.width - 2 * kMargin, view.height - 2 * kMargin)
+  card:place(kMargin, kMargin)
+end
+
+--  **Els controls de la pàgina es donen al sistema mentre la pregunta és oberta**: a page under a question is a page that the
+--  terminal paints over it (its paper is black) and a finger that lands on the rows of the question can reach it. Nothing of
+--  it is lost —the tabs hold their text and `create()` builds it again— and the view the question takes is the whole glass
+--  (docs/30, docs/90).
+local function hide_the_page()
+  --  **El desplegable d'un tema també marxa**: it is a `ui.menu` over this page and it would be a menu over the question
+  --  (docs/30, docs/90).
+  if theme ~= nil then theme:release() end
+  theme, theme_at = nil, nil
+  if bar ~= nil then bar:release() end
+  if strip ~= nil then strip:release() end
+  if box ~= nil then box:release() end
+  bar, strip, box = nil, nil, nil
+  bar_tall = false
+end
+
+local function show_the_page()
+  if not create() then return end
+  --  **El text de la pestanya torna a la caixa nova**: `create()` makes an empty box and the lines a session printed live in
+  --  the tab, so the page is written again from it —the same call the start of the app makes— (docs/30, docs/90).
+  show(current)
+  layout()
+  --  **El cercle torna a la línia**: the box takes the ring and asks for the band the way it does on every tap, because a
+  --  person who has just answered a question about this session is a person about to write in it (docs/30, docs/90).
+  if box ~= nil then ui.focus(box) end
+  ui.present()
 end
 
 local function close_the_card()
   if card == nil then return end
   if kb ~= nil then kb:hide() end
   card:release()
-  card, card_title, card_field, card_ok, card_cancel = nil, nil, nil, nil, nil
-  --  **El cercle torna a la caixa amb la targeta encara comptada com a oberta** (0.189.34): the ring going back is a focus
-  --  change, and the box asks for the band when it takes the focus —which is right for a finger and wrong here, where a
-  --  person has just finished naming a session and the page is not to lose a third of the glass for it (docs/30).
-  if box ~= nil then ui.focus(box) end
+  if card_sheet ~= nil then card_sheet:release() end
+  card, card_sheet, card_title, card_note, card_field, card_ok, card_cancel = nil, nil, nil, nil, nil, nil, nil
+  show_the_page()
   asking = 0
-  ui.present()
 end
 
-local function ask_the_name(index)
-  local tab = tabs[index]
-  if tab == nil then return end
+--  **La vista de la pregunta**: el full de paper, el títol, el camp del nom del llarg de la pàgina i les dues portes. The
+--  sheet is a `ui.label` and not the `background` of the panel, because a panel does not paint its background —it is the room
+--  that arranges what it holds— (docs/92, docs/30).
+local function open_the_name_card(index)
+  --  **`index < 0` vol dir una sessió nova** (0.192.41): the question is the same —a name and two doors— and what changes is
+  --  where the answer goes: the title of a tab that is already there, or the tab that is made when the name arrives (docs/30).
+  local tab = (index > 0) and tabs[index] or nil
+  if index > 0 and tab == nil then return end
   asking = index
-  local w, h = card_size()
-  --  **Un panell sense ordre** (0.189.29): the children of this card are placed by `place_the_card`, so the panel must not
-  --  arrange them as well —two ways of deciding a place is a card with its words where nobody put them— (docs/30).
-  card = ui.panel(w, h)
-  if card == nil then
+  hide_the_page()
+  view = ui.caps()
+  local width = view.width - 2 * kMargin
+  card_sheet = ui.label(view.width, view.height)
+  if card_sheet == nil then
     asking = 0
+    show_the_page()
     return
   end
-  card_title = ui.label(w - 32, ui.line_height(kBody))
+  card_sheet.background = 15
+  card_sheet.color = 15
+  card_sheet.text = ''
+  card = ui.panel(width, view.height - 2 * kMargin)
+  if card == nil then
+    asking = 0
+    close_the_card()
+    return
+  end
+  card.padding = 24
+  card.gap = 18
+  --  **La pregunta és una targeta per al sistema**: the finger only sees it while it is up, and the box of the page under it
+  --  keeps its cursor quiet (docs/30, docs/90).
+  card.modal = true
+
+  card_title = ui.label(width - 48, ui.line_height(kBody) + 6)
   if card_title ~= nil then
     card_title.text = 'Name of the session'
     card_title.scale = kBody
     card_title.align = 'left'
     card:add(card_title)
   end
-  card_field = ui.textbox(w - 32, ui.line_height(kBody) + 8)
+  card_field = ui.textbox(width - 48, ui.line_height(kBody) + 16)
   if card_field ~= nil then
-    card_field.text = tab.title
+    card_field.text = (tab ~= nil) and tab.title or ('Shell ' .. (opened + 1))
     card_field.cursor = #card_field.text
     card_field.scale = kBody
     card_field.keyboard = 'alpha'
     card:add(card_field)
   end
-  local half = (w - 40) // 2
-  card_cancel = ui.button(half, line(kBody) + 12)
-  if card_cancel ~= nil then
-    card_cancel.title = 'Cancel'
-    card_cancel.scale = kBody
-    card_cancel.on_click = function() close_the_card() end
-    card:add(card_cancel)
+  --  **El que el sistema respon es diu aquí i no al títol** (0.192.41): the title is the question and it stays where it is; a
+  --  reason of one line said in the title was a sentence cut in the middle (*«there is already a se…»*), and the small face is
+  --  what makes a whole reason fit (docs/30, docs/92).
+  card_note = ui.label(width - 48, ui.line_height(kSmall) + 6)
+  if card_note ~= nil then
+    card_note.text = ''
+    card_note.scale = kSmall
+    card_note.align = 'left'
+    card_note.background = 15
+    card:add(card_note)
   end
-  card_ok = ui.button(half, line(kBody) + 12)
-  if card_ok ~= nil then
-    card_ok.title = 'Name it'
-    card_ok.scale = kBody
-    card_ok.on_click = function()
-      local tab_now = tabs[asking]
-      local name = (card_field ~= nil) and card_field.text or ''
-      if tab_now ~= nil and name ~= '' then
-        tab_now.title = name
-        keep_the_strip()
-        keep_the_shape()
-      end
-      close_the_card()
+  local buttons = ui.panel(width - 48, line(kBody) + 24, 'horizontal')
+  if buttons ~= nil then
+    buttons.gap = 24
+    card:add(buttons)
+    local half = (width - 48 - 24) // 2
+    card_cancel = ui.button(half, line(kBody) + 12)
+    if card_cancel ~= nil then
+      card_cancel.title = 'Cancel'
+      card_cancel.scale = kBody
+      card_cancel.on_click = function() close_the_card() end
+      buttons:add(card_cancel)
     end
-    card:add(card_ok)
+    card_ok = ui.button(half, line(kBody) + 12)
+    if card_ok ~= nil then
+      card_ok.title = (index > 0) and 'Name it' or 'Create'
+      card_ok.scale = kBody
+      card_ok.on_click = function()
+        local name = (card_field ~= nil) and card_field.text or ''
+        if asking < 0 then
+          --  **La sessió nova es fa amb el nom posat**, and the answer of the system is said on this page: a board that holds
+          --  three sessions (`kMaxSessions`) refuse the fourth, and a question that closes without a word would look like a
+          --  name that was accepted (docs/30, docs/70).
+          local made, why = new_tab(name, nil)
+          if not made then
+            if card_note ~= nil then card_note.text = tostring(why or 'the session did not open') end
+            ui.present('du')
+            return
+          end
+          close_the_card()
+          return
+        end
+        local tab_now = tabs[asking]
+        if tab_now ~= nil and name ~= '' then
+          tab_now.title = name
+          keep_the_strip()
+          keep_the_shape()
+        end
+        close_the_card()
+      end
+      buttons:add(card_ok)
+    end
   end
   place_the_card()
   if kb ~= nil and card_field ~= nil then
@@ -506,7 +583,16 @@ local function ask_the_name(index)
     kb:show('alpha')
   end
   ui.focus(card_field)
-  ui.present()
+  ui.present('gc16')
+end
+
+--  **La pregunta s'obre al torn del bucle i no dins del control que l'ha demanada** (0.192.41): the bar of menus and the strip
+--  of tabs are two controls this page gives back to make room for the question, and giving back the control that is running
+--  its own callback is a door the system asks for afterwards. The name asked for is left here for the loop to take (docs/30,
+--  docs/90).
+local function ask_the_name(index)
+  if index > 0 and tabs[index] == nil then return end
+  want_the_name = index
 end
 
 -- ------------------------------------------------------------------ la pàgina
@@ -515,7 +601,7 @@ end
 --  is released and made again on every change is a slot of the glass that goes and comes, and the ink of the page before
 --  is what a person sees in the corners. The bar, the strip and the box live as long as the app; `layout()` is what
 --  follows a view that changed (docs/30, docs/50).
-local function create()
+create = function()
   view = ui.caps()
   local width = view.width - 2 * kMargin
   local bar_h = line(kBody) + 12
@@ -530,22 +616,20 @@ local function create()
   if strip ~= nil then
     strip.scale = kBody
     strip.items = labels()
+    --  **Un toc canvia de pestanya i prou** (0.192.43, l'amo: *«Al tocar la pestanya de shell surt la vista per reanomenar-la i no
+    --  es pot seleccionar (canviar de pestanya)»*): the long press that used to ask for the name was measured with this loop's
+    --  clock, and a turn of this loop is a `sys.delay` of a hundred and fifty milliseconds **plus** whatever the session had to
+    --  say: a quick tap could land two turns apart and read as six hundred milliseconds, and every tap on a tab opened the
+    --  question instead of changing the tab. The name is changed from `File` → `Rename session`, which is one door and opens on
+    --  the tab in front, and a tab is now a tab: one tap, one change (docs/30, docs/90).
     strip.on_change = function(self, index)
       if index == nil then return end
-      local held = long_press
-      long_press = false
-      if held then
-        --  **Un toc llarg batia la pestanya** (the owner: *«posalsi nom (tap llarg a la pestanya)»*): the system has just
-        --  said which tab the finger was on, so the card is asked for that one and not for the one that was in front
-        --  (docs/30, docs/90).
-        ask_the_name(index)
-      elseif index ~= current then
+      if index ~= current then
         show(index)
         ui.present()
       end
     end
     strip.on_close = function(self, index)
-      long_press = false
       drop(index)
     end
   end
@@ -608,7 +692,9 @@ local function create()
       --  **File** is the first title and **Commands** the second, in the order `the_menus` writes them (docs/30).
       if title == 1 then
         if entry == 1 then
-          new_tab(nil, nil)
+          --  **Una sessió nova comença pel nom**: the question is the page of a name with a blank word to fill, and the tab is
+          --  made when the answer arrives (0.192.41, docs/30).
+          want_the_name = -1
         elseif entry == 2 then
           ask_the_name(current)
         elseif entry == 4 then
@@ -632,7 +718,7 @@ end
 --  **Where the controls are**, which is the whole of what a view that changed needs (the keyboard takes a band, the bar
 --  goes away for a full screen page): nothing is made and nothing is released, and the present that follows paints the
 --  boxes that moved and no more (docs/30, docs/90).
-local function layout()
+layout = function()
   view = ui.caps()
   local width = view.width - 2 * kMargin
   local bar_h = line(kBody) + 12
@@ -771,7 +857,7 @@ function on_close() keep_the_shape() end
 --  **El dit**: a tap is the strip's, a long press is a name asked for, and the rest of the gestures are the controls' (the
 --  box scrolls itself). The press is remembered where it began and the tap is delivered when the finger lifts, which is
 --  what a tap is —the page before this delivered one on every frame the finger was down— (docs/30, docs/90).
-local press_at, press_x, press_y = nil, 0, 0
+local press_at = nil
 local last_x, last_y = 0, 0
 --  **El menú que era obert al torn d'abans** (0.189.34): the bar paints its card into the page, so a menu that folds leaves
 --  the card of before on the glass and the page is the only thing that takes it away. One number and one compare per turn,
@@ -779,6 +865,14 @@ local last_x, last_y = 0, 0
 local open_was = 0
 
 while true do
+  --  **I la pregunta del nom s'obre aquí i no dins del control que l'ha demanada** (0.192.41): it is the page of the terminal
+  --  that is given back, and the bar and the strip are the controls that ask for it (docs/30, docs/90).
+  if want_the_name ~= 0 then
+    local which = want_the_name
+    want_the_name = 0
+    open_the_name_card(which)
+  end
+
   --  **Un menú que s'obre o es plega canvia l'alçada de la barra i demana la pàgina**: without it the card of a menu has
   --  nowhere to be drawn and the one of the menu before stays under the new one (docs/30, docs/90).
   local open = (bar ~= nil and bar.open) or 0
@@ -796,14 +890,8 @@ while true do
   if fingers ~= nil and #fingers > 0 then
     local f = fingers[1]
     last_x, last_y = f.x, f.y
-    if press_at == nil then
-      press_at = sys.time_ms()
-      press_x, press_y = f.x, f.y
-    end
+    press_at = true
   elseif press_at ~= nil then
-    local held = sys.time_ms() - press_at
-    local moved = math.abs(last_x - press_x) + math.abs(last_y - press_y)
-    if held >= kLongPressMs and moved < 24 then long_press = true end
     if strip ~= nil then
       --  **The strip is the only control this page delivers a tap to by hand**: the others are the system's own and they
       --  hear the finger where they are. The numbers are the view's, which is what `tabs_tap` takes —it takes its own place

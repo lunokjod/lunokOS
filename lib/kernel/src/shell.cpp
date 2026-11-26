@@ -195,12 +195,12 @@ uint32_t g_csi_number = 0;
 // to be talking to, and it is three pipes —the lines in, the answers out and the complaints out— because that is what
 // a shell of a system is to whoever calls it (docs/30, docs/75).
 //
-// **One at a time, and the rings are the heap's**: the money is the ring of the answers (1 KB), the ring of the
-// complaints (256 B) and the line being typed (128 B), 1 408 B in all while a session lives and nothing after it. A
-// second session at once is not a refusal of principle —it is one more block of the same size and a second `Editor`
-// to go with it— it is simply not written yet, and a call that says `E_BUSY` and why is better than a queue nobody
-// drains (docs/30, docs/75).
-const uint8_t kMaxSessions = 1;
+// **Three at a time, and the rings are the heap's** (0.192.42, l'amo: *«kMaxSessions = 3»*): the money is the ring of the
+// answers (1 KB), the ring of the complaints (256 B) and the line being typed (128 B), 1 408 B each while a session lives
+// and nothing after it —a little over four kilobytes for the three, which is what the `shell` of this system keeps open at
+// once—. The number was one while the second tab of the shell was a call that said no; the slots are the same block and the
+// same `Editor` for each, so what was missing was the room and not the machine (docs/30, docs/75).
+const uint8_t kMaxSessions = 3;
 const size_t kSessionOutBytes = 1024;  // what the shell answers and nobody has read yet
 const size_t kSessionErrBytes = 256;   // the complaints, which are shorter than the answers
 const size_t kSessionLineBytes = 128;  // one line of a session, the width of a word of a command
@@ -229,6 +229,11 @@ struct Session {
   char line[kSessionLineBytes];
   uint16_t line_used = 0;
   bool close_asked = false;
+  // **Cada terminal té el seu commutador de color** (0.192.45, l'amo: *«Treu l'ansi dels terminals de l'app lua Shell, el valor d'ansi
+  // (si/no) ha de ser per terminal, no global del sistema»*): a session's answer is a pipe an app paints in its own glass, and an
+  // escape code there is a row of letters nobody asked for —so a session is born **plain** and says otherwise only if the person
+  // writes `ansi on` in that tab—. The console keeps its own `g_ansi`, which is the wire and the saved preference (docs/30, docs/50).
+  bool ansi = false;
 };
 
 Session g_sessions[kMaxSessions];
@@ -253,6 +258,7 @@ void reset_session(Session& session) {
   session.err = Ring();
   session.line_used = 0;
   session.close_asked = false;
+  session.ansi = false;
 }
 
 // **The bytes that did not fit are counted and not lost in silence**: an app that never reads would otherwise make
@@ -288,23 +294,22 @@ void session_put(uint8_t id, Pipe pipe, const void* data, size_t len) {
   ((pipe == Pipe::kErr) ? session->err : session->out).put(data, len);
 }
 
-void out_bytes(const void* data, size_t len) {
+// **El commutador del color és del terminal on s'escriu** (0.192.45, l'amo: *«Treu l'ansi dels terminals de l'app lua Shell, el valor
+// d'ansi (si/no) ha de ser per terminal, no global del sistema»*): la consola té el seu (`g_ansi`, que és el cable i la preferència
+// desada) i cada sessió el seu, i una línia es decideix per **on va** i no per com està el sistema. Without this the answer of a
+// session carried the codes of the tables and of the prompt into a page an app paints with letters (docs/30, docs/50).
+bool ansi_here() {
   if (g_sink != 0) {
-    session_put(g_sink, g_to_error ? Pipe::kErr : Pipe::kOut, data, len);
-    return;
+    const Session* session = session_of(g_sink);
+    return session != nullptr && session->ansi;
   }
-  // **Mentre el port és cedit a una app, el sistema no hi escriu** (0.189.20): `serial::console()` answers nullptr and
-  // every line of the prompt, of an error and of a table goes nowhere. The app's own words do not come through here —they
-  // go through the interpreter's console— and that is why the app that has the port keeps it (docs/30, docs/50).
-  pal::IConsole* console = serial::console();
-  if (console == nullptr) return;
-  // **I el filtre, aquí i enlloc més** (0.190.226): aquesta és l'única porta del nucli cap a la consola —la taula, l'avís, el prompt i el
-  // que una comanda respon—, o sigui que filtrar aquí vol dir que cap línia s'escapa del color que la sessió no vol. Es fa a trossos i
-  // sense reservar res: una línia del registre o un `cat` d'un fitxer gran hi passen igual (docs/30, docs/50, docs/75).
-  if (g_ansi) {
-    console->write(data, len);
-    return;
-  }
+  return g_ansi;
+}
+
+// **The same filter for the wire and for a pipe** (0.192.45): one pass, a block at a time and with nothing reserved, because a line
+// of a log or a `cat` of a big file go through it too. An escape leaves whole and the letters around it stay (docs/30, docs/50).
+template <typename Put>
+void put_without_the_escapes(Put put, const void* data, size_t len) {
   const char* in = static_cast<const char*>(data);
   char block[128];
   size_t used = 0;
@@ -316,10 +321,36 @@ void out_bytes(const void* data, size_t len) {
     }
     block[used++] = in[at++];
     if (used < sizeof(block)) continue;
-    console->write(block, used);
+    put(block, used);
     used = 0;
   }
-  if (used > 0) console->write(block, used);
+  if (used > 0) put(block, used);
+}
+
+void out_bytes(const void* data, size_t len) {
+  // **I el filtre, aquí i enlloc més** (0.190.226): aquesta és l'única porta del nucli cap a la consola —la taula, l'avís, el prompt i el
+  // que una comanda respon—, o sigui que filtrar aquí vol dir que cap línia s'escapa del color que el terminal no vol. **Des de la
+  // 0.192.45 també les sessions**, que són l'altre cap de la mateixa decisió (docs/30, docs/50, docs/75).
+  if (g_sink != 0) {
+    const Pipe pipe = g_to_error ? Pipe::kErr : Pipe::kOut;
+    if (ansi_here()) {
+      session_put(g_sink, pipe, data, len);
+      return;
+    }
+    const uint8_t id = g_sink;
+    put_without_the_escapes([id, pipe](const void* block, size_t used) { session_put(id, pipe, block, used); }, data, len);
+    return;
+  }
+  // **Mentre el port és cedit a una app, el sistema no hi escriu** (0.189.20): `serial::console()` answers nullptr and
+  // every line of the prompt, of an error and of a table goes nowhere. The app's own words do not come through here —they
+  // go through the interpreter's console— and that is why the app that has the port keeps it (docs/30, docs/50).
+  pal::IConsole* console = serial::console();
+  if (console == nullptr) return;
+  if (g_ansi) {
+    console->write(data, len);
+    return;
+  }
+  put_without_the_escapes([console](const void* block, size_t used) { console->write(block, used); }, data, len);
 }
 
 void out(const char* text) { out_bytes(text, strlen(text)); }
@@ -358,7 +389,7 @@ void wipe_the_paper() {
   // d'entendre `ESC [ 2 J` és el que hi ha a l'altre cap de la línia, i qui edita la línia no hi té res a veure. **Quan el filtre treu els
   // codis, la pantalla no es pot netejar amb ells** —el filtre se'ls menjaria i el `clear` no faria res—, o sigui que el paper puja amb
   // quaranta salts de línia, que és el que entén tothom (docs/30, docs/50, docs/85).
-  if (g_ansi) {
+  if (ansi_here()) {
     out("\033[2J\033[H");
     g_visible = 0;
     return;
@@ -813,8 +844,8 @@ void print_help(const char* only) {
   help_line("  clear             clear the screen", only);
   help_line("  terminal          ask the other end again whether it is a terminal, and take its cursor, its", only);
   help_line("                    colour and its line editor if it answers", only);
-  help_line("  ansi [on|off]     the escape codes of this session: `off` filters them out before the wire,", only);
-  help_line("                    and the boot puts it off by itself when the console is not a terminal", only);
+  help_line("  ansi [on|off]     the escape codes of this terminal: `off` filters them out before the wire,", only);
+  help_line("                    it is each terminal's own switch, and a session of an app is born plain", only);
   help_line("  reboot            restart", only);
   help_line("  poweroff          cut the power of the board, if it can (docs/50)", only);
   help_line("  deepsleep         sleep with the supply still on, and come back when a key is pressed", only);
@@ -7724,16 +7755,23 @@ bool execute(char* line) {
     prompt();
     return true;
   }
-  // **`ansi on|off`** (0.190.226, l'amo: *«afegeix la comanda ansi on/off (totes les sortides tenen ansi, però amb aquesta opció es filtra
-  // abans d'enviar a la línia)»*): el codi porta els codis sempre i aquest commutador diu si el filtre els deixa passar. És **desat**, perquè
-  // una sessió que ha de ser de text pla ho és a cada arrencada, i és el que l'arrencada mira abans de decidir si el terminal en pot tenir
-  // (docs/30, docs/50, docs/85).
+  // **`ansi on|off` és del terminal i no del sistema** (0.190.226, l'amo: *«afegeix la comanda ansi on/off (totes les sortides tenen ansi,
+  // però amb aquesta opció es filtra abans d'enviar a la línia)»*, i des de la 0.192.45 *«el valor d'ansi (si/no) ha de ser per terminal, no
+  // global del sistema»*): el codi porta els codis sempre i aquest commutador diu si el filtre els deixa passar. **A la consola és `g_ansi`
+  // i es desa** (`cfg/ansi`), perquè la línia del cable és una sola i una sessió de text pla ho ha de ser a cada arrencada; **dins d'una
+  // sessió és el commutador d'aquella sessió i no toca res més** —ni el de la consola, ni la preferència, ni les altres pestanyes—, i una
+  // sessió neix de text pla (docs/30, docs/50, docs/85).
   if (strncmp(line, "ansi", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    Session* session = session_of(g_sink);
     const char* word = line + 4;
     while (*word == ' ') ++word;
     if (*word == '\0') {
       out("ansi: ");
-      out(g_ansi ? "on" : "off");
+      out(ansi_here() ? "on" : "off");
+      if (session != nullptr) {
+        out(" (escape codes in what this terminal writes, and it is this session's switch)\r\n");
+        return true;
+      }
       out(" (escape codes in what this session writes), and the setting is ");
       out(cfg::ansi_on() ? "on" : "off");
       newline();
@@ -7744,6 +7782,13 @@ bool execute(char* line) {
       usage_out("usage: ansi [on|off]\r\n");
       return false;
     }
+    if (session != nullptr) {
+      session->ansi = on;
+      out("ansi: ");
+      out(on ? "on" : "off");
+      out(" (this terminal)\r\n");
+      return true;
+    }
     g_ansi = on;
     (void)cfg::set_ansi(on);
     out("ansi: ");
@@ -7752,7 +7797,7 @@ bool execute(char* line) {
     // **I el prompt es torna a dibuixar amb el color nou** (0.190.231): canviar el commutador i no veure'n l'efecte fins a la propera línia
     // seria endevinar si ha funcionat (docs/30).
     prompt();
-    // **I si el terminal no els entén, es diu**: un `on` en un monitor que no contesta no és un error —el filtre fa el que se li demana—,
+    // **I si el terminal no els entén, es diu**: un `on` en un monitor que no contesta no és cap error —el filtre fa el que se li demana—,
     // però el que una persona veurà seran els codis escrits, i això no és cap sorpresa que s'hagi d'endevinar (docs/30, docs/85).
     pal::IConsole* console = serial::console();
     if (on && (console == nullptr || !console->has_a_line_editor())) {
@@ -8404,6 +8449,8 @@ uint8_t open_session(char* why, size_t why_cap) {
     session.in_use = true;
     session.line_used = 0;
     session.close_asked = false;
+    // **Una sessió neix de text pla** (0.192.45): the glass of an app is not a terminal and a code there is a row of letters.
+    session.ansi = false;
     session.out = Ring();
     session.err = Ring();
     session.out.bytes = static_cast<uint8_t*>(malloc(kSessionOutBytes));
@@ -8424,7 +8471,8 @@ uint8_t open_session(char* why, size_t why_cap) {
     return static_cast<uint8_t>(i + 1);  // ids are one based: zero is the console
   }
   if (why != nullptr && why_cap > 0) {
-    snprintf(why, why_cap, "there is already a session and one at a time is what this system has");
+    snprintf(why, why_cap, "this board holds %u session%s at a time", static_cast<unsigned>(kMaxSessions),
+             (kMaxSessions == 1) ? "" : "s");
   }
   return 0;
 }

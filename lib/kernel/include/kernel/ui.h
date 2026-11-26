@@ -397,10 +397,19 @@ bool label_draw(int16_t slot, const char* text, uint8_t color, uint8_t backgroun
 const uint8_t kMarkAbove = 0;  // the mark on top and the word under it
 const uint8_t kMarkLeft = 1;   // the mark at the left and the word beside it
 const uint8_t kMarkRight = 2;  // the word first and the mark at the right
+
+// **El cercle que envolta la marca quan la clau diu un estat** (0.192.46, l'amo: *«Els botons del panell superior desplegable del
+// sistema: Bluetooth, Wifi i l'altre han de ser sempre visibles, color negre i un cercle negre al voltant (sense farcit de negre) i
+// en cas d'estar activat icona blanca amb cercle farcit negre»*): the circle is a second signal that costs the word nothing —the key
+// stays black whether the thing is on or off— i el que canvia és el cercle: buit vol dir apagat i ple vol dir encès, amb la marca
+// del dret de la tinta del cercle. The press turns the whole key over, the circle with it (docs/30, docs/92).
+const uint8_t kMarkPlain = 0;    // the mark alone, as it always was
+const uint8_t kMarkRingOff = 1;  // a circle of ink around it, not filled: the thing is off
+const uint8_t kMarkRingOn = 2;   // the circle filled with ink and the mark in paper: the thing is on
 bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused = false,
                  bool primary = false, const char* title = nullptr, const char* tag = nullptr,
                  uint8_t color = 0, uint8_t scale = 1, bool framed = true, const char* icon = nullptr,
-                 uint8_t mark_side = kMarkAbove);
+                 uint8_t mark_side = kMarkAbove, uint8_t ring = kMarkPlain);
 
 // **El dibuix d'un botó, sobre el vidre mateix** (0.179.31): the panel of the system paints on the glass while the page
 // under it is held, so its controls **cannot** be children of the view's tree —the composition of the page at the release
@@ -419,7 +428,7 @@ bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed,
 bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                     uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
                     const char* title, uint8_t color, uint8_t scale, bool framed = true,
-                    const char* icon = nullptr, uint8_t mark_side = kMarkAbove);
+                    const char* icon = nullptr, uint8_t mark_side = kMarkAbove, uint8_t ring = kMarkPlain);
 
 // **The marks of the system, by name** (0.185.0): the five the panel of the bar draws, and the list `ui.icons()` answers.
 // A name that is not one of them draws nothing, which is a key with no content and not a picture of an accident.

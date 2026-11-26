@@ -1015,9 +1015,11 @@ struct UIOps {
   // of it and it sinks by turning over— and **`icon` is a mark of the system** drawn instead of the word (0.185.0, docs/30).
   // **`mark_side` is where the mark goes when the button also carries a word** (0.185.3): on top of it, at its left or at its
   // right, and 0 —the top— is what a button with no word wants because then the mark is centred and the value is not read.
+  // **`ring` és el cercle al voltant de la marca** (0.192.46): buit o ple segons l'estat de la cosa que la clau encén, que és el
+  // que fa el panell del sistema amb les tres ràdios; el `ui.button` de Lua el deixa a pla i no el veu (docs/30, docs/92).
   bool (*button_draw)(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
                       bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale,
-                      bool framed, const char* icon, uint8_t mark_side);
+                      bool framed, const char* icon, uint8_t mark_side, uint8_t ring);
   // **A checkbox** (docs/30, docs/90): the side of the square it draws —which is where the child that names
   // the setting goes— and the row itself: background, border, the tick's level, whether it is checked, held
   // and focused.

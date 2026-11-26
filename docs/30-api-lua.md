@@ -3848,6 +3848,12 @@ pàgina amb feina a fer —un editor, un gestor de fitxers— on les accions no 
   buffer i la seva tinta viu als píxels de la pàgina, o sigui que plegar-se sense netejar-lo deixava el menú pintat a
   sota, amb les files de debò a trossos (docs/30, docs/90)—. Un toc a la barra que no encerta ni un títol ni una entrada
   també plega, i **no executa l'`index` que hi havia d'abans**.
+- **Un desplegable es plega abans que el següent s'obri** (0.192.44, l'amo: *«Quan un menú contextual s'obre, tanca els
+  demés oberts … al passar de menú en menú horitzontalment es van desplegant i no estanquen fins sortir del menú»*): el
+  títol que es toca plega el menú que hi havia **en el mateix pas** i obre el seu, o sigui que a la pàgina no hi ha mai
+  dues targetes de menú i l'app no ha de fer res per això. El rectangle que queda es torna a paper i els controls que hi
+  havia a sota tornen sols —els que tenen buffer es componen del seu buffer i els que no el tenen es tornen a dibuixar—,
+  i només aquell rectangle es pinta (docs/30, docs/50, docs/90).
 
 ```lua
 local bar = ui.menu_bar(500, 300)
@@ -4621,12 +4627,17 @@ El que canvia és **com s'escriu la línia al cable**, i res del que hi ha a sot
   per al `lunok> `, el **220** per al `lua> ` i, al registre, **196** el `[E]`, **214** el `[W]`, **41** el `[I]` i **244** el `[D]` —només els
   tres caràcters del nivell, no la línia sencera—. **El color és una capa que es posa després del filtre**: el que entra al filtre és el
   que ha escrit el sistema, i el que en surt és el que arriba a la línia (docs/50, docs/85).
-- **El color és un commutador: `ansi on|off`** (0.190.226, l'amo: *«totes les sortides tenen ansi, però amb aquesta opció es filtra abans
-  d'enviar a la línia»*). El codi porta els codis sempre i **`shell::filter_ansi`** treu cada seqüència `ESC [ … <lletra>` abans que arribi a la
-  línia quan el commutador diu `off`; s'aplica a l'única porta del nucli cap a la consola i també a la línia del registre. La paraula es desa a
-  `cfg/ansi` i neix `on`; **l'arrencada la posa a `off` tota sola si la consola no parla codis** (`speaks_ansi`), sense tocar la preferència, i ho
-  diu al registre. `ansi` sol diu l'estat de la sessió i el desat; `ansi on` en un monitor que no és terminal avisa que els codis li arribaran
-  escrits. **I `clear`**: amb el color apagat no pot netejar amb codis —el filtre se'ls menjaria— i fa pujar quaranta línies (docs/50, docs/85).
+- **El color és un commutador i és de cada terminal: `ansi on|off`** (0.190.226, l'amo: *«totes les sortides tenen ansi, però amb aquesta opció
+  es filtra abans d'enviar a la línia»*, i 0.192.45: *«el valor d'ansi (si/no) ha de ser per terminal, no global del sistema»*). El codi porta els
+  codis sempre i **`shell::filter_ansi`** treu cada seqüència `ESC [ … <lletra>` abans que arribi a la línia quan el commutador diu `off`; s'aplica
+  a l'única porta del nucli cap a la consola i també a la línia del registre.
+  - **A la consola** el commutador és `g_ansi`, es desa a `cfg/ansi` i neix `on`; **l'arrencada la posa a `off` tota sola si la consola no parla
+    codis** (`speaks_ansi`), sense tocar la preferència, i ho diu al registre. `ansi` sol diu l'estat de la sessió i el desat; `ansi on` en un
+    monitor que no és terminal avisa que els codis li arribaran escrits.
+  - **Dins d'una sessió d'una app, no**: cada sessió té el seu commutador (`Session::ansi`), **neix de text pla** i `ansi on|off` només canvia
+    el d'aquella pestanya —ni el de la consola, ni la preferència, ni les altres—. És el que fa que el `shell` de Lua no vegi mai un codi: la
+    resposta d'una comanda és el que es llegeix en una pàgina, i un `ESC` allà és una fila de lletres que ningú no ha demanat (docs/30, docs/50).
+  - **I `clear`**: amb el color apagat no pot netejar amb codis —el filtre se'ls menjaria— i fa pujar quaranta línies (docs/50, docs/85).
 - **`log follow` s'atura amb una línia quan hi ha terminal** (0.190.226): `Control+C` i `Escape` són de l'editor i el registre no s'assabentava
   de res; amb el terminal del cable el que arriba és **Enter**, i ho diu quan comença. Mentre dura, **el prompt marxa** (l'editor ja n'havia
   dibuixat un, i un `lunok> ` al davant del registre és brossa) — sense terminal, la tecla de sempre (docs/50).
@@ -4772,7 +4783,21 @@ hi comenci**, i res més (0.179.42, 0.179.49).
   - **I les tres no hi són si la placa no les pot fer**: `bt::available()`, `net::available()` i `mesh::available()` són la mateixa
     pregunta honesta que la creu sobre un llançador i la lluna d'una placa que no sap dormir —una clau que diu que pot encendre un
     ràdio en un build que no en porta diu una cosa que no és (0.179.25)—.
-  - **On són i com hi caben**: la fila és de tres claus de 156 × 80 amb setze d'aire. **Des de la 0.192.24 són dues files i no tres**, i
+  - **I la clau és sempre negra: l'estat el diu un cercle** (0.192.46, l'amo: *«Els botons del panell superior desplegable del
+    sistema: Bluetooth, Wifi i l'altre han de ser sempre visibles, color negre i un cercle negre al voltant (sense farcit de negre) i
+    en cas d'estar activat icona blanca amb cercle farcit negre. Fes les icones una mica més grans»*). Abans la tinta de la marca i de
+    la paraula era l'estat —negra encesa, grisa apagada— i un mot gris sobre paper es llegia com una clau que no es pot prémer, que és
+    l'única cosa que aquesta targeta no dibuixa mai. Ara **les tres es veuen sempre en negre** i el que canvia és `kMarkRingOff` (un
+    cercle de tres píxels al voltant de la marca, sense farcir, amb la marca de la mateixa tinta) i `kMarkRingOn` (el cercle farcit i
+    la marca en el paper). El cercle és una opció de `ui::paint_a_button` —`kMarkPlain`, `kMarkRingOff` i `kMarkRingOn`—, o sigui que
+    el dibuix del cercle i el de la clau són un de sol, i un `ui.button` d'una app no el veu (docs/30, docs/92).
+  - **I dins del cercle, la marca és la de les línies i no la del fitxer** (0.192.46): `picture_of_a_mark` posa el paper del dibuix a
+    tot el **quadre** del PNG —així és com una imatge d'un nivell es posa sobre una cara—, i dins d'un cercle aquells quatre cantons són
+    un requadre que sobresurt del disc (trobat a l'emulador amb el Bluetooth i el WiFi: fons quadrat, cercle rodó). Les tres ràdios
+    tenen el seu dibuix de línies a `ui::draw_icon`, o sigui que el cercle es queda el dibuix i prou.
+  - **On són i com hi caben**: la fila és de tres claus de 156 × 100 amb setze d'aire —cent, i no vuitanta, des de la 0.192.46: el
+    cercle s'endú una banda de tres píxels i la icona ha de quedar una mica més gran que abans, no més petita, o sigui que la clau
+    creix el que el cercle s'emporta (la marca passa de 58 a 68 píxels de caixa)—. **Des de la 0.192.24 són dues files i no tres**, i
     la fila de les ràdios **penja del mànec**: `switch_row_y()` la posa a `card_height()` menys el bloc del mànec i de la línia, i així no
     queda una banda de paper buit sota d'ella. **I des de la 0.192.25 la targeta és aquestes files i prou** (l'amo: *«Ara els panells son molt
     grans per el contingut que tenen, no?»*): `card_height()` deixa de ser el terç del vidre i passa a ser el que el contingut demana

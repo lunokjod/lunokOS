@@ -2130,8 +2130,13 @@ bool menu_bar_hole(int16_t slot) {
   if (bar == nullptr || g_bar_card.slot != slot || g_bar_card.w == 0 || g_bar_card.h == 0) return false;
   const int16_t painter = painting_holder(bar->parent);
   if (painter < 0) return false;
-  int32_t offset_x = bar->x + static_cast<int32_t>(g_bar_card.x);
-  int32_t offset_y = bar->y + static_cast<int32_t>(g_bar_card.y);
+  // **El rectangle del desplegable ja és als píxels del pare de la barra** (0.192.44): `menu_bar_draw` desa `target.x + menu_x`,
+  // and `target.x` is already the bar's own place in the canvas it paints into —summing `bar->x` here painted the hole of a
+  // bar placed at (12,12) twelve pixels to the right and down, so the card of the menu before stayed on the glass and the paper
+  // landed where nobody had painted anything (found on the emulator with the `shell`, whose bar sits at the margin of the page
+  // and whose terminal is black: the hole came out as a white rectangle) (docs/30, docs/90).
+  int32_t offset_x = static_cast<int32_t>(g_bar_card.x);
+  int32_t offset_y = static_cast<int32_t>(g_bar_card.y);
   for (int16_t walk = bar->parent; walk != painter && walk >= 0; walk = g_canvases[walk].parent) {
     offset_x += g_canvases[walk].x;
     offset_y += g_canvases[walk].y;
@@ -2154,14 +2159,17 @@ bool menu_bar_hole(int16_t slot) {
   if (radius > 12) radius = 12;
   draw_round_fill(g_canvases[painter], offset_x, offset_y, hole_w, hole_h, radius, g_paper_level,
                   hal::UpdateMode::kGl16, /*named=*/true);
-  // **I el que hi havia sota el desplegable torna del seu propi buffer** (0.192.39): only the rectangle of the hole is composed,
-  // and a control is never drawn again for it —its buffer is still the truth of what it holds—. Asking the whole subtree to draw
-  // painted the terminal of the `shell` from end to end, and the ink the menu had never touched came back a shade greyer (measured
-  // on the emulator: 54 against 26 of the black), and it painted a line of the page of `Files` that the app never shows
-  // (docs/30, docs/90).
+  // **I el que hi havia sota el desplegable torna sol, i només dins del forat** (0.192.39): a control with a buffer is composed
+  // from it —its buffer is still the truth of what it holds— and one without a buffer is asked to draw itself again. Asking the
+  // whole subtree to draw painted the terminal of the `shell` from end to end, and the ink the menu had never touched came back a
+  // shade greyer (measured on the emulator: 54 against 26 of the black), and it painted a line of the page of `Files` that the app
+  // never shows (docs/30, docs/90).
   compose_the_hole(painter, offset_x, offset_y, static_cast<uint16_t>(hole_w), static_cast<uint16_t>(hole_h));
-  invalidate_rect(painter, static_cast<uint16_t>(offset_x), static_cast<uint16_t>(offset_y),
-                  static_cast<uint16_t>(hole_w), static_cast<uint16_t>(hole_h));
+  // **The painter is not left cut by a draw of before** (0.192.44): a `clipped` that outlives the draw that set it is a page
+  // that only paints inside a rectangle nobody can see —the tabs of the `shell` were drawn inside the clip of the menu's card
+  // and the paper of the hole stayed on the glass—. Every `open_draw` that cuts sets it and every `close_draw` clears it, so
+  // this is only a belt after a control that forgot (docs/30, docs/90).
+  g_canvases[painter].clipped = false;
   // **I la barra mateixa**, que ha de treure el mot que era invertit.
   invalidate(slot);
   return true;
@@ -3816,7 +3824,8 @@ bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t wid
 void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_t x, int32_t y, int32_t width,
                   int32_t height, uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
                   const char* title, const char* tag, uint8_t color, uint8_t scale, hal::UpdateMode mode,
-                  bool framed = true, const char* icon = nullptr, uint8_t mark_side = kMarkAbove) {
+                  bool framed = true, const char* icon = nullptr, uint8_t mark_side = kMarkAbove,
+                  uint8_t ring = kMarkPlain) {
   if (width <= 0 || height <= 0 || scale == 0) return;
   int32_t radius = 14;
   const int32_t most = ((width < height) ? width : height) / 3;
@@ -3933,7 +3942,35 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
         word_y = face_y + mark_h;
       }
     }
-    if (!picture_of_a_mark(view, icon, mark_x, mark_y, mark_w, mark_h, face_level, text_level, mode)) {
+    if (ring != kMarkPlain) {
+      // **La marca dins d'un cercle** (0.192.46, l'amo: *«Els botons del panell superior desplegable del sistema: Bluetooth, Wifi i l'altre
+      // han de ser sempre visibles, color negre i un cercle negre al voltant (sense farcit de negre) i en cas d'estar activat icona blanca
+      // amb cercle farcit negre»*): a key that says a state has room for a second signal —the circle— that does not spend the ink of the
+      // mark or of the word: **the circle is the switch and the mark is the thing it switches**. The circle is a square of the mark and
+      // the mark keeps what the band and two pixels of air leave inside it, so a ring never eats the drawing (docs/30, docs/92).
+      const int32_t side = (mark_w < mark_h) ? mark_w : mark_h;
+      const int32_t radius = (side - 2) / 2;
+      const int32_t band = (radius >= 18) ? 3 : 2;
+      const int32_t cx = mark_x + mark_w / 2;
+      const int32_t cy = mark_y + mark_h / 2;
+      if (ring == kMarkRingOn) {
+        draw_disc(view, cx, cy, radius, text_level, mode);
+      } else {
+        for (int32_t step = 0; step < band; ++step) draw_circle(view, cx, cy, radius - step, text_level, mode);
+      }
+      // **La marca va del dret del cercle**: on a filled one the drawing is the paper, and on an empty one it is the same ink as the
+      // ring, which is the whole of the second signal —one circle, one ink, two states— (docs/30, docs/92). The press turns both of
+      // them over with the face, exactly as it turns the word.
+      //
+      // **I la marca d'aquí és la de les línies i no la del fitxer**: `picture_of_a_mark` pinta el paper del dibuix a tot el seu
+      // **quadre** —així és com un PNG d'un nivell es posa sobre una cara—, i dins d'un cercle aquests quatre cantons són un requadre
+      // que sobresurt del disc i que ningú ha demanat (trobat a l'emulador amb el Bluetooth i el WiFi del panell: la imatge té fons
+      // quadrat i el cercle és rodó). Les tres ràdios tenen el seu dibuix de línies a `draw_icon`, o sigui que el cercle es queda el
+      // dibuix i prou (docs/30, docs/92).
+      const uint8_t mark_ink = (ring == kMarkRingOn) ? face_level : text_level;
+      const int32_t inner = radius - band - 1;
+      if (inner > 0) draw_icon(view, icon, cx - inner, cy - inner, 2 * inner, 2 * inner, mark_ink, mode);
+    } else if (!picture_of_a_mark(view, icon, mark_x, mark_y, mark_w, mark_h, face_level, text_level, mode)) {
       draw_icon(view, icon, mark_x, mark_y, mark_w, mark_h, text_level, mode);
     }
     if (!has_word || word_w <= 0) return;
@@ -3976,7 +4013,7 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
 
 bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
                  bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale,
-                 bool framed, const char* icon, uint8_t mark_side) {
+                 bool framed, const char* icon, uint8_t mark_side, uint8_t ring) {
   if (!live(slot) || background > 15 || border > 15 || color > 15 || scale == 0 || scale > 16) return false;
   const Canvas& button = g_canvases[slot];
   if (button.width == 0 || button.height == 0) return true;
@@ -3984,7 +4021,7 @@ bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed,
   if (target.canvas == nullptr) return false;
   paint_button(*target.canvas, button.face, face_of(button.face), target.x, target.y, button.width, button.height,
                background, border, pressed, focused, primary, title, tag, color, scale, hal::UpdateMode::kDu,
-               framed, icon, mark_side);
+               framed, icon, mark_side, ring);
   // **The frame is opaque, and it covers everything inside it**: a child that did not redraw would be erased by the
   // button's own fill, so the child is asked to draw again whenever the frame does. **And a child is not inverted**: it
   // is a control the app paints with the colours the app gave it, and this system does not reach inside another
@@ -4013,7 +4050,7 @@ bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed,
 bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                     uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
                     const char* title, uint8_t color, uint8_t scale, bool framed,
-                    const char* icon, uint8_t mark_side) {
+                    const char* icon, uint8_t mark_side, uint8_t ring) {
   pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   // **A nibble a pixel, so a width that is not even is refused**: half a byte is a pixel and an odd width would shift
   // every row of the control.
@@ -4035,7 +4072,7 @@ bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t wid
   const uint16_t levels = g_levels;
   const uint16_t paints = g_paints;
   paint_button(view, -1, font::system_face(), 0, 0, width, height, background, border, pressed, focused, primary,
-               title, nullptr, color, scale, hal::UpdateMode::kDu, framed, icon, mark_side);
+               title, nullptr, color, scale, hal::UpdateMode::kDu, framed, icon, mark_side, ring);
   g_levels = levels;
   g_paints = paints;
   surface.blit(x, y, width, height, static_cast<const uint8_t*>(block), stride);
