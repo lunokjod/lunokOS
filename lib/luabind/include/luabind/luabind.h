@@ -263,6 +263,11 @@ struct StatsOps {
   uint8_t (*count)();
   const char* (*name)(uint8_t id);
   bool (*read)(uint8_t id, uint32_t* calls, uint64_t* us);
+  // **I les tres columnes que la taula del prompt sempre ha tingut** (0.192.36): the shortest call, the longest one and the moment of
+  // the last one —counted from the last `stats reset`—, which is what a page of statistics needs to say what a meter costs *when it
+  // goes wrong* and not only on average. `sys.stats(word)` answers them **behind** the two it already answered, so a caller that takes
+  // two numbers keeps working (docs/30, docs/75).
+  bool (*read_full)(uint8_t id, uint32_t* calls, uint64_t* us, uint32_t* min_us, uint32_t* max_us, uint32_t* last_ms);
 };
 
 void set_stats_ops(const StatsOps& ops);
@@ -1280,6 +1285,12 @@ struct UIOps {
   };
   UIPickerPages (*picker_pages)(int16_t slot, const char* title, const char* const* labels, uint16_t count,
                                 uint16_t index, uint16_t page, uint8_t scale);
+  // **On cau el número d'un slider quan hi cau un dit** (0.192.34, l'amo: *«L'slider de l'app banner es un control UI? … Si moc
+  // l'slider no passa res de res»*): the value a finger that lands at `x` —in the frame of the view— asks for, with the geometry
+  // the knob is drawn with and snapped to the control's `step`. **A slider was only moved by the dial**, and a board with a glass
+  // and one key has no dial: el control era d'una pàgina que ningú no podia canviar (docs/30, docs/90).
+  int16_t (*slider_value_at)(int16_t slot, uint16_t x, const char* suffix, uint8_t scale, int16_t minimum,
+                             int16_t maximum, int16_t step);
 };
 
 void set_ui_ops(const UIOps& ops);

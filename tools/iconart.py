@@ -122,6 +122,11 @@ MARKS = {
     # és el triangle i no un altre dibuix, perquè el que el botó fa quan la partida està aturada és precisament tornar-hi (docs/45).
     "pause": (0xF04C, "pause: the game stops where it is"),
     "play": (0xF04B, "play: the game goes on"),
+    # **El gràfic de la pàgina de les estadístiques** (0.192.36, l'amo: *«Revisa l'app nativa "Stats" del antic PaperOS … copia la seva
+    # estètica»*): `chart-line` és la línia que puja dins d'uns eixos, que és el que la pàgina fa —el cost de cada comptador— i el que la
+    # icona d'una app de números ha de dir en un quadrat de noranta-quatre. L'antic sistema la tenia oculta i s'obria per nom, o sigui que
+    # no en tenia cap de dibuix; aquesta és nova (docs/45, docs/92).
+    "stats": (0xF201, "chart-line: what every meter has cost"),
 }
 
 

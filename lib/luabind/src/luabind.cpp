@@ -11970,6 +11970,41 @@ bool ui_activate(lua_State* L, int count, int objects, int index, bool by_finger
       ui_call_hook_number(L, object, "on_change", which);
     }
   } else if (ui_field_bool(L, object, "__slider", false)) {
+    // **Un dit al tub posa el número on ha caigut** (0.192.34, l'amo: *«L'slider de l'app banner es un control UI? … I el més
+    // important… ha de funcionar xD»*). A slider was only moved by the two keys of the dial, and a board that has a glass and one
+    // key has no dial at all: the control was there and nothing could move it. A finger that lands on the track asks the kernel
+    // for the number under it —`slider_value_at`, the same geometry the knob is drawn with— and the app hears `on_change` with
+    // the field already written, which is the rule every value control follows. **No entra en `editing`**: entering is what gives
+    // the two keys to the number, and a finger has already said which number it wants (docs/30, docs/90, docs/92).
+    if (by_finger && g_ui_ops.slider_value_at != nullptr) {
+      LuaCanvas* knob = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+      if (knob != nullptr) {
+        lua_getfield(L, object, "suffix");
+        const char* suffix = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+        const lua_Integer scale = ui_field_number(L, object, "scale", 4);
+        const lua_Integer minimum = ui_field_number(L, object, "min", 0);
+        const lua_Integer maximum = ui_field_number(L, object, "max", 100);
+        const lua_Integer step = ui_field_number(L, object, "step", 1);
+        const lua_Integer value = ui_field_number(L, object, "value", 0);
+        const uint8_t scale8 = static_cast<uint8_t>((scale < 1) ? 1 : ((scale > 16) ? 16 : scale));
+        const int16_t asked =
+            g_ui_ops.slider_value_at(knob->slot, g_ui_touch_x0, suffix, scale8, static_cast<int16_t>(minimum),
+                                     static_cast<int16_t>(maximum), static_cast<int16_t>(step));
+        lua_pop(L, 1);
+        if (asked != value) {
+          lua_getiuservalue(L, object, 1);
+          lua_pushinteger(L, asked);
+          lua_setfield(L, -2, "value");
+          lua_pop(L, 1);
+          ui_invalidate(L, object);
+          ui_call_hook_number(L, object, "on_change", asked);
+        }
+        // **The press of the ring is not a button's**: a slider that a finger moved is not painted down and up, and the
+        // object leaves the stack the way every branch above leaves it (docs/90).
+        lua_pop(L, 1);
+        return true;
+      }
+    }
     // **The centre enters a slider and leaves it** (0.117.0): while it is inside, the two keys of the board are the
     // number and not the walk; the centre gives them back. The app hears the press both times, so a slider with an
     // `on_click` keeps answering, and nothing else changes state: no band, no target, no paint of its own (docs/30,
@@ -12959,10 +12994,22 @@ int l_sys_stats(lua_State* L) {
     if (word == nullptr || strcmp(word, asked) != 0) continue;
     uint32_t calls = 0;
     uint64_t us = 0;
-    if (!g_stats_ops.read(i, &calls, &us)) break;
+    uint32_t shortest = 0;
+    uint32_t longest = 0;
+    uint32_t last_ms = 0;
+    // **Els dos números de sempre i, darrere, les tres columnes de la taula** (0.192.36): a caller that takes two values
+    // (`local calls, us = sys.stats(w)`) keeps working, perquè Lua llença el que ningú no recull (docs/30).
+    if (g_stats_ops.read_full != nullptr) {
+      if (!g_stats_ops.read_full(i, &calls, &us, &shortest, &longest, &last_ms)) break;
+    } else if (!g_stats_ops.read(i, &calls, &us)) {
+      break;
+    }
     lua_pushinteger(L, static_cast<lua_Integer>(calls));
     lua_pushinteger(L, static_cast<lua_Integer>(us));
-    return 2;
+    lua_pushinteger(L, static_cast<lua_Integer>(shortest));
+    lua_pushinteger(L, static_cast<lua_Integer>(longest));
+    lua_pushinteger(L, static_cast<lua_Integer>(last_ms));
+    return 5;
   }
   lua_pushnil(L);
   lua_pushstring(L, "there is no meter with that name");

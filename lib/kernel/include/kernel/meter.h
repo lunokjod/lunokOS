@@ -151,6 +151,11 @@ uint8_t stats_count();
 const char* stats_name(uint8_t id);
 bool stats_read(uint8_t id, uint32_t* calls, uint64_t* us);
 
+// **I la més curta, la més llarga i quan va ser l'última** (0.192.36): the three columns of `stats` that a page of statistics needs
+// and `stats_read` did not answer —what a meter costs *when it goes wrong*, and whether it has been called since the board came up—.
+// `last_ms` counts from the last `stats reset`, which is the clock the prompt's own column uses (docs/30, docs/95).
+bool stats_read_full(uint8_t id, uint32_t* calls, uint64_t* us, uint32_t* min_us, uint32_t* max_us, uint32_t* last_ms);
+
 // **Times one call.** It is a scope object and not two macros so that the early returns of a hundred
 // functions cannot leave a meter open (docs/80).
 class Scope {

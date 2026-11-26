@@ -416,6 +416,19 @@ bool stats_read(uint8_t id, uint32_t* calls, uint64_t* us) {
   return true;
 }
 
+// **Les tres columnes que faltaven** (0.192.36): the same entry, read whole. A page of statistics shows the shortest and the longest
+// call because a mean that hides a hiccup of four hundred milliseconds is a mean that lies, i el moment de l'última diu si aquell
+// aparell encara es fa servir (docs/30, docs/95).
+bool stats_read_full(uint8_t id, uint32_t* calls, uint64_t* us, uint32_t* min_us, uint32_t* max_us, uint32_t* last_ms) {
+  if (id >= kCount) return false;
+  if (calls != nullptr) *calls = g_entries[id].calls;
+  if (us != nullptr) *us = g_entries[id].us;
+  if (min_us != nullptr) *min_us = g_entries[id].min_us;
+  if (max_us != nullptr) *max_us = g_entries[id].max_us;
+  if (last_ms != nullptr) *last_ms = g_entries[id].last_ms;
+  return true;
+}
+
 void note_app_start(const char* app_id) {
   size_t i = 0;
   if (app_id != nullptr) {

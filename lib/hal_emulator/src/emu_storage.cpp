@@ -414,8 +414,9 @@ IStorage* emu_storage(const char* mount) {
   // The RTC memory is a file of the chip and it is there on every board (docs/50).
   if (strcmp(mount, "/rtc") == 0) return rtc_storage();
   // The FRAM is only on the model that carries the chip: the board decides and not the emulator
-  // (docs/50, docs/85).
-  if (strcmp(mount, "/fram") == 0) return fram_storage();
+  // (docs/50, docs/85). **I ara ho mira de debò** (0.192.35): the comment said so and the line returned the chip on every board, o sigui
+  // que un ATOM i una T5S3 emulats oferien un `/fram` que la caixa no té —el Paper és l'únic amb l'FM24C02— (docs/50, docs/70).
+  if (strcmp(mount, "/fram") == 0) return emu::model().fram ? fram_storage() : nullptr;
   // A card is there only when the person put one, and a card is a **directory that exists**: the
   // slot is empty without `--sd`, and a directory that was never made is not a card either, which is
   // what a board with a bent contact looks like (docs/70, docs/85).

@@ -309,8 +309,14 @@ aquesta arrencada el sistema, en aquest ordre:
 2. **no torna la pàgina**: `restore_session` no corre i el registre de la sessió es queda a la NVS, sense consumir;
 3. **no pregunta pel pany ni arrenca la casa**: la targeta del `device_lock` i el llançador són per a una persona, i el que ha
    vingut a fer la placa no és atendre-la;
-4. i al primer torn, quan el ganxo ja ha corregut, **torna a baixar** sense pintar la imatge del son: el vidre es queda amb el
-   que la finestra hi hagi deixat, que és l'avís que una persona trobarà quan vingui.
+4. i al primer torn, quan el ganxo ja ha corregut, **torna a baixar sense pintar res**: ni la imatge del son, ni el **rentat del
+   paper** que la T5S3 fa a cada arrencada —que des de la 0.192.37 només es paga quan hi ha algú o quan una pàgina ve al davant, i
+   que si no deixava el panell **en blanc** fins que la placa s'encenia (docs/50)—. El vidre es queda exactament amb la imatge que
+   el son hi va deixar, que és el que una persona trobarà quan vingui;
+5. i **els tàctils, com estaven**: el commutador *Wake on touch* és una preferència i no una política, o sigui que `power::boot` la
+   posa a la placa a cada arrencada —també en aquesta— i `arm_the_doors` la llegeix a cada baixada: amb el commutador encès el
+   controlador es queda en el règim de menys consum i la seva línia és una porta del son; amb el commutador apagat s'adorm
+   (`writeCommand(0x05)`) i la placa només torna pel rellotge i pel BOOT (docs/30, docs/50).
 
 La pàgina torna amb la propera arrencada que sí que és d'algú: la del botó, la d'un `reboot`, la del cable. És la mateixa nota
 del son que fa que el `state` no s'esborri (0.189.176), o sigui que les dues coses són una: *una placa que baixa amb la casa

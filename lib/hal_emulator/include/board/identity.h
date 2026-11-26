@@ -47,10 +47,9 @@ inline const char* family() { return "esp32"; }
 // this name are a fake.
 inline bool emulator() { return true; }
 
-// The fake light imitates the panel of the Matrix, ceiling included: an emulator that
-// let 255 through would hide the limit the board has, and the app would look fine
-// on the PC and cook the panel (docs/30, docs/85).
-inline constexpr uint32_t led_max() { return 20; }
+// **El sostre del llum ja no és una constant d'aquest fitxer** (0.192.35): it was the Matrix's twenty for every model, o sigui que la
+// retroil·luminació de la T5S3 —que arriba a 255— s'hi quedava al vuit per cent, i el panell del Matrix hi era igual. El número és del
+// model (`emu::Model::led_max`), que és qui sap quina placa s'està emulant, i el demana `FakeLed::max_value()` i la finestra (docs/85).
 
 // True: the fake board also imitates the Matrix's MPU6886, so an app that reads the
 // sensor can be tried on the PC (docs/85).

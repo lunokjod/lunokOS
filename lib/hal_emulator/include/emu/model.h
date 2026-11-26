@@ -44,6 +44,16 @@ constexpr uint8_t kMostButtons = 5;
 struct Model {
   const char* name;      // the name it answers to, the same one `sys.board` gives
   uint32_t lights;       // 0 is a board with no light at all
+  // **Si aquesta llum és la del vidre o una que diu coses** (0.192.35, l'amo: *«Perqué l'opció de Settings -> Battery -> Breathe while
+  // charging està desactivada (gris) al emulador de la placa T5S3pro !??? es l'emulador d'aquella placa! ha de suportar el mateix que el
+  // hardware real!»*). La T5S3 no té cap RGB: la seva única llum és **el LED blanc de retroil·luminació del panell** (GPIO11), i el HAL
+  // de la placa ho diu amb `ILed::role() == kBacklight`. L'emulador deia `kLight` per a tothom, o sigui que la fila del respir sortia
+  // grisa, el dim no hi era i l'efecte d'arrencada pintava la placa d'un color que aquella caixa no pot fer (docs/50, docs/85).
+  bool backlight = false;
+  // **El sostre del canal d'aquesta llum** (0.192.35): it is a hardware limit and not a taste —twenty on the Matrix's panel, 255 on a
+  // strip and on the PWM of a backlight— i l'emulador tenia **el vint del Matrix per a tots els models**, o sigui que la retroil·luminació
+  // de la T5S3 s'hi quedava al vuit per cent (docs/50, docs/85).
+  uint32_t led_max = 255;
   uint32_t keys;         // one button, or the Paper's three
   bool imu;              // a sensor
   bool env;              // an ambient sensor: temperature and humidity (docs/50)
@@ -63,6 +73,11 @@ struct Model {
   // counts in the page's own frame and reports two fingers (docs/50, docs/85).
   bool touch;
   bool gauge;            // a battery it can read
+  // **Un comptador de coulombs, que no és el mateix que un divisor** (0.192.35): the T5S3 carries a **BQ27220** that answers the
+  // current, the capacities, the health and the cycles; the Paper has four ADC conversions behind a divider and can only answer a
+  // voltage —its HAL leaves `battery_detail` at the interface's «no»—. L'emulador contestava els números del comptador a tota placa amb
+  // `gauge`, o sigui que el Paper de mentida deia mAh i corrent que la placa de debò no pot dir (docs/50, docs/85).
+  bool counts_the_charge = false;
   bool slot;             // a card slot
   bool fram;             // an FRAM chip, which is non-volatile memory
   bool keeps_the_hour;   // a clock chip with a coin cell behind it

@@ -1,0 +1,9 @@
+{
+  "title": "Stats",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "stats.lua",
+  "icon": "res/icon.png",
+  "boards": ["esp32"],
+  "description": "What the machine costs and where the time went: the bars of the meters the kernel keeps, ordered by what they cost, the pie of the four families with its legend, the memory and what this board is. The look of the LogApp of the paper project (dark bars, a pie, ordered numbers) on the controls this system already has."
+}

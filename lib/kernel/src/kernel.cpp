@@ -702,24 +702,28 @@ void boot(hal::IPlatform& platform) {
     log_printf(pal::kLogWarn, "UI", "this glass cannot be turned to %u degrees: it stays as the panel came",
                static_cast<unsigned>(cfg::rotation()));
   }
-  // **I hi ha vidres que es renten sencers a cada arrencada, passi el que passi** (0.192.10, l'amo: *«Que aquest model SEMPRE al boot
-  // netegi la pantalla amb splash hide (que neteja al màxim)»*): the board that says `kCapWashAtBoot` keeps a ghost of what it was
-  // showing —the ED047TC1 of the T5S3 does— i el que hi ha al vidre quan la placa torna no és de ningú: ni el dibuix d'un son, ni la
-  // pàgina d'un run que s'ha acabat. El rentat és **un sol cop i és el primer**, abans de la targeta de la bateria, de la del boot i de
-  // qualsevol pàgina, i és un `gc16` del vidre sencer (`splash::hide`) — el màxim que aquest panell sap netejar (docs/30, docs/50).
+  // **I hi ha vidres que es renten sencers a l'arrencada** (0.192.10, l'amo: *«Que aquest model SEMPRE al boot netegi la pantalla amb
+  // splash hide (que neteja al màxim)»*): the board that says `kCapWashAtBoot` keeps a ghost of what it was showing —the ED047TC1 of the
+  // T5S3 does— i el que hi ha al vidre quan una persona encén la placa no és de ningú: ni el dibuix d'un son, ni la pàgina d'un run que
+  // s'ha acabat. El rentat és **un sol cop i és el primer**, abans de la targeta de la bateria, de la del boot i de qualsevol pàgina, i és
+  // un `gc16` del vidre sencer (`splash::hide`) — el màxim que aquest panell sap netejar (docs/30, docs/50).
   //
-  // **I no desperta el vidre d'un despert d'alarma**: `splash::hide()` pinta perquè és una passada del vidre i no una pàgina, però la
-  // bandera del vidre adormit es queda com era, o sigui que la finestra d'una alarma no hi deixa res seu després (0.190.19) i el que la
-  // persona trobarà és **paper** (docs/30, docs/60).
-  const bool the_board_cleans_the_paper = the_board_washes_at_boot();
+  // **I un despert per una alarma NO es renta** (0.192.37, l'amo: *«quan arrenca del deep sleep per alarma i torna a dormir ... la pantalla
+  // es queda en blanc perqué et vaig dir que netegessis al tornar del deepSleep... Fes-ho només en cas de despertar per l'usuari»*): el
+  // rentat de la placa és una passada del vidre sencer i **esborra la imatge que el son hi va deixar**, i com que una alarma que no demana
+  // el primer pla no torna a pintar-hi res, el que quedava era un panell **en blanc** fins que algú encenia la placa —que és exactament el
+  // que la regla de l'alarma existeix per no fer (0.190.19). O sigui que la placa renta el seu paper quan **hi ha algú** (una tecla, el
+  // botó, el tàctil si està habilitat, un reinici) i quan **una pàgina ve al davant** —això últim ho paga `shell::run_app` amb el mateix
+  // `splash::hide`—, i un despert que només treballa de fons no toca ni un píxel (docs/30, docs/50, docs/60).
+  const bool the_board_cleans_the_paper = the_board_washes_at_boot() && !display::the_glass_is_asleep();
   g_the_paper_is_clean = false;
   if (the_board_cleans_the_paper) {
     if (splash::hide()) {
       g_the_paper_is_clean = true;
-      log_printf(pal::kLogInfo, "UI", "this board cleans the whole paper at every boot: splash hide, gc16 of the glass");
+      log_printf(pal::kLogInfo, "UI", "this board cleans the whole paper and there is somebody in front: splash hide, gc16 of the glass");
     } else {
       log_printf(pal::kLogWarn, "UI",
-                 "this board cleans the whole paper at every boot and the splash hide did not take: %s",
+                 "this board cleans the whole paper at the boot and the splash hide did not take: %s",
                  splash::last_error());
       ui::owe_the_page();
     }
@@ -823,7 +827,8 @@ void boot(hal::IPlatform& platform) {
   install_settings_ops();
   // **I la taula de comptadors, per a una pàgina** (0.189.108): `sys.stats()` is how the panel of the settings says what a turn
   // of the interpreter costs on this board instead of guessing it, and the numbers are the ones `stats` prints (docs/30, docs/75).
-  luabind::set_stats_ops(luabind::StatsOps{&meter::stats_count, &meter::stats_name, &meter::stats_read});
+  luabind::set_stats_ops(luabind::StatsOps{&meter::stats_count, &meter::stats_name, &meter::stats_read,
+                                          &meter::stats_read_full});
   // **The door of the apps, for a launcher** (0.153.0): `apps.list` and `app.run` are the two calls a launcher is made
   // of, and they are the door's and not a second reader of the manifests (docs/30, docs/40).
   apps::install_apps_ops();

@@ -154,6 +154,19 @@ local kLayout = 'v1'          -- bumped when a control is renamed or the page ch
 local state = nil
 local shape = { focus = nil }
 local playing = false         -- the badge is on the glass and the page of settings is not
+-- **El toc que prem `Play` també arriba a la pàgina com a gest** (0.192.34, l'amo: *«Al donar a play, l'animació s'acaba amb 2 o 3
+-- passos… perquè no mostra el text sencer?»*). El sistema entrega un contacte quiet al control que hi ha sota (així el botó es prem)
+-- **i a més el compta per al doble i el triple toc**, o sigui que uns tres-cents cinquanta mil·lisegons després l'emet a la cua com a
+-- `tap` —i el rètol s'atura amb qualsevol toc, de manera que el mateix dit que l'engega l'atura abans que el nom hagi caminat—. Un
+-- rètol acabat d'engegar no s'atura amb un toc: el que el va engegar ja és a la cua i no és de la pàgina (docs/30, docs/45).
+local started_ms = 0
+-- **Un toc i prou**: the tap of `Play` is put in the queue of the page when the window of the multi-tap closes (`kMultiTapMs`, three
+-- hundred and fifty milliseconds), i el rètol el llegeix quan l'ha acabat de pintar —a la placa això és un segon i mig de pintades,
+-- o sigui que una finestra de temps no arriba: el que es compta és **el toc i no el rellotge** (trobat a l'emulador, 26/11).
+-- `kSwallowMs` is only the ceiling of a tap that never came —two quick presses are a `double` and not a `tap`— so a page left
+-- waiting does not eat the first real tap of the person (docs/30, docs/45, docs/95).
+local swallow = 0
+local kSwallowMs = 3000
 
 local function the_state()
   if state == nil then
@@ -572,6 +585,8 @@ start_badge = function()
   -- the first one still come in from the edge, which is the shop sign of the original (docs/45).
   scroll = math.max(0, gridCols - 2)
   playing = true
+  started_ms = sys.time_ms()
+  swallow = 1
   shape.focus = 'play'
   save_state()
 
@@ -679,11 +694,17 @@ while true do
   end
 
   -- **Els gestos es prenen tots i la cua es buida**: a gesture nobody takes is a queue that grows (docs/30). Un toc atura el
-  -- rètol; el de la pàgina el llegeixen els controls, que són del sistema i guanyen els píxels que són seus.
+  -- rètol; el de la pàgina el llegeixen els controls, que són del sistema i guanyen els píxels que són seus. **I el toc que acaba
+  -- d'engegar el rètol no l'atura**: arriba a la cua quan es tanca la finestra del doble toc, i és el mateix dit que ha premut
+  -- `Play` (docs/30, docs/45).
   local gesture = touch.gesture()
   while gesture do
     if playing and (gesture.kind == 'tap' or gesture.kind == 'long') then
-      stop_badge()
+      if swallow > 0 and (sys.time_ms() - started_ms) <= kSwallowMs then
+        swallow = swallow - 1
+      else
+        stop_badge()
+      end
     end
 
     gesture = touch.gesture()

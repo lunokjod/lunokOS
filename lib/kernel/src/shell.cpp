@@ -4599,7 +4599,10 @@ bool command_led(const char* argument) {
     led::current(r, g, b);
     out("led: ");
     out_num(led::count());
-    out(" light, showing ");
+    // **I què és aquesta llum, dit** (0.192.35): a board whose light is the panel's is not a board with a light that says things, and
+    // the two are governed by different settings —the level of the glass against the colour an app asked for—. A line that said only
+    // «one light» left the person without the one word that explains why the colour of an app goes nowhere (docs/30, docs/50).
+    out(led::is_a_backlight() ? " backlight, showing " : " light, showing ");
     print_colour(r, g, b);
     out(led::has_colour() ? " (taken)\r\n" : " (the system's)\r\n");
     return true;

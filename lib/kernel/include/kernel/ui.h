@@ -679,6 +679,14 @@ bool slider_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track
                  uint8_t text, int16_t value, int16_t minimum, int16_t maximum, const char* suffix,
                  uint8_t scale, bool pressed, bool focused);
 
+// **On cau el número quan hi cau un dit** (0.192.34, l'amo: *«L'slider de l'app banner es un control UI? … I el més important…
+// ha de funcionar xD. Si moc l'slider no passa res de res»*). The value a finger that lands on the track of a slider asks for, in
+// the frame of the view, **with the same geometry the knob is drawn with** —the radius at each end and the column of the number—
+// and snapped to the control's `step`. Until now a slider was only moved by the dial, and a board with a glass and one key has no
+// dial: la pàgina tenia un control que ningú no podia moure. És una sola aritmètica i la pregunten el pinzell i el dit (docs/90).
+int16_t slider_value_at(int16_t slot, uint16_t x, const char* suffix, uint8_t scale, int16_t minimum, int16_t maximum,
+                        int16_t step);
+
 // ---- a row of a list: one line and the two columns of it (docs/30, docs/90) ----
 //
 // **A title on the left, a detail on the right and a subtitle under it**, each one cut with `"..."` at its

@@ -1681,7 +1681,7 @@ en el mateix número, el son lleuger continua igual i el que desapareix és el v
 | Xip | ESP32-PICO-D4, 240 MHz, arrenca a 160 |
 | Flash | 4 MB |
 | RAM | 320 KB, **sense PSRAM** |
-| Pantalla | No |
+| Pantalla | La del model: el Paper i la T5S3 en tenen (960 × 540, quatre bits i el GT911 a sobre) i els ATOM i el T-Koala no |
 | Entrada | Un botó a **GPIO39** (entrada només, la resistència la porta la placa) amb 10 ms de rebot |
 | Llum | Lite: un **WS2812** a **GPIO27**. Matrix: **25 WS2812C de 2020** al mateix pin, sostre 20 |
 | Sensor | Matrix: **MPU6886** a la I2C interna (G25/G21, 0x68). Lite: cap |
@@ -1736,10 +1736,10 @@ capacitats perquè seria la de l'ATOM amb guions a sobre, i diria dues vegades e
 | RAM | 320 KB, i **8 MB de PSRAM OPI**, tota mapejable |
 | Pantalla | **ED047TC1, 4,7", 960 × 540, setze nivells, en paral·lel i sense controlador** — el driver no hi és encara |
 | Entrada | La tecla BOOT del mòdul (GPIO0). El botó `S3` de la placa és a l'expansor PCA9535 i arribarà amb ell |
-| Llum | Cap |
+| Llum | **El LED blanc de retroil·luminació del panell, a GPIO11, amb PWM** (0.190.99): no és cap tira —un sol punt, sense color— i el HAL la declara `KBacklight`, o sigui que la governa el nivell que una persona tria i no el color d'una app. La fitxa deia «cap» perquè el driver és posterior (docs/30, docs/50) |
 | Sensor | Cap (té LoRa SX1262 i GPS, sense driver) |
 | Rellotge | **PCF85063** (0x51) amb pila de botó, i el del SoC. El full del fabricant en diu PCF85063 i el seu exemple `rtc_pcf8563` en diu PCF8563: és el mateix mapa de registres, i el de la placa afegeix l'any de quatre xifres |
-| Bateria | **BQ27220** (0x55) d'indicador i **BQ25896** (0x6B) de càrrega, per I2C |
+| Bateria | **BQ27220** (0x55) d'indicador i **BQ25896** (0x6B) de càrrega, per I2C. La cel·la que el comptador té escrita al seu *data memory* és de **3000 mAh**, la que la placa va portar de fàbrica (vegeu l'apartat del carregador) |
 | Consola | La UART0 del xip, **GPIO43/GPIO44**, que també van al GPS |
 
 **Per què és una fitxa i no una línia a la del Paper**: perquè **el xip no és el mateix**. Fins a la
@@ -1959,6 +1959,18 @@ hide (que neteja al màxim)»*): l'ED047TC1 guarda el fantasma del que mostrava,
 són tinta que no és de ningú. La placa ho declara amb la capacitat `kCapWashAtBoot` —al costat de `kCapDisplay`, quan el panell contesta—
 i el nucli hi fa un `splash::hide()` (un `gc16` del vidre sencer) com a primera tinta de l'arrencada, **abans** de la targeta del boot, de
 les alarmes, de la shell i de la pàgina de la persona. El Paper i els ATOM no la declaren (docs/30, docs/60, docs/85).
+
+**I no es renta quan el que ha tornat és una alarma** (0.192.37, l'amo: *«quan arrenca del deep sleep per alarma i torna a dormir ... la
+pantalla es queda en blanc perqué et vaig dir que netegessis al tornar del deepSleep... Fes-ho només en cas de despertar per l'usuari
+(botó power, reset o panell táctil si està habilitat). Si es un despertar per alarma no toquis el panell fins que l'app et demani posar-se
+en primer pla»*). Un despert per una alarma que no demana el primer pla **no torna a pintar res** —el vidre dorm (`display::present`
+descarta les pintades) i la placa baixa amb la imatge del son— i el rentat de l'arrencada és una passada del vidre sencer que **esborra
+justament aquella imatge**: el panell es quedava **en blanc** fins que algú l'encenia, que és el contrari del que aquest camí existeix per
+fer. O sigui que la condició és `kCapWashAtBoot` **i** un vidre despert, i el rentat es paga quan hi ha algú (una tecla, el botó, el dit si
+el commutador el té armat, un reinici) o quan **una pàgina ve al davant** —això últim amb el mateix `splash::hide` de `shell::run_app`, que
+no es toca—; i `splash::wash()` també ho pregunta pel seu compte, que és l'única porta que pinta el vidre sencer. Les dues línies del
+registre ho diuen: `this board cleans the whole paper and there is somebody in front: splash hide, …` o `the glass stays asleep: this run
+came back for an alarm, and the first page that needs it washes it whole` (docs/30, docs/60).
 
 **I el rentat ha de baixar al panell, que és una altra cosa** (0.192.11, l'amo: *«ENCARA VEIG LA IMATGE D'SLEEP SOTA EL GRID DEL HOME»*): la
 primera versió d'això rentava el *buffer* i no el vidre. `epd_hl_init` posa **els dos** buffers de l'estat d'alt nivell d'epdiy a `0xFF` —el que
@@ -3951,7 +3963,7 @@ tecla i veure quin GPIO es tanca.
 
 | | |
 |---|---|
-| Nom (`sys.board`) | El model que se li ha dit que sigui: `m5stack-atom` (per defecte), `m5stack-atom-matrix`, `m5stack-paper` o `ttgo-t-koala`. Mai `emulator`, que no és cap placa (docs/85) |
+| Nom (`sys.board`) | El model que se li ha dit que sigui: `m5stack-atom` (per defecte), `m5stack-atom-matrix`, `m5stack-paper`, `ttgo-t-koala` o **`lilygo-t5s3-epaper-pro`**. Mai `emulator`, que no és cap placa (docs/85) |
 | Plataforma | POSIX (Linux) |
 | RAM | La del PC, però **limitada al mateix sostre que la placa** |
 | Fitxers | Un directori del disc (`emulator/`) amb `littlefs/` i `nvs/`, i una targeta amb `--sd` |

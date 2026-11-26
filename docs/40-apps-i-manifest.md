@@ -786,7 +786,7 @@ passar desapercebuda (docs/30, docs/80).
 
 Les altres apps —`about`, **`agenda` (0.189.171)**, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
 **`gradient` (0.190.86)**, `home_eink`, `life`, **`meteo` (0.189.169)**, **`minesweeper` (0.190.76)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i
-`rainbow`, amb **`brokenapp`**— segueixen la
+`rainbow` i **`stats`**, amb **`brokenapp`**— segueixen la
 mateixa convenció,
 amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
 **totes les apps del disc declaren `icon`**: el camp va néixer perquè el manifest el pogués dir el dia que la

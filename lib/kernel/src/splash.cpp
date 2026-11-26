@@ -605,6 +605,14 @@ bool hide() { return wash(); }
 bool wash() {
   g_error = "";
   g_showing = kNone;
+  // **Un vidre que no s'ha de tocar no es renta** (0.192.37): the doors of this file already asked it one by one —`show()` and
+  // `wait()`— and `wash()` was the one that did not, o sigui que una placa que renta el seu paper a l'arrencada esborrava la imatge
+  // del son en un despert per una alarma que no havia de tocar ni un píxel, i el panell es quedava **en blanc** fins que algú encenia
+  // la placa. La pregunta es fa aquí, que és l'única porta que pinta el vidre sencer (docs/30, docs/50, docs/60).
+  if (display::the_glass_is_asleep()) {
+    g_error = "the glass of this run is not to be touched";
+    return false;
+  }
   hal::ISurface* glass = display::surface();
   if (glass == nullptr) {
     g_error = "this board has no glass";

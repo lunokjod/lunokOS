@@ -495,10 +495,16 @@ const uint32_t kSht30MeasureUs = 4500;
 const uint32_t kSht30BusBytes = 10;
 class FakeLed : public ILed {
  public:
+  // **El paper de la llum és del model** (0.192.35): the light of the T5S3 is the panel's backlight —the HAL of that board says
+  // `kBacklight`— and the one of an ATOM is a strip that says things. L'emulador contestava `kLight` per a tothom, o sigui que la fila
+  // «Breathe while charging» de Settings sortia grisa a la seva pròpia placa, i el dim, el nivell i l'efecte del botó no hi eren
+  // (docs/50, docs/85).
+  LedRole role() const override { return emu::model().backlight ? LedRole::kBacklight : LedRole::kLight; }
   uint32_t count() override { return emu::model().lights; }
-  // It imitates the panel of the Matrix, ceiling included: a PC that let 255
-  // through would hide the limit that the board has (docs/85).
-  uint32_t max_value() override { return board::led_max(); }
+  // **El sostre és el del model** (0.192.35): twenty on the Matrix's panel —a PC that let 255 through would hide the limit the board
+  // has— and 255 on a strip or on the PWM of a backlight. It was the Matrix's twenty for every board, which kept the T5S3's
+  // illumination at eight per cent (docs/50, docs/85).
+  uint32_t max_value() override { return emu::model().led_max; }
 
   bool fill(uint8_t r, uint8_t g, uint8_t b) override {
     for (uint32_t light = 0; light < kEmuLights; ++light) pixel(light, r, g, b);
@@ -676,14 +682,20 @@ class FakePower : public IPower {
     // (docs/50, docs/85).
     // **I la cel·la plena no és una càrrega** (0.192.12): `--charge-done` is a cable in and a BQ25896 answering `done`, o sigui que el llamp
     // de la figura no hi és i la marca del port sí (docs/50, docs/85).
-    charging = emu::options().charging && !emu::options().charge_done;
+    // **I una placa amb un divisor no sap si carrega** (0.192.35): the Paper's HAL says `charging = false` always, because a divider on
+    // an ADC sees a voltage and not a current. The emulator answered the run's `--charging` on every board with a gauge, o sigui que el
+    // Paper de mentida ensenyava un llamp que la placa no pot encendre (docs/50, docs/85).
+    charging = emu::model().charger && emu::options().charging && !emu::options().charge_done;
     return true;
   }
 
   // **I el cable, que el run diu amb `--charging`** (0.192.12): la marca del port de la barra surt d'aquí i no de `--battery-ma`, perquè un
   // cable no és un corrent: el model no té l'estat `done` del BQ25896 i el que pot dir és el que sap (docs/85).
   bool on_a_cable() const override {
-    return emu::model().gauge && (emu::options().charging || emu::options().charge_done);
+    // **El cable el veu el carregador i no el divisor** (0.192.35): `on_a_cable` is the BQ25896's `VBUS_GD`, and the Paper's HAL does not
+    // implement it (the interface answers false). Preguntar-ho a `gauge` feia que el Paper de l'emulador mentís la marca del port
+    // (docs/50, docs/85).
+    return emu::model().charger && (emu::options().charging || emu::options().charge_done);
   }
 
   // **El que el comptador de coulombs diria** (0.190.155): the emulator of a board whose battery is a BQ27220 answers the two
@@ -691,7 +703,9 @@ class FakePower : public IPower {
   // capacitat del model, que és el que el maquinari hi té soldat. `--battery-ma` is the current; zero is a board that is not
   // charging and not doing much, which is not the same as a gauge that cannot say (docs/50, docs/85).
   bool battery_detail(BatteryDetail& out) override {
-    if (emu::options().battery_mv <= 0 || !emu::model().gauge) return false;
+    // **El que només sap un comptador de coulombs** (0.192.35): a board with a divider answers the interface's no, i és el que fa el HAL
+    // del Paper. El model ho diu amb `counts_the_charge` i no amb `gauge`, que vol dir «una bateria que es pot llegir» (docs/50, docs/85).
+    if (emu::options().battery_mv <= 0 || !emu::model().counts_the_charge) return false;
     out.current_ma = static_cast<int>(emu::options().battery_ma);
     out.full_mah = static_cast<int>(emu::model().cell_mah);
     // **La cel·la és nova en un emulador** (0.190.156): the one thing a fake board can say without lying more than it has to is that
@@ -710,7 +724,9 @@ class FakePower : public IPower {
   // pressa; sense, no hi ha entrada. El corrent que entra surt de `--battery-ma` quan és positiu, o sigui que el que el run demana
   // per la cel·la i el que el carregador diu que hi posa són el mateix número (docs/50, docs/85).
   bool charger_detail(ChargerDetail& out) override {
-    if (emu::options().battery_mv <= 0 || !emu::model().gauge) return false;
+    // **I el carregador, si la placa en té** (0.192.35): the BQ25896 is a chip of the T5S3 and the Paper does not carry one, o sigui que
+    // el Paper contesta el «no» de la interfície com la placa de debò (docs/50, docs/85).
+    if (emu::options().battery_mv <= 0 || !emu::model().charger) return false;
     if (!emu::options().charging) {
       out.input = "no input";
       out.charge = "not charging";

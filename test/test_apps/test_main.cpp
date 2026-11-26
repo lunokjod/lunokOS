@@ -13297,6 +13297,75 @@ void test_a_slider_takes_the_keys_only_after_the_centre(void) {
 // **A dialog has two doors and the dial picks one before it presses it**: the chosen door moves with the arrows and
 // the centre fires `on_accept` or `on_cancel`, and closing the card is the app's —the old rule: read the action,
 // close, and then run it— (docs/30, docs/90).
+// **Un dit al tub del slider posa el número on ha caigut** (0.192.34, l'amo: *«L'slider de l'app banner es un control UI? Ha de ser un
+// control UI. I el mes important… ha de funcionar xD. Si moc l'slider no passa res de res»*). Fins ara un slider només el movien les
+// dues tecles del dial, i una placa amb vidre i una tecla no en té cap: el control hi era i no hi havia manera de canviar-lo. El dit
+// pregunta al nucli quin número hi ha sota seu —`slider_value_at`, la mateixa geometria amb què es dibuixa el botó del tub— i l'app
+// sent `on_change` amb el camp ja escrit; **no entra en `editing`**, perquè entrar és el que dona les tecles al número i un dit ja ha
+// dit quin número vol (docs/30, docs/90, docs/92).
+void test_a_finger_on_the_track_puts_the_number_where_it_landed(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board_with_fingers("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "track",
+                           "{\"title\":\"Track\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local slider = ui.slider(400, 60)\n"
+                           "slider:place(20, 60)\n"
+                           "slider.min = 0\n"
+                           "slider.max = 10\n"
+                           "slider.step = 1\n"
+                           "slider.value = 5\n"
+                           "slider.on_change = function(self, value) console.print('value ' .. value) end\n"
+                           "slider.on_click = function(self) console.print('click slider') end\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  pump_captured(20, g_out, sizeof(g_out), "run track");
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  // **Aquesta suite ha deixat la política de son amb zero segons de quietud** en els casos del capítol de l'energia, i un
+  // `press_finger` espera mil dues-centes voltes: el cas mesuraria un aparell adormit i el que vingués darrere encara més. Es diu que
+  // aquest cas no és de la política i es torna a deixar com era (docs/60, docs/85).
+  const bool the_policy_was_on = kernel::power::idle_sleep_allowed();
+  kernel::power::set_idle_sleep_allowed(false);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // **Els dos caps del tub i el mig**, en píxels de la vista: the control is at 20,60 and is 400 wide, so the ends of its box are
+  // the two ends of the tube's travel and the middle is the middle of the number (docs/90).
+  const uint16_t y = static_cast<uint16_t>(view.y + 60 + 30);
+  auto ask = [&](int px, int& value) -> bool {
+    capture_begin();
+    press_finger(panel, static_cast<uint16_t>(view.x + px), y);
+    capture_end(g_out, sizeof(g_out));
+    const char* line = strstr(g_out, "value ");
+    if (line == nullptr) return false;
+    return sscanf(line, "value %d", &value) == 1;
+  };
+
+  int left = -1;
+  int middle = -1;
+  int right = -1;
+  TEST_ASSERT_TRUE_MESSAGE(ask(418, right), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(ask(22, left), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(ask(220, middle), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(10, right, "the end of the tube is the top of the range");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, left, "the other end is the bottom of the range");
+  // **I el mig és un número del mig**: the tube is walked from one end to the other and the three points are in order, que és el que
+  // una persona veu del botó quan hi posa el dit.
+  TEST_ASSERT_TRUE_MESSAGE(middle > left && middle < right, g_out);
+  // **Un dit no és el botó del mig**: the control was not entered, so the two keys are still the walk of the dial.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "click slider"), "a finger entered the slider with the centre's door");
+  kernel::power::set_idle_sleep_allowed(the_policy_was_on);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/track/app.lua");
+  storage->remove("/apps/track/manifest.json");
+  storage->remove("/apps/track");
+}
+
 void test_a_dialog_answers_with_the_door_the_dial_is_on(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
@@ -22026,6 +22095,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_keys_walk_the_letters_of_a_line);
   RUN_TEST(test_a_box_without_a_frame_leaves_its_edge_in_paper);
   RUN_TEST(test_a_slider_takes_the_keys_only_after_the_centre);
+  RUN_TEST(test_a_finger_on_the_track_puts_the_number_where_it_landed);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
   RUN_TEST(test_a_card_that_goes_away_takes_its_ink_with_it);
   RUN_TEST(test_a_page_that_paints_itself_paints_its_own_hole);

@@ -2428,7 +2428,10 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      textbox_column_at,
                                      picker_draw,
                                      picker_hit,
-                                     picker_pages_for_lua});
+                                     picker_pages_for_lua,
+                                     // **On cau el número d'un slider quan hi cau un dit** (0.192.34): the last field of the
+                                     // table and the last one added, so every initializer above keeps its place (docs/30, docs/90).
+                                     slider_value_at});
   // **I les imatges dels moments del sistema** (0.183.0): one call of a page can put the picture of the boot, of the way
   // down, of the battery or of the error on the glass, which is what a page that offers them needs and what it cannot do
   // by drawing: the wash of a moment is the whole panel and the picture is a file of the disk (docs/30, docs/50).
@@ -4109,6 +4112,26 @@ bool progress_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t tra
 // to the middle of where it goes at the maximum —a track that runs to the edge leaves a knob half outside the
 // frame—, the knob as a square of the height of the control, and the number in the right column, measured
 // with the face the control was given (docs/30, docs/90).
+// **La columna del número, i el tub que queda**: one arithmetic for the paint and for the finger (0.192.34). The number is
+// right-aligned against the end of the control and the track keeps the width of **the widest number the control can show** —the
+// one of `maximum`—, so the tube does not move when the value gains a digit and a finger that lands at the same place asks for
+// the same number whatever the value is now. Amb el número del valor d'ara la pista es movia vuit píxels cada vegada que el
+// comptador passava de nou a deu, i el dit i el pinzell haurien de dir coses diferents (docs/90).
+static int32_t slider_column(const font::Face& face, const char* suffix, uint8_t scale, int16_t maximum) {
+  char widest[32];
+  snprintf(widest, sizeof(widest), "%d%s", static_cast<int>(maximum), (suffix != nullptr) ? suffix : "");
+  const int32_t width = font::width(face, widest, scale);
+  return (width > 0) ? (width + 12) : 0;
+}
+
+static int32_t slider_knob(int32_t height) {
+  int32_t knob = height - 6;
+  if (knob > 40) knob = 40;
+  if (knob < 10) knob = 10;
+  if (knob > height) knob = height;
+  return knob;
+}
+
 bool slider_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
                  uint8_t text, int16_t value, int16_t minimum, int16_t maximum, const char* suffix,
                  uint8_t scale, bool pressed, bool focused) {
@@ -4154,12 +4177,9 @@ bool slider_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
                  static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
   const int32_t line = 1;
-  int32_t knob = height - 6;
-  if (knob > 40) knob = 40;
-  if (knob < 10) knob = 10;
-  if (knob > height) knob = height;
+  const int32_t knob = slider_knob(height);
   const int32_t radius = knob / 2;
-  const int32_t column = (text_w > 0) ? (text_w + 12) : 0;
+  const int32_t column = slider_column(face, suffix, scale, maximum);
   const int32_t left = target.x + radius;
   const int32_t right = target.x + width - column - radius;
   int32_t track_h = height / 4;
@@ -4203,6 +4223,44 @@ bool slider_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track
   }
   close_draw(target);
   return true;
+}
+
+// **On cau el número quan hi cau un dit** (0.192.34): the same tube the knob is drawn on, the same radius and the same column of
+// the number, and the value snapped to `step` from `minimum`. The point comes in the frame of the view —which is the frame the
+// finger of `touch.cpp` speaks— and the control turns it into its own. A slider that only the dial moves is a control a board
+// with no dial cannot use: el Banner i els ajustos tenien exactament aquest forat (docs/30, docs/90).
+int16_t slider_value_at(int16_t slot, uint16_t x, const char* suffix, uint8_t scale, int16_t minimum, int16_t maximum,
+                        int16_t step) {
+  if (!live(slot)) return minimum;
+  if (maximum < minimum) {
+    const int16_t swap = minimum;
+    minimum = maximum;
+    maximum = swap;
+  }
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& slider = g_canvases[slot];
+  if (slider.width == 0 || slider.height == 0) return minimum;
+  const font::Face& face = face_of(slider.face);
+  const int32_t radius = slider_knob(slider.height) / 2;
+  const int32_t column = slider_column(face, suffix, scale, maximum);
+  const int32_t left = static_cast<int32_t>(slider.x) + radius;
+  const int32_t right = static_cast<int32_t>(slider.x) + slider.width - column - radius;
+  if (right <= left || maximum <= minimum) return (x < static_cast<uint16_t>(left)) ? minimum : maximum;
+  int32_t at = static_cast<int32_t>(x);
+  if (at < left) at = left;
+  if (at > right) at = right;
+  const int32_t span = right - left;
+  const int32_t range = maximum - minimum;
+  // The middle of the finger on the middle of the knob: the number is the one whose knob would be drawn under it.
+  int32_t asked = minimum + static_cast<int32_t>((static_cast<int64_t>(at - left) * range + span / 2) / span);
+  if (step > 1) {
+    const int32_t off = asked - minimum;
+    asked = minimum + ((off + step / 2) / step) * step;
+  }
+  if (asked < minimum) asked = minimum;
+  if (asked > maximum) asked = maximum;
+  return static_cast<int16_t>(asked);
 }
 
 // ---- a row of a list (docs/90) ----

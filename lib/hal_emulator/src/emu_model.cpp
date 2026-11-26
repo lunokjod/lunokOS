@@ -99,8 +99,13 @@ Model model_of(const char* name) {
   // aquí. El que sí que corre és tot el que hi ha a sobre, que és on eren els defectes del son i del rentat (docs/50, docs/85).
   const bool t5s3 = (name != nullptr) && strcmp(name, "lilygo-t5s3-epaper-pro") == 0;
   if (t5s3) {
-    // **Una llum i és la del vidre** (GPIO11 cap a l'`EN` de l'elevador): no hi ha cap RGB en aquesta placa (docs/50).
+    // **Una llum i és la del vidre** (GPIO11 cap a l'`EN` de l'elevador): no hi ha cap RGB en aquesta placa (docs/50). **I el model ho
+    // diu amb el paper de la llum i amb el seu sostre** (0.192.35): el HAL de la placa la declara `kBacklight` i el PWM del carregador
+    // arriba a 255, o sigui que la fila «Breathe while charging» de Settings, el dim i el nivell que una persona tria hi són com a la
+    // placa. Sense això l'emulador d'aquesta placa deia que la seva llum era una tira que diu coses (docs/50, docs/85).
     out.lights = 1;
+    out.backlight = true;
+    out.led_max = 255;
     // **Una tecla, i és la de l'expansor** (0.192.6): el BOOT del mòdul no és a la llista de tecles del HAL —és el pin d'arrencada del
     // xip— i el cercle de sota el vidre no és cap tecla, és un tret de la caixa (`a_button_under_the_glass`) (docs/50).
     out.keys = 1;
@@ -111,15 +116,16 @@ Model model_of(const char* name) {
     out.glass = true;  // ED047TC1, 960x540 i quatre bits, sense controlador: la forma d'ona la paga el processador
     out.touch = true;  // el GT911 de sota, a 0x5D
     out.gauge = true;  // el BQ27220, que compta els coulombs i sap els mAh que queden
+    out.counts_the_charge = true;  // i és l'única placa d'aquest emulador que ho pot dir (el Paper té un divisor)
     out.charger = true;  // el BQ25896: VBUS, el corrent que entra i el bit que talla la cel·la
     out.slot = true;
     out.fram = false;
     out.keeps_the_hour = true;
     out.clock_chip = "PCF8563";
-    // **La cel·la del model**: ningú no ha llegit la capacitat d'aquest aparell encara —la del xip la sap el BQ27220 i la diu
-    // `battery_detail`—, o sigui que aquest número és el que es posa quan el run no en diu cap i es canvia el dia que hi sigui
-    // (`lua` → `power.battery_detail()`, docs/95, docs/85).
-    out.cell_mah = 1500;
+    // **La cel·la d'aquesta placa són tres mil mAh** (0.192.35): the number every BQ27220 counts against is the model written in its own
+    // data memory, and the board arrived with **3000 mAh** in it —the vendor's model, quoted in docs/50—. The emulator said 1500, o sigui
+    // que la barra i els mAh que queden eren la meitat del que la placa diu (docs/50, docs/85, docs/95).
+    out.cell_mah = 3000;
     out.powers_off = true;
     out.keys_wake = true;
     out.heap_kb = 320;
@@ -143,9 +149,11 @@ Model model_of(const char* name) {
     out.sw_button = true;
     out.rest_is_the_supply = true;
     out.paint_is_work = true;
-    // **I el paper es renta sencer a cada arrencada** (0.192.10): the ED047TC1 of this board keeps the ghost of its last picture —the one of
-    // a sleep included— and the boot of the board washes the whole glass with a `gc16` whatever the reason it came back for
-    // (l'amo: *«Que aquest model SEMPRE al boot netegi la pantalla amb splash hide (que neteja al màxim)»*, docs/50, docs/85).
+    // **I el paper es renta sencer a l'arrencada, quan hi ha algú** (0.192.10, afinat a la 0.192.37): the ED047TC1 of this board
+    // keeps the ghost of its last picture —the one of a sleep included— and the boot of the board washes the whole glass with a
+    // `gc16` **si el despert és d'una persona o el demana una pàgina**; un despert per una alarma no toca el paper i el panell es
+    // queda amb la imatge del son (l'amo: *«Que aquest model SEMPRE al boot netegi la pantalla amb splash hide (que neteja al màxim)»*,
+    // i després: *«Fes-ho només en cas de despertar per l'usuari»*, docs/50, docs/85).
     out.wash_at_boot = true;
     out.wakes = "timer, clock, key and glass";
     // **La forma d'aquella tecla, com la declara la placa** (0.192.6, l'amo: *«l'emulador de T5S3 te els botons malement»*): simple, a la
@@ -195,8 +203,10 @@ Model model_of(const char* name) {
     return out;
   }
   if (matrix) {
-    // The panel of twenty-five and the sensor, one button, no cell and no slot (docs/50).
+    // The panel of twenty-five and the sensor, one button, no cell and no slot (docs/50). **I el sostre del seu panell és vint** (0.192.35):
+    // the maker's number for a closed case, and the one the window's exposure is drawn with (docs/30, docs/85).
     out.lights = 25;
+    out.led_max = 20;
     out.keys = 1;
     // **La tecla del Matrix és la de l'ATOM** (0.192.6): the same simple button on the top face, because the panel of twenty-five is
     // the only thing that changes (docs/50, docs/85).

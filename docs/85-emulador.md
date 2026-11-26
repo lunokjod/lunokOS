@@ -222,13 +222,21 @@ sabia de tecles i els tres botons que no ho són no hi eren; i el `RESET`, quan 
 
 **I el vidre de la T5S3 es renta sencer a cada arrencada** (0.192.10, l'amo: *«Que aquest model SEMPRE al boot netegi la pantalla amb splash
 hide (que neteja al màxim)»*): el model contesta `kCapWashAtBoot` —com el HAL de la placa, perquè el seu ED047TC1 guarda el fantasma del
-que hi havia— i el boot hi fa un `splash hide` (el `gc16` del vidre sencer) abans de qualsevol targeta i de qualsevol pàgina, sigui quin
-sigui el motiu de l'arrencada. El Paper i els ATOM no la declaren i fan el de sempre:
+que hi havia— i el boot hi fa un `splash hide` (el `gc16` del vidre sencer) abans de qualsevol targeta i de qualsevol pàgina, **quan hi ha
+algú o una pàgina** (0.192.37): un despert per una alarma que torna a dormir no toca el paper, i el model no l'ha de rentar tampoc —si ho
+fes, el panell de l'emulador es quedaria en blanc i la placa de debò també—. El Paper i els ATOM no la declaren i fan el de sempre:
 
 ```
 [I][SPLASH] the whole glass, gc16, 307 ms: paper
-[I][UI] this board cleans the whole paper at every boot: splash hide, gc16 of the glass
+[I][UI] this board cleans the whole paper and there is somebody in front: splash hide, gc16 of the glass
 [I][SPLASH] /res/splash/boot-5.e4, 540x960 at 0,0, a plane of 259200 B
+```
+
+I el despert d'una alarma diu la seva, i el panell es queda amb la imatge del son:
+
+```
+[I][BOOT] back from a deep sleep, woken by the clock chip: an alarm, nobody in front, the glass is not touched
+[I][UI] the glass stays asleep: this run came back for an alarm, and the first page that needs it washes it whole
 ```
 
 **El pin i el reinici són dues coses diferents, com al maquinari** (0.192.8): el reinici del sistema —la targeta de la barra, el
@@ -1013,6 +1021,14 @@ llegeix 11 V.
   vegada (~1 ms), o sigui **400 µs per lectura** amb els temps engegats. Amb `--no-delay`, res.
 - **L'opció explícita no hi és per comoditat**: el préstec ve sol, però `--battery-mv` mana i una prova no
   en depèn (una prova construeix les seves opcions i no llegeix mai aquesta màquina).
+
+**I el que compta els coulombs ho diu el model i no el fet de tenir bateria** (0.192.35, l'amo: *«ha de suportar el mateix que el hardware
+real! (i també emular les limitacions)»*). `battery_detail` i `charger_detail` són coses que només sap un **BQ27220** i un **BQ25896**, i
+el divisor del Paper no les pot contestar —el seu HAL deixa les dues al «no» de la interfície—. L'emulador les contestava a qualsevol model
+amb `gauge`, o sigui que el Paper de mentida deia mAh, corrent i un carregador que la placa no té, i fins i tot encenia la marca del port
+amb `--charging` quan el paràgraf de dalt diu que `charging` és sempre fals en aquesta placa. Ara el model té dues preguntes més
+(`counts_the_charge` i el `charger` que ja hi era) i la resposta és la de la placa. **I el mateix amb l'FM24C02**: `/fram` només existeix al
+Paper, i l'emulador el donava a tothom; un ATOM i una T5S3 emulats ja contesten `no such directory` com la caixa (docs/50, docs/70).
 - **Es llegeix una vegada, a l'arrencada**: el percentatge del portàtil no va baixant dins de l'emulador,
   perquè l'emulador no dibuixa el consum de la placa —té una fila pròpia a la taula de fidelitat— i una
   bateria que baixa sola seria un número inventat.
@@ -1240,7 +1256,7 @@ provava cadascuna ho diuen les taules de docs/50 i docs/92.
 | Els llibres de la memòria (0.190.0) | **La taula és de la memòria que l'emulador simula** i no del PC: surt de la PSRAM del model quan hi és i de la RAM quan no, o sigui que `--mem-cap` la veu i un run que mesura un sostre no veu vuit kilobytes de més. El que **no** imita és el temps de la cerca: la fila d'un bloc es troba passejant la taula, i aquí això no costa res (docs/75) | La taula és un bloc de la PSRAM de debò i la cerca costa el que costa fer-la |
 | Tornar d'un son profund | **No passa**: l'emulador no es reinicia enmig d'una crida, i per això les proves criden `kernel::power::restore_session()` a mà, que és exactament el que fa l'arrencada —i el despert per una alarma, que no la crida, es prova amb un `kernel::boot` sencer (0.189.182)—. **El que sí que és de debò és que la placa es pot deixar caure**: el model d'una placa amb xip de rellotge contesta `deep_powers_off()` que sí (0.189.182), o sigui que la política d'oci hi fa el seu camí sencer —`idle sleep`, el salt del rellotge, la finestra de l'alarma i una altra baixada— i un run sense `--gui` ho pot ensenyar | El xip es reinicia i arrenca: l'arrencada llegeix la nota del son i torna a obrir l'app amb `app.args.restore` |
 | Velocitat del processador | **De mentida en el rellotge i de debò en el preu**: el PC no canvia de marxa, però el número es desa (arrenca a **160** i accepta 80, 160 i 240) i **el codi de l'app es cobra a aquesta velocitat** (`--lua-cpu`, 60 ns per instrucció a 160 MHz): un bucle que al vidre dura un segon aquí dura un mil·lisegon amb el model apagat i el que toqui amb ell encès. I el **torn** també es cobra: 850 µs després de cada torn (vegeu la fila del rellotge de la CPU). **I des de la 0.190.175 el model té el rang i el lock del xip** (`set_cpu_range` i `hold_cpu_top`): amb l'escala encesa el número va del terra al sostre amb el lock, igual que a la Paper, o sigui que un cas de la política veu la mateixa placa que el vidre | `esp_pm_configure` de debò a la placa (`CONFIG_PM_ENABLE`), amb l'APB i el tick de FreeRTOS movent-se amb ell |
-| Llum (`led.*`) | **De mentida**: el color es desa i el test el pot preguntar (`emu::led_red()`… i `emu::led_frames()`, que compta els frames). El **nombre de llums és el del model** (1 a l'ATOM, 25 al Matrix, cap al Paper) i el sostre del canal és **20**, el del panell, a tots tres; `emu::led_pixel(i, …)` en llegeix un: així una app escrita per al panell es pot provar al PC. Els efectes es proven **movent el rellotge a mà** (`emu::advance_ms`), que és la mateixa hora que llegeix el nucli: una respiració de cinc segons es mira en un mil·lisegon | El `neopixelWrite` i el frame d'RMT de debò, sobre el WS2812 o els 25 del panell a GPIO27 |
+| Llum (`led.*`) | **De mentida**: el color es desa i el test el pot preguntar (`emu::led_red()`… i `emu::led_frames()`, que compta els frames). El **nombre de llums és el del model** (1 a l'ATOM, 25 al Matrix, cap al Paper, **1 a la T5S3**) i **el sostre del canal també és del model** (0.192.35): **20** al panell del Matrix i **255** a una tira i al PWM d'una retroil·luminació —abans era el vint del Matrix a tots els models i la T5S3 es quedava al vuit per cent—; `emu::led_pixel(i, …)` en llegeix un. **I el paper de la llum, també** (0.192.35): la de la T5S3 és `kBacklight` —la del vidre, governada pel nivell de `cfg.backlight`— i la resta són `kLight`, que és el que el HAL de cada placa declara, o sigui que la fila *Breathe while charging* de Settings i el dim hi són com a la placa. Els efectes es proven **movent el rellotge a mà** (`emu::advance_ms`), que és la mateixa hora que llegeix el nucli: una respiració de cinc segons es mira en un mil·lisegon | El `neopixelWrite` i el frame d'RMT de debò, sobre el WS2812 o els 25 del panell a GPIO27; i la llum del vidre a la finestra es pinta com un llum de la tira i no com un paper il·luminat |
 | Apps i manifest (`boards`) | **L'emulador és una placa, la que se li diu i és obligatori dir-la**: `--board m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper`, `ttgo-t-koala` o `lilygo-t5s3-epaper-pro`, i respon **aquell** nom i la família `esp32`. Una app del seu model corre sense dir `emulator` al manifest; una d'un altre model hi surt llistada amb l'avís i `run` la refusa dient les plaques que vol i quina és aquesta. És el mateix criteri que a la placa, i per això provar-ho al PC vol dir alguna cosa (docs/40) | `apps` la llista amb el que necessita i `run` la refusa dient les plaques que vol i quina és aquesta |
 | Sensor (`imu.read`) | **De mentida i a la mà del test**: contesta el que diuen les opcions (`--imu-*`), i `--imu-fail` és un xip que no hi és. El que es prova aquí és el camí de la dada —de Lua al HAL i de tornada a l'app— i no la qualitat de la mesura, que només es pot veure al maquinari | L'MPU6886 per la I2C interna, amb les escales del full del fabricant (docs/50) |
 | Aire (`env.read`) | **De mentida i a la mà del test**: el model del Paper té sensor i els ATOM no, i les dues xifres són el que diuen `--env-celsius` i `--env-humidity`; `--env-fail` és un xip que hi és i no contesta, que és `E_IO` i no `E_UNSUPPORTED` | El SHT30 per la I2C interna: una comanda, sis bytes i dos CRCs (docs/50). **L'emulador no té bus**: no hi ha cap clock stretching que es pugui comptar, així que un sensor que l'emulador llegeix bé pot ser un sensor que la placa dona per mort (va passar l'1/11: `env yes` al PC i `env no` a la placa, docs/50) |

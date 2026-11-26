@@ -14335,7 +14335,103 @@ namespace kernel {
 // La suite del tàctil té el cas que ho reprodueix: `emu::options().touch_frame_zero` és el xip de la placa que torna d'un son, i
 // `test_a_glass_that_says_zero_by_zero_still_has_a_bar` baixa la barra i troba la targeta (vermell sense el punt 2, comprovat).
 
-static const char kVersion[] = "0.192.33";
+// **0.192.34 — el slider que mou el dit, i el rètol del Banner que no s'atura sol** (l'amo: *«L'slider de l'app banner es un control
+// UI? Ha de ser un control UI. I el mes important… ha de funcionar xD. Si moc l'slider no passa res de res»*, i després *«Al donar a
+// play, l'animació s'acaba amb 2 o 3 passos… perqué no mostra el text sencer?»*).
+//
+//   1. **Un slider només el movien les dues tecles del dial**, i una placa amb vidre i una tecla —la T5S3— no en té cap: el control hi
+//      era i no hi havia manera de canviar-lo, ni al Banner ni a Settings. Ara un dit que cau al tub pregunta pel número que hi ha sota
+//      seu (`ui::slider_value_at`), amb **la mateixa geometria amb què es dibuixa el botó del tub** —el radi dels dos caps i la columna
+//      del número, una sola aritmètica per al pinzell i per al dit— i l'app sent `on_change` amb el camp ja escrit. No entra en
+//      `editing`: entrar és el que dona les dues tecles al número, i un dit ja ha dit quin número vol. **I la columna del número és la
+//      del número més ample** (`maximum`), o sigui que la pista no es mou quan el comptador passa de nou a deu (docs/30, docs/90).
+//   2. **El toc que prem `Play` també arribava a la pàgina com a gest.** El sistema entrega un contacte quiet al control que hi ha a sota
+//      —així el botó es prem— i **a més el compta per al doble i el triple toc**, o sigui que tres-cents cinquanta mil·lisegons després
+//      l'emet a la cua com a `tap`; i el rètol del Banner s'atura amb qualsevol toc, de manera que el mateix dit que l'engegava l'aturava
+//      abans que el nom hagués caminat (el registre de l'emulador: `the badge walks` i, dues pintades després, `tap 270,250` i
+//      `the badge is put away`). Una finestra de temps no ho arregla —les pintades del vidre fan que el toc arribi un segon i mig
+//      després—, o sigui que **el rètol s'empassa un toc i prou**, amb un sostre de tres segons per si el toc no arriba mai (dos tocs
+//      seguits són un `double`): el primer toc de debò de la persona segueix aturant-lo (docs/30, docs/45, docs/95).
+//
+// La suite té el cas del dit sobre el tub, `test_a_finger_on_the_track_puts_the_number_where_it_landed`, i el rètol s'ha vist caminar
+// vuit segons seguits a l'emulador i aturar-se amb un toc de debò.
+
+// **0.192.35 — l'emulador de la T5S3 deixa de mentir sobre la seva pròpia llum, la seva bateria i el seu FRAM** (l'amo: *«Perqué l'opció
+// de Settings -> Battery -> Breathe while charging està desactivada (gris) al emulador de la placa T5S3pro !??? es l'emulador d'aquella
+// placa! ha de suportar el mateix que el hardware real! (i també emular les limitacions)»*).
+//
+//   1. **El paper de la llum i el seu sostre són del model.** La T5S3 no té cap RGB: la seva única llum és el **LED blanc de
+//      retroil·luminació** del panell (GPIO11) i el HAL de la placa la declara `kBacklight`. L'emulador contestava `kLight` per a tothom, o
+//      sigui que `led.caps().backlight` era fals i la fila *Breathe while charging* de Settings sortia **grisa** a la seva pròpia placa, i el
+//      dim, el nivell i l'efecte del botó no hi eren. I el sostre del canal era **el vint del Matrix per a tots els models**: la
+//      retroil·luminació d'una T5S3 s'hi quedava al vuit per cent. Ara el model diu `backlight` i `led_max` (255 a la T5S3, a l'ATOM i al
+//      T-Koala; 20 al panell del Matrix), i `FakeLed` i la finestra el llegeixen d'allà.
+//   2. **La cel·la d'aquesta placa són 3 000 mAh**, el model CEDV que el BQ27220 porta de fàbrica (docs/50): l'emulador en deia 1 500, o
+//      sigui que la meitat dels mAh que queden eren inventats.
+//   3. **I les limitacions, també.** `battery_detail` i `charger_detail` són del **BQ27220** i del **BQ25896**, i el divisor del Paper no
+//      les pot contestar: l'emulador les contestava a qualsevol model amb `gauge` i encenia la marca del port amb `--charging` en una placa
+//      que no té carregador. El model té ara `counts_the_charge` (només la T5S3) i `charger` mana en `charging`, `on_a_cable` i
+//      `charger_detail`. **I `/fram` només existeix al Paper** —l'FM24C02—: el comentari deia que el model decidia i la línia el donava a
+//      tothom, o sigui que un ATOM i una T5S3 emulats oferien una memòria que la caixa no té.
+//
+// **I la comanda `led` diu quin és el paper de la llum** (`led: 1 backlight, showing …` o `led: 1 light, …`), perquè una línia que deia
+// només «one light» deixava una persona sense la paraula que explica per què el color d'una app no va enlloc. Vist a l'emulador: la fila
+// del respir és encesa i tocable a la pestanya Battery de la T5S3, `led ffffff` no diu cap sostre a la T5S3 i sí «stops at 20» al Matrix,
+// i `ls /fram` contesta `no such directory` a la T5S3 i el fitxer de 256 B al Paper (docs/50, docs/85).
+
+// **0.192.36 — la pàgina `Stats`, el port d'una pantalla que era en C++** (l'amo: *«Revisa l'app nativa "Stats" del antic PaperOS, copia la
+// seva estètica, aprofita els controls que tenim i tot el que aquella app fa. Adapta-la a lunokOS (en app Lua). Fes l'interfície igual»*).
+// L'original és `OLD/PaperOS/src/apps/log_app.cpp`: quatre vistes amb la tira de pestanyes a dalt —el **resum** amb les barres per
+// categoria i les repeticions, l'**energia** amb el pastís de quatre porcions i la seva llegenda, els **dispositius** i el **registre**.
+//
+//   - **`apps/stats` 0.1.0**, quatre pestanyes amb la mateixa forma: **`Cost`** són les barres fosques de l'antic —el nom, una barra contra
+//     el comptador que més costa i el total a la dreta— amb **els comptadors ordenats pel que costen**, que és el que l'amo demanava
+//     (*«les stats ordenades»*); **`Time`** és el **pastís** de quatre porcions amb la llegenda al costat (el quadre del to, el nom, la
+//     barra, el temps i el percentatge) i la **tira** que és el mateix pastís estirat; **`Memory`** és `sys.heap()` i **`Info`** és el que
+//     l'`info_app` ensenyava. L'estat de la vista és `state`: la pestanya i la pàgina.
+//   - **Els tons de la llegenda són els de la porció** (`color`, `+4`, `+8`, `+12`, que és el que camina `pie_draw`), i les porcions
+//     viatgen en **dècimes de punt** perquè el pont talla cada valor a 65535 i un minut de microsegons és més d'un milió.
+//   - **La gràfica de línies de l'antic no hi és, i la pàgina diu per què**: aquella era el **ritme de línies del registre**, i aquest
+//     sistema no té cap història que una app pugui llegir. Una ratlla inventada sobre dades que no existeixen és pitjor que no tenir-ne.
+//   - **`sys.stats(paraula)` torna tres números més** (`meter::stats_read_full`): la crida més curta, la més llarga i quan va ser
+//     l'última, que són tres de les set columnes de la taula del prompt. Els dos primers no es mouen, o sigui que `local calls, us =
+//     sys.stats(w)` segueix essent cert. I el llistat de sessions és del prompt i no d'una app (`fs_ops::allowed` no deixa llegir
+//     `/session`), per això `Info` és la placa i no un llistat de sessions forçat (docs/30, docs/70).
+//   - **I la pàgina no es repinta sola**: el panell és de tinta i cada passada deixa el fantasma de l'anterior (`emu_ink.cpp` diu el
+//     mateix), o sigui que es llegeix en obrir la pestanya i, per tenir-ne de nou, s'hi torna — el que l'original feia amb el seu botó
+//     `Refresh`. El que sí que hi és és `ui.clear(15)` en canviar de vista: el forat que deixa un canvas alliberat no és paper, i sense
+//     aquesta rentada la pàgina es quedava d'un gris de targeta.
+//
+// Vist a l'emulador amb el model de la T5S3: les quatre pestanyes, les barres amb 25 comptadors ordenats i el peu *«... and 6 more»*, el
+// pastís amb la llegenda i la tira, la llista de la memòria amb el paginador i la icona nova del joc de marques (`chart-line`,
+// `tools/iconart.py --only stats`).
+
+// **0.192.37 — un despert per una alarma no toca el paper, i el que hi ha al vidre és el que hi va deixar el son** (l'amo: *«quan arrenca
+// del deep sleep per alarma i torna a dormir ... la pantalla es queda en blanc perqué et vaig dir que netegessis al tornar del deepSleep...
+// Fes-ho només en cas de despertar per l'usuari (botó power, reset o panell táctil si està habilitat). Si es un despertar per alarma no
+// toquis el panell fins que l'app et demani posar-se en primer pla ... La neteja si es un despertar d'usuari o una app demana posar-se en
+// primer plà s'ha de fer si o si. En cas d'alarma sense primer pla: no tocar el paper i tornar a dormir (tenint en compte la configuració
+// del táctil!)»*).
+//
+//   - **El rentat de la placa a l'arrencada pregunta si hi ha algú**: la T5S3 declara `kCapWashAtBoot` —el seu ED047TC1 guarda el fantasma
+//     del que hi havia— i el boot feia el `splash::hide` **passi el que passi**, o sigui que un despert per una alarma esborrava la imatge
+//     que el son hi havia deixat i, com que aquesta arrencada no torna a pintar res, el panell es quedava **en blanc** fins que la placa
+//     s'encenia. Ara la condició és la capacitat **i** un vidre despert, i el rentat es paga quan hi ha algú (una tecla, el botó, el dit si
+//     el commutador el té armat, un reinici) o quan **una pàgina ve al davant**, que és el `splash::hide` de `shell::run_app` i no es toca.
+//   - **I `splash::wash()` també ho pregunta pel seu compte**: `show()` i `wait()` ja respectaven el vidre adormit i la porta que pinta el
+//     vidre sencer era l'única que no, o sigui que qualsevol camí nou que rentés durant un despert d'alarma hauria tornat a deixar el panell
+//     en blanc. La regla és ara del rentat i no de qui el crida.
+//   - **El tàctil, com la persona el va deixar**: no calia cap canvi i es va comprovar. `power::boot` posa `cfg.touch_wake` a la placa a
+//     **cada** arrencada —també la d'una alarma, abans del primer torn— i `arm_the_doors` el llegeix a **cada** baixada: amb el commutador
+//     encès el controlador queda en el règim de menys consum i la seva línia és una porta; amb el commutador apagat s'adorm i la placa
+//     només torna pel rellotge i pel BOOT. La línia del registre ja ho deia (`deep sleep until 20:23 UTC …, and its doors are …`).
+//
+// Vist a l'emulador de la T5S3, amb una app que arma una alarma i baixa: tres cicles de son i alarma amb `the glass stays asleep: this run
+// came back for an alarm, and the first page that needs it washes it whole` i **cap** `the whole glass, paper`, i la captura del panell
+// ensenyant encara el dibuix del son; i l'arrencada amb algú al davant rentant com sempre (`this board cleans the whole paper and there is
+// somebody in front: splash hide, gc16 of the glass`).
+
+static const char kVersion[] = "0.192.37";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

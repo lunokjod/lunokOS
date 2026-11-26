@@ -207,8 +207,9 @@ dins de la mateixa encesa i mai a través d'un reinici; **l'excepció és la tor
 ha de ser la que la persona va deixar i el `state` és el que la fa (docs/30 § la sessió `state`, docs/60).
 
 **Quin full hi ha de mapejar què, i quins no hi han de mapejar res** (repàs complet, 0.189.52, i la calculadora des de la
-0.189.165): la sessió `state` la tenen avui **vint de les vint-i-cinc apps** del disc —la vint-i-quarta és el `minesweeper`
-(0.190.76, docs/40)—, i les cinc que no la tenen és una decisió dita al fitxer i no un oblit.
+0.189.165): la sessió `state` la tenen avui **gairebé totes les apps** del disc —el `minesweeper` la va rebre de la vint-i-quarta
+(0.190.76, docs/40) i el `stats` de la seva, que és una pàgina de tres números i prou (0.192.36)—, i les que no la tenen és una decisió
+dita al fitxer i no un oblit.
 
 | App | Què va a `state` |
 |---|---|
@@ -229,6 +230,7 @@ ha de ser la que la persona va deixar i el `state` és el que la fa (docs/30 § 
 | `banner` | `focus` (quin dels tres controls té el cercle) i `playing` (**si el rètol era al vidre**). **El nom i el ritme no hi són**: són el badge i viuen a `fs.data('banner.txt')`, que és la mateixa línia que separa una forma d'una dada (0.192.29) |
 | `appinfo`, `battery`, `clock`, `meteo` | **el que la seva pàgina és**: `appinfo` la pestanya i el detall obert (`page`, `focus`, `marked`), `battery` el cercle i prou —**la finestra del gràfic és una preferència i viu a `fs.data`**, que és la línia que separa la forma del gust—, `clock` la pestanya dels quatre fulls, el cercle i la fila triada (`tab`, `focus`, `marked`), i `meteo` el focus dels tres botons de la finestra —**la finestra triada i el registre de mostres són a `fs.data`**, i el registre no és forma sinó història— |
 | `minesweeper` | `flag` = el commutador de la franja, que és què vol dir un toc en aquesta pàgina; **el camp no hi és**, que una partida és dada i viu a `fs.data('game.txt')` (0.190.76) |
+| `stats` | `tab` (quina de les quatre vistes era al vidre) i `page` (la de la llista, quan la vista en té). **Els comptadors no hi són**: són el que el nucli ha mesurat, no una cosa que la persona va deixar, i la pàgina es torna a llegir en obrir la pestanya (0.192.36) |
 | `files` | `path` (la carpeta on era, amb el nom del muntatge a dins) i `page` (la pàgina d'aquella carpeta); **la tria no hi és** —una tria és una cosa que una persona està fent i la fila on era pot no existir quan la pàgina torna— i **els fitxers amagats tampoc**: són una decisió sobre mirar i viuen a `/cfg/files/settings.txt` (0.190.257) |
 | `password` | **res**: s'obre sempre tancada i la vista que hi ha darrere del pany no és una vista que es pugui tornar —la clau viu en un `local` i mor amb la màquina, i un bloc amb el camí d'una entrada oberta seria un bloc que diu què mirava qui va tenir el vault obert—. **I el vault tampoc no és forma ni dada d'aquesta app**: és un fitxer de la targeta amb el seu nom (0.190.258) |
 | `2048`, `brokenapp`, `device_lock`, `luaperf`, `rainbow` | **res**: no tenen cap control amb cercle ni cap pàgina que tornar (les setze cel·les del 2048 són la partida, `rainbow` no té ni `ui`, `brokenapp` és un full de set botons que no recorda res, el pany és una pàgina que es tanca sola i `luaperf` és un instrument de mesura). Un bloc buit seria un kilobyte per no dir res |
@@ -549,6 +551,7 @@ Portades i viatjant avui, **divuit** (`home_eink` va a part, a sota):
 | `Tetris` | `tetris` | 0.1.3 |
 | `Files` | `files` | 0.1.0 |
 | `Password` | `password` | 0.1.0 |
+| `System info` (de `src/apps/info_app.cpp`, pantalla interna) | `stats` | 0.1.0 |
 
 **La columna «Versió» és la del `manifest.json` d'avui i no la del dia que es va portar** (0.190.7): un commit que toca una app
 en puja el número i **toca aquesta fila al mateix commit**, o la taula es queda dient el que ja no és (docs/40, docs/80).
@@ -576,6 +579,24 @@ I a part, **les que no són ports**:
 
 Les **set** que falten, i que són la cua d'aquesta feina: `FRAM`, `Jellyfin`, `News`, `Pacman`, `Paint`, `SerialFUSE`
 i `Tamagotchi`.
+
+**El que va ensenyar el `Stats`** (0.192.36, el port d'una pantalla que **no era una app de Lua** sinó una pàgina en C++ del nucli,
+amagada i oberta per nom —`info_app.cpp`, la que s'obria des de `tools`—):
+
+- **Una pantalla de diagnòstic es pot fer en Lua si el nucli ja mesura**: el que l'original llegia del sistema (`SystemStatus`) aquí són
+  `sys.stats()`, `sys.heap()`, `sys.board` i `power.battery`, i no s'ha hagut de fer cap porta nova per a la memòria ni per a la placa.
+- **A `sys.stats` li faltaven tres de les set columnes de la taula del prompt** (la més curta, la més llarga i quan va ser l'última): ara
+  les torna **darrere** de les dues de sempre, o sigui que `local calls, us = sys.stats(w)` segueix essent cert i una pàgina pot dir què
+  costa un comptador **quan va malament** i no només de mitjana.
+- **El llistat de sessions no és d'una app** i la pàgina no l'obre: `fs_ops::allowed` deixa llegir el terreny propi, `/cfg`, `/apps`,
+  `/fonts`, `/sd` i la memòria crua, i `/session` no hi és —és del prompt—. La tercera pestanya és el que l'`info_app` ensenyava i no una
+  porta forçada (docs/30, docs/70).
+- **Els controls del sistema fan la feina**: un `ui.tabs` per a les tres fulles i un `ui.list` amb `title`/`detail`/`subtitle` per a les
+  files, amb el paginador del sistema al peu. L'original tenia un `Panel` vertical, un títol i una llista de files: la forma és la
+  mateixa i el que canvia és qui dibuixa les files.
+- **I la mida es pregunta abans de fer els controls** (`build` demanava `ui.caps()` a `layout`, que corre després): un control nascut amb
+  zero píxels és una pàgina en blanc, i dues vegades més es va veure a l'emulador —`shape` declarat després de la funció que el llegeix, i
+  `ui.invalidate` quan el mètode és del control (`self:invalidate()`)—.
 
 **El que va ensenyar el `Banner`** (0.192.29, el port més senzill que quedava i el primer que dibuixa **punts** en lloc de
 lletres):
