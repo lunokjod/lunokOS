@@ -12,6 +12,7 @@
 
 #include "alarms/alarms.h"
 #include "hal/hal.h"
+#include "ink/ink.h"
 
 namespace luabind {
 
@@ -725,6 +726,32 @@ struct GpsOps {
 };
 
 void set_gps_ops(const GpsOps& ops);
+
+// **La lletra escrita a mà** (0.192.71, l'amo: *«Un teclat... l'usuari dibuixa una lletra... i usem perceptrons per identificar el
+// patró»*). The two models live in the kernel —the band writes over the page and is the kernel's, i una app d'entrenament els ha
+// de poder omplir amb el mateix codi—, and the interpreter sees them through these doors (docs/30, docs/90).
+//
+// **`glyph`** is the one glyph in the system: the app fills it with the points it has drawn (or the band, which draws them itself)
+// and the rest of the doors read it. It is the system's and not the interpreter's because the block is three kilobytes and the
+// turn's stack has eight (docs/75).
+struct HandOps {
+  bool (*available)();
+  ink::Glyph* (*glyph)();
+  // The names of the zones are one list and not two: `letters` and `symbols` cross the door, the band and the file with the same
+  // words, i el que les tradueix és el servei (docs/30).
+  bool (*zone)(const char* name, uint8_t& out);
+  const char* (*zone_name)(uint8_t zone);
+  uint8_t (*zones)();
+  bool (*add)(uint8_t zone, char text);
+  ink::Answer (*guess)(uint8_t zone);
+  bool (*save)(uint8_t zone);
+  bool (*load)(uint8_t zone);
+  uint16_t (*examples)(uint8_t zone);
+  uint16_t (*examples_of)(uint8_t zone, char text);
+  void (*forget)(uint8_t zone);
+};
+
+void set_hand_ops(const HandOps& ops);
 
 // The button, as the interpreter uses it: an app asks for the next press as a
 // promise (docs/30).

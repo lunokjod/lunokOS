@@ -13,6 +13,7 @@
 #include "kernel/fs_ops.h"
 #include "kernel/env.h"
 #include "kernel/gps.h"
+#include "kernel/hand.h"
 #include "kernel/lora.h"
 #include "kernel/imu.h"
 #include "kernel/led.h"
@@ -929,6 +930,10 @@ void boot(hal::IPlatform& platform) {
   // només hi porta la UART— o sigui que algú l'ha de llegir a cada volta. Sense el mòdul no hi ha cap taula `gps` a Lua i el servei no
   // fa res (docs/30, docs/50).
   gps::boot(platform);
+  // **I la lletra escrita a mà** (0.192.71): els dos models del teclat que l'amo demana, que no depenen de cap xip de la placa
+  // —una persona els entrena amb l'app i el que hi ha és el que s'ha desat a `/data/handwrite`— o sigui que les portes hi són
+  // sempre i la taula `hand` de Lua també (docs/30, docs/90).
+  hand::install();
   // The glass, when the board has one: its frames become taps, long presses and drags in the turns
   // of this loop (docs/50).
   // **And the page, which a board without a glass does not have** (0.179.9): the finger, the bar, the canvas of the app,

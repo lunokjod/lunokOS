@@ -1,0 +1,8 @@
+{
+  "title": "Handwrite",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "handwrite.lua",
+  "boards": ["esp32"],
+  "description": "The page that teaches the handwriting keyboard a person's own hand: it shows a character, the finger draws it on the paper, and 1.2 seconds after the last point the drawing becomes a 7x7 grid that goes into the model of that character with its label. After the drawing it shows the grid the model sees, so a bad stroke is seen and drawn again, and it counts how many examples each character has. When every character has three, a test pass draws characters the model was not just shown and says how many it got right. What it learns is the keyboard's, and the keyboard uses it without being restarted."
+}

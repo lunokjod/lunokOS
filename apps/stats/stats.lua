@@ -346,7 +346,7 @@ end
 -- la placa està desperta»*): mentre la pestanya Load és al vidre aquesta app es mostreja sola cada deu segons, o sigui que el que
 -- afegeix el tick és la mostra de les altres quatre pestanyes —mirar la memòria o el pastís no ha de deixar un forat a la corba— i
 -- la de la pàgina que s'ha quedat oberta sense ningú mirant-la (docs/30, docs/60).
-local kTickSeconds = 60
+local kTickSeconds = 300
 
 -- **Les dues sèries, i la seva hora**: `times` són els segons des de la primera mostra de la finestra, o sigui que el gràfic
 -- les col·loca per temps de debò i no pel seu índex (docs/30, docs/90).

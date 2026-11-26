@@ -1435,6 +1435,55 @@ Les línies del registre porten **`[TICK]`** i no `[ALARM]`, perquè la cua és 
 the queue` i `[I][TICK] stats cancels #4`. **`alarm` al prompt i la campana de la barra no hi compten**: la campana és per a les
 alarmes que vindran al vidre (`raise`), i un tick no hi ve.
 
+## `hand`: la lletra escrita a mà (0.192.71)
+
+**El teclat que aprèn la mà d'aquesta persona** (l'amo: *«Has de crear un nou teclat per software: "Handwrite" … L'usuari fa el
+traç lletra a lletra i el teclat va donant el caràcter. Com ho fa? amb perceptrons per reconeixer el caràcter … Aquest teclat
+necessita una app d' entrenament»*). El model viu al nucli perquè la banda del teclat és del nucli: la mateixa taula el llegeix
+l'app que l'entrena i la banda que escriu sobre la pàgina, i el que s'aprèn en una sessió és el que fa servir l'altra sense
+reiniciar res (docs/90).
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `hand.caps()` | taula | `{grid = 7, cells = 49, levels = 3, far, near, margin, candidates = 3, zones = {'letters', 'symbols'}}` |
+| `hand.grid(strokes)` | taula o `nil, error` | El dibuix posat a la quadrícula: `{cells = '012…', strokes, aspect, inked}`, amb quaranta-nou xifres de 0 a 2 |
+| `hand.add(zona, caràcter, strokes)` | booleà | Una mostra nova amb la seva etiqueta. Fals vol dir que ja hi era o que el bloc és ple |
+| `hand.guess(zona, strokes)` | taula o `nil, error` | `{text, distance, confident, count, candidates = {{text, distance}, …}}`; `E_NOTFOUND` quan cap caràcter és a prop |
+| `hand.count(zona, caràcter)` | enter | Quantes mostres té aquell caràcter —el que fa que una pàgina digui «`e`: 2 de 5»— |
+| `hand.save(zona)` / `hand.load(zona)` / `hand.forget(zona)` | — / enter / — | El fitxer de `/data/handwrite` i la memòria del model; `load` torna quantes mostres ha trobat |
+
+**Un dibuix és una llista de traços i cada traç una llista de punts**, escrits `{x = , y = }` o `{x, y}` com vulgui l'app: un sol
+traç també s'accepta com una llista de punts i prou. El caràcter és **un byte** —aquest sistema escriu els accents en un byte, com
+la resta del text— i una zona que no és `letters` o `symbols` es refusa amb `E_INVAL`.
+
+**La quadrícula és 7×7 i de tres nivells** (0 res, 1 el traç hi passa una vegada, 2 hi passa dues o hi gira). El que la
+quadrícula **no pot dir** viatja amb ella i compta a la distància: el nombre de traços (que és el que separa una `i` d'una `l`) i
+la proporció del requadre (el que separa `-`, `|` i `o`). El requadre s'escala **pel seu costat més llarg** i es centra, o sigui
+que un traç prim no s'estira mai.
+
+**Qui decideix si s'escriu o es pregunta** són tres números, i es poden llegir a `caps` perquè una pàgina no els endevini: un
+candidat més lluny de `far` no és cap caràcter del model; el primer, si és a menys de `near` i treu `margin` al segon, s'escriu
+sol; i la resta són la tira de tres candidats. **El toc d'un candidat és una mostra nova**: la persona acaba de dir quina lletra
+era, i el model aprèn amb l'ús (l'amo: *«l'usuari personalitzarà el seu traços, necessitem quelcom que aprengui»*).
+
+**Per què comparar i no un perceptró**: amb tres o cinc exemples per caràcter —el que una persona dibuixa d'una tirada— el que
+guanya és comparar amb els exemples mateixos, que aprèn a l'instant i no necessita cap passada d'entrenament; un classificador
+lineal sobre quaranta-nou cel·les és un pla per lletra, i `c` i `e` no estan separats per cap pla que aguanti el traç de demà. El
+model és **k veïns més propers** sobre les mateixes mostres, amb una distancia que compta cel·les, traços i proporció, i el dia
+que hi hagi centenars d'exemples el que caldrà afegir és el cap lineal, no canviar això.
+
+```lua
+-- **El que fa l'app d'entrenament després dels 1,2 segons** (docs/45): el dibuix es converteix en quadrícula, es veu i s'aprèn.
+local grid = hand.grid(strokes)              -- el que el model veu, per ensenyar-lo
+if grid ~= nil then
+  hand.add('letters', 'a', strokes)          -- la lletra que la persona ha dit
+  local answer = hand.guess('letters', strokes)
+  if answer ~= nil and not answer.confident then
+    show_the_candidates(answer.candidates)   -- i el toc d'un d'ells és una mostra nova
+  end
+end
+```
+
 ## `gps`: el cel que la placa mira (0.192.63)
 
 **El receptor GNSS de la placa** —una T5S3 en porta un de soldat, un `MIA-M10Q` o un `L76K` segons la tirada— i el que en diu, amb les

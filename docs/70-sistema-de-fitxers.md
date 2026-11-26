@@ -388,7 +388,7 @@ respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és s
 
 | Camí | Llegir | Escriure |
 |---|---|---|
-| `/data/<id>/` | sí | **sí**, i el límit és el disc |
+| `/data/<id>/` | sí | **sí**, i el límit és el disc. **És on viuen els models del teclat de la lletra escrita a mà** (0.192.71): `/data/handwrite/letters` i `/data/handwrite/symbols`, que escriu l'app d'entrenament —el seu racó— i llegeix la banda del nucli com a sistema, amb el format de `lib/ink` al capdavant de tot (`INK1`, la mida de la quadrícula i la de cada mostra) |
 | `/cfg/` | sí, el seu `cfg/<id>/` | **sí**, el seu `cfg/<id>/` |
 | `/rtc` | sí | **sí**: és memòria crua i **qui hi escriu decideix el format** |
 | `/fram` | sí | **sí**, pel mateix motiu: memòria crua i el format el decideix l'app |

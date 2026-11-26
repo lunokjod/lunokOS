@@ -416,6 +416,15 @@ parlen les funcions lliures: si la banda és a la vista, baixa i torna a pujar a
 ajust del sistema** i no d'una app: `cfg keyboard` en dona la llista, `cfg keyboard <id>` la desa a l'NVS
 (`cfg/keyboard`) i l'arrencada la llegeix, amb `qwerty` de reserva i una línia si el nom no existeix (docs/30, docs/70).
 
+**I el quart fill no és una graella de tecles** (0.192.71, l'amo: *«Has de crear un nou teclat per software: "Handwrite" … una banda
+per números i simbols, l'altre per lletres … L'usuari fa el traç lletra a lletra i el teclat va donant el caràcter»*): `handwrite`
+és la banda on es **dibuixa** —dues superfícies, una per lletres i una per números i símbols, amb la línia del que s'ha escrit al
+damunt— i el que el pare li demana no és una disposició sinó quatre coses: `paints_itself`, `own_height`, `paint_own` i
+`own_touch`. El contacte i el pintat del paper continuen sent del pare, i el dit rep **cada marc del camí** (una tecla es pregunta
+una vegada, on cau el dit; una lletra necessita el camí sencer). La pausa de 1,2 segons que tanca la lletra viu al torn que el
+nucli ja demana cada volta (`ui::keyboard_owes_paint`), el model és el del nucli (`hand.*`, docs/30) i el que el model dubta
+surt com a **tres candidats**, on el toc d'un d'ells és una mostra nova (docs/30, docs/45).
+
 **I la LilyGO T-Koala és una placa més** (0.94.0): l'ESP32-WROVER-B de 4 MB de flash i 8 MB de PSRAM
 —4 mapejats— entra com a entorn `tkoala`, amb una definició de placa pròpia perquè la plataforma no en
 porta cap amb `BOARD_HAS_PSRAM` i QSPI. El seu HAL només diu el que és seu: el **LED verd de GPIO5** és

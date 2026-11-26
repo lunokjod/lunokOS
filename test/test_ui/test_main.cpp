@@ -20,6 +20,7 @@
 #include "hal/hal.h"
 #include "kernel/display.h"
 #include "kernel/font.h"
+#include "kernel/hand.h"
 #include "kernel/meter.h"
 #include "kernel/ui.h"
 #include "pal/pal.h"
@@ -2783,12 +2784,14 @@ void test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away(void) {
 // dial and the face; each child says its id and its rows. The list is what `cfg keyboard` prints, and a name that is not
 // one of the children is refused instead of silently selecting another (docs/30, docs/70, docs/90).
 void test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name() {
-  TEST_ASSERT_EQUAL_UINT8(3, ui::keyboard_count());
+  // **I el quart és la lletra escrita a mà** (0.192.71): la banda que no és una graella de tecles sinó dues superfícies i una línia.
+  TEST_ASSERT_EQUAL_UINT8(4, ui::keyboard_count());
   TEST_ASSERT_EQUAL_STRING("qwerty", ui::keyboard_at(0));
   TEST_ASSERT_EQUAL_STRING("azerty", ui::keyboard_at(1));
   // **I el tercer és el cable** (0.189.21): una banda que no hi és i un port que es reclama.
   TEST_ASSERT_EQUAL_STRING("serial", ui::keyboard_at(2));
-  TEST_ASSERT_NULL(ui::keyboard_at(3));
+  TEST_ASSERT_EQUAL_STRING("handwrite", ui::keyboard_at(3));
+  TEST_ASSERT_NULL(ui::keyboard_at(4));
   TEST_ASSERT_EQUAL_STRING("qwerty", ui::keyboard_current());
   TEST_ASSERT_TRUE(ui::keyboard_select("azerty"));
   TEST_ASSERT_EQUAL_STRING("azerty", ui::keyboard_current());
@@ -4622,6 +4625,56 @@ static bool runs_now(const char* name) {
     }                                             \
   } while (0)
 
+// **La banda de la lletra escrita a mà** (0.192.71, l'amo: *«Has de crear un nou teclat per software: "Handwrite". El teclat te dos
+// panells a tota la seva superfície, una banda per números i simbols, l'altre per lletres … L'usuari fa el traç lletra a lletra»*):
+// la banda no és una graella de tecles sinó dues superfícies on un dit dibuixa, o sigui que el que aquí es mira és el que fa el
+// dit —cada marc del camí és un punt del glif del sistema—, que el peu és de tecles i no de dibuix, i que la pausa de 1,2 segons
+// és la que tanca la lletra i demana el torn (docs/30, docs/90).
+static void test_the_hand_band_takes_a_stroke_and_closes_it_when_the_finger_rests() {
+  fresh_view();
+  TEST_ASSERT_TRUE(ui::keyboard_select("handwrite"));
+  TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardAlpha));
+  TEST_ASSERT_TRUE(ui::keyboard_visible());
+  // **La banda és alta i el que queda és de la pàgina**: three hundred and seventy-two pixels of two surfaces and a line.
+  TEST_ASSERT_EQUAL_UINT16(372, ui::keyboard_height());
+  const uint16_t top = static_cast<uint16_t>(ui::canvas().height - ui::keyboard_height());
+  TEST_ASSERT_EQUAL_UINT16(top, ui::height());
+  TEST_ASSERT_TRUE(ui::present());
+  // **Els dos píxels de tinta que diuen on s'acaba la pàgina** i el paper a sota.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(4, top));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, static_cast<uint16_t>(top + 60)));
+  // **Un dit a la pàgina de sobre no és de la banda**.
+  TEST_ASSERT_FALSE(ui::keyboard_touch(100, static_cast<uint16_t>(top - 2), true));
+
+  // **Un traç sencer pel panell de les lletres**: the first frame opens the stroke an every frame after is a point of it. The
+  // left two thirds are letters and the right third is numbers, o sigui que aquest traç és del model de les lletres.
+  kernel::hand::glyph().clear();
+  TEST_ASSERT_TRUE(ui::keyboard_touch(100, static_cast<uint16_t>(top + 100), true));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(120, static_cast<uint16_t>(top + 120), true));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(140, static_cast<uint16_t>(top + 140), true));
+  TEST_ASSERT_EQUAL_UINT16(3, kernel::hand::glyph().count);
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::hand::glyph().strokes);
+  ui::keyboard_touch(0, 0, false);
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::hand::glyph().strokes);
+
+  // **I el peu és de tecles i no de dibuix**: a finger on the space bar types and does not add a point of a letter.
+  TEST_ASSERT_TRUE(ui::keyboard_touch(300, static_cast<uint16_t>(top + 340), true));
+  TEST_ASSERT_EQUAL_UINT16(3, kernel::hand::glyph().count);
+  ui::keyboard_touch(0, 0, false);
+
+  // **La pausa de 1,2 segons és el que tanca la lletra** (l'amo: *«Esperar 1.2 segon per assegurar que ha acabat»*): nothing is
+  // owed while the finger has just left, i la banda demana el seu torn quan la pausa passa.
+  TEST_ASSERT_FALSE(ui::keyboard_owes_paint());
+  pal::delay_ms(1300);
+  TEST_ASSERT_TRUE(ui::keyboard_owes_paint());
+  TEST_ASSERT_TRUE(ui::present());
+
+  // **I el teclat torna a ser el de la resta de la casa** per a les proves que vénen: la banda baixa primer, perquè un teclat
+  // que es canvia sense baixar deixa el de després amb la seva altura i la pàgina de les proves que vénen no hi cabria.
+  TEST_ASSERT_TRUE(ui::keyboard_hide());
+  TEST_ASSERT_TRUE(ui::keyboard_select("qwerty"));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -4747,6 +4800,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_lights_of_the_board_have_their_face_in_the_window);
   RUN_TEST(test_a_click_of_the_mouse_lasts_at_least_one_turn);
   RUN_TEST(test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on);
+  RUN_TEST(test_the_hand_band_takes_a_stroke_and_closes_it_when_the_finger_rests);
   RUN_TEST(test_the_two_symbols_of_the_band_are_one_piece_each);
   RUN_TEST(test_the_cleaner_between_apps_follows_the_page);
   return UNITY_END();

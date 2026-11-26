@@ -1434,6 +1434,130 @@ void test_a_tick_replaces_the_one_that_the_other_app_had(void) {
   alarms::reset();
 }
 
+// **La porta de la lletra escrita a mà** (0.192.71): the model lives in the kernel and the interpreter sees it through `hand.*`, o
+// sigui que el que aquí es mira és el que la pàgina escriu de debò —un traç com una llista de punts `{x = , y = }`, un altre com
+// una llista de traços, i el caràcter d'un byte— i que la resposta porta el que la banda necessita: el primer, si és segur i els
+// tres candidats (docs/30, docs/90).
+namespace {
+
+ink::Glyph g_hand_glyph;
+bool g_hand_added = false;
+char g_hand_taught = 0;
+
+bool fake_hand_available() { return true; }
+ink::Glyph* fake_hand_glyph() { return &g_hand_glyph; }
+bool fake_hand_zone(const char* name, uint8_t& out) {
+  if (strcmp(name, "letters") == 0) {
+    out = 0;
+    return true;
+  }
+  if (strcmp(name, "symbols") == 0) {
+    out = 1;
+    return true;
+  }
+  return false;
+}
+const char* fake_hand_zone_name(uint8_t zone) { return (zone == 0) ? "letters" : "symbols"; }
+uint8_t fake_hand_zones() { return 2; }
+bool fake_hand_add(uint8_t zone, char text) {
+  (void)zone;
+  g_hand_added = true;
+  g_hand_taught = text;
+  return true;
+}
+ink::Answer fake_hand_guess(uint8_t zone) {
+  (void)zone;
+  ink::Answer answer;
+  answer.any = true;
+  answer.confident = true;
+  answer.count = 2;
+  answer.top[0].text = 'o';
+  answer.top[0].distance = 4;
+  answer.top[1].text = 'c';
+  answer.top[1].distance = 31;
+  return answer;
+}
+bool fake_hand_save(uint8_t zone) { (void)zone; return true; }
+bool fake_hand_load(uint8_t zone) { (void)zone; return true; }
+uint16_t fake_hand_examples(uint8_t zone) { (void)zone; return 7; }
+uint16_t fake_hand_examples_of(uint8_t zone, char text) { (void)zone; (void)text; return 3; }
+void fake_hand_forget(uint8_t zone) { (void)zone; }
+
+luabind::HandOps the_hand_door() {
+  luabind::HandOps ops = {};
+  ops.available = &fake_hand_available;
+  ops.glyph = &fake_hand_glyph;
+  ops.zone = &fake_hand_zone;
+  ops.zone_name = &fake_hand_zone_name;
+  ops.zones = &fake_hand_zones;
+  ops.add = &fake_hand_add;
+  ops.guess = &fake_hand_guess;
+  ops.save = &fake_hand_save;
+  ops.load = &fake_hand_load;
+  ops.examples = &fake_hand_examples;
+  ops.examples_of = &fake_hand_examples_of;
+  ops.forget = &fake_hand_forget;
+  return ops;
+}
+
+}  // namespace
+
+void test_the_hand_door_takes_a_drawing_and_answers_with_candidates(void) {
+  pal::init();
+  g_hand_added = false;
+  g_hand_taught = 0;
+  luabind::set_hand_ops(the_hand_door());
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+
+  // Les capacitats: la quadrícula, els tres números de la decisió i el nom de les dues zones.
+  TEST_ASSERT_TRUE(run("local c = hand.caps()\n"
+                       "assert(c.grid == 7 and c.cells == 49, tostring(c.grid) .. ' ' .. tostring(c.cells))\n"
+                       "assert(c.far == 70 and c.near == 20 and c.margin == 10, 'the three numbers')\n"
+                       "assert(c.candidates == 3, tostring(c.candidates))\n"
+                       "assert(c.zones[1] == 'letters' and c.zones[2] == 'symbols', 'the two zones')"));
+
+  // **Un traç en la forma que una pàgina l'escriu** (punts amb nom): the glyph arrives in the system's block with its points.
+  TEST_ASSERT_TRUE(run("local g = hand.grid({{x = 10, y = 20}, {x = 30, y = 40}, {x = 50, y = 20}})\n"
+                       "assert(type(g.cells) == 'string' and #g.cells == 49, tostring(#g.cells))\n"
+                       "assert(g.strokes == 1, tostring(g.strokes))\n"
+                       "assert(g.inked > 0, tostring(g.inked))"));
+  TEST_ASSERT_EQUAL_UINT16(3, g_hand_glyph.count);
+  TEST_ASSERT_EQUAL_UINT8(1, g_hand_glyph.strokes);
+
+  // **I dos traços també**, que és la diferència entre una `o` i una `t`: la llista de llistes entra com dues.
+  TEST_ASSERT_TRUE(run("local g = hand.grid({{{10, 10}, {10, 90}}, {{10, 60}, {80, 60}}})\n"
+                       "assert(g.strokes == 2, tostring(g.strokes))"));
+  TEST_ASSERT_EQUAL_UINT8(2, g_hand_glyph.strokes);
+
+  // **Ensenyar i preguntar**: la lletra és un byte i la resposta porta el primer, si és segur i els candidats.
+  TEST_ASSERT_TRUE(run("assert(hand.add('letters', 'o', {{10, 10}, {90, 10}, {90, 90}}))\n"
+                       "local a = hand.guess('letters', {{10, 10}, {90, 10}, {90, 90}})\n"
+                       "assert(a.text == 'o', tostring(a.text))\n"
+                       "assert(a.confident == true and a.distance == 4, tostring(a.distance))\n"
+                       "assert(a.count == 2, tostring(a.count))\n"
+                       "assert(a.candidates[1].text == 'o' and a.candidates[2].text == 'c', 'the strip')\n"
+                       "assert(hand.count('letters', 'e') == 3, tostring(hand.count('letters', 'e')))"));
+  TEST_ASSERT_TRUE(g_hand_added);
+  TEST_ASSERT_EQUAL_CHAR('o', g_hand_taught);
+
+  // **El fitxer i la memòria del model**.
+  TEST_ASSERT_TRUE(run("assert(hand.save('letters') == true)\n"
+                       "assert(hand.load('letters') == 7, tostring(hand.load('letters')))\n"
+                       "assert(hand.forget('letters') == true)"));
+
+  // **Una zona que no és cap de les dues es refusa amb el seu codi**, i un caràcter de dos bytes també.
+  TEST_ASSERT_TRUE(run(
+      "local v, e = hand.add('digits', '1', {{1, 1}, {9, 9}})\n"
+      "assert(v == nil and e.code == 'E_INVAL', tostring(e and e.code))\n"
+      "local w, f = hand.add('letters', 'ab', {{1, 1}, {9, 9}})\n"
+      "assert(w == nil and f.code == 'E_INVAL', tostring(f and f.code))\n"
+      "local x, g = hand.grid({})\n"
+      "assert(x == nil and g.code == 'E_INVAL', tostring(g and g.code))"));
+  TEST_ASSERT_FALSE(luabind::failed());
+  luabind::stop();
+  luabind::set_hand_ops(luabind::HandOps{});
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1494,6 +1618,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_numbers_of_the_band_follow_the_seed_of_the_run);
   RUN_TEST(test_rle_packs_and_unpacks_a_text_of_lua);
   RUN_TEST(test_sys_settings_answers_what_the_prompt_prints);
+  RUN_TEST(test_the_hand_door_takes_a_drawing_and_answers_with_candidates);
   RUN_TEST(test_sys_settings_without_a_door_says_unsupported);
   RUN_TEST(test_bt_ready_move_and_click_reach_the_radio);
   RUN_TEST(test_sys_session_destroy_says_how_much_went);

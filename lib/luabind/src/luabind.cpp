@@ -1756,6 +1756,7 @@ ImuOps g_imu_ops = {};      // and imu.*
 EnvOps g_env_ops = {};      // and env.*
 LoraOps g_lora_ops = {};    // and lora.* — the radio that only listens (0.192.49)
 GpsOps g_gps_ops = {};      // and gps.* — the receiver of the sky (0.192.63)
+HandOps g_hand_ops = {};    // and hand.* — the letter written by hand and its two models (0.192.71)
 ButtonOps g_button_ops = {};  // and button.*
 TimeOps g_time_ops = {};      // and time.tz() / time.local()
 
@@ -14137,6 +14138,262 @@ void open_shell_library(lua_State* L) {
 int l_touch_triple_tap_close(lua_State* L);
 
 // ---------------------------------------------------------------------------
+// hand: la lletra escrita a mà i els seus dos models (0.192.71)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// **Un punt d'un traç**, com l'escriu una pàgina: `{x = , y = }` o `{x, y}` —the two ways are the two things an app naturally
+// writes, and a reader that only takes one of them would make every app learn the other one the hard way— (docs/30).
+bool read_a_point(lua_State* L, int index, ink::Point& out) {
+  // **L'índex es fa absolut abans de tocar la pila**: the fields of the point are read by pushing them, i un índex relatiu deixa
+  // de mirar la taula en el moment que hi ha una cosa a sobre —el parany de tota lectura de taules que demana dos camps— (docs/30).
+  if (index < 0 && index > LUA_REGISTRYINDEX) index = lua_gettop(L) + index + 1;
+  if (!lua_istable(L, index)) return false;
+  lua_getfield(L, index, "x");
+  lua_getfield(L, index, "y");
+  const bool named = lua_isnumber(L, -2) && lua_isnumber(L, -1);
+  lua_Number x = named ? lua_tonumber(L, -2) : 0;
+  lua_Number y = named ? lua_tonumber(L, -1) : 0;
+  lua_pop(L, 2);
+  if (!named) {
+    lua_rawgeti(L, index, 1);
+    lua_rawgeti(L, index, 2);
+    const bool positional = lua_isnumber(L, -2) && lua_isnumber(L, -1);
+    if (positional) {
+      x = lua_tonumber(L, -2);
+      y = lua_tonumber(L, -1);
+    }
+    lua_pop(L, 2);
+    if (!positional) return false;
+  }
+  out.x = static_cast<int16_t>(x);
+  out.y = static_cast<int16_t>(y);
+  return true;
+}
+
+bool looks_like_a_point(lua_State* L, int index) {
+  ink::Point p;
+  return read_a_point(L, index, p);
+}
+
+// **Els traços, tal com els dona l'app, al glif del sistema**: one stroke (`{{x,y},…}`) or a list of them (`{{{x,y},…},…}`), which
+// is the difference between an `o` and a `t`. Answers how many points went in, i zero vol dir que allò no era cap dibuix.
+uint16_t read_the_strokes(lua_State* L, int index, ink::Glyph& g) {
+  g.clear();
+  if (!lua_istable(L, index)) return 0;
+  const lua_Integer count = static_cast<lua_Integer>(lua_rawlen(L, index));
+  if (count <= 0) return 0;
+  lua_rawgeti(L, index, 1);
+  const bool one_stroke = looks_like_a_point(L, -1);
+  lua_pop(L, 1);
+  if (one_stroke) {
+    for (lua_Integer i = 1; i <= count; ++i) {
+      lua_rawgeti(L, index, i);
+      ink::Point p;
+      const bool ok = read_a_point(L, -1, p);
+      lua_pop(L, 1);
+      if (!ok) continue;
+      if (!g.add(p.x, p.y)) break;
+    }
+    g.lift();
+    return g.count;
+  }
+  for (lua_Integer i = 1; i <= count; ++i) {
+    lua_rawgeti(L, index, i);
+    if (!lua_istable(L, -1)) {
+      lua_pop(L, 1);
+      continue;
+    }
+    const lua_Integer points = static_cast<lua_Integer>(lua_rawlen(L, -1));
+    for (lua_Integer k = 1; k <= points; ++k) {
+      lua_rawgeti(L, -1, k);
+      ink::Point p;
+      const bool ok = read_a_point(L, -1, p);
+      lua_pop(L, 1);
+      if (!ok) continue;
+      if (!g.add(p.x, p.y)) break;
+    }
+    lua_pop(L, 1);
+    g.lift();
+  }
+  return g.count;
+}
+
+// **La zona, dita pel seu nom**: a word the band and the app both know, refused with the two that exist when it is another one.
+bool read_the_zone(lua_State* L, int index, uint8_t& zone, const char** error) {
+  if (g_hand_ops.zone == nullptr || !lua_isstring(L, index)) {
+    *error = "the zone is 'letters' or 'symbols'";
+    return false;
+  }
+  if (!g_hand_ops.zone(lua_tostring(L, index), zone)) {
+    *error = "the zone is 'letters' or 'symbols'";
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+// **`hand.caps()`**: what this model is —the grid it was drawn on, how many examples fit and the three numbers of the decision—
+// i els noms de les zones, que és el que una pàgina necessita per ensenyar-les (docs/30, docs/90).
+int l_hand_caps(lua_State* L) {
+  if (g_hand_ops.available == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
+  lua_createtable(L, 0, 10);
+  lua_pushinteger(L, static_cast<lua_Integer>(ink::kSide));
+  lua_setfield(L, -2, "grid");
+  lua_pushinteger(L, static_cast<lua_Integer>(ink::kCells));
+  lua_setfield(L, -2, "cells");
+  lua_pushinteger(L, static_cast<lua_Integer>(ink::kLevels));
+  lua_setfield(L, -2, "levels");
+  lua_pushinteger(L, static_cast<lua_Integer>(ink::kFar));
+  lua_setfield(L, -2, "far");
+  lua_pushinteger(L, static_cast<lua_Integer>(ink::kNear));
+  lua_setfield(L, -2, "near");
+  lua_pushinteger(L, static_cast<lua_Integer>(ink::kMargin));
+  lua_setfield(L, -2, "margin");
+  lua_pushinteger(L, static_cast<lua_Integer>(ink::kCandidates));
+  lua_setfield(L, -2, "candidates");
+  const uint8_t zones = (g_hand_ops.zones != nullptr) ? g_hand_ops.zones() : 0;
+  lua_createtable(L, static_cast<int>(zones), 0);
+  for (uint8_t i = 0; i < zones; ++i) {
+    lua_pushstring(L, (g_hand_ops.zone_name != nullptr) ? g_hand_ops.zone_name(i) : "?");
+    lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+  }
+  lua_setfield(L, -2, "zones");
+  return 1;
+}
+
+// **`hand.grid(strokes)`**: el dibuix posat a la quadrícula, dit com una cadena de quaranta-nou xifres (0, 1 o 2) i els dos
+// números que la quadrícula no pot dir. És el que l'app d'entrenament ensenya a la persona: el que el model veu i no el que ella
+// creu que ha dibuixat (docs/30, docs/90).
+int l_hand_grid(lua_State* L) {
+  if (g_hand_ops.glyph == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
+  ink::Glyph* glyph = g_hand_ops.glyph();
+  if (read_the_strokes(L, 1, *glyph) == 0) return push_nil_error(L, "E_INVAL", "that is not a drawing");
+  ink::Grid grid;
+  if (!ink::raster(*glyph, grid)) return push_nil_error(L, "E_INVAL", "a press is not a letter");
+  char cells[ink::kCells + 1];
+  for (uint8_t i = 0; i < ink::kCells; ++i) cells[i] = static_cast<char>('0' + grid.cell[i]);
+  cells[ink::kCells] = '\0';
+  lua_createtable(L, 0, 4);
+  lua_pushstring(L, cells);
+  lua_setfield(L, -2, "cells");
+  lua_pushinteger(L, static_cast<lua_Integer>(grid.strokes));
+  lua_setfield(L, -2, "strokes");
+  lua_pushinteger(L, static_cast<lua_Integer>(grid.aspect));
+  lua_setfield(L, -2, "aspect");
+  lua_pushinteger(L, static_cast<lua_Integer>(grid.inked()));
+  lua_setfield(L, -2, "inked");
+  return 1;
+}
+
+// **`hand.add(zone, text, strokes)`**: una mostra nova, amb la lletra que la persona ha dit (un caràcter, que aquest sistema
+// escriu d'un byte) i el dibuix que acaba de fer. Fals vol dir que ja hi era o que el bloc és ple, i cap de les dues coses és una
+// fallada (docs/30, docs/90).
+int l_hand_add(lua_State* L) {
+  if (g_hand_ops.add == nullptr || g_hand_ops.glyph == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
+  }
+  uint8_t zone = 0;
+  const char* why = "";
+  if (!read_the_zone(L, 1, zone, &why)) return push_nil_error(L, "E_INVAL", why);
+  if (!lua_isstring(L, 2)) return push_nil_error(L, "E_INVAL", "the character to teach is one byte");
+  size_t len = 0;
+  const char* text = lua_tolstring(L, 2, &len);
+  if (text == nullptr || len != 1) return push_nil_error(L, "E_INVAL", "the character to teach is one byte");
+  if (read_the_strokes(L, 3, *g_hand_ops.glyph()) == 0) return push_nil_error(L, "E_INVAL", "that is not a drawing");
+  lua_pushboolean(L, g_hand_ops.add(zone, text[0]) ? 1 : 0);
+  return 1;
+}
+
+// **`hand.guess(zone, strokes)`**: quina lletra és, amb la distància del seu exemple més a prop, si es pot escriure sense
+// preguntar i **els tres candidats** —que és el que la banda ensenya quan dubta, i el que fa que un toc sobre un d'ells sigui una
+// mostra nova (docs/30, docs/90).
+int l_hand_guess(lua_State* L) {
+  if (g_hand_ops.guess == nullptr || g_hand_ops.glyph == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
+  }
+  uint8_t zone = 0;
+  const char* why = "";
+  if (!read_the_zone(L, 1, zone, &why)) return push_nil_error(L, "E_INVAL", why);
+  if (read_the_strokes(L, 2, *g_hand_ops.glyph()) == 0) return push_nil_error(L, "E_INVAL", "that is not a drawing");
+  const ink::Answer answer = g_hand_ops.guess(zone);
+  if (!answer.any) return push_nil_error(L, "E_NOTFOUND", "no character of this model is near that drawing");
+  lua_createtable(L, 0, 5);
+  char top[2] = {answer.top[0].text, 0};
+  lua_pushstring(L, top);
+  lua_setfield(L, -2, "text");
+  lua_pushinteger(L, static_cast<lua_Integer>(answer.top[0].distance));
+  lua_setfield(L, -2, "distance");
+  lua_pushboolean(L, answer.confident ? 1 : 0);
+  lua_setfield(L, -2, "confident");
+  lua_pushinteger(L, static_cast<lua_Integer>(answer.count));
+  lua_setfield(L, -2, "count");
+  lua_createtable(L, static_cast<int>(answer.count), 0);
+  for (uint8_t i = 0; i < answer.count; ++i) {
+    char letter[2] = {answer.top[i].text, 0};
+    lua_createtable(L, 0, 2);
+    lua_pushstring(L, letter);
+    lua_setfield(L, -2, "text");
+    lua_pushinteger(L, static_cast<lua_Integer>(answer.top[i].distance));
+    lua_setfield(L, -2, "distance");
+    lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+  }
+  lua_setfield(L, -2, "candidates");
+  return 1;
+}
+
+// **`hand.count(zone, text)`**: quantes vegades l'app ha ensenyat aquell caràcter, que és el que fa que una pàgina pugui dir
+// «`e`: 2 de 5» i saber quan ha acabat (docs/30).
+int l_hand_count(lua_State* L) {
+  if (g_hand_ops.examples_of == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
+  uint8_t zone = 0;
+  const char* why = "";
+  if (!read_the_zone(L, 1, zone, &why)) return push_nil_error(L, "E_INVAL", why);
+  if (!lua_isstring(L, 2)) return push_nil_error(L, "E_INVAL", "the character is one byte");
+  size_t len = 0;
+  const char* text = lua_tolstring(L, 2, &len);
+  if (text == nullptr || len != 1) return push_nil_error(L, "E_INVAL", "the character is one byte");
+  lua_pushinteger(L, static_cast<lua_Integer>(g_hand_ops.examples_of(zone, text[0])));
+  return 1;
+}
+
+// **`hand.save(zone)` / `hand.load(zone)` / `hand.forget(zone)`**: el fitxer de `/data/handwrite` i la memòria del model. `load`
+// torna quantes mostres ha trobat (zero no és una fallada: vol dir que encara no hi ha model) (docs/30, docs/70).
+int l_hand_save(lua_State* L) {
+  if (g_hand_ops.save == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
+  uint8_t zone = 0;
+  const char* why = "";
+  if (!read_the_zone(L, 1, zone, &why)) return push_nil_error(L, "E_INVAL", why);
+  if (!g_hand_ops.save(zone)) return push_nil_error(L, "E_IO", "the model would not be written");
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_hand_load(lua_State* L) {
+  if (g_hand_ops.load == nullptr || g_hand_ops.examples == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
+  }
+  uint8_t zone = 0;
+  const char* why = "";
+  if (!read_the_zone(L, 1, zone, &why)) return push_nil_error(L, "E_INVAL", why);
+  (void)g_hand_ops.load(zone);
+  lua_pushinteger(L, static_cast<lua_Integer>(g_hand_ops.examples(zone)));
+  return 1;
+}
+
+int l_hand_forget(lua_State* L) {
+  if (g_hand_ops.forget == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
+  uint8_t zone = 0;
+  const char* why = "";
+  if (!read_the_zone(L, 1, zone, &why)) return push_nil_error(L, "E_INVAL", why);
+  g_hand_ops.forget(zone);
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// ---------------------------------------------------------------------------
 // gps: el cel, i el que un receptor en diu (0.192.63)
 // ---------------------------------------------------------------------------
 
@@ -14549,6 +14806,21 @@ void seal_globals(lua_State* L) {
     set_function(L, "idle", l_lora_idle);
     set_function(L, "sleep", l_lora_sleep);
     lua_setglobal(L, "lora");
+  }
+
+  // **I la lletra escrita a mà** (0.192.71): la taula hi és quan el nucli ha instal·lat el servei, que és sempre —el model és
+  // del sistema i no d'una placa—, i si no hi fos les crides contestarien `E_UNSUPPORTED` en lloc de no existir (docs/30).
+  if (g_hand_ops.available != nullptr) {
+    lua_newtable(L);
+    set_function(L, "caps", l_hand_caps);
+    set_function(L, "grid", l_hand_grid);
+    set_function(L, "add", l_hand_add);
+    set_function(L, "guess", l_hand_guess);
+    set_function(L, "count", l_hand_count);
+    set_function(L, "save", l_hand_save);
+    set_function(L, "load", l_hand_load);
+    set_function(L, "forget", l_hand_forget);
+    lua_setglobal(L, "hand");
   }
 
   // **I el cel, quan la placa el mira** (0.192.63): la taula només hi és amb un receptor, o sigui que una app que comprova
@@ -15477,6 +15749,8 @@ void set_env_ops(const EnvOps& ops) { g_env_ops = ops; }
 void set_lora_ops(const LoraOps& ops) { g_lora_ops = ops; }
 
 void set_gps_ops(const GpsOps& ops) { g_gps_ops = ops; }
+
+void set_hand_ops(const HandOps& ops) { g_hand_ops = ops; }
 
 void set_button_ops(const ButtonOps& ops) { g_button_ops = ops; }
 

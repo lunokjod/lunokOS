@@ -1,0 +1,13 @@
+{
+  "name": "ink",
+  "version": "0.1.0",
+  "description": "A glyph drawn with a finger, put on a 7x7 grid, and the model that learns a person's own handwriting: k-nearest neighbours over the examples they drew, with a reject threshold and three candidates, and no allocation of its own.",
+  "license": "MIT",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include",
+    "flags": ["-Wall", "-Wextra", "-Werror"]
+  },
+  "frameworks": "*",
+  "platforms": "*"
+}

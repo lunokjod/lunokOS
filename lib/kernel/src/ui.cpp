@@ -28,6 +28,7 @@
 #include "kernel/display.h"
 #include "kernel/font.h"
 #include "kernel/fs_ops.h"
+#include "kernel/hand.h"
 #include "kernel/serial.h"
 #include "kernel/session.h"
 #include "kernel/shell.h"
@@ -8215,6 +8216,26 @@ class Keyboard {
   // wire— and its whole life is a claim on the serial port, so the band, the finger, the height and the paint are not its
   // business. One question and not a second class of keyboard held apart (docs/30, docs/50, docs/90).
   virtual bool is_the_wire() const { return false; }
+  // **I el teclat que es dibuixa a si mateix** (0.192.71): the `handwrite` band is not a grid of keys —it is two surfaces a
+  // finger draws letters on—, o sigui que el que el pare li demana no és una disposició sinó quatre coses: quant fa d'alt,
+  // com es pinta, què fa amb un dit que la travessa i si encara deu un torn. Tot el que és el contacte amb el camp de text
+  // —`ui_keyboard_typed`— i la neteja de la banda continuen sent del pare (docs/30, docs/90).
+  virtual bool paints_itself() const { return false; }
+  virtual uint16_t own_height() const { return 0; }
+  virtual void paint_own(Canvas& view, int32_t top, hal::UpdateMode mode) {
+    (void)view;
+    (void)top;
+    (void)mode;
+  }
+  virtual bool own_touch(uint16_t x, uint16_t y, bool down) {
+    (void)x;
+    (void)y;
+    (void)down;
+    return false;
+  }
+  // **El torn que la banda demana per a ella** (0.192.71): the parent's `owes` is asked every turn, i el teclat de la lletra
+  // escrita a mà hi tanca la lletra quan el dit fa estona que no hi és (docs/30, docs/60).
+  virtual bool own_turn() { return false; }
 
   bool show(uint8_t kind);
   bool hide();
@@ -8229,7 +8250,10 @@ class Keyboard {
   // **El que la banda deu i encara no és al llenç** (0.179.36): the case and the alphabet mark the band and nothing of the
   // page, so this is the question the kernel asks every turn before it decides that nobody owes anything
   // (docs/30, docs/50). It is public because the kernel is not the keyboard's friend.
-  bool owes() const { return shown_ && (needs_paint_ || (dw_ > 0 && dh_ > 0)); }
+  bool owes() {
+    if (shown_ && paints_itself() && own_turn()) needs_paint_ = true;
+    return shown_ && (needs_paint_ || (dw_ > 0 && dh_ > 0));
+  }
 
  private:
   const LayoutDef& current_layout() const { return layout(kind_); }
@@ -8302,10 +8326,274 @@ class SerialKeyboard final : public Keyboard {
   }
 };
 
+
+// **El quart teclat: la lletra escrita a mà** (0.192.71, l'amo: *«Has de crear un nou teclat per software: "Handwrite". El teclat
+// te dos panells a tota la seva superfície, una banda per números i simbols, l'altre per lletres. Posa la línia per escriure
+// centrat. L'usuari fa el traç lletra a lletra i el teclat va donant el caràcter»*).
+//
+// **Dues superfícies i una línia**, i prou: the left two thirds of the band are where letters are drawn, the right third is
+// where numbers and symbols are (two zones, two models, and the finger itself says which one is being written on), the top of the
+// band is the line with the characters this band has typed, i el peu són els candidats i les tres tecles que no es dibuixen.
+//
+// **Es dibuixa a cegues i la lletra surt en parar** (l'amo: *«l'usuari dibuixa una lletra al panell del teclat (a cegues, es
+// dibuixa al parar d'escriure, com el paint)»*): the stroke is collected and nothing is painted of it; quan el dit fa 1,2 segons
+// que no hi és, la lletra es tanca, el model del nucli diu quina és, i si no n'està segur la banda ensenya els tres candidats i
+// **el toc d'un d'ells és una mostra nova** (docs/30, docs/90).
+// What the hand band uses and what is defined further down, said here: the face of the band and the drawing of the three keys
+// that are a shape and not a word (docs/90).
+const font::Face& keyboard_face();
+void draw_icon(Canvas& view, KeyAction action, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level);
+
+class HandwriteKeyboard final : public Keyboard {
+ public:
+  const char* id() const override { return "handwrite"; }
+  const LayoutDef& layout(uint8_t kind) const override {
+    return (kind == kKeyboardNumeric) ? kNumericLayout : kQwertyLayout;
+  }
+  bool paints_itself() const override { return true; }
+  uint16_t own_height() const override { return kBandH; }
+  void paint_own(Canvas& view, int32_t top, hal::UpdateMode mode) override;
+  bool own_touch(uint16_t x, uint16_t y, bool down) override;
+  bool own_turn() override;
+
+  // **Les mides de la banda**, en un sol lloc: the band, the line at the top of it, the two surfaces and the foot with the
+  // candidates and the three keys that are not drawn.
+  static const uint16_t kBandH = 372;
+  static const uint16_t kLineH = 44;
+  static const uint16_t kFootH = 64;
+  // The rest that says the letter is finished (l'amo: *«Esperar 1.2 segon»*).
+  static const uint32_t kRestMs = 1200;
+
+ private:
+  void type(char c);
+  void close_the_glyph();
+  void forget_the_candidates();
+  // The boxes of the band, in view coordinates: the whole band at `top`, the line, the two surfaces and the foot.
+  void boxes(int32_t top, int32_t& surface_top, int32_t& surface_h, int32_t& split, int32_t& foot_top) const;
+
+  bool drawing_ = false;
+  uint8_t zone_ = 0;          // which of the two models the stroke belongs to (0 letters, 1 symbols)
+  int64_t last_ms_ = 0;       // when the finger last moved
+  bool owes_the_rest_ = false;
+  char typed_[28] = {};       // the line: the characters this band has typed
+  uint8_t typed_len_ = 0;
+  char candidate_[3] = {};
+  uint8_t candidates_ = 0;
+};
+
+void HandwriteKeyboard::boxes(int32_t top, int32_t& surface_top, int32_t& surface_h, int32_t& split,
+                              int32_t& foot_top) const {
+  surface_top = top + kLineH;
+  foot_top = top + static_cast<int32_t>(kBandH) - kFootH;
+  surface_h = foot_top - surface_top;
+  // **La lletra té dos terços i els números un**: a letter is the common thing and a digit is a corner of the band, i el que
+  // decideix la zona és on cau el dit i no cap tecla de mode (docs/90).
+  split = static_cast<int32_t>(root().width) * 62 / 100;
+}
+
+// **El que la banda ha escrit**, a la línia de dalt i centrat (l'amo: *«Posa la línia per escriure centrat»*): the characters
+// are what this band typed and not what the box has —the app may empty its box, and the line is the keyboard's own memory of the
+// last few letters— (docs/30, docs/90).
+void HandwriteKeyboard::paint_own(Canvas& view, int32_t top, hal::UpdateMode mode) {
+  const font::Face& face = keyboard_face();
+  int32_t surface_top = 0;
+  int32_t surface_h = 0;
+  int32_t split = 0;
+  int32_t foot_top = 0;
+  boxes(top, surface_top, surface_h, split, foot_top);
+  const int32_t width = static_cast<int32_t>(view.width);
+
+  // **La línia**: a rule under the characters and the characters over it, centred, with a caret where the next one goes.
+  const uint8_t line_scale = 4;
+  char shown[sizeof(typed_) + 2];
+  snprintf(shown, sizeof(shown), "%s|", typed_);
+  const int32_t line_w = static_cast<int32_t>(font::width(face, shown, line_scale));
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * line_scale;
+  draw_text(view, face, (width - line_w) / 2, top + (static_cast<int32_t>(kLineH) - line_h) / 2, shown, line_scale, 0, mode);
+  put_rect(view, 8, static_cast<int32_t>(kLineH) + top - 1, width - 16, 1, 4);
+
+  // **Les dues superfícies**, amb el seu marc d'un píxel i el seu nom a la cantonada: a person has to see where a letter goes and
+  // where a number goes, i un rectangle ple de gris fosc no és un marc (docs/92).
+  const int32_t letters_left = 8;
+  const int32_t letters_right = split - 9;
+  const int32_t numbers_left = split + 1;
+  const int32_t numbers_right = width - 9;
+  put_rect(view, letters_left, surface_top, letters_right - letters_left + 1, 1, 4);
+  put_rect(view, letters_left, surface_top + surface_h - 1, letters_right - letters_left + 1, 1, 4);
+  put_rect(view, letters_left, surface_top, 1, surface_h, 4);
+  put_rect(view, letters_right, surface_top, 1, surface_h, 4);
+  put_rect(view, numbers_left, surface_top, numbers_right - numbers_left + 1, 1, 4);
+  put_rect(view, numbers_left, surface_top + surface_h - 1, numbers_right - numbers_left + 1, 1, 4);
+  put_rect(view, numbers_left, surface_top, 1, surface_h, 4);
+  put_rect(view, numbers_right, surface_top, 1, surface_h, 4);
+  const uint8_t word_scale = 2;
+  draw_text(view, face, letters_left + 6, surface_top + 6, "letters", word_scale, 4, mode);
+  draw_text(view, face, numbers_left + 6, surface_top + 6, "123", word_scale, 4, mode);
+
+  // **El peu**: tres candidats a l'esquerra —el que el model dubta— i les tres tecles que no es dibuixen a la dreta.
+  put_rect(view, 8, foot_top, width - 16, 1, 4);
+  const int32_t cell = 64;
+  for (uint8_t i = 0; i < candidates_; ++i) {
+    const int32_t x = 8 + static_cast<int32_t>(i) * (cell + 4);
+    put_rect(view, x, foot_top + 1, cell, static_cast<int32_t>(kFootH) - 1, 4);
+    char one[2] = {candidate_[i], 0};
+    const uint8_t scale = 5;
+    const int32_t taken = static_cast<int32_t>(font::width(face, one, scale));
+    draw_text(view, face, x + (cell - taken) / 2, foot_top + (static_cast<int32_t>(kFootH) - line_h * scale / line_scale) / 2,
+              one, scale, 0, mode);
+  }
+  // **Les tres tecles que no es dibuixen**: the return and the backspace are shapes the other bands already draw, i l'espai és una
+  // barra amb la seva paraula, que és el que una persona busca amb el polze (docs/90).
+  const int32_t key = static_cast<int32_t>(kFootH) - 8;
+  const int32_t right = width - 8;
+  draw_icon(view, KeyAction::kEnter, right - key, foot_top + 4, key, key, 0);
+  draw_icon(view, KeyAction::kBack, right - 2 * key - 6, foot_top + 4, key, key, 0);
+  const int32_t space_w = key + key / 2;
+  const int32_t space_x = right - 3 * key - 12 - space_w;
+  put_rect(view, space_x, foot_top + 4, space_w, 1, 4);
+  put_rect(view, space_x, foot_top + 4 + key - 1, space_w, 1, 4);
+  put_rect(view, space_x, foot_top + 4, 1, key, 4);
+  put_rect(view, space_x + space_w - 1, foot_top + 4, 1, key, 4);
+  {
+    const int32_t taken = static_cast<int32_t>(font::width(face, "space", word_scale));
+    draw_text(view, face, space_x + (space_w - taken) / 2, foot_top + 4 + (key - line_h * word_scale / line_scale) / 2,
+              "space", word_scale, 0, mode);
+  }
+}
+
+// **Un caràcter a la línia i al camp**, pel camí de sempre: the band types with the same door as a key of the grid, o sigui que
+// una app no ha de saber que el que l'ha escrit és un dit i no una tecla (docs/30, docs/90).
+void HandwriteKeyboard::type(char c) {
+  if (c == '\0') return;
+  if (!luabind::ui_keyboard_has_target()) {
+    log_printf(pal::kLogWarn, "UI", "the hand band typed '%c' with no object to type into", c);
+  }
+  luabind::ui_keyboard_typed(static_cast<int>(c));
+  if (static_cast<size_t>(typed_len_) + 1 >= sizeof(typed_)) {
+    memmove(typed_, typed_ + 1, sizeof(typed_) - 2);
+    typed_len_ = static_cast<uint8_t>(sizeof(typed_) - 2);
+  }
+  typed_[typed_len_++] = c;
+  typed_[typed_len_] = '\0';
+  log_printf(pal::kLogInfo, "UI", "the hand band types '%c'", c);
+}
+
+void HandwriteKeyboard::forget_the_candidates() {
+  candidates_ = 0;
+  candidate_[0] = candidate_[1] = candidate_[2] = '\0';
+}
+
+// **La lletra s'ha acabat** (l'amo: *«Esperar 1.2 segon per assegurar que ha acabat … Passar-li al perceptron … Desar l'estat del
+// perceptron i el caràcter»*): the glyph goes to the model of its zone; si el primer candidat és prou segur s'escriu, i si no ho és
+// la banda ensenya els tres i espera un dit (docs/30, docs/90).
+void HandwriteKeyboard::close_the_glyph() {
+  if (hand::glyph().empty()) return;
+  const ink::Answer answer = hand::guess(zone_);
+  forget_the_candidates();
+  if (!answer.any) {
+    log_printf(pal::kLogInfo, "UI", "the hand band drew nothing the %s model knows", hand::zone_name(zone_));
+    return;
+  }
+  if (answer.confident || answer.count == 1) {
+    type(answer.top[0].text);
+    return;
+  }
+  candidates_ = answer.count;
+  for (uint8_t i = 0; i < answer.count && i < 3; ++i) candidate_[i] = answer.top[i].text;
+  log_printf(pal::kLogInfo, "UI", "the hand band is not sure (%c %u, %c %u): it asks", answer.top[0].text,
+             static_cast<unsigned>(answer.top[0].distance),
+             (answer.count > 1) ? answer.top[1].text : '-',
+             (answer.count > 1) ? static_cast<unsigned>(answer.top[1].distance) : 0);
+}
+
+// **El torn de la banda**: the pause is counted here, which is the question the kernel already asks every turn for the band that
+// owes a paint (docs/30, docs/60).
+bool HandwriteKeyboard::own_turn() {
+  if (!owes_the_rest_) return false;
+  if (pal::system().millis() - last_ms_ < static_cast<int64_t>(kRestMs)) return false;
+  owes_the_rest_ = false;
+  close_the_glyph();
+  return true;
+}
+
+// **El dit damunt la banda** (l'amo: *«l'usuari dibuixa una lletra al panell del teclat»*): el dit que baixa en una superfície obre
+// un traç, cada marc afegeix un punt, i el que aixeca el tanca i comença a comptar la pausa. El peu és de les tecles: un candidat
+// s'escriu i s'aprèn, i les altres tres són el que són (docs/30, docs/90).
+bool HandwriteKeyboard::own_touch(uint16_t x, uint16_t y, bool down) {
+  int32_t surface_top = 0;
+  int32_t surface_h = 0;
+  int32_t split = 0;
+  int32_t foot_top = 0;
+  boxes(static_cast<int32_t>(root().height) - static_cast<int32_t>(kBandH), surface_top, surface_h, split, foot_top);
+  const int64_t now = pal::system().millis();
+  if (!down) {
+    if (drawing_) {
+      hand::glyph().lift();
+      drawing_ = false;
+      last_ms_ = now;
+      owes_the_rest_ = true;
+    }
+    return true;
+  }
+  if (drawing_) {
+    // **Els marcs del camí**: every frame of a finger that began on the band comes here, i el que fa és afegir el punt.
+    if (!hand::glyph().add(static_cast<int16_t>(x), static_cast<int16_t>(y))) {
+      // **Un traç que no cap és un traç que s'acaba**: the glyph's ceiling is the block's, and a drawing that fills it is a
+      // drawing nobody made; it is closed where it is (docs/75).
+      hand::glyph().lift();
+      drawing_ = false;
+      last_ms_ = now;
+      owes_the_rest_ = true;
+    } else {
+      last_ms_ = now;
+    }
+    return true;
+  }
+  // **Un contacte nou**: el peu primer, que són tecles, i després les dues superfícies.
+  if (y >= foot_top) {
+    const int32_t width = static_cast<int32_t>(root().width);
+    const int32_t cell = 64;
+    for (uint8_t i = 0; i < candidates_; ++i) {
+      const int32_t at = 8 + static_cast<int32_t>(i) * (cell + 4);
+      if (x < at || x >= at + cell) continue;
+      // **El toc d'un candidat és una mostra nova i etiquetada** (0.192.71): the person has just said which letter it was, and the
+      // glyph is still in the system's block, o sigui que el model millora amb l'ús sense cap pàgina d'entrenament (docs/30, docs/90).
+      const char chosen = candidate_[i];
+      if (hand::add(zone_, chosen)) {
+        log_printf(pal::kLogInfo, "UI", "the hand band learns '%c' from a choice", chosen);
+      }
+      type(chosen);
+      forget_the_candidates();
+      return true;
+    }
+    const int32_t key = static_cast<int32_t>(kFootH) - 8;
+    const int32_t right = width - 8;
+    if (x >= right - key) {
+      luabind::ui_keyboard_typed(13);
+    } else if (x >= right - 2 * key - 6) {
+      luabind::ui_keyboard_typed(8);
+      if (typed_len_ > 0) typed_[--typed_len_] = '\0';
+    } else if (x >= right - 3 * key - 12 - key - key / 2) {
+      type(' ');
+    }
+    return true;
+  }
+  if (y < surface_top || y >= surface_top + surface_h) return false;
+  // **Quina de les dues zones**: the finger says it, the same way a person's hand does (docs/90).
+  zone_ = (x < split) ? static_cast<uint8_t>(hand::kLetters) : static_cast<uint8_t>(hand::kSymbols);
+  hand::glyph().clear();
+  hand::glyph().add(static_cast<int16_t>(x), static_cast<int16_t>(y));
+  forget_the_candidates();
+  drawing_ = true;
+  last_ms_ = now;
+  return true;
+}
+
 QwertyKeyboard g_qwerty;
 AzertyKeyboard g_azerty;
 SerialKeyboard g_serial;
-Keyboard* const g_keyboards[] = {&g_qwerty, &g_azerty, &g_serial};
+HandwriteKeyboard g_handwrite;
+Keyboard* const g_keyboards[] = {&g_qwerty, &g_azerty, &g_serial, &g_handwrite};
 const uint8_t kKeyboardCount = static_cast<uint8_t>(sizeof(g_keyboards) / sizeof(g_keyboards[0]));
 Keyboard* g_keyboard = &g_qwerty;
 
@@ -8664,7 +8952,9 @@ void Keyboard::measure() {
 }
 
 int32_t Keyboard::band_top() const {
-  if (!shown_ || key_h_ == 0) return 0;
+  if (!shown_) return 0;
+  if (paints_itself()) return static_cast<int32_t>(root().height) - static_cast<int32_t>(own_height());
+  if (key_h_ == 0) return 0;
   return static_cast<int32_t>(root().height) - current_layout().count * static_cast<int32_t>(key_h_);
 }
 
@@ -8875,6 +9165,8 @@ uint16_t Keyboard::height() const {
   // the point of a keyboard that is not on the glass (docs/30, docs/90).
   if (is_the_wire()) return 0;
   if (!shown_) return 0;
+  // **I la banda que es dibuixa sap quant fa** (0.192.71): two surfaces and a line are not four rows of keys.
+  if (paints_itself()) return own_height();
   return static_cast<uint16_t>(current_layout().count * static_cast<int32_t>(key_h_));
 }
 
@@ -8884,7 +9176,8 @@ uint16_t Keyboard::height() const {
 void Keyboard::paint() {
   // **El teclat del cable no es pinta, perquè no hi és** (0.189.21).
   if (is_the_wire()) return;
-  if (!shown_ || key_h_ == 0) return;
+  if (!shown_) return;
+  if (!paints_itself() && key_h_ == 0) return;
   Canvas& view = root();
   if (view.bits == nullptr || view.width == 0) return;
   // **A band is a picture that changes when it changes and not on every present** (0.84.4): a letter typed does not
@@ -8909,6 +9202,25 @@ void Keyboard::paint() {
   // a letter of before left a grey that read as a second keyboard (docs/50, docs/90).
   const hal::UpdateMode mode = clean_ ? hal::UpdateMode::kGc16 : hal::UpdateMode::kGld16;
   clean_ = false;
+  // **El que es dibuixa a si mateix pinta la seva banda i prou** (0.192.71): the wash, the two rows of ink that say where the page
+  // ends and the paper are the parent's —a band is a band—, i el contingut és del fill (docs/90).
+  if (paints_itself()) {
+    DamageKeep keep;
+    keep.take(view);
+    draw_fill_rect(view, 0, static_cast<uint16_t>(top), view.width, own_height(), 15, mode);
+    put_rect(view, 0, top, view.width, 2, 0);
+    paint_own(view, top, mode);
+    keep.give_back(view);
+    // **I la caixa de la banda és el que va al vidre** (0.192.71): the wash of the page is the page's damage and this is the
+    // band's own, o sigui que una banda que es pinta i no es marca **no arriba mai al panell** —el que s'ha vist a l'emulador el
+    // primer cop: la banda blanca a sobre d'una pàgina blanca— (docs/50, docs/90).
+    if (dw_ > 0 && dh_ > 0) {
+      mark_box(view, dx_, dy_, dw_, dh_, mode);
+      dw_ = 0;
+      dh_ = 0;
+    }
+    return;
+  }
   const font::Face& face = keyboard_face();
   const LayoutDef& current = current_layout();
   const int32_t key_h = static_cast<int32_t>(key_h_);
@@ -9027,6 +9339,10 @@ bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
                static_cast<unsigned>(key_h_));
   }
   if (!shown_) return false;
+  // **Una banda que es dibuixa a si mateixa rep el dit sencer, marcs i tot** (0.192.71): a strip of keys is asked once, where the
+  // finger landed, because one press is one key; a surface a letter is drawn on needs **every frame of the path**, and the band
+  // that draws knows where its surfaces are (docs/30, docs/90).
+  if (paints_itself()) return own_touch(x, y, down);
   if (!down) {
     const bool was = held_;
     held_ = false;

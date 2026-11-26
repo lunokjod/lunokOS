@@ -15248,7 +15248,40 @@ namespace kernel {
 // volta. El preu, mesurat al mateix run: dos repintats de pàgina sencera (`gl16` de 286 i 299 ms) i el de la barra (`a2` de
 // 518 ms) per cada tick amb pàgina al davant.
 
-static const char kVersion[] = "0.192.70";
+// **0.192.71 — la lletra escrita a mà, i el teclat que aprèn la d'aquesta persona** (l'amo: *«Has de crear un nou teclat per
+// software: "Handwrite". El teclat te dos panells a tota la seva superfície, una banda per números i simbols, l'altre per lletres.
+// Posa la línia per escriure centrat. L'usuari fa el traç lletra a lletra i el teclat va donant el caràcter … Aquest teclat
+// necessita una app d'entrenament … l'usuari dibuixa una lletra · Esperar 1.2 segon · Passar-li al perceptron … Desar l'estat del
+// perceptron i el caràcter a un arxiu que el teclat pugui usar»*). Les tres peces, amb el que es va parlar abans de programar:
+//
+//   - **`lib/ink`** (0.1.0): el glif tal com el dibuixa un dit, la **quadrícula 7×7 de tres nivells** —el que un traç hi passa una
+//     vegada, dues vegades o hi gira— i el model de **k veïns més propers** sobre els exemples de la persona, amb la distància que
+//     compta cel·les, nombre de traços i proporció del requadre (el que separa una `i` d'una `l` i un `-` d'un `|`). **No hi ha cap
+//     reserva de memòria** i el model és una vista del bloc que li deixa el qui el demana (docs/30, docs/75).
+//   - **`kernel/hand.cpp`**: els dos models —`letters` i `symbols`—, el glif únic del sistema que l'intèrpret omple, i el fitxer de
+//     `/data/handwrite/` (l'`INK1` de vuit bytes de capçalera i setze per mostra). El bloc de les mostres es demana a la memòria
+//     extra quan la primera lletra s'escriu, i el model del disc es llegeix la primera vegada que es pregunta o s'hi afegeix res
+//     (docs/30, docs/70).
+//   - **`hand.*` a Lua** (`caps`, `grid`, `add`, `guess`, `count`, `save`, `load`, `forget`): el dibuix entra com una llista de
+//     traços i cada traç com una llista de punts, el caràcter és un byte, i la resposta porta el primer, si és segur i **els tres
+//     candidats** (docs/30).
+//   - **`apps/handwrite`** (0.1.0): la pàgina que entrena —el caràcter gran i la paraula que el porta, el paper, la **quadrícula
+//     que el model veu** després de cada lletra, el comptador per caràcter, una passada de prova amb el percentatge— i que desa
+//     el model amb l'app (docs/30, docs/45).
+//   - **La banda del nucli**: `Keyboard` guanya quatre preguntes (`paints_itself`, `own_height`, `paint_own`, `own_touch`) i el
+//     torn que la banda demana (`own_turn`), i `handwrite` és el quart fill: dues superfícies amb el seu marc, la línia del que
+//     s'ha escrit al damunt amb el cursor al final, i el peu amb els tres candidats i les tecles d'espai, esborrar i retorn. El dit
+//     rep **cada marc del camí**; la pausa de 1,2 segons tanca la lletra i la banda demana el seu torn, que és el que el nucli ja
+//     pregunta cada volta (docs/30, docs/90).
+//   - **Les versions**: `ink` 0.1.0, `kernel` 0.9.83, `luabind` 0.11.8, `handwrite` 0.1.0.
+//
+// Provat: `test_ink` (deu casos, del cercle que no és una `c` al viatge del model pel fitxer), la porta `hand` a `test_luabind`, la
+// banda a `test_ui` (el traç sencer, el peu que és de tecles i la pausa que demana el torn), i a l'emulador el camí de debò —dues
+// formes ensenyades, la que es reconeix sola, el model desat a `/data/handwrite/letters` i tornat a llegir— i la pàgina del teclat
+// amb `cfg keyboard handwrite`. El que **no** s'ha provat és el dit de debò damunt el vidre: a l'emulador no hi ha manera
+// d'injectar un traç, i el que s'ha vist és la banda pintada i la lletra que hi arriba des d'una prova.
+
+static const char kVersion[] = "0.192.71";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H
