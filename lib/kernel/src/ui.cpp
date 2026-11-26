@@ -8495,6 +8495,12 @@ void HandwriteKeyboard::close_the_glyph() {
     return;
   }
   if (answer.confident || answer.count == 1) {
+    // **El log diu què ha llegit i amb quina distància** (0.192.74): `the hand band types` deia la lletra i prou, i el número és
+    // el que fa veure si el model va just o sobrat (kNear és 20, docs/90).
+    log_printf(pal::kLogInfo, "UI", "the hand band reads '%c' (%u, next '%c' at %u)", answer.top[0].text,
+               static_cast<unsigned>(answer.top[0].distance),
+               (answer.count > 1) ? answer.top[1].text : '-',
+               (answer.count > 1) ? static_cast<unsigned>(answer.top[1].distance) : 0);
     type(answer.top[0].text);
     return;
   }

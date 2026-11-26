@@ -15281,7 +15281,104 @@ namespace kernel {
 // amb `cfg keyboard handwrite`. El que **no** s'ha provat és el dit de debò damunt el vidre: a l'emulador no hi ha manera
 // d'injectar un traç, i el que s'ha vist és la banda pintada i la lletra que hi arriba des d'una prova.
 
-static const char kVersion[] = "0.192.71";
+// **0.192.72 — la lletra de l'entrenament es pinta quan s'ha acabat, i amb un bolígraf** (l'amo: *«NOOO... NO DIBUIXIS FINS AL
+// FINAL, quan l'usuari ha llevat el dit durant > 1.2 segons... i fes-ho amb un traç gruixut, no una linia.»* i *«Fes el text dels
+// botons una mica mes gran»*).
+//
+//   - **Res no es pinta mentre el dit hi és**: the page used to ink the paper every two hundred milliseconds —the loop of the app,
+//     which was a martelleig on an e-ink panel and left the ghost of every attempt— and now the points are only kept; quan la pausa
+//     de 1,2 segons passa, la lletra sencera apareix d'un cop amb una sola passada al vidre (docs/30, docs/85).
+//   - **I amb un traç gruixut** (set píxels, radi tres): `cv:line` d'un píxel és la vora del que deixa un dit i no el que deixa; el
+//     que es pinta és un quadrat a cada pas del camí, que és el dibuix d'un bolígraf gruixut d'aquest vidre (docs/90).
+//   - **La lletra es queda al paper** fins que en comença una altra, i la quadrícula que el model ha vist es queda amb ella: el que
+//     la persona acaba de fer és el que ha de poder mirar (docs/30).
+//   - **Els botons, una mica més grans**: `Retry`, `Skip`, `123` i `Save` passen de dos passos de lletra a tres.
+//   - **Les versions**: `handwrite` 0.1.1.
+//
+// Provat amb `--dump` a l'emulador: un cercle de prova pintat amb el gruix nou (la pàgina l'ha ensenyat com un traç de bolígraf i
+// la quadrícula com el seu anell) i la pàgina neta amb els botons grans. El que no s'ha provat és el dit de debò damunt el vidre.
+
+// **0.192.73 — la icona de l'app Handwrite** (l'amo: *«posa una icona adient a l'app»*).
+//
+//   - **Un full amb la línia d'escriure i una `a` a sobre**, amb la tinta de la vora i el paper de la resta d'icones d'aquí: és el
+//     que la pàgina fa —una lletra dibuixada a mà sobre una línia— i no el model que hi ha a sota.
+//   - **La quadrícula de set no hi és**: el primer dibuix portava la lletra dins de la seva quadrícula 7x7, que és el que el model
+//     mira, i a noranta-quatre píxels set cel·les són una bardissa i la lletra deixava de llegir-se. Es va provar de tres i de cinc
+//     cel·les i totes dues es menjaven el dibuix; el que fa de mà és la proporció de la lletra, no el traç tremolós, que a aquesta
+//     mida és una taca.
+//   - **Les versions**: `handwrite` 0.1.2 (manifest amb `icon`).
+
+// **0.192.74 — la lletra de l'entrenament es veu i el log diu què s'ha après** (l'amo, provant-ho a la placa: *«No queda gens clar
+// el recuadre, es massa claret i fi, fes-lo mes gruixut. La pintada de la lletra quan es lleva el dit amb un gruix molt, molt MOLT
+// MES gros. La lletra que s'ha de dibuixar desapareix en color claret i no es veu quina es. Al guardar les dades ho deixes clar al
+// log i el resultat?»*).
+//
+//   - **El bolígraf, de set píxels a vint-i-un** (`kPenRadius` 3 → 10): el traç del paper és el d'un retolador i no el que deixa la
+//     vora d'un dit (docs/30, docs/90).
+//   - **Els recuadres del paper i de la quadrícula, sis píxels i en negre** (`kFramePx`): eren un píxel en el gris del mig, o sigui
+//     un marc que s'havia de buscar; el mig de la quadrícula passa també del gris vuit al quatre (docs/30, docs/85).
+//   - **El caràcter a dibuixar, més gran i sense grisos**: `CHAR_H` de 96 a 116 i `scale` de 10 a 12, i el subtítol i la paraula
+//     del record passen de nivell quatre a zero —el que deia quina lletra toca es llegia malament— (docs/30).
+//   - **El log diu el resultat de cada mostra** (docs/30, docs/90): `'a' learned in letters: 2 example(s) of it, 3 in all`, i quan
+//     no entra, per què —`that drawing is already one of its examples`, `the model is full`, `the drawing has no shape`—. La banda
+//     també diu què ha llegit i amb quina distància: `the hand band reads 'a' (12, next 'c' at 34)`.
+//   - **Els fantasmes del redibuixat no es toquen**: el que es va veure a l'emulador —una lletra vella en gris clar sota la nova— és
+//     cosa de l'emulador i no del vidre (l'amo: *«Oblida els problemes de redibuixat. Són errors del emulador»*), o sigui que els
+//     presents de la pàgina es queden com eren.
+//   - **Les versions**: `handwrite` 0.1.3.
+//
+// Provat amb l'emulador i el ratolí de la seva finestra damunt d'un Xvfb propi: un traç dibuixat de debò recorre el camí sencer —el
+// dit, la pausa d'1,2 segons, el paper, la quadrícula, el model i el log— i la pàgina surt amb el marc gruixut i el bolígraf nou.
+
+// **0.192.75 — la lletra gran, negra i demanada cada cop** (l'amo, amb la 0.192.74 a la placa: *«l'app no refresca be. perd la
+// lletra gran. fes-la negre»*).
+//
+//   - **Negre sobre paper, dit també el fons**: el caràcter a dibuixar ja era de nivell zero, però el label és opac i el seu fons
+//     ara es diu explícitament (quinze, el paper): un fons que no és el paper tapa mitja lletra (docs/30).
+//   - **Els textos es tornen a demanar a cada pintat** (`ask_for_the_texts`): a label only asks for its box when its text changes, i el
+//     caràcter, la paraula del record i el peu són el que una persona ha de poder llegir cada vegada que el paper canvia (docs/30).
+//   - **Les versions**: `handwrite` 0.1.4.
+//
+// Provat amb `--dump` a l'emulador: la pàgina amb el marc gruixut, la `a` gran i negra, la paraula i el peu negres.
+
+// **0.192.76 — el que la 0.192.75 va trencar es desfà, i el caràcter nou es pinta net** (l'amo: *«El refrec es horrible o no entenc la
+// mecànica, ara no hi ha lletra gran surt "dit" en petit»*).
+//
+//   - **Fora el `background` del label i fora el `:invalidate()` dels textos**: les dues coses eren meves de la 0.192.75 i el que van
+//     fer va ser treure la lletra gran del vidre. Un label sense buffer escriu al canvas de la pàgina, i demanar-li la caixa a part no
+//     és el que li cal (docs/30).
+//   - **El caràcter nou es pinta amb `gc16`**: quan la pàgina passa a un altre caràcter, el pintat net esborra el glif anterior en
+//     lloc de deixar-lo com una lletra més clara a sota; passa un cop per caràcter i no a cada traç (docs/30, docs/85).
+//   - **Les versions**: `handwrite` 0.1.5.
+
+// **0.192.77 — el peu de la pàgina, en ASCII, i els botons que no poden fer res apagats** (l'amo: *«el text útil d'abaix que deia
+// la lletra, les mostres i les lletres restants desapareix dient xorrades. Si no puc polsar el botó perquè no hi ha traç,
+// deshabilita i no molestis al usuari amb estupideses»*).
+//
+//   - **El peu deia xorrades perquè portava un caràcter de dos bytes**: the middle dot of `d: 1 of 3 · 12 of 34 letters ready` was
+//     UTF-8 and this glas reads one byte a character, o sigui que es pintaven dues lletres i la línia es feia més llarga i es
+//     tallava. Ara és tot ASCII i cap: `a 0/3  34 left` —el caràcter, les seves mostres i quantes lletres en falten— (docs/30).
+//   - **`Retry` deshabilitat quan no hi ha res a esborrar**: amb el paper net el botó no fa res, i el sistema el pinta amb la tinta
+//     del `dim` i no respon ni al dit ni al dial (docs/30).
+//   - **I un toc que no és una lletra no diu res**: el paper s'esborra i el peu es queda amb el que deia, en lloc d'aquell «that was
+//     not a drawing: try again» que no ajudava ningú (docs/30).
+//   - **Les versions**: `handwrite` 0.1.6.
+
+// **0.192.78 — `Save` només quan hi ha res de nou, i la lletra gran a la mida que es llegia** (l'amo: *«I el botó "save" si no hi ha
+// res a salvar? la lletra de dalt continua deapareixent. NO REFRESQUES BE O ESBORRES MASSA?»*).
+//
+//   - **`Save` deshabilitat fins que s'aprèn alguna cosa**: el model es desa en tancar l'app de totes maneres, o sigui que el botó
+//     només té feina quan hi ha una mostra que encara no és al disc; un comptador `dirty` ho diu i el botó es pinta amb la tinta del
+//     `dim` i no respon (docs/30, docs/70).
+//   - **El caràcter gran torna a la mida de la 0.192.72** (`scale` deu dins d'una caixa de noranta-sis): els dotze passos de la
+//     0.192.74 fan una línia de cent trenta-dos píxels dins d'una caixa de cent setze i el que en queda fora no es pinta, que és el
+//     que es va veure com «la lletra desapareix» (docs/30, docs/85).
+//   - **I es va provar de dibuixar-lo en un canvas propi, i no es pot**: `cv:text` no pinta res en un canvas sense cara (`font::runs`
+//     camina `face_of(canvas.face)`, i el canvas d'una app no en té); el label en té la de la pàgina, o sigui que el caràcter es queda
+//     en un label (docs/30).
+//   - **Les versions**: `handwrite` 0.1.7.
+
+static const char kVersion[] = "0.192.78";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

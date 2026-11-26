@@ -89,8 +89,24 @@ bool add(uint8_t zone, char text) {
   // esborraria les altres. Es llegeix una vegada i prou.
   if (!g_zone[zone].loaded) (void)load(zone);
   ink::Grid grid;
-  if (!ink::raster(g_glyph, grid)) return false;
-  return g_zone[zone].model.add(grid, text);
+  if (!ink::raster(g_glyph, grid)) {
+    hal::logf(pal::kLogInfo, "HAND", "'%c' was not learned: the drawing has no shape", text);
+    return false;
+  }
+  Zone& one = g_zone[zone];
+  // **El log diu què s'ha après i què no** (0.192.74, l'amo: *«Al guardar les dades ho deixes clar al log i el resultat?»*): a
+  // person watching the console has to be able to tell a letter that went in from one the model already had, i el compte de la
+  // lletra i el del model sencer són el que diu si l'entrenament avança (docs/30, docs/90).
+  if (!one.model.add(grid, text)) {
+    const char* why = !one.model.usable()          ? "the model has no block"
+                      : (one.model.count >= one.model.capacity) ? "the model is full"
+                                                                : "that drawing is already one of its examples";
+    hal::logf(pal::kLogInfo, "HAND", "'%c' was not learned in %s: %s", text, zone_name(zone), why);
+    return false;
+  }
+  hal::logf(pal::kLogInfo, "HAND", "'%c' learned in %s: %u example(s) of it, %u in all", text, zone_name(zone),
+            static_cast<unsigned>(one.model.examples_of(text)), static_cast<unsigned>(one.model.count));
+  return true;
 }
 
 ink::Answer guess(uint8_t zone) {

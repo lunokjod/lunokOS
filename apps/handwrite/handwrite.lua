@@ -37,9 +37,20 @@ local kDataLayout = 'v1'
 local kRestMs = 1200
 local kGoal = 3
 local kStepMs = 40
--- **La tinta no es demana a cada punt** (docs/50, docs/85): a e-ink una passada per cada punt d'un dit és un martelleig, o sigui
--- que la pàgina es pinta cada dos-cents mil·lisegons mentre es dibuixa i sempre en aixecar el dit.
-local kInkEveryMs = 200
+-- **El paper no es toca fins que la lletra s'ha acabat** (0.192.72, l'amo: *«NOOO... NO DIBUIXIS FINS AL FINAL, quan l'usuari ha
+-- llevat el dit durant > 1.2 segons»*): el dit apunta punts i no es pinta res; quan la pausa passa, la lletra sencera apareix d'un
+-- cop. És la regla del Paint —una pàgina de tinta que es va omplint a cada pas del dit és un martelleig i deixa el fantasma de
+-- cada intent— i aquí encara compta més: el que es dibuixa és el que el model ha de veure, i el que s'ensenya a mitges no és això.
+-- **El bolígraf, molt més gruixut** (0.192.74, l'amo: *«La pintada de la lletra quan es lleva el dit amb un gruix molt, molt MOLT
+-- MES gros»*): the pen went from seven pixels to **twenty-one** —a radius of ten, a square of twenty-one at every step of the
+-- path—, which on this glass is the width of a marker and not the width of a finger's edge (docs/30, docs/90).
+local kPenRadius = 10
+
+-- **I el recuadre del paper i el de la quadrícula, gruixut i negre** (l'amo: *«No queda gens clar el recuadre, es massa claret i
+-- fi, fes-lo mes gruixut»*): a one-pixel frame in the middle grey was a frame a person had to look for; what is drawn now is six
+-- pixels of ink, one frame inside the other (docs/30, docs/85).
+local kFramePx = 6
+
 
 -- **Els caràcters d'una zona, en l'ordre en què s'ensenyen**: the letters of Catalan —the twenty-six and the eight with a mark,
 -- which are one byte each in this system— i els símbols de la segona zona, que és la que la banda ensenya a l'altre panell.
@@ -112,6 +123,10 @@ end
 -- **On s'és de la feina**: `v1 zone index`, al fitxer de dades de l'app —el seu `/data/handwrite/`, que és l'únic lloc on pot
 -- escriure i el mateix on el teclat llegeix el model— (docs/70).
 local work = { zone = 'letters', index = 1, testing = false, hits = 0, tries = 0 }
+
+-- **Si hi ha alguna cosa nova per desar** (0.192.78, l'amo: *«I el botó "save" si no hi ha res a salvar?»*): the model is written
+-- when the app closes anyway, i el botó només té feina quan s'ha après alguna mostra que encara no és al disc (docs/30, docs/70).
+local dirty = false
 
 local function the_data_path()
   local base = fs.data()
@@ -192,9 +207,10 @@ local grid_x, grid_y = 0, 0
 local strokes = {}
 local drawing = false
 local last_move = 0
-local ink_at = 0
-local ink_dirty = false
 local last_grid = nil
+-- **Si el paper té la lletra d'abans**: the ink is only put there when a letter is finished, i la lletra següent comença en un
+-- paper net (docs/30, docs/85).
+local paper_is_dirty = false
 
 local function keep(control)
   if control ~= nil then owned[#owned + 1] = control end
@@ -211,22 +227,49 @@ local function give_back_the_view()
   retry, skip, zone_button, save_button, footer = nil, nil, nil, nil, nil
 end
 
--- **Els traços al paper**, amb la línia del canvas i no amb un rectangle per pas del dit: `cv:line` ja és la primitiva que
--- dibuixa un tros, i el que la pàgina ha de decidir és el gruix (aquí, tres píxels: un dit) (docs/30, docs/90).
-local function paint_the_strokes()
+-- **Un traç gruixut i no una línia** (0.192.72, l'amo: *«i fes-ho amb un traç gruixut, no una linia»*): `cv:line` d'un píxel és la
+-- vora del que un dit deixa i no el que deixa; el que es pinta és un quadrat de set píxels (radi tres) a cada pas del camí, que és
+-- el dibuix d'un bolígraf gruixut d'aquest vidre (docs/30, docs/90).
+local function a_wide_dot(canvas, x, y)
+  canvas:rect(x - kPenRadius, y - kPenRadius, 2 * kPenRadius + 1, 2 * kPenRadius + 1, 0)
+end
+
+-- **Un recuadre que es veu**: `cv:frame` fa un píxel i el mig sense tocar, o sigui que el gruix és una frame dins de l'altra.
+local function a_thick_frame(canvas)
+  local box = canvas:caps()
+  for i = 0, kFramePx - 1 do
+    canvas:frame(i, i, box.width - 2 * i, box.height - 2 * i, 0)
+  end
+end
+
+local function paint_a_stroke(canvas, stroke)
+  if #stroke == 0 then return end
+  a_wide_dot(canvas, stroke[1][1], stroke[1][2])
+  for i = 2, #stroke do
+    local x0, y0 = stroke[i - 1][1], stroke[i - 1][2]
+    local x1, y1 = stroke[i][1], stroke[i][2]
+    local steps = math.max(math.abs(x1 - x0), math.abs(y1 - y0))
+    if steps < 1 then
+      a_wide_dot(canvas, x1, y1)
+    else
+      for k = 0, steps do
+        a_wide_dot(canvas, x0 + (x1 - x0) * k // steps, y0 + (y1 - y0) * k // steps)
+      end
+    end
+  end
+end
+
+-- **El paper sencer, quan la lletra ja està feta**: the paper is cleaned, its frame is put back and the strokes are painted thick,
+-- tot d'un cop i amb una sola passada al vidre (docs/30, docs/85).
+local function paint_the_strokes(list)
   if paper == nil then return end
+  local drawn = list or strokes
   paper:clear(15)
-  -- **El paper s'ha de veure** (0.192.71): a white area on a white page is a page that does not say where the finger draws.
-  local box = paper:caps()
-  paper:frame(0, 0, box.width, box.height, 8)
-  for _, stroke in ipairs(strokes) do
-    if #stroke == 1 then
-      paper:rect(stroke[1][1] - 1, stroke[1][2] - 1, 3, 3, 0)
-    end
-    for i = 2, #stroke do
-      paper:line(stroke[i - 1][1], stroke[i - 1][2], stroke[i][1], stroke[i][2], 0)
-      paper:line(stroke[i - 1][1], stroke[i - 1][2] + 1, stroke[i][1], stroke[i][2] + 1, 0)
-    end
+  -- **El paper s'ha de veure** (0.192.71, i gruixut des de la 0.192.74): a white area on a white page is a page that does not say
+  -- where the finger draws.
+  a_thick_frame(paper)
+  for _, stroke in ipairs(drawn) do
+    paint_a_stroke(paper, stroke)
   end
   paper:invalidate()
 end
@@ -237,7 +280,7 @@ local function paint_the_grid()
   if grid_canvas == nil then return end
   grid_canvas:clear(15)
   local box = grid_canvas:caps()
-  grid_canvas:frame(0, 0, box.width, box.height, 8)
+  a_thick_frame(grid_canvas)
   if last_grid == nil then
     grid_canvas:invalidate()
     return
@@ -250,11 +293,19 @@ local function paint_the_grid()
   for y = 0, 6 do
     for x = 0, 6 do
       local level = tonumber(last_grid.cells:sub(y * 7 + x + 1, y * 7 + x + 1)) or 0
-      local ink = (level == 0) and 15 or ((level == 1) and 8 or 0)
+      local ink = (level == 0) and 15 or ((level == 1) and 4 or 0)
       grid_canvas:rect(x0 + x * cell, y0 + y * cell, cell - 1, cell - 1, ink)
     end
   end
   grid_canvas:invalidate()
+end
+
+-- **Un botó que no pot fer res, deshabilitat** (0.192.77, l'amo: *«Si no puc polsar el botó perquè no hi ha traç, deshabilita»*):
+-- `Retry` buida el paper i la quadrícula, i amb el paper net no té res a esborrar; el sistema el pinta amb la tinta del `dim` i no
+-- respon ni al dit ni al dial (docs/30).
+local function update_the_buttons()
+  if retry ~= nil then retry.disabled = (#strokes == 0 and last_grid == nil) end
+  if save_button ~= nil then save_button.disabled = not dirty end
 end
 
 local function say_the_work()
@@ -267,7 +318,10 @@ local function say_the_work()
   elseif c == nil then
     footer.text = string.format('done: %d of %d letters, %d example(s)', done, all, sum)
   else
-    footer.text = string.format('%s: %d of %d · %d of %d letters ready', c, taught(c), kGoal, done, all)
+    -- **El peu, en ASCII** (0.192.77, l'amo: *«el text útil d'abaix … desapareix dient xorrades»*): the middle dot of this line
+    -- was two bytes of UTF-8 and this glass reads one byte a character, o sigui que es pintava com dues lletres i la línia es
+    -- feia més llarga i es tallava. El que hi ha ara cap i diu el mateix: el caràcter, les seves mostres i quantes en falten.
+    footer.text = string.format('%s %d/%d  %d left', c, taught(c), kGoal, all - done)
   end
 end
 
@@ -327,17 +381,24 @@ local function show_the_character()
     if hint ~= nil then hint.text = a_word_for(c) end
   end
   say_the_work()
+  update_the_buttons()
 end
 
 local function the_glyph_is_done()
   if #strokes == 0 then return end
   local drawn = strokes
   strokes = {}
+  -- **La lletra apareix ara i sencera** (l'amo: *«NO DIBUIXIS FINS AL FINAL»*): el que s'ha apuntat mentre el dit hi era es pinta
+  -- d'un cop, amb el gruix del bolígraf, i el que queda al paper és el que el model ha vist (docs/30, docs/85).
+  paint_the_strokes(drawn)
+  paper_is_dirty = true
   local grid = hand.grid(drawn)
   if grid == nil then
-    -- **Una premsa no és una lletra**: the drawing was a tap or had no shape, i el que fa la pàgina és dir-ho i esborrar-la.
-    if footer ~= nil then footer.text = 'that was not a drawing: try again' end
-    paint_the_strokes()
+    -- **Un toc no és una lletra, i no es diu res** (0.192.77, l'amo: *«no molestis al usuari amb estupideses»*): the drawing was a
+    -- tap or had no shape, o sigui que s'esborra i el peu es queda amb el que deia —el caràcter, les seves mostres i les que
+    -- falten—, que és el que una persona ha de llegir (docs/30).
+    paint_the_strokes({})
+    ui.present()
     return
   end
   last_grid = grid
@@ -357,6 +418,7 @@ local function the_glyph_is_done()
       end
     else
       local added = hand.add(work.zone, c, drawn)
+      if added then dirty = true end
       if footer ~= nil then
         footer.text = added and ('learned ' .. c .. ' (' .. taught(c) .. ' of ' .. kGoal .. ')')
           or ('the same drawing of ' .. c .. ' was already there')
@@ -373,12 +435,20 @@ local function the_glyph_is_done()
     end
   end
   save_work()
-  -- **La pàgina no es torna a fer per cada lletra**: the labels change and the paper is cleaned; rebuilding every control for
-  -- every stroke would be a whole page of ink per letter (docs/30, docs/85).
+  -- **La pàgina no es torna a fer per cada lletra, i el que s'acaba de dibuixar-s'hi queda**: the labels change, the grid is the
+  -- one of this drawing and the paper keeps the letter —el que la persona ha fet és el que ha de poder mirar— fins que en comença
+  -- una altra (docs/30, docs/85).
+  local was = the_character_at(work.index)
   show_the_character()
-  paint_the_strokes()
   paint_the_grid()
-  ui.present()
+  -- **Un caràcter nou es pinta net** (0.192.76, l'amo: *«l'app no refresca be. perd la lletra gran»*): the letter is the one thing on
+  -- this page a person cannot guess, and a fast paint leaves the one before it as a lighter glyph under the new one; `gc16` pinta i
+  -- neteja, i passa un cop per caràcter i no a cada traç (docs/30, docs/85).
+  if the_character_at(work.index) ~= was then
+    ui.present('gc16')
+  else
+    ui.present()
+  end
 end
 
 -- ------------------------------------------------------------------ la vista
@@ -396,8 +466,11 @@ local function build_the_view()
     subtitle.text = 'draw it on the paper'
     subtitle.scale = 3
     subtitle.align = 'left'
-    subtitle.color = 4
+    subtitle.color = 0
   end
+  -- **El caràcter de dalt, en un label amb la cara del sistema** (0.192.78): es va provar de dibuixar-lo en un canvas propi i
+  -- `cv:text` no pinta res en un canvas sense cara (el label sí que en té, la de la pàgina), o sigui que es queda el label de la
+  -- 0.192.72 —deu passos dins d'una caixa de noranta-sis—, que és on la lletra es llegia (docs/30, docs/85).
   big = keep(ui.label(wid - 2 * MARGIN, CHAR_H))
   if big ~= nil then
     big.text = '-'
@@ -410,7 +483,7 @@ local function build_the_view()
     hint.text = '-'
     hint.scale = 4
     hint.align = 'center'
-    hint.color = 4
+    hint.color = 0
   end
   paper_max = math.min(PAPER_H, math.max(160, hei // 3))
   paper = keep(ui.canvas(wid - 2 * MARGIN, paper_max))
@@ -420,19 +493,20 @@ local function build_the_view()
   retry = keep(ui.button(fourth, button_h))
   if retry ~= nil then
     retry.title = 'Retry'
-    retry.scale = 2
+    retry.scale = 3
     retry.on_click = function()
       strokes = {}
       last_grid = nil
       paint_the_strokes()
       paint_the_grid()
+      update_the_buttons()
       ui.present()
     end
   end
   skip = keep(ui.button(fourth, button_h))
   if skip ~= nil then
     skip.title = 'Skip'
-    skip.scale = 2
+    skip.scale = 3
     skip.on_click = function()
       strokes = {}
       work.index = work.index + 1
@@ -445,7 +519,7 @@ local function build_the_view()
   zone_button = keep(ui.button(fourth, button_h))
   if zone_button ~= nil then
     zone_button.title = (work.zone == 'letters') and '123' or 'abc'
-    zone_button.scale = 2
+    zone_button.scale = 3
     zone_button.on_click = function()
       work.zone = (work.zone == 'letters') and 'symbols' or 'letters'
       work.index = 1
@@ -467,9 +541,11 @@ local function build_the_view()
   if save_button ~= nil then
     save_button.title = 'Save'
     save_button.primary = true
-    save_button.scale = 2
+    save_button.scale = 3
     save_button.on_click = function()
       local ok = hand.save(work.zone)
+      if ok then dirty = false end
+      update_the_buttons()
       if footer ~= nil then
         footer.text = ok and 'the model is on the card' or 'the model would not be saved'
       end
@@ -511,10 +587,15 @@ local function one_turn()
       if not drawing then
         drawing = true
         strokes[#strokes + 1] = {}
+        -- **Una lletra nova és un paper net**: the one before is already the model's and the grid's, and pintar la de després a
+        -- sobre seria una lletra que no és cap de les dues (docs/30, docs/85).
+        if paper_is_dirty then
+          paper_is_dirty = false
+          paint_the_strokes({})
+        end
       end
       local stroke = strokes[#strokes]
       stroke[#stroke + 1] = { x, y }
-      ink_dirty = true
       last_move = now
     end
   end
@@ -523,14 +604,8 @@ local function one_turn()
     last_move = now
   end
   if #fingers == 0 then drawing = false end
-  -- **La tinta mentre el dit es mou**, però no a cada punt: dues-centes mil·lisegons és el que aquest vidre vol (docs/85).
-  if ink_dirty and (now - ink_at) >= kInkEveryMs then
-    paint_the_strokes()
-    ink_at = now
-    ink_dirty = false
-    ui.present('gl16')
-  end
-  -- **I la pausa que diu que la lletra s'ha acabat** (l'amo: *«Esperar 1.2 segon per assegurar que ha acabat»*).
+  -- **I la pausa que diu que la lletra s'ha acabat** (l'amo: *«Esperar 1.2 segon per assegurar que ha acabat»*): és aquí on es
+  -- pinta el traç gruixut i on la lletra va al model, i no abans.
   if not drawing and #strokes > 0 and (now - last_move) >= kRestMs then
     the_glyph_is_done()
   end
