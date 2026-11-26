@@ -27,6 +27,9 @@ enum class WakeBy : uint8_t {
   kSupply = 3,  // abans d'hora i sense cap porta: el corrent que torna (`--wake-early`, un cable que s'ha mogut)
   kClosing = 4, // la persona ha tancat la finestra: el run s'acaba, no és un despert del xip
   kNothing = 5, // no hi havia ningú que el pogués despertar aquí (ni hora, ni finestra): no s'ha dormit
+  // **El pin `EN`** (0.192.7): a board the RESET does not wake the chip, it starts it again —the RAM gone, the firmware from the
+  // beginning and the reset cause of the pin—, and a chip that was asleep is no different (docs/50, docs/85).
+  kReset = 6,
 };
 
 // **El SoC dorm fins a `at_epoch_ms`** (0 quan no hi ha hora: aleshores només el tornen les portes), i la resposta és què l'ha
@@ -52,6 +55,11 @@ uint32_t sleep_turns();
 // darrere, com deixa les altres opcions (docs/85)—.
 void note_the_reset(hal::ResetCause cause);
 hal::ResetCause the_reset();
+
+// **I el pin `EN` torna el comptador del xip a zero** (0.192.8): a reset is not a wake-up —`esp_timer` starts again with the firmware—
+// i el que mesura un son no ha de comptar l'estona que el procés ha viscut abans del pin. És el mateix camí que el son profund, amb
+// l'hora quieta on és (docs/50, docs/60, docs/85).
+void the_chip_was_reset();
 
 // **Si el darrer son ha estat un reinici del xip** (0.190.68): el model, en tornar d'un son profund amb els temps de debò, marca que
 // el que toca és una arrencada. El nucli ho pregunta una vegada (`IPower::take_the_restart`) i `main_host` fa el `kernel::boot` al

@@ -67,6 +67,11 @@ struct Options {
   // the field was a `false` written in the model—, so the two drawings had no case that could be looked at. It says nothing
   // about the charge: `battery_mv` is still the cell of the board (docs/50, docs/85).
   bool charging = false;
+  // **I el cable amb la cel·la plena** (0.192.12, `--charge-done`): the hardware has a third state that `--charging` cannot say —a cable in and
+  // a cell that is full, which the BQ25896 answers as `done` and not as charging— and it is exactly the state in which the mark of the port
+  // of the bar used to go dark with the cable in (l'amo: *«I perqué no es veu l'icona del usb quan està endollat?»*). A cable is in, the cell
+  // is not filling, and the two drawings of the strip have their case to look at (docs/50, docs/85).
+  bool charge_done = false;
   // **La franja d'una demostració** (0.189.57, `--signs`): les cinc icones de la barra enceses alhora. Les del senyal no es poden
   // encendre totes de debò en un sol run —el provisioning vol el Bluetooth, l'NTP vol la xarxa i el temporitzador és una cua
   // d'alarmes—, i mirar-se la franja sencera és el que es vol fer quan s'hi toca (docs/50, docs/85).
@@ -128,6 +133,11 @@ struct Options {
   // that is what the board has; `--no-touch-int` is the glass of a driver that has to ask, which is the model of 0.174.4 and
   // the one `--touch-scan` is about (docs/50, docs/85).
   bool touch_interrupt = true;
+  // **Un xip que no diu la seva mida** (0.192.33): la placa, en tornar d'un son profund, va ensenyar un tàctil que donava marcs i deia
+  // que el seu vidre feia `0x0` —la configuració encara no era al registre quan es va llegir—, i el gir del marc refusava cada dit: les
+  // dues targetes del sistema mortes i les pàgines funcionant. El model el pot imitar perquè aquesta és la reparació que s'ha de provar:
+  // el nucli no pot dependre del que digui el xip (docs/50, docs/85, docs/95).
+  bool touch_frame_zero = false;
   // **Whether the emulator pays the time the hardware takes.** On —the binary— a read of the disk sleeps
   // what the flash sleeps, a paint sleeps the bus and the ink, a read of the panel sleeps its three
   // transactions and the console goes out at the speed of the UART: that is what makes a run with
@@ -212,6 +222,15 @@ struct Options {
   // quan el vincle es fa —el camí sencer del report fins a l'editor de línia, sense un teclat de debò a la mà— (docs/50, docs/85).
   bool bt_absent = false;
   bool bt_fail = false;
+  // **Una placa que no pot tallar-se el corrent** (0.191.9, l'amo: *«si no es pot apagar endollat, simplement no mostris el botó»*): the
+  // emulator's models say whether the supply can be cut (`powers_off`), and the boards with a glass can all do it —which is why nothing
+  // could test the one thing that matters, a key that must not be painted—. Amb això, la T5S3 endollada es pot imitar: el carregador
+  // sosté la placa i el sistema no ha d'ensenyar cap apagada (docs/50, docs/85).
+  bool cannot_power_off = false;
+  // **I una placa que refusa la baixada** (0.191.11): a deep sleep has three ways to say no —no door that could be armed, a chip that did
+  // not take them, an hour that went past—, i el que el nucli fa amb el que ja ha preparat depèn d'aquesta resposta: treure el dibuix del
+  // son i tornar la pàgina. Cap model d'aquesta banda podia dir que no, o sigui que aquell camí no es podia veure (docs/50, docs/85).
+  bool cannot_sleep = false;
   int32_t bt_peers = 0;
   bool bt_connected = false;
   const char* bt_type = nullptr;
@@ -250,6 +269,17 @@ void http_canned_clear();
 // emulator has three, so a board with more than one can be tried on the PC.
 void press_button(bool down);            // key 0
 void press_key(int key, bool down);      // 0, 1 or 2
+
+// **Els botons de la caixa que no són tecles del sistema** (0.192.7, l'amo: *«Defineix sempre els botons i mostra'ls a l'emulador. Tot i que
+// son botons que no serveixin per programar l'ESP32, son útils per emular el funcionament.»*):
+//
+//   - **`press_reset()`** és el `RESET`: el pin `EN` del xip. No passa pel sistema —ni comiats ni sessió desada, que és el que fa un reset
+//     de debò— i el fil principal el veu i torna a fer un `kernel::boot` (`take_reset()`).
+//   - **`press_boot()`** és el `BOOT` (GPIO0): el nucli no el llegeix com una tecla, però el xip **sí** que el veu quan dorm, o sigui que
+//     compta com una pulsació per a l'espera del son i per a res més (docs/50, docs/85).
+void press_reset();
+void press_boot();
+bool take_reset();
 bool button_down();                      // key 0
 bool key_down(int key);
 // **Quantes vegades s'ha premut una tecla en aquest run** (0.190.66): the state of a key is not enough for a chip that is asleep

@@ -46,7 +46,13 @@ enum Capability : uint32_t {
   kCapEnv = 1u << 17,
   // The glass: somebody can touch the board, and the kernel turns the fingers into taps, long
   // presses and drags (docs/30, docs/50).
-  kCapTouch = 1u << 18
+  kCapTouch = 1u << 18,
+  // **Aquest vidre es renta sencer a cada arrencada** (0.192.10, l'amo: *«Que aquest model SEMPRE al boot netegi la pantalla amb
+  // splash hide (que neteja al màxim)»*): a panel that keeps a ghost of whatever it was showing —the T5S3's ED047TC1 does, and the
+  // picture of a sleep left on it is ink nobody wrote— gets `splash::hide()` at the boot, a `gc16` of the whole glass, **whatever
+  // the reason of the boot is**: a power-on, a restart, a return from a sleep or an alarm with nobody in front. It is the board
+  // that says it because it is the panel's behaviour and not a preference of a run (docs/50, docs/60).
+  kCapWashAtBoot = 1u << 19
 };
 
 struct Caps {
@@ -604,6 +610,12 @@ class IPower {
   // The battery, when the board can tell. False is "this board has no gauge", not
   // "empty": the ATOM is powered by its cable and says it cannot tell (docs/50).
   virtual bool battery(int& mv, int& pct, bool& charging) = 0;
+  // **Si hi ha un cable a dins, que no és el mateix que estar carregant** (0.192.12, l'amo: *«I perqué no es veu l'icona del usb quan està
+  // endollat?»*): `charging` is a cell that is filling —the BQ25896's `CHRG_STAT` in pre-charge or fast—, and a board with a full cell on
+  // its cable says `done` and answers **no** there; the cable, though, is in. The mark of the port of the bar is «there is a cable»
+  // (a feeding one or one an app has taken), so it asks this and not the other, and a board that cannot tell answers false and keeps the
+  // figure of the bolt as its only word about the charge (docs/30, docs/50, docs/85).
+  virtual bool on_a_cable() const { return false; }
   // **El que un indicador de càrrega sap i un divisor en un ADC no** (0.190.155, l'amo: *«Mira els exemples de batería (es el hardware
   // que tenim?) ... Si ens serveixen, afegeix la informació a l'app battery»*). The T5 E-Paper S3 Pro carries a **BQ27220** that
   // counts coulombs —the maker's own example reads its current, its capacities and its health—, i una placa amb un divisor només té
@@ -618,6 +630,12 @@ class IPower {
     int temp_c10 = kUnknown;     // tenths of a degree Celsius, the cell's own sensor
     int health = kUnknown;       // percent of the design capacity the gauge still trusts
     int cycles = kUnknown;       // charge cycles it has counted
+    // **I el que el gauge diu del ple** (0.192.16, l'amo: *«perqué si la batt està al 38% no està carregant?»*): `FC` is the gauge's own
+    // «full-charged is detected» —the bit it puts up when the charge current has tapered at the top of the cell— and `TCA` its terminate-charge
+    // alarm. No és el percentatge i no és el carregador: és el que el comptador pensa de la cel·la, i sense això un 38 % amb 4159 mV no es pot
+    // desfer (docs/50, docs/95).
+    bool declared_full = false;
+    bool terminate_alarm = false;
   };
   virtual bool battery_detail(BatteryDetail& out) {
     (void)out;
@@ -673,11 +691,16 @@ class IPower {
   // `kernel::boot` i no segueixi amb el que hi havia a la RAM. False per a tota placa: allà la resposta no arriba mai perquè la crida
   // no torna.
   virtual bool take_the_restart() { return false; }
-  // **Quina porta ha despertat la placa, en una paraula** (0.191.5): `esp_sleep_get_wakeup_cause()` diu «ho ha fet una línia» i prou, i en
-  // una placa amb tres línies armades alhora això és el mateix que no dir res —el 2026/11 la línia de l'arrencada deia «a finger on the
-  // glass» quan el que havia baixat era el BOOT—. El que sap quines línies hi havia és la placa, i és ella qui ho contesta; una placa que
-  // no ho sàpiga diu `nullptr` i el nucli es queda amb el que diu el seu rellotge (docs/50, docs/60).
-  virtual const char* the_door_that_opened() const { return nullptr; }
+  // **Quina porta ha despertat la placa** (0.191.5, i amb noms a la 0.191.11): `esp_sleep_get_wakeup_cause()` diu «ho ha fet una línia» i
+  // prou, i en una placa amb tres línies armades alhora això és el mateix que no dir res —la línia de l'arrencada deia «a finger on the
+  // glass» quan el que havia baixat era el BOOT, o al revés—. El que sap quines línies hi havia és la placa, i és ella qui ho contesta.
+  //
+  // **I la diferència és de política, no de log**: una porta que és una persona (la tecla, el dit) vol dir que el vidre s'ha de despertar i
+  // pintar la pàgina; una que és el rellotge o el temporitzador vol dir que no hi ha ningú i que el vidre es queda com el son el va deixar
+  // (docs/30, docs/50, docs/60). Una placa que no ho sàpiga diu `kUnknown` i el nucli es queda amb el que digui el seu rellotge.
+  enum class Door : uint8_t { kUnknown = 0, kTimer, kKey, kGlass, kClock, kMore };
+
+  virtual Door the_door_that_opened() const { return Door::kUnknown; }
 
   virtual bool nap(int32_t max_ms) {
     (void)max_ms;
@@ -746,8 +769,9 @@ class IPower {
   // **Tornar d'un son profund amb el dit** (0.190.16, l'amo: *«del DeepSleep s'ha de poder tornar sempre a part de per les alarmes, també
   // els botons físics i opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el panell»*): whether this board
   // can hear a finger while the chip is asleep. **Off by default and off on every board that does not say otherwise**: hearing a finger
-  // means keeping the panel's rail and its touch controller awake for the whole sleep, which is exactly the current a deep sleep exists
-  // to stop (docs/50, docs/60).
+  // means keeping its touch controller awake —and scanning, at the quiet rate— for the whole sleep, which is exactly the current a deep
+  // sleep exists to stop. **I el rail del panell sí que baixa** (`ISurface::rest`, que és el que fa la imatge del son): el que es queda
+  // encès és el controlador, que és qui ha de veure el dit (0.192.0, docs/50, docs/60).
   //
   // The key and the alarm are **not** this switch: a deep sleep always arms them where the board has them, and a board that says false
   // here is a board that comes back on its hour or on a key, never on the glass (docs/30, docs/50).
@@ -949,6 +973,15 @@ class ISurface : public IDisplay {
   // a page nobody asked to be repainted is a page this system does not touch (docs/30, docs/50).
   virtual bool flush(UpdateMode mode) = 0;
   virtual bool idle() = 0;
+  // **El paper, netejat al màxim que aquest panell sap** (0.192.11, l'amo: *«ENCARA VEIG LA IMATGE D'SLEEP SOTA EL GRID DEL HOME»*): a pass
+  // of the whole glass that **does not trust what the driver remembers of it**. Un panell conduit per una llibreria d'alt nivell neix «blanc»
+  // a cada arrencada —`epd_hl_init` posa els dos buffers a 0xFF—, o sigui que un `clear(15)` seguit d'un `gc16` és un diff de res, no s'envia
+  // tinta i el registre diu que s'ha rentat: el dibuix del son es queda al vidre i la pàgina nova li cau a sobre. El vidre que se sap netejar
+  // de debò ho diu aquí amb el seu propi cicle; el que no, fa el de sempre (docs/50).
+  virtual bool wash_the_glass() {
+    clear(15);
+    return flush(UpdateMode::kGc16);
+  }
   // **El torn del panell** (0.190.140): what a glass has to do when nobody is painting it. Aquesta placa hi baixa les tensions del TPS quan fa
   // estona que ningú no pinta —les que una pintada puja i que el fabricant baixa a cada update, pagant cent mil·lisegons per pintada que la UI
   // no ha de pagar—. Un vidre que no té res a fer cada torn no ha de respondre res (docs/50, docs/95).

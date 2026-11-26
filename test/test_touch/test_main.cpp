@@ -12,11 +12,13 @@
 
 #include "emu/gt911.h"
 #include "emu/options.h"
+#include "emu/sleep.h"
 #include "emu/surface.h"
 #include "hal/hal.h"
 #include "kernel/bar.h"
 #include "kernel/display.h"
 #include "kernel/panel.h"
+#include "kernel/panel_low.h"
 #include "kernel/touch.h"
 #include "kernel/ui.h"
 #include "pal/pal.h"
@@ -111,6 +113,26 @@ void drag_on_the_glass(uint16_t from_y, uint16_t to_y) {
   TEST_ASSERT_TRUE(chip().finger_up(0));
   hand_turn(20);
   hand_turn(20);
+}
+
+// **La mateixa tirada, amb la targeta de baix qui mira** (0.192.32): el gest es llegeix i és `panel_low` qui el demana, que és
+// l'ordre que el torn del kernel té (docs/30).
+void push_with_the_low_card(uint16_t from_y, uint16_t to_y) {
+  const uint16_t x = static_cast<uint16_t>(glass().width() / 2);
+  TEST_ASSERT_TRUE(chip().finger_down(0, x, from_y));
+  turn(20);
+  kernel::panel_low::poll();
+  TEST_ASSERT_TRUE(chip().finger_move(0, x, static_cast<uint16_t>((from_y + to_y) / 2)));
+  turn(20);
+  kernel::panel_low::poll();
+  TEST_ASSERT_TRUE(chip().finger_move(0, x, to_y));
+  turn(20);
+  kernel::panel_low::poll();
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(20);
+  kernel::panel_low::poll();
+  turn(20);
+  kernel::panel_low::poll();
 }
 
 // What the app hears in its queue, in the words of the gestures it was handed (docs/30). A gesture is one word and the
@@ -856,7 +878,9 @@ static void test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system() {
   ui::present();
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(3, glass().level_at(270, 200), "the page of the app is not on the glass");
   TEST_ASSERT_FALSE(kernel::panel::open());
-  TEST_ASSERT_EQUAL_UINT16((960 - 48) / 3, kernel::panel::height());
+  // **La targeta fa les files del seu contingut i no un terç del vidre** (0.192.25): la fila de dalt, l'aire, la fila de les
+  // ràdios i el mànec amb la seva línia són dues-centes quaranta files, i el terç només hi torna en un vidre més baix que això.
+  TEST_ASSERT_EQUAL_UINT16(240, kernel::panel::height());
 
   // **Twenty rows of the chip are the bar's** —the view starts at forty-eight— **and the finger goes a hundred down**:
   // a pull and not a drawing, so the card comes out and the page never learns that a hand was on it (docs/30).
@@ -1008,6 +1032,30 @@ static void test_a_swipe_up_from_outside_the_card_puts_it_away() {
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe of thirty rows put the card away");
 }
 
+// **Una becaina entremig no tanca la porta de la barra** (0.192.28, l'amo: *«Els panells desplegables del sistema deixen de
+// funcionar al tornar d'sleep? … si que em deixa fer swipe de costat i canviar la página del grid»*): the platform stops handing
+// frames to the kernel for a while —which is what a light sleep is, from this module's side: the chip is not asked and the clock
+// of the board keeps counting— and the first gesture after it is a short pull of the bar. The card has to come out, i el que
+// mira el cas és el salt del rellotge: la finestra de silenci del contacte, la dels tocs que esperaven i la del gest que arriba
+// no poden quedar-se amb el temps que el xip ha estat aturat (docs/30, docs/50, docs/95).
+void test_a_pull_of_the_bar_after_a_sleep_still_pulls_the_card_out(void) {
+  boot_with_a_touch_panel();
+  kernel::panel::boot();
+  chip().reset();
+  ui::clear(3, nullptr);
+  ui::present();
+  // **El son, amb el rellotge del model**: the same wait the board spends asleep, with its doors, and the kernel does not turn
+  // during it —no read of the glass, no turn of the panel— which is what a stopped chip means to the code above it (docs/50, docs/85).
+  emu::wait_for_ms(400, /*the_glass_is_a_door=*/true);
+  pull_from_the_bar(20, 120);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(),
+                           "a drag down from the bar after a sleep did not pull the card out");
+  TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "the card is out and the page under it is not held");
+  // **I la targeta es tanca amb el gest de sempre**: a swipe up from the page below it, que és el camí de tornada de tothom.
+  drag_on_the_glass(700, 600);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "the card did not go away after the sleep");
+}
+
 // **El camí de tornada al vidre** (0.190.4): the fingers and the gestures of this module are the **view's** —an app draws in the page
 // left over the bar of the system and `turn_frame` takes that offset out— and a page of the system, the page of an app that has died,
 // draws on the whole glass. The two frames are one offset apart and this is the way back, which is what makes the `Dismiss` of that
@@ -1040,6 +1088,83 @@ void test_a_point_of_the_view_comes_back_to_the_glass(void) {
   kernel::ui::attach();
 }
 
+// **Els dos cantons d'un vidre sencer** (0.192.32): an app that has the whole glass has the bar's rows as well, and a board that
+// comes back from a sleep with an app's whole glass used to have no bar and no cards at all —every finger of the top rows was
+// the page's, which is what the owner's log showed (docs/30, docs/46 D1, docs/50).
+static void test_a_pull_from_the_top_of_a_whole_glass_gives_the_bar_back() {
+  boot_with_a_touch_panel();
+  kernel::panel::boot();
+  chip().reset();
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  TEST_ASSERT_EQUAL_UINT16(0, ui::canvas().y);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::bar::visible(), "the bar is on the glass of a page that took the whole glass");
+  ui::clear(3, nullptr);
+  ui::present();
+
+  // The finger lands on the first rows —the app's, while it has the whole glass— and walks a hundred down: the gesture of the
+  // bar, and the system answers it with the bar itself and the card that hangs from it (docs/30).
+  pull_from_the_bar(20, 140);
+  TEST_ASSERT_FALSE_MESSAGE(ui::is_full_screen(), "a pull from the whole glass did not give the glass back");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::bar::visible(), "the bar did not come back with the glass");
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(48, ui::canvas().y, "the view did not come back under the bar");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card of the system did not come out");
+  TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "the card is out and the page under it is not held");
+  // And the way out is the person's, as it always was: a drag up that begins on the page below the card (docs/30).
+  drag_on_the_glass(700, 600);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "the card did not go away on the page it came out over");
+}
+
+// **I el mateix cantó de baix**: the last rows of a whole glass answering the card that hangs from the strip, que és la meitat que
+// l'amo trobava a faltar (*«ni el superior ni l'inferior»*) (0.192.32, docs/30).
+static void test_a_push_up_from_the_bottom_of_a_whole_glass_gives_the_bar_back() {
+  boot_with_a_touch_panel();
+  kernel::panel_low::boot();
+  chip().reset();
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  TEST_ASSERT_FALSE(kernel::bar::visible());
+  ui::clear(3, nullptr);
+  ui::present();
+
+  push_with_the_low_card(950, 830);
+  TEST_ASSERT_FALSE_MESSAGE(ui::is_full_screen(), "a push from the whole glass did not give the glass back");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::bar::visible(), "the bar did not come back with the glass");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel_low::open(), "the card of the bottom did not come out");
+  // A drag down that begins above the card puts it away: the same hand that closed the other one.
+  push_with_the_low_card(400, 520);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel_low::open(), "the card of the bottom did not go away");
+}
+
+// **El tàctil de la placa que torna d'un son profund: dona marcs i diu que el seu vidre fa zero per zero** (0.192.33). The registry of the
+// owner's board said `the frame at 258,6 is outside the glass of 0x0` and every finger of the first rows was the page's —the two cards of
+// the system dead and the pages working, which is what he saw with *«PERQUE LES PUTES BARRES DE SISTEMA NO?»*—. The chip's frame was not
+// read yet when the driver asked for it; the kernel must not depend on that number, and this is the case that says so.
+static void test_a_glass_that_says_zero_by_zero_still_has_a_bar() {
+  boot_with_a_touch_panel();
+  kernel::panel::boot();
+  chip().reset();
+  emu::Options broken = emu::options();
+  broken.touch_frame_zero = true;
+  emu::set_options(broken);
+  TEST_ASSERT_EQUAL_UINT16(0, chip().width());
+  TEST_ASSERT_EQUAL_UINT16(0, chip().height());
+  ui::clear(3, nullptr);
+  ui::present();
+
+  // The same pull from the first rows of the glass that opens the card every other day of the week (docs/30).
+  pull_from_the_bar(20, 140);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(),
+                           "a glass that says 0x0 took the bar's rows away and the card never came out");
+  TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "the card is out and the page under it is not held");
+
+  // And the sheet of the suite goes back to a chip that knows its size: the cases after this one are not about a broken one.
+  emu::Options back = emu::options();
+  back.touch_frame_zero = false;
+  emu::set_options(back);
+  TEST_ASSERT_EQUAL_UINT16(540, chip().width());
+  pull_from_the_bar(700, 600);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "the card did not go away on the page below it");
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1068,5 +1193,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_drag_that_begins_on_the_page_is_the_pages);
   RUN_TEST(test_a_tap_on_the_card_leaves_it_and_a_tap_below_takes_it_away);
   RUN_TEST(test_a_swipe_up_from_outside_the_card_puts_it_away);
+  RUN_TEST(test_a_pull_of_the_bar_after_a_sleep_still_pulls_the_card_out);
+  RUN_TEST(test_a_pull_from_the_top_of_a_whole_glass_gives_the_bar_back);
+  RUN_TEST(test_a_glass_that_says_zero_by_zero_still_has_a_bar);
+  RUN_TEST(test_a_push_up_from_the_bottom_of_a_whole_glass_gives_the_bar_back);
   return UNITY_END();
 }

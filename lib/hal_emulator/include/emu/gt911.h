@@ -26,8 +26,11 @@ class Gt911Panel : public hal::ITouch {
   static const uint16_t kFrameHeight = 960;
 
   uint8_t max_points() const override { return kMaxFingers; }
-  uint16_t width() const override { return kFrameWidth; }
-  uint16_t height() const override { return kFrameHeight; }
+  // **I pot dir que no sap la seva mida** (0.192.33): the chip of the board, coming back from a deep sleep, answered `0x0` because its
+  // configuration had not arrived yet, and `--touch-frame-zero` is that board: the kernel has to keep working without asking the chip
+  // for a frame it cannot give (docs/50, docs/85, docs/95).
+  uint16_t width() const override { return options().touch_frame_zero ? 0 : kFrameWidth; }
+  uint16_t height() const override { return options().touch_frame_zero ? 0 : kFrameHeight; }
   uint8_t read(hal::TouchPoint* out, uint8_t capacity) override;
   // **How often the model scans**, which is the datasheet's ten milliseconds unless `--touch-scan` says otherwise: the
   // kernel asks the glass once per scan and this is where that number comes from (docs/50, docs/85, docs/95).

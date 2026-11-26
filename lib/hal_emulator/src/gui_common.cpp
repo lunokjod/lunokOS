@@ -233,10 +233,130 @@ int gui_key_at(int window_x, int window_y, uint8_t count, uint16_t window_width,
   return gui_key_of_slot(count, static_cast<uint8_t>(slot));
 }
 
+// **Un botó pertany a una cara, i la cara d'un botó de dalt o del davant és la fila de sota la pàgina** (0.192.7): the same rule the input's
+// descriptor already gave for the keys, per botó.
+namespace {
+
+KeySide side_of(const Button& one) {
+  if (one.face == hal::Face::kLeft) return KeySide::kLeft;
+  if (one.face == hal::Face::kRight) return KeySide::kRight;
+  return KeySide::kBottom;
+}
+
+// **L'ordre dins d'una cara és el lloc, de dalt a baix** (0.192.7): `Up` primer, després el centre i després `Down`, que és l'ordre en què el
+// dial del Paper ja es dibuixava. Un botó de la fila de sota va d'esquerra a dreta amb la mateixa regla.
+uint8_t place_of(hal::Spot spot) {
+  if (spot == hal::Spot::kUp) return 0;
+  if (spot == hal::Spot::kCentre) return 1;
+  if (spot == hal::Spot::kDown) return 2;
+  return 3;
+}
+
+}  // namespace
+
+uint8_t gui_buttons_on(const Button* buttons, uint8_t count, KeySide side) {
+  if (buttons == nullptr) return 0;
+  uint8_t on = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    if (side_of(buttons[i]) == side) ++on;
+  }
+  return on;
+}
+
+int gui_button_slot(const Button* buttons, uint8_t count, KeySide side, uint8_t slot) {
+  if (buttons == nullptr) return -1;
+  // **Els botons d'aquesta cara, ordenats pel seu lloc**: the window draws them in that order and a click is answered with the same one, so a
+  // button that is up on the board is up in the window (docs/85).
+  const uint8_t most = kMostButtons;
+  int order[most];
+  uint8_t how_many = 0;
+  for (uint8_t i = 0; i < count && how_many < most; ++i) {
+    if (side_of(buttons[i]) != side) continue;
+    const uint8_t place = place_of(buttons[i].spot);
+    uint8_t at = how_many;
+    while (at > 0 && place_of(buttons[order[at - 1]].spot) > place) {
+      order[at] = order[at - 1];
+      --at;
+    }
+    order[at] = i;
+    ++how_many;
+  }
+  if (slot >= how_many) return -1;
+  return order[slot];
+}
+
+bool gui_button_rect(const Button* buttons, uint8_t count, uint8_t index, uint16_t window_width,
+                     uint16_t window_height, int& x, int& y, int& w, int& h) {
+  if (buttons == nullptr || index >= count) return false;
+  const KeySide side = side_of(buttons[index]);
+  const uint8_t on_the_side = gui_buttons_on(buttons, count, side);
+  if (on_the_side == 0) return false;
+  // **On és aquest botó dins de la seva cara**: el lloc que li toca en l'ordre de dalt a baix d'aquella columna.
+  uint8_t slot = 0xFF;
+  for (uint8_t place = 0; place < on_the_side; ++place) {
+    if (gui_button_slot(buttons, count, side, place) == static_cast<int>(index)) {
+      slot = place;
+      break;
+    }
+  }
+  if (slot == 0xFF) return false;
+  if (side == KeySide::kBottom) {
+    const int left = gui_keys_left(window_width, on_the_side);
+    const int top = static_cast<int>(window_height) - static_cast<int>(kKeyRowHeight) + static_cast<int>(kKeyMargin);
+    x = left + slot * static_cast<int>(kKeyButtonWidth + kKeyGap);
+    y = top;
+  } else {
+    const int left = (side == KeySide::kRight)
+                         ? static_cast<int>(window_width) - static_cast<int>(kKeyStripWidth) +
+                               static_cast<int>(kKeyMargin)
+                         : static_cast<int>(kKeyMargin);
+    const int top = gui_keys_top(window_height, on_the_side);
+    x = left;
+    y = top + slot * static_cast<int>(kKeyButtonHeight + kKeyGap);
+  }
+  w = kKeyButtonWidth;
+  h = kKeyButtonHeight;
+  return true;
+}
+
+int gui_button_at(int window_x, int window_y, const Button* buttons, uint8_t count, uint16_t window_width,
+                  uint16_t window_height) {
+  // **El camí de tornada del rectangle**: el que es dibuixa i el que es prem són la mateixa caixa, que és la regla de tota la casa per als
+  // botons (0.179.26) i la raó per la qual aquesta porta no torna a calcular una columna a part (0.192.7).
+  for (uint8_t i = 0; i < count; ++i) {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    if (!gui_button_rect(buttons, count, i, window_width, window_height, x, y, w, h)) continue;
+    if (window_x >= x && window_x < x + w && window_y >= y && window_y < y + h) return i;
+  }
+  return -1;
+}
+
 // **The size of the page in the window, decided once** (docs/85): the run can ask for it (`--gui-scale`),
 // and when it does not, the window takes the smallest scale that fits the screen whole —a page cut by the
 // frame is worse than a page at half— with the room the window manager needs. It is pure and outside the X11
 // backend because the choice has proof without a screen, like the expansion it feeds (docs/85).
+uint8_t gui_fit_scale_for(uint16_t page_width, uint16_t page_height, const Button* buttons, uint8_t count,
+                          int screen_width, int screen_height, uint8_t requested) {
+  if (requested >= 1 && requested <= 4) return requested;
+  // **Les dues columnes compten** (0.192.7): a board with a button on each side needs the room of both.
+  const bool left = gui_buttons_on(buttons, count, KeySide::kLeft) > 0;
+  const bool right = gui_buttons_on(buttons, count, KeySide::kRight) > 0;
+  const bool bottom = gui_buttons_on(buttons, count, KeySide::kBottom) > 0;
+  int strip_w = 0;
+  if (left) strip_w += static_cast<int>(gui_key_strip_width());
+  if (right) strip_w += static_cast<int>(gui_key_strip_width());
+  const int strip_h = bottom ? static_cast<int>(gui_key_row_height()) : 0;
+  uint8_t scale = 1;
+  while (scale < 4 && (strip_w + static_cast<int>(page_width) / scale > screen_width - 40 ||
+                       strip_h + static_cast<int>(page_height) / scale > screen_height - 80)) {
+    ++scale;
+  }
+  return scale;
+}
+
 uint8_t gui_fit_scale(uint16_t page_width, uint16_t page_height, uint8_t keys, KeySide side,
                       int screen_width, int screen_height, uint8_t requested) {
   if (requested >= 1 && requested <= 4) return requested;

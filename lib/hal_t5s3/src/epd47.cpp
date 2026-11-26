@@ -270,6 +270,32 @@ bool Epd47::set_rotation(uint16_t degrees) {
 // scroll curt, que és quan el TPS ja calent estalvia els cent mil·lisegons del `POWER_GOOD`.
 const uint32_t kKeepWarmMs = 2000;
 
+bool Epd47::wash_the_glass() {
+  if (!begin()) return false;
+  if (!powered_) {
+    epd_poweron();
+    powered_ = true;
+  }
+  // **La pàgina i la idea del vidre, totes dues a paper** (0.192.11): the caller's buffer is left white —that is what the glass is about to
+  // be— and epdiy's own idea of the panel too, so the first page that comes does not carry a diff against a picture that is no longer there
+  // (docs/50).
+  memset(frame_, 0xFF, static_cast<size_t>(kGlassW) * kGlassStride);
+  epd_hl_set_all_white(&g_state);
+  const uint32_t started = static_cast<uint32_t>(esp_timer_get_time());
+  // **I el vidre, amb el cicle de la seva forma d'ona**: `epd_clear()` pushes the whole screen through three rounds of dark and white —the
+  // panel's own timing, no LUT, no diff—, which is what leaves paper on a glass that was showing something this driver never sent
+  // (docs/50, docs/95).
+  epd_clear();
+  const uint32_t took_ms = (static_cast<uint32_t>(esp_timer_get_time()) - started) / 1000u;
+  // Nothing is owed to the page: the glass is paper and the buffer says paper (docs/30).
+  forget_the_dirty();
+  epd_poweroff();
+  powered_ = false;
+  logf(pal::kLogInfo, "PANEL", "%s: the whole glass cleared by its own cycle, %u ms, paper", "epdiy",
+       static_cast<unsigned>(took_ms));
+  return true;
+}
+
 bool Epd47::flush(UpdateMode mode) {
   if (!begin()) return false;
   // **Les tensions, a cada pintada** (0.190.60), com el seu `screen_update()`: they come up, the page is written and they go down

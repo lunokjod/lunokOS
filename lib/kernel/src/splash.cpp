@@ -593,13 +593,16 @@ bool wait() {
   return glass->idle();
 }
 
-bool hide() { return wash(hal::UpdateMode::kGld16); }
+// **Una sola neteja, i és completa** (0.192.1, l'amo: *«tot splash ha de fer neteja completa del paper»*): `hide()` feia un `gld16` des de
+// la 0.190.42, i un mode de dues tintes sobre el gris que hi hagi deixa el que hi havia a mig esborrar. El que queda darrere d'un splash és
+// **paper**, i el que el fa paper de debò és el `gc16` del vidre sencer (docs/30, docs/50).
+bool hide() { return wash(); }
 
 // **El vidre sencer, a paper, amb la qualitat de qui crida** (0.191.8, l'amo: *«al tornar de deepsleep has de netejar la pantalla a fons»*):
 // el dibuix del son no passa per la pàgina de ningú, o sigui que el que el treu de tots els forats és un rentat del **vidre** i no de la
 // vista —les dues franges del sistema també hi són, i una pàgina que no les toca les deixa com estaven—. `hide()` fa servir aquesta mateixa
 // passada amb un `gld16`, i el retorn d'un son demana un `gc16`, que és el que esborra de debò (docs/30, docs/50).
-bool wash(hal::UpdateMode mode) {
+bool wash() {
   g_error = "";
   g_showing = kNone;
   hal::ISurface* glass = display::surface();
@@ -615,9 +618,26 @@ bool wash(hal::UpdateMode mode) {
   // empenyien els píxels foscos i els clars es quedaven a mig esborrar, que és exactament el que es veia. El que aquesta
   // pàgina vol és el contrari: **blanc sobre el que no ho és i res sobre el que ja és blanc**, i això és un `gld16`
   // (docs/30, docs/50).
-  glass->clear(15);
+  // **I el rentat demana setze nivells i no dues tintes, sempre des de la 0.192.1** (0.190.42): it was an `a2`, and a two-level mode is a
+  // *partial* one —the kernel's own rule says a `du` never covers the glass—, o sigui que sobre la foto de l'splash només s'hi empenyien
+  // els píxels foscos i els clars es quedaven a mig esborrar. El que aquesta pàgina vol és el contrari: **blanc sobre el que no ho és i res
+  // sobre el que ja és blanc**, i això és un `gc16` del vidre sencer. `hide()` va quedar-se amb un `gld16` fins a la 0.192.1 i deixava
+  // fantasma sobre la tinta del son; ara totes les portes d'aquest fitxer renten igual (docs/30, docs/50).
+  // **I el vidre és qui sap com es neteja del tot** (0.192.11): `wash_the_glass` is the board's own answer —the T5S3 flashes the panel with
+  // its waveform's cycle, which is the only thing that erases a picture the driver never sent— i la resta de vidres fan el `gc16` de sempre,
+  // que és el que aquesta funció feia a mà (docs/50).
   display::hold_for_a_paint();
-  return glass->flush(mode);
+  // **I el rentat diu el que ha pintat i quant ha costat** (0.192.4): les pintades d'aquest fitxer van **directes al `ISurface`** i no
+  // passen per `display::present`, que és qui escriu la línia `[D][GLASS] flush …` —o sigui que fins avui un rentat del vidre sencer era
+  // **invisible al registre**, i el d'una baixada que no passava i el d'una que sí es veien igual: no es veien (l'amo: *«l'imatge queda
+  // bruta»*, amb el registre sense cap línia que ho desmentís) (docs/30, docs/50).
+  const int64_t started_ms = pal::system().millis();
+  const bool painted = glass->wash_the_glass();
+  const int64_t spent = pal::system().millis() - started_ms;
+  if (painted) {
+    log_printf(pal::kLogInfo, "SPLASH", "the whole glass, paper, %lld ms", static_cast<long long>(spent));
+  }
+  return painted;
 }
 
 Kind showing() { return g_showing; }

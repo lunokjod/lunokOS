@@ -20,7 +20,7 @@ que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 | `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space, **`flush`** (0.189.18: el que el backend tingui a mig fer; a l'emulador és un `sync()` del PC i a l'ESP32 no n'hi ha cap d'enllaçable, perquè cada fitxer es tanca dins la crida que l'escriu) | ✓ | ✓ | ✓ | ✓ (LittleFS i targeta) | ✓ |
 | `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs`, i **`commit`** (0.189.18: la baixada el demana abans de tallar el corrent, i el backend de la placa ja el fa a cada `set`) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | ✓ (provat a la placa) | ✓ (el mateix codi; pendent de provar a la placa) | **la ràdio és de mentida i la pàgina no**: `curl` la baixa de debò (docs/85) |
-| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada**; **`can_power_off()`** (0.189.18) diu si la placa té el corrent a la mà **sense intentar-ho**, perquè la baixada no gasti el repòs d'una targeta en una placa que no es pot apagar; **`can_sleep_on_idle()`** (0.190.272) és una altra pregunta —si la política d'oci pot posar-la a dormir— perquè «el son és una apagada» i «el son estalvia la placa» no són el mateix, i confondre-les deixava la T5 sense `Sleep after` | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | ✓ (la bateria pel **BQ27220** i el cable pel **BQ25896**; el son profund és un son de l'ESP32 i **no** una apagada, però `can_sleep_on_idle` diu que sí; `power_off` talla el **`BATFET`** del carregador i **no pot amb el cable a dins**, que és la regla del fabricant; la baixada posa la llum a zero, baixa els rails del panell i subjecta els resets del tàctil i del LoRa, com el seu `ui_sleep()`) | ✓ (son i velocitat; **no hi ha indicador de bateria** i no es pot apagar) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
+| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada**; **`can_power_off()`** (0.189.18) diu si la placa té el corrent a la mà **sense intentar-ho**, perquè la baixada no gasti el repòs d'una targeta en una placa que no es pot apagar; **`can_sleep_on_idle()`** (0.190.272) és una altra pregunta —si la política d'oci pot posar-la a dormir— perquè «el son és una apagada» i «el son estalvia la placa» no són el mateix, i confondre-les deixava la T5 sense `Sleep after` | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent; `on_a_cable()` diu si el `VBUS_GD` del carregador veu una entrada bona) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | ✓ (la bateria pel **BQ27220** i el cable pel **BQ25896**; el son profund és un son de l'ESP32 i **no** una apagada, però `can_sleep_on_idle` diu que sí; `power_off` talla el **`BATFET`** del carregador i **no pot amb el cable a dins**, que és la regla del fabricant; la baixada posa la llum a zero, baixa els rails del panell i subjecta els resets del tàctil i del LoRa, com el seu `ui_sleep()`) | ✓ (son i velocitat; **no hi ha indicador de bateria** i no es pot apagar) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
 | `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | 1 (LED verd a GPIO5, només encès/apagat) | el del model: 1, 25, 0 o 1 |
 | `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | — (cap tecla; el botó és RST) | ✓ (les del model) |
 | `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | — | de mentida |
@@ -1169,17 +1169,180 @@ les dues línies ho diuen amb el seu nom:
 [I][POWER] last sleep #3 after 184203 ms up: armed clock+key+glass, open nothing, low lines c1 k0 g0, and it came back by the key of the board
 ```
 
-### El retorn d'un son neteja el vidre a fons (0.191.8)
+### Una clau que no pot fer res no es pinta (0.191.9)
 
-L'amo: *«al tornar de deepsleep has de netejar la pantalla a fons»*.
+L'amo: *«el poweroff no funciona? està endollat i es queda amb el botó poweroff activat, però no veig l'splash de poweroff»*, i després:
+*«si no es pot apagar endollat, simplement no mostris el botó»*.
+
+**La targeta del sistema preguntava a la placa per gairebé totes les seves claus i no per l'apagat**: la creu (`can_be_left`), la fletxa
+(`views()`), la roda (`g_present.settings`), el candau, la lluna (`can_deep_sleep`) i les tres de la ràdio (`available()`). `Poweroff` era
+`return true` i prou. I amb el cable a dins, la T5S3 **no pot tallar-se el corrent** —el carregador la sosté, i és la regla del fabricant, que
+el seu exemple diu amb `battery_25896_is_vbus_in()`—, o sigui que la clau es pintava, la persona la premia i no passava res.
+
+Ara `key_is_there` pregunta `power::can_power_off()` com totes les altres, i la fila de dalt de la targeta **canvia de tres a quatre claus**
+segons la placa:
+
+| placa | la fila de dalt |
+|---|---|
+| amb pany a la font i sense cable | **Poweroff** · Sleep · Reboot · Lock |
+| amb el cable a dins, o sense pany | Sleep · Reboot · Lock |
+
+**I el camí del prompt deia dues coses contràries en dues línies seguides**:
+
+```
+lunok> poweroff
+powering off...
+this board cannot cut its own power: it holds nothing to switch off, or the cable is keeping it up
+```
+
+El «powering off» s'escrivia **abans** de preguntar. Ara es pregunta primer i en surt una de les dues: la promesa, o el motiu. **I la
+negativa ja no toca res**: fins avui es tancava l'app —amb els seus comiats i la pàgina perduda— i tot seguit es deia que no, o sigui que la
+placa es quedava encesa havent fet la meitat de la feina.
+
+**I si el corrent no marxa tot i que la placa ho podia** —un bus que no contesta, un carregador que refusa—, el vidre no es queda dient que
+sí: la imatge de la baixada es treu, la pàgina de casa torna i el log ho diu.
+
+### El retorn d'un son neteja el vidre a fons (0.191.8, i el bot sense imatge a la 0.191.10)
+
+L'amo: *«al tornar de deepsleep has de netejar la pantalla a fons»*, i després: *«i es neteja bé la pantalla quan el sistema arrenca o
+desperta?»*. La resposta, mirada al registre i no suposada:
+
+| camí | qui neteja el vidre |
+|---|---|
+| **despert d'un son profund** | `splash::wash(kGc16)` de tot el panell, abans que cap pàgina dibuixi (0.191.8) |
+| **arrencada amb la imatge del sistema** | el propi `splash`: `show` i `show_plane` demanen un `gc16` de tot el panell, o sigui que la imatge **és** el rentat |
+| **despert d'una alarma** | ningú, i és a posta: el vidre dorm i el que hi ha és la imatge que el son hi va deixar (0.190.19) |
+| **arrencada sense imatge** | ningú fins a la 0.191.10 → ara `splash::wash(kGc16)` |
+
+L'últim era el forat: sense imatge, el que quedava era `ui::owe_the_page()`, que paga **la vista** (540×892 a 0,48) i prou, o sigui que
+els quaranta-vuit rengles de la barra i els vint de la franja de baix només rebien el `gld16` de la barra —que sobre tinta fosca deixa
+fantasma— i la placa ensenyava l'ombra del rellotge i de la ratlla de l'execució anterior.
+
+### Al tornar d'un son, el `splash hide` va abans de l'app (0.192.2)
+
+L'amo: *«al tornar de deep sleep has de fer splash hide abans de continuar amb l'app»*.
+
+El retorn té dues meitats i fins avui només una rentava. Quan **hi ha algú** al davant, `kernel::boot` renta el vidre sencer abans de
+demanar la pàgina de casa (0.191.8). Però quan el despert és **d'una alarma** el vidre es queda dormit a posta i el boot **no toca res**;
+si més tard una pàgina ha de sortir —l'alarma que aixeca el Clock, la pàgina de la persona que torna—, `shell::run_app` es limitava a
+marcar **el deute de la pàgina**, i un deute es paga amb **la vista** (540×892 a 0,48) i amb **el mode que demani l'app**: el dibuix del
+son es quedava a les dues franges del sistema —que no són de cap app— i a tots els forats on la pàgina no té res, i un `du` o un `gl16`
+sobre aquella tinta la deixava a mig esborrar.
+
+Ara `run_app`, quan troba el vidre dormit, el desperta i fa **`splash::hide()`** —el vidre sencer amb un `gc16`— **abans** que l'app
+dibuixi. Dues coses que la fan encaixar:
+
+| cas | qui renta |
+|---|---|
+| el despert d'una persona | `kernel::boot`, abans de demanar la pàgina de casa; `run_app` troba el vidre despert i no paga res |
+| l'alarma que aixeca una app, o una pàgina que torna amb el vidre encara dormit | `run_app`, abans de la primera tinta de l'app |
+| una app amb imatge pròpia (`shows_a_picture`) | ningú aquí: la imatge renta el vidre sencer una mica més avall, i dues passades seguides serien mig segon per res |
+
+### Tot splash neteja el paper sencer (0.192.1)
+
+L'amo: *«tot splash ha de fer neteja completa del paper.»*
+
+Les portes d'aquest fitxer eren tres i una feia una altra cosa: `show` (la imatge d'un moment) i `show_plane` (un pla del vidre)
+demanaven **`gc16` del panell sencer** des de sempre, i `hide()` —el «torna a paper», que és el que fa `splash hide`, el que fa una
+app amb `ui.splash_hide()` i el que es paga quan una baixada no passa— demanava **`gld16`** des de la 0.190.42. Un `gld16` sobre la
+tinta d'una imatge o d'una pàgina no la treu: la deixa a mig esborrar, i el que s'ha vist és el dibuix del son o la pàgina d'abans
+en forma de fantasma.
+
+Ara **totes tres demanen setze nivells del vidre sencer**, i la porta ho diu: `splash::wash()` ja no té mode, perquè l'únic que el
+cridava amb un `gld16` era `hide()` i una porta que només sap dir una cosa no ha de preguntar-la. El preu és el parpelleig de mig
+segon que el `gld16` estalviava, i el que es compra és que darrere d'un splash no hi quedi mai res que no sigui paper.
+
+### Què porta la cel·la quan la placa baixa, i què ha costat (0.192.0)
+
+L'amo: *«Vull que el sistema posi al log la carrega de la batería i l'hora abans d'entrar en poweroff o DeepSleep, així si et despertes
+molt ràpid ho podrem saber. També comptar el consum de batería mentre dorm/apagat.»*
+
+Una placa que s'ha adormit de debò i una que ha tornat a l'instant tenien **el mateix registre**: el de la baixada. El que les separa és
+el que la cel·la ha perdut mentre no hi era ningú, i per això la mesura són dues línies i una fila a la botiga.
+
+**Abans de baixar** (`power::note_the_load_before_the_way_down`, cridada pel son profund i per l'apagada):
+
+```
+[I][POWER] the deep sleep at 21:47 UTC: 4020 mV, 82 % of the cell, 943 mAh left, 74 mA going out
+[I][POWER] the power off at 21:47 UTC: 4080 mV, 88 % of the cell, 1012 mAh left, 0 mA at rest
+```
+
+**I l'arrencada que ve la llegeix, la compara i la gasta** (`power::say_what_the_way_down_spent`, a `power::boot`):
+
+```
+[I][POWER] the board was asleep 10 min (21:47 UTC → 21:57 UTC): the cell 4020 → 4014 mV and 82 → 81 %, and 12 mAh gone = 72 mA on average
+[I][POWER] the board was off 50 min (21:47 UTC → 22:37 UTC): the cell 4080 → 4072 mV and 88 → 87 %, and 12 mAh gone = 14 mA on average
+```
+
+Tres coses la fan honesta:
+
+| què | com |
+|---|---|
+| **els mV i els punts** | a totes les bandes (`IPower::battery`) |
+| **els mAh i la mitjana de mA** | només a la banda amb comptador de coulombs (`IPower::battery_detail`, el BQ27220 de la T5S3); el que no se sap queda a `-1` i la línia diu *«this board cannot count the charge»* |
+| **l'hora** | la del rellotge de la placa, i una placa que no en té ho diu i ensenya els números igualment, sense una mitjana que seria una divisió inventada |
+
+**La fila va a la botiga abans de `settle_before_leaving`** (`power/before`, `kind hora mv punts mAh mA`): una escriptura després d'aquell
+punt es quedaria a la RAM i el xip se l'enduria. I **una fila gastada no es torna a llegir**, perquè un despert que trobés la fila d'un
+altre run comptaria dues vegades el mateix consum.
+
+### El despert que deia ser una alarma i era una persona (0.191.11)
+
+L'amo: *«Revisa de nou el DeepSleep, al donar al botó de Sleep no s'apaga, i al tornar no neteja???»*.
+
+`esp_sleep_get_wakeup_cause()` només sap dir «ha estat una línia», i a la T5S3 **les tres portes del son profund són la mateixa línia** de
+l'`ext1`: l'alarma del PCF8563 (GPIO2), el BOOT (GPIO0) i el dit (GPIO3). El que hi havia fins a la 0.191.10 era `RtcClock::last_wake()`,
+que contestava «el rellotge» sempre que el PCF8563 tingués l'indicador d'alarma posat —i l'havia posat el son anterior, o una alarma ja
+entregada—. Amb aquella resposta el nucli creia que la placa havia tornat **per a una alarma**, i una alarma no toca el vidre:
+`display::set_the_glass_asleep(true)` fa que **tota** pintada es quedi a la memòria. El que una persona veu és una placa que torna amb el
+dibuix del son al vidre, la seva pàgina no apareix mai i el vidre no es neteja.
+
+Ara la pregunta té nom i la contesta qui té el mapa de les línies:
+
+```cpp
+enum class Door : uint8_t { kUnknown = 0, kTimer, kKey, kGlass, kClock, kMore };
+virtual Door the_door_that_opened() const;
+```
+
+`hal_t5s3` la respon amb `esp_sleep_get_ext1_wakeup_status()` i els tres pins, i el nucli en fa la política: **una línia que és una persona
+mana sobre el rellotge** —si el dit o el BOOT són entre les que han baixat, hi ha algú al davant i el vidre s'ha de despertar—, i una placa
+que no ho sap dir contesta `kUnknown` i deixa la resposta del seu rellotge com estava. La línia de l'arrencada en surt dient la veritat:
+
+```
+[I][BOOT] back from a deep sleep, woken by the key of the board: a person, the page comes back
+[I][UI] the glass comes back from a sleep: washed whole with gc16
+```
+
+**I una baixada que la placa refusa no deixa el dibuix del son al vidre.** `power::request_sleep` pinta la imatge, espera la tinta i llavors
+demana a la placa que baixi. Si la placa diu que no —cap porta que es pugui armar, un `ext1` que el xip no pren, l'hora que ha passat mentre
+s'escrivia la sessió i es pintava el dibuix—, el que quedava era una placa **encesa** amb el dibuix del son i l'app ja tancada. Ara es fa el
+mateix que quan una apagada no passa: la imatge es treu, la pàgina de casa torna i el log ho diu.
+
+**I el camí de baixada diu on s'atura**, perquè el registre d'una placa adormida i el d'una que ha tornat a l'instant eren el mateix text:
+
+```
+[I][POWER] deep sleep with nothing to come back for: its doors are the timer, the BOOT key (…)
+[I][POWER] the chip stops here: a line after this one is a chip that came back
+```
+
+**I el rentat del vidre deixa la seva línia des de la 0.192.4**: les pintades de `splash` van **directes a l'`ISurface`** i no passen per
+`display::present`, que és qui escriu `[D][GLASS] flush …` —o sigui que una passada de tot el vidre era **invisible al registre** i el d'un
+retorn que netejava i el d'un que no es veien igual: no es veien—. Ara `splash::wash()` diu el que ha pintat i quant ha costat
+(`the whole glass, gc16, 320 ms: paper`), que és la línia que diu si el panell ha pres el rentat o no.
+
+**I l'ordre del tàctil, que el registre va ensenyar** (0.191.11): la baixada de debò portava `[W][I2C] write to 5d failed (ESP_FAIL)` just
+abans d'adormir-se. El `T5Power::sleep` subjectava `TOUCH_RST` baix —el que fa el fabricant— i després `arm_the_doors` li enviava el son del
+GT911 per I2C (`writeCommand(0x05)`): el bus cridava un xip en repòs forçat. Ara el son del controlador va **primer** i el reset subjectat
+és **l'últim** que se li fa, dins `arm_the_doors` i només quan les portes ja són armades, o sigui que una baixada refusada no deixa el vidre
+sense tàctil fins al proper reinici.
 
 El dibuix del son el pinta `splash` **fora de la pàgina de ningú** (`hal::ISurface`, no el canvas), o sigui que la primera pàgina d'un run
 que torna el deixava a tots els forats: l'app pinta **el seu damage** i la tinta vella es queda on ella no té res —i a les dues franges del
 sistema, que no són de cap app—. El deute de la pàgina (`ui::owe_the_page`) ho tapava a mitges, perquè el que paga és **la vista** i no el
 vidre.
 
-**Ara es paga al vidre i abans que cap pàgina dibuixi**: `splash::wash(mode)` és la mateixa passada que `hide()` —el panell sencer, no la
-vista— amb la qualitat que demana qui crida, i l'arrencada en demana un **`gc16`** quan ve d'un son i el vidre no dorm:
+**Ara es paga al vidre i abans que cap pàgina dibuixi**: `splash::wash()` és la mateixa passada que `hide()` —el panell sencer, no la
+vista— i des de la 0.192.1 **sempre `gc16`**, tant al despert d'un son com a `splash hide`:
 
 ```
 [I][BOOT] back from a deep sleep, woken by the power coming back: a person, the page comes back
@@ -1692,6 +1855,50 @@ amb el QON o traient el cable. És la regla que el fabricant té escrita al seu 
 pantalla de la seva fàbrica: *«The shutdown function can only be used when the battery is connected alone,
 and cannot be shut down when connected to USB.»*
 
+**I el carregador es posa com el fabricant el posa, un cop a l'arrencada** (0.192.13, l'amo: *«La batería no carrrga mai al 100%,
+perqué?»*). Fins ara només el **lèiem**: el xip carregava amb els valors que porta de fàbrica, i el seu firmware de fàbrica
+(`examples/factory/main/main.cpp`, `bq25896_init`) el configura abans de deixar-lo treballar. El que fa `hold_the_power()` —el
+ganxo que el nucli crida abans de qualsevol altra cosa— és aquesta mateixa llista, amb l'aritmètica de registres del seu driver
+(`PowersBQ25896.tpp`) i **amb un defecte seu corregit**: el seu `setSysPowerDownVoltage` desplaça el registre sencer un bit a
+l'esquerra i acaba encenent l'OTG; aquí el camp del rail del sistema es toca al seu lloc.
+
+| registre | valor | per què |
+|---|---|---|
+| `REG00` | `EN_ILIM` fora, entrada **3250 mA** | el valor de sèrie és **500 mA** (comentari del fabricant) i el pin `ILIM` manava sobre el corrent de càrrega |
+| `REG02` bit 6 | ADC continu engegat | *«To obtain voltage data, the ADC must be enabled first»*: sense això `VSYS`, `VBUS` i `IBAT` no s'actualitzen |
+| `REG03` | rail del sistema **3300 mV** i `CHG_CONFIG` encesa | el rail no ha de caure per sota del que la placa necessita, i la càrrega ha d'estar encesa |
+| `REG04` | càrrega ràpida **1024 mA** | 64 mA per pas; el sostre del xip és 3008 |
+| `REG05` | pre-càrrega **64 mA** | el primer esglaó, que és el que el fabricant posa |
+| `REG06` | tensió objectiu **4208 mV** | 16 mV per pas des de 3840; és la tensió d'aquesta cel·la |
+| `REG07` bits 5:4 | watchdog **fora** | el seu `init()` el desactiva: amb el watchdog armat i ningú que el pentini, el xip es reinicia sol a mitja càrrega |
+
+**I és el que fa que la cel·la arribi al 100 %**: el número de la barra és el `StateOfCharge()` del BQ27220, i aquest només declara
+la cel·la plena (`FC` del seu `BatteryStatus`) quan veu la **caiguda de corrent** de la fi de la fase de tensió constant. Amb el
+límit d'entrada de 500 mA i el `ILIM` manant, aquella cua s'arrossegava i el percentatge es quedava a 97 amb la cel·la ja a
+4170 mV.
+
+**I el primer que fa l'arrencada és desfer el que la dormida va subjectar** (0.192.15, el `idf_setup()` del fabricant: *«gpio_hold_dis(TOUCH_RST);
+gpio_hold_dis(LORA_RST); gpio_deep_sleep_hold_dis();»*). La baixada subjecta el **reset del GT911 a zero** perquè el controlador no mengi
+corrent mentre la placa dorm, i una retenció digital **sobreviu al reset del xip** (viu a la RAM del RTC): amb «wake on touch» apagat, cada
+tornada d'un son es trobava el controlador **en reset** i el nostre driver no el sap fer arrencar —només li fa un pols a la línia
+d'interrupció—, o sigui que el dit era mort fins al proper cicle de corrent. `T5Platform::hold_the_power()` desfà les dues retencions, fa el
+pols del reset del tàctil (10 ms a zero i el xip arrenca) i deixa el LoRa a reset; el seu CS alt i el seu reset baix ja són als pins
+tranquils de l'SD (`kSdQuietPins`), i el PCA9535 continua entrant amb la seva resistència de pujada.
+
+**I el comptador de coulombs també porta el seu model, i aquesta placa en portava un de dolent** (0.192.14). El `StateOfCharge()` del
+BQ27220 no surt de la tensió: surt d'un model CEDV que viu al seu *data memory*, i la placa va arribar amb un model de **3000 mAh** en una
+cel·la de **1500** — el registre del 25/11 deia `1136 of 3000 mAh of 3000` mentre la cel·la era a 4158 mV i la barra ensenyava **38 %**. El
+fabricant escriu aquell model al seu firmware de fàbrica (`lib/BQ27220/bq27220_data_memory.c` i el seu `BQ27220::init()`), i el nostre codi
+no hi havia escrit mai res.
+
+Ara `T5Gauge::write_the_maker_profile()` hi posa **el seu perfil, xifra per xifra**: disseny i plena **1500 mAh**, EMF 3743,
+C0/R0/T0/R1 149/867/4030/316, TC 9, C1 0, els onze `StartDOD`, els tres `EDV`, la banda morta del corrent a 1, el corrent de repòs a 1 mA,
+`GaugingConfig` `0x0D31` i les dues `OperationConfig` `0x0C8C` i `0x4C`. Amb la seva seqüència: número de xip (`0x0220`, o no es toca res),
+**unseal** (`0x0414`/`0x3672`), **comparar**, i només si no hi quadra → **reset** → accés complet (`0xFFFF`) → `0x0090` (mode de
+configuració) → els vint-i-vuit paràmetres amb la seva suma de control a `0x60`/`0x61` → `0x0091` (sortir reiniciant) → **seal** (`0x0030`).
+**Si el perfil ja hi és no s'escriu res**, i el que ha quedat es comprova tornant-lo a llegir: `the gauge took the maker's profile…` o
+`the gauge did not take the maker's profile: N setting(s) are still its own`.
+
 **I la baixada d'aquesta placa té tres coses més que la del xip** (0.190.272), que són les que el seu
 `ui_sleep()` fa a mà i que aquí no es feien: la **llum del vidre a zero** abans que els pads perdin el seu
 estat; els **rails del panell avall** (`Epd47::rest()`) —després de pintar la imatge del son el TPS65185 es
@@ -1746,6 +1953,20 @@ mentre s'endolla el cable deixa la placa esperant un flaix i no arrencant— i s
 res (docs/50, docs/60). El wiki de la placa havia llistat l'`IO48` com a botó per herència d'altres plaques d'aquesta casa; al mapa del
 fabricant (`H752-01`) l'`IO48` és **`EP_CKV`**, el rellotge de files del panell —el que aquest projecte genera amb el RMT a tretze
 microsegons per fila—, o sigui que un botó allà no hi cap.
+
+**I aquest panell es renta sencer a cada arrencada** (0.192.10, l'amo: *«Que aquest model SEMPRE al boot netegi la pantalla amb splash
+hide (que neteja al màxim)»*): l'ED047TC1 guarda el fantasma del que mostrava, i el dibuix d'un son o la pàgina d'un run que s'ha acabat
+són tinta que no és de ningú. La placa ho declara amb la capacitat `kCapWashAtBoot` —al costat de `kCapDisplay`, quan el panell contesta—
+i el nucli hi fa un `splash::hide()` (un `gc16` del vidre sencer) com a primera tinta de l'arrencada, **abans** de la targeta del boot, de
+les alarmes, de la shell i de la pàgina de la persona. El Paper i els ATOM no la declaren (docs/30, docs/60, docs/85).
+
+**I el rentat ha de baixar al panell, que és una altra cosa** (0.192.11, l'amo: *«ENCARA VEIG LA IMATGE D'SLEEP SOTA EL GRID DEL HOME»*): la
+primera versió d'això rentava el *buffer* i no el vidre. `epd_hl_init` posa **els dos** buffers de l'estat d'alt nivell d'epdiy a `0xFF` —el que
+diu «què hi ha al vidre» neix blanc a cada arrencada, perquè un xip que torna d'un son no ho pot saber— i `epd_hl_update_area` **compara** i no
+envia res si no hi ha diferència: `clear(15)` + `gc16` sobre el dibuix del son és blanc contra blanc, zero píxels, i el registre dient que
+s'havia rentat. El que esborra de debò és **el cicle del propi panell** (`epd_clear()`: tres voltes de negre i blanc a tot el vidre, amb el
+temps de la forma d'ona i cap buffer pel mig), i és el que fa `ISurface::wash_the_glass()` en aquesta placa; la resta de vidres hereten el
+`clear(15)`+`gc16` de sempre (docs/30, docs/95).
 
 **I hi ha un segon botó, i no és cap botó** (0.190.110, l'amo: *«Farem un botó virtual (no s'ha de dibuxar res), per el sistema serà com un botó
 físic qualsevol (definexi-lo com a tal) però en realitat serà un toc en aquesta zona del panell tàctil, sota el panell hi ha un cercle que sembla
@@ -1846,8 +2067,8 @@ acaba on no toca. Cada píxel que s'ha de moure passa ara per **vuit passades ca
 mateix codi que el nivell 0 gasta per anar de blanc a negre), i el que es veia com a pocs tons desapareix. El preu és
 un 20 % de passades en els modes de qualitat; els `du`, que ja comencen amb dues passades cap al blanc, no el paguen.
 **I el rentat de l'splash demanava dues tintes**: `splash::hide()` feia un `a2` sobre tota la pàgina, i un mode de dues
-tintes és parcial —sobre una foto només s'hi empenyen els foscos i els clars queden a mig esborrar—; ara demana `gld16`,
-que és blanc sobre el que no ho és i res sobre el que ja ho és.
+tintes és parcial —sobre una foto només s'hi empenyen els foscos i els clars queden a mig esborrar—; des d'aquí demanava
+`gld16`, i **des de la 0.192.1 demana `gc16` com tota la resta del fitxer** (vegeu «Tot splash neteja el paper sencer»).
 
 **I el que de debò hi havia de ser: el codi del fabricant, no el meu** (0.190.55). Entre la 0.190.46 i la
 0.190.54 aquesta fitxa va acumular una sèrie de números que eren invents meus —una finestra de porta comptada a
@@ -2222,6 +2443,42 @@ controlador **es queda al ritme de la unitat** mentre la placa és desperta i no
 no el commutador: un son profund que escolta un dit posa el vidre al terra (`quiet_now`) abans d'armar la línia —perquè el que ha de passar és
 que caigui, no que caigui amb precisió—, i un que no l'escolta **l'adorm del tot**; en tornar, el règim de la persona es torna a posar
 (docs/30, docs/50, docs/60).
+
+**I el terra del son no era un règim de guàrdia** (0.192.28, l'amo: *«Els panells desplegables del sistema deixen de funcionar al tornar
+d'sleep? … Estic segur que baixes la velocitat i no la tornes a pujar al despertar. Perqué si pitjo botons si que va … si que em deixa fer
+swipe de costat i canviar la página del grid»*). El que deia el paràgraf de dalt era cert per a mitja veritat: `quiet_now` baixava el xip a
+deu escombrats per segon abans de **qualsevol** dormida, i **cap camí el tornava a pujar**. Amb la llum del vidre encesa no es notava, perquè
+`set_brisk` (i `settle`, que és qui escriu el byte) tornen el ritme de la llum; amb la llum apagada —que és com es prem *Sleep* de nit— el
+`settle` adaptatiu només sabia **baixar** (la seva branca només actua quan el ritme ja és el de la unitat) i la placa es quedava escombrant a
+deu hertzs fins que un dit la pujava. I a deu hertzs un escombrat cada cent mil·lisegons, el primer gest després del son —una **fregada curta
+a la barra**, que és com s'obre un panell de dalt o de baix— cau entre dos escombrats i arriba com un toc, mentre que una fregada llarga de
+costat, la de passar la pàgina de la graella, sí que hi cap: exactament el que l'amo va veure, i el que un `Reboot` arreglava perquè una
+arrencada torna a llegir el ritme del xip. Ara `quiet_now` diu que baixa **pel son** (`napping_`) i el primer `settle` amb la placa desperta
+li torna el ritme —el de la llum si n'hi ha, el de la unitat si no— i li dona els cinc segons del *burst*, i el T5S3 **només baixa al terra
+quan la placa baixa de debò** (`g_going_deep`), perquè una becaina torna de seguida i el panell s'hi ha de sentir com abans. Les dues línies
+surten al registre (`the panel goes to 10 Hz for the sleep`, `the panel is back from the sleep at 20 Hz`) (docs/30, docs/50, docs/60, docs/95).
+
+**I el pitjor era més avall: la fila que decideix qui rep el dit era la de la vista** (0.192.32, l'amo: *«ES EL CODI QUE NO REACCIONA…
+consulta com estàn després de tornar d'sleep. mil duros que no hi son»*). La fregada curta que obre un panell no arribava perquè el tàctil li
+preguntava a **la vista de l'app** (`ui::canvas().y`) quines files eren de la barra, i amb el vidre sencer d'una app —offset zero— cada dit de
+les primeres quaranta-vuit files era de la pàgina: el registre de l'amo deia `the contact at 286,6 is the page's` una vegada i una altra i cap
+gest portava `on the bar`, que és el que `panel::poll` mira. Ara la fila que decideix és **la del vidre** (`bar::visible()` i `bar::height()`,
+i `display::height() - bar::strip_rows()` per a la franja), la línia del contacte diu amb què ha comptat (`bar 1 of 48 rows, view at 48`) i un
+vidre sencer té el gest de tornada: baixar des de les primeres files torna la barra i obre la targeta de dalt, i pujar des de les últimes obre
+la de baix (docs/30, docs/46 D1, docs/50).
+
+**I el registre deia `outside the glass of 0x0`** (0.192.33, l'amo: *«PERQUE LES PUTES BARRES DE SISTEMA NO? i perqué només deprés de
+l'Sleep? QUE FAS DIFERENT AL BOOT JODER?»*, i tot seguit *«el log es diferent d'abans de dormir»* — i tenia tota la raó—). A deep sleep deixa el
+controlador del vidre **adormit** i subjecta el seu reset, i la tornada fa el pols del reset abans de res (`hold_the_power`); el GT911, quan
+se li demana la configuració just després, encara no l'ha carregada a `0x8047` i **la lectura torna cent vuitanta-sis zeros**: el driver es
+quedava amb un vidre de **`0×0`** i la línia del perfil —la que en una arrencada en fred diu `config 66, 540x960`— deia `0x0`. Amb un marc de
+zero, `orientation::turn` **refusa cada dit**, o sigui que la bandera de la barra i la de la franja no es posen mai i **cada contacte de les
+primeres quaranta-vuit files era de la pàgina**: les dues targetes mortes, les pàgines funcionant, i res al registre que ho digués. Tres
+reparacions, de la fonda a la externa: el driver **demana la configuració fins a cinc vegades** (vint mil·lisegons entre una i l'altra) i una
+mida de zero no compta; si no arriba, es queda amb el que la unitat té de fàbrica i ho diu al perfil; **el nucli no depèn del número del
+xip** (un marc de zero és el de la pàgina girat enrere, `turn_frame`); i **les dues targetes pregunten per la fila del vidre on va caure el
+dit** (`Gesture::glass_y`, presa abans de treure-hi l'offset de la vista) en comptes de la bandera que el gir del marc va concloure, o sigui
+que ni una vista ni un xip poden deixar les barres del sistema sense dits (docs/30, docs/50, docs/95).
 
 **I el panell va al ritme de la llum** (0.190.119, l'amo: *«El touch va per interrupció oi? perqué triga tant en respondre? sembla polling»*). La
 línia del GT911 **sí que és una interrupció** i l'ISR només aixeca un flag (el bus no es toca des d'una interrupció), però el que feia l'efecte de
@@ -3076,13 +3333,32 @@ cap pintada més, i desapareix amb ella quan una app demana el vidre sencer. La 
   tretze i no una banda negra—, i un cas de la suite comprova que no hi ha cap píxel de la franja que no sigui zero
   o quinze (`test_the_strip_of_the_bar_is_two_tones`, docs/50).
 - **I el dit que hi cau és del sistema** (0.179.22): arrossegar-lo cap avall obre el **panell del sistema**, una
-  targeta d'un terç de la pàgina que penja de la franja —buida pel que fa a commutadors, i és on aniran els del
-  sistema—, i la pàgina de sota queda retinguda mentre hi és. **El botó de la cantonada dreta tanca l'app del
+  targeta blanca penjada de la franja —d'un terç de la pàgina fins a la 0.192.24, i de les files que les seves claus necessiten des
+  d'aleshores (0.192.25)—, i la pàgina de sota queda retinguda mentre hi és. **El botó de la cantonada dreta tanca l'app del
   davant** (0.179.23) i ho fa pel camí únic de sortir d'una pàgina —i **no es dibuixa sobre un llançador** (0.179.25), que
   és la pàgina que no es deixa—, i **el de l'esquerra, una fletxa, torna l'app a la vista de sota** (0.179.52) pel mateix
   camí que el pessic de gran a petit, i tampoc no es dibuixa quan l'app no té cap vista a sobre de la primera. Les maneres de tancar la targeta són totes de la persona: un toc fora seu i un
   lliscament cap amunt que hi comenci (0.179.49). El gest, el llindar, la rodona i què hi sent
   l'app són a docs/30, «El panell del sistema».
+- **I la franja de baix té la seva pròpia targeta** (0.192.23, l'amo: *«Vull un panell desplegable a la barra inferior que es desplegui
+  igual que el superior però a l'inversa»*): `panel_low` és el bessó de la de dalt —neix de la franja de baix, **puja** amb un arròs de
+  seixanta píxels, i se'n va amb quaranta cap avall que comencin fora d'ella o amb un toc fora—. **El gest que en tanca una no obre
+  l'altra**: `kernel::poll` crida la de baix **abans** que la de dalt i cada targeta que és fora es queda el gest que la tanca, o sigui
+  que amb la de dalt a sobre un arròs cap amunt des de la franja la tanca i no obre la de baix, i amb la de baix a sobre un arròs cap
+  avall des de la barra la tanca i no obre la de dalt (docs/30). **I el contacte que una targeta s'ha quedat és seu i prou** (0.192.24):
+  un arròs lent és un `long` i un `drag` del mateix dit, i el `drag` que ve després del `long` que ha tancat una targeta no obre l'altra
+  (`touch::forget_gestures` gasta el contacte, docs/85).
+- **I la fila de Settings és a baix de tot** (0.192.24, l'amo: *«Tots els botons de fila de Settings han d'anar abaix: Settings, Home,
+  Close i Back al panell de sistema inferior»*): les quatre que naveguen —la roda, la casa, la creu i la fletxa— les pinta `panel_low`
+  a frec de la franja de baix, en l'ordre de sempre (`Settings`, `Home`, `Close`, `Back`), i la targeta de dalt es queda les set que
+  paren la placa i encenen les ràdios (`Poweroff`, `Sleep`, `Reboot`, `Lock` i `Bluetooth`, `WiFi`, `Mesh`), amb la fila de les ràdios
+  penjada del mànec perquè no quedi una banda de paper buit sota d'ella. **El que saben no s'ha mogut**: `a_page_key_is_there`
+  i `press_a_page_key` són de `panel` —el portal diu quines apps hi ha, el shell diu quina pàgina es pot deixar i quantes vistes té— i la
+  targeta de baix només les pinta i les toca, o sigui que no hi ha dues idees de la mateixa clau (docs/30, docs/45).
+- **I les dues targetes fan les files que necessiten** (0.192.25, l'amo: *«Ara els panells son molt grans per el contingut que tenen, no?»*):
+  el mànec, la seva línia, l'aire i les claus, i res més —**cent cinquanta-sis files** la de baix i **dues-centes quaranta** la de dalt, contra
+  el terç del vidre (tres-centes quatre) que era la seva forma des de la 0.179.22 i que era la mida d'una targeta de tres files—. El terç
+  només hi torna com a sostre d'un vidre més baix que les seves claus (docs/30, docs/92).
 - **I una app d'administrador pot treure la barra i deixar-la fora** (0.189.99): `admin.LockScreen(true)` és el vidre
   sencer de la 0.136.0 amb el pany posat, i el que tanca és **aquesta targeta**: el gest que l'obre comença **a la
   franja**, o sigui que sense franja no hi ha targeta, i sense targeta no hi ha la creu que tanca l'app del davant ni la

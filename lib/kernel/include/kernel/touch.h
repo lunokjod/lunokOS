@@ -98,6 +98,15 @@ struct Gesture {
   // before the frame was turned, and it is what makes a drag that comes down **from the titlebar** the system's and a drag
   // the same size that starts on the page the app's (docs/30).
   bool on_the_bar = false;
+  // **I si va caure a la franja de baix** (0.192.23): the same question at the other edge, and the flag that makes a drag up from the
+  // bottom strip the system's gesture and not a page's.
+  bool on_the_strip = false;
+  // **I la fila del vidre on va caure el dit, que és el número que manen les dues targetes del sistema** (0.192.33): `y` is the
+  // point of the view —the bar's rows taken out of it, so a finger of the bar and a finger of the first rows of the page arrive
+  // as the same number—, i aquest és el de la pàgina sencera abans de treure-hi res. Les dues targetes pregunten per aquest i no
+  // per les banderes de dalt, que són una conclusió del gir del marc i poden dir una altra cosa que el que la persona veu (docs/30).
+  uint16_t glass_x = 0;
+  uint16_t glass_y = 0;
 };
 
 // **Taken once**: a second call answers false, so a gesture is a report and not something that
@@ -116,13 +125,21 @@ bool take_gesture_of(const char* kind, Gesture& out);
 // `touch.gesture()` (docs/30, docs/46 D1).
 bool take_pinch_in(int16_t min_px, Gesture& out);
 
-// **A drag that comes down from the bar of the system** (0.179.22): the first `drag` whose finger landed on the bar and that
-// went down by at least `min_px` and more than it went sideways —a shade is pulled down and not drawn sideways—. The ones
-// before it keep the order they had, the same rule the three taps and the pinches follow (0.136.0) (docs/30).
-bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out);
+// **Els dos cantons del vidre són del sistema** (0.192.33): a drag that begins on the first `bar::height()` rows of the glass, or
+// on the last `bar::strip_rows()` ones, **by the row the finger landed on** (`Gesture::glass_y`, kept before any offset) and not
+// by the flag the turn of the frame concluded —a flag that a view with no offset or a chip that does not know its own size can
+// leave at nothing, i llavors les dues targetes del sistema es queden mortes amb les pàgines funcionant (docs/30, docs/46 D1, docs/50).
+bool take_a_drag_down_from_the_system_rows(int16_t min_px, Gesture& out);
+bool take_a_drag_up_from_the_system_rows(int16_t min_px, Gesture& out);
 
 // **What the page does not hear** (0.179.22): the card of the system is over the page, so the gestures nobody took are
 // nobody's —an app that reacted under a panel would be acting on a page the person cannot see— (docs/30).
+//
+// **I el contacte que una targeta s'ha quedat tampoc no és de ningú més** (0.192.24): a finger that rests on the glass is a `long`
+// while it is still there, and a slow pull is a `long` and a `drag` of the same contact. Tancar una targeta amb el `long` i obrir-ne
+// l'altra amb el `drag` és exactament el que l'amo ha demanat que no passi —*«tingues en compte que passarà quan el gest de tancar-ne
+// una sigui la d'obrir l'altre panell»*—, o sigui que aquesta crida gasta el contacte sencer: el que en queda no arriba a ningú
+// (docs/30).
 void forget_gestures();
 
 // **I el que és de la pàgina que se'n va no és de la que arriba** (0.189.100): an app that is not on the glass any more

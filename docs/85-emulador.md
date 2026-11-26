@@ -108,7 +108,7 @@ Aquestes són les opcions del binari:
 | `--flush <how>` | **Com arriben els píxels al vidre** (0.189.66): `rows` (el camí de la placa d'avui, 100 µs per fila), `burst` (el cable, una transacció per tros de 2 000 bytes) o `1bit` (un quart dels bytes). El vidre de l'emulador no té controlador i pinta el mateix amb els tres, però **cobra el que cobra la placa** —el model és el de sempre, amb la fila a 100 µs —comptada pel driver el 15/11, docs/95 E-11— i el cable a 800 ns per byte—, o sigui que un run amb `--flush burst` ensenya què s'estalviaria abans que el driver del Paper estigui mesurat. Es canvia en calent amb `panel flush` (docs/50, docs/85) |
 | `--signs` | **La franja d'una demostració** (0.189.57): les cinc icones de la barra enceses alhora —el ventall del wifi, la marca del port, la runa del Bluetooth, el rellotge de sorra i la campana de l'alarma—. Les del senyal no es poden encendre totes de debò en un sol run: la provisió vol el Bluetooth, l'NTP vol la xarxa, el cable és `--charging` i el temporitzador és una cua d'alarmes. Serveix per mirar-se la barra sencera d'un cop, que és el que es vol fer quan s'hi toca; a la placa no hi ha res que encengui una icona que no digui la veritat (docs/50, docs/85) |
 | `--battery-host` | **La bateria d'aquesta màquina, prestada a la placa, i la demana poques vegades perquè ja ve sola**: en un Linux, un model amb indicador llegeix el `%` de `/sys/class/power_supply` a l'arrencada sense cap bandera (en un altre amfitrió no hi ha res a llegir i la cel·la comença al nominal) i el passa per la **corba de la cel·la del model** (1150 mAh, 4,2 V plena), o sigui que 99 % d'aquest portàtil són **4 190 mV del Paper** i no 12 V d'una bateria de tres cel·les. Si la màquina no en té cap, la cel·la comença al **seu càrrec nominal (3 700 mV, 42 %)** i l'emulador ho diu, perquè una placa amb indicador sempre llegeix alguna cosa. La bandera serveix per **demanar-ho en veu alta** (i perquè se't digui que un ATOM no té indicador); amb `--battery-mv` alhora, l'emulador el refusa (docs/50, docs/85) |
-| `--board <nom>` | **Quina placa és l'emulador, i és obligatori**: `m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`. `sys.board` respon aquest nom, `sys.emulator` continua cert, i `boards` del manifest es compara amb aquest i no amb els tres (docs/50). **El maquinari és el del model**: un ATOM té un llum i una tecla, la Matrix el panell de 25 i el sensor, i el Paper les tres tecles, l'indicador de bateria, la targeta i el rellotge amb pila — el mateix que diu la fitxa de docs/50, ni més ni menys |
+| `--board <nom>` | **Quina placa és l'emulador, i és obligatori**: `m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper`, `ttgo-t-koala` o **`lilygo-t5s3-epaper-pro`**. `sys.board` respon aquest nom, `sys.emulator` continua cert, i `boards` del manifest es compara amb aquest i no amb el model (docs/50). **El maquinari és el del model**: un ATOM té un llum i una tecla, la Matrix el panell de 25 i el sensor, el Paper les tres tecles, l'indicador de bateria, la targeta i el rellotge amb pila, i la **T5S3** el vidre de 960×540 amb el GT911, el BQ27220, el BQ25896, el PCF8563 i el son profund de tres portes — el mateix que diu la fitxa de docs/50, ni més ni menys |
 | `--mem-cap <KB>` | **Baixa** el sostre de la VM (mai per sobre del que té el model, que es refusa: 320 KB als ATOM i 4 096 KB al Paper, docs/75): posa-hi el del model per veure-hi el pic. És el pressupost **de l'app**, i per sota hi ha el de la placa: des de la 0.58.0 el PAL compta la RAM interna i la PSRAM del model i refusa el bloc que no hi cap encara que el sostre de l'app el deixés passar (docs/75, docs/85) |
 | `--baud <n>` | La velocitat del port sèrie, en baud: **115 200** per defecte, la de l'UART de la placa, o sigui **86,8 µs per byte** (10 bits a 8N1). `0` treu l'espera, que és el que vol una prova, perquè el seu console és un fitxer i no un cable |
 | `--wake-early <ms>` | Que l'emulador torni d'un son **aquesta estona abans** de l'hora que se li ha donat: `0` (per defecte) és el rellotge honrat, i qualsevol altra cosa és un son que s'ha tallat —un dit al botó, un cable, una alimentació que parpelleja— per poder provar el cas en què la placa no arriba a la seva hora (docs/60) |
@@ -137,7 +137,10 @@ Aquestes són les opcions del binari:
 | `--no-bt` | **Una placa sense Bluetooth**: `IPlatform::bluetooth()` és `nullptr` i `stats` no té cap fila `radio.*` (docs/50) |
 | `--bt-fail` | **La ràdio hi és i la pila no arrenca**: `keyboard_start` i `host_on` contesten fals i el prompt ho diu amb el motiu del HAL |
 | `--bt-scan <n>` | Quants aparells veu la **ràdio de mentida** en una exploració (per defecte 4). Amb `0` és una habitació buida i `bt host scan` torna una llista de cap línia |
+| `--charge-done` | **Un cable amb la cel·la plena** (0.192.12): el cable hi és i el BQ25896 contesta `done`, o sigui que `charging` és fals i `on_a_cable()` cert — la figura de la barra ensenya les seves quatre barres i **la icona del port sí**. És el tercer estat que `--charging` no pot dir, i el cas que va fer que la icona del USB s'apagués amb el cable posat (docs/50, docs/85) |
 | `--bt-connected` | **Un mòbil a l'altre cap del nostre teclat**: `keyboard_connected` és cert i `bt type` escriu en lloc de dir que no hi ha ningú |
+| `--cannot-power-off` | **Una placa que no pot tallar la seva font** (0.191.9): `can_power_off` i `power_off` contesten fals, com una T5S3 amb el cable a dins o un ATOM. És l'única manera de provar que la targeta del sistema **no pinta** la clau de `Poweroff`, perquè tots els models amb vidre podien apagar-se |
+| `--cannot-sleep` | **Una placa que refusa la baixada** (0.191.11): `sleep(kDeep, …)` contesta fals, com una T5S3 sense cap porta que es pugui armar, amb un `ext1` que el xip no pren o amb l'hora que ha passat mentre s'escrivia la sessió. És l'única manera de veure el camí de la negativa: el dibuix del son es treu, la pàgina de casa torna i el log diu per què |
 | `--swbutton` | **Una caixa amb el cercle de sota el vidre** (0.190.288): `a_button_under_the_glass` és cert i la segona tecla del sistema —el mig de la franja de baix, que fa de *back*— existeix com a la T5S3. Cap model d'aquest emulador té el cercle, o sigui que sense aquesta línia el commutador de la pestanya Input no tindria cap tecla per provar (docs/50, docs/85) |
 | `--bt-type <s>` | **El que aquell teclat escriu quan el vincle es fa**: els vuit bytes d'un report de boot, una tecla cada cop, pel camí de sempre (`host_sink` → `keys_arrived` → `shell::feed`). El retorn de línia no s'hi fingeix: una tecla que executés una comanda des de dins d'una altra tornaria a entrar al shell (docs/50) |
 | `--run <id>` | Arrenca una app pel mateix camí que `run <id>` de la shell i **surt** amb el resultat: `0` si l'app ha acabat bé i `1` si no s'ha pogut arrencar, ha mort amb un error o ha sortit amb un codi diferent de zero |
@@ -170,6 +173,98 @@ corre**:
 printf 'run calculator\n' > /tmp/s.txt
 ( sleep 0.4; printf 'hola mon\r' ) | ./.pio/build/emulator/program --board m5stack-atom --script /tmp/s.txt
 ```
+
+### La T5 E-Paper S3 Pro (0.192.4)
+
+L'amo: *«Afegeix a l'emulador la placa T5S3 dels collons i parem de fer l'imbècil, no confio en tu amb els canvis, està clar que no fas el
+que dic.»* I tenia raó que era la manera: cada arranjament del son s'havia de provar cremant flash, i mitja dotzena de defectes del retorn
+d'un son no es podien veure enlloc.
+
+`--board lilygo-t5s3-epaper-pro` és aquesta placa. **El que el model contesta com la placa** i no com era còmode:
+
+| pregunta | la T5S3 | el Paper |
+|---|---|---|
+| `deep_powers_off()` | **fals** (el son és el del xip, amb la cel·la encesa) | cert (talla el corrent) |
+| `can_sleep_on_idle()` | cert | cert |
+| `can_nap()` / `the_console_can_wake()` | **fals i fals** (la consola és el USB del xip) | cert i cert |
+| `a_button_under_the_glass()` | cert (el cercle del davant) | fals |
+| `can_power_off()` amb `--charging` | **fals** (el BQ25896 sosté la placa) | — |
+| `a_paint_is_work()` | **cert** (no hi ha controlador de panell) | fals |
+| `rest()` del panell | **baixa els rails i la pintada següent els torna a pujar** | el controlador s'adorm i el que ve després es refusa |
+| `wakes()` | `timer, clock, key and glass` | `timer, clock` |
+| les tecles (`IInput`) | **una**: `right/down/simple`, i `keys_are_for_the_page` **fals** | tres: dial compost a la dreta, i la pàgina sí |
+| `a_button_under_the_glass()` | cert | fals |
+
+**Les tecles de cada model, senceres** (0.192.6): el comptador, la cara, el lloc, la mena i si les tecles caminen la pàgina. Abans la forma era **la del dial del Paper per a tothom** —tres llocs compostos a la cara dreta— i la T5S3 en sortia amb dues tecles que no té. Es llegeix des del prompt amb `button.list()`:
+
+| model | `button.list()` |
+|---|---|
+| `lilygo-t5s3-epaper-pro` | `0 right/down/simple` + `1 front/centre/simple` (el cercle del davant, que és la tecla de sota el vidre) |
+| `m5stack-paper` | `0 right/centre` · `1 right/up` · `2 right/down`, compostes |
+| `m5stack-atom` i `-matrix` | `0 top/centre/simple` |
+| `ttgo-t-koala` | cap |
+
+**El que no hi és**: `lib/hal_t5s3` **no corre a l'emulador**. Epdiy, la forma d'ona del ED047TC1, el TPS65185 i els registres del PCF8563
+segueixen sent només de la placa; el que sí que corre és **tot el que hi ha a sobre** —el nucli, el son, les portes, el vidre adormit, el
+rentat, les sessions, la bateria— que és on eren els defectes.
+
+**I els botons de la carcassa, que no són tecles** (0.192.7, l'amo: *«Part dreta: Botó RESET, Botó POWER, Ranura SD. Part esquerra: Botó
+BOOT, Botó IO48 … Defineix sempre els botons i mostra'ls a l'emulador»*): cada model en declara la taula sencera —nom, cara, lloc i
+**paper**— i la finestra en dibuixa un per botó, amb el nom a dins, a la columna de la seva cara i de dalt a baix. Abans la finestra només
+sabia de tecles i els tres botons que no ho són no hi eren; i el `RESET`, quan hi era, només deixava una línia i no reiniciava res.
+
+| botó | on és | paper | què fa a l'emulador |
+|---|---|---|---|
+| `RESET` | dreta, a dalt | `kReset` | el pin `EN` i prou: **no pinta ni un píxel** —ni `restarting…` ni `/res/splash/reboot.png`, que són del reinici del sistema i no del pin—, deixa anar la pàgina **sense comiats i sense desar cap sessió** (`shell::lose_the_page_to_the_pin`), perd els blocs de la RAM (`session::lose_every_block`) i arrenca el xip amb la causa del pin (`this boot is the reset pin`). Amb el xip adormit és una porta més del son (`WakeBy::kReset`) i el que torna és una arrencada, no un despert |
+| `POWER` | dreta, a baix | `kKey` | la tecla del sistema de la T5S3 (`S3` de l'expansor): baixa i puja com qualsevol tecla, i el nucli la llegeix |
+| `BOOT` | esquerra, a dalt | `kBoot` | el pin `GPIO0`: compta pulsacions perquè el xip adormit el vegi com una porta, i **no és cap tecla mentre la placa corre** |
+| `IO48` | esquerra, a baix | `kNone` | **res**: al mapa del fabricant (`H752-01`) aquest IO és `EP_CKV`, el rellotge de files del panell, i no hi ha cap botó (docs/50) |
+
+**I el vidre de la T5S3 es renta sencer a cada arrencada** (0.192.10, l'amo: *«Que aquest model SEMPRE al boot netegi la pantalla amb splash
+hide (que neteja al màxim)»*): el model contesta `kCapWashAtBoot` —com el HAL de la placa, perquè el seu ED047TC1 guarda el fantasma del
+que hi havia— i el boot hi fa un `splash hide` (el `gc16` del vidre sencer) abans de qualsevol targeta i de qualsevol pàgina, sigui quin
+sigui el motiu de l'arrencada. El Paper i els ATOM no la declaren i fan el de sempre:
+
+```
+[I][SPLASH] the whole glass, gc16, 307 ms: paper
+[I][UI] this board cleans the whole paper at every boot: splash hide, gc16 of the glass
+[I][SPLASH] /res/splash/boot-5.e4, 540x960 at 0,0, a plane of 259200 B
+```
+
+**El pin i el reinici són dues coses diferents, com al maquinari** (0.192.8): el reinici del sistema —la targeta de la barra, el
+`reboot` del prompt— tanca la pàgina amb els seus comiats, desa les sessions, comet la botiga i **pinta el quadre** (`kReboot`); el
+`RESET` de la carcassa és el pin `EN`, que no té temps de fer res de tot això. Un `RESET` amb la pàgina de casa a sobre deixa aquest
+registre, i la cache que només era a la RAM es perd com al xip (`asks for 'state': 1024 B, made`):
+
+```
+reset: the pin EN of the case, and the chip starts again with nothing written
+[I][MEMORY] the pin EN takes the memory: 4 session block(s) gone, nothing written
+[I][APPS] home_eink dies with the chip: no goodbye and nothing written
+lunokOS 0.192.8  lilygo-t5s3-epaper-pro (emulator)
+[I][BOOT] the chip restarted and the power never went away: the reset pin
+[I][SPLASH] /res/splash/boot-5.e4, 540x960 at 0,0, a plane of 259200 B
+[I][POWER] this boot is the reset pin
+```
+
+Els models sense aquests botons (el Paper, els ATOM, el Koala) declaren només les seves tecles i la finestra no en dibuixa cap altre: una
+caixa que no existeix no s'ensenya. `--verbose` deixa una línia per botó premut (`gui: button 0 (RESET) down`), que és el que distingeix
+un botó que no fa res d'un botó que ningú no ha premut.
+
+**I perquè el retorn d'un son es pugui veure en un sol run** calien dues coses que faltaven: `deepsleep` no ha de matar el procés quan el
+xip ha reiniciat (`power::the_chip_restarted()`), i el rentat ha de deixar la seva línia (les pintades de `splash` no passen per
+`display::present`, que és qui escriu `[D][GLASS] flush`). Amb les dues, el camí sencer es llegeix d'una tirada:
+
+```
+[I][BOOT] back from a deep sleep, woken by the clock chip: an alarm, nobody in front, the glass is not touched
+[I][UI] the glass stays asleep: this run came back for an alarm, and the first page that needs it washes it whole
+[I][SPLASH] the whole glass, gc16, 320 ms: paper
+[I][UI] the page of alarmtest wakes the glass: washed whole with gc16 before it draws
+[I][POWER] the board was asleep 8 min 46 s (21:52 UTC → 22:01 UTC): the cell 4170 → 4170 mV and 97 → 97 %, and 0 mAh gone = 0 mA on average
+```
+
+**Com es fa dormir i tornar en un run**: un guió amb una app que armi una alarma amb `raise` i després `deepsleep`. El temps s'accelera
+amb `--time-scale`, i compte amb la baixada: costa uns segons de debò, o sigui que a 40× se'n mengen gairebé dos-cents de simulats i
+l'alarma ha de ser més enllà (deu minuts van bé).
 
 ## El disc de treball
 
@@ -1146,7 +1241,7 @@ provava cadascuna ho diuen les taules de docs/50 i docs/92.
 | Tornar d'un son profund | **No passa**: l'emulador no es reinicia enmig d'una crida, i per això les proves criden `kernel::power::restore_session()` a mà, que és exactament el que fa l'arrencada —i el despert per una alarma, que no la crida, es prova amb un `kernel::boot` sencer (0.189.182)—. **El que sí que és de debò és que la placa es pot deixar caure**: el model d'una placa amb xip de rellotge contesta `deep_powers_off()` que sí (0.189.182), o sigui que la política d'oci hi fa el seu camí sencer —`idle sleep`, el salt del rellotge, la finestra de l'alarma i una altra baixada— i un run sense `--gui` ho pot ensenyar | El xip es reinicia i arrenca: l'arrencada llegeix la nota del son i torna a obrir l'app amb `app.args.restore` |
 | Velocitat del processador | **De mentida en el rellotge i de debò en el preu**: el PC no canvia de marxa, però el número es desa (arrenca a **160** i accepta 80, 160 i 240) i **el codi de l'app es cobra a aquesta velocitat** (`--lua-cpu`, 60 ns per instrucció a 160 MHz): un bucle que al vidre dura un segon aquí dura un mil·lisegon amb el model apagat i el que toqui amb ell encès. I el **torn** també es cobra: 850 µs després de cada torn (vegeu la fila del rellotge de la CPU). **I des de la 0.190.175 el model té el rang i el lock del xip** (`set_cpu_range` i `hold_cpu_top`): amb l'escala encesa el número va del terra al sostre amb el lock, igual que a la Paper, o sigui que un cas de la política veu la mateixa placa que el vidre | `esp_pm_configure` de debò a la placa (`CONFIG_PM_ENABLE`), amb l'APB i el tick de FreeRTOS movent-se amb ell |
 | Llum (`led.*`) | **De mentida**: el color es desa i el test el pot preguntar (`emu::led_red()`… i `emu::led_frames()`, que compta els frames). El **nombre de llums és el del model** (1 a l'ATOM, 25 al Matrix, cap al Paper) i el sostre del canal és **20**, el del panell, a tots tres; `emu::led_pixel(i, …)` en llegeix un: així una app escrita per al panell es pot provar al PC. Els efectes es proven **movent el rellotge a mà** (`emu::advance_ms`), que és la mateixa hora que llegeix el nucli: una respiració de cinc segons es mira en un mil·lisegon | El `neopixelWrite` i el frame d'RMT de debò, sobre el WS2812 o els 25 del panell a GPIO27 |
-| Apps i manifest (`boards`) | **L'emulador és una placa, la que se li diu i és obligatori dir-la**: `--board m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`, i respon **aquell** nom i la família `esp32`. Una app del seu model corre sense dir `emulator` al manifest; una d'un altre model hi surt llistada amb l'avís i `run` la refusa dient les plaques que vol i quina és aquesta. És el mateix criteri que a la placa, i per això provar-ho al PC vol dir alguna cosa (docs/40) | `apps` la llista amb el que necessita i `run` la refusa dient les plaques que vol i quina és aquesta |
+| Apps i manifest (`boards`) | **L'emulador és una placa, la que se li diu i és obligatori dir-la**: `--board m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper`, `ttgo-t-koala` o `lilygo-t5s3-epaper-pro`, i respon **aquell** nom i la família `esp32`. Una app del seu model corre sense dir `emulator` al manifest; una d'un altre model hi surt llistada amb l'avís i `run` la refusa dient les plaques que vol i quina és aquesta. És el mateix criteri que a la placa, i per això provar-ho al PC vol dir alguna cosa (docs/40) | `apps` la llista amb el que necessita i `run` la refusa dient les plaques que vol i quina és aquesta |
 | Sensor (`imu.read`) | **De mentida i a la mà del test**: contesta el que diuen les opcions (`--imu-*`), i `--imu-fail` és un xip que no hi és. El que es prova aquí és el camí de la dada —de Lua al HAL i de tornada a l'app— i no la qualitat de la mesura, que només es pot veure al maquinari | L'MPU6886 per la I2C interna, amb les escales del full del fabricant (docs/50) |
 | Aire (`env.read`) | **De mentida i a la mà del test**: el model del Paper té sensor i els ATOM no, i les dues xifres són el que diuen `--env-celsius` i `--env-humidity`; `--env-fail` és un xip que hi és i no contesta, que és `E_IO` i no `E_UNSUPPORTED` | El SHT30 per la I2C interna: una comanda, sis bytes i dos CRCs (docs/50). **L'emulador no té bus**: no hi ha cap clock stretching que es pugui comptar, així que un sensor que l'emulador llegeix bé pot ser un sensor que la placa dona per mort (va passar l'1/11: `env yes` al PC i `env no` a la placa, docs/50) |
 | Tecles (`button.*`, `on_button`) | **De mentida i a la mà del test o del ratolí**: `emu::press_button(true/false)` prem la principal i `emu::press_key(n, true/false)` qualsevol de les tecles **del model** (fins a tres; una a l'ATOM i al Matrix, tres al Paper, cap al T-Koala), i amb `--gui` els botons de la finestra fan el mateix amb un clic. El temps que es compta és el del PC. La forma, però, encara és la de la Paper a tots els models: un dial compost a la cara **dreta** (`centre`, `up` i `down`), o sigui que una app que tria per posició es pot provar al PC. Fer que la forma segueixi el model és el que queda de M8 (docs/90) | El GPIO39 de l'ATOM i les tres de la Paper; el T-Koala només té RST, que no és una tecla, amb 10 ms de rebot |

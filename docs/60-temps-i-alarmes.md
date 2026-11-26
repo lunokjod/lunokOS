@@ -775,9 +775,16 @@ Com està avui:
 
    **I la pantalla només s'encén si l'app cridada demana el primer pla** (0.190.19): una `battery` o un `meteo` que recullen una mostra no
    mostren res i la placa torna a dormir; un temporitzador o un avís del `Clock` que fa `raise` posa la seva pàgina al davant, el vidre es
-   desperta per a ella (`shell::run_app` obre la porta i deu la pàgina sencera) i **la placa no torna a baixar**, perquè una app al davant
-   és una persona que ha de veure-hi. I si qui ha despertat la placa és una persona —la tecla del dial o el vidre—, el camí és el de
-   sempre.
+   desperta per a ella i **la placa no torna a baixar**, perquè una app al davant és una persona que ha de veure-hi. I si qui ha despertat
+   la placa és una persona —la tecla del dial o el vidre—, el camí és el de sempre.
+
+   **I el paper es neteja sencer ABANS que la pàgina arrenqui** (0.192.9, l'amo: *«al arrencar de DeepSleep has de fer un splash hide (que
+   faci neteja completa del paper) abans de continuar i arrencar l'app»*). El dibuix del son no ha passat per cap pàgina, o sigui que el
+   que hi ha al vidre és tinta que no és de ningú i la primera pàgina la deixaria als forats i a les dues franges del sistema. El rentat és
+   **un `splash hide`** —el `gc16` del vidre sencer— i té dos llocs, i cap dels dos és dins de l'arrencada de l'app: el bloc del vidre de
+   `kernel::boot`, quan la tornada és d'una persona (abans de les alarmes, de la shell i de la pàgina que torna), i `deliver_alarms`, quan
+   és una alarma qui aixeca una pàgina (`the alarm brings a page: splash hide, the whole paper, before it starts`). Un despert d'alarma
+   **sense ningú al davant no pinta ni un píxel**, que és el que diu el paràgraf de dalt.
 
    **I una hora que la baixada s'empassa no es dorm** (19/11). El guard de la política era de deu segons, i la baixada sola ja en gasta
    més: dos segons de marge per a la targeta i fins a sis esperant la imatge del son —el registre de la placa del 19/11 va mesurar 2,0 s i

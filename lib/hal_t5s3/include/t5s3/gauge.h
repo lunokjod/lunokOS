@@ -44,6 +44,23 @@ class T5Gauge {
   // (docs/50).
   bool shut_down();
 
+  // **El carregador, posat com el fabricant el posa** (0.192.13, l'amo: *«La batería no carrrga mai al 100%, perqué?»*): the chip charges with
+  // whatever it brought from the factory until somebody configures it, i el fabricant sí que el configura al seu firmware de fàbrica
+  // (`examples/factory/main/main.cpp`, `bq25896_init`): entrada a 3250 mA (el seu comentari diu que el valor de sèrie és **500**), el pin `ILIM`
+  // desactivat (si no, el corrent de càrrega segueix el pin i no el registre), 4208 mV de tensió objectiu, 1024 mA de càrrega ràpida, 64 mA de
+  // pre-càrrega, el rail del sistema a 3300 mV, l'ADC engegat (sense ell no hi ha mesures de VSYS/VBUS/IBAT) i el watchdog desactivat. **Això és
+  // el que fa que una cel·la arribi al 100 %**: la fase de tensió constant ha d'acabar amb la caiguda de corrent que el comptador de coulombs
+  // necessita per declarar-la plena (docs/50, docs/95).
+  bool set_the_charger_as_the_maker_does();
+
+  // **I el model de la bateria, que és l'altra meitat del mateix problema** (0.192.14): el `StateOfCharge()` del BQ27220 surt d'un model CEDV
+  // que viu al seu *data memory*, i aquesta placa va sortir amb un model de **3000 mAh** en una cel·la de **1500** — o sigui que el número que
+  // ensenya la barra és la meitat del que és (l'amo: *«the cell says 0 mA, 1136 of 3000 mAh of 3000»* sobre una cel·la a 4158 mV). Aquest mètode
+  // escriu el perfil del firmware de fàbrica del fabricant (`bq27220_data_memory.c`), amb la seva seqüència: número de xip, obrir el pany,
+  // comparar, i **només si no hi quadra** reiniciar, accés complet, mode de configuració, escriure, sortir reiniciant i tancar el pany
+  // (docs/50, docs/95).
+  bool write_the_maker_profile();
+
   // **Si hi ha un cable a dins** (0.190.272): REG11 bit 7 is the charger's own `VBUS_GD`, i és la pregunta que el fabricant fa
   // abans d'apagar res —el seu exemple de `shutdown` ho diu amb totes les paraules: *«The shutdown function can only be used
   // when the battery is connected alone, and cannot be shut down when connected to USB»*—. **False també vol dir que no s'ha

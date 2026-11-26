@@ -64,6 +64,12 @@ bool deep_sleep_with_the_keys();
 // True when this board can do that sleep at all —a key, or an alarm and a clock to wake it—, asked **before** the way down spends
 // its picture and its margin.
 bool can_deep_sleep();
+// **Si aquesta placa pot tallar-se el corrent** (0.191.9, l'amo: *«el poweroff no funciona? està endollat i es queda amb el botó poweroff
+// activat, però no veig l'splash de poweroff»*): la resposta és de la placa i no del sistema —el Paper té un pany a la seva font, la T5S3
+// no pot tallar-se amb el cable a dins perquè qui la alimenta és el carregador, i l'ATOM i el Koala no tenen cap pany—. La pregunta es fa
+// **dues vegades i per a dues coses**: la targeta del sistema no pinta una clau que no pot fer res (la mateixa regla que la lluna i la creu),
+// i `power_off` la pregunta **abans** de tancar cap app i abans de la primera tinta (docs/30, docs/50, docs/60).
+bool can_power_off();
 
 // **La porta de darrere d'una placa de tecles** (0.189.25): whether a key pressed by a person wakes this chip. It is a capability
 // of the board and not a question about the queue, which is why `can_deep_sleep` is the one that decides (docs/50, docs/60).
@@ -117,6 +123,10 @@ int64_t console_in_use_ms();
 void set_console_in_use_ms(int64_t ms);
 #endif
 void note_the_nap_end(bool something_happened);
+// **Quantes becaines ha fet la placa en aquest run** (0.192.31): the number only goes up, so a hand that keeps the one it saw last knows
+// whether the board has slept since —which is the only question `touch` has to answer before it believes the contact it had— (docs/50,
+// docs/95).
+uint32_t naps_seen();
 bool wake_on_touch();
 bool set_wake_on_touch(bool on);
 // **La consola com a porta de la becaina** (0.190.147): the switch of the Battery tab is a setting of the system, so it goes down to the
@@ -386,6 +396,19 @@ struct Leaving {
   uint32_t margin_ms = 0;  // the rest it gave the medium before allowing the current to go
 };
 Leaving settle_before_leaving(const char* why);
+
+// **Quant porta la cel·la i quina hora és, dit abans de baixar** (0.192.0, l'amo: *«Vull que el sistema posi al log la carrega de la batería i
+// l'hora abans d'entrar en poweroff o DeepSleep, així si et despertes molt ràpid ho podrem saber. També comptar el consum de batería mentre
+// dorm/apagat.»*). Dues meitats d'una mateixa mesura: la baixada deixa una fila a la botiga amb la càrrega i l'hora, i **l'arrencada que ve
+// després la llegeix, la compara i la diu** —quant ha durat la baixada i què ha costat, en mV, en punts i, a les plaques que saben comptar
+// el corrent, en mAh i amb la mitjana de mA—. És l'única manera de saber si una placa que sembla adormida ho està de debò, i el que l'amo vol
+// veure quan una tornada és massa ràpida (docs/50, docs/60, docs/95).
+//
+// **La fila es desa amb la resta d'ajustos i la comenta `settle_before_leaving`**: una escriptura després d'aquell punt es quedaria a la RAM
+// i el xip se l'enduria, o sigui que `note_the_load_before_the_way_down` s'ha de cridar **abans** del repòs (docs/70).
+enum class WayDown : uint8_t { kDeepSleep, kPowerOff };
+void note_the_load_before_the_way_down(WayDown what);
+void say_what_the_way_down_spent();
 
 // The rest, in milliseconds: **two seconds**, which is the number the owner asked for and longer than any card of this
 // board needs to finish writing. It is one settable number because a test that cuts the supply does not have to pay it and

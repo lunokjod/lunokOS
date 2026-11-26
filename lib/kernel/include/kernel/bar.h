@@ -28,6 +28,12 @@ uint16_t height();
 // barra no és a la pàgina, que és el cas d'una app que ha demanat el vidre sencer.
 uint16_t bottom_height();
 
+// **Les files de la franja quan la barra hi és, i tant si ara s'hi veu com si no** (0.192.28): `bottom_height` respon «què
+// ocupa la franja ara», i el que la vista vol saber quan es fa de nou és «què ocuparà quan la barra hi sigui» —la tornada
+// d'una pàgina de vidre sencer es fa amb la barra encara amagada, i preguntar-ho llavors donava zero i la vista es quedava
+// vint files que són del sistema— (docs/30, docs/50).
+uint16_t strip_rows();
+
 // **La franja d'una demostració** (0.189.57): les cinc icones enceses alhora —el ventall, la runa, la marca del port, el
 // rellotge de sorra i el despertador— perquè es pugui mirar la barra sencera d'un cop. Només l'emulador la posa, amb `--signs`;
 // a la placa no hi ha res que la posi a cert i les icones diuen el que passa de debò (docs/50, docs/85).

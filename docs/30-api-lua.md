@@ -665,7 +665,7 @@ pàgina** i no una taula del nucli:
 | Crida | Torna | Notes |
 |---|---|---|
 | `app.id` | cadena | El nom del directori de l'app |
-| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run editor res/notes.txt` i `open txt res/notes.txt` són el mateix per a l'app. **Des de la 0.120.0 hi ha també `flags`** quan el manifest declara `opensArgs`: la línia de commutadors de l'app (`-ro`), tal com està escrita i sense que el sistema en llegeixi res |
+| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run editor /data/editor/notes.txt` i una fila de `Files` que la triï són el mateix per a l'app —**i `open` no és cap comanda d'aquest sistema**, encara que aquesta fila la nomenés: el que obre un fitxer és `apps.opener`, i qui la fa servir és el `Files` (0.192.28)—. **Des de la 0.120.0 hi ha també `flags`** quan el manifest declara `opensArgs`: la línia de commutadors de l'app (`-ro`), tal com està escrita i sense que el sistema en llegeixi res |
 | `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer. **`opens` és la llista sencera** que el manifest declara, amb els noms separats per espais —`"txt md lua"`—; una app que no n'obre cap rep `""` (0.120.0) |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
@@ -1932,7 +1932,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.canvas(w, h)` | **un objecte** o `nil, error` | Un control **amb vista pròpia**: un buffer i un lloc, que el sistema compon amb la resta quan l'app fa `ui.present` (vegeu a sota) |
 | `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això; amb `focusable = true` també entra al recorregut del dial i del tàctil, amb `on_activate` com a clic |
 | `ui.label(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una línia de text: fons, color, cara, alineació i retall amb `...` (vegeu a sota) |
-| `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **`framed`** (0.185.0) el deixa **sense vora i sense ombra**: el paper de la seva pàgina és la seva cara i la tinta és només el contingut, i **`icon`** (0.185.0) hi posa **una marca del sistema** en lloc de la paraula —`back`, `close`, `settings`, `reboot`, `poweroff` o `deepsleep` (la lluna, 0.189.25), les sis de la targeta de la barra—. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
+| `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **`framed`** (0.185.0) el deixa **sense vora i sense ombra**: el paper de la seva pàgina és la seva cara i la tinta és només el contingut, i **`icon`** (0.185.0) hi posa **una marca del sistema** en lloc de la paraula —`back`, `close`, `settings`, `reboot`, `poweroff`, `deepsleep` (la lluna, 0.189.25), `home`, `lock`, `bluetooth`, `wifi`, `mesh` i les dues dels jocs, `pause` i `play` (0.192.26), que és el joc sencer de tretze de `tools/iconart.py`—. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
 | `ui.checkbox(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una fila: **la càpsula d'un interruptor** a l'esquerra —el caràcter `U+F204`/`U+F205` del clipart, que és **plena de blanc amb el botó a l'esquerra** quan està apagada i **tota negra amb el botó foradat a la dreta** quan està encesa— i el lloc de les paraules, que són un fill. **És enfocable i clicable**, i el clic **gira l'estat** i avisa amb `on_change` (vegeu a sota) |
 | `ui.progress(w, h)` | **un objecte** o `nil, error` | Una **barra**: fons, pista i el tros fet, tot del sistema. `value` és 0 a 100 i **un negatiu és «encara no ho sé»**. **No és enfocable** (3/11, 0.69.0) |
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)`. **Des de la 0.117.0 cal entrar-hi amb el botó central** (`editing`): fora, les fletxes segueixen caminant el dial; dins, són el número, i el centre les torna al sistema (3/11, 0.69.0, 0.117.0) |
@@ -2036,10 +2036,37 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   vista d'una app serà més petita i estarà en un altre lloc. El dibuix i el `present` no ho noten —les
   coordenades són sempre de la vista— i és el sistema qui les tradueix al vidre, tallant el que queda
   fora (docs/50).
+- **I la fila que decideix si un dit és de la barra és la del vidre, no la de la vista** (0.192.32): `turn_frame` preguntava a  `ui::canvas().y` —l'offset de la vista de l'app— quines files eren de la barra, o sigui que una vista que deia que començava a la
+  fila zero (el vidre sencer d'una app) feia que **cada dit de les primeres 48 files fos de la pàgina**: el registre deia
+  `the contact at 286,6 is the page's` i el gest que arribava no duia `on the bar`, i les dues targetes del sistema penjaven d'una
+  barra que ningú no podia tocar. Ara es pregunta `bar::visible()` i `bar::height()`, i el mateix val a la franja de baix
+  (`display::height() - bar::strip_rows()`), i la línia del contacte diu amb què ha comptat: `the contact at 286,6 is the page's
+  (page turn 0, bar 1 of 48 rows, view at 48)`.
+- **I les dues targetes es pregunten pel número del vidre, no per una conclusió** (0.192.33): `take_a_drag_down_from_the_system_rows` i
+  `take_a_drag_up_from_the_system_rows` obren la targeta de dalt o la de baix quan el dit va caure a les primeres `bar::height()` files
+  del vidre o a les últimes `bar::strip_rows()`, **llegint `Gesture::glass_y`** —el punt de la pàgina sencera abans de treure-hi l'offset
+  de la vista— i no les banderes `on_the_bar`/`on_the_strip`, que són el que el gir del marc va concloure. La diferència és el que va
+  deixar la placa sense panells tota una nit: el tàctil del GT911 deia que el seu vidre feia `0x0` després d'un son —la configuració no
+  era al registre quan la va demanar—, el gir refusava cada dit i **cada contacte de les primeres 48 files era de la pàgina**. Amb
+  això, ni una vista que digui que comença a la fila zero ni un xip que no sàpiga la seva mida poden deixar les barres del sistema
+  sense dits. I una app amb el vidre sencer —que és legítim, ho ha demanat (docs/46 D1)— té el mateix gest: tornar la barra i obrir la
+  targeta; un toc i un arròs de costat de les mateixes files segueixen essent de l'app.
+- **I el vidre sencer és de l'app que el va demanar, i marxa amb ella** (0.192.30): the view can only be taken by a page, and a
+  turn that finds the glass taken while **another** page is in front gives it back —`ui::give_back_a_stray_glass`, beside the
+  three taps— and says the two names in the log (`the glass was taken by 'reader' and 'home_eink' is in front: the bar comes
+  back`). Between that and the three taps, a board can no longer be left with the bar away: with `ui::canvas().y` at zero every
+  finger on the top rows is the page's, and the two cards of the system hang from the bar —so the panels were dead and the glass
+  still showed the old ink of a bar that was not there any more—. A `make_view(false)` that says no for want of memory is left
+  **owed** and asked again on the next turn (docs/30, docs/50).
 - **La vista és de l'app i no del vidre.** `ui.clear`, `ui.rect` i `ui.pixel` escriuen en un canvas que
   el sistema fa quan l'app arrenca (**240 840 B al Paper**, 4 bits per píxel: 540 × 892, que és la pàgina
   de 540 × 960 menys les 48 files de la barra i les 20 de la franja de baix); res no arriba a la pantalla fins a `ui.present`. Una app que dibuixa una cantonada deixa la pàgina anterior al voltant, i una que vol
   la pàgina sencera comença amb `ui.clear(15)`.
+- **I les vint files de baix són del sistema també quan la barra encara no hi és** (0.192.28): tornar del vidre
+  sencer fa la vista **abans** que la barra es torni a veure, i la pàgina es quedava les vint files de la franja
+  (912 en comptes de 892) amb la franja pintada a sobre —i, de passada, el dit que hi cau no era mai «de baix», o
+  sigui que la targeta de baix no s'obria—. El que es pregunta és `bar::strip_rows()`, que és el que la barra
+  ocuparà, i no `bar::bottom_height()`, que és el que ocupa ara. Ho va trobar la suite del tàctil (docs/30, docs/46).
 - **Els nivells són 0 (negre) a 15 (blanc)**, que és el que tenen els quatre bits del panell (docs/50).
 - **Els modes són els del propi xip**, i una app tria el preu: `du` (text i menús), `du4`, `gc16`
   (imatges de qualitat i netejar el fantasma), `gl16`, `glr16`, `gld16`, `a2` i `init` (la primera, la
@@ -2219,6 +2246,13 @@ i el contracte.
     (`go_back`: la vista se'n va i el cercle es queda a la fila que s'havia obert), i fora d'un exemplar el `drag` del
     prestatge es llença com abans, que allà no hi ha enlloc on tornar. Un `drag` que va sobretot cap amunt o avall segueix
     essent el requadre dels passatges que llisca.
+
+  **I LA PORTA DE TORNAR JA NO HI ÉS** (0.3.17, l'amo: *«Treu el botó UI "back" de la vista detall de Fonts»*): el botó de
+  `icon = 'back'` i el que el feia servir (`door_row`, `kDoorW`, `kDoorH`) s'han tret i **el requadre dels passatges baixa
+  fins a l'última fila del vidre**, que és el que la pàgina volia dir des de la 0.189.33. Les tres maneres de sortir són les
+  de qualsevol altra pàgina d'aquesta casa: la fletxa de la targeta del sistema, un dit que camina de costat més de
+  `kBackSlop` píxels i el pessic. Res del camí no s'ha mogut: `go_back` és el que fan el swipe i l'`on_back` de la targeta,
+  i el registre del swipe segueix dient el camí (`fonts: back by the swipe, 240 px`).
 
   **I LA BARRA DE L'INICI CREIX SOBRE L'SPLASH I LA PÀGINA ARRIBA SENCERA AL FINAL** (0.189.38, l'amo: *«l'intenció es
   mostrar una barra de progrés sobre l'splash de Fonts: Fes que al arrencar l'app no refresqui la seva vista (no comunicant
@@ -4564,16 +4598,18 @@ El que canvia és **com s'escriu la línia al cable**, i res del que hi ha a sot
 ### El panell del sistema: el gest de la barra (0.179.22)
 
 La barra del sistema és la franja de dalt del vidre, i **el dit que hi cau és del sistema** (docs/50). Des
-d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca que ocupa el
-terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —la forma de la
+d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca de les files que les seves claus
+necessiten (un terç de la pàgina fins a la 0.192.24) que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —la forma de la
 barra del sistema, que és l'agafador del camí d'anada: els de tornada són un toc fora de la targeta i un
-lliscament cap amunt que hi comenci (0.179.42, 0.179.49)— i, a dins, **onze claus en tres files** (les tres de la ràdio des de la
-0.190.219, al mig): a dalt les quatre que
-paren la placa —`Poweroff`, `Sleep`, `Reboot` i `Lock`— i a baix les quatre del sistema —`Settings`, `Home`, `Close` i
-`Back`, l'ordre de la 0.189.158: les dues que van a un lloc a l'esquerra i les dues que tanquen a la dreta— (0.189.152). Fins a la 0.189.150 la targeta era la creu i la fletxa a les dues cantonades de dalt i una fila de
-quatre al mig, i la forma d'avui és la de les dues files (docs/30 § les claus). **Les maneres de tancar-lo són totes de la
-persona: un toc fora de la targeta** —a la pàgina de sota o a la barra de la qual penja— **o un lliscament cap amunt que hi
-comenci**, i res més (0.179.42, 0.179.49).
+lliscament cap amunt que hi comenci (0.179.42, 0.179.49)— i, a dins, **set claus en dues files** des de la 0.192.24 (i **onze en tres
+files** entre la 0.190.219 i la 0.192.23): a dalt les quatre que paren la placa —`Poweroff`, `Sleep`, `Reboot` i `Lock`— i, penjada del
+mànec, la fila de les ràdios —`Bluetooth`, `WiFi` i `Mesh`—. **Les quatre que naveguen —`Settings`, `Home`, `Close` i `Back`— són a la
+targeta de baix des de la 0.192.24** (l'amo: *«Tots els botons de fila de Settings han d'anar abaix: Settings, Home, Close i Back al
+panell de sistema inferior»*), en l'ordre de la 0.189.158 i amb el mateix dibuix, i el que saben i el que fan continua essent de
+`panel` (`a_page_key_is_there`, `press_a_page_key`) perquè no hi hagi dues idees de la mateixa clau (docs/30, docs/50). Fins a la
+0.189.150 la targeta era la creu i la fletxa a les dues cantonades de dalt i una fila de quatre al mig. **Les maneres de tancar-lo són
+totes de la persona: un toc fora de la targeta** —a la pàgina de sota o a la barra de la qual penja— **o un lliscament cap amunt que
+hi comenci**, i res més (0.179.42, 0.179.49).
 
 - **Què és una estirada i què no**: el dit ha de caure **a la barra** (les 48 files de dalt, que no són de
   cap app) i baixar **60 píxels o més, i més del que s'ha mogut de costat**. Una estirada que comença una
@@ -4641,10 +4677,13 @@ comenci**, i res més (0.179.42, 0.179.49).
   **a baix, les quatre del sistema** —`settings` (roda dentada), `home` (**la casa**, 0.189.139), `close` (la creu) i `back` (la
   fletxa), en aquest ordre des de la 0.189.158: les dues que van a un lloc a l'esquerra i les dues que tanquen a la dreta, amb la
   creu abans de la fletxa perquè tancar és el que queda quan tornar no hi és—, de **96 × 104**, la mida que tenien les quatre del
-  mig.
+  mig. **Aquestes quatre ja no són en aquesta targeta** (0.192.24): les pinta `panel_low`, a frec de la franja de baix, amb la mateixa
+  mida, la mateixa marca i la mateixa paraula, i aquí queden les set de dalt amb la fila de les ràdios penjada del mànec perquè el terç
+  de la targeta no quedi amb una banda de paper buit (docs/50).
   Totes amb `framed = false` i `icon` a la mateixa clau del sistema: el paper de la targeta és la seva cara, la marca és tota la
   tinta que hi ha, i **el botó s'enfonsa girant-se** quan el dit hi és a sobre (una passada `du` de la clau i després l'acció).
-  Totes vuit es calculen en una sola taula (`key_is_there`, `key_box`, `key_icon`, `run_the_key`) i la que no pot fer res no es pinta ni
+  Totes es calculen en una sola taula (`key_is_there`, `key_box`, `key_icon`, `run_the_key` —les quatre de baix, a `panel_low`, amb la
+  mateixa taula i les accions de `panel`, 0.192.24—) i la que no pot fer res no es pinta ni
   es pot prémer —la casa sense `cfg home`, la roda sense `cfg settings` i **el candau sense `cfg lock`** (0.189.150)—.
   **I la lluna surt quan la placa pot tornar d'un son profund** (`power::can_deep_sleep()`): l'hora d'una alarma o **alguna cosa que
   desperti el xip**. A la T5 E-Paper S3 Pro això últim no ho deia ningú i la clau desapareixia quan la cua d'alarmes era buida —que és
@@ -4694,10 +4733,12 @@ comenci**, i res més (0.179.42, 0.179.49).
   - **I les tres no hi són si la placa no les pot fer**: `bt::available()`, `net::available()` i `mesh::available()` són la mateixa
     pregunta honesta que la creu sobre un llançador i la lluna d'una placa que no sap dormir —una clau que diu que pot encendre un
     ràdio en un build que no en porta diu una cosa que no és (0.179.25)—.
-  - **On són i com hi caben**: la fila és de tres claus de 156 × 80 amb setze d'aire, i les quatre del sistema baixen de 168 a 204. Amb
-    una fila més, les claus arriben més avall que el **terç del vidre** que era la forma de la targeta, o sigui que `card_height()`
-    passa a ser *el terç o les files que la targeta té, la que sigui més gran*: tres-centes trenta-sis files en un vidre de nou-centes
-    seixanta, contra tres-centes quatre (docs/30, docs/92).
+  - **On són i com hi caben**: la fila és de tres claus de 156 × 80 amb setze d'aire. **Des de la 0.192.24 són dues files i no tres**, i
+    la fila de les ràdios **penja del mànec**: `switch_row_y()` la posa a `card_height()` menys el bloc del mànec i de la línia, i així no
+    queda una banda de paper buit sota d'ella. **I des de la 0.192.25 la targeta és aquestes files i prou** (l'amo: *«Ara els panells son molt
+    grans per el contingut que tenen, no?»*): `card_height()` deixa de ser el terç del vidre i passa a ser el que el contingut demana
+    —dues-centes quaranta files en un vidre de nou-centes seixanta, contra les tres-centes quatre d'abans—, amb el terç només com a sostre
+    d'un vidre més baix que les claus (docs/30, docs/92).
   - **I les seves marques són del mateix clipart que les altres vuit** (l'amo: *«Els botons aquests nous no se d'on els has tret pero no
     tenen res en comú. Busca al fontawsome»*): la runa del Bluetooth és **`bluetooth-b`** (`U+F294`, la runa sola i no la insígnia
     quadrada de `U+F293`), el ventall és **`wifi`** (`U+F1EB`) i la xarxa és **`share-alt`** (`U+F1E0`, tres nodes enllaçats entre ells i

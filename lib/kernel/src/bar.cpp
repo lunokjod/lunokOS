@@ -62,6 +62,9 @@ const uint16_t kLineHeight = 2;
 // reading is an ADC conversion (docs/50). Half a minute is soon enough for a number that changes once
 // in an hour, and it keeps the reading off the turn a person is typing in.
 const int64_t kBatteryEveryMs = 30000;
+// El cable no és el càrrec: `VBUS_GD` és un registre del carregador i es pregunta mig segon, que és el que triga una persona a veure que
+// l'endolla. Mig minut per a una icona d'un cable és una icona que no hi és quan toca.
+const int64_t kCableEveryMs = 500;
 // **La finestra del reintent del càrrec** (0.189.112): the strip takes its first paint at the boot of the bar, and the bar boots
 // before the kernel does —before the power of the board, which is after the shell—, so the gauge may still be coming up and the
 // box of the charge comes out saying `--` with no figure under it. A bar that has **never** known the charge therefore asks
@@ -97,6 +100,10 @@ struct Status {
   // **I si la placa s'està alimentant** (0.189.56): the bolt of the battery figure is drawn from this and the four bars are
   // not, which is the paper project's rule (docs/50).
   bool charging = false;
+  // **I si hi ha un cable a dins, que no és el mateix** (0.192.12, l'amo: *«I perqué no es veu l'icona del usb quan està endollat?»*): una
+  // cel·la plena en un cable contesta `done` i no carrega, i la marca del port s'apagava amb el cable posat. El signe és «hi ha un cable»,
+  // i el bolt de la figura continua sent «s'està omplint» (docs/30, docs/50).
+  bool cable = false;
 };
 
 // **Els estats de les icones** (0.189.56): the radio is on (the fan), a provisioning is running over Bluetooth (the rune),
@@ -136,6 +143,8 @@ Status g_read;
 Signs g_shown_signs;
 int64_t g_clock_read_ms = 0;
 int64_t g_battery_read_ms = 0;
+// L'última vegada que s'ha preguntat pel cable i què va contestar, perquè la icona del port no esperi el mig minut del càrrec.
+int64_t g_cable_read_ms = 0;
 // **La franja d'una demostració** (0.189.57): `--signs` de l'emulador posa aquesta bandera i les cinc icones s'encenen, que és
 // l'única manera de mirar-se la barra sencera d'un cop. A la placa no hi ha res que la posi a cert.
 bool g_demo_signs = false;
@@ -181,6 +190,10 @@ Status read_status(bool clock_due, bool battery_due) {
     }
     status.percent = percent;
     status.charging = charging;
+    // **El cable, preguntat a part** (0.192.12): `on_a_cable()` is the board's own answer —the BQ25896's `VBUS_GD` on the T5S3— and it is
+    // asked here, in the same half minute of the battery, perquè una transacció de bus per torn per una icona seria el torn sencer pagat
+    // per una marca (docs/30, docs/50).
+    status.cable = (gauge != nullptr) && gauge->on_a_cable();
   }
   return status;
 }
@@ -196,7 +209,9 @@ Signs read_signs(const Status& status) {
   // (docs/30, docs/50).
   signs.wifi = net::available() && (net::state() != 0 || net::busy());
   signs.bluetooth = net::over_bluetooth();
-  signs.serial = serial::claimed() || status.charging;
+  // **I la marca del port és un cable, no una càrrega** (0.192.12): `serial::claimed()` is an app that has the wire, `status.cable` is a
+  // charger that sees a supply, i `status.charging` es queda a la barreja per a una placa que només sap dir que s'està omplint (docs/30).
+  signs.serial = serial::claimed() || status.cable || status.charging;
   // **El rellotge de sorra és una cosa que compta enrere** (0.189.57, l'amo: *«el rellotge de sorra per el temportizador»*):
   // the clock being set from the network and a timer somebody left are the same thing to a person looking at the bar, and
   // the drawing of the paper project says exactly that.
@@ -491,6 +506,8 @@ uint16_t height() { return kBarHeight; }
 
 uint16_t bottom_height() { return g_visible ? kBottomHeight : 0; }
 
+uint16_t strip_rows() { return kBottomHeight; }
+
 void demo(bool on) { g_demo_signs = on; }
 
 bool boot(hal::IPlatform& platform) {
@@ -506,7 +523,11 @@ bool boot(hal::IPlatform& platform) {
   // of the boot left under it is a flash a person sees every time the board comes up, and the strip is two tones, so the
   // wash that keeps two sixteenths lands on the level (docs/50, docs/92).
   g_read = read_status(true, true);
-  paint(hal::UpdateMode::kGld16, g_read);
+  // La franja **no es pinta aquí**: la lletra del disc encara no hi és i aquest primer traç sortia amb la taula de la flash, i als pocs
+  // mil·lisegons se'n pintava un altre amb la font del sistema — dos dibuixos diferents de la mateixa barra (0.192.23). Es deixa deguda
+  // i el primer torn la pinta sencera amb la font bona.
+  g_drawn = true;
+  g_whole_changed = true;
   hal::IClock* clock = platform.clock();
   int64_t mono = 0;
   if (clock != nullptr) {
@@ -576,6 +597,11 @@ void poll() {
   // `kBatteryEveryMs`** (found by the owner, 15/11). The retry lasts the boot of the board and not the life of the bar:
   // `kChargeTryForMs` is the window, and a gauge that has not answered by then is a gauge that is not there (docs/50, docs/85).
   hal::IPower* gauge = g_platform->power();
+  // **El cable, mig segon i no mig minut** (0.192.22): un registre del carregador, i la marca del port ha de seguir la ma que endolla.
+  if (gauge != nullptr && (mono - g_cable_read_ms) >= kCableEveryMs) {
+    g_cable_read_ms = mono;
+    g_read.cable = gauge->on_a_cable();
+  }
   const bool charge_missing = (gauge != nullptr) && !g_shown.has_battery && (mono - g_boot_ms) < kChargeTryForMs &&
                               (mono - g_battery_read_ms) >= kChargeTryEveryMs;
   const bool battery_due = ((mono - g_battery_read_ms) >= kBatteryEveryMs) || charge_missing;
@@ -599,8 +625,12 @@ void poll() {
   }
 
   const bool minute_changed = (g_read.minute != g_shown.minute);
+  // **I el llamp és un canvi de la figura** (0.192.12): una cel·la que s'omple i arriba a plena passa de `fast` a `done` amb el mateix
+  // percentatge —perquè el percentatge el compta l'altre xip i es mou a salts de dos, `kChargeDeadBand`—, o sigui que el llamp es quedava
+  // pintat sobre una cel·la que ja no carregava fins que el número es movia. El que diu la figura entra a la comparació (docs/30, docs/50).
   const bool charge_changed =
-      (g_read.has_battery != g_shown.has_battery) ||
+      (g_read.has_battery != g_shown.has_battery) || (g_read.cable != g_shown.cable) ||
+      (g_read.charging != g_shown.charging) ||
       (g_read.has_battery && (g_read.percent - g_shown.percent >= kChargeDeadBand)) ||
       (g_read.has_battery && (g_shown.percent - g_read.percent >= kChargeDeadBand));
   // **A bar with nothing new paints nothing.** Not on a turn, not every five seconds, not at all.

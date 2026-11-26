@@ -286,6 +286,9 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
 
   void reboot() override { reboot_ = true; }
   bool reboot_requested() const override { return reboot_; }
+  // **I el reinici que el host ha atès** (0.192.7): this process is the chip, so the `kernel::boot` that comes after a restart is
+  // done here and the flag goes down with it —a flag left up would stop the run it has just started (docs/85).
+  void the_restart_is_done() override { reboot_ = false; }
 
   uint32_t random() override {
     // xorshift32: **deterministic when the seed is, which is the whole point of `--seed`**, and it is stepped here so

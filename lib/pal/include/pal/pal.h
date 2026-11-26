@@ -181,6 +181,10 @@ class ISystem {
   virtual void reboot() = 0;
   // True once reboot() has been called on systems that cannot reboot in place.
   virtual bool reboot_requested() const = 0;
+  // **I la petició que ja s'ha atès** (0.192.7): a board the `reboot()` never comes back —the chip is gone before the next
+  // instruction—, but a host that keeps the process alive has to be told when the restart it asked for has happened, or the
+  // flag would stop the run it just started again (docs/75, docs/85). A band that reboots in place does nothing here.
+  virtual void the_restart_is_done() {}
   // **A 32-bit number of this band**: on the board it comes from the chip —the true word of its generator while the
   // radio is up, and a mixer seeded from the SAR ADC's noise and the clock when it is not, docs/50— and on a PC from a
   // mixer the run seeded. It is what the interpreter starts its own generator with, and what an app that needs a seed

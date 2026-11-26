@@ -380,8 +380,8 @@ end
 
 local function footerText()
   if help ~= '' then return help end
-  if over and won then return 'Clear! Tap New.' end
-  if over then return 'Boom - tap New.' end
+  if over and won then return 'Clear! Tap the arrow.' end
+  if over then return 'Boom - tap the arrow.' end
   if flagMode then return 'Tap a cell to flag it.' end
 
   return 'Tap to open, hold to flag.'
@@ -448,7 +448,7 @@ local function paintStrip()
     the_flag.checked = flagMode
     the_flag:invalidate()
   end
-  if the_button ~= nil then the_button.title = 'New' end
+  if the_button ~= nil then the_button.icon = 'reboot' end
 end
 
 local function paintFooter()
@@ -508,10 +508,10 @@ local function measure(w, h)
   boardX = math.floor((w - boardW) / 2)
   boardY = Strip + math.max(0, math.floor((availH - boardW) / 2))
 
-  -- **El botó es mesura de la seva paraula**, i la paraula es mesura aquí i es talla dins el control amb la mateixa
-  -- aritmètica: un píxel de diferència és una paraula amb punts suspensius (docs/30, docs/45).
-  btnW = ui.text_width('New', kSmall) + 2 * BtnPad + 2
-  if btnW < BtnMinW then btnW = BtnMinW end
+  -- **El botó de la partida nova és una marca i no una paraula** (0.192.26, l'amo: *«Substitueix els botons de New i Pause per icones
+  -- corresponents»*): `reboot`, el cercle que torna a començar, en un quadrat de la mateixa alçada que els altres botons del sistema,
+  -- i el comptador de mines es queda amb la franja que la paraula es menjava (docs/30, docs/45).
+  btnW = BtnH + 2
 
   btnX = boardX + boardW - btnW
   btnY = 6
@@ -527,6 +527,7 @@ local function measure(w, h)
     if the_button ~= nil then
       the_button.focusable = false
       the_button.scale = kSmall
+      the_button.icon = 'reboot'
     end
   else
     the_button:resize(btnW, BtnH)

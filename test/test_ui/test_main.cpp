@@ -2994,8 +2994,9 @@ void test_the_cross_of_a_text_box_goes_away_with_the_clean_pass(void) {
 void test_a_button_without_a_frame_is_its_mark_and_turns_over(void) {
   // **Onze marques des de la 0.190.219**: the padlock of the screen lock joined the seven of the system —the arrow, the cross, the
   // wheel, the circle that starts again, the switch, the moon and the house— i les tres de la ràdio hi són des de la targeta que les
-  // encén, i el compte és el del joc i no un número d'aquest fitxer (docs/30, docs/45).
-  TEST_ASSERT_EQUAL_UINT8(11, ui::icon_count());
+  // encén, i el compte és el del joc i no un número d'aquest fitxer (docs/30, docs/45). **I tretze des de la 0.192.26**: la pausa i
+  // el play dels tres jocs del sistema.
+  TEST_ASSERT_EQUAL_UINT8(13, ui::icon_count());
   TEST_ASSERT_TRUE(ui::an_icon_named("back"));
   TEST_ASSERT_TRUE(ui::an_icon_named("close"));
   TEST_ASSERT_TRUE(ui::an_icon_named("settings"));
@@ -3008,6 +3009,9 @@ void test_a_button_without_a_frame_is_its_mark_and_turns_over(void) {
   TEST_ASSERT_TRUE(ui::an_icon_named("bluetooth"));
   TEST_ASSERT_TRUE(ui::an_icon_named("wifi"));
   TEST_ASSERT_TRUE(ui::an_icon_named("mesh"));
+  // **I la pausa i el play dels jocs** (0.192.26).
+  TEST_ASSERT_TRUE(ui::an_icon_named("pause"));
+  TEST_ASSERT_TRUE(ui::an_icon_named("play"));
   TEST_ASSERT_FALSE(ui::an_icon_named("a-mark-that-is-not-one"));
   TEST_ASSERT_FALSE(ui::an_icon_named(nullptr));
 

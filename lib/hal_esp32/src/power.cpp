@@ -371,6 +371,13 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel)
     }
   }
   say_the_way_down(mode, at_epoch_ms);
+  // **L'última línia abans que el xip s'aturi** (0.191.11, l'amo: *«al donar al botó de Sleep no s'apaga»*): a deep sleep is a reset, o
+  // sigui que el registre d'una placa que s'ha adormit s'acaba aquí i el que ve després és una arrencada. **Una línia que vingui
+  // després d'aquesta vol dir que el xip no s'ha aturat** —o que ha tornat a l'instant—, i sense ella el registre d'una placa encesa i
+  // el d'una que dormen i tornen de seguida són el mateix text (docs/50, docs/60, docs/95).
+  if (mode == SleepMode::kDeep) {
+    hal::logf(pal::kLogInfo, "POWER", "the chip stops here: a line after this one is a chip that came back");
+  }
   // The chip goes quiet with the clocks: what is still in the UART has to leave
   // before, or the line that says why it sleeps never arrives.
   fflush(stdout);

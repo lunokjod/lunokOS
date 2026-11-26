@@ -32,6 +32,7 @@
 #include "kernel/bar.h"
 #include "kernel/book.h"
 #include "kernel/panel.h"
+#include "kernel/panel_low.h"
 #include "kernel/display.h"
 #include "kernel/splash.h"
 #include "kernel/touch.h"
@@ -371,6 +372,18 @@ void note_the_queue(const char* why) {
   }
 }
 
+// **Si aquest vidre es renta sencer a cada arrencada** (0.192.10): ho diu la placa amb una capacitat —el seu panell guarda el fantasma
+// del que hi havia— i el boot la llegeix una vegada (docs/50).
+bool the_board_washes_at_boot() {
+  return g_platform != nullptr && g_platform->caps().has(hal::kCapWashAtBoot);
+}
+
+// **I si el paper d'aquesta arrencada ja és net** (0.192.10): cert quan el rentat de la placa ha anat bé, o sigui que la pàgina que
+// vingui —la de la persona o la que aixeca una alarma— no ha de tornar a pagar un `gc16` sencer. Un rentat que ha fallat el deixa fals i
+// el que arribi el paga ell (docs/30, docs/50, docs/60).
+bool g_the_paper_is_clean = false;
+bool the_paper_is_clean() { return g_the_paper_is_clean; }
+
 void deliver_alarms() {
   if (g_platform == nullptr) return;
   alarms::Entry entry;
@@ -411,6 +424,33 @@ void deliver_alarms() {
       // `on_alarm` runs with the payload and the `meta` the window would have given it (0.190.7, docs/30, docs/60).
       log_printf(pal::kLogInfo, "ALARM", "%u raises %s", static_cast<unsigned>(entry.id),
                  entry.app);
+      // **I el paper es neteja sencer ABANS que la pàgina arrenqui** (0.192.9, l'amo: *«al arrencar de DeepSleep has de fer un splash hide
+      // (que faci neteja completa del paper) abans de continuar i arrencar l'app»*): this is the one boot path where a page comes without
+      // the glass having been washed by `kernel::boot` —the return was an alarm, and an alarm with nobody in front must not touch a pixel
+      // (0.190.19)— i el que hi ha al vidre és el dibuix del son. El rentat era dins de l'arrencada de l'app (`run_app`), o sigui que la
+      // pàgina començava amb la imatge del son sota seu i el registre no deia qui la netejava; ara va aquí, que és el moment abans de
+      // començar-la i el primer en què se sap que hi ha una pàgina a venir (docs/30, docs/50, docs/60).
+#if LUNOK_GLASS
+      // **I una pàgina que porta imatge pròpia no en paga dues** (0.192.9): the picture of a manifest washes the whole glass itself, a
+      // few lines later and inside `run_app`, o sigui que fer-ho aquí seria un `gc16` sencer per tornar-lo a tapar de seguida. En aquest
+      // cas el vidre es queda adormit i el desperta la imatge, que és el camí de sempre (docs/30, docs/40).
+      apps::Entry who;
+      const bool brings_a_picture = apps::read(entry.app, who) && who.splash[0] != '\0';
+      if (display::the_glass_is_asleep() && !brings_a_picture && the_paper_is_clean()) {
+        // **El paper ja és net**: la placa l'ha rentat a l'arrencada i aquí només s'ha de despertar el vidre perquè la pàgina hi caigui
+        // (0.192.10). Un segon `gc16` seria tinta tirada (docs/30, docs/50).
+        display::set_the_glass_asleep(false);
+      } else if (!brings_a_picture && display::the_glass_is_asleep()) {
+        display::set_the_glass_asleep(false);
+        if (splash::hide()) {
+          log_printf(pal::kLogInfo, "UI", "the alarm brings a page: splash hide, the whole paper, before it starts");
+        } else {
+          log_printf(pal::kLogWarn, "UI", "the alarm brings a page and the splash hide did not take: %s",
+                     splash::last_error());
+          ui::owe_the_page();
+        }
+      }
+#endif
       shell::AStart raised;
       raised.id = entry.app;
       raised.alarm = &entry;
@@ -554,6 +594,10 @@ void boot(hal::IPlatform& platform) {
   // s'aturi, i aquesta línia és el que el torna a baixar —si no, el torn següent el llegiria i es tornaria a arrencar el nucli per sempre
   // més— (docs/60, docs/85).
   power::clear_the_restart();
+  // **I la petició de reinici també, quan la placa la pot atendre** (0.192.7): on the board `reboot()` never comes back and this is
+  // nothing; on a host that keeps the process, the restart is this very `boot` and the flag it asked for goes down here, next to the
+  // one of the chip (docs/60, docs/85).
+  pal::system().the_restart_is_done();
   log_init();
   // **La primera mesura de la pila, aquí i no a `main_idf`** (0.190.291): the number that was asked for before the kernel —the one of the PAL
   // and of everything the IDF did on the way in— is this one, said by the system's own log. **No pot anar per `ESP_LOGI`**: the Paper keeps
@@ -658,6 +702,28 @@ void boot(hal::IPlatform& platform) {
     log_printf(pal::kLogWarn, "UI", "this glass cannot be turned to %u degrees: it stays as the panel came",
                static_cast<unsigned>(cfg::rotation()));
   }
+  // **I hi ha vidres que es renten sencers a cada arrencada, passi el que passi** (0.192.10, l'amo: *«Que aquest model SEMPRE al boot
+  // netegi la pantalla amb splash hide (que neteja al màxim)»*): the board that says `kCapWashAtBoot` keeps a ghost of what it was
+  // showing —the ED047TC1 of the T5S3 does— i el que hi ha al vidre quan la placa torna no és de ningú: ni el dibuix d'un son, ni la
+  // pàgina d'un run que s'ha acabat. El rentat és **un sol cop i és el primer**, abans de la targeta de la bateria, de la del boot i de
+  // qualsevol pàgina, i és un `gc16` del vidre sencer (`splash::hide`) — el màxim que aquest panell sap netejar (docs/30, docs/50).
+  //
+  // **I no desperta el vidre d'un despert d'alarma**: `splash::hide()` pinta perquè és una passada del vidre i no una pàgina, però la
+  // bandera del vidre adormit es queda com era, o sigui que la finestra d'una alarma no hi deixa res seu després (0.190.19) i el que la
+  // persona trobarà és **paper** (docs/30, docs/60).
+  const bool the_board_cleans_the_paper = the_board_washes_at_boot();
+  g_the_paper_is_clean = false;
+  if (the_board_cleans_the_paper) {
+    if (splash::hide()) {
+      g_the_paper_is_clean = true;
+      log_printf(pal::kLogInfo, "UI", "this board cleans the whole paper at every boot: splash hide, gc16 of the glass");
+    } else {
+      log_printf(pal::kLogWarn, "UI",
+                 "this board cleans the whole paper at every boot and the splash hide did not take: %s",
+                 splash::last_error());
+      ui::owe_the_page();
+    }
+  }
   // **La bateria decideix la imatge de l'arrencada** (0.183.0): the gauge is asked here and not by `power::boot`, which has
   // not run yet —it is after the shell— because this is the one page a person sees before anything else can tell them, and
   // a board with a cell under the mark has to say it before it says its name. `power::boot_picture` is the rule and this is
@@ -690,19 +756,43 @@ void boot(hal::IPlatform& platform) {
     //
     // **I no es paga quan el vidre dorm**: un despert per una alarma no toca ni un píxel a posta (0.190.19) i el que hi ha al vidre és
     // la imatge que el son hi va deixar; quan la persona hi sigui, la pàgina que arribi sí que neteja.
-    if (booted == power::BootKind::kSleep && !display::the_glass_is_asleep()) {
-      if (splash::wash(hal::UpdateMode::kGc16)) {
-        log_printf(pal::kLogInfo, "UI", "the glass comes back from a sleep: washed whole with gc16");
+    // **I és un `splash hide` i és el primer que fa el vidre** (0.192.9, l'amo: *«al arrencar de DeepSleep has de fer un splash hide (que
+    // faci neteja completa del paper) abans de continuar i arrencar l'app»*): the pass happens here —before the alarms, before the shell,
+    // before `power::boot` brings the page of the person back— and it is the same door every other clean of this house uses, `gc16` of
+    // the whole glass. `splash::wash()` and `splash::hide()` are one function since 0.192.1; the name said here is the one the owner
+    // asked for, so a log and a mouth say the same thing (docs/30, docs/50).
+    if (the_board_cleans_the_paper) {
+      // **Ja està net**: la placa ha fet el seu `gc16` unes línies més amunt, i pagar-ne un segon per la mateixa pàgina seria tinta
+      // tirada (0.192.10). El que queda per fer aquí és no pintar res més (docs/30, docs/50).
+    } else if (booted == power::BootKind::kSleep && !display::the_glass_is_asleep()) {
+      if (splash::hide()) {
+        log_printf(pal::kLogInfo, "UI", "back from a sleep: splash hide, the whole paper, before the page comes back");
       } else {
-        log_printf(pal::kLogWarn, "UI", "the glass comes back from a sleep and the wash did not take: %s",
+        log_printf(pal::kLogWarn, "UI", "back from a sleep and the splash hide did not take: %s",
                    splash::last_error());
         ui::owe_the_page();
       }
     } else {
+      // **I es diu per què el vidre no es toca** (0.192.3): un despert per una alarma no pinta ni un píxel a posta, i sense aquesta línia el
+      // registre d'un retorn que encara no ha netejat i el d'un que no netejarà mai són el mateix text. El que neteja és la primera pàgina
+      // que necessiti el vidre (`shell::run_app` fa el `splash hide` abans de dibuixar-hi res) (docs/30, docs/60).
+      log_printf(pal::kLogInfo, "UI",
+                 "the glass stays asleep: this run came back for an alarm, and the first page that needs it washes it whole");
       ui::owe_the_page();
     }
   } else if (!splash::show(boot_moment)) {
+    // **Una arrencada sense imatge també neteja el vidre sencer** (0.191.10, l'amo: *«i es neteja bé la pantalla quan el sistema arrenca o
+    // desferta?»*): the picture is the pass that washes the whole panel —`splash::show` asks for a `gc16` of all of it—, o sigui que una
+    // placa sense `/res/splash` (o amb la imatge d'un moment que no hi és) només netejava **la vista**, i les dues franges del sistema
+    // —els quaranta-vuit rengles de dalt i els vint de baix— es quedaven amb la tinta de l'execució anterior, que és el que es veu com una
+    // ombra al rellotge i a la ratlla de baix (docs/30, docs/50).
     log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
+    if (splash::wash()) {
+      log_printf(pal::kLogInfo, "UI", "no picture for this boot: the glass is washed whole with gc16");
+    } else {
+      log_printf(pal::kLogWarn, "UI", "no picture for this boot and the wash did not take: %s", splash::last_error());
+      ui::owe_the_page();
+    }
   } else {
     // **The first page of the system washes the picture away** (0.179.5): the splash paints the panel whole and none of its
     // ink passed through the page, so the page that covers it is owed whole and clean —which was the `gc16` every launcher
@@ -820,6 +910,8 @@ void boot(hal::IPlatform& platform) {
   // **The card of the system that hangs from the bar** (0.179.22): empty for now, and with nothing to boot but the fact that
   // no boot of before left it out (docs/30).
   panel::boot();
+  // **I la targeta que penja de la franja de baix** (0.192.23): empty for now, and a boot is a glass nobody has touched.
+  panel_low::boot();
   // The canvas an app draws on, at the size of the glass **under the bar**, made once and re-made only
   // when the system asks for another size. The board's buffer stays the system's (docs/30).
   ui::boot(platform, bar::height());
@@ -912,11 +1004,11 @@ void boot(hal::IPlatform& platform) {
   // (docs/90).
   power::boot(platform, for_an_alarm);
 
-  // **L'ARRENÇADA DEMANA EL TOPALL I EL SISTEMA CARREGAT EL DEIXA ANAR** (0.179.38): the mount, the panel, the settings,
-  // the picture of the boot and the shell are the heaviest second of this system, and nothing of it is worth a processor
-  // at a hundred and sixty. The window is the boot's own and has no clock: the line below the home app is what steps it
-  // down, because only here is it known that the system is loaded (docs/50, docs/60).
-  power::hold_cpu(power::kBusyMhz, 0, "boot");
+  // **I el topall de l'arrencada ja no es demana aquí** (0.192.5): the mount, the panel, the settings, the picture of the boot, the radio
+  // and the alarms —the heaviest second of this system— happen **abans** de `power::boot`, i el que queda després és `lock::boot()`, una
+  // línia a la cua de comandes i res més: la pàgina de casa demana la seva pròpia finestra quan arrenca (`run_app`, *an app is starting*).
+  // O sigui que aquest `hold_cpu` pujava el rellotge, escrivia dues línies —`cpu 240 MHz from 80 (boot)` i la tornada— i no cobria cap
+  // feina (l'amo, amb la primera al registre: *«que collons es això?»*) (docs/50, docs/60).
 
   // **The app the settings call home** (0.119.0): a board that has one comes up showing that page instead of the
   // prompt —a launcher, a clock, the page a person wants to see—. It goes last and only when nothing came back,
@@ -1133,8 +1225,17 @@ void poll() {
   // **And they are not asked while the card of the system is out** (0.179.42): a triple tap below the card is a tap outside
   // it, and the way out it asks for is not the system's while the card is the page's (docs/30).
   if (!ui::page_held()) ui::poll_full_screen();
+  // **I un vidre que es va quedar sense pagament es paga aquí** (0.192.30): the whole glass belongs to the app that asked for it
+  // and it goes with that app. A page that ended by a road the shell does not see —an error, a page the kernel replaced— left the
+  // next one with the whole glass: the bar was old ink and every finger on its rows went to the page, o sigui que les dues
+  // targetes del sistema eren mortes i res al vidre ho deia (l'amo: *«No es despleguen el panells de sistema»*) (docs/30).
+  ui::give_back_a_stray_glass();
   // **And the hand of the panel** (0.179.22): a drag down from the bar pulls the card of the system out, and while it is out
   // the gestures the panel did not take are nobody's —the app under it never learns that the panel exists— (docs/30).
+  // **I la mà de la targeta de baix, abans que la de dalt** (0.192.23): the card that is out has the first word on the gesture that closes
+  // it, and that is what stops one drag from closing the top card and opening the bottom one at the same time. With nothing out, each one
+  // reads its own strip and there is no gesture that opens both.
+  panel_low::poll();
   panel::poll();
 #endif  // LUNOK_GLASS
 
@@ -1151,7 +1252,7 @@ void poll() {
   // alarms, the light, the network and the prompt keep running, and the app goes on from where it was the moment the card
   // goes (docs/30, docs/50).
 #if LUNOK_GLASS
-  const bool the_card_is_out = panel::open();
+  const bool the_card_is_out = panel::open() || panel_low::open();
 #else
   const bool the_card_is_out = false;
 #endif  // LUNOK_GLASS

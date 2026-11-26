@@ -8,6 +8,7 @@
 #include "esp_attr.h"
 
 #include <stdio.h>
+#include <string.h>
 
 namespace hal {
 namespace {
@@ -150,9 +151,29 @@ bool Gt911::probe() {
   }
 
   uint8_t config[kConfigBytes] = {0};
-  if (!bus_->read16(address_, kRegConfig, config, sizeof(config))) {
-    snprintf(profile_, sizeof(profile_), "GT911 at 0x%02x, no configuration", address_);
-    return false;
+  // **La configuració es demana fins que arriba** (0.192.33, l'amo: *«el log es diferent d'abans de dormir»*). A deep sleep leaves the
+  // controller **asleep** —the sleep command outlives the board's reset— and the manufacturer's wake is the pulse of eight milliseconds
+  // above. A chip that has just been woken answers `0x8140` on the bus **before** it has loaded its configuration into `0x8047`, o sigui
+  // que la primera lectura torna cent vuitanta-sis zeros i el driver es quedava amb un vidre de **0×0** per tota la sessió: la línia del
+  // perfil deia `0x0` en comptes de `540x960` i el gir del marc refusava cada dit —les dues targetes del sistema mortes i les pàgines
+  // funcionant, que és el que l'amo veia—. Es pregunta cinc vegades, vint mil·lisegons entre una i l'altra, i una mida de zero **no és
+  // una configuració** (docs/50, docs/95).
+  bool the_config_is_there = false;
+  for (uint8_t attempt = 0; attempt < 5 && !the_config_is_there; ++attempt) {
+    the_config_is_there = bus_->read16(address_, kRegConfig, config, sizeof(config)) &&
+                          word_at(config, kConfigXMax) != 0 && word_at(config, kConfigYMax) != 0;
+    if (!the_config_is_there) {
+      memset(config, 0, sizeof(config));
+      pal::delay_us(20000);
+    }
+  }
+  if (!the_config_is_there) {
+    // **I si no arriba, el xip es queda i la mida no** (0.192.33): un controlador que dona marcs i no dona la seva configuració és un
+    // vidre que es pot tocar; el que no es pot és deixar-lo amb una mida de zero, i qui la sap sense preguntar-li és el nucli (el marc de la
+    // pàgina girat enrere, `touch::turn_frame`). La resta del camí —el ritme, la línia, el mode d'interrupció— es fa amb el que aquesta
+    // unitat té de fàbrica, que és el que la seva pròpia configuració diu quan la deixa llegir (deu escombrats per segon) (docs/50, docs/95).
+    memset(config, 0, sizeof(config));
+    config[kConfigScanRate] = 0x05;
   }
   width_ = word_at(config, kConfigXMax);
   height_ = word_at(config, kConfigYMax);
@@ -200,10 +221,19 @@ bool Gt911::probe() {
     gpio_install_isr_service(0);
     gpio_isr_handler_add(static_cast<gpio_num_t>(int_pin_), on_the_line, nullptr);
   }
-  snprintf(profile_, sizeof(profile_), "GT911 at 0x%02x, config %u, %ux%u, %u fingers, %u Hz quiet, %u Hz awake",
-           address_, config[0], static_cast<unsigned>(width_), static_cast<unsigned>(height_),
-           static_cast<unsigned>(points_), static_cast<unsigned>(5u + quiet_rate_),
-           static_cast<unsigned>(5u + unit_rate_));
+  if (the_config_is_there) {
+    snprintf(profile_, sizeof(profile_), "GT911 at 0x%02x, config %u, %ux%u, %u fingers, %u Hz quiet, %u Hz awake",
+             address_, config[0], static_cast<unsigned>(width_), static_cast<unsigned>(height_),
+             static_cast<unsigned>(points_), static_cast<unsigned>(5u + quiet_rate_),
+             static_cast<unsigned>(5u + unit_rate_));
+  } else {
+    // **La línia que diu que aquesta arrencada no és com les altres** (0.192.33): the profile of a unit that never gave its configuration is
+    // the one line that says why the frame of the glass is the page's, i l'amo ja va dir que «el log és diferent d'abans de dormir»: ara ho
+    // diu amb el número i no amb un `0x0` sense explicació (docs/50, docs/95).
+    snprintf(profile_, sizeof(profile_),
+             "GT911 at 0x%02x, no configuration after the wake: the frame is the page's, %u fingers, %u Hz",
+             address_, static_cast<unsigned>(points_), static_cast<unsigned>(5u + unit_rate_));
+  }
   return true;
 }
 
@@ -311,6 +341,22 @@ void Gt911::release() {
 // reads has nothing to raise the rate for, i el que paga el canvi són dues configuracions del xip (docs/50, docs/95).
 void Gt911::settle(uint32_t now_ms) {
   if (asleep_) return;
+  // **I el que torna d'una dormida no es queda al terra del son** (0.192.28, l'amo: *«Estic segur que baixes la velocitat i no la
+  // tornes a pujar al despertar»*, *«Els panells desplegables del sistema deixen de funcionar al tornar d'sleep?»*): `quiet_now`
+  // deixa el xip a deu escombrats per segon abans que la placa s'aturi, i cap de les tres branques de sota sabia tornar-lo a
+  // pujar —el terra no és ni el sostre de la llum ni el de la unitat, i l'adaptativa només sabia baixar—, o sigui que el
+  // panell es quedava a un escombrat de cent mil·lisegons fins que un dit el pujava. El primer gest després del son és una
+  // **fregada curta a la barra** —així s'obre un panell de dalt o de baix— i a deu hertzs cau entre dos escombrats i no
+  // existeix, mentre que una fregada llarga de costat, la que passa la pàgina de la graella, sí que hi cap: exactament el que
+  // l'amo va veure. Aquí es torna a pujar, i **cinc segons al cim** perquè el primer gest no pagui la pujada (docs/50, docs/95).
+  if (napping_) {
+    napping_ = false;
+    const uint8_t rate = brisk_ ? static_cast<uint8_t>(kGt911BriskHz - 5u) : unit_rate_;
+    if (hertz_ != 5u + rate) set_rate_byte(rate);
+    last_finger_ms_ = now_ms;
+    logf(pal::kLogDebug, "TOUCH", "the panel is back from the sleep at %u Hz", static_cast<unsigned>(hertz_));
+    return;
+  }
   // **Amb la llum encesa el terra és el sostre** (0.190.119): no hi ha res a deixar baixar mentre una persona mira el vidre (docs/30).
   if (brisk_) {
     if (hertz_ != kGt911BriskHz) set_rate_byte(static_cast<uint8_t>(kGt911BriskHz - 5u));
@@ -363,6 +409,9 @@ void Gt911::quiet_now() {
   if (asleep_) return;
   if (quiet_rate_ < unit_rate_) set_rate_byte(quiet_rate_);
   last_finger_ms_ = 0;
+  // I el que ve després d'això és una placa desperta: `settle` li torna el ritme (0.192.28, docs/50).
+  napping_ = true;
+  logf(pal::kLogDebug, "TOUCH", "the panel goes to %u Hz for the sleep", static_cast<unsigned>(hertz_));
 }
 
 uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {

@@ -138,6 +138,13 @@ const char* app_id();
 // and leaves this one out— (docs/30, docs/60).
 void close_app(bool say = true);
 
+// **El que s'endú el pin `EN` d'una placa** (0.192.8, l'amo: *«vull el comportament del hardware exactament emulat a l'emulador»*): a
+// reset of the chip is not a way down. There is no `on_close`, no session is parked, the store is not committed and **not one pixel is
+// painted** —the glass keeps the ink it had until the boot of the new run washes it—, and what was in the memory is gone. This is that
+// letting go, and only that: the emulator's process is what has to release the page, its interpreter and its claims, because the RAM
+// that the pin takes on a board is an object this process cannot drop (docs/30, docs/50, docs/85).
+void lose_the_page_to_the_pin();
+
 // **Going back one view, which is what every way out asks for first** (0.163.1): the app gives the page on top back
 // and hears `on_back(depth)`; true means the app is still in front and the caller does not close it. It is here and
 // not in the three places that ask for it —the pinch from big to small, the three taps of the middle key and the

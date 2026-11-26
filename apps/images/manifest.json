@@ -1,0 +1,10 @@
+{
+  "title": "Images",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "images.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "opens": "png jpg jpeg bmp gif ico ics pnm",
+  "description": "A picture on the whole glass, at the biggest size that keeps its shape, with the ones beside it a tap away: the sides of the page pass to the next and the previous picture of the same folder and the middle hides the line of the numbers.\nThe formats are the system's own and not a list of this app's —PNG, JPEG, BMP, GIF, ICO, the netpbm family and the ICS1 cache—, and what it cannot read it says with the reason instead of showing a blank page. It opens with a file, from Files or with run images <path>: the tree is Files' and this app is only the glass a picture deserves."
+}

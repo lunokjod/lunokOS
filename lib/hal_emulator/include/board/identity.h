@@ -61,12 +61,17 @@ inline constexpr bool has_imu() { return true; }
 // never a name that does not exist (docs/85). The hardware it fakes is the union of the
 // four, which is why an app that asks for more than its model has will find it here and
 // must trust `sys.emulator` before believing the numbers.
-inline constexpr uint32_t models_count() { return 4; }
+inline constexpr uint32_t models_count() { return 5; }
 inline const char* model(uint32_t index) {
   if (index == 0) return "m5stack-atom";
   if (index == 1) return "m5stack-atom-matrix";
   if (index == 2) return "m5stack-paper";
   if (index == 3) return "ttgo-t-koala";
+  // **La placa on s'han trobat la meitat dels defectes d'aquest sistema** (0.192.4, l'amo: *«Afegeix a l'emulador la placa T5S3 dels
+  // collons i parem de fer l'imbécil, no confío en tu amb els canvis»*): `--board lilygo-t5s3-epaper-pro` fa aquest emulador la T5 E-Paper
+  // S3 Pro —el vidre de 960x540 amb el GT911, el BQ27220 i el BQ25896, el PCF8563 i el son profund de tres portes— i el nom és el de la
+  // seva banda, lletra per lletra, perquè `sys.board` digui el mateix que a la placa (docs/50, docs/85).
+  if (index == 4) return "lilygo-t5s3-epaper-pro";
   return nullptr;
 }
 

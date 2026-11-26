@@ -1,6 +1,7 @@
 // The glass: the frame of the last turn and the gestures made out of it (docs/30, docs/50).
 #include "kernel/touch.h"
 
+#include "kernel/bar.h"
 #include "kernel/led.h"
 #include "kernel/lock.h"
 #include "kernel/power.h"
@@ -80,10 +81,24 @@ bool g_start_on_the_strip = false;
 // **La fila on el dit ha caigut, en números de la pàgina** (0.190.288): the frames the kernel keeps are the view's —the strips' rows are
 // taken off them— i el botó de sota el vidre viu a la franja de baix, o sigui que la pregunta del botó necessita el número de debò.
 uint16_t g_landing_page_y = 0;
+// **I la fila del VIDRE on ha caigut, que és una altra cosa** (0.192.33): the page point has the bar's rows taken out of it, so a
+// finger of the bar and a finger of the first rows of the page arrive here as the same number and only `g_start_on_the_bar` told
+// them apart —a flag that depends on the offset of the view—. This one is the row of the glass **before** any offset, kept for the
+// contact that is alive, and it is what the two cards of the system read: the first `bar::height()` rows and the last
+// `bar::strip_rows()` rows are the system's whatever the view says it has (l'amo: *«PERQUE LES PUTES BARRES DE SISTEMA NO?»*,
+// docs/30, docs/50).
+uint16_t g_landing_glass_x = 0;
+uint16_t g_landing_glass_y = 0;
+uint16_t g_start_glass_x = 0;
+uint16_t g_start_glass_y = 0;
 uint16_t g_last_x = 0;
 uint16_t g_last_y = 0;
 bool g_moved = false;
 bool g_long_said = false;
+// **El contacte que una targeta s'ha quedat** (0.192.24): set by `forget_gestures` while a finger is still on the glass, and cleared when
+// the next one lands. Un arròs lent és un `long` i un `drag` del mateix contacte, i el segon no ha de fer el que el primer ha desfet
+// (docs/30).
+bool g_contact_spent = false;
 
 // Two fingers are a gesture of their own and they are tracked as a **pair**: the middle of the two
 // and how far apart they are. A pinch is the change of that distance, and it is nothing the chip
@@ -140,6 +155,9 @@ void emit(const char* kind, uint16_t x, uint16_t y, int16_t dx, int16_t dy, int1
       strcmp(kind, "triple") != 0) {
     say_the_taps();
   }
+  // **El que queda d'un contacte gastat no arriba a ningú** (0.192.24): the card that took the `long` has already said what that contact
+  // meant, i un `drag` que ve després no pot obrir l'altra targeta (docs/30).
+  if (g_contact_spent) return;
   if (g_queue_count == kQueueLength) {
     // Full: the oldest goes. Losing a gesture is bad; losing the **newest** is worse, because the last
     // thing a person did is the one they are waiting for (docs/30).
@@ -158,15 +176,22 @@ void emit(const char* kind, uint16_t x, uint16_t y, int16_t dx, int16_t dy, int1
   // **A gesture made by one finger also says where it landed** (0.179.22): a pair's middle is not on the bar, and the
   // gestures of one finger are the ones the shade is made of (docs/30).
   slot.on_the_bar = (fingers < 2) && g_start_on_the_bar;
+  // I la franja de baix, que és la mateixa pregunta a l'altre cantó: el dit que hi va caure és del sistema tot el gest.
+  slot.on_the_strip = (fingers < 2) && g_start_on_the_strip;
+  // **I la fila del vidre on va caure, que no depèn de res del que hagi dit la vista** (0.192.33): the two cards of the system read
+  // this number instead of a flag that a broken offset can leave at zero, que és el que va deixar-les mortes després d'un son.
+  slot.glass_x = (fingers < 2) ? g_start_glass_x : 0;
+  slot.glass_y = (fingers < 2) ? g_start_glass_y : 0;
   // **I cada gest diu què és, on i amb quants dits** (0.179.28): every gesture of this system is made here and nowhere
   // else, so this one line is the whole of what a person with the board in their hand cannot see —the chip gives points
   // and the names are the kernel's—. It is `kLogInfo` and not a debug line because a gesture is **one event and not a
   // frame**: a drag is said once, on the lift, and so is a tap when the window of the multi-tap closes, so a panel moved
   // all over costs a handful of lines and not one a turn (docs/30, docs/85).
-  log_printf(pal::kLogInfo, "TOUCH", "%s %u,%u dx %d dy %d spread %d, %u finger(s), %d ms%s", kind,
+  log_printf(pal::kLogInfo, "TOUCH", "%s %u,%u dx %d dy %d spread %d, %u finger(s), %d ms%s%s", kind,
              static_cast<unsigned>(x), static_cast<unsigned>(y), static_cast<int>(dx),
              static_cast<int>(dy), static_cast<int>(spread), static_cast<unsigned>(fingers),
-             static_cast<int>(held_ms), slot.on_the_bar ? " on the bar" : "");
+             static_cast<int>(held_ms), slot.on_the_bar ? " on the bar" : "",
+             slot.on_the_strip ? " on the strip" : "");
 }
 
 // A tap that is alone becomes a `tap`; two in a row inside the window are a `double` and three are a
@@ -243,7 +268,7 @@ bool a_finger_on_the_button(uint16_t x, uint16_t page_y) {
 
 void turn_frame() {
   if (g_count == 0) return;
-  const orientation::Frame chip = {g_glass->width(), g_glass->height()};
+  orientation::Frame chip = {g_glass->width(), g_glass->height()};
   // **The frame the finger is clamped into is the canvas and not the page left over the keyboard** (0.84.0): `ui.height()`
   // is what an app draws in, and the band of the keyboard is still part of the glass —a finger that lands on it has to
   // arrive at the keyboard with its own y and not squeezed into the last row of the page— (docs/50, docs/90).
@@ -254,22 +279,61 @@ void turn_frame() {
   // chip are the same frame and the turn is nothing.
   const uint16_t page_turn =
       static_cast<uint16_t>((kChipPage + 360 - (display::rotation() % 360)) % 360);
+  // **Un xip que diu que fa zero per zero no deixa el vidre sense dits** (0.192.33, l'amo: *«el log es diferent d'abans de dormir»*).
+  // This is the bug behind a whole night of dead panels: the registry of the board after a deep sleep said
+  // `the frame at 258,6 is outside the glass of 0x0`, o sigui que el controlador no havia pogut llegir la seva configuració en
+  // tornar i la mida que donava era zero —la línia d'arrencada del tàctil és diferent de la d'abans de dormir, que és exactament
+  // el que l'amo va dir—. `orientation::turn` refusa qualsevol punt d'un marc de zero, i llavors **cap dit no era de la barra**:
+  // les dues targetes mortes i les pàgines funcionant, que és el que es veia. The frame of the points is the chip's, and the page's
+  // frame is the same one turned by `page_turn`; a chip that says nothing is therefore **the page turned back**, which is a number
+  // this system has without asking anybody (docs/30, docs/50).
+  if (chip.width == 0 || chip.height == 0) {
+    chip.width = display::width();
+    chip.height = display::height();
+    if (page_turn == 90 || page_turn == 270) {
+      const uint16_t swap = chip.width;
+      chip.width = chip.height;
+      chip.height = swap;
+    }
+  }
   for (uint8_t i = 0; i < g_count; ++i) {
     orientation::Frame turned;
     orientation::Point page = {g_frame[i].x, g_frame[i].y};
     const orientation::Point raw = page;
     const bool placed = orientation::turn(raw, chip, page_turn, turned, page);
+    // **Un marc que no es pot girar es diu** (0.192.32): a point outside the glass's own frame is a frame the turn refuses, and the
+    // flags of the bar and of the strip keep the value of the turn before —which is how a whole board's worth of contacts could be
+    // read as the page's with nothing in the log to say why (the owner: *«ES EL CODI QUE NO REACCIONA»*, docs/30, docs/50).
+    if (!placed && i == 0) {
+      log_printf(pal::kLogWarn, "TOUCH", "the frame at %u,%u is outside the glass of %ux%u: the bar and the strip are not asked",
+                 static_cast<unsigned>(raw.x), static_cast<unsigned>(raw.y), static_cast<unsigned>(chip.width),
+                 static_cast<unsigned>(chip.height));
+    }
     if (placed) {
-      // **A finger above the view landed on the bar of the system** (0.179.22): it keeps its own y instead of being moved
-      // into the view —the bar is not part of any app— and this is the one place that can tell it apart from a finger on the
-      // first rows of the page (docs/30).
-      const bool landed = (i == 0) && (page.y < off_y);
+      // **Les files de la barra són les del VIDRE i no les de la vista** (0.192.32, l'amo: *«ES EL CODI QUE NO REACCIONA… consulta
+      // com estàn després de tornar d'sleep»*): the first rows of the glass are the bar's while the bar is on the glass, and an
+      // app's view starts below them *because* the bar is there —`ui::canvas().y` was the same number said the other way round—.
+      // Amb una vista que deia que començava a la fila zero, cada dit de la barra era de la pàgina i les dues targetes del sistema
+      // penjaven d'una barra que ningú no podia tocar: el registre ho deia (`the contact at 286,6 is the page's`) i el gest que
+      // arribava no duia `on the bar`. El número que decideix és el de la barra i no el de la vista (docs/30, docs/50).
+      const uint16_t bar_rows = bar::visible() ? bar::height() : 0;
+      const bool landed = (i == 0) && (page.y < bar_rows);
       if (i == 0) g_on_the_bar = landed;
       // **The strip at the bottom is the same question at the other edge** (0.190.287): the page row where the view ends is the
-      // first one of the system's, i el dit que hi cau es queda a la franja tot el gest com el de dalt (docs/30).
-      const bool below = (i == 0) && (page.y >= static_cast<uint16_t>(off_y + view.height));
+      // first one of the system's, i el dit que hi cau es queda a la franja tot el gest com el de dalt (docs/30). **I també és una
+      // fila del vidre**: the strip is the last rows of the glass while it is the system's, i no el final d'una vista que potser
+      // és més alta del que hauria (0.192.32).
+      const uint16_t strip_top = bar::visible() ? static_cast<uint16_t>(display::height() - bar::strip_rows()) : display::height();
+      const bool below = (i == 0) && (page.y >= strip_top);
       if (i == 0) g_on_the_strip = below;
       if (i == 0) g_landing_page_y = page.y;
+      // **I la fila del vidre, presa abans que cap offset la toqui** (0.192.33): this is the number the two cards of the system
+      // ask for. `page.y` here is the glass's own row —the turn has placed it and the view has not taken anything out yet—, i
+      // és el mateix número que mira la barra quan pinta el rellotge (docs/30, docs/50).
+      if (i == 0) {
+        g_landing_glass_x = page.x;
+        g_landing_glass_y = page.y;
+      }
       // **And the finger that landed there keeps the bar's rows for the whole gesture**: subtracting the offset from the
       // frames that follow but not from the one it landed on would make a pull of a hundred pixels a pull of fifty-two on a
       // bar of forty-eight, and a finger that never left the strip would be a finger that went up (docs/30).
@@ -337,6 +401,10 @@ const int32_t kQuietMs = 30;
 // When a frame was last handed over. `-1` is a glass that has said nothing since the app started or since the last
 // finger left.
 int32_t g_seen_ms = -1;
+// **I quantes becaines havia fet la placa quan es va mirar el vidre per última vegada** (0.192.31): a counter that only goes up is
+// the one thing that says «the board has slept since that turn», que és quan el contacte que hi havia viu s'ha acabat sense que
+// ningú el vegi (docs/50, docs/95).
+uint32_t g_naps_seen = 0;
 // **Quants marcs ha lliurat el vidre des que el dit va caure, i quan va caure** (0.188.8): the two numbers that tell a swipe
 // the driver measured nothing from a glass that said nothing —and the owner asked the question in those words:
 // *«segur que no estem perdent events del tàctil?»*— (docs/50, docs/95).
@@ -431,6 +499,29 @@ void rearm() {
 void poll() {
   if (g_glass == nullptr) return;
   const int32_t now = now_ms();
+  // **Un contacte que ve d'abans d'una dormida no és d'aquest món** (0.192.31): a light sleep stops the chip, the line and the scan, and
+  // a finger that was on the glass when it stopped leaves a live contact behind with **the position it landed on** and the mark of «already
+  // answered» (`g_contact_spent`). The first gesture after the wake inherited that beginning —so a drag of the bar was not `on the bar`, and
+  // a spent contact dropped every gesture there was— and the board looked like a touch panel that had stopped answering while its keys still
+  // worked. **El senyal és la becaina i no el rellotge**: a paint that holds the turns leaves a gap just as big, and a gap is not a sleep
+  // (found by the suite: a still press of six hundred milliseconds said nothing). `power::naps_seen` only goes up, so one comparison says
+  // whether the board has slept since the last turn (docs/30, docs/50, docs/95).
+  const uint32_t naps = power::naps_seen();
+  if (naps != g_naps_seen) {
+    g_naps_seen = naps;
+    if (g_down || g_count > 0 || g_contact != kNoContact) {
+      log_printf(pal::kLogDebug, "TOUCH", "the contact of before the sleep is over: the board has slept since the last turn");
+    }
+    g_down = false;
+    g_moved = false;
+    g_long_said = false;
+    g_count = 0;
+    g_seen_ms = -1;
+    g_contact = kNoContact;
+    g_contact_spent = false;
+    g_start_on_the_bar = false;
+    g_start_on_the_strip = false;
+  }
   // **A frame that did not come keeps the one that did**: the finger is still there until the glass has been quiet for
   // a whole scan (docs/30, docs/50). And the chip is asked at the rate it can have news and not at the rate the kernel
   // turns (0.174.4): what is measured as `touch.read` is the reads of the chip and not the turns that had nothing to
@@ -653,9 +744,14 @@ void poll() {
       // is the number that says whether a hand that goes sideways will be read as sideways, and the owner asked for the
       // sides only — *«recorda que la pantalla està girada»* —, so the number that decides it is said with the first contact
       // of a run instead of being guessed (docs/50, docs/95).
-      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the page's (page turn %u)",
+      // **I amb quines files comptava el sistema** (0.192.32): a contact that lands on the page says the rows of the bar it was
+      // measured against, whether the bar is on the glass at all, and where the view says it starts —the three numbers that
+      // say why a finger of the first rows was the page's, i que l'amo pogués llegir-ho sense endevinar (docs/30, docs/50).
+      log_printf(pal::kLogDebug, "TOUCH",
+                 "the contact at %u,%u is the page's (page turn %u, bar %d of %u rows, view at %u)",
                  static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y),
-                 static_cast<unsigned>((kChipPage + 360 - (display::rotation() % 360)) % 360));
+                 static_cast<unsigned>((kChipPage + 360 - (display::rotation() % 360)) % 360), bar::visible() ? 1 : 0,
+                 static_cast<unsigned>(bar::visible() ? bar::height() : 0), static_cast<unsigned>(ui::canvas().y));
     }
   } else if (g_contact == kThePage) {
     // **La pàgina no rep res mentre el contacte és viu** (0.189.0): the decision is taken when the finger leaves (see above),
@@ -783,10 +879,14 @@ void poll() {
     g_start_y = g_frame[0].y;
     g_start_on_the_bar = g_on_the_bar;
     g_start_on_the_strip = g_on_the_strip;
+    g_start_glass_x = g_landing_glass_x;
+    g_start_glass_y = g_landing_glass_y;
     g_last_x = g_start_x;
     g_last_y = g_start_y;
     g_moved = false;
     g_long_said = false;
+    // **Un dit nou és un contacte nou** (0.192.24): el que una targeta s'havia quedat era l'anterior.
+    g_contact_spent = false;
     return;
   }
   g_last_x = g_frame[0].x;
@@ -842,14 +942,27 @@ bool take_gesture_of(const char* kind, Gesture& out) {
   return false;
 }
 
-bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out) {
+void forget_gestures() {
+  g_queue_count = 0;
+  // **I el contacte que hi hagi ara mateix queda gastat**: a finger that is still on the glass will lift, and what it says at the lift
+  // belongs to the thing that has already answered it (0.192.24, docs/30).
+  g_contact_spent = g_down || g_count > 0;
+}
+
+// **Els dos cantons del vidre són del sistema, i es pregunten pel número del vidre** (0.192.33, l'amo: *«PERQUE LES PUTES BARRES
+// DE SISTEMA NO? … QUE FAS DIFERENT AL BOOT JODER?»*). The flags `on_the_bar`/`on_the_strip` are a **conclusion** of `turn_frame`,
+// and a conclusion that depends on the view's offset and on the turn of the frame: a board that comes back from a sleep with
+// anything of that off says «the page's» for every finger of the first rows and both cards of the system are dead while the
+// pages still work —exactly what the owner saw. **These two read the row of the glass where the finger landed** (`glass_y`, kept
+// before any offset), which is the same number the bar paints its clock with and cannot disagree with what a person sees: the
+// first `bar::height()` rows are the bar's and the last `bar::strip_rows()` are the strip's, whatever any view says (docs/30,
+// docs/50).
+bool take_a_drag_down_from_the_system_rows(int16_t min_px, Gesture& out) {
   if (min_px <= 0) return false;
   for (uint8_t i = 0; i < g_queue_count; ++i) {
     const Gesture& mine = g_queue[i];
     if (mine.kind == nullptr || strcmp(mine.kind, "drag") != 0) continue;
-    if (!mine.on_the_bar) continue;
-    // **Mostly down and not sideways**: a finger that comes down the bar but walks along the page is a page gesture that
-    // began one row too high, and a shade that opens on it would be a shade that opens by accident (docs/30).
+    if (mine.glass_y >= bar::height()) continue;
     const int32_t down = mine.dy;
     const int32_t sideways = (mine.dx < 0) ? -static_cast<int32_t>(mine.dx) : mine.dx;
     if (down < min_px || down < sideways) continue;
@@ -861,7 +974,24 @@ bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out) {
   return false;
 }
 
-void forget_gestures() { g_queue_count = 0; }
+// **I el bessó de baix** (0.192.33): the same rows at the other edge, going up, per a la targeta que penja de la franja.
+bool take_a_drag_up_from_the_system_rows(int16_t min_px, Gesture& out) {
+  if (min_px <= 0) return false;
+  const uint16_t first_row = static_cast<uint16_t>(display::height() - bar::strip_rows());
+  for (uint8_t i = 0; i < g_queue_count; ++i) {
+    const Gesture& mine = g_queue[i];
+    if (mine.kind == nullptr || strcmp(mine.kind, "drag") != 0) continue;
+    if (mine.glass_y < first_row) continue;
+    const int32_t up = -static_cast<int32_t>(mine.dy);
+    const int32_t sideways = (mine.dx < 0) ? -static_cast<int32_t>(mine.dx) : mine.dx;
+    if (up < min_px || up < sideways) continue;
+    out = mine;
+    for (uint8_t j = static_cast<uint8_t>(i + 1); j < g_queue_count; ++j) g_queue[j - 1] = g_queue[j];
+    --g_queue_count;
+    return true;
+  }
+  return false;
+}
 
 // **I tot el que la pàgina de abans no havia acabat de dir, quan n'arriba una de nova** (0.189.100, l'amo: *«en tornar al Home
 // se m'han obert apps totes soles … és simplement que un event de la vista anterior arriba a la vista nova?»* — i ho és, per

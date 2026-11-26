@@ -27,8 +27,9 @@
 -- mostrar la vista detalls directament (sense escanejar res mes que no sigui aquella app) i el botó "Back" ha de tancar
 -- l'aplicació»*): the launcher's long press on a cell and the prompt's `run appinfo -d battery` both leave that switch in
 -- `app.args.flags`, and the page then reads **that one manifest with its folder** and no other app —there is no list of the disk
--- behind it—. El botó `Back` d'aquesta fitxa **tanca l'app** (no hi ha cap llista on tornar) i el pessic de gran a petit fa el
--- mateix, perquè la vista no s'ha empès (docs/30, docs/40).
+-- behind it—. **Aquell botó no hi és des de la 0.192.28** (l'amo: *«Treu el botó UI "Back" de la vista detalls»*): la fitxa es
+-- tanca amb el que tanca qualsevol pàgina d'aquesta casa —la creu de la targeta de la barra i el pessic de gran a petit— i, quan
+-- té la llista a sota, la fletxa de la targeta i el pessic hi tornen (docs/30, docs/40).
 
 local caps = sys.caps()
 if not caps.display then
@@ -73,6 +74,10 @@ end
 local kMargin = 20
 local kListGap = 8
 local kDetailGap = 10
+-- **La icona de la fitxa és la de l'app** (0.192.28): the launcher draws a cell's picture at 72, i la fitxa la posa al costat del
+-- nom a la mateixa mida —una icona de 94 escalada a 72 és el que fa el llançador amb el mateix dibuix— (docs/30, docs/45).
+local kIconSide = 72
+local kIconGap = 12
 -- **El pas de la fila és el de la lletra que hi ha a dins** (0.189.177): the row of a list is the finger's box, and this one
 -- keeps the air of a row that a finger hits without looking (docs/30, docs/90).
 local kRow = line(kList) + 14
@@ -355,8 +360,9 @@ end
 local screen = nil
 
 -- **La fitxa demanada amb `-d` i res més** (0.189.166): with the switch the page reads **that one app** and no other, so the
--- list is not there and the way out of the detail is closing the app. It is a local up here and not a value read at the end
--- of the file porque `back` i `show` el llegeixen i una local declarada més avall no la veurien (docs/30, docs/40).
+-- list is not there and the way out of the detail is closing the app —la creu de la targeta i el pessic, que és el que fa el
+-- sistema amb una pàgina que no té res a sota (0.192.28)—. It is a local up here and not a value read at the end of the file
+-- porque `show` el llegeix i una local declarada més avall no el veuria (docs/30, docs/40).
 local details_only = false
 
 local function give_back()
@@ -369,28 +375,7 @@ end
 -- ------------------------------------------------------------------ the two screens
 
 local show
-local back
 local build_cover
-
--- The list gave back, the ring is on the row of the app that was open and the page is where it was.
-back = function()
-  give_back()
-  -- **El botó que diu «Back» tanca l'app quan no hi ha cap llista a sota** (0.189.166, the owner: *«si l'app "Application info"
-  -- s'obre amb el paràmetre -d s'ha de mostrar la vista detalls directament (sense escanejar res mes que no sigui aquella app)
-  -- i el botó "Back" ha de tancar l'aplicació»*): the page never read a list, so going back to one would be going back to a
-  -- page nobody asked for —and the list would have to be read then, which is the scan the switch exists to avoid— (docs/30,
-  -- docs/40).
-  if details_only then
-    console.print('appinfo: back with no list under it, the app closes')
-    shape.marked = nil
-    save_state(shape)
-    return app.exit()
-  end
-  app.view_pop()
-  shape.marked = nil
-  save_state(shape)
-  build_cover()
-end
 
 -- **A row of the list**: the name on the left and the version on the right, side by side and not one over the other,
 -- because a label paints its own paper and a second one at the bottom would cut the first (docs/30, docs/45).
@@ -652,8 +637,58 @@ show = function(id)
 
   local width = view.width - 2 * kMargin
 
-  add_lines(page_control, width, one.title, kBig, 'center')
-  add_lines(page_control, width, string.format('%s %s, by %s', one.id, one.version, one.author or '?'), kSmall)
+  -- **La icona de l'app al costat del seu nom** (0.192.28, l'amo: *«L'app info ha de mostrar l'icona de l'app (si en té) al títol,
+  -- al costat del nom de l'app»*): the manifest names the picture and the door gives its path (`apps.info`, which is the same
+  -- path the launcher draws a cell with), i una app que no en té —`Paint` no en porta— es queda amb el nom i prou. El dibuix va
+  -- en un canvas propi i no a la pàgina perquè la pàgina és un panell i el que hi ha a dins és el que el panell col·loca.
+  local credits = string.format('%s %s, by %s', one.id, one.version, one.author or '?')
+
+  -- **El dibuix es fa abans de mesurar el títol** (0.192.28): an app whose manifest names a picture that is not there —or a
+  -- board with no memory for one more canvas— is an app without an icon, and the page says its name in the whole width instead
+  -- of leaving a hole where the drawing would be (docs/30, docs/45).
+  local art = nil
+  if one.icon ~= nil and one.icon ~= '' then
+    local canvas = ui.canvas(kIconSide, kIconSide)
+    if canvas ~= nil then
+      local drawn, why = canvas:image(0, 0, one.icon, kIconSide, kIconSide)
+      if drawn then
+        art = canvas
+      else
+        console.print('appinfo: no picture for ' .. one.id .. ': ' .. tostring(why))
+        canvas:release()
+      end
+    end
+  end
+
+  local words_w = (art ~= nil) and (width - kIconSide - kIconGap) or width
+  local head_h = #broken(one.title, words_w, kBig) * (line(kBig) + 6)
+  if art ~= nil and head_h < kIconSide then head_h = kIconSide end
+
+  local head = ui.panel(width, head_h, 'horizontal')
+  if head == nil then
+    add_lines(page_control, width, one.title, kBig, 'center')
+  else
+    head.gap = kIconGap
+    page_control:add(head)
+
+    if art ~= nil then
+      -- **Centrada en l'alçada del títol**: a title of two lines makes the head taller than the icon, i el dibuix va al mig
+      -- del que el nom ocupa (docs/30, docs/90).
+      art:place(0, math.max(0, (head_h - kIconSide) // 2))
+      head:add(art)
+    end
+
+    local words = ui.panel(words_w, head_h, 'vertical')
+    if words ~= nil then
+      head:add(words)
+      add_lines(words, words_w, one.title, kBig, 'left')
+    else
+      add_lines(page_control, width, one.title, kBig, 'center')
+    end
+  end
+  -- **I la línia del nom i la versió torna a tenir tota l'amplada**: beside the icon it broke in two lines over a title that
+  -- already says which app this is (docs/30, docs/90).
+  add_lines(page_control, width, credits, kSmall)
 
   if notice ~= nil then add_lines(page_control, width, notice, kSmall) end
   if one.reading ~= nil then add_lines(page_control, width, one.reading, kSmall) end
@@ -696,7 +731,7 @@ show = function(id)
     console.print('appinfo: the detail of ' .. one.id)
   end
 
-  -- **The two doors, and Back**: an app is not offered the uninstall of itself — the kernel would refuse it, and a button
+  -- **Les dues portes**: an app is not offered the uninstall of itself — the kernel would refuse it, and a button
   -- that cannot work is a button that lies (docs/30, docs/45).
   if one.id ~= app.id then
     add_button(page_control, 'Clear the cache', function()
@@ -740,17 +775,10 @@ show = function(id)
     end)
   end
 
-  -- **El Back d'una fitxa demanada tanca l'app, i això no es pot fer dins del ganxo** (0.189.166, i la lliçó de la 0.189.101):
-  -- `app.exit()` raises the error that ends an app and a hook of the system catches it —l'app quedaria viva amb la fitxa al
-  -- vidre—, o sigui que el desig es deixa aquí i el bucle d'aquesta pàgina el corre al torn següent, que és el camí que ja fa
-  -- servir la targeta d'una pregunta (docs/30, docs/90). Amb una llista a sota el Back és el de sempre i es fa aquí mateix.
-  add_button(page_control, 'Back', function()
-    if details_only then
-      wanted = function() back() end
-      return
-    end
-    back()
-  end)
+  -- **I el camí de tornada és el del sistema, i no un botó** (0.192.28, l'amo: *«Treu el botó UI "Back" de la vista detalls»*):
+  -- the page that the list opened is a view on top of it, o sigui que la fletxa de la targeta de la barra i el pessic de gran a
+  -- petit donen la llista, i una fitxa demanada amb `-d` —que no té cap vista empesa— la tanquen la creu i el pessic, que és el
+  -- que fa el sistema amb qualsevol pàgina que no té res a sota (docs/30, docs/40).
 
   screen = page_control
   ui.present()
@@ -758,7 +786,7 @@ show = function(id)
   -- The detail is a view on top of the cover: a pinch that comes from big to small gives it back and the app hears
   -- `on_back`, so the cover is what a finger finds under the detail (docs/30). **Amb `-d` no hi ha cap coberta a sota**
   -- (0.189.166): sense la vista empesa, el pessic de gran a petit fa el que fa amb qualsevol pàgina d'una sola vista —tanca
-  -- l'app— i és el mateix final que el botó Back (docs/30, docs/40).
+  -- l'app— i és el mateix final que la creu de la targeta (docs/30, docs/40).
   if not details_only then app.view_push() end
 
   shape.marked = one.id

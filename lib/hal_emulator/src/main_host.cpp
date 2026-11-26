@@ -15,6 +15,7 @@
 #include "emu/hostbattery.h"
 #include "emu/options.h"
 #include "emu/memories.h"
+#include "emu/sleep.h"
 #include "emu/model.h"
 #include "hal/hal.h"
 #include "kernel/bar.h"
@@ -160,6 +161,8 @@ void usage() {
   printf("  --env-fail        an ambient sensor that does not answer\n");
   printf("  --no-bt           a board with no Bluetooth at all (the ATOM carries one)\n");
   printf("  --bt-fail         the radio is there and the stack does not come up\n");
+  printf("  --cannot-power-off  a board that cannot cut its own supply (a cable, or no latch)\n");
+  printf("  --cannot-sleep    a board that refuses the way down (no door to come back by)\n");
   printf("  --bt-scan <n>     how many devices the fake radio sees (4; 0 is an empty room)\n");
   printf("  --bt-connected    a phone on the other side of our keyboard and mouse\n");
   printf("  --swbutton        a case with the circle under the glass, which is the T5S3's front\n");
@@ -322,6 +325,12 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       opts.touch_interrupt = false;
       continue;
     }
+    if (strcmp(arg, "--touch-frame-zero") == 0) {
+      // **El tàctil de la placa que torna d'un son** (0.192.33): a controller that hands frames over and says its glass is `0x0`, which is
+      // what the board did until the driver learned to wait for its configuration. The kernel must still find the bar (docs/50, docs/85).
+      opts.touch_frame_zero = true;
+      continue;
+    }
     if (strcmp(arg, "--dump") == 0) {
       // **The page written to a file after every paint**: a PGM of eight bits per pixel, one level of the
       // panel per value, which is what a session with no window can look at (docs/85).
@@ -410,6 +419,11 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--charging") == 0) {
       opts.charging = true;
+      continue;
+    }
+    if (strcmp(arg, "--charge-done") == 0) {
+      opts.charge_done = true;
+      opts.charging = false;
       continue;
     }
     if (strcmp(arg, "--signs") == 0) {
@@ -588,6 +602,14 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     // l'altre cap del nostre teclat—, més el text que aquell teclat escriu quan es lliga (docs/85).
     if (strcmp(arg, "--no-bt") == 0) {
       opts.bt_absent = true;
+      continue;
+    }
+    if (strcmp(arg, "--cannot-power-off") == 0) {
+      opts.cannot_power_off = true;
+      continue;
+    }
+    if (strcmp(arg, "--cannot-sleep") == 0) {
+      opts.cannot_sleep = true;
       continue;
     }
     if (strcmp(arg, "--bt-fail") == 0) {
@@ -844,8 +866,32 @@ bool host_pump(void*) {
 // aquest emulador. El que hi ha al disc (la marca del son, l'hora i la pàgina de la persona) és el que la baixada hi va deixar, i el
 // boot el llegeix com el llegiria a la placa: la marca li diu que aquesta arrencada és una tornada i `restore_session` torna a obrir
 // l'app on era (docs/50, docs/60, docs/85).
+//
+// **I un reinici demanat pel sistema també ho és** (0.192.7): `shell::reboot` tanca la pàgina, desa les sessions, pinta el quadre i
+// demana el reinici al PAL —i a la placa això és un `esp_restart()`, que no torna mai—. Aquí el xip és aquest procés, o sigui que
+// l'arrencada que la placa fa tota sola es fa en aquesta línia, i el `kernel::boot` és el que baixa la petició (docs/60, docs/85).
 void boot_again_if_the_chip_restarted(uint32_t& shown_frames) {
-  if (!kernel::the_chip_restarted()) return;
+  if (!kernel::the_chip_restarted() && !pal::system().reboot_requested()) return;
+  if (g_boot_us > 0) pal::delay_us(g_boot_us);
+  kernel::boot(hal::platform());
+  pump_gui(shown_frames);
+}
+
+// **El `RESET` de la carcassa és el pin `EN` i res més** (0.192.8, l'amo: *«vull el comportament del hardware exactament emulat a
+// l'emulador»*): a la placa el pin atura el xip entre dues instruccions —no hi ha comiats, no s'escriu cap sessió, no es comet la
+// botiga i **no es pinta ni un píxel**; el vidre es queda amb la tinta que tenia fins que el boot de l'execució nova el renti— i el
+// firmware arrenca de zero amb la causa del pin. Aquí no hi ha `shell::reboot`: el que hi ha és el que el process no pot fer tot sol
+// —deixar anar la pàgina, el seu intèrpret i els seus blocs (`lose_the_page_to_the_pin`)— i des d'allà el mateix `kernel::boot` de dalt,
+// que és el que la placa fa tota sola (docs/50, docs/85).
+void press_the_reset_pin(uint32_t& shown_frames) {
+  if (!emu::take_reset()) return;
+  emu::note_the_reset(hal::ResetCause::kExternal);
+  fprintf(stderr, "reset: the pin EN of the case, and the chip starts again with nothing written\n");
+  kernel::shell::lose_the_page_to_the_pin();
+  emu::the_chip_was_reset();
+  // **I el xip arrenca**: the boot the board does by itself the moment it is let go of, with the wait of the power-on image that the
+  // pin does not skip —a chip that comes out of a reset takes the same milliseconds it takes from the switch— and the window pumped
+  // so the card of the boot lands in it (docs/75, docs/85).
   if (g_boot_us > 0) pal::delay_us(g_boot_us);
   kernel::boot(hal::platform());
   pump_gui(shown_frames);
@@ -859,6 +905,7 @@ void boot_again_if_the_chip_restarted(uint32_t& shown_frames) {
 void turn(uint32_t& shown_frames) {
   kernel::poll();
   pump_gui(shown_frames);
+  press_the_reset_pin(shown_frames);
   boot_again_if_the_chip_restarted(shown_frames);
   if (g_turn_us > 0) pal::delay_us(static_cast<uint32_t>(g_turn_us));
 }
@@ -1018,24 +1065,32 @@ int main(int argc, char** argv) {
     // **Where the keys go is the descriptor's to say**, not this emulator's: the board's input names the face a
     // key is on and the spot it holds, and a dial on a side face is a column down that side while a key on
     // the top is a row under the page (docs/50, docs/85).
-    emu::KeySide side = emu::KeySide::kBottom;
-    hal::IInput* input = hal::platform().input();
-    if (input != nullptr && input->count() > 0) {
-      const hal::Face face = input->face(0);
-      if (face == hal::Face::kLeft) side = emu::KeySide::kLeft;
-      if (face == hal::Face::kRight) side = emu::KeySide::kRight;
+    // **Els botons de la caixa, amb la cara de cadascun** (0.192.7): the window takes the model's own table —the `RESET` and the `POWER` on
+    // the right, the `BOOT` and the `IO48` on the left— and no longer a single side and a count (docs/50, docs/85).
+    const emu::Model& the_board = hw;
+    if (the_board.button_count > 0 && opts.verbose) {
+      fprintf(stderr, "board: %u button(s):", static_cast<unsigned>(the_board.button_count));
+      for (uint8_t i = 0; i < the_board.button_count; ++i) {
+        const emu::Button& one = the_board.buttons[i];
+        const char* what = "nothing";
+        if (one.role == emu::ButtonRole::kKey) what = "a key of the system";
+        if (one.role == emu::ButtonRole::kReset) what = "resets the board";
+        if (one.role == emu::ButtonRole::kBoot) what = "wakes a sleep, and nothing while it runs";
+        fprintf(stderr, " %s (%s)", one.name, what);
+      }
+      fprintf(stderr, "\n");
     }
     if (!emu::gui_available()) {
       fprintf(stderr, "this emulator was built without a window backend: no window\n");
     } else if (opts.display && (hal::platform().display() == nullptr ||
                                 !emu::gui_open(emu::memory_surface()->width(),
                                                emu::memory_surface()->height(),
-                                               static_cast<uint8_t>(hw.keys), side, opts.gui_scale,
+                                               the_board.buttons, the_board.button_count, opts.gui_scale,
                                                static_cast<uint8_t>(hw.lights),
                                                static_cast<uint8_t>(board::led_max())))) {
       fprintf(stderr, "no display to open the window on\n");
     } else if (!opts.display &&
-               !emu::gui_open(0, 0, static_cast<uint8_t>(hw.keys), side, opts.gui_scale,
+               !emu::gui_open(0, 0, the_board.buttons, the_board.button_count, opts.gui_scale,
                               static_cast<uint8_t>(hw.lights), static_cast<uint8_t>(board::led_max()))) {
       // **A board with no glass has its face and nothing else**: the window is the lights and the keys, and an ATOM
       // still gets the button a person presses under the panel of its light (docs/85).
@@ -1053,12 +1108,16 @@ int main(int argc, char** argv) {
                  static_cast<unsigned>(scale));
         }
       }
-      if (hw.keys > 0) {
-        const char* where = (side == emu::KeySide::kLeft)    ? "a column on the left of the page"
-                            : (side == emu::KeySide::kRight) ? "a column on the right of the page"
-                                                             : "a row under the page";
-        printf("gui: the %u keys of the board are %s, where the descriptor of the board puts them\n",
-               static_cast<unsigned>(hw.keys), where);
+      if (the_board.button_count > 0) {
+        printf("gui: the %u button(s) of the board are where its case has them:", static_cast<unsigned>(the_board.button_count));
+        for (uint8_t i = 0; i < the_board.button_count; ++i) {
+          const emu::Button& one = the_board.buttons[i];
+          const char* where = (one.face == hal::Face::kLeft)    ? "left"
+                              : (one.face == hal::Face::kRight) ? "right"
+                                                                : "under the page";
+          printf(" %s (%s)", one.name, where);
+        }
+        printf("\n");
       }
       fflush(stdout);
     }

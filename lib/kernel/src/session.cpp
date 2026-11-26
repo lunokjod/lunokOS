@@ -645,6 +645,22 @@ void release_all(void* keep, size_t asked) {
   relieve("", keep, asked);
 }
 
+// **I la RAM que el pin `EN` s'endú** (0.192.8, l'amo: *«vull el comportament del hardware exactament emulat a l'emulador»*): a reset of
+// the chip is not a way down —there is no `on_close`, no session is written and the store is not committed— and the blocks an app held
+// are as gone as the interpreter that asked for them. Nothing is parked here on purpose: a board whose pin has been pressed has no way
+// to write what was in its memory, and a park here would be this emulator inventing a save that the hardware never made (docs/30, docs/75).
+uint32_t lose_every_block() {
+  uint32_t gone = 0;
+  while (g_blocks != nullptr) {
+    Block* block = g_blocks;
+    store_free(*block);
+    free_node(block);
+    ++gone;
+  }
+  if (gone > 0) ++g_generation;
+  return gone;
+}
+
 // **Qui va primer quan la memòria no arriba** (0.189.11): the caches of the apps that are **not** in front, and only then
 // the one of the app on the glass. The reason a person expects is the one the owner asked for: a cache nobody is looking at
 // costs nothing to park, and the app that is in front is the one that would have to build its page again. If parking the

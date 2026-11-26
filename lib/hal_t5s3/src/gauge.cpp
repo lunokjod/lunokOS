@@ -28,6 +28,11 @@ const uint8_t kFullChargeCapacity = 0x12;
 // **I les quatre que diuen com és la cel·la** (0.190.156, el mateix `bq27220_def.h` del fabricant): `Temperature()` a 0x06
 // —**dècimes de kelvin**, que és el que el seu exemple imprimeix amb `getTemperature() / 10.0`—, `CycleCount()` a 0x2A,
 // `StateOfHealth()` a 0x2E i `DesignCapacity()` a 0x3C, que és la que la cel·la era de nova i contra la qual es llegeix la salut.
+// **El registre d'estat de la bateria** (0.192.16): `BatteryStatus` a `0x0A`, amb el bit 9 `FC` («full-charged is detected») i el bit 6
+// `TCA` («terminate charge alarm»), que és la paraula del comptador sobre si la cel·la és plena. El mapa és el del `bq27220.h` del fabricant.
+const uint8_t kBatteryStatus = 0x0A;
+const uint16_t kFullCharged = 1u << 9;
+const uint16_t kTerminateChargeAlarm = 1u << 6;
 const uint8_t kTemperature = 0x06;
 const uint8_t kCycleCount = 0x2A;
 const uint8_t kStateOfHealth = 0x2E;
@@ -53,6 +58,17 @@ const uint8_t kChargerCurrent = 0x12;
 // nothing while the cable is in (docs/50).
 const uint8_t kChargerControl = 0x09;
 const uint8_t kBatteryFetDisable = 0x20;
+// **Els set registres que configuren la càrrega** (0.192.13, el `bq25896_init` del firmware de fàbrica del fabricant i
+// `PowersBQ25896.tpp`): REG00 el límit d'entrada i el pin `ILIM`, REG02 l'ADC, REG03 el rail del sistema i la càrrega encesa, REG04 el
+// corrent de càrrega ràpida, REG05 el de pre-càrrega, REG06 la tensió objectiu i REG07 el watchdog. Les escales són les seves i estan
+// escrites a la vora de cada escriptura (docs/50, docs/95).
+const uint8_t kChargerInput = 0x00;
+const uint8_t kChargerAdc = 0x02;
+const uint8_t kChargerPowerPath = 0x03;
+const uint8_t kChargerFastCurrent = 0x04;
+const uint8_t kChargerPreCurrent = 0x05;
+const uint8_t kChargerVoltage = 0x06;
+const uint8_t kChargerWatchdog = 0x07;
 
 // **El BQ27220 es desperta quan veu activitat al bus** (0.190.31, el log del 19/11): the gauge of this board answered
 // `ESP_ERR_TIMEOUT` on a bus where the touch controller (0x5D) and the clock chip (0x51) answered at once, and the
@@ -77,6 +93,88 @@ uint16_t little_endian(const uint8_t* bytes, size_t len) {
 }
 
 }  // namespace
+
+// **El carregador, posat com el fabricant el posa** (0.192.13): the numbers are the ones of its factory firmware and the register
+// arithmetic is the one of its own driver (`PowersBQ25896.tpp`), **excepte un defecte del seu driver que no copiem**: el seu
+// `setSysPowerDownVoltage` desplaça el registre sencer un bit a l'esquerra i acaba encenent l'OTG; aquí el camp del rail del sistema es
+// toca al seu lloc (bits 3:1). Cada escriptura és read-modify-write, perquè el registre porta altres bits que no són nostres (docs/50).
+//
+// **Per què això fa que la cel·la arribi al 100 %**: amb el valor de sèrie el límit d'entrada és **500 mA** i el pin `ILIM` mana sobre el
+// corrent de càrrega, o sigui que la fase de tensió constant s'arrossega i la caiguda de corrent que el comptador de coulombs necessita per
+// declarar la cel·la plena no arriba mai; amb els números del fabricant (3250 mA d'entrada, 1024 mA de càrrega, 4208 mV objectiu) la
+// càrrega acaba com ha d'acabar i el percentatge del BQ27220 puja fins al 100 (docs/50, docs/95).
+bool T5Gauge::set_the_charger_as_the_maker_does() {
+  if (bus_ == nullptr) return false;
+  bool ok = true;
+  uint8_t value = 0;
+  // REG00: `EN_ILIM` fora (bit 6) i el límit d'entrada a 3250 mA —50 mA per pas des de 100 mA—, que és el sostre del xip i el que el
+  // fabricant posa (docs/95).
+  if (bus_->read(kChargerAddress, kChargerInput, &value, 1)) {
+    uint8_t next = static_cast<uint8_t>(value & 0xC0);
+    next = static_cast<uint8_t>(next | ((3250 - 100) / 50));
+    const uint8_t write_in[2] = {kChargerInput, static_cast<uint8_t>(next & 0xBF)};
+    ok = bus_->write(kChargerAddress, write_in, sizeof(write_in)) && ok;
+  } else {
+    ok = false;
+  }
+  // REG02 bit 6: l'ADC en mode continu. Sense això les mesures de VSYS, VBUS i IBAT no s'actualitzen i el que es llegeix és el que hi
+  // havia (el comentari del fabricant: *«To obtain voltage data, the ADC must be enabled first»*) (docs/95).
+  if (bus_->read(kChargerAddress, kChargerAdc, &value, 1)) {
+    const uint8_t write_in[2] = {kChargerAdc, static_cast<uint8_t>(value | 0x40)};
+    ok = bus_->write(kChargerAddress, write_in, sizeof(write_in)) && ok;
+  } else {
+    ok = false;
+  }
+  // REG03: el rail del sistema no baixa de 3300 mV (bits 3:1, 100 mV per pas des de 3000) i la càrrega queda encesa (`CHG_CONFIG`, bit 4).
+  if (bus_->read(kChargerAddress, kChargerPowerPath, &value, 1)) {
+    uint8_t next = static_cast<uint8_t>(value & ~0x0E);
+    next = static_cast<uint8_t>(next | (((3300 - 3000) / 100) << 1));
+    next = static_cast<uint8_t>(next | 0x10);
+    const uint8_t write_in[2] = {kChargerPowerPath, next};
+    ok = bus_->write(kChargerAddress, write_in, sizeof(write_in)) && ok;
+  } else {
+    ok = false;
+  }
+  // REG04: el corrent de càrrega ràpida, 64 mA per pas, fins a 1024 mA (el bit 7 és el de la limitació per temperatura i es queda com és).
+  if (bus_->read(kChargerAddress, kChargerFastCurrent, &value, 1)) {
+    const uint8_t next = static_cast<uint8_t>((value & 0x80) | (1024 / 64));
+    const uint8_t write_in[2] = {kChargerFastCurrent, next};
+    ok = bus_->write(kChargerAddress, write_in, sizeof(write_in)) && ok;
+  } else {
+    ok = false;
+  }
+  // REG05: la pre-càrrega, 64 mA per pas des de 64 mA, o sigui el primer esglaó (el de menys corrent) —el que el fabricant posa.
+  if (bus_->read(kChargerAddress, kChargerPreCurrent, &value, 1)) {
+    const uint8_t next = static_cast<uint8_t>((value & 0x0F) | (((64 - 64) / 64) << 4));
+    const uint8_t write_in[2] = {kChargerPreCurrent, next};
+    ok = bus_->write(kChargerAddress, write_in, sizeof(write_in)) && ok;
+  } else {
+    ok = false;
+  }
+  // REG06: la tensió objectiu, 16 mV per pas des de 3840 mV, o sigui **4208 mV** —el número del fabricant i el d'aquesta cel·la.
+  if (bus_->read(kChargerAddress, kChargerVoltage, &value, 1)) {
+    const uint8_t next = static_cast<uint8_t>((value & 0x03) | (((4208 - 3840) / 16) << 2));
+    const uint8_t write_in[2] = {kChargerVoltage, next};
+    ok = bus_->write(kChargerAddress, write_in, sizeof(write_in)) && ok;
+  } else {
+    ok = false;
+  }
+  // REG07 bits 5:4: el watchdog a zero, que és el que el seu `init()` fa abans de tocar res. Amb el watchdog armat i ningú que el
+  // pentini, el xip es reinicia sol a la meitat d'una càrrega (docs/95).
+  if (bus_->read(kChargerAddress, kChargerWatchdog, &value, 1)) {
+    const uint8_t write_in[2] = {kChargerWatchdog, static_cast<uint8_t>(value & 0xCF)};
+    ok = bus_->write(kChargerAddress, write_in, sizeof(write_in)) && ok;
+  } else {
+    ok = false;
+  }
+  if (ok) {
+    logf(pal::kLogInfo, "GAUGE",
+         "the charger is set as the maker sets it: input 3250 mA, charge 1024 mA, target 4208 mV, the ADC on and no watchdog");
+  } else {
+    logf(pal::kLogWarn, "GAUGE", "the charger did not take the maker's settings: a register of it did not answer");
+  }
+  return ok;
+}
 
 // **El cable, preguntat sol** (0.190.272): `VBUS_GD` de REG11 és el bit que el carregador posa quan el cable hi és i la
 // tensió d'entrada és bona, i és el mateix registre que `charger()` llegeix per dir els mil·livolts. Una lectura que no
@@ -166,6 +264,16 @@ bool T5Gauge::detail(IPower::BatteryDetail& out) {
       out.design_mah = mah;
       any = true;
     }
+  }
+
+  // **I el que el gauge diu del ple** (0.192.16): `FC` i `TCA` del `BatteryStatus`. És el que converteix un «38 %» en una frase: el comptador
+  // no considera la cel·la plena, i amb 4159 mV això vol dir que el que balla és el seu model (docs/50, docs/95).
+  uint8_t state[2] = {0, 0};
+  if (read_with_a_wake(bus_, kBatteryStatus, state, sizeof(state))) {
+    const uint16_t bits = little_endian(state, sizeof(state));
+    out.declared_full = (bits & kFullCharged) != 0;
+    out.terminate_alarm = (bits & kTerminateChargeAlarm) != 0;
+    any = true;
   }
 
   // **Una línia, una vegada, perquè una prova de foc es pugui fer des del prompt** (0.190.155): the numbers of a gauge that has

@@ -30,12 +30,13 @@
 -- of nine is not one of the three (docs/30, docs/75). The block is asked first and the face only when there is nothing to
 -- copy, and a file that changed (another size the last time) is drawn again.
 --
--- **I LA PÀGINA D'UNA CARA ÉS UN EXEMPLAR AMB UNA PORTA ABAIX DE TOT** (0.189.31, l'amo: *«A la vista detalls: Tot el text
--- mes gran. El botó de "back to the shelf" abaix de tot amb una icona de "back" a l'esquerra i el text a la dreta. Entre els
--- detalls i el botó un TextBoxMultiline sense vores i read only ple de text, en un passatge del llibre "The Time Machine.epub"
--- d'H.G. Wells»*): the face's name and what the system made of it at `kSpecHead` and `kSpecNote`, the specimen in its own
--- letters, **five passages of Wells in a box of lines with no frame that is read and not written**, and the way back with the
--- arrow of the system on its left (docs/30, docs/90).
+-- **I LA PÀGINA D'UNA CARA ÉS UN EXEMPLAR** (0.189.31, l'amo: *«A la vista detalls: Tot el text
+-- mes gran. […] Entre els detalls i el botó un TextBoxMultiline sense vores i read only ple de text, en un passatge del
+-- llibre "The Time Machine.epub" d'H.G. Wells»*): the face's name and what the system made of it at `kSpecHead` and
+-- `kSpecNote`, the specimen in its own letters, and **five passages of Wells in a box of lines with no frame that is read
+-- and not written**, filling the glass down to the last row (docs/30, docs/90). **The door at the bottom is gone** (0.3.17,
+-- l'amo: *«Treu el botó UI "back" de la vista detall de Fonts»*): the ways out are the arrow of the card, a finger that walks
+-- sideways and the pinch of the system, the same three the rest of the pages have.
 
 local caps = sys.caps()
 if not caps.display then
@@ -115,19 +116,12 @@ local kDetailPaper = 13
 --  steps; `fit` still cuts a long name back down, so nothing is drawn wider than the page (docs/30, docs/92).
 local kSpecHead = kBig + 2
 local kSpecNote = kSmall + 2
---  **I la porta de tornar té una mida seva i és petita** (0.189.32 i 0.189.33, l'amo: *«Fes el botó mes petit i discret,
---  que no ocupi tot l'ample, alineat a l'esquerra»*): it was the height of a row of the shelf —a number of the shelf, which
---  grows with the title— and the width of the whole column. `kDoorW` by `kDoorH` is a door of 200 by 72: the mark keeps a
---  square of the height (68, which is the sixty-four of the picture at its own size and not blown up) and the word has the
---  rest —`Back`, which is what a door of four letters fits— (docs/30, docs/92).
-local kDoorW = 200
-local kDoorH = 72
---  **I el swipe de tornar té una distància** (0.189.35, l'amo: *«A la vista detall registra el swipe a l'esquerra per fer
+--  **El swipe de tornar té una distància** (0.189.35, l'amo: *«A la vista detall registra el swipe a l'esquerra per fer
 --  "back"»*): the system has no `swipe` kind —a finger that slides is a `drag` with an `dx` and a `dy` (docs/30)— and the
 --  drag that goes back is the one that walked sideways more than this many pixels with more sideways than up or down.
---  Sixty-four is the width of the mark of a door: less than that is a finger resting on the glass. **The side does not
---  matter** (0.189.37, the owner: *«com el faig cap a la dreta?»*), and the drags of the shelf are not a page turn either
---  (docs/30, docs/92).
+--  Sixty-four is the width of the mark of a door that ja no hi és: less than that is a finger resting on the glass. **The
+--  side does not matter** (0.189.37, the owner: *«com el faig cap a la dreta?»*), and the drags of the shelf are not a page
+--  turn either (docs/30, docs/92).
 local kBackSlop = 64
 -- **The same text in four sizes**, which is what a specimen is: a face of outlines is drawn at each of them and a bitmap
 -- face is multiplied, and a person sees that with one look (docs/30).
@@ -494,7 +488,7 @@ local screen = nil
 local shelf_list = nil
 local shelf_rows = {}
 -- **The places of the shelf, said out loud when the app is asked to**: `run fonts shelf` prints the centre of every row
--- and the box of the way back, so a test presses them without knowing the layout (docs/30, docs/85).
+-- and the box of the passages, so a test presses them without knowing the layout (docs/30, docs/85).
 local debug_boxes = (app.args ~= nil and app.args.path == 'shelf')
 -- **The three pages of this app ask for each other**, so they are named before they are written: a shelf that opens a
 -- specimen and a specimen that goes back to the shelf is a pair and not a tree (docs/30).
@@ -1029,40 +1023,18 @@ open_specimen = function(record)
   local note = 'the codes a face has not are blank'
   line(note, fit(note, inner, kSpecNote), 8)
 
-  -- **And the way back, at the very bottom**: the pinch of the glass takes the view away too (`on_back`), and this button
-  -- is for a person with a finger who does not know the gesture (docs/30). **I la marca al costat de la paraula**
-  -- (0.189.31, the owner: *«amb una icona de "back" a l'esquerra i el text a la dreta»*), which is the mark of the
-  -- system and not a drawing of this file (docs/30, docs/92).
-  --
-  -- **I PETIT I DISCRET, ENCARA DES DE L'ESQUERRA** (0.189.33, l'amo: *«Fes el botó mes petit i discret, que no ocupi tot
-  -- l'ample, alineat a l'esquerra»*): a button of the width of the column was a door as wide as the page and a mark of a
-  -- hundred and eight pixels —a picture of sixty-four blown up, which on this glass is a smear with an edge of steps, and
-  -- that is what «l'icona es horrible» was—. Now it is `kDoorW` by `kDoorH`, the mark is a square of sixty-eight and comes
-  -- out of the picture at its own size, and the word is `Back`: a door and not a bar (docs/30, docs/92).
-  --
-  -- **I va dins d'una fila perquè el panell estira els fills a l'ample**: a column gives every child the width of the
-  -- column, so a narrower button sat in it would be pulled to the whole page again; inside a row of horizontal flow a
-  -- child keeps the width it was made with and the row, which is the column's, puts it on the left (docs/30, docs/90).
-  --
-  -- **Es fa abans que el requadre i s'afegeix després** (0.189.31): the first focusable control to appear takes the focus of
-  -- the page, and a box of lines **without a frame** draws no ring —it is a page of a book, not a field— so a page whose box
-  -- took the focus would come up with a focus nobody can see. The button takes it, and the order of the column is the order
-  -- of `add` and not the order of this file (docs/30, docs/90).
-  local back = ui.button(kDoorW, kDoorH)
-  if back ~= nil then
-    back.title = 'Back'
-    back.scale = kBody
-    back.icon = 'back'
-    back.icon_side = 'left'
-    back.on_click = function() go_back() end
-  end
+  -- **I el camí de tornada és el del sistema, i no un botó** (0.192.28, l'amo: *«Treu el botó UI "back" de la vista detall de
+  -- Fonts»*): the specimen is a view on top of the shelf, o sigui que la fletxa de la targeta de baix i el pessic de gran a petit
+  -- donen el prestatge, i el swipe cap a un costat —que aquesta app ja tenia i que és el que un dit fa sense saber cap
+  -- gest— fa el mateix. El botó era una porta de 200 × 72 al peu de la columna, i el que queda és el requadre dels passatges
+  -- amb tot el que la porta es menjava (docs/30, docs/90, docs/92).
 
   -- **Els passatges del llibre, entre els detalls i la manera de tornar** (0.189.31, the owner: *«Entre els detalls i el
   -- botó un TextBoxMultiline sense vores i read only ple de text»*): a box of lines with **no frame of its own** —it is a
   -- page of a book on the paper of the page and not a field to write in— which is **read and not written** (`readonly`:
   -- the caret is kept and the keyboard never comes up), **wraps** the paragraphs of `kPassages` at the measure of the
-  -- glass and takes **the room the details and the button leave** with a `weight`, so the page of a face of nine lines
-  -- and the page of a face of four draw the same way (docs/30, docs/90).
+  -- glass and takes **the room the details leave** with a `weight`, so the page of a face of nine lines and the page of a
+  -- face of four draw the same way (docs/30, docs/90).
   --
   -- **I EL TEXT ÉS DE LA CARA QUE S'ESTÀ MIRANT** (0.189.33, l'amo: *«no sembla que sigui el tipus de lletra de dalt, fes el
   -- tipus de lletra mes gran»*): the box was drawing its passages with the face of the system while the page above it drew
@@ -1091,38 +1063,13 @@ open_specimen = function(record)
     passages.on_swipe = function(self, rows) end
     screen:add(passages)
   end
-  -- **La fila del botó, al final de la columna i amb el botó a l'esquerra** (0.189.33).
-  local door_row = nil
-  if back ~= nil then
-    door_row = ui.panel(inner, kDoorH, 'horizontal')
-    if door_row ~= nil then
-      door_row.padding = 0
-      door_row.gap = 0
-      door_row:add(back)
-      screen:add(door_row)
-    else
-      screen:add(back)
-    end
-  end
 
   ui.present()
   console.print(string.format('fonts: open %s %s %d %d', record.name, record.kind, record.size, record.glyphs))
-  if debug_boxes and back ~= nil then
-    -- **La caixa del botó és dins de la fila i la fila dins del panell** (0.189.33): `caps` gives the box a control has in
-    -- its father, so the place of the door is the row's plus its own —which is the sum this page already does for the rows
-    -- of the shelf— (docs/30, docs/85).
-    local at = { x = 0, y = 0 }
-    if door_row ~= nil then
-      local row = door_row:caps()
-      at.x, at.y = row.x, row.y
-    end
-    local box = back:caps()
-    local left, top = at.x + box.x, at.y + box.y
-    console.print(string.format('fonts: backbox %d %d', left + box.width // 2, top + box.height // 2))
-    -- **On és el botó i on el requadre dels passatges** (0.189.31): the case that presses the way back needs the box of the
-    -- button, and the case that says the page fits needs the box the passages were given and the two rows the button takes,
-    -- which are the two things a layout change moves (docs/30, docs/85).
-    console.print(string.format('fonts: backrows %d %d', top, top + box.height))
+  if debug_boxes then
+    -- **On és el requadre dels passatges** (0.189.31): the case that says the page fits needs the box the passages were
+    -- given, which is the thing a layout change moves —i des de la 0.192.28 no hi ha cap porta a sota, o sigui que el
+    -- requadre és l'últim que hi ha i el que mana és que hi càpiga sencer (docs/30, docs/85)—.
     if passages ~= nil then
       local room = passages:caps()
       console.print(string.format('fonts: passagebox %d %d %d %d', room.x, room.y, room.width, room.height))

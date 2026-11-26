@@ -1,9 +1,10 @@
 -- **Clock**: el rellotge del projecte del paper, amb les seves quatre pestanyes.
 --
 -- Port de `OLD/PaperOS/data/app/Clock/` (`pos_launch.lua`, `dial.lua` i `alarms.lua`) i ha de ser **la mateixa app**: les
--- mateixes quatre pestanyes —Time, Alarm, Timer i Chrono—, la mateixa esfera grisa amb els seixanta tics, les mateixes
--- dues frases, els mateixos botons i els mateixos textos de cada pantalla, a les mateixes mides (lletra petita de 33
--- píxels de línia, cos de 43 i número gran de 82, que aquí són els passos 3, 4 i 7 d'aquesta cara).
+-- mateixes quatre pestanyes —Time, Alarm, Timer i Chrono—, l'esfera amb els seixanta tics (que des de la 0.1.9 s'ha fet
+-- prima i porta les dotze xifres, vegeu més avall), les mateixes dues frases, els mateixos botons i els mateixos textos de
+-- cada pantalla, a les mateixes mides (lletra petita de 33 píxels de línia, cos de 43 i número gran de 82, que aquí són
+-- els passos 3, 4 i 7 d'aquesta cara).
 --
 -- El que canvia és el que toca el sistema i prou: `paperos.ui.tabs()` és aquí `ui.tabs`, els `selector` i els `button`
 -- són els d'aquest nucli, la llista d'alarmes és un `ui.list` de files amb el seu toc (el pacte de PaperOS: el dit tria
@@ -11,10 +12,15 @@
 -- mateix pacte: una promesa viva per a la propera alarma i la llista sencera al disc.
 --
 -- **L'esfera és l'única cosa que no es pot fer amb un control**, i és el dibuix que més vegades va haver de canviar a
--- PaperOS: el to 10 i no un altre (és un dels quatre nivells que la passada barata pot dibuixar), l'anell amb el mateix
--- gruix a tot arreu —una anella i no una banda, o a les dotze queda un pèl—, els seixanta tics pengen de la vora de dins
--- de l'anell, les dotze marques amb la de l'hora més gruixuda, i les busques amb cua i amb un tap al mig. Tot surt del
--- costat curt de la caixa, o sigui que el mateix dibuix és igual amb el panell tombat.
+-- PaperOS: l'anell amb el mateix gruix a tot arreu —una anella i no una banda, o a les dotze queda un pèl—, els seixanta
+-- tics pengen de la vora de dins de l'anell, les dotze marques amb la de l'hora més gruixuda, i les busques amb cua i amb
+-- un tap al mig. Tot surt del costat curt de la caixa, o sigui que el mateix dibuix és igual amb el panell tombat.
+--
+-- **I des de la 0.1.9 l'esfera és de dues capes** (l'amo: *«Puja l'hora fora de l'esfera / Baixa la data fora de l'esfera
+-- / Fes l'esfera mes rica, amb mes detall i color. Si fa el minuter mes una mica mes curt (lo just per no tocar l'esfera)
+-- no caldrà redibuixar l'esfera a cada canvi»*): el marc, la pista, els tics i les dotze xifres són una capa que només
+-- canvia amb l'hora, i les busques giren dins del centre de paper, que és l'únic que es repinta cada minut. L'hora gran i
+-- la data són fora del cercle, a sobre i a sota.
 
 local TABS = { 'Time', 'Alarm', 'Timer', 'Chrono' }
 
@@ -33,10 +39,27 @@ end
 
 local kSmall, kBody, kBig = step_for(33), step_for(43), step_for(82)
 
--- **El to de l'esfera és una decisió de la forma d'ona i no de gust**: el 10 és un dels quatre nivells que la passada
--- barata del panell pot dibuixar, i per això la cara es pot repintar cada minut sense haver de rentar el vidre. Les
--- busques i el número són tinta: l'esfera és l'escenari i el que es llegeix és el negre.
-local FACE, INK = 10, 0
+-- **El to de l'esfera és una decisió de la forma d'ona i no de gust**: els grisos són a la corona i són pocs, perquè la
+-- passada barata del panell en dibuixa quatre. Les busques i la xifra de l'hora on és són tinta: l'esfera és l'escenari i
+-- el que es llegeix és el negre.
+local INK = 0
+
+-- **El centre és paper i no un gris, i els tons són a la corona** (l'amo: *«No sería mes inteligent que el centre del
+-- rellotg fos blanc per facilitar el repintat rápid i LA RESTA amb 16 colors?»*): el disc on giren les busques es torna a
+-- pintar cada minut, i un blanc és l'únic nivell que una passada barata restaura exacte —un gris és una trama, i el que
+-- deixa a la passada següent és el fantasma de la busca d'abans—. El que es queda quiet és el que porta els tons: el marc,
+-- el filet de dins, els tics, les xifres i la marca de l'hora.
+local kField = 15
+local kRing, kEdge, kTick, kMark, kNum = 8, 13, 7, 3, 2
+
+-- **La corona és prima i el centre és gran** (l'amo: *«aquesta esfera es horrible... tant gruixuda... pots fer-la mes fina,
+-- amb numeros i detalls i així el minutre i l'hora poden ser mes llargs i gruixuts»*): el marc fa sis píxels, els tics
+-- pengen de dins seu i les dotze xifres són a la vora del centre, o sigui que el que queda per a les busques és quasi tot
+-- el disc. **I la punta del minuter s'ha de quedar dins del centre de paper** (l'amo: *«Si fa el minuter mes una mica mes
+-- curt (lo just per no tocar l'esfera) no caldrà redibuixar l'esfera a cada canvi»*): una busca que toca el marc o una
+-- xifra fa tornar tota la corona a la passada. Les mides són parts del radi, o sigui que el dibuix és el mateix al panell
+-- dret i al tombat.
+local kFieldR, kMinuteR, kHourR, kTailR, kNumeralR = 0.78, 0.74, 0.53, 0.15, 0.84
 
 -- **Les dues qualitats que aquesta app nomena**: la cara de l'esfera porta un gris, o sigui que la tria el sistema
 -- (`gl16`/`gc16`, docs/30), i una línia de tinta sobre paper es pot pintar amb la més barata de totes.
@@ -344,64 +367,56 @@ local function annulus(cx, cy, r, thick, level)
   end
 end
 
--- **L'esfera sencera**, amb l'ordre de PaperOS: el cercle, els tics, les dotze marques, les busques i el número al
--- damunt de tot —el número va últim perquè es llegeixi i no s'endevini—.
-local function paint_face(x, y, w, h, now)
-  local side = math.min(w, h)
-  if side < 80 then return end
-  local r = side // 2 - 10
-  local cx = x + w // 2
-  local cy = y + h // 2
-  local ring = math.max(7, r // 24)
+-- **L'esfera que no es mou**: el marc doble, els tics, les dotze xifres i la marca de l'hora on és. Es dibuixa quan la
+-- pàgina arriba i quan canvia l'hora, i no cada minut.
+local function paint_ornaments(cx, cy, r, hour)
+  -- Un marc de sis píxels: el que fa que l'esfera sembli dibuixada i no un cèrcol.
+  annulus(cx, cy, r, 6, kRing)
 
-  annulus(cx, cy, r, ring, FACE)
-  annulus(cx, cy, math.floor(r * 0.80), math.max(3, r // 60), FACE)
-
-  local function centred(text, dy, scale)
-    local tw = ui.text_width(text, scale)
-    ui.text(cx - tw // 2, cy + dy, text, scale, INK)
-  end
-
-  if now == nil then
-    centred('--:--', -44, kBig)
-    centred('The clock is not set yet: it sets itself from the network', 46, kSmall)
-    return
-  end
-
-  -- Els seixanta tics, curts i penjant de la vora de dins de l'anell.
-  local len = math.max(6, r // 20)
-  local out = r - ring - 1
+  -- Els seixanta tics, curts, penjant de dins del marc; els de cinc minuts més llargs i més foscos, i el de l'hora on és
+  -- en tinta i més gruixut —és el «sou aquí» de l'esfera, i canvia amb l'hora com la xifra—.
+  local out = r - 12
   for i = 0, 59 do
-    if (i % 5) ~= 0 then
-      local x0, y0 = at_angle(cx, cy, out, i * 6)
-      local x1, y1 = at_angle(cx, cy, out - len, i * 6)
-      brush_line(x0, y0, x1, y1, 2, FACE)
-    end
+    local five = (i % 5) == 0
+    local here = five and (hour ~= nil) and (i == (hour % 12) * 5)
+    local len = math.floor(r * (five and 0.055 or 0.030))
+    local x0, y0 = at_angle(cx, cy, out, i * 6)
+    local x1, y1 = at_angle(cx, cy, out - len, i * 6)
+    brush_line(x0, y0, x1, y1, here and 5 or (five and 3 or 2), here and INK or (five and kMark or kTick))
   end
 
-  -- Les dotze marques: quatre de gruix per a una, sis per a un quart i nou per a l'hora on és la busca.
-  local mark_out = r - ring + 2
-  for i = 0, 11 do
-    local quarter = (i % 3) == 0
-    local length = quarter and math.floor(r / 5) or math.floor(r / 9)
-    local thick = (i == (now.hour % 12)) and 9 or (quarter and 6 or 4)
-    local x0, y0 = at_angle(cx, cy, mark_out, i * 30)
-    local x1, y1 = at_angle(cx, cy, mark_out - length, i * 30)
-    brush_line(x0, y0, x1, y1, thick, FACE)
+  -- La pista dels minuts: un filet clar que passa per la punta dels tics curts, com el d'un rellotge imprès.
+  annulus(cx, cy, out - math.floor(r * 0.030) + 1, 2, kEdge)
+
+  -- Les dotze xifres, totes: és el que fa que la corona sigui un rellotge i no una escala. La de l'hora on és va en tinta.
+  local scale = math.max(1, math.floor(r / 96))
+  for i = 1, 12 do
+    local text = string.format('%d', i)
+    local here = (hour ~= nil) and ((i % 12) == (hour % 12))
+    local tx, ty = at_angle(cx, cy, math.floor(r * kNumeralR), (i % 12) * 30)
+    ui.text(tx - ui.text_width(text, scale) // 2, ty - ui.line_height(scale) // 2, text, scale,
+            here and INK or kNum)
   end
+end
 
-  -- Les busques: la de les hores curta i gruixuda, la dels minuts llarga, la cua darrere i el tap al mig.
-  local hx, hy = at_angle(cx, cy, math.floor(r * 0.50), (now.hour % 12) * 30 + now.min * 0.5)
-  local mx, my = at_angle(cx, cy, math.floor(r * 0.80), now.min * 6)
-  local tx, ty = at_angle(cx, cy, -math.floor(r * 0.13), now.min * 6)
-  brush_line(tx, ty, cx, cy, 8, INK)
-  brush_line(cx, cy, mx, my, 8, INK)
-  brush_line(cx, cy, hx, hy, 14, INK)
-  ui.disc(cx, cy, math.max(8, r // 16), INK)
-
-  centred(string.format('%02d:%02d', now.hour, now.min), -44, kBig)
-  local date = string.format('%s %04d-%02d-%02d', WEEKDAYS[now.wday] or '', now.year, now.month, now.day)
-  centred(date, 46, kSmall)
+-- **Les busques i el centre net**: el disc de paper es torna a pintar sencer i això se n'emporta les del minut d'abans, o
+-- sigui que la passada del panell és el centre i no la corona (docs/50). **I una busca no és un cilindre**: aquest canvas fa
+-- un traç de gruix constant, o sigui que l'afuada és de dos trossos, el de la base més gruixut que el de la punta.
+local function paint_hands(cx, cy, r, now)
+  local field = math.floor(r * kFieldR)
+  ui.disc(cx, cy, field, kField)
+  if now == nil then return end
+  local function hand(deg, len, wide, thin)
+    local kx, ky = at_angle(cx, cy, math.floor(len * 0.55), deg)
+    local tx, ty = at_angle(cx, cy, len, deg)
+    brush_line(cx, cy, kx, ky, wide, INK)
+    brush_line(kx, ky, tx, ty, thin, INK)
+  end
+  local tx, ty = at_angle(cx, cy, -math.floor(r * kTailR), now.min * 6)
+  brush_line(tx, ty, cx, cy, 9, INK)
+  hand(now.min * 6, math.floor(r * kMinuteR), 11, 7)
+  hand((now.hour % 12) * 30 + now.min * 0.5, math.floor(r * kHourR), 17, 10)
+  ui.disc(cx, cy, math.max(9, r // 17), INK)
 end
 
 -- ---------------------------------------------------------------- el flux
@@ -694,9 +709,14 @@ end
 local box = {}
 local rows_box
 
--- El que ja és al vidre: el minut de l'esfera, la línia gran i la nota. Una línia que s'escriu amb el que ja diu és una
--- passada del panell pagada per res.
-local tick = { face = nil, big = nil, note = nil }
+-- El que ja és al vidre: l'hora de l'esfera i les busques, l'hora de sobre, la data, la línia gran i la nota. Una línia
+-- que s'escriu amb el que ja diu és una passada del panell pagada per res.
+local tick = { orn = nil, hands = nil, hour = nil, day = nil, big = nil, note = nil }
+
+-- **El fantasma d'una passada barata es mata de tant en tant** (vist a l'emulador): a `gld16` el paper que tapa la busca
+-- del minut d'abans no queda del tot blanc i la busca es veu doble al cap d'una estona. Cada deu minuts la passada de
+-- l'esfera és neta (`gc16`) i el paper torna a ser paper; el compte és aquí i no al disc.
+local passes = 0
 
 local function face_box(y, h)
   box.face = placed(MARGIN, y, wid - 2 * MARGIN, h)
@@ -834,18 +854,91 @@ local function paint_big()
   ui.text(b.x + (b.w - ui.text_width(text, kBig)) // 2, b.y, text, kBig, INK)
 end
 
--- El minut que l'esfera ensenya, que és el que decideix si s'ha de tornar a pintar.
-local function face_key()
-  local now = time.date()
-  if now == nil then return 'no clock' end
-  return string.format('%04d-%02d-%02d %02d:%02d', now.year, now.month, now.day, now.hour, now.min)
+-- **Les tres coses de la pestanya Time són un sol dibuix al mig del lloc que el flux li dona** (l'amo: *«Puja l'hora fora
+-- de l'esfera / Baixa la data fora de l'esfera»*): l'hora a sobre i a fora del cercle, l'esfera, i la data a sota i a
+-- fora. Com que tot surt de la caixa flexible, el mateix codi val pel panell dret i pel tombat.
+local function dial_places()
+  local b = box.face
+  if b == nil then return nil end
+  local hour_h, day_h = line(kBig), line(kSmall)
+  local side = math.min(b.w, b.h - hour_h - day_h - 2 * GAP)
+  if side < 96 then side = 96 end
+  local group = hour_h + day_h + 2 * GAP + side
+  local top = b.y + math.max(0, (b.h - group) // 2)
+  local dy = top + hour_h + GAP
+  return placed(b.x + (b.w - side) // 2, dy, side, side),
+         placed(b.x, top, b.w, hour_h),
+         placed(b.x, dy + side + GAP, b.w, day_h)
 end
 
+local function hour_text()
+  local now = time.date()
+  if now == nil then return '--:--' end
+  return string.format('%02d:%02d', now.hour, now.min)
+end
+
+local function day_text()
+  local now = time.date()
+  if now == nil then return '' end
+  return string.format('%s %04d-%02d-%02d', WEEKDAYS[now.wday] or '', now.year, now.month, now.day)
+end
+
+-- Una línia centrada a la seva caixa, que és el que són les dues de fora de l'esfera.
+local function paint_centred(b, text, scale, level)
+  if b == nil then return end
+  ui.rect(b.x, b.y, b.w, b.h, 15)
+  if text == '' then return end
+  ui.text(b.x + (b.w - ui.text_width(text, scale)) // 2, b.y + (b.h - line(scale)) // 2, text, scale, level)
+end
+
+local function paint_hour()
+  local _, b = dial_places()
+  paint_centred(b, hour_text(), kBig, INK)
+end
+
+local function paint_day()
+  local _, _, b = dial_places()
+  paint_centred(b, day_text(), kSmall, kMark)
+end
+
+-- **La pàgina d'una hora i prou**: l'esfera amb les seves xifres i les busques, l'hora de sobre i la data de sota. Es fa
+-- quan la pàgina arriba i quan canvia l'hora, perquè la marca de l'hora on és forma part de l'esfera i n'és l'única part
+-- que no és sempre igual.
 local function paint_dial()
   local b = box.face
   if b == nil then return end
   ui.rect(b.x, b.y, b.w, b.h, 15)
-  paint_face(b.x, b.y, b.w, b.h, time.date())
+  local dial, hour_b, day_b = dial_places()
+  if dial == nil then return end
+  local now = time.date()
+  local r = math.min(dial.w, dial.h) // 2 - 10
+  local cx, cy = dial.x + dial.w // 2, dial.y + dial.h // 2
+  paint_ornaments(cx, cy, r, now and now.hour)
+  paint_hands(cx, cy, r, now)
+  paint_centred(hour_b, hour_text(), kBig, INK)
+  paint_centred(day_b, day_text(), kSmall, kMark)
+end
+
+-- **El que es repinta quan passa un minut**: el camp de les busques i prou, o sigui que l'esfera no torna a la passada
+-- (l'amo: *«no caldrà redibuixar l'esfera a cada canvi»*).
+local function paint_hands_only()
+  local dial = dial_places()
+  if dial == nil then return end
+  local r = math.min(dial.w, dial.h) // 2 - 10
+  paint_hands(dial.x + dial.w // 2, dial.y + dial.h // 2, r, time.date())
+end
+
+-- **Les dues claus de repintat**: l'esfera canvia amb l'hora (la marca on és), i el camp de les busques amb el minut.
+local function orn_key()
+  local now = time.date()
+  if now == nil then return 'no clock' end
+  return string.format('%04d-%02d-%02d %02d', now.year, now.month, now.day, now.hour)
+end
+
+local function hands_key()
+  local now = time.date()
+  if now == nil then return 'no clock' end
+  return string.format('%02d:%02d', now.hour, now.min)
 end
 
 local function everything()
@@ -872,7 +965,8 @@ paint_page = function(held)
   end
   -- **El que acaba d'arribar al vidre no es torna a demanar**: la pàgina sencera ja porta l'esfera, la línia gran i la
   -- nota que diu aquest minut (docs/50).
-  tick.face, tick.big, tick.note = face_key(), big_text(), note_text()
+  tick.orn, tick.hands, tick.hour, tick.day = orn_key(), hands_key(), hour_text(), day_text()
+  tick.big, tick.note = big_text(), note_text()
   -- **I la passada que marxa de l'esfera ha de ser neta** (PaperOS, `Clock.md`): la cara porta un gris, la passada barata
   -- només en té dos de nivells i el que queda de l'anell a la pestanya de les alarmes és una taca que no marxa mai. Costa
   -- el flaix d'un `gc16` i es paga un cop per canvi de pestanya, que és el que l'app del paper va triar.
@@ -1397,14 +1491,34 @@ while true do
 
   local dirty = false
 
-  -- **El minut de l'esfera**: només el dibuix de l'esfera, no la pàgina, perquè el que ha canviat són les busques.
+  -- **El que canvia amb el minut és el camp de les busques i l'hora de sobre**, i el que canvia amb l'hora és l'esfera
+  -- amb la seva marca. Les dues preguntes són separades perquè l'esfera no torni a la passada seixanta vegades per hora
+  -- (l'amo: *«no caldrà redibuixar l'esfera a cada canvi»*).
   local face_dirty = false
   if fired == nil and page == 1 then
-    local key = face_key()
-    if key ~= tick.face then
-      tick.face = key
+    if orn_key() ~= tick.orn then
+      tick.orn, tick.hands, tick.hour, tick.day = orn_key(), hands_key(), hour_text(), day_text()
       paint_dial()
       face_dirty = true
+    else
+      if hands_key() ~= tick.hands then
+        tick.hands = hands_key()
+        paint_hands_only()
+        face_dirty = true
+        passes = passes + 1
+      end
+      local hour_now = hour_text()
+      if hour_now ~= tick.hour then
+        tick.hour = hour_now
+        paint_hour()
+        dirty = true
+      end
+      local day_now = day_text()
+      if day_now ~= tick.day then
+        tick.day = day_now
+        paint_day()
+        dirty = true
+      end
     end
   end
 
@@ -1425,8 +1539,13 @@ while true do
   -- **La qualitat la tria el sistema, i és una decisió**: la cara porta un gris que el `du` no pot pintar (PaperOS,
   -- `Clock.md`) i el número del compte enrere canvia cada segon, on el `du` deixa cinc setzens de la xifra anterior i el
   -- número s'acaba llegint doble. El sistema és qui sap què aguanta el vidre: `gld16` mentre va bé i el rentat net quan
-  -- diu que ja en té prou (docs/30, docs/50).
-  if dirty or face_dirty then ui.present(kSoftMode) end
+  -- diu que ja en té prou (docs/30, docs/50) —i un cop cada deu minuts, perquè el fantasma de la busca d'abans no s'hi
+  -- quedi—.
+  if dirty or face_dirty then
+    local clean = face_dirty and (passes >= 10)
+    if clean then passes = 0 end
+    ui.present(clean and kCleanMode or kSoftMode)
+  end
 
   -- **I un toc fora de la targeta la tanca**, que és el que vol dir una targeta sobre una pàgina: the values and the two keys
   -- are the system's and the page under it answers nothing, so the way out is a finger that lands beside the card. It is asked

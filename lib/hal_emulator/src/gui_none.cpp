@@ -9,12 +9,12 @@ namespace emu {
 
 bool gui_available() { return false; }
 
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights,
-              uint8_t light_max) {
+bool gui_open(uint16_t width, uint16_t height, const Button* buttons, uint8_t count, uint8_t scale,
+              uint8_t lights, uint8_t light_max) {
   (void)width;
   (void)height;
-  (void)keys;
-  (void)side;
+  (void)buttons;
+  (void)count;
   (void)scale;
   (void)lights;
   (void)light_max;

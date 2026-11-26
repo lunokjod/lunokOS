@@ -33,8 +33,9 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
     unitats, 2,1 px a 64; amb 8 la reducció se la menja—, i la paleta té nom: cos de 8 a 13, vora a 4, paper a 15.
   - **I per a les marques del sistema no es dibuixa res**: `tools/iconart.py` rasteritza els glifs de **Font Awesome Free
     5.15.4** (`angle-left`, `times`, `cog`, `redo`, `power-off`, `moon`, `house`, **`lock`** i, des de la 0.190.219, **`bluetooth-b`,
-    `wifi` i `share-alt`**; `--only <nom>` en refà una de sola, que és com es va afegir la casa el 16/11, el candau el 17/11 i les
-    tres de la ràdio el 22/11 sense tocar les que ja hi eren), els ajusta al 80 % de
+    `wifi` i `share-alt`**, i des de la 0.192.26 **`pause` i `play`** —les dues dels botons dels jocs—; `--only <nom>` en refà una de
+    sola, que és com es va afegir la casa el 16/11, el candau el 17/11, les tres de la ràdio el 22/11 i les dues dels jocs el 25/11
+    sense tocar les que ja hi eren), els ajusta al 80 % de
     la caixa i en desa el mestre a `tools/icons/system/` i la icona de 64 a `data/res/icons/`, que és el que el disc porta i el
     que `ui::picture_of_a_mark` llegeix (docs/30, docs/92). **I una marca pot dir la seva família** (0.190.219): Font Awesome té les
     marques comercials a `fa-brands-400.ttf` i no a `fa-solid-900.ttf`, o sigui que el Bluetooth —que és la runa d'una empresa— es busca
@@ -56,12 +57,18 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
     tinta —papall 255, **cos 221**, ombra 187, detall 170 i **tinta 68**—, amb contorns de setze píxels i cantonades de quaranta-quatre
     en un dibuix de 448. I una cosa que no és un número: **el cos és ple i amb dos tons**, i cada icona té **un element de tinta** que la
     fa llegir-se d'un cop (la tecla Enter del teclat, la roda del ratolí, el número del Calculator, la creu del Files).
-  - **`tools/icons/` té vint-i-quatre dibuixos i no vint-i-quatre apps** (mesurat el 8/11): els vint-i-tres de les
-    apps que en tenen —`2048`, `About`, `Agenda`, `Banner`, `Battery`, `Calculator`, `Clock`, `EPUB`, `Editor`,
-    `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Password`, `SerialFUSE`,
-    `Snake`, `Tamagotchi`, `Tetris` i `Timeclock`— i `Example.png`, que és **el dibuix per començar-ne un** i no
-    una app. **`Paint` no hi és perquè l'original tampoc no en porta**: el seu `manifest.json` no té `icon` i la
-    carpeta no té `res/`, o sigui que la seva icona, si un dia se'n vol una, s'ha de dibuixar i no s'ha de buscar.
+  - **`tools/icons/` té vint-i-nou dibuixos i no vint-i-nou apps** (mesurat el 8/11 i el 25/11): els de les apps que en
+    tenen —`2048`, `About`, `Agenda`, `Banner`, `Battery`, `Calculator`, `Clock`, `EPUB`, `Editor`, `FRAM`, `Files`,
+    `ImageViewer`, `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Password`, `SerialFUSE`, `Snake`, `Tamagotchi`, `Tetris`
+    i `Timeclock`— més `Splash.png` i uns quants que no són d'una app d'aquest disc (`Home`, `BrokenApp`, `Lunokhod`…), i
+    `Example.png`, que és **el dibuix per començar-ne un**. **`Paint` no hi és perquè l'original tampoc no en porta**: el seu
+    `manifest.json` no té `icon` i la carpeta no té `res/`, o sigui que la seva icona, si un dia se'n vol una, s'ha de
+    dibuixar i no s'ha de buscar.
+  - **I una icona que l'amo mana canviar es dibuixa amb una eina del projecte** (0.192.27): `tools/make_splash_icon.py` fa
+    l'estampa del `Splash` —el marc del visor amb el símbol d'encesa a dins—, perquè el marc amb les muntanyes i el sol és el
+    que ara porta `apps/images` i dues apps amb el mateix dibuix són dues apps que una persona no distingeix (l'amo: *«Usa en
+    aquesta nova app l'icona de l'app Splash i fes na nova per l'app Splash (recorda que es per veure les imatges dels events
+    de sistema) perqué no confondre al usuari»*).
 - **El `splash` no es copia: es torna a compondre** (0.151.17, i abans es copiava tal com era). De les
   vint-i-quatre apps del paper, només l'EPUB en tenia un, i el fitxer era el que havia fet
   `tools/splashgen.py` **a partir del dibuix de la icona**: aquí la recepta és `tools/app_splash.py` i
@@ -219,6 +226,7 @@ ha de ser la que la persona va deixar i el `state` és el que la fa (docs/30 § 
 | `settings` | `tab` (la pestanya on era) i `focus` (el nom del control amb el cercle); **cap ajust no hi va**, que són de `/cfg` |
 | `calculator` | `entry`/`acc` (el número que s'està teclejant o l'acumulat), `pending` (l'operació que espera el segon operand), `fresh` i `failed` —el que la pantalla diu, amb la línia de dalt— i **una línia `h=` per operació de l'historial** (0.189.165, l'amo: *«la calculador ha de tenir també session state, per el número de la pantalla i l'historial d'operacions»*). La 0.189.52 havia dit que no hi anava i el que ho va fer canviar és que una calculadora que es torna a obrir amb un zero i sense l'última suma no és la que la persona va deixar; **l'historial no és un document** —un document ha de sobreviure a `sessions destroy` i va a `fs.data`— i se'n guarden les últimes dotze |
 | `agenda` | **la pàgina sencera i el que s'hi està fent** (0.189.171): `page` (el mes, el dia o el formulari), `day`/`y`/`mo` (el dia obert i el mes que el calendari ensenyava), `marked` (l'esdeveniment amb el cercle), `editing` (el número de l'esdeveniment que el formulari escriu, o 0 per a un de nou), i les tries del formulari —`hour`, `min`, `len`, `rep` i `formy`/`formmo`/`formd`— amb **`text:title` i `text:note`** i `check:all_day`, que és el que la persona havia escrit i el que no s'ha de perdre quan la pàgina es reprèn. **Els esdeveniments no hi són**: són dada de l'app i tenen el seu fitxer a `fs.data` |
+| `banner` | `focus` (quin dels tres controls té el cercle) i `playing` (**si el rètol era al vidre**). **El nom i el ritme no hi són**: són el badge i viuen a `fs.data('banner.txt')`, que és la mateixa línia que separa una forma d'una dada (0.192.29) |
 | `appinfo`, `battery`, `clock`, `meteo` | **el que la seva pàgina és**: `appinfo` la pestanya i el detall obert (`page`, `focus`, `marked`), `battery` el cercle i prou —**la finestra del gràfic és una preferència i viu a `fs.data`**, que és la línia que separa la forma del gust—, `clock` la pestanya dels quatre fulls, el cercle i la fila triada (`tab`, `focus`, `marked`), i `meteo` el focus dels tres botons de la finestra —**la finestra triada i el registre de mostres són a `fs.data`**, i el registre no és forma sinó història— |
 | `minesweeper` | `flag` = el commutador de la franja, que és què vol dir un toc en aquesta pàgina; **el camp no hi és**, que una partida és dada i viu a `fs.data('game.txt')` (0.190.76) |
 | `files` | `path` (la carpeta on era, amb el nom del muntatge a dins) i `page` (la pàgina d'aquella carpeta); **la tria no hi és** —una tria és una cosa que una persona està fent i la fila on era pot no existir quan la pàgina torna— i **els fitxers amagats tampoc**: són una decisió sobre mirar i viuen a `/cfg/files/settings.txt` (0.190.257) |
@@ -519,13 +527,14 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **disset** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **divuit** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
 | `About` | `about` | 0.5.173 |
+| `Banner` | `banner` | 0.1.0 |
 | `Calculator` | `calculator` | 0.2.2 |
-| `Clock` | `clock` | 0.1.6 |
+| `Clock` | `clock` | 0.1.9 |
 | `Device Lock` (de `src/apps/lock_app.cpp`) | `device_lock` | 0.1.3 |
 | `Editor` | `editor` | 0.1.1 |
 | `EPUB` | `reader` | 0.1.1 |
@@ -565,9 +574,35 @@ I a part, **les que no són ports**:
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 
-Les **nou** que falten, i que són la cua d'aquesta feina: `Banner`,
-`FRAM`, `ImageViewer`, `Jellyfin`, `News`, `Pacman`, `Paint`, `SerialFUSE`
+Les **set** que falten, i que són la cua d'aquesta feina: `FRAM`, `Jellyfin`, `News`, `Pacman`, `Paint`, `SerialFUSE`
 i `Tamagotchi`.
+
+**El que va ensenyar el `Banner`** (0.192.29, el port més senzill que quedava i el primer que dibuixa **punts** en lloc de
+lletres):
+
+- **Les formes viatgen dins de l'app**, com al paper: cap cara del sistema dibuixa una matriu de punts i una 5 x 7 és una
+  taula de set números per caràcter. L'única primitiva que fa servir és `ui.rect`, perquè un punt encès és un quadrat ple.
+- **La cel·la es mesura del costat curt** (0.92 d'ell entre set files) i el dibuix es torna sol: les columnes del rètol van
+  per la vora llarga i les files d'una lletra per la curta, o sigui que el rètol surt **sense demanar mai al sistema que giri
+  el panell**.
+- **El pas d'un fotograma és `du` i no el `du4` de l'original**: aquí el `du4` està mesurat com un mode que **no pinta** (diu
+  que sí i el vidre no canvia, docs/30), i el rètol és tinta i paper, que és el que `du` fa amb dos tons i 120 ms.
+- **La pàgina dels controls es fa una vegada i es mou** (`build_page` / `place_page`): el teclat fa més curta la vista i
+  l'app ho sap per la mida, i una pàgina que fes la caixa de text de nou en aquell torn tancaria el teclat que la persona
+  està fent servir. És la mateixa lliçó del `Clock`, i aquí es va veure de seguida.
+- **El desig del `Play` es fa al torn següent** (`want_play`): un full screen demanat dins del ganxo del botó es desfeia tot
+  sol —i la vista tornava a les 892 files amb la barra amagada—, que és el `wanted` del Clock un altre cop.
+- **I el rètol arrenca amb el nom ja al vidre** (`scroll = gridCols - 2`): l'original el feia entrar des de fora i un badge
+  que no ensenya res durant sis segons després de prémer `Play` és un badge que sembla espatllat. Les voltes següents sí que
+  entren per la punta, com el rètol d'una botiga.
+
+**I el `ImageViewer` no s'ha portat: se n'ha fet un altre** (0.192.27). El del paper era **un selector de memòries i carpetes
+amb un visor a dins**, i l'amo el va tallar de soca-rel el dia que se'n parlava —*«No facis un explorador dins de l'app visor
+d'imatges! ja tenim "Files" per això»*—: l'arbre és de `Files`, i `apps/images` és **només el vidre que una imatge es mereix**.
+S'obre amb un fitxer (una fila de `Files`, `open png /sd/foto.png`, `run images <path>`), l'ensenya sencer al més gran que en
+mantingui la forma, i els costats del vidre passen a la imatge del costat **de la mateixa carpeta**, que és el que el vell feia
+quan li donaven un camí. El mig amaga el peu i el camí de sortida és el del sistema. La miniatura `.cache.ics` tampoc no hi és:
+el format el llegeix el nucli (`ICS1`) i el `Files` d'aquí no en dibuixa cap.
 
 **El que va ensenyar el `Tetris`** (0.190.253, i les tres coses les va demanar l'amo abans de començar: *«El Tetris, com amb
 l'snake, molta cura al fer el port. Fixa't que el tauler dibuixa el menys possible i tot es blanc i negre. No facis el gamePad.
@@ -882,6 +917,20 @@ controls UI i es nostres crides a sistema»*):
   dotze que a les tres—, els seixanta tics pengen de la vora de **dins** de l'anell, les dotze marques són més gruixudes
   que els tics i la de l'hora que assenyala la busca encara més, i les busques porten cua i un tap al mig. El to de la
   cara és **el 10** i no un altre: és un dels quatre nivells que la passada de quatre nivells pot dibuixar.
+- **I des de la 0.1.9 l'esfera és de dues capes, prima, amb l'hora i la data fora del cercle** (l'amo: *«Puja l'hora fora
+  de l'esfera / Baixa la data fora de l'esfera / Fes l'esfera mes rica, amb mes detall i color. Si fa el minuter mes una
+  mica mes curt (lo just per no tocar l'esfera) no caldrà redibuixar l'esfera a cada canvi»*, després *«No sería mes
+  inteligent que el centre del rellotg fos blanc per facilitar el repintat rápid i LA RESTA amb 16 colors?»* i encara
+  *«aquesta esfera es horrible... tant gruixuda... pots fer-la mes fina, amb numeros i detalls i així el minutre i l'hora
+  poden ser mes llargs i gruixuts»*): la **corona** —un marc de sis píxels, els seixanta tics amb la pista dels minuts, les
+  dotze xifres i la de l'hora on és en tinta amb el seu tic més gruixut— és una capa que només canvia amb l'hora, i les
+  busques giren dins d'un **centre de paper** que és l'únic que es repinta cada minut. Un blanc és l'únic nivell que una
+  passada barata restaura exacte; un gris és una trama i deixa el fantasma de la busca d'abans. La corona fa **una cinquena
+  part del radi**, o sigui que el minuter arriba al 74 % i l'hora al 53 %, i tots dos s'afuen en dos trossos perquè
+  `brush_line` fa un traç de gruix constant. El disc que esborra fa 193 de radi i la punta del minuter s'hi queda tres
+  píxels a dins, o sigui que la passada d'un minut és **una caixa de 386 × 386** i la de l'hora sencera. **I cada deu
+  minuts la passada és neta** (`gc16`): a `gld16` el paper que tapa la busca d'abans no queda del tot blanc i al cap d'una
+  estona es veu doble (vist a l'emulador).
 - **`ui.line` no té gruix** en aquest canvas, i el que fa un llapis és passar-hi un disc de la mida del gruix al llarg
   del camí: això és `brush_line`, tres línies.
 - **La lletra de la nota i de les files és la petita** (33 píxels de línia, el pas 3 d'aquesta cara) i no la del cos: ho

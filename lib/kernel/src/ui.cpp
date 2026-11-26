@@ -118,6 +118,15 @@ bool g_screen_locked = false;
 // closing the app before the page could say anything—. It lives with the glass, like the lock, and it comes back with it
 // (docs/30, docs/46 D1, docs/50).
 bool g_three_taps_close = true;
+// **De qui és el vidre sencer** (0.192.30, l'amo: *«No es despleguen el panells de sistema, ni el superior ni l'inferior»*): the
+// whole glass is an app's and it goes with that app. The name of the app that asked is kept here, and a turn that finds the glass
+// taken while another page is in front gives it back —the bar, the two strips and the two cards hang from that view, and a board
+// left with the glass taken is a board whose panels are dead and whose bar is old ink— (docs/30, docs/46 D1, docs/50).
+char g_glass_owner[24] = {0};
+// **I una barra que no ha pogut tornar es deu**: `make_view(false)` can say no for want of memory —the page of the app that asked
+// is still whole in the bank—, and the board that stays without a bar has no way to it. It is asked again on the next turn, when
+// the app that asked is gone and its block is free (docs/50, docs/75).
+bool g_the_bar_is_owed = false;
 // **Whether the canvas still holds the band of the keyboard**: it is a picture drawn into the page, so it is there
 // until something wipes it —the app's `clear`, a rectangle or a pixel over it, a new canvas— and a letter typed does
 // not. The flag is the band's, and `clear` asks it through this door (docs/50, docs/90).
@@ -722,8 +731,10 @@ bool make_view(bool full) {
   if (surface == nullptr) return false;
   const uint16_t top = full ? 0 : bar::height();
   // **Les dues franges són del sistema** (0.190.287): amb el vidre sencer no n'hi ha cap, i amb la barra la vista perd la de dalt
-  // i la de baix (docs/30, docs/46 D1).
-  const uint16_t bottom = full ? 0 : bar::bottom_height();
+  // i la de baix (docs/30, docs/46 D1). **I la de baix és la que la barra hi posarà i no la que hi ha ara** (0.192.28): tornar
+  // del vidre sencer es fa amb la barra encara amagada —`bar::show` és quatre línies més avall— i `bottom_height` responia zero,
+  // o sigui que la pàgina es quedava les vint files de la franja i la franja les pintava a sobre (trobat per la suite del tàctil).
+  const uint16_t bottom = full ? 0 : bar::strip_rows();
   if (surface->height() <= top + bottom) return false;
   if (!make_root(surface->width(), static_cast<uint16_t>(surface->height() - top - bottom))) return false;
   // The view of an app starts at the left corner of the page whether the bar is there or not: the bar is above it or
@@ -731,6 +742,15 @@ bool make_view(bool full) {
   root().x = 0;
   root().y = top;
   g_full_screen = full;
+  g_the_bar_is_owed = false;
+  // **I qui el té, dit i desat** (0.192.30): the whole glass is an app's and it goes with it. The name is kept so that a turn
+  // that finds another page in front can give the glass back instead of leaving the board with no bar and no cards.
+  if (full) {
+    const char* who = shell::app_id();
+    snprintf(g_glass_owner, sizeof(g_glass_owner), "%s", (who != nullptr) ? who : "");
+  } else {
+    g_glass_owner[0] = '\0';
+  }
   bar::show(!full);
   // **And the strip comes back whole whatever the bar believed it had** (0.164.3): `show(true)` already owes a whole
   // paint, and this is the same wish said again for the case the app painted over the top rows while it had them —
@@ -3416,10 +3436,11 @@ struct Icon {
 // **Les onze marques del sistema** (0.189.157, i les tres de la ràdio des de la 0.190.219): the moon of the key that puts the
 // board to sleep was drawn by `draw_icon` and its name was not in this set, so a board with no `/res/icons` showed that key empty
 // —the set is what `an_icon_named` asks, and a mark that is not in it is not painted at all— i el candau de la 0.189.151 hi és des
-// de llavors, i **les tres de la ràdio** (docs/30, docs/45).
+// de llavors, i **les tres de la ràdio** (docs/30, docs/45). **I les dues del joc** (0.192.26): la pausa i el play dels tres jocs,
+// que són la marca d'un botó d'una app com les altres i no una clau de la targeta (docs/45).
 const Icon kIcons[] = {
     {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"}, {"home"}, {"lock"}, {"deepsleep"},
-    {"bluetooth"}, {"wifi"}, {"mesh"},
+    {"bluetooth"}, {"wifi"}, {"mesh"}, {"pause"}, {"play"},
 };
 const uint8_t kIconCount = static_cast<uint8_t>(sizeof(kIcons) / sizeof(kIcons[0]));
 
@@ -3649,6 +3670,22 @@ bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t wid
     draw_disc(view, left_x, cy, node, level, mode);
     draw_disc(view, right_x, up_y, node, level, mode);
     draw_disc(view, right_x, down_y, node, level, mode);
+  } else if (strcmp(name, "pause") == 0) {
+    // **Les dues barres de la pausa** (0.192.26): two bars as wide as the stroke is thick, tall as the reach, and the gap between
+    // them is the width of one —the shape everybody reads at forty pixels, which is the size a button of a game has (docs/30).
+    const int32_t bar_w = (reach * 52) / 100;
+    const int32_t gap = bar_w / 2;
+    const int32_t top = cy - reach;
+    const int32_t h = static_cast<int32_t>(2 * reach);
+    draw_fill_rect(view, static_cast<uint16_t>(cx - gap / 2 - bar_w), static_cast<uint16_t>(top),
+                   static_cast<uint16_t>(bar_w), static_cast<uint16_t>(h), level, mode);
+    draw_fill_rect(view, static_cast<uint16_t>(cx + gap / 2), static_cast<uint16_t>(top), static_cast<uint16_t>(bar_w),
+                   static_cast<uint16_t>(h), level, mode);
+  } else if (strcmp(name, "play") == 0) {
+    // **El triangle del play** (0.192.26): the same filled tip the restart uses for its head, and it is the same triangle function
+    // —un joc que reprèn és una cosa que torna a caminar, i el dibuix ho diu amb la forma que aquest fitxer ja té (docs/30).
+    icon_triangle(view, cx - (reach * 70) / 100, cy - reach, cx - (reach * 70) / 100, cy + reach, cx + reach, cy, level,
+                  mode);
   } else {
     // **El símbol d'apagar**: the ring with a gap at the top and the stem through it, which is the one mark the world
     // already agrees on.
@@ -9482,11 +9519,41 @@ void give_back_the_glass() {
   // that does not come back to ask for it again would leave the next app with no three taps and nobody knowing why (docs/30).
   g_three_taps_close = true;
   if (!g_full_screen) return;
-  // The app that asked is gone or is going: there is nobody to tell, and the view of every app and the bar of the
-  // system are what the next page needs (docs/30, docs/46 D1). A view that cannot be made is said and not hidden.
+  // The app that asked is gone or is going: there is nobody to tell, and the view of every app and the bar of
+  // system are what the next page needs (docs/30, docs/46 D1). A view that cannot be made is said and not hidden —and **it is
+  // asked again on the next turn** (`g_the_bar_is_owed`): the block of the page that asked is still whole in the bank when this
+  // runs, and a board that stays without a bar has no way to it (0.192.30, docs/50, docs/75).
   if (!make_view(false)) {
-    log_printf(pal::kLogWarn, "UI", "no memory for the view under the bar");
+    g_the_bar_is_owed = true;
+    log_printf(pal::kLogWarn, "UI", "no memory for the view under the bar: the bar is owed to the next turn");
   }
+}
+
+// **El vidre sencer és de l'app que el va demanar, i marxa amb ella** (0.192.30, l'amo: *«No es despleguen el panells de sistema,
+// ni el superior ni l'inferior. No tindrán una flag de bloqueig?»*). The state he found was a board with the bar of the system
+// painted as old ink and every finger on the top rows given to the page —`ui::canvas().y` was 0—, o sigui que una pàgina s'havia
+// quedat el vidre: the app that asked went away by a road that does not call `give_back_the_glass` (an error, a page the kernel
+// replaced, a close that only the shell knows) and the next page inherited the whole glass. The bar, the two strips and the two
+// cards all hang from that view, so the panels of the system were dead and nothing on the glass said why.
+//
+// **La regla és del sistema i no de cada porta**: a turn that finds the glass taken while the page in front is not the one that
+// asked gives it back. It is the same hand as an app that ends, said for every road at once (docs/30, docs/46 D1, docs/50).
+bool give_back_a_stray_glass() {
+  if (g_the_bar_is_owed) {
+    g_the_bar_is_owed = false;
+    if (make_view(false)) {
+      log_printf(pal::kLogInfo, "UI", "the bar comes back: there is room for the view under it");
+    } else {
+      g_the_bar_is_owed = true;
+    }
+  }
+  if (!g_full_screen || g_screen_locked) return false;
+  const char* here = shell::app_id();
+  if (g_glass_owner[0] == '\0' || (here != nullptr && strcmp(g_glass_owner, here) == 0)) return false;
+  log_printf(pal::kLogWarn, "UI", "the glass was taken by '%s' and '%s' is in front: the bar comes back", g_glass_owner,
+             (here != nullptr) ? here : "");
+  give_back_the_glass();
+  return true;
 }
 
 bool poll_full_screen() {

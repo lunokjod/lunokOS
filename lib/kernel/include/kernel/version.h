@@ -13675,7 +13675,667 @@ namespace kernel {
 // **I no es paga quan el vidre dorm**: un despert per una alarma no toca ni un píxel a posta (0.190.19) i el que hi ha al vidre és la imatge
 // que el son hi va deixar; quan la persona hi sigui, la pàgina que arribi neteja (docs/30, docs/50).
 
-static const char kVersion[] = "0.191.8";
+// 0.191.9 (25/11): **una clau que no pot fer res no es pinta, i una apagada que no passa no ho promet** (l'amo: *«el poweroff no
+// funciona? està endollat i es queda amb el botó poweroff activat, però no veig l'splash de poweroff»*, i després: *«si no es pot apagar
+// endollat, simplement no mostris el botó»*).
+
+// **La targeta del sistema preguntava a la placa per la creu, la fletxa, la roda, la lluna i les tres de la ràdio… i no per l'apagat.** Amb
+// el cable a dins, la T5S3 no pot tallar-se el corrent —el carregador la sosté, i és la regla del fabricant, que el seu propi exemple diu
+// amb `battery_25896_is_vbus_in()`—, o sigui que la clau es pintava, la persona la premia i no passava res: ni una tinta ni una paraula. Ara
+// `key_is_there` pregunta `power::can_power_off()` com pregunta totes les altres (docs/30, docs/45, docs/50).
+
+// **I el camí del prompt deia dues coses contràries en dues línies seguides**: `poweroff` escrivia «powering off...» **abans** de preguntar
+// si la placa pot, i la resposta era «this board cannot cut its own power…». Ara es pregunta primer i en surt una de les dues. **I la
+// negativa ja no toca res**: fins avui es tancava l'app —els seus comiats, la pàgina perduda— i tot seguit es deia que no, o sigui que la
+// placa es quedava encesa havent fet la meitat de la feina (docs/30, docs/60).
+
+// **I si el corrent no marxa tot i que la placa ho podia**, el vidre no es queda dient que sí: la imatge de la baixada es treu, la pàgina de
+// casa torna i el log ho diu. Abans la placa es quedava amb el dibuix d'«apagant-me» al vidre i ningú no el repintava (docs/50).
+
+// **I l'emulador en sap dir una**: `--cannot-power-off` és una placa que no pot tallar la seva font, que és el que calia per provar la clau que
+// no s'ha de pintar —tots els models amb vidre podien apagar-se, o sigui que la regla no es podia veure— (docs/85).
+
+// 0.191.10 (25/11): **una arrencada sense imatge també neteja el vidre sencer** (l'amo: *«i es neteja bé la pantalla quan el sistema
+// arrenca o desperta?»*).
+
+// La resposta, mirada al registre i no suposada. **Sí** en tres dels quatre camins i **no** en un:
+
+//   - **el despert d'un son profund** (0.191.8): un `gc16` del vidre sencer abans que cap pàgina dibuixi;
+//   - **una arrencada amb la imatge del sistema**: el `splash` és qui la pinta, i `show`/`show_plane` demanen un `gc16` de tot el
+//     panell (`glass->flush(hal::UpdateMode::kGc16)`), o sigui que la imatge és el rentat;
+//   - **el despert d'una alarma**: res, i és a posta —el vidre dorm i el que hi ha és la imatge que el son hi va deixar—;
+//   - **una arrencada sense imatge**: aquí no hi havia cap passada del vidre sencer. El que queda era el `ui::owe_the_page()`, que
+//     paga **la vista** (540x892 a 0,48) i prou, o sigui que els quaranta-vuit rengles de la barra i els vint de la franja de baix
+//     només rebien el `gld16` de la barra —que sobre tinta fosca deixa fantasma— i la placa ensenyava l'ombra del rellotge i de la
+//     ratlla de l'execució anterior.
+
+// **Ara és `splash::wash(kGc16)` en aquell camí**, la mateixa passada que el despert, i el deute de la pàgina no es marca quan el
+// rentat ha pres: el vidre ja és paper i la primera pàgina només ha de pintar el seu dibuix (docs/30, docs/50).
+
+// 0.191.11 (25/11): **el despert que deia ser una alarma i era una persona** (l'amo: *«Revisa de nou el DeepSleep, al donar al botó de Sleep
+// no s'apaga, i al tornar no neteja???»*).
+
+// La placa que diu **què** l'ha despertada, i per què això era el forat. `esp_sleep_get_wakeup_cause()` només sap dir «ha estat una línia»,
+// i a la T5S3 les tres portes del son profund —el rellotge (GPIO2), el BOOT (GPIO0) i el dit (GPIO3)— són la **mateixa** línia de l'`ext1`:
+// el que hi havia fins ara era `RtcClock::last_wake()`, que contestava «el rellotge» sempre que el PCF8563 tingués l'indicador d'alarma posat
+// —i l'havia posat el son anterior, o una alarma que ja s'havia entregat—. Amb aquesta resposta el nucli creia que la placa havia tornat
+// per a una alarma, i **una alarma no toca el vidre**: `display::set_the_glass_asleep(true)` fa que **tota** pintada es quedi a la memòria,
+// o sigui que la placa tornava amb el dibuix del son al vidre, la pàgina de la persona no apareixia mai i el vidre no es netejava. El que
+// una persona veu és una placa que «no s'apaga i torna sense netejar».
+
+// `IPower::the_door_that_opened()` deixa de ser un text i és un `IPower::Door` (kTimer, kKey, kGlass, kClock, kMore): la placa contesta
+// amb el que sap de les seves línies —`esp_sleep_get_ext1_wakeup_status()` i el mapa dels tres pins, que només viu a `hal_t5s3`— i el nucli
+// decideix la política. **Una línia que és una persona mana sobre el rellotge** (si el dit o el BOOT són entre les que han baixat, hi ha algú
+// al davant), i una placa que no ho sap dir contesta `kUnknown` i el nucli es queda amb el que digui el seu rellotge (docs/50, docs/60).
+
+// **I una baixada que la placa refusa no deixa el dibuix del son al vidre.** `request_sleep` pintava la imatge, esperava la tinta i li demanava
+// a la placa que baixés; si la placa deia que no —cap porta que es pugui armar, un `ext1` que el xip no pren, l'hora que ha passat mentre
+// s'escrivia la sessió—, el que quedava era una placa **encesa** amb el dibuix del son, l'app tancada i la pàgina perduda. Ara es fa el mateix
+// que quan una apagada no passa: la imatge es treu, la pàgina de casa torna i el log diu per què (docs/30, docs/50).
+
+// **I el camí de baixada diu on s'atura**: una línia `the chip stops here` abans d'`esp_deep_sleep_start()`, perquè el registre d'una placa
+// adormida i el d'una que ha tornat a l'instant eren el mateix text. L'emulador en sap dir una de nova, `--cannot-sleep`, que és l'única
+// manera de veure el camí de la negativa (docs/85, docs/95).
+
+// **I el registre d'una baixada de debò va ensenyar dues coses més** (l'amo, amb la lluna premiada): *«[W][I2C] write to 5d failed (ESP_FAIL)»*
+// i *«[W][NVS] 1 of the 4 change(s) did not reach the flash»*.
+
+//   - **El tàctil es parlava amb el reset subjectat**: `T5Power::sleep` subjectava `TOUCH_RST` baix al començament —el que fa el fabricant—
+//     i després `arm_the_doors` li enviava el son per I2C, o sigui que el bus cridava un xip en repòs forçat i l'`ESP_FAIL` semblava un
+//     error. Ara **el son del controlador va primer i el reset subjectat és l'últim que se li fa**, dins `arm_the_doors` i només quan les
+//     portes ja són armades (`g_going_deep`): una baixada refusada no deixa el vidre sense tàctil fins al proper reinici (docs/50).
+//   - **Una clau que no hi era comptava com una escriptura perduda**: `nvs_erase_key` torna `ESP_ERR_NVS_NOT_FOUND` per a una clau que no
+//     existeix, i `erase_now` ho deia fracàs —tot i el seu propi comentari, *«esborrar el que no hi és no és un error»*—, o sigui que cada
+//     baixada que esborrava `session/detached` sense haver-lo escrit mai deixava un avís al registre. Ara el «no hi era» és èxit (docs/70).
+
+// 0.192.0 (25/11): **què porta la cel·la i quina hora és quan la placa baixa, i què ha costat mentre no hi era** (l'amo: *«Vull que el
+// sistema posi al log la carrega de la batería i l'hora abans d'entrar en poweroff o DeepSleep, així si et despertes molt rápid ho podrem
+// saber. També comptar el consum de batería mentre dorm/apagat.»*).
+
+// Dues meitats d'una mateixa mesura, i la segona és la que faltava: una placa que s'ha adormit i una que ha tornat a l'instant tenien el
+// mateix registre —el de la baixada—, i el que les separa és el que la cel·la ha perdut mentre no hi era ningú.
+
+// **La baixada deixa dit el que porta i l'hora**, en una línia i en una fila de la botiga (`power/before`, abans de
+// `settle_before_leaving`, que és qui escriu la flash):
+
+// ```
+// [I][POWER] the deep sleep at 21:47 UTC: 4020 mV, 82 % of the cell, 943 mAh left, 74 mA going out
+// [I][POWER] the power off at 21:47 UTC: 4080 mV, 88 % of the cell, 1012 mAh left, 0 mA at rest
+// ```
+
+// **I l'arrencada que ve la llegeix, la compara i la gasta**, o sigui que la línia de la tornada és la mesura sencera:
+
+// ```
+// [I][POWER] the board was asleep 10 min (21:47 UTC → 21:57 UTC): the cell 4020 → 4014 mV and 82 → 81 %, and 12 mAh gone = 72 mA on average
+// [I][POWER] the board was off 50 min (21:47 UTC → 22:37 UTC): the cell 4080 → 4072 mV and 88 → 87 %, and 12 mAh gone = 14 mA on average
+// ```
+
+// Tres coses la fan honesta: **els mV i els punts hi són a totes les bandes** i el mAh amb la mitjana de mA només a la que porta comptador
+// de coulombs (`IPower::battery_detail`, el BQ27220 de la T5S3), on el que no se sap es queda a `-1` i la línia ho diu amb paraules en
+// lloc d'inventar un número; **una placa sense hora diu que no en té** i ensenya els números igualment; i **una fila gastada no es torna a
+// llegir**, perquè un despert que trobés la fila d'un altre run comptaria dues vegades el mateix consum (docs/50, docs/60, docs/70, docs/95).
+
+// 0.192.1 (25/11): **tot splash neteja el paper sencer** (l'amo: *«tot splash ha de fer neteja completa del paper.»*).
+
+// Tres portes i una que feia una altra cosa: `show` i `show_plane` demanaven un `gc16` del vidre sencer des de sempre, i `hide()` —el «torna
+// a paper» de `splash hide`, de `ui.splash_hide()` i de la baixada que no passa— demanava un **`gld16`** des de la 0.190.42. Un `gld16`
+// sobre la tinta d'una imatge no la treu: la deixa a mig esborrar, i el que s'ha vist és el dibuix del son en forma de fantasma.
+
+// Ara **totes tres demanen setze nivells del vidre sencer**. I la porta ho diu: `splash::wash(mode)` passa a ser `splash::wash()`, perquè
+// l'únic que el cridava amb un `gld16` era `hide()` i una porta que només sap dir una cosa no ha de preguntar-la. El preu és el parpelleig
+// de mig segon que el `gld16` estalviava; el que es compra és que darrere d'un splash no hi quedi mai res que no sigui paper (docs/30,
+// docs/50).
+
+// 0.192.2 (25/11): **al tornar d'un son, el `splash hide` va abans de l'app** (l'amo: *«al tornar de deep sleep has de fer splash hide
+// abans de continuar amb l'app»*).
+
+// El forat era el despert que **una app** ha de despertar, i és exactament el que passava a la seva placa: la lluna va dormir fins a una
+// alarma, el despert va ser de rellotge —`g_woke_by_an_alarm`, que fins a la 0.191.11 era el que deia el xip del rellotge sempre que en
+// tingués el flag posat—, o sigui que el vidre es va quedar dormit i `kernel::boot` **no va rentar res** (a posta: un despert d'alarma no
+// toca el vidre). Quan després una pàgina havia de sortir, `shell::run_app` es limitava a marcar **el deute de la pàgina**, i un deute es
+// paga amb **la vista** (540×892 a 0,48) i amb **el mode que demani l'app**: el dibuix del son es quedava a les dues franges del sistema
+// —que no són de cap app— i a tots els forats on la pàgina no té res, i un `du` o un `gl16` sobre aquella tinta la deixava a mig esborrar.
+
+// Ara `run_app`, quan troba el vidre dormit, el desperta i fa **`splash::hide()`** —el vidre sencer amb un `gc16`— **abans** que l'app
+// dibuixi: el que queda sota la seva primera pàgina és paper. I la passada és una de sola per retorn: quan hi ha algú al davant, aquesta
+// feina ja la fa `kernel::boot` (que renta abans de demanar la pàgina de casa) i el vidre ja no dorm quan l'app arrenca; i si l'app porta
+// una imatge pròpia no es paga, perquè la imatge renta el vidre sencer una mica més avall (docs/30, docs/50, docs/60).
+
+// 0.192.3 (25/11): **el retorn diu què ha fet amb el vidre, perquè el registre d'un retorn que no neteja i el d'un que sí eren el mateix
+// text** (l'amo, amb la 0.192.2 gravada: *«Doncs no ho veig ehh?? … I al tornar de deep sleep l'imatge queda bruta...»*).
+
+// Tres línies i cap canvi de comportament, que és el que faltava per poder-ho veure des de fora:
+
+// ```
+// [I][UI] the glass stays asleep: this run came back for an alarm, and the first page that needs it washes it whole
+// [I][UI] the page of clock wakes the glass: washed whole with gc16 before it draws
+// [W][UI] the page of clock wakes the glass and the wash did not take: <motiu>
+// ```
+
+// La primera diu que el boot **no ha de netejar** (un despert per una alarma no toca el vidre a posta, 0.190.19) i que el que netejarà
+// és la primera pàgina que el necessiti; la segona, qui l'ha netejat —la imatge pròpia de l'app o el `splash hide`—; i la tercera, que el
+// panell no ha pres la passada. Amb això una imatge bruta al retorn ja té una causa al registre en lloc d'una sospita (docs/30, docs/60).
+
+// 0.192.4 (25/11): **la T5S3 a l'emulador, per deixar de cremar flash** (l'amo: *«Afegeix a l'emulador la placa T5S3 dels collons i parem
+// de fer l'imbécil, no confío en tu amb els canvis, està clar que no fas el que dic.»*).
+
+// `--board lilygo-t5s3-epaper-pro` i l'emulador és aquesta placa: el vidre de 960x540 de quatre bits amb el GT911 a sobre, el BQ27220 que
+// compta els coulombs, el BQ25896 que sap si hi ha cable, el PCF8563 amb pila, el son profund de tres portes i el cercle de sota el vidre.
+// El model contesta el que la placa contesta i no el que era còmode: **el son no és una apagada** (`deep_powers_off` fals encara que
+// tingui xip de rellotge), **hi baixa quan no hi ha ningú**, **no fa becaines** i **el cable no és cap porta** (la consola és el USB del
+// xip), **pintar és calcular** i **el repòs del panell és la seva font** (una pintada després de `rest()` el torna a encendre en lloc de
+// ser refusada, com fa el TPS65185). El que **no** hi és: `lib/hal_t5s3` no corre a l'emulador, o sigui que epdiy, la forma d'ona del
+// ED047TC1 i els registres del PCF8563 segueixen sent només de la placa (docs/50, docs/85).
+
+// **I dos defectes que van sortir al fer-lo servir**:
+
+//   - **`deepsleep` matava el run**. A la placa la crida del son no torna; a l'emulador amb els temps del maquinari el son **sí** que
+//     torna i el que ha de passar és el que passa a la placa: un `kernel::boot` sencer. `shell::deep_sleep` cridava `shutdown()` i el
+//     procés s'acabava just abans del reinici, o sigui que **tot el camí del retorn era l'única cosa que l'emulador no podia ensenyar**.
+//     Ara mira `power::the_chip_restarted()` (docs/60, docs/85).
+//   - **el rentat del vidre era invisible al registre**. Les pintades de `splash` van directes al `ISurface` i no passen per
+//     `display::present`, que és qui escriu `[D][GLASS] flush …`: una passada de tot el vidre no deixava cap línia, i el registre d'un
+//     retorn que neteja i el d'un que no neteja eren el mateix text. Ara `splash::wash()` diu `the whole glass, gc16, N ms: paper`
+//     (docs/30, docs/50).
+
+// Amb això el camí sencer del retorn es veu en un sol run de l'emulador, que és el que no es podia fer fins avui:
+
+// ```
+// [I][BOOT] back from a deep sleep, woken by the clock chip: an alarm, nobody in front, the glass is not touched
+// [I][UI] the glass stays asleep: this run came back for an alarm, and the first page that needs it washes it whole
+// [I][SPLASH] the whole glass, gc16, 320 ms: paper
+// [I][UI] the page of alarmtest wakes the glass: washed whole with gc16 before it draws
+// [I][POWER] the board was asleep 8 min 46 s (21:52 UTC → 22:01 UTC): the cell 4170 → 4170 mV and 97 → 97 %, and 0 mAh gone = 0 mA on average
+// ```
+
+// 0.192.5 (25/11): **la línia `cpu 240 MHz from 80 (boot)` era una empenta que no cobria cap feina** (l'amo: *«[I][POWER] cpu 240 MHz
+// from 80 (boot) <- que collons es això?»*).
+
+// `kernel::boot` demanava el pas més alt just després de `power::boot` i el deixava anar al cap d'unes línies. El comentari deia que
+// cobria «el segon més pesat d'aquest sistema» —el muntatge, el panell, els ajustos, la imatge del boot i la shell—, però tot això passa
+// **abans** de `power::boot`: després només queden `lock::boot()`, una línia a la cua de comandes i res. La pàgina de casa demana la seva
+// pròpia finestra quan arrenca (`run_app`, *an app is starting*), o sigui que aquella empenta pujava el rellotge, escrivia dues línies i no
+// hi havia res a córrer més de pressa. S'ha tret; el `rest_cpu("the system is loaded")` es queda, que és el que assegura que la placa acaba
+// l'arrencada al pas de repòs (docs/50, docs/60).
+
+// 0.192.6 (25/11): **les tecles de cada model, i no el dial del Paper per a tothom** (l'amo: *«l'emulador de T5S3 te els botons
+// malement, quina definició de botons té?»*).
+
+// La pregunta era exacta: la resposta era **la del Paper**. `FakeInput` tornava sempre `Face::kRight`, tres llocs d'un dial (`Up`,
+// `Centre`, `Down`), `KeyKind::kCompound` i el mateix grup, i el comptador era l'únic que venia del model. O sigui que la T5S3 sortia amb
+// **dues tecles compostes a la cara dreta** quan la placa en té **una** de simple a la dreta i baixa —el `S3` de l'expansor; el BOOT del
+// mòdul no és a la llista del HAL perquè és el pin d'arrencada del xip— i el cercle de sota el vidre no és cap tecla sinó un tret de la
+// caixa. L'ATOM també sortia amb la cara i la mena del dial (és una tecla simple a **dalt**).
+
+// Ara el descriptor de cada tecla és del model, com el comptador: `key_face`, `key_spot`, `key_kind` i `keys_for_the_page`. El que respon
+// cada model, llegit amb `button.list()` des del prompt de l'emulador:
+
+// | model | tecles |
+// |---|---|
+// | `lilygo-t5s3-epaper-pro` | `0 right/down/simple` + `1 front/centre/simple` (el cercle del davant) |
+// | `m5stack-paper` | `0 right/centre` · `1 right/up` · `2 right/down`, totes compostes |
+// | `m5stack-atom` i `-matrix` | `0 top/centre/simple` |
+// | `ttgo-t-koala` | cap |
+
+// **I `keys_are_for_the_page` també és del model**: el dial del Paper mou l'anell (`true`, com el seu HAL) i la tecla sola de la T5S3 no
+// (`false`, com el seu), o sigui que l'emulador deixa de fer caminar una pàgina amb una tecla que a la placa no la camina (docs/30, docs/50,
+// docs/85).
+
+// 0.192.7 (25/11): **els quatre botons de la carcassa, definits i a la finestra, i el `RESET` que reinicia de debò** (l'amo:
+// *«les definicions de botons son: … Part dreta: Botó RESET, Botó POWER, Ranura SD; Part esquerra: Botó BOOT, Botó IO48 … Defineix
+// sempre els botons i mostra'ls a l'emulador. Tot i que son botons que no serveixin per programar l'ESP32. Son útils per emular el
+// funcionament de l'emulador»*).
+
+// El model de cada placa porta ara **la seva taula de botons** (`emu/model.h`): nom, cara, lloc, mena i paper —`kReset`, `kKey`,
+// `kBoot` i `kNone`—, i la finestra en dibuixa un per botó amb el nom a dins, a la columna de la seva cara i en l'ordre de dalt a
+// baix. La T5S3:
+
+// | botó | on és | què fa |
+// |---|---|---|
+// | `RESET` | dreta, a dalt | el pin `EN`: el xip s'atura i torna a arrencar, sense comiats |
+// | `POWER` | dreta, a baix | la tecla del sistema (`S3` de l'expansor, dreta i baixa, simple) |
+// | `BOOT` | esquerra, a dalt | el pin `GPIO0`: desperta un xip adormit i no és cap tecla mentre la placa corre |
+// | `IO48` | esquerra, a baix | **res**: al mapa del fabricant (`H752-01`) aquest IO és `EP_CKV`, el rellotge de files del panell |
+
+// **I prémer-los fa el que fa la placa**: `POWER` és una tecla de debò, `BOOT` i `IO48` no fan res mentre la placa corre, i el
+// `RESET` —que fins ara només escrivia una línia— passa pel reinici del sistema (tanca la pàgina, desa les sessions, demana el
+// reinici al PAL) i **el xip torna a arrencar dins del mateix procés**, amb la causa del pin al registre (`this boot is the reset
+// pin`). Amb el xip adormit, el `RESET` ja no espera l'hora: és una porta més del son (`WakeBy::kReset`), i el que torna no és un
+// despert sinó una arrencada. Per això `pal::ISystem` té `the_restart_is_done()`: a la placa `esp_restart()` no torna mai i aquí
+// el `kernel::boot` és el que baixa la petició, que si no aturaria el run que acaba d'arrencar (docs/50, docs/60, docs/85).
+
+// 0.192.8 (25/11): **el `RESET` de l'emulador és el pin `EN` i prou, i el pin no pinta res** (l'amo: *«El botó reset a l'emulador
+// salta l'splash de reset? al dispositiu real també? xDD»* i, tot seguit, *«no inventis merdes... vull el comportament del hardware
+// exactament emulat a l'emulador»*).
+
+// La pregunta era la resposta: **a la placa el pin `EN` no pot pintar res** —atura el xip entre dues instruccions—, i l'emulador de la
+// 0.192.7 sí que pintava `/res/splash/reboot.png` perquè feia passar el botó pel **reinici del sistema** (`shell::reboot`: tanca la
+// pàgina amb comiats, desa les sessions, comet la botiga, pinta el quadre i espera). Això és el reinici de la targeta del sistema, no
+// el pin, i era una mentida de la finestra.
+
+// Ara són dues coses diferents, com al maquinari: el **reinici del sistema** (targeta, `reboot` del prompt) pinta el seu quadre; el
+// **pin `EN`** no pinta **ni un píxel**, i el que fa és el que la placa fa:
+
+// - `shell::lose_the_page_to_the_pin()`: deixa anar la pàgina, el seu intèrpret, el port, el llum, el teclat, les vistes i la consola
+//   de la cadena **sense `on_close`, sense `park_all` i sense cometre la botiga** —l'únic que fa és el que aquest procés no pot fer sol,
+//   perquè la RAM que el pin s'endú aquí és un objecte viu—;
+// - `session::lose_every_block()`: els blocs de la memòria de sessions es perden **sense escriure's**, que és el que passa a la placa;
+// - `emu::the_chip_was_reset()`: el comptador monòton torna a zero (el `esp_timer` arrenca amb el firmware) i l'hora no es mou;
+// - i **el `kernel::boot` de sempre**, que és el que la placa fa tota sola: la targeta del boot (`boot-5`) i el `gc16` del vidre sencer.
+
+// El que es llegeix d'un `RESET` amb la pàgina de casa a sobre, doncs, és això —ni `restarting...` ni `reboot.png` pel camí—:
+
+// ```
+// reset: the pin EN of the case, and the chip starts again with nothing written
+// [I][MEMORY] the pin EN takes the memory: 4 session block(s) gone, nothing written
+// [I][APPS] home_eink dies with the chip: no goodbye and nothing written
+// lunokOS 0.192.8  lilygo-t5s3-epaper-pro (emulator)
+// [I][BOOT] the chip restarted and the power never went away: the reset pin
+// [I][SPLASH] /res/splash/boot-5.e4, 540x960 at 0,0, a plane of 259200 B
+// [I][POWER] this boot is the reset pin
+// ```
+
+// I la cache que només era a la RAM **es perd**, com al xip: `home_eink asks for 'state': 1024 B, made` quan abans el mateix boot la
+// restaurava del disc (docs/30, docs/50, docs/75, docs/85).
+
+// 0.192.9 (25/11): **el retorn d'un son neteja el paper sencer amb un `splash hide`, i això és el primer que fa el vidre** (l'amo:
+// *«estic FART de dir-te que al arrencar de DeepSleep has de fer un splash hide (que faci neteja completa del paper) abans de continuar
+// i arrencar l'app»*).
+
+// El rentat del retorn ja hi era des de la 0.191.8, però **no a tots els camins i no amb el nom que l'amo demana**: la línia deia
+// `washed whole with gc16` i una alarma que aixeca una pàgina (`raise`) netejava el vidre **dins** de l'arrencada de l'app
+// (`run_app`), no abans. Ara:
+
+// - **el retorn d'un son, amb una persona al davant**, fa `splash::hide()` —el `gc16` del vidre sencer, que és el mateix `wash()` des
+//   de la 0.192.1— al bloc del vidre de `kernel::boot`, que és **abans de les alarmes, abans de la shell i abans de `power::boot`**
+//   (que és qui torna a obrir la pàgina de la persona), i ho diu així: `back from a sleep: splash hide, the whole paper, before the
+//   page comes back`;
+// - **una alarma que aixeca una pàgina** (`deliver_alarms`, `raise_to_front`) neteja el paper sencer **abans de començar** la pàgina
+//   (`the alarm brings a page: splash hide, the whole paper, before it starts`) i no dins del seu arrencament;
+// - **i el que no canvia és el que l'amo va demanar el 0.190.19**: un despert per una alarma que no porta ningú al davant no toca ni
+//   un píxel (`the glass stays asleep`), i el primer que necessiti el vidre el neteja ell (`run_app` continua tenint la seva xarxa per
+//   a un despert que arribi a mig run) (docs/30, docs/50, docs/60).
+
+// 0.192.10 (25/11): **el vidre de la T5S3 es renta sencer a cada arrencada, passi el que passi** (l'amo: *«Fem una cosa... Que aquest
+// model SEMPRE al boot netegi la pantalla amb splash hide (que neteja al màxim)»*).
+
+// La T5S3 acumulava tres camins de neteja amb les seves condicions —el retorn d'un son amb algú al davant, el d'una alarma que aixeca una
+// pàgina, el d'una alarma que no porta ningú— i l'amo ha dit que prou: **aquest panell es neteja sempre**. I és una cosa de la placa i no
+// una política del run, o sigui que viatja com les altres: una **capacitat del HAL**, `kCapWashAtBoot`, que la T5S3 declara al costat de
+// `kCapDisplay` (el seu ED047TC1 guarda el fantasma del que hi havia) i que el model de l'emulador també contesta perquè la finestra faci
+// el mateix que la placa (docs/50, docs/85).
+
+// Amb la capacitat, `kernel::boot` fa un **`splash::hide()` del vidre sencer** —el `gc16`, el màxim que aquest panell sap netejar— com la
+// primera tinta d'aquella arrencada: **abans** de la targeta de la bateria, de la del boot, de les alarmes, de la shell i de la pàgina de la
+// persona. I com que el paper ja és net, res del que ve després el torna a pagar:
+
+// - el retorn d'un son no fa el seu segon `gc16` (`if (the_board_cleans_the_paper) { /* ja està net */ }`);
+// - una alarma que aixeca una pàgina només **desperta** el vidre (`the_paper_is_clean()`), i no torna a rentar;
+// - i l'ordre dels missatges del registre és el que diu què ha passat: `this board cleans the whole paper at every boot: splash hide,
+//   gc16 of the glass` i, dues línies més avall, la targeta del boot o la pàgina.
+
+// **I el que no canvia**: el rentat no aixeca la bandera del vidre adormit, o sigui que la finestra d'una alarma que no porta ningú al
+// davant continua sense deixar-hi tinta (0.190.19) i el que la persona troba en tornar és paper, no la pàgina d'una app que ja no hi és.
+// El Paper i els ATOM no declaren la capacitat i el seu boot fa exactament el de la 0.192.9 (docs/30, docs/50, docs/60).
+
+// 0.192.11 (25/11): **el rentat del vidre de la T5S3 no arribava al panell, i ara sí** (l'amo: *«Perqué menteixes? al arrencar la placa
+// real no veig una neteja completa rera el boot... i saps com ho se? PERQUE ENCARA VEIG LA IMATGE D'SLEEP SOTA EL GRID DEL HOME JODER»*).
+
+// Tenia raó i el defecte era meu: la 0.192.10 va fer que `kernel::boot` cridés `splash::hide()` a cada arrencada d'aquesta placa, i ho vaig
+// donar per bo perquè **l'emulador ho deia** — però l'emulador no corre ni `lib/hal_t5s3` ni epdiy, que és exactament la meitat que pinta els
+// píxels. I en aquesta meitat, el rentat era **una passada de tinta que no sortia del xip**:
+
+// - `epd_hl_init` (lib/epdiy/src/highlevel.c) posa els **dos** buffers de l'estat d'alt nivell a `0xFF`: el que diu «què hi ha al vidre»
+//   neix **blanc** a cada arrencada, perquè el xip que torna d'un son no té manera de saber què s'hi veia;
+// - `epd_hl_update_area` **compara** el buffer que vols pintar amb aquell i, si no hi ha diferència, **torna sense enviar res**
+//   (`if (diff_area.height == 0 …) return EPD_DRAW_SUCCESS;`);
+// - o sigui que `clear(15)` + `gc16` sobre un vidre que encara ensenya el dibuix del son és **blanc contra blanc**: zero píxels enviats, i el
+//   registre dient `the whole glass, paper`.
+
+// El que sí que esborra és **el cicle del propi panell**, i és el que aquesta placa fa servir des d'ara: `ISurface::wash_the_glass()` és una
+// porta nova del HAL amb el `clear(15)`+`gc16` de sempre per defecte, i `Epd47` la respon amb `epd_clear()` — tres voltes de negre i blanc a
+// tot el vidre, amb el temps de la forma d'ona i sense cap buffer pel mig— i deixa el buffer de la pàgina i la idea del vidre d'epdiy tots dos
+// a paper, o sigui que la primera pàgina que vingui no arrossega cap diff contra una imatge que ja no hi és. `splash::wash()` i `hide()` hi
+// passen, i la línia del registre ja no menteix: `the whole glass, paper, N ms` i, del panell, `the whole glass cleared by its own cycle`.
+
+// **El preu**, que no he pogut mesurar perquè no tinc la placa: `epd_clear()` són tres cicles de vint-i-dues passades de pantalla sencera. Si
+// és massa lent, el ganxo és `epd_clear_area_cycles(epd_full_screen(), 1, clear_cycle_time)` i això és una línia (docs/50, docs/95).
+
+// 0.192.12 (25/11): **la marca del port de la barra és un cable, no una càrrega** (l'amo: *«I perqué no es veu l'icona del usb quan està
+// endollat?»*).
+
+// El signe es deia `serial::claimed() || status.charging`, i `charging` és el que contesta el **BQ25896** amb el `CHRG_STAT` en pre-charge o
+// fast ([gauge.cpp] `read()`). Amb la cel·la plena el xip contesta **`done`**, o sigui que `charging` és fals i **la icona del port s'apagava
+// amb el cable posat** — exactament el cas que l'amo veia. El cable no és una càrrega: el xip té `VBUS_GD` (REG11 bit 7), que és «hi ha una
+// entrada bona» i és la mateixa pregunta que aquesta casa ja feia servir per decidir si la placa es pot apagar (`can_power_off`).
+
+// Ara `IPower::on_a_cable()` és una porta del HAL (falsa de sèrie), la T5S3 la respon amb el `VBUS_GD` del carregador, i la barra en treu el
+// signe del port: `serial::claimed() || status.cable || status.charging` — el tercer terme es queda per a una placa que només sap dir que
+// s'omple. El **bolt de la figura continua sent la càrrega** (la regla de l'amo del projecte del Paper: llamp i ni una barra mentre carrega),
+// o sigui que una cel·la plena en un cable ensenya **quatre barres i la icona del port**, que és el que fa el maquinari.
+
+// I el model de l'emulador té el tercer estat, que no podia dir: **`--charge-done`** és un cable amb la cel·la plena —`charging` fals, cable
+// cert, i el carregador contestant `done`—, i amb això les tres figures de la franja tenen el seu cas per mirar-les (docs/50, docs/85).
+
+// **I el llamp entra a la comparació de la figura**: una cel·la que arriba a plena passa de `fast` a `done` amb el mateix percentatge —el
+// número el compta l'altre xip i es mou a salts de dos, `kChargeDeadBand`—, o sigui que el llamp es quedava pintat sobre una cel·la que ja no
+// carregava fins que el número es movia. Ara `g_read.charging != g_shown.charging` també paga una caixa de la franja (docs/30, docs/50).
+
+// 0.192.13 (25/11): **el carregador es posa com el fabricant el posa, i per això la cel·la no arribava mai al 100 %** (l'amo: *«La
+// batería no carrrga mai al 100%, perqué?»*).
+
+// La cadena té dos enllaços i nosaltres no en tocàvem cap. El número de la barra és el **`StateOfCharge()` del BQ27220**, i aquell només
+// declara la cel·la plena (`FC` del seu `BatteryStatus`) quan veu la **caiguda de corrent** del final de la fase de tensió constant. I el
+// **BQ25896** carregava amb els valors que porta de fàbrica, perquè el nostre codi no li escrivia ni un registre: el firmware de fàbrica del
+// fabricant, en canvi, el configura abans de deixar-lo treballar (`examples/factory/main/main.cpp`, `bq25896_init`) — entrada a **3250 mA**
+// (el seu comentari diu que el valor de sèrie és **500**), el pin `ILIM` desactivat (*«or it will only follow the maximum charging current set
+// by Limit Pin»*), **4208 mV** de tensió objectiu, **1024 mA** de càrrega ràpida, **64 mA** de pre-càrrega, el rail del sistema a **3300 mV**,
+// l'**ADC engegat** (*«To obtain voltage data, the ADC must be enabled first»*) i el **watchdog desactivat**.
+
+// Ara `T5Gauge::set_the_charger_as_the_maker_does()` fa aquella llista amb l'aritmètica de registres del seu propi driver
+// (`PowersBQ25896.tpp`) i **amb un defecte seu corregit**: el seu `setSysPowerDownVoltage` desplaça el registre sencer un bit a l'esquerra
+// —i acaba encenent l'OTG—; aquí el camp del rail es toca al seu lloc (bits 3:1). Cada escriptura és read-modify-write, amb els altres bits
+// del registre intactes.
+
+// **I el ganxo és `T5Platform::hold_the_power()`**: el nucli el crida abans de qualsevol altra cosa de l'arrencada, i el que fa és subjectar
+// la placa — i en aquesta placa qui la subjecta i la carrega és el carregador. És idempotent (`charger_set_`), o sigui que una arrencada el
+// paga una vegada: quatre transaccions de bus.
+
+// **El que no he pogut verificar**: que el teu xip accepti els set registres (la línia `the charger is set as the maker sets it` és la que ho
+// diu) i que amb això el percentatge pugi fins a 100 — això es mira a la placa, carregant. Si la línia surt i el número es queda igual, el
+// segon enllaç és el gauge: el seu `BatteryStatus` (`0x0A`) té el bit `FC` i el `TCA`, que no llegim, i seria la següent lectura (docs/50,
+// docs/95).
+
+// 0.192.14 (25/11): **el comptador de coulombs comptava sobre 3000 mAh en una cel·la de 1500** (l'amo, amb el que el xip deia:
+// `[I][GAUGE] the cell says 0 mA, 1136 of 3000 mAh of 3000, 24.5 C, health 100, 2 cycles` i, al mateix temps, `battery: 4158 mV (38 %)`).
+
+// El número de la barra no és la tensió ni el carregador: és el `StateOfCharge()` del **BQ27220**, i surt d'un model de bateria —la corba
+// CEDV— que viu al seu *data memory*. Aquesta placa va sortir amb un model de **3000 mAh** en una cel·la de 1500, o sigui que 1136 mAh reals
+// sobre un «ple» de 3000 són el 38 % que l'amo veia amb la cel·la a 4158 mV. I el firmware de fàbrica del fabricant **sí que escriu aquell
+// model** (`lib/BQ27220/bq27220_data_memory.c` del seu repositori i el seu `BQ27220::init()`); el nostre codi no hi havia escrit mai res.
+
+// Ara `T5Gauge::write_the_maker_profile()` (a `gauge_profile.cpp`) hi escriu **aquell perfil, xifra per xifra**: capacitat de disseny i plena
+// **1500 mAh**, EMF 3743, C0/R0/T0/R1 149/867/4030/316, TC 9, C1 0, els onze `StartDOD`, els tres `EDV`, la banda morta del corrent a 1, el
+// corrent de repòs a 1 mA, la `GaugingConfig` (`0x0D31`) i les dues `OperationConfig` (`0x0C8C` i `0x4C`). La seqüència és la seva: número de
+// xip (`0x0220`, o no es toca res), **obrir el pany** (0x0414/0x3672), **comparar** el que hi ha amb el perfil, i **només si no hi quadra**
+// reiniciar el gauge, demanar accés complet, entrar al mode de configuració (`0x0090`), escriure els vint-i-vuit paràmetres amb la seva suma de
+// control, sortir reiniciant (`0x0091`) i **tornar a tancar el pany** (`0x0030`). Si ja hi és, no s'hi escriu res: això és el que estalvia
+// l'EEPROM del xip a cada arrencada.
+
+// **I es comprova llegint-ho un altre cop**, que és el que fa que una escriptura que no s'ha pres es vegi al registre i no d'aquí a un mes:
+// `the gauge took the maker's profile: 1500 mAh of design and full, and the CEDV curve of this cell`, o `the gauge did not take the maker's
+// profile: N setting(s) are still its own`. El ganxo és el mateix que el del carregador (`T5Platform::hold_the_power`), i va **després** d'ell.
+
+// **El que no he pogut provar**: res d'això no s'ha executat sobre un BQ27220 de debò. El que hi ha és la seqüència del fabricant copiada i
+// tallada amb comprovacions (número de xip, pany, mode de configuració, lectura final), o sigui que el pitjor cas és una línia de warning i el
+// gauge com estava (docs/50, docs/95).
+
+// 0.192.15 (25/11): **les retencions de la dormida es deixen anar a l'arrencada, i el tàctil torna a viure** (l'amo: *«si ho fa el de
+// lilygo també ho hem de fer nosaltres. Hem de fer que el hardware estigui ben inicialitzat»*).
+
+// El `idf_setup()` del seu firmware de fàbrica comença amb tres línies que nosaltres no teníem:
+
+// ```c
+// gpio_hold_dis((gpio_num_t)BOARD_TOUCH_RST);
+// gpio_hold_dis((gpio_num_t)BOARD_LORA_RST);
+// gpio_deep_sleep_hold_dis();
+// ```
+
+// I no són decoració: la baixada d'aquesta placa **subjecta el reset del GT911 a zero** (`gpio_set_level(9, 0); gpio_hold_en(9)`) perquè el
+// controlador no mengi corrent mentre la placa dorm, i una **retenció digital sobreviu al reset del xip** —viu a la RAM del RTC, que un son
+// no s'emporta—. O sigui que cada tornada d'un son es trobava el controlador del vidre **en reset**, i el nostre driver del GT911 no sap
+// fer-lo arrencar (només li fa un pols a la línia d'interrupció), perquè espera un xip que ja és viu. Amb «wake on touch» apagat —el que
+// tenia l'amo al registre— això és el dit mort després de cada dormida.
+
+// Ara `T5Platform::hold_the_power()` —el ganxo que `kernel::boot` crida abans de qualsevol altra cosa— desfà les dues retencions, fa el
+// **pols del reset del tàctil** (deu mil·lisegons a zero i el xip arrenca) i deixa el LoRa **a reset**, que és com aquesta casa el vol: la
+// ràdio no hi és, i el seu CS alt i el seu reset baix ja són als pins tranquils de l'SD (`kSdQuietPins`, 0.190.83). El registre ho diu:
+// `the holds of the sleep are let go: the glass's controller is out of reset and the radio is kept in it` (docs/50).
+
+// 0.192.16 (25/11): **el gauge no deia quin xip era i el perfil no s'escrivia, i el `power` no deia si hi ha cable** (l'amo: *«perqué si la
+// batt està al 38% no està carregant?»*, i després de deixar-me entrar al port sèrie de debò: `[W][GAUGE] the gauge says it is 0x0000 and not
+// a BQ27220: its profile is not touched`).
+
+// **Dos defectes i una línia**, tots tres trobats amb la placa a la mà:
+
+// 1. `write_the_maker_profile` demanava el número de xip **una vegada i amb un mil·lisegon d'espera**. El BQ27220 dorm i la primera transacció
+//    que li arriba es pot perdre —el nostre propi comentari de la 0.190.31 ho diu—, o sigui que la resposta era `0x0000`, la comprovació el
+//    llegia com «aquest xip no és un BQ27220» i **el perfil no s'escrivia mai**. El driver del fabricant ja avisa que `MAC` falla si s'espera
+//    menys de 500 µs i que bqStudio en fa servir **quinze**. Ara es **desperta el xip** amb una lectura que sempre hi és (la tensió, amb
+//    reintents), es demana el número amb quinze mil·lisegons i **fins a tres intents**, i el missatge de fallada diu què ha contestat.
+
+// 2. `power` no deia res del cable: un `38 %` no es pot desfer si no se sap si la placa està endollada. Ara la línia de bateria porta **les
+//    quatre respostes juntes** —la cel·la (mV i %), el cable (`VBUS_GD`), què diu el carregador (`CHRG_STAT`: `fast`, `done`…) i si el
+//    comptador declara el ple (`FC` del seu `BatteryStatus`)—, que és el que converteix una sospita en una frase:
+//    `battery: 4159 mV (38 %), on a cable, the charger says done, the gauge does not call the cell full`.
+
+// **I la resposta a la pregunta**, que és la que importa: la cel·la **no és al 38 %**. A 4159 mV una cel·la de liti està plena, i el que diu 38
+// és el model equivocat del comptador (3000 mAh en una cel·la de 1500). El carregador no carrega **perquè per a ell la cel·la és plena**: talla a
+// 4208 mV i es queda en `done` fins que la tensió baixa prou. O sigui que el que estava trencat era el número, no la càrrega.
+
+// `BatteryDetail` guanya `declared_full` i `terminate_alarm` (els bits `FC` i `TCA` del registre `0x0A` del gauge, que no llegíem) (docs/50).
+
+// 0.192.17 (25/11): **el número de xip del gauge tampoc no arriba amb quinze mil·lisegons, i ara el registre diu per què** (la placa, llegida
+// pel port sèrie: `[W][GAUGE] the gauge did not say it is a BQ27220 (it said 0x0000): its profile is not touched`, amb el carregador ja
+// configurat i el cable a dins).
+
+// El número de xip és el pany que impedeix escriure un perfil al xip equivocat, però una negativa sense dades no serveix de res: **una escriptura
+// que no arriba al xip i una lectura que torna zeros són dues coses molt diferents** i el registre no les distingia. Ara, abans dels intents, es
+// diu **el registre d'operació (`0x3A`) i el pany (bits 2:1)** —que és el que diu si el xip és viu i en quin estat— i **cada intent diu si la
+// ordre ha sortit, si la lectura ha tornat i què ha contestat**. Amb això la propera lectura del port sèrie diu quina de les dues meitats falla
+// (docs/50, docs/85, docs/95).
+
+// 0.192.18 (25/11): **la prova d'identitat del gauge és la seva memòria de dades, perquè el número de dispositiu no arriba mai** (la placa,
+// llegida pel port sèrie amb la 0.192.17: `the gauge's operation status is 0x00a4 and its lock is 2`, tres vegades
+// `the command went out, the read came back, and it says 0x0000`).
+
+// El `0x00A4` diu que el xip és viu, inicialitzat (`INITCOMP`) i **obert** (`SEC` = 2), o sigui que el pany no era el problema i el número de
+// dispositiu d'aquesta unitat simplement no contesta (el fabricant el llegeix igual i en treu un `0x0220`; aquí no). I la comprovació que jo
+// havia posat era **la que el fabricant fa**, però en aquest xip és una porta tancada: el perfil no s'escrivia mai i el 38 % es quedava.
+
+// Ara la prova és **la memòria de dades del propi xip**, que és el que cal llegir igualment: es demana la **capacitat de disseny** (`0x929F`) i,
+// si és un nombre de mAh d'una cel·la (100–20 000), aquest xip és un comptador de veritat i el seu perfil es pot escriure. Si no arriba o és
+// zero, no es toca res i el registre diu les dues coses —la capacitat que ha contestat i el número de dispositiu que no—, que és el que permet
+// continuar endavant sense endevinar. El pany s'obre **abans** de llegir, que és el que fa possible la lectura (docs/50, docs/95).
+
+// 0.192.19 (25/11): **la memòria de dades sí que contesta i el mode de configuració no hi entrava perquè l'esperàvem quaranta mil·lisegons** (la
+// placa, amb la 0.192.18: `the gauge's data memory answers: 3000 mAh of design capacity` / `11 of 28 setting(s) of the gauge are not the
+// maker's` / `the gauge did not enter its configuration mode: nothing is written`).
+
+// Tres coses apreses d'aquesta placa, en una arrencada: el *data memory* **llegeix** (o sigui que la prova d'identitat de la 0.192.18 és la
+// bona i el camí del número de dispositiu es pot deixar estar), diu **3000 mAh** —l'altra cel·la, confirmada pel propi xip— i **11 dels 28
+// paràmetres** no són els del fabricant. El que fallava era el pas següent: entrar al mode de configuració (`0x0090`, bit 10 de l'estat
+// d'operació) i esperar-lo **quaranta voltes d'un mil·lisegon**. El driver del fabricant l'espera fins a **dos segons**
+// (`BQ27220_TIMEOUT_COMMON_US`).
+
+// Ara: si pel registre de control no hi entra, s'espera el que el fabricant espera —dos segons— i es prova **la seva porta** (el mateix `0x0090`
+// escrit al punter de la memòria de dades, que és el que fa el seu `dateMemoryCheck`), i el registre diu quina de les dues ha obert. Si no n'obre
+// cap, diu **l'estat del xip** en aquell moment en lloc de només dir que no.
+
+// 0.192.20 (25/11): **el mode de configuració s'obria per una porta i es tancava per una altra que aquest xip no escolta** (la placa amb la
+// 0.192.19: el mode obert pel punter del data memory, els vint-i-vuit paràmetres escrits i `4 setting(s) are still its own`).
+
+// `0x0090` i `0x0091` són ordres del registre de control (`0x00`), i en aquest xip el registre de control **no les pren**: la 0.192.19 va entrar al
+// mode de configuració pel punter del data memory (`0x3E`, que és el que fa el driver del fabricant) i en va sortir pel control, o sigui que el
+// gauge **es va quedar en mode de configuració** i no va rellegir mai el que se li havia escrit. Ara les dues ordres van pel mateix camí.
+
+// I cada paràmetre es **comprova després d'escriure'l**, amb un segon intent si no s'ha pres, i el que no entra es diu amb la seva adreça i els dos
+// valors (`0x929b stays at 0x0c31 and the maker says 0x0d31`) en lloc de comptar-los al final.
+
+// 0.192.21 (25/11): **el pany s'obre amb tres intents** (la placa amb la 0.192.20 ja deia `battery: 4159 mV (99 %)` —el model escrit i el número
+// arreglat— però `[W][I2C] write to 55 failed` la primera vegada que provava d'obrir-lo, i el codi plegava en silenci). Ara la primera escriptura
+// que falla no deixa el xip tancat per sempre.
+
+// 0.192.22 (25/11): **la icona del cable es pregunta mig segon i no mig minut** (l'amo: *«l'USB connectat i desconnectat no sembla detectar-se bé»*).
+// El signe del port es llegia amb la bateria, que és cada trenta segons, o sigui que endollar el cable podia trigar mitja hora a veure's. Ara
+// `bar::poll` pregunta el `VBUS_GD` cada mig segon, i el signe que canvia mou la franja com qualsevol altra icona.
+
+// 0.192.23 (25/11): **la barra del peu també té la seva targeta, i el gest que en tanca una no obre l'altra** (l'amo: *«Vull un panell
+// desplegable a la barra inferior que es desplegui igual que el superior però a l'inversa. I sobretot, tingues en compte que passarà quan el
+// gest de tancar-ne una sigui la d'obrir l'altre panell»*).
+
+// `panel_low` és el bessó de `panel`: neix de la franja de baix, puja amb un arròs de seixanta píxels cap amunt i se'n va amb quaranta cap
+// avall que comencin **fora** d'ella o amb un toc fora. És buida de moment: el paper, la línia i el mànec, i cap clau.
+
+// **El conflicte està resolt per l'ordre i per una porta**: `kernel::poll` crida `panel_low::poll()` **abans** de `panel::poll()`, i cada
+// targeta que és fora **es queda el gest que la tanca** (`forget_gestures`). I cap de les dues s'obre si l'altra és fora. O sigui que, amb la
+// targeta de dalt a sobre, un arròs cap amunt des de la franja de baix **la tanca** i no obre la de baix; i amb la de baix a sobre, un arròs cap
+// avall des de la barra **la tanca** i no obre la de dalt. Per obrir l'altra cal un gest més, que és el que la mà vol dir.
+
+// 0.192.24 (25/11): **la fila de Settings marxa a la targeta de baix** (l'amo: *«Tots els botons de fila de Settings han d'anar abaix: Settings,
+// Home, Close i Back al panell de sistema inferior»*). La targeta de dalt es queda les set que paren la placa i encenen les ràdios —el corrent,
+// el son, el reinici, el candau, el Bluetooth, el wifi i el mesh—, i `panel_low` pinta la roda, la casa, la creu i la fletxa a frec de la franja
+// de baix, que és on el dit hi és.
+
+// **El que saben i el que fan no s'ha mogut de lloc**: `panel` contesta si una clau hi és (`a_page_key_is_there`) i fa el que diu
+// (`press_a_page_key`), perquè el portal i el shell que ho contesten són allà i dues targetes no poden tenir dues idees de la mateixa clau. I
+// com que qui les prem és la targeta de baix, tancar el que hi hagi a sobre és cosa de `the_card_goes()`: la targeta que sigui fora se'n va,
+// sigui la de dalt o la de baix.
+
+// **I el test del dit, en el marc de la vista** (0.192.23 era una fila de quaranta-vuit de més): `the_top()` comptava des del vidre i els
+// gestos arriben amb les files de la barra tretes, o sigui que les quaranta-vuit files de dalt de la targeta de baix tancaven la targeta en
+// lloc de ser-hi a sobre. Ara el comptatge és el de la vista i el pintat hi torna a sumar la barra.
+
+// 0.192.25 (25/11): **les targetes fan les files que necessiten i no un terç del vidre** (l'amo: *«Ara els panells son molt grans per el contingut que
+// tenen, no?»*). El terç era la forma d'una targeta de tres files de claus; amb dues, la de dalt quedava amb una banda de paper buit sota la fila de
+// les ràdios i la de baix amb mitja pàgina blanca entre el mànec i les quatre claus. Ara `card_height()` és exactament el que el contingut demana —el
+// mànec, la seva línia, l'aire i les files de claus—, i el terç només hi torna en un vidre més baix que tot això.
+
+// 0.192.26 (25/11): **la puntuació dels jocs es veu, i els botons de New i Pause són marques** (l'amo: *«Al joc Tetris no es veu la puntuació.
+// Substitueix els botons de New i Pause per icones corresponents. Fes el mateix amb Snake i Mines.»*). Els dos botons es mesuraven de la seva
+// paraula —`New` i `Resume`— i es menjaven la meitat de la franja: el marcador quedava amb setanta píxels i sortia `Score…`, amb punts
+// suspensius. Ara són quadrats de la mida dels altres i porten la marca del sistema —`reboot` per a una partida nova, `pause`/`play` per a
+// aturar-la i reprendre-la—, i el marcador es reparteix les dues files que la franja ja tenia: `Score 1774` a dalt i `Lines 12   L 3` a sota
+// (Snake diu `Score` i `Best … L 3`, i Mines canvia el seu únic botó).
+
+// **I les dues marques són del mateix clipart** (0.192.26): `pause` (`U+F04C`, les dues barres) i `play` (`U+F04B`, el triangle) entren al joc
+// de `tools/iconart.py` i a `data/res/icons/`, i `draw_icon` les dibuixa amb les seves línies per a una placa sense disc, com les altres onze.
+
+// **I l'app Button states ja no hi és** (0.192.26): era el banc on es mirava el to d'un botó desactivat, i l'amo l'ha feta fora —`apps/btnstates`
+// esborrada, i amb ella la seva entrada al disc de cada build, que es fa de la carpeta i no d'una llista.
+
+// 0.192.27 (25/11): **un visor d'imatges, i una icona nova per a l'app Splash** (l'amo: *«Mira l'app d'imatges original del PaperOS, fes un visor
+// d'imatges que suporti tots els formats que suporta el sistema. Usa en aquesta nova app l'icona de l'app Splash i fes na nova per l'app Splash
+// (recorda que es per veure les imatges dels events de sistema) perqué no confondre al usuari»*).
+
+// **`apps/images` és el vidre que una imatge es mereix** i no un navegador de disc (l'amo, a mig fer: *«No facis un explorador dins de l'app
+// visor d'imatges! ja tenim "Files" per això»*): s'obre amb un fitxer —una fila de `Files`, `open png /sd/foto.png`, `run images <path>`—,
+// l'ensenya sencer al més gran que en mantingui la forma (factor enter quan creix, el més proper quan encongeix) i **els costats del vidre
+// passen a la imatge del costat de la mateixa carpeta**, que és el que el visor del paper feia quan li donaven un camí. El mig amaga el peu
+// i el camí de sortida és el del sistema.
+
+// **Els formats són els del nucli i no una llista de l'app** (docs/30): un fitxer és una imatge quan `ui.image_info` en sap dir el format
+// —PNG, JPEG, BMP, GIF (la primera imatge), ICO, la família netpbm i el cau `ICS1`— i el que no es llegeix es diu amb el motiu a la pàgina.
+// Un format que arribi al descriptor arriba aquí sol.
+
+// **I el dibuix del `Splash` és nou** (`tools/make_splash_icon.py`): el marc amb les muntanyes i el sol és ara el d'`apps/images`, i dues apps
+// amb el mateix dibuix són dues apps que una persona no distingeix. El de l'app de les imatges del sistema és **el mateix marc amb el símbol
+// d'encesa a dins**, que és el que diu què ensenya: els moments en què la placa s'encén, s'apaga o reinicia.
+
+// 0.192.28 (25/11): **el panell tàctil torna del son a la seva velocitat, i una becaina no el baixa** (l'amo: *«Els panells
+// desplegables del sistema deixen de funcionar al tornar d'sleep? … Revisa quan prepares el panell tàctil abans de l'sleep baixes
+// la velocitat oi? I al tornar? la reestablesixes si el wake ha vingut del touch? Estic segur que baixes la velocitat i no la tornes
+// a pujar al despertar. Perqué si pitjo botons si que va. … Ara que ho dius, si que em deixa fer swipe de costat i canviar la página
+// del grid»*). El diagnòstic era el seu: `arm_the_doors` baixa el GT911 a `kGt911QuietHz` (`quiet_now`) abans **de qualsevol**
+// dormida, i cap camí el tornava a pujar. Amb la llum del vidre encesa ho tapava `set_brisk`; amb la llum apagada —que és com es
+// prem Sleep de nit— `settle` només sabia baixar (la branca adaptativa només actua quan el ritme ja és el de la unitat), o sigui que
+// la placa es quedava escombrant a deu hertzs fins que un dit la pujava. I a deu hertzs un escombrat cada cent mil·lisegons, el
+// primer gest després del son —una **fregada curta a la barra**, que és com s'obre un panell de dalt o de baix— cau entre dos
+// escombrats i arriba com un toc, mentre que una fregada llarga de costat, la de passar la pàgina de la graella, sí que hi cap: exactament
+// el que l'amo va veure, i el que un `Reboot` arreglava perquè una arrencada torna a llegir el ritme del xip.
+
+// **Dues coses, perquè el forat era a dos llocs**: `Gt911::quiet_now` marca que el xip baixa **pel son** (`napping_`) i el primer
+// `settle` amb la placa desperta li torna el ritme —el de la llum si n'hi ha, el de la unitat si no— i li dona cinc segons al cim perquè
+// el primer gest no pagui la pujada; i el T5S3 **només baixa al terra quan la placa baixa de debò** (`g_going_deep`), perquè una becaina
+// torna de seguida i el panell s'hi ha de sentir com abans. Les dues línies del règim surten al registre (`the panel goes to 10 Hz for
+// the sleep`, `the panel is back from the sleep at 20 Hz`), que és el número que diu per què un toc triga el que triga.
+
+// **I la suite del tàctil, que es va córrer per això, va trobar una segona porta tancada** (0.192.28): la vista d'una app que torna
+// del vidre sencer es quedava **les vint files de la franja de baix** —912 en comptes de 892—, perquè `ui::make_view` preguntava
+// `bar::bottom_height()` mentre la barra encara era amagada i la resposta era zero. La franja les pintava a sobre, i el dit que hi cau
+// no comptava mai com a «de baix» (`turn_frame`), o sigui que **la targeta de baix no s'obria després d'una pàgina de vidre sencer**
+// —un pany, un lector, l'editor—. Ara hi ha `bar::strip_rows()`, que és el que la barra ocuparà, i el cas del tàctil ho mira. I dos
+// casos que la 0.192.25 havia deixat vermells (l'alçada de la targeta era un terç i el test encara ho deia) tornen a dir el que el
+// codi fa: la targeta fa dues-centes quaranta files.
+
+// **I el `Banner` és el primer port que dibuixa punts i no lletres** (0.192.29, l'amo: *«Porta la de Banner que es molt senzilla
+// de fer»*). És l'app del projecte del paper que fa un rètol de LED amb el nom d'una persona: les formes 5 x 7 viatgen dins de
+// l'app perquè cap cara del sistema dibuixa una matriu de punts, la cel·la es mesura del **costat curt** del vidre (0.92 d'ell
+// entre set files, que en el panell dret són 70 px de cel·la i 56 de quadrat) i el dibuix es torna sol —les columnes del rètol per
+// la vora llarga i les files de la lletra per la curta—, o sigui que el rètol surt **sense demanar mai al sistema que giri el
+// panell**. El pas és `du` i no el `du4` de l'original, que aquí està mesurat com un mode que diu que sí i no pinta (docs/30).
+
+// **I el port va ensenyar dues coses del sistema que ja eren al manual i que es van veure igualment**: el full screen demanat
+// **dins del ganxo del botó** es desfeia tot sol (la vista tornava a les 892 files amb la barra amagada, i el vidre es quedava
+// blanc), i la pàgina dels controls s'ha de fer **una vegada i moure's**, perquè el teclat fa més curta la vista i una caixa de
+// text refeta en aquell torn tanca el teclat que la persona està fent servir. El `wanted` del Clock i el `build_page`/`place_page`
+// d'aquí són la mateixa lliçó (docs/30, docs/45).
+
+// **0.192.30 — el vidre sencer és de l'app que el va demanar, i marxa amb ella** (l'amo, amb el registre de la placa a la mà:
+// *«No es despleguen el panells de sistema, ni el superior ni l'inferior. No tindrán una flag de bloqueig?»*). La traça deia el
+// que passava sense dir-ho: `[D][TOUCH] the contact at 298,6 is the page's` —un dit sobre la fila 6, que és la barra— i
+// `drag 298,6 dx 22 dy 416` **sense el sufix `on the bar`**, o sigui que `ui::canvas().y` era zero: una pàgina tenia el vidre
+// sencer. La barra que es veia era **tinta vella** (la rentada que l'havia de fer fora no va prendre), i les dues targetes del
+// sistema pengen de la vista: sense franja no hi ha mànec, i el dit que hi cau és de la pàgina. Un pany de tres tocs hi era
+// (`poll_full_screen`) però ningú no el va endevinar.
+
+// El forat era que **el vidre es tornava només per les portes que el shell coneix**: una app que acabava per un camí que no passa
+// per `give_back_the_glass` —un error, una pàgina que el nucli substitueix, un tancament que només sap el shell— deixava el vidre
+// sencer a la pàgina següent, i `make_view(false)` que deia que no per falta de memòria es quedava dit i prou. Ara `make_view`
+// desa **de qui és** el vidre (`g_glass_owner`) i el torn el torna quan la pàgina del davant no és aquella
+// (`ui::give_back_a_stray_glass`, al costat dels tres tocs), i una barra que no ha pogut tornar es queda **deguda** i es torna a
+// demanar al torn següent. Les dues coses surten al registre amb els noms:
+// `the glass was taken by 'reader' and 'home_eink' is in front: the bar comes back`.
+
+// **0.192.31 — el contacte d'abans d'una dormida es dóna per acabat** (l'amo: *«Revisa el registre dels gestos i si es tornen a registrar
+// al tornar»*). Un son lleuger atura el xip, la línia i l'escombrat, i un dit que hi era quan es va aturar deixa un **contacte viu** amb la
+// **posició on va caure** i la marca de «ja contestat» (`g_contact_spent`). El primer gest després del despert heretava aquell començament
+// —un arròs de la barra no era `on the bar`— i, si la marca era posada, `emit` en descartava tots: el vidre semblava mort amb les tecles
+// encara vives. Ara `power` compta les becaines en un número que només puja (`naps_seen`), i el torn del tàctil que en veu una de nova
+// dona el contacte per acabat **sencer** i ho diu. **El senyal és la becaina i no el rellotge**: el primer intent va comparar el forat entre
+// dos torns, i una pintada que reté els torns deixa un forat igual de gran —la suite ho va trobar: una premsa quieta de sis-cents
+// mil·lisegons no deia res—. Un deep sleep no hi té res a veure: és un reinici i la màquina de gestos arrenca sencera.
+
+// **0.192.32 — les files de la barra són les del vidre, i un vidre sencer no deixa les targetes sense camí** (l'amo: *«ES EL CODI
+// QUE NO REACCIONA… consulta com estàn després de tornar d'sleep. mil duros que no hi son»*). El registre de l'amo deia, fila rere
+// fila, `the contact at 286,6 is the page's` i cap gest amb `on the bar`: el tàctil decidia si un dit era de la barra preguntant-li
+// a **la vista de l'app** (`ui::canvas().y`) i no a la barra, o sigui que una vista que deia que començava a la fila zero —el vidre
+// sencer d'una app— feia que cada dit de les primeres quaranta-vuit files fos de la pàgina i que les dues targetes del sistema
+// pengessin d'una barra que ningú no podia tocar. Ara **la fila que decideix és la del vidre** i la mateixa regla val a la franja de
+// baix (`bar::visible()` i `bar::height()`, i no l'offset de la vista), i la línia del contacte diu amb què ha comptat: `bar 1 of 48
+// rows, view at 48`. I el cas que quedava sense camí de tornada —una app amb el vidre sencer, que és legítim i és el que demana
+// `ui.full_screen(true)`— té el gest de sempre: **baixar des de les primeres files torna la barra i obre la targeta de dalt, i
+// pujar des de les últimes obre la de baix** (`take_a_pull_from_the_top_of_the_whole_glass`,
+// `take_a_push_up_from_the_bottom_of_the_whole_glass`), que és el que la persona demana amb el gest de la barra encara que la barra
+// no hi sigui. Un marc que el gir no pot col·locar també es diu, perquè les banderes de la barra i de la franja es quedaven amb el
+// valor del torn d'abans i no hi havia res al registre que ho expliqués (docs/30, docs/46 D1, docs/50).
+
+// **0.192.33 — el vidre que diu que fa zero per zero, i les files del sistema mesurades al vidre** (l'amo, dues vegades: *«PERQUE LES
+// PUTES BARRES DE SISTEMA NO? i perqué només deprés de l'Sleep? QUE FAS DIFERENT AL BOOT JODER?»*, i després *«el log es diferent d'abans
+// de dormir»* — i tenia raó, i l'havia: **`the frame at 258,6 is outside the glass of 0x0`** —). Tres coses, de la més fonda a la més
+// externa:
+//
+//   1. **El driver del GT911 es quedava amb un vidre de `0x0`.** Un son profund deixa el controlador adormit i la placa en torna amb el
+//      pols del reset del tàctil; la configuració (186 bytes a `0x8047`, i la mida a `xMax`/`yMax`) no és al registre quan el driver la
+//      demana, i una lectura que torna cent vuitanta-sis zeros és una **mida de zero**, no una configuració. Ara es pregunta fins a cinc
+//      vegades, vint mil·lisegons entre una i l'altra, una mida de zero **no compta**, i si no arriba el xip es queda amb el que té de
+//      fàbrica i la línia del perfil ho diu (`no configuration after the wake: the frame is the page's`). A l'arrencada en fred el xip
+//      feia estona que hi era i la seva configuració es llegia sencera: és, exactament, per què el registre d'abans de dormir era un
+//      altre (docs/50, docs/95).
+//   2. **`orientation::turn` refusava cada dit d'un marc de zero**, o sigui que `g_on_the_bar` i `g_on_the_strip` no es posaven mai, i per
+//      tant **cada dit de les primeres quaranta-vuit files era de la pàgina**: les dues targetes del sistema mortes i les pàgines
+//      funcionant —el que l'amo veia, i el que cap registre deia abans d'aquesta versió—. `turn_frame` no depèn del número del xip: si el
+//      xip diu zero, el marc és **el de la pàgina girat enrere**, que aquest sistema sap sense preguntar-li a ningú (docs/30, docs/50).
+//   3. **I les dues targetes pregunten per la fila del VIDRE i no per una conclusió.** `take_drag_down_from_the_system_rows` i
+//      `take_a_drag_up_from_the_system_rows` llegeixen `Gesture::glass_y` —el punt de la pàgina sencera abans de treure-hi l'offset de la
+//      vista— i obren la targeta si el dit va caure a les primeres `bar::height()` files o a les últimes `bar::strip_rows()`; amb una app
+//      que té el vidre sencer, el mateix gest torna la barra i obre la targeta. Res del que una vista digui no pot deixar les barres del
+//      sistema sense dits (docs/30, docs/46 D1).
+//
+// La suite del tàctil té el cas que ho reprodueix: `emu::options().touch_frame_zero` és el xip de la placa que torna d'un son, i
+// `test_a_glass_that_says_zero_by_zero_still_has_a_bar` baixa la barra i troba la targeta (vermell sense el punt 2, comprovat).
+
+static const char kVersion[] = "0.192.33";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

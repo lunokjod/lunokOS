@@ -695,16 +695,20 @@ local function paintBand(mode)
   ui.text(x + padX, y + padY, words, kBody, Ink, mode)
 end
 
--- **The strip: the numbers and the bar of the level**, which is what a person reads while playing.
+-- **The strip: the numbers and the bar of the level**, which is what a person reads while playing. **Dues files i no una** (0.192.26):
+-- `Score 1774   Lines 12   L 3` en una sola línia no hi cap a la franja que deixen els botons —es va veure al vidre, amb punts
+-- suspensius—, i el marcador i el que acompanyen la barra es reparteixen les dues files que la franja ja tenia (docs/30, docs/45).
 local function scoreText()
-  return string.format('Score %d   Lines %d   %s %d', score, lines, demo and 'CPU' or 'L', demo and cpuLevel or level)
+  return string.format('Score %d', score)
 end
 
-local function paceText() return string.format('%d ms a row', demo and cpuMs() or dropMs()) end
+local function levelText()
+  return string.format('Lines %d   %s %d', lines, demo and 'CPU' or 'L', demo and cpuLevel or level)
+end
 
 local function paintStatus(mode)
   if the_score ~= nil then the_score.text = scoreText() end
-  if the_level ~= nil then the_level.text = paceText() end
+  if the_level ~= nil then the_level.text = levelText() end
 
   -- **The bar is a frame and its ink**, and it is as wide as the column of the numbers and not the page: the two buttons are
   -- on the right and a bar through them would be a bar over what can be touched (docs/45).
@@ -719,8 +723,8 @@ end
 -- **One thing at a time**: a game that is over is not paused, and a page nobody has touched says what a finger does.
 local function footerText()
   if demo then return 'The CPU is playing. Tap the well to take over.' end
-  if over then return 'The well is full. Tap New.' end
-  if paused then return 'Paused. Tap Resume.' end
+  if over then return 'Full. Tap the arrow.' end
+  if paused then return 'Paused. Tap the triangle.' end
   if score == 0 then return 'Tap the piece to turn it, or its side to move it.' end
 
   return 'Tap the piece to turn it; left, right or below to move it.'
@@ -728,7 +732,9 @@ end
 
 local function paintFooter(mode)
   if the_foot ~= nil then the_foot.text = footerText() end
-  if the_pause ~= nil then the_pause.title = paused and 'Resume' or 'Pause' end
+  -- **El triangle i les dues barres diuen el mateix que la paraula d'abans** (0.192.26): `play` quan la partida està aturada i
+  -- `pause` quan camina, o sigui que el que el botó diu és el que farà (docs/30, docs/45).
+  if the_pause ~= nil then the_pause.icon = paused and 'play' or 'pause' end
 end
 
 -- **The ink of a box is waited before the next is asked for** (`ui.idle`, docs/30): a box that arrives while the glass still
@@ -1016,14 +1022,14 @@ local function measure(w, h)
   nextBoxY = stripH + Edge + 9
   if nextBoxW < 40 then nextBoxW, nextBoxH = 0, 0 end
 
-  -- **Els botons es mesuren de la seva paraula** (docs/30, docs/45): a pixel of difference is a word with dots at the end.
-  newW = ui.text_width('New', kSmall) + 2 * BtnPad + 2
-  if newW < BtnMinW then newW = BtnMinW end
+  -- **Els dos botons del joc són quadrats i porten una marca** (0.192.26, l'amo: *«Substitueix els botons de New i Pause per icones
+  -- corresponents»*): `reboot` per a una partida nova i `pause`/`play` per a aturar-la i reprendre-la, i el que es guanya és la
+  -- meitat de la franja —el marcador hi cap sencer en lloc de quedar-se amb punts suspensius— (docs/30, docs/45).
+  newW = BtnH + 2
   newX = w - Margin - newW
   newY = 6
 
-  pauseW = ui.text_width('Resume', kSmall) + 2 * BtnPad + 2
-  if pauseW < BtnMinW then pauseW = BtnMinW end
+  pauseW = BtnH + 2
   pauseX = newX - 8 - pauseW
   if pauseX < Margin then pauseX = Margin end
   pauseY = 6
@@ -1038,7 +1044,7 @@ local function measure(w, h)
     if the_new ~= nil then
       the_new.focusable = false
       the_new.scale = kSmall
-      the_new.title = 'New'
+      the_new.icon = 'reboot'
     end
   else
     the_new:resize(newW, BtnH)
@@ -1050,6 +1056,7 @@ local function measure(w, h)
     if the_pause ~= nil then
       the_pause.focusable = false
       the_pause.scale = kSmall
+      the_pause.icon = 'pause'
     end
   else
     the_pause:resize(pauseW, BtnH)

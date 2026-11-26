@@ -77,14 +77,17 @@ bool available(Kind kind);
 bool show(Kind kind);
 // The same, for a picture the caller names.
 bool show(const char* path);
-// **Gives the glass back**: paper, washed whole, and no picture of any moment.
+// **Gives the glass back**: paper, washed whole and **in `gc16`**, and no picture of any moment.
+//
+// **I el `gc16` no és un gust: és la regla** (0.192.1, l'amo: *«tot splash ha de fer neteja completa del paper»*). Fins avui `hide()` feia
+// un `gld16` —el que va triar la 0.190.42 perquè el que s'esborrava era una foto i el parpelleig no es volia—, i sobre tinta fosca un
+// `gld16` deixa fantasma: el que s'ha vist és la imatge del son o la pàgina d'abans a mig esborrar. Un splash que no deixa el paper net no
+// és un splash, o sigui que **totes les portes d'aquest fitxer demanen setze nivells del vidre sencer** (docs/30, docs/50).
 bool hide();
-// **El vidre sencer, a paper, amb la qualitat que demani qui crida** (0.191.8, l'amo: *«al tornar de deepsleep has de netejar la pantalla a
-// fons»*): the same pass as `hide()` —the whole panel, not the view— with the mode named by the caller. The boot asks for a `gc16` when it
-// comes back from a deep sleep, perquè el dibuix del son és tinta de debò i el que el treu de tots els forats és el rentat de setze
-// nivells; `hide()` es queda amb el `gld16` que va triar la 0.190.42 perquè allà el que s'esborra és una foto i el parpelleig no es vol
-// (docs/30, docs/50).
-bool wash(hal::UpdateMode mode);
+// **El vidre sencer, a paper, i sempre amb setze nivells** (0.191.8, l'amo: *«al tornar de deepsleep ha de netejar la pantalla a fons»*): the
+// same pass as `hide()` —the whole panel, not the view—. Ja no té mode: l'únic que el cridava amb un `gld16` era `hide()`, i la regla d'aquest
+// fitxer és una de sola, o sigui que una porta que només sap dir una cosa no ha de preguntar-la (0.192.1, docs/30, docs/50).
+bool wash();
 // **Waits until the ink of the last picture is over** (0.165.1): `show` waits for the ink that was moving **before** its
 // picture and then asks for a `gc16` of the whole glass, which is half a second of ink — and a caller that cuts the power
 // or restarts the board in the middle of it shows the page of before and not the picture. A restart, a power-off and a

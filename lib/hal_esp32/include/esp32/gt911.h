@@ -157,6 +157,11 @@ class Gt911 : public ITouch {
   // the unit while the board is awake (docs/30, docs/50).
   bool adaptive_ = true;
   bool asleep_ = false;
+  // **El terra del son no és un règim de guàrdia** (0.192.28): `quiet_now` baixa el xip abans d'una dormida i aquesta marca diu que
+  // el que ve després és una placa desperta, o sigui que el primer `settle` li ha de tornar el ritme. Era el forat que l'amo va
+  // descriure sense veure'l —*«Estic segur que baixes la velocitat i no la tornes a pujar al despertar»*— i el que feia que, amb la
+  // llum apagada, la placa tornés d'una becaina escombrant a deu hertzs (docs/50, docs/60, docs/95).
+  bool napping_ = false;
   // **Escriure un byte de la configuració i fer-lo seu** (0.190.105): the block is read, one byte is changed, the checksum is written
   // and `0x8100` is set to one, which is the sequence the manufacturer's driver uses (`reloadConfig`) (docs/50).
   bool set_config_byte(uint8_t offset, uint8_t value);

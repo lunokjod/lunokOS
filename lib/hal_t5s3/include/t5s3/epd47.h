@@ -40,6 +40,12 @@ class Epd47 : public ISurface {
   // **Una pintada és una crida a epdiy**: the quality the kernel asks for is the draw mode the library takes, and the library
   // decides how many phases that is, with its own transition matrix and its own temperature (docs/50, docs/95).
   bool flush(UpdateMode mode) override;
+  // **El rentat de debò d'aquest panell** (0.192.11): epdiy neix creient que el vidre és **blanc** —`epd_hl_init` posa el buffer que diu «què
+  // hi ha al vidre» a `0xFF`—, o sigui que un `clear(15)` seguit d'un `gc16` és un diff buit: no s'hi envia ni un píxel i el dibuix del son es
+  // queda on era mentre el registre diu que s'ha rentat (l'amo, 25/11: *«ENCARA VEIG LA IMATGE D'SLEEP SOTA EL GRID DEL HOME»*). El que sí que
+  // esborra és el cicle del propi panell —`epd_clear()`: tres voltes de negre/blanc a tot el vidre, sense cap buffer pel mig—, i això és el
+  // màxim que aquesta placa sap netejar (docs/50, docs/95).
+  bool wash_the_glass() override;
   bool idle() override { return true; }
   // **I el torn del panell**: les tensions es queden enceses dos segons després de l'última pintada i després baixen (docs/50).
   void poll() override;

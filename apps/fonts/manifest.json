@@ -1,10 +1,11 @@
 {
   "title": "Fonts",
   "author": "@lunokjod",
-  "version": "0.3.15",
+  "version": "0.3.17",
   "entry": "fonts.lua",
   "boards": ["esp32"],
   "icon": "res/icon.png",
   "splash": "res/splash.png",
-  "description": "Every face the board can read, in one page: /fonts gathers the flash, the card and the fonts an app carries, and the page opens one of each of the four formats the system knows and draws it with its own letters."
+  "opens": "ttf bdf pcf lfont",
+  "description": "Every face the board can read, in one page: /fonts gathers the flash, the card and the fonts an app carries, and the page opens one of each format the system knows and draws it with its own letters. A face given to it —from Files or `open ttf <path>`— opens straight on its own page, and the extensions it claims are the ones the loader really reads: ttf, bdf, pcf and lfont. A `.otf` of CFF outlines is not one of them and the loader says so instead of drawing a blank."
 }

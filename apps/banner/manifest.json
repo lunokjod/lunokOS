@@ -1,0 +1,9 @@
+{
+  "title": "Banner",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "banner.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "The badge you wear: a name of dots walking across a panel of LEDs, on the whole screen.\nNo face draws a dot matrix, so the five by seven shapes travel in the app; the pace is a slider and the name is kept in the app's own file."
+}

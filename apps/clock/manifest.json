@@ -1,9 +1,9 @@
 {
   "title": "Clock",
   "author": "@lunokjod",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "entry": "clock.lua",
   "boards": ["esp32"],
   "icon": "res/icon.png",
-  "description": "The clock of the paper project: the dial, the alarms, the timer and the stopwatch, in four tabs.\nThe dial is the grey face of the owner's own app, the alarms are armed with the system's promise and the countdown wakes the board."
+  "description": "The clock of the paper project: the dial, the alarms, the timer and the stopwatch, in four tabs.\nThe dial is a printed corona with a paper centre that only the hands repaint every minute, the hour and the date outside the circle; the alarms are armed with the system's promise and the countdown wakes the board."
 }

@@ -68,6 +68,10 @@ const char kCauseKey[] = "cause";
 // the boot that comes back from a sleep and not the next one, and this is what tells the two apart. It is written on the way
 // down and read —and erased— by `coming_back_from_a_sleep` (docs/60, docs/75).
 const char kSleptKey[] = "slept";
+// **El que la baixada deixa dit per a l'arrencada que ve** (0.192.0): kind, l'hora, els mV, els punts, els mAh i els mA del moment
+// d'anar-se'n, en una fila de text i no en una estructura —una fila que es pot llegir amb `sscanf` i que sobreviu a un canvi de versió
+// perquè el que no hi és es queda a -1 (docs/50, docs/70).
+const char kBeforeKey[] = "before";
 // **Les dues decisions d'una persona sobre la velocitat, desades** (0.190.85, l'amo: *«He desactivat l'scaling de CPU, perqué
 // surt aquest missatge? ... Tot ha de passar per l'scaling, si no, la cpu va al màxim per defecte, o la velocitat marcada a
 // Settings -> CPU -> Speed»*). Fins avui el commutador i el pas triat vivien **només a la RAM**: al primer reinici el sistema
@@ -588,6 +592,10 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   // button of this board takes the supply away and the RTC RAM goes with it (l'amo: *«el botó de power fa un reset i tot s'envà a la
   // merda»*): `power last` has to answer after that, and only a stored line can (docs/50, docs/60).
   say_the_last_sleep_of_the_board(true);
+  // **I què ha costat la baixada** (0.192.0): the row of the way down —the cell and the hour it left with— is read, compared with the
+  // cell of now and spent, o sigui que aquesta línia diu quant ha durat el son i què se n'ha emportat. És la mesura que distingeix una
+  // placa que ha dormit de debò d'una que ha tornat a l'instant (docs/50, docs/60, docs/95).
+  say_what_the_way_down_spent();
   // **I la becaina, que és de la política i no del maquinari** (0.190.63): the switch is read here so that the board's answer
   // (`can_nap`) and the person's wish are both in force from the first turn (docs/30, docs/60).
   // **I es diu al registre, que és l'únic que ho pot dir** (0.190.64, l'amo: *«al log es veu quan hi ha light sleep?»*): una placa
@@ -748,6 +756,10 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
     log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
                "%u of %u session file(s) are on the disk", static_cast<unsigned>(parked.ok),
                static_cast<unsigned>(parked.files));
+    // **I el que porta la cel·la i quina hora és, abans del repòs** (0.192.0, l'amo: *«així si et despertes molt rápid ho podrem
+    // saber»*): goes before `settle_before_leaving` because that is the call that writes the store —a row left after it dies in the RAM
+    // with the chip— and it is the other half of the line the wake reads (docs/50, docs/70).
+    note_the_load_before_the_way_down(WayDown::kDeepSleep);
     settle_before_leaving(why);
   }
 
@@ -797,13 +809,23 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
     if (mode == hal::SleepMode::kDeep) {
       write_in(kPowerNs, kSleptKey, nullptr);
       save_deadline(0);
+      // **I el vidre no es queda amb la imatge del son** (0.191.11, l'amo: *«al donar al botó de Sleep no s'apaga»*): the picture of the way
+      // down is painted a few lines above, and a board that refuses to go down afterwards —a stale hour, a door that could not be armed— was
+      // left showing «sleeping» with its page gone and no way back to it: the app had been closed, the sessions written and the rails down.
+      // El que es fa és el mateix que quan l'apagada no passa: es treu la imatge i la pàgina de casa torna, i la raó queda al registre
+      // (docs/30, docs/50, docs/60).
+      log_printf(pal::kLogWarn, "POWER", "the board did not go down: the picture of the sleep comes off and its page comes back");
+      splash::hide();
+      (void)shell::ask_for_the_home_app();
     }
     return false;
   }
   // **I un son que ha estat una arrencada no té camí de tornada** (0.190.68): a la placa el que ve després és un `kernel::boot` i no
   // aquesta línia, o sigui que aquí no es mesura res, no es diu cap despert i no es toca el pany —el run que hi havia s'ha acabat i el
-  // que el substitueix és un de nou, amb el seu propi `power::boot` (docs/60, docs/85).
-  if (mode == hal::SleepMode::kDeep && g_power->take_the_restart()) {
+  // que el substitueix és un de nou, amb el seu propi `power::boot` (docs/60, docs/85). **I el `RESET` d'una placa que només becaina
+  // també és un reinici** (0.192.7): a la placa el pin `EN` no mira a quina profunditat dormia el xip, i la resposta de la placa ho ha
+  // de valer igual —una becaina que torna amb el xip reiniciat és una arrencada i no un despert— (docs/50).
+  if (g_power->take_the_restart()) {
     g_the_chip_restarted = true;
     return true;
   }
@@ -830,6 +852,10 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
 // do —the app says goodbye, is written down and comes back at the next boot, because a deep sleep is a reset and not a
 // resume— and the one thing that changes is the board: it keeps its supply instead of cutting it, so a key can wake it. The
 // hour is none, and that is why it is not `sleep(kDeep, 0)`, which the system refuses on purpose (docs/50, docs/90).
+// **La placa, preguntada si pot tallar-se el corrent** (0.191.9): one line, and the answer is the board's (`IPower::can_power_off`), perquè
+// una placa endollada no pot i una altra sense pany tampoc, i el sistema no ho ha d'endevinar (docs/50, docs/60).
+bool can_power_off() { return g_power != nullptr && g_power->can_power_off(); }
+
 bool can_deep_sleep_with_the_keys() {
   return g_power != nullptr && g_power->can_sleep_with_the_keys();
 }
@@ -870,6 +896,140 @@ bool wake_from_uart() { return (g_power != nullptr) ? g_power->wake_from_uart() 
 bool set_wake_from_uart(bool on) { return (g_power != nullptr) ? g_power->set_wake_from_uart(on) : false; }
 
 bool can_wake_on_touch() { return (g_power != nullptr) && g_power->can_wake_on_touch(); }
+
+// ---------------------------------------------------------------- el que la baixada deixa dit (0.192.0)
+
+// **La cel·la, llegida una vegada i amb les dues preguntes de sempre**: `battery` diu els mV i els punts i hi és a totes les bandes; el
+// comptador de coulombs del T5S3 (`battery_detail`) afegeix el que queda i el corrent que hi passa, i una placa sense ell ho deixa a -1
+// en lloc d'inventar un número (0.190.155, docs/50, docs/95).
+struct CellLoad {
+  bool known = false;
+  int mv = 0;
+  int pct = 0;
+  int left_mah = -1;
+  int now_ma = -1;
+};
+
+CellLoad read_the_cell() {
+  CellLoad load;
+  if (g_power == nullptr) return load;
+  bool charging = false;
+  load.known = g_power->battery(load.mv, load.pct, charging);
+  hal::IPower::BatteryDetail detail;
+  if (g_power->battery_detail(detail)) {
+    load.left_mah = detail.left_mah;
+    load.now_ma = detail.current_ma;
+  }
+  return load;
+}
+
+// **Una hora d'aquest món, i la mateixa forma que la línia de la baixada de la placa** (0.190.269): UTC i dit, perquè el desplaçament
+// de la persona el sap el nucli i una hora local inventada seria pitjor que una de certa amb el seu nom al costat (docs/50, docs/60).
+void say_a_moment(char* out, size_t cap, int64_t epoch_ms) {
+  if (out == nullptr || cap == 0) return;
+  int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+  hal::epoch_ms_to_civil(epoch_ms, y, mo, d, h, mi, s);
+  snprintf(out, cap, "%02d:%02d UTC", h, mi);
+}
+
+// **Una estona que ja ha passat**: `human_wait` diu «in 9 min 44 s» perquè el que mira endavant és una espera, i aquí la baixada ja s'ha
+// menjat l'estona, o sigui que es queda la mateixa forma de dir-la sense el «in» (docs/50, docs/95).
+void how_long_it_was(char* out, size_t cap, int64_t ms) {
+  if (out == nullptr || cap == 0) return;
+  char word[40] = {0};
+  hal::human_wait(word, sizeof(word), ms);
+  const char* body = (strncmp(word, "in ", 3) == 0) ? word + 3 : word;
+  snprintf(out, cap, "%s", body);
+}
+
+// **El que la baixada deixa dit, i el número que fa que una placa adormida i una d'encesa no s'assemblin** (0.192.0, l'amo:
+// *«així si et despertes molt rápid ho podrem saber»*). Va abans de `settle_before_leaving`, que és qui escriu la botiga: una fila desada
+// després d'aquell punt es queda a la RAM i el xip se l'endú (docs/50, docs/70).
+void note_the_load_before_the_way_down(WayDown what) {
+  const bool off = (what == WayDown::kPowerOff);
+  const char* word = off ? "the power off" : "the deep sleep";
+  const char kind = off ? 'o' : 'd';
+  const int64_t when = epoch_now();
+  const CellLoad load = read_the_cell();
+  char moment[24] = {0};
+  if (when > 0) say_a_moment(moment, sizeof(moment), when);
+  if (!load.known) {
+    log_printf(pal::kLogWarn, "POWER", "%s, and this board cannot read its cell: there is nothing to leave for the wake",
+               word);
+    return;
+  }
+  // **La fila que llegeix l'arrencada que ve**: `-1` vol dir «aquesta placa no ho sap» i no un zero que seria una mesura (docs/70).
+  char row[96];
+  snprintf(row, sizeof(row), "%c %lld %d %d %d %d", kind, static_cast<long long>(when / 1000), load.mv, load.pct,
+           load.left_mah, load.now_ma);
+  write_in(kPowerNs, kBeforeKey, row);
+  const int ma = (load.now_ma < 0) ? -load.now_ma : load.now_ma;
+  // **I el sentit del corrent només quan n'hi ha** (0.192.0): zero és una cel·la en repòs i no una direcció, i una línia que digués
+  // «0 mA going in» faria pensar en un cable que no hi és (docs/50, docs/95).
+  const char* way = (load.now_ma < 0) ? "going out" : ((load.now_ma > 0) ? "going in" : "at rest");
+  if (load.left_mah >= 0) {
+    log_printf(pal::kLogInfo, "POWER", "%s at %s: %d mV, %d %% of the cell, %d mAh left, %d mA %s", word,
+               (when > 0) ? moment : "an hour nobody set", load.mv, load.pct, load.left_mah, ma, way);
+  } else {
+    log_printf(pal::kLogInfo, "POWER", "%s at %s: %d mV, %d %% of the cell (this board cannot count the charge)",
+               word, (when > 0) ? moment : "an hour nobody set", load.mv, load.pct);
+  }
+}
+
+// **I la tornada, que és la que mesura el consum** (0.192.0): the row of the way down is read once, compared with the cell of now and
+// erased —a wake that found the row of another run would spend it twice— i el que surt és l'única cosa que diu si la placa ha estat
+// dormida de debò o s'ha despertat a l'instant (docs/50, docs/60).
+void say_what_the_way_down_spent() {
+  char row[96] = {0};
+  if (!read_in(kPowerNs, kBeforeKey, row, sizeof(row))) return;
+  write_in(kPowerNs, kBeforeKey, nullptr);
+  char kind = 'd';
+  long long seconds = 0;
+  int was_mv = -1, was_pct = -1, was_left = -1, was_ma = -1;
+  if (sscanf(row, "%c %lld %d %d %d %d", &kind, &seconds, &was_mv, &was_pct, &was_left, &was_ma) < 3) return;
+  const bool off = (kind == 'o');
+  const char* word = off ? "off" : "asleep";
+  const int64_t before = static_cast<int64_t>(seconds) * 1000;
+  const int64_t after = epoch_now();
+  const CellLoad now = read_the_cell();
+  if (!now.known) {
+    log_printf(pal::kLogWarn, "POWER", "the board was %s, and its cell cannot be read now: the count is lost", word);
+    return;
+  }
+  // **Quant ha durat, quan les dues puntes tenen hora** (0.190.77): a board that was never told the hour says so and the numbers are
+  // still worth reading (docs/60).
+  char lasted[96] = "and the hour of either end is unknown";
+  if (before > 0 && after > before) {
+    char spent[32] = {0};
+    char from[24] = {0};
+    char to[24] = {0};
+    how_long_it_was(spent, sizeof(spent), after - before);
+    say_a_moment(from, sizeof(from), before);
+    say_a_moment(to, sizeof(to), after);
+    snprintf(lasted, sizeof(lasted), "%s (%s → %s)", spent, from, to);
+  }
+  // **I el que ha costat**: els mV i els punts hi són a totes les bandes; el mAh i la mitjana de mA només a la que compta el corrent
+  // (docs/50, docs/95).
+  if (was_left >= 0 && now.left_mah >= 0) {
+    const int gone = was_left - now.left_mah;
+    // **I la mitjana només quan hi ha les dues hores** (0.192.0): un corrent mitjà sense una estona és una divisió que no s'ha fet, i una
+    // placa sense hora ho ha de dir en lloc d'ensenyar un número inventat (docs/60, docs/95).
+    if (after > before) {
+      const int ma = static_cast<int>((static_cast<int64_t>(gone) * 3600) / ((after - before) / 1000));
+      log_printf(gone >= 0 ? pal::kLogInfo : pal::kLogWarn, "POWER",
+                 "the board was %s %s: the cell %d → %d mV and %d → %d %%, and %d mAh gone = %d mA on average", word,
+                 lasted, was_mv, now.mv, was_pct, now.pct, gone, ma);
+    } else {
+      log_printf(gone >= 0 ? pal::kLogInfo : pal::kLogWarn, "POWER",
+                 "the board was %s %s: the cell %d → %d mV, %d → %d %% and %d mAh gone (no hour to average it)", word,
+                 lasted, was_mv, now.mv, was_pct, now.pct, gone);
+    }
+    return;
+  }
+  log_printf(pal::kLogInfo, "POWER",
+             "the board was %s %s: the cell %d → %d mV and %d → %d %% (this board cannot count the charge it spent)", word,
+             lasted, was_mv, now.mv, was_pct, now.pct);
+}
 
 // ---------------------------------------------------------------- la becaina
 
@@ -915,6 +1075,10 @@ bool g_nap_on = true;     // encès de sèrie, que és el que demana el commutad
 // consola tornen el xip— i quan l'escala arriba al sostre (docs/60, docs/75, docs/95).
 uint32_t g_nap_run = 0;
 int64_t g_nap_run_ms = 0;
+// **I cada becaina comptada una vegada i sense tornar a zero** (0.192.31): the two numbers above are a run of naps that a line of the
+// log resets, and what a hand needs to know is not «how many in a row» but «has the board slept since I looked?». A counter that only
+// goes up answers that with one comparison (docs/50, docs/95).
+uint32_t g_nap_seen = 0;
 // **I cada deu segons de son es diu sol** (0.190.71): la línia de la tanda només sortia quan una mà la tancava, o sigui que una placa
 // quieta —la que dorm de debò— no en deia mai cap. El que es compara és el comptador amb l'últim que es va dir, perquè la línia
 // surti cada deu segons i no a cada becaina (docs/60, docs/95).
@@ -959,6 +1123,7 @@ bool nap_now(int32_t ms) {
   g_napped = g_power->nap(ms);
   if (g_napped) {
     ++g_nap_run;
+    ++g_nap_seen;
     g_nap_run_ms += ms;
   }
   return g_napped;
@@ -985,6 +1150,7 @@ bool nap(int32_t wait_ms) {
   if (!g_power->nap(wait_ms)) return false;
   g_napped = true;
   ++g_nap_run;
+  ++g_nap_seen;
   g_nap_run_ms += wait_ms;
   return true;
 }
@@ -1024,6 +1190,7 @@ int32_t open_the_sleep(int32_t wait_ms) {
     if (!g_power->nap(asked)) return 0;
     g_napped = true;
     ++g_nap_run;
+    ++g_nap_seen;
     g_nap_run_ms += asked;
     return 0;
   }
@@ -1050,12 +1217,17 @@ void close_the_sleep(int64_t waited_ms) {
   }
   g_napped = true;
   ++g_nap_run;
+  ++g_nap_seen;
   g_nap_run_ms += waited_ms;
 }
 
 // **La tanda que s'acaba es diu** (0.190.64): quan una mà, una tecla o la consola tornen el xip, el registre escriu quantes
 // becaines seguides hi ha hagut i quants mil·lisegons ha estat adormida la placa. És el número que una persona mira a la placa
 // per saber si el commutador fa alguna cosa, i per sota d'un segon no val una línia (docs/60, docs/95).
+// **I el comptador que només puja** (0.192.31): what a hand needs is not «how many in a row» —a line of the log resets that— but «has
+// the board slept since I looked» (docs/50, docs/95).
+uint32_t naps_seen() { return g_nap_seen; }
+
 void note_the_nap_end(bool something_happened) {
   if (something_happened) {
     if (g_nap_run_ms >= kNapRunSayMs) {
@@ -1901,6 +2073,27 @@ BootKind note_the_boot(hal::IPlatform& platform) {
   hal::IClock* clock = platform.clock();
   const hal::WakeCause woke = (clock != nullptr) ? clock->last_wake() : hal::WakeCause::kOther;
   g_woke_by_an_alarm = (woke == hal::WakeCause::kTimer || woke == hal::WakeCause::kClock);
+  // **I la placa mana sobre el rellotge quan sap quina línia s'ha obert** (0.191.11, l'amo: *«al donar al botó de Sleep no s'apaga, i al
+  // tornar no neteja???»*). Aquesta decisió és la que diu si el vidre es toca o no: un despert que semblava d'alarma deixa el vidre dormit
+  // i **cap pintada hi arriba** (`display::present` les descarta), o sigui que la placa torna amb el dibuix del son al vidre i la pàgina de
+  // la persona no apareix mai. I a la T5S3 el rellotge del xip no podia distingir-ho: les tres portes —el rellotge, el BOOT i el dit— són la
+  // mateixa línia de l'`ext1`, i `RtcClock::last_wake` contestava «el rellotge» sempre que el PCF8563 tingués l'indicador d'alarma posat
+  // (docs/30, docs/50, docs/60).
+  hal::IPower* board_power = platform.power();
+  const hal::IPower::Door door = (board_power != nullptr) ? board_power->the_door_that_opened() : hal::IPower::Door::kUnknown;
+  switch (door) {
+    case hal::IPower::Door::kTimer:
+    case hal::IPower::Door::kClock:
+      g_woke_by_an_alarm = true;
+      break;
+    case hal::IPower::Door::kKey:
+    case hal::IPower::Door::kGlass:
+      // **Algú hi és**: el vidre s'ha de despertar i la pàgina ha de tornar.
+      g_woke_by_an_alarm = false;
+      break;
+    default:
+      break;  // a board that cannot say leaves the clock's answer standing
+  }
   // **Un boot nou, i dues coses que són d'aquest boot** (0.190.18): nobody has touched the board yet —which is what makes a wake for an
   // alarm and a stage of a long wait go straight down— and the glass still says what the sleep left on it. Es posa aquí i no a
   // `power::boot` perquè les finestres de les alarmes corren **abans** (`kernel::boot`), i una finestra que ha pintat és un vidre que ja no
@@ -1940,9 +2133,28 @@ BootKind note_the_boot(hal::IPlatform& platform) {
   // en una placa amb tres línies armades alhora aquesta resposta és «un dit al vidre» tant si ha estat un dit com si ha estat el BOOT o
   // l'alarma del rellotge. La placa sí que ho sap, i aquesta línia és la que una persona llegeix per entendre per què s'ha despertat la
   // seva placa (docs/50, docs/60).
-  const char* board_door = (g_power != nullptr) ? g_power->the_door_that_opened() : nullptr;
-  const char* by = (board_door != nullptr) ? board_door : "the power coming back";
-  if (board_door == nullptr) {
+  const hal::IPower::Door board_door = (g_power != nullptr) ? g_power->the_door_that_opened() : hal::IPower::Door::kUnknown;
+  const char* by = "the power coming back";
+  switch (board_door) {
+    case hal::IPower::Door::kTimer:
+      by = "the timer of the chip";
+      break;
+    case hal::IPower::Door::kClock:
+      by = "the clock chip's alarm";
+      break;
+    case hal::IPower::Door::kKey:
+      by = "the key of the board";
+      break;
+    case hal::IPower::Door::kGlass:
+      by = "a finger on the glass";
+      break;
+    case hal::IPower::Door::kMore:
+      by = "more than one line of the board";
+      break;
+    default:
+      break;
+  }
+  if (board_door == hal::IPower::Door::kUnknown) {
     switch (woke) {
       case hal::WakeCause::kClock:
         by = "the clock chip";

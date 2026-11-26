@@ -15,6 +15,8 @@
 
 #include <stdint.h>
 
+#include "emu/model.h"
+
 namespace emu {
 
 // True when this emulator was built with a window in it. A build without a window backend says so
@@ -89,6 +91,21 @@ enum class KeySide : uint8_t { kLeft = 0, kRight = 1, kBottom = 2 };
 // The page of the model is 540x960 and does not change; this is only how big it is drawn (docs/85).
 uint8_t gui_fit_scale(uint16_t page_width, uint16_t page_height, uint8_t keys, KeySide side,
                       int screen_width, int screen_height, uint8_t requested);
+
+// **Els botons de la caixa, i no un comptador** (0.192.7, l'amo: *«les definicions de botons son: Part dreta: RESET, POWER … part esquerra:
+// BOOT, IO48 … Defineix sempre els botons i mostra'ls a l'emulador»*): a board can have buttons on **both** faces and some of them are not
+// keys of the system at all, so the window takes the model's table (`emu::Button`) and draws one box per button with its name. `keys` and
+// `side` above stay as the shape of **one** strip, which is what a board with its keys on one face has.
+uint8_t gui_buttons_on(const Button* buttons, uint8_t count, KeySide side);
+// L'índex, dins la taula, del botó `slot`-èsim de la cara `side`, comptant de dalt a baix (o d'esquerra a dreta): el lloc diu l'ordre.
+int gui_button_slot(const Button* buttons, uint8_t count, KeySide side, uint8_t slot);
+// El rectangle d'aquest botó a la finestra, i `gui_button_at` per al camí de tornada: `-1` és cap botó.
+bool gui_button_rect(const Button* buttons, uint8_t count, uint8_t index, uint16_t window_width,
+                     uint16_t window_height, int& x, int& y, int& w, int& h);
+int gui_button_at(int window_x, int window_y, const Button* buttons, uint8_t count, uint16_t window_width,
+                  uint16_t window_height);
+uint8_t gui_fit_scale_for(uint16_t page_width, uint16_t page_height, const Button* buttons, uint8_t count,
+                          int screen_width, int screen_height, uint8_t requested);
 
 // The buttons are measured in window pixels and not in page pixels: how big a page is scaled to is the
 // page's business, and a button that shrinks with it is a button a person cannot hit. Both backends draw
@@ -198,8 +215,8 @@ uint32_t gui_now_ms();
 // `scale` is `--gui-scale`: 1 to 4 draws the page at that many page pixels per window pixel, 2 being the
 // page at half, even when the screen would hold it whole; zero is the smallest that fits, which is what a
 // window nobody sized wants (docs/85).
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights,
-              uint8_t light_max);
+bool gui_open(uint16_t width, uint16_t height, const Button* buttons, uint8_t count, uint8_t scale,
+              uint8_t lights, uint8_t light_max);
 
 // **Which key a point of the window is on**, and which key a slot of the column or the row is: the dial goes
 // up, centre and down from the top, a board of one key has the middle of it, and `-1` is no key at all —

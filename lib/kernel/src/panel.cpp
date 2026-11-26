@@ -1,6 +1,7 @@
 // The card of the system that hangs from the bar: it opens with a drag down from the titlebar and goes with a drag up
 // (docs/30).
 #include "kernel/panel.h"
+#include "kernel/panel_low.h"
 
 #include <string.h>
 
@@ -56,34 +57,27 @@ const uint16_t kLineH = 2;
 // com una clau més— (docs/30, docs/92).
 const uint16_t kAirUnderTheKeys = 6;
 
-// **Les onze claus de la targeta, en tres files** (0.185.0; la sisena des de la 0.189.25, **la casa** des de la 0.189.139, **el
-// candau** i les dues files des de la 0.189.151, i **les tres de la ràdio** des de la 0.190.219 al mig). The card carries **eleven
-// keys**: the three that stop the board —the power off,
-// **the deep sleep** and the restart— with the padlock in a row of their own at the top, **the three radios** —the Bluetooth, the network
-// and the mesh— in the row of the middle, and the four of the system below —the gear of the settings, the house of the page of the start,
-// the cross of the way out and the way back one page—. All eleven are
-// **one key**: a `UIButton` of this system with **no frame and no
-// shadow** (`framed` false), so what a person
-// sees is the mark and nothing else, and it sinks by turning over while the finger is on it, which is the press every button of
-// this glass has (the owner: *«vull que siguin UIButton, però sense vores (afegir propietat al botó si no la te ja) i amb una
-// imatge/icona com a contingut»*) (docs/30, docs/45, docs/92).
-// **Cada clau porta la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la
-// icona … als botons de Settings, Reboot i Powerdown posa text sota cada icona»*). Una clau del sistema ja no és un quadrat d'una
-// icona: és **una icona amb el seu nom**, i el nom és dins del botó, o sigui que prémer el nom és prémer la clau.
+// **Les set claus que queden a la targeta, en dues files** (0.192.24, l'amo: *«Tots els botons de fila de Settings han d'anar abaix:
+// Settings, Home, Close i Back al panell de sistema inferior»*): the three that stop the board —the power off, **the deep sleep** and
+// the restart— with the padlock, i **les tres ràdios** —the Bluetooth, the network and the mesh— a sota d'elles. Les quatre que
+// naveguen —la roda, la casa, la creu i la fletxa— són a la targeta de baix (`panel_low`), que és on l'amo les ha demanades; el que
+// fan ho sap aquest mòdul, perquè el portal i el shell que ho contesten són aquí (`a_page_key_is_there`, `press_a_page_key`) (docs/30).
+//
+// **Cada clau és un `UIButton` d'aquest sistema sense vores ni ombra** (`framed` false) —el que es veu és la marca i la paraula—, i
+// s'enfonsa girant-se mentre el dit hi és, que és la premsa de tots els botons d'aquest vidre (l'amo: *«vull que siguin UIButton, però
+// sense vores (afegir propietat al botó si no la te ja) i amb una imatge/icona com a contingut»*) (docs/30, docs/45, docs/92).
+// **Cada clau porta la seva paraula** (0.185.3, l'amo: *«afegeix text per als botons; "Back" i "Close" al costat de la icona … als
+// botons de Settings, Reboot i Powerdown posa text sota cada icona»*): una clau del sistema no és un quadrat d'una icona sinó **una
+// icona amb el seu nom**, i el nom és dins del botó, o sigui que prémer el nom és prémer la clau.
 //
 //   - **les quatre de dalt són una mica més petites** (0.189.151, l'amo: *«A dalt de tot Poweroff, Sleep, Reboot una mica mes
-//     petits (lleugerament, no tant petits com es ara "Home") a la part de dalt del panell»*): 104 × 88, que és la marca a sobre i
-//     la paraula a sota amb la mida d'abans de la 0.189.139 i una mica menys d'aire;
-//   - **les quatre de baix tenen la mida que tenien les quatre del mig** (*«A baix de tot Home, Close i Settings en el tamany que
-//     tenen ara PowerOff Sleep i Reboot»*): 96 × 104, i el mateix dibuix per a totes vuit —la marca a sobre, la paraula a sota i
-//     la paraula a dos passos de la cara del sistema, que és el que fa que quatre n'hi càpiguen (0.189.25)—;
+//     petits (lleugerament, no tant petits com es ara "Home") a la part de dalt del panell»*): 104 × 88, la marca a sobre i la
+//     paraula a sota;
 //   - **el candau va amb els que paren la placa** (0.189.152, l'amo: *«Posa el lock amb els de poweroff, sleep i reboot: Power off,
-//     Sleep, Reboot, Lock»*): the page of `cfg lock`, the fourth of the top row, perquè una clau que tapa el vidre és una de les
-//     que paren la placa i no una de les que hi naveguen (docs/30, docs/40, docs/60);
-//   - **i la de baix és `Settings`, `Home`, `Close`, `Back`** (0.189.158, l'amo: *«al panell desplegable del sistema "Back" està
-//     al costat de "Home"... posem-ho així: Settings, Home, Close, Back»*): the two that go somewhere on the left —the gear and
-//     the house— and the two that end the page on the right, with the way out **before** the way back, perquè la creu tanca el
-//     que la fletxa ha deixat enrere (docs/30, docs/45).
+//     Sleep, Reboot, Lock»*): la pàgina de `cfg lock` és una de les que paren la placa i no una de les que hi naveguen (docs/30, docs/60);
+//   - **i les tres de la ràdio al mig** (0.190.219, l'amo: *«Posa 3 icones noves al panell de sistema: Una icona de bluetooth per
+//     encendre/apagar, un de wifi i un de ble-mesh»*): tan amples com la paraula «Bluetooth» i no un píxel més, que el que diuen és
+//     una paraula i no una marca (docs/30, docs/92).
 const uint16_t kTopRowY = 20;      // la fila de les quatre que paren la placa
 const uint16_t kTopW = 104;        // una mica més ampla i més baixa que les de sota
 const uint16_t kTopH = 88;
@@ -91,42 +85,30 @@ const uint16_t kTopGap = 16;       // l'aire entre dues claus d'aquesta fila
 // **I la fila del mig, la de les tres ràdios** (0.190.219, l'amo: *«Posa 3 icones noves al panell de sistema: Una icona de bluetooth per
 // encendre/apagar, un de wifi i un de ble-mesh»*): three keys as wide as the word «Bluetooth» needs and not a pixel more, because what
 // they say is a word and not a mark —the mark is above it, as in every key of this card (docs/30, docs/92).
-const uint16_t kSwitchRowY = 116;
 const uint16_t kSwitchW = 156;
 const uint16_t kSwitchH = 80;
 const uint16_t kSwitchGap = 16;
-// **I les quatre del sistema baixen vuit files** (0.190.219): the row of the radios goes between the ones that stop the board and the
-// ones that walk the pages, o sigui que aquesta és la que es mou —de 168 a 204— i les tres que hi havia més amunt no es toquen (docs/30).
-const uint16_t kBottomRowY = 204;  // la fila de les quatre del sistema
-const uint16_t kBottomW = 96;      // la mida que tenien les quatre del mig
-const uint16_t kBottomH = 104;
-const uint16_t kBottomGap = 8;
-// **Una sola escala per a vuit paraules** (0.185.3, 0.189.25 i 0.189.151): a un pas fa onze píxels i no es llegeix —es va veure a
+// **L'aire entre les dues files** (0.192.24): the card kept the third of the glass it has always wanted, and with two rows instead of three the
+// switches hang from the handle at the bottom instead of leaving a band of paper under them (docs/30, docs/92).
+const uint16_t kRowsGap = 24;
+// **Una sola escala per a set paraules** (0.185.3, 0.189.25 i 0.189.151): a un pas fa onze píxels i no es llegeix —es va veure a
 // l'emulador—, i a dos la paraula més ampla, `Poweroff`, fa noranta-un píxels, que és el que una clau de noranta-sis aguanta.
-// L'escala de tres era de les cantonades amples, i amb elles se'n va anar quan el dibuix de la targeta es va fer de dues files.
 const uint8_t kWordScale = 2;
 
-// **Quin botó és quin** (0.185.0): the eleven of the card, in the order the three rows are drawn —the gear, the house, the cross
-// and the way back below; the Bluetooth, the wifi and the mesh in the middle, which is where a radio that is switched on lives; the
-// power off, **the deep sleep**, the restart and the padlock above, with the sleep between the power off and the restart, which is
-// where the owner asked for it: the closer to off a way down is, the closer they sit— (docs/30).
-// **I les tres de la ràdio** (0.190.219): the Bluetooth, the network and the mesh, que són les tres coses d'aquesta placa que s'encenen i
-// s'apaguen i que fins ara només es podien canviar des del prompt o des d'una app. La targeta les té perquè una cosa que es toca sovint no ha
-// de demanar un teclat (docs/30, docs/45).
+// **Quin botó és quin** (0.185.0): les set de la targeta, en l'ordre en què les dues files es dibuixen —el corrent, **el son**, el
+// reinici i el candau a dalt, amb el son entre el corrent i el reinici, que és on l'amo el va demanar: com més a prop de l'apagat és
+// una manera de baixar, més a prop seu seu—, i **les tres de la ràdio** a sota, que són les tres coses d'aquesta placa que s'encenen i
+// s'apaguen i que fins ara només es podien canviar des del prompt o des d'una app (docs/30, docs/45).
 enum class Key : uint8_t {
-  kSettings = 0,
-  kHome = 1,
-  kClose = 2,
-  kBack = 3,
-  kPowerOff = 4,
-  kDeepSleep = 5,
-  kReboot = 6,
-  kLock = 7,
-  kBluetooth = 8,
-  kWifi = 9,
-  kMesh = 10
+  kPowerOff = 0,
+  kDeepSleep = 1,
+  kReboot = 2,
+  kLock = 3,
+  kBluetooth = 4,
+  kWifi = 5,
+  kMesh = 6
 };
-const uint8_t kKeyCount = 11;
+const uint8_t kKeyCount = 7;
 
 bool g_open = false;
 // **Quina clau té el dit a sobre** (0.185.2): the card is painted on the glass and not by a page of controls, so a press is a
@@ -151,6 +133,15 @@ struct KeyBox {
   // the four of the middle do not, so each key carries how big its word is drawn (docs/30, docs/92).
   uint8_t scale = kWordScale;
 };
+
+uint16_t card_height();
+
+// **La fila de les ràdios, penjada del mànec** (0.192.24): la targeta és el terç que sempre ha volgut, i amb dues files en lloc de tres les
+// ràdios pengen del mànec de baix en lloc de deixar una banda de paper buit sota d'elles (docs/30, docs/92).
+uint16_t switch_row_y() {
+  const uint16_t below = static_cast<uint16_t>(kHandleGap + kHandleH + kLineH + kAirUnderTheKeys);
+  return static_cast<uint16_t>(card_height() - below - kSwitchH);
+}
 
 KeyBox key_box(Key which) {
   const int16_t width = static_cast<int16_t>(ui::width());
@@ -177,54 +168,24 @@ KeyBox key_box(Key which) {
                                          : "Lock";
     return box;
   }
-  // **I la fila del mig: les tres ràdios** (0.190.219): the Bluetooth, the network and the mesh, centrades i de la mateixa mida, amb la
+  // **I la fila de sota: les tres ràdios** (0.190.219): the Bluetooth, the network and the mesh, centrades i de la mateixa mida, amb la
   // paraula a sota de la marca com la resta de la targeta. **Són les úniques que diuen un estat** i per això són les úniques que poden estar
   // apagades: la tinta de la seva marca i de la seva paraula és la que diu si la cosa és encesa (docs/30, docs/92).
-  if (which == Key::kBluetooth || which == Key::kWifi || which == Key::kMesh) {
-    const int16_t total = static_cast<int16_t>(3 * kSwitchW + 2 * kSwitchGap);
-    const int16_t left = static_cast<int16_t>((width - total) / 2);
-    uint8_t place = 0;
-    if (which == Key::kWifi) place = 1;
-    if (which == Key::kMesh) place = 2;
-    box.x = static_cast<int16_t>(left + place * (kSwitchW + kSwitchGap));
-    box.y = static_cast<int16_t>(kSwitchRowY);
-    box.w = kSwitchW;
-    box.h = kSwitchH;
-    box.word = (which == Key::kBluetooth) ? "Bluetooth" : (which == Key::kWifi) ? "WiFi" : "Mesh";
-    return box;
-  }
-  // **I la fila de baix: les quatre del sistema** (0.189.152, i l'ordre de la 0.189.158): the gear, the house, the cross of the
-  // way out and the arrow of one page back, en aquest ordre —les dues que van a un lloc a l'esquerra i les dues que tanquen a la
-  // dreta—, que és el que l'amo va demanar després de veure-hi la fletxa a frec de la casa (docs/30, docs/45).
-  const int16_t total = static_cast<int16_t>(4 * kBottomW + 3 * kBottomGap);
+  const int16_t total = static_cast<int16_t>(3 * kSwitchW + 2 * kSwitchGap);
   const int16_t left = static_cast<int16_t>((width - total) / 2);
   uint8_t place = 0;
-  if (which == Key::kHome) place = 1;
-  if (which == Key::kClose) place = 2;
-  if (which == Key::kBack) place = 3;
-  box.x = static_cast<int16_t>(left + place * (kBottomW + kBottomGap));
-  box.y = static_cast<int16_t>(kBottomRowY);
-  box.w = kBottomW;
-  box.h = kBottomH;
-  box.word = (which == Key::kSettings) ? "Settings"
-             : (which == Key::kHome) ? "Home"
-             : (which == Key::kBack) ? "Back"
-                                     : "Close";
+  if (which == Key::kWifi) place = 1;
+  if (which == Key::kMesh) place = 2;
+  box.x = static_cast<int16_t>(left + place * (kSwitchW + kSwitchGap));
+  box.y = static_cast<int16_t>(switch_row_y());
+  box.w = kSwitchW;
+  box.h = kSwitchH;
+  box.word = (which == Key::kBluetooth) ? "Bluetooth" : (which == Key::kWifi) ? "WiFi" : "Mesh";
   return box;
 }
 
 const char* key_icon(Key which) {
   switch (which) {
-    case Key::kBack:
-      return "back";
-    case Key::kClose:
-      return "close";
-    case Key::kHome:
-      // **La casa** (0.189.139): `U+F015` of the clipart, the same mark the sixth family drew and the seventh keeps
-      // (`data/res/icons/home.png`, `tools/iconart.py`) (docs/45, docs/50).
-      return "home";
-    case Key::kSettings:
-      return "settings";
     case Key::kLock:
       // **El candau** (0.189.150): `U+F023` of the clipart, drawn by `tools/iconart.py` into `data/res/icons/lock.png` —and a
       // padlock of lines in `draw_icon` for a board whose disk has no `/res`—, perquè una clau del sistema que no es veu és una
@@ -283,33 +244,41 @@ void read_what_is_present() {
   g_present.lock = app_is_there(cfg::lock_app());
 }
 
+// **Les quatre que naveguen no són d'aquesta targeta des de la 0.192.24**: `panel_low` les pinta i aquestes quatre preguntes són les
+// seves —la creu és un botó només quan hi ha una pàgina que es pugui deixar (0.179.25), la fletxa quan hi ha una vista a sota, la casa
+// quan no hi ets i la roda quan `cfg settings` nomena una app que hi és (0.189.150, 0.190.81)— (docs/30, docs/45).
+bool the_close_key_is_there() { return shell::the_page_in_front_can_be_left(); }
+
+bool the_back_key_is_there() { return apps::views() > 0; }
+
+// **I sobre la pàgina d'inici la casa no hi és** (0.189.153, l'amo: *«No, el home si estem a home no ha de sortir, igual que el
+// back no surt si no hi ha back o Close tampoc si estem al home»*): la clau de la casa és una manera **d'anar-hi**, i qui ja la mira
+// no li pot demanar res (docs/30, docs/45).
+bool the_home_key_is_there() {
+  if (!g_present.home) return false;
+  const char* home = cfg::home_app();
+  return !(shell::app_running() && strcmp(shell::app_id(), home) == 0);
+}
+
+bool the_settings_key_is_there() { return g_present.settings; }
+
 // **I el que sempre hi és són les tres que paren la placa** (0.190.81): `Poweroff` i `Reboot` no depenen de cap app, i `Sleep`
-// depèn que la placa sàpiga dormir i prou. La creu i la fletxa depenen de la pàgina que hi hagi a sota, i les tres que porten a
-// una app depenen que l'app hi sigui (docs/30, docs/45).
+// depèn que la placa sàpiga dormir i prou; el candau depèn que `cfg lock` nomeni una app que hi sigui (docs/30, docs/45).
 bool key_is_there(Key which) {
-  if (which == Key::kClose) return shell::the_page_in_front_can_be_left();
-  // **I sobre la pàgina d'inici la casa no hi és** (0.189.153, l'amo: *«No, el home si estem a home no ha de sortir, igual que el
-  // back no surt si no hi ha back o Close tampoc si estem al home»*): the key of the house is a way **to** the page of the start,
-  // and a person who is already looking at it has nothing to ask of it —a key that says where you are is a key that does what
-  // the page is doing, que és la regla de la fletxa sense vista i de la creu sobre un llançador (docs/30, docs/45).
-  if (which == Key::kHome) {
-    if (!g_present.home) return false;
-    const char* home = cfg::home_app();
-    return !(shell::app_running() && strcmp(shell::app_id(), home) == 0);
-  }
-  // **I la roda, quan hi ha una app de settings** (0.189.150, l'amo: *«Si alguna de les opcions es buida, el botó del panell
-  // desplegable de sistema no mostrarà la icona corresponent»*): `cfg settings none` is a gear that opens nothing, and a key
-  // that says it can do something it cannot is the thing the cross of a launcher already does not do (docs/30, docs/45).
-  if (which == Key::kSettings) return g_present.settings;
   // **I el candau, quan hi ha una app de bloqueig** (0.189.151): the same rule as the gear —`cfg lock none` is a padlock that
   // covers nothing, and the key is not painted— i la clau no mira el commutador: el commutador decideix els tres moments en què el
   // sistema es tapa sol, i aquesta clau és la persona demanant-ho ara (docs/30, docs/45, docs/60).
   if (which == Key::kLock) return g_present.lock;
-  if (which == Key::kBack) return apps::views() > 0;
   // **I el son amb les tecles vives, només si la placa en té una** (0.189.25): the same rule as the cross —a key that does
   // nothing says the system can do something it cannot— and it is asked of the board and not of the model of the glass
   // (docs/30, docs/45, docs/50).
   if (which == Key::kDeepSleep) return power::can_deep_sleep();
+  // **I l'apagat, només si la placa es pot apagar de debò** (0.191.9, l'amo: *«el poweroff no funciona? està endollat i es queda amb el botó
+  // poweroff activat»*). Era l'única clau de la targeta que no es preguntava a la placa: amb el cable a dins la T5S3 no pot tallar-se el
+  // corrent —el carregador la sosté, i és la regla del fabricant—, o sigui que el botó es pintava, la persona el premia i no passava res: ni
+  // una tinta ni una paraula. És exactament el que aquesta casa no fa amb la creu, la fletxa, la roda, la lluna ni les tres de la ràdio
+  // (docs/30, docs/45, docs/50).
+  if (which == Key::kPowerOff) return power::can_power_off();
   // **I les tres de la ràdio, quan la placa en té** (0.190.219): the same rule as the cross and the moon —a key that says it can turn a
   // radio on, on a board whose build carries no radio, says something untrue—, i es pregunta al build i no al model del vidre (docs/30,
   // docs/45, docs/50).
@@ -339,19 +308,18 @@ bool the_key_under(uint16_t x, uint16_t y, Key& which) {
   return false;
 }
 
-// **A third of what the bar leaves**: enough for the rows of switches that come later and little enough that the page
-// under it is still the page of the app (0.179.22).
+// **Les files que la targeta necessita, i prou** (0.192.25, l'amo: *«Ara els panells son molt grans per el contingut que tenen, no?»*): the card
+// was a third of the glass from the 0.179.22, which was the shape of a panel with three rows of keys; with two, the third was a sheet of paper
+// with a band of white under it. El que mana és el contingut —la fila de dalt, l'aire del mig, la fila de les ràdios i el mànec amb la seva
+// línia—, i el terç només hi torna si el vidre és més baix que tot això (docs/30, docs/92).
 uint16_t card_height() {
   const uint16_t glass = display::height();
   const uint16_t top = bar::height();
   if (glass <= top) return 0;
-  const uint16_t third = static_cast<uint16_t>((glass - top) / 3);
-  // **Un terç, o les files que la targeta té** (0.190.219): the third of the glass was the shape of the card and it is still what it
-  // wants to be, però amb la fila de les tres ràdios les claus arriben més avall que el terç i una targeta més curta que les seves claus
-  // és mitja fila pintada sobre la pàgina de sota. El que mana és la més gran de les dues coses, i així una placa més alta les té totes
-  // i una de més baixa no perd cap clau (docs/30, docs/92).
-  const uint16_t rows = static_cast<uint16_t>(kBottomRowY + kBottomH + kHandleGap + kHandleH + kLineH + kAirUnderTheKeys);
-  return (third > rows) ? third : rows;
+  const uint16_t rows = static_cast<uint16_t>(kTopRowY + kTopH + kRowsGap + kSwitchH + kHandleGap + kHandleH + kLineH +
+                                               kAirUnderTheKeys);
+  const uint16_t room = static_cast<uint16_t>(glass - top);
+  return (rows < room) ? rows : room;
 }
 
 // **Whether the finger landed on the card** (0.179.42): the card hangs from the bar, so its rows are the first
@@ -419,6 +387,21 @@ void paint() {
 
 void put_it_away();
 
+// **La targeta que hi sigui se'n va** (0.192.24): les quatre claus que naveguen ja no són d'aquesta targeta —són a la de baix—, o sigui
+// que qui les prem ha de tancar la que és fora, sigui quina sigui, i no només la que aquest fitxer recorda. El hold de la pàgina es deixa
+// anar sense pintar (`paint` fals) quan el que ve darrere pinta el vidre sencer, i amb la rentada de la pàgina quan no ve res més
+// (docs/30, docs/50).
+void the_card_goes(bool paint) {
+  if (panel_low::open()) panel_low::close_the_card();
+  g_open = false;
+  g_sunk = -1;
+  if (paint) {
+    ui::hold_the_page(false);
+    return;
+  }
+  ui::forget_the_page_hold();
+}
+
 // **La fletxa torna l'app a la vista de sota** (0.179.52): `shell::go_back_one_view` is the door the pinch and the three taps
 // already use for «one page back» —the app gives the top page back, hears `on_back(depth)` and repaints the one below—, so the
 // button is a way of asking for the same thing and not a second behaviour (docs/30, docs/45).
@@ -427,9 +410,8 @@ void put_it_away();
 // so the present the app makes inside `on_back` is the page whole and the card goes with it. A paint here and another one there
 // would be two passes of this glass for one finger, and the second would be the app's own (docs/50, docs/92).
 void go_back_a_view() {
-  if (!key_is_there(Key::kBack)) return;
-  g_open = false;
-  ui::forget_the_page_hold();
+  if (!the_back_key_is_there()) return;
+  the_card_goes(/*paint=*/false);
   ui::owe_the_page();
   shell::go_back_one_view();
   log_printf(pal::kLogInfo, "PANEL", "the arrow: the app went to the view below");
@@ -448,13 +430,12 @@ void close_the_app() {
   // **And the card goes with the page it was over**: when the system already owes a whole page —the page of the app that asked
   // for this one— that paint is the one that erases the card, and a close does not pay for two washes of the glass.
   if (out == shell::LeaveOutcome::kClosedHome) {
-    g_open = false;
-    ui::forget_the_page_hold();
+    the_card_goes(/*paint=*/false);
     log_printf(pal::kLogInfo, "PANEL", "the cross: the app is closed and its page comes back");
     return;
   }
   log_printf(pal::kLogInfo, "PANEL", "the cross: the app is closed");
-  put_it_away();
+  the_card_goes(/*paint=*/true);
 }
 
 // **El reinici i el tancament de la placa** (0.185.0): the card drops the hold of the page **sense pintar**, because the picture
@@ -482,7 +463,11 @@ void sleep_with_the_keys() {
   g_open = false;
   ui::forget_the_page_hold();
   log_printf(pal::kLogInfo, "PANEL", "the moon key: the board sleeps with its keys awake");
-  shell::deep_sleep("the card of the bar");
+  // **I si la placa no baixa, es diu** (0.191.11): the picture of the sleep has already come off and the page is on its way back
+  // (`power::request_sleep`), o sigui que el que faltava era la paraula que lliga les dues coses al registre (docs/30, docs/50).
+  if (!shell::deep_sleep("the card of the bar")) {
+    log_printf(pal::kLogWarn, "PANEL", "the moon key: the board did not go down");
+  }
 }
 
 // **Els ajustos són una app, i quina és ho diu `cfg`** (0.185.0, 0.189.109, l'amo: *«Enllaça el botó de Settings del panell
@@ -515,8 +500,7 @@ void open_a_chosen_app(const char* id, const char* name, const char* command) {
   // a glass with no page kept no way to the settings at all. The system's own key starts the app the way the boot starts the
   // page of the start (docs/30, docs/40, docs/90).
   if (!shell::app_running()) {
-    g_open = false;
-    ui::forget_the_page_hold();
+    the_card_goes(/*paint=*/false);
     // **La targeta sí**: la persona ha de veure quina pàgina arriba (0.179.33, docs/30, docs/40).
     shell::AStart start;
     start.id = entry.id;
@@ -533,7 +517,7 @@ void open_a_chosen_app(const char* id, const char* name, const char* command) {
     log_printf(pal::kLogWarn, "PANEL", "the %s app is not there: %s", name, why);
     return;
   }
-  put_it_away();
+  the_card_goes(/*paint=*/true);
   log_printf(pal::kLogInfo, "PANEL", "the %s key: %s comes up", name, entry.id);
 }
 
@@ -571,8 +555,7 @@ void open_the_home() {
   // perquè sobre la pàgina d'inici la clau no hi és (docs/30, docs/45).
   const bool already = shell::app_running() && strcmp(shell::app_id(), entry.id) == 0;
   if (!shell::app_running() || already) {
-    g_open = false;
-    ui::forget_the_page_hold();
+    the_card_goes(/*paint=*/false);
     shell::AStart start;
     start.id = entry.id;
     if (!shell::start_a_page(start)) {
@@ -588,7 +571,7 @@ void open_the_home() {
     log_printf(pal::kLogWarn, "PANEL", "the house key: %s could not be asked for: %s", entry.id, why);
     return;
   }
-  put_it_away();
+  the_card_goes(/*paint=*/true);
   log_printf(pal::kLogInfo, "PANEL", "the house key: %s comes up", entry.id);
 }
 
@@ -647,22 +630,11 @@ void paint_the_key_back(Key which) {
   display::present(hal::UpdateMode::kDu);
 }
 
-// **Un botó és la seva acció**: the eleven of the card, one switch, so the paint, the hit test and the press cannot disagree about what
-// a key does (docs/30, docs/45).
+// **Un botó és la seva acció**: the seven of the card, one switch, so the paint, the hit test and the press cannot disagree about what
+// a key does (docs/30, docs/45). **Les quatre que naveguen tenen el seu commutador a `panel_low`** (0.192.24), i les accions són
+// aquestes de sota, compartides (docs/30).
 void run_the_key(Key which) {
   switch (which) {
-    case Key::kBack:
-      go_back_a_view();
-      return;
-    case Key::kHome:
-      open_the_home();
-      return;
-    case Key::kClose:
-      close_the_app();
-      return;
-    case Key::kSettings:
-      open_the_settings();
-      return;
     case Key::kLock:
       open_the_lock();
       return;
@@ -742,6 +714,41 @@ bool open() { return g_open; }
 
 uint16_t height() { return card_height(); }
 
+// **Les quatre claus que naveguen** (0.192.24): la targeta de baix les pinta i aquestes dues portes són el que saben i el que fan, amb
+// les mateixes preguntes de sempre —el portal, el shell i la pàgina que hi ha a sota— i cap segona idea de què és tornar enrere o
+// tancar (docs/30, docs/45).
+bool a_page_key_is_there(PageKey which) {
+  switch (which) {
+    case PageKey::kSettings:
+      return the_settings_key_is_there();
+    case PageKey::kHome:
+      return the_home_key_is_there();
+    case PageKey::kClose:
+      return the_close_key_is_there();
+    default:
+      return the_back_key_is_there();
+  }
+}
+
+void press_a_page_key(PageKey which) {
+  switch (which) {
+    case PageKey::kSettings:
+      open_the_settings();
+      return;
+    case PageKey::kHome:
+      open_the_home();
+      return;
+    case PageKey::kClose:
+      close_the_app();
+      return;
+    default:
+      go_back_a_view();
+      return;
+  }
+}
+
+void look_at_what_is_there() { read_what_is_present(); }
+
 void poll() {
   if (!display::available()) return;
   // **A page that went away takes the card with it** (0.179.22): another app took the view, or the glass turned, and the
@@ -755,11 +762,21 @@ void poll() {
     return;
   }
   if (!g_open) {
-    // **In full screen there is no handle to take hold of**: the strip of the bar is not on the glass, and a page that covers
-    // everything does not offer the system's card (docs/46 D1).
-    if (!bar::visible()) return;
+    // **I amb la targeta de baix a sobre no s'obre** (0.192.23): the drag that would pull this one out is the one that puts the
+    // other away, and it belongs to the other.
+    if (panel_low::open()) return;
+    // **La tirada que obre la targeta es mesura al VIDRE i no a la vista** (0.192.33, l'amo: *«PERQUE LES PUTES BARRES DE SISTEMA NO?»*).
+    // What opens the card is a drag that begins on the first rows of the glass and goes mostly down: `take_a_drag_down_from_the_bar`
+    // asked it with `on_the_bar`, a conclusion of the turn of the frame that a view with no offset could leave at zero —and then
+    // every finger of the bar was the page's and both cards were dead while the pages still worked—. The row of the glass cannot
+    // say that. **And if the bar is not on the glass at all** —an app with the whole glass, docs/46 D1— the same gesture is the
+    // person asking for the bar: it comes back and the card hangs from it (el mateix camí que va obrir 0.192.32, docs/30).
     touch::Gesture gesture;
-    if (!touch::take_drag_down_from_the_bar(kPullPx, gesture)) return;
+    if (!touch::take_a_drag_down_from_the_system_rows(kPullPx, gesture)) return;
+    if (!bar::visible() && !ui::full_screen(false)) {
+      log_printf(pal::kLogWarn, "PANEL", "a pull from the whole glass did not give the bar back");
+      return;
+    }
     pull_it_out();
     // **I EL QUE HA PASSAT ABANS DE LA TARGETA NO LA POT TANCAR** (0.179.44): the gestures of the queue are the ones the
     // page was told about or nobody was, and a tap of a moment ago is a tap that happened **before** there was a card to
@@ -791,7 +808,7 @@ void poll() {
     const uint8_t down = touch::points(live, touch::kMaxPoints);
     int16_t under = -1;
     if (down > 0) {
-      Key held = Key::kBack;
+      Key held = Key::kPowerOff;
       if (the_key_under(live[0].x, live[0].y, held)) under = static_cast<int16_t>(held);
     }
     if (under != g_sunk) {
@@ -816,7 +833,7 @@ void poll() {
     // finger on it for a second has pressed it —the gesture of a contact held that long is `long` and not `tap`, and the card
     // answered nothing at all: the gear stayed turned over and the settings never came (measured on the emulator)— (docs/30).
     if (strcmp(gesture.kind, "tap") == 0 || strcmp(gesture.kind, "long") == 0) {
-      Key which = Key::kBack;
+      Key which = Key::kPowerOff;
       if (the_key_under(gesture.x, gesture.y, which)) {
         touch::forget_gestures();
         // **El botó s'enfonsa i després fa el que diu**: the press is the paint of that key turned over, which is what a finger on a

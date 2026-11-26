@@ -45,6 +45,11 @@ void boot_with_a_panel() {
   kernel::display::set_rotation(0);  // the glass' own frame; the portrait page is tried below
   bar::boot(hal::platform());
   ui::boot(hal::platform(), bar::height());
+  // **La franja es pinta al primer torn i no a l'arrencada** (0.192.23): `bar::boot` no dibuixa res perquè la lletra del disc encara no
+  // hi és —el primer traç sortia amb la taula de la flash i se'n pintava un altre als pocs mil·lisegons—, i qui la pinta sencera és el
+  // primer `poll` del torn de debò. Aquesta suite és una arrencada sense torn, o sigui que el que mirava era un vidre sense barra.
+  bar::refresh();
+  bar::poll();
   g_booted = true;
 }
 

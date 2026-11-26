@@ -169,8 +169,12 @@ class Esp32Nvs : public IKeyValue {
     // **I esborrar el que no hi és no és un error** (0.190.90): la mateixa lliçó que a `get`, sense l'embolcall d'Arduino pel mig.
     nvs_handle_t handle = 0;
     if (nvs_open(ns, NVS_READWRITE, &handle) != ESP_OK) return false;
-    const bool removed = (nvs_erase_key(handle, key) == ESP_OK);
-    if (removed) (void)nvs_commit(handle);
+    // **I el «no hi era» tampoc** (0.191.11, trobat al registre de l'amo): `nvs_erase_key` torna `ESP_ERR_NVS_NOT_FOUND` per a una clau
+    // que no existeix, i aquesta porta ho comptava com un fracàs —o sigui que una baixada que esborrava `session/detached` quan no s'havia
+    // escrit mai deia `1 of the 4 change(s) did not reach the flash` i una placa perfectament desada quedava amb un avís (docs/70, docs/75).
+    const esp_err_t gone = nvs_erase_key(handle, key);
+    const bool removed = (gone == ESP_OK || gone == ESP_ERR_NVS_NOT_FOUND);
+    if (gone == ESP_OK) (void)nvs_commit(handle);
     nvs_close(handle);
     return removed;
   }

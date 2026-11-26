@@ -184,6 +184,9 @@ const int kEmuKeys = 3;
 bool g_key_down[kEmuKeys] = {false, false, false};
 // **Les baixades comptades** (0.190.66): l'estat d'una tecla no és prou per a un xip adormit, que el que veu és un flanc.
 uint32_t g_key_presses = 0;
+// **El RESET de la caixa demanat i encara no atès** (0.192.7): a flag and not a call, perquè el que l'ha demanat és la finestra i el que el
+// pot atendre és el fil que fa els torns.
+bool g_reset_requested = false;
 }  // namespace
 
 // **La tecla de sempre passa pel mateix camí**: si no, una premsa feta amb `press_button` no comptaria i un xip adormit no es
@@ -199,6 +202,19 @@ void press_key(int key, bool down) {
 }
 
 uint32_t key_presses() { return g_key_presses; }
+
+// **I els dos botons que no són tecles del nucli** (0.192.7): the RESET is the chip's `EN` —the fil principal el veu i torna a arrencar
+// (`take_reset`), i el sistema no en sap res perquè un reset de debò no dona comiat a ningú—, i el BOOT de GPIO0 **sí** que desperta un xip
+// adormit (l'espera del son compta pulsacions) però **no** és cap tecla quan la placa corre (docs/50, docs/85).
+void press_reset() { g_reset_requested = true; }
+
+void press_boot() { ++g_key_presses; }
+
+bool take_reset() {
+  const bool asked = g_reset_requested;
+  g_reset_requested = false;
+  return asked;
+}
 
 bool button_down() { return g_key_down[0]; }
 
@@ -444,6 +460,12 @@ HostClock& host_clock() {
 // translation unit's secret and the anonymous namespace is not reachable from outside.
 void emulator_advance_clock(int64_t delta) { host_clock().advance_ms(delta); }
 
+// **I el comptador monòton que el pin `EN` torna a zero** (0.192.8): a reset is not a wake-up, and the chip's own counter starts again
+// with the firmware. The hour does not move —that is what `note_the_chip_restarted` says for a deep sleep too— and the pin takes the
+// same door (docs/50, docs/60).
+void emulator_the_chip_was_reset() { host_clock().note_the_chip_restarted(); }
+
+
 namespace {
 
 // The board sleeps and this one does not: the virtual clock jumps to the hour it
@@ -596,17 +618,21 @@ class FakeInput : public IInput {
     return mono_ms() - started_ms_[key];
   }
 
-  // The emulator imitates the band of the Paper: one compound dial of three keys on
-  // the right face of the page, so an app that reads the positions can be tried on the PC
-  // (docs/50, docs/85).
-  Face face(uint32_t) override { return Face::kRight; }
+  // **Cada model té la seva forma, i la diu el model** (0.192.6, l'amo: *«l'emulador de T5S3 te els botons malement, quina definició de
+  // botons té?»*): fins avui això era **la taula del dial del Paper** —tres tecles compostes a la cara dreta— per a qualsevol placa, o
+  // sigui que un model amb una sola tecla en sortia amb la cara, el lloc i la mena d'un dial que no té. El que es respon és el que la
+  // placa declara al seu descriptor (docs/50, docs/85).
+  Face face(uint32_t) override { return emu::model().key_face; }
   Spot spot(uint32_t key) override {
-    // The emulator has the Paper's shape: a vertical dial of three keys (docs/85).
-    if (key == 1) return Spot::kUp;
-    if (key == 2) return Spot::kDown;
-    return Spot::kCentre;
+    // **El dial del Paper és l'únic amb tres llocs**: les altres bandes tenen una tecla i el seu lloc és el del model (docs/85).
+    if (emu::model().keys >= 3) {
+      if (key == 1) return Spot::kUp;
+      if (key == 2) return Spot::kDown;
+      return Spot::kCentre;
+    }
+    return emu::model().key_spot;
   }
-  KeyKind kind(uint32_t) override { return KeyKind::kCompound; }
+  KeyKind kind(uint32_t) override { return emu::model().key_kind; }
   uint32_t group(uint32_t) override { return 0; }
 
  private:
@@ -648,8 +674,16 @@ class FakePower : public IPower {
     // **The cable, when the run says so** (0.189.56): `--charging` puts the board on a cable, which is the one thing of the
     // battery that the model could not say before and the mark of the port and the bolt of the figure are painted from
     // (docs/50, docs/85).
-    charging = emu::options().charging;
+    // **I la cel·la plena no és una càrrega** (0.192.12): `--charge-done` is a cable in and a BQ25896 answering `done`, o sigui que el llamp
+    // de la figura no hi és i la marca del port sí (docs/50, docs/85).
+    charging = emu::options().charging && !emu::options().charge_done;
     return true;
+  }
+
+  // **I el cable, que el run diu amb `--charging`** (0.192.12): la marca del port de la barra surt d'aquí i no de `--battery-ma`, perquè un
+  // cable no és un corrent: el model no té l'estat `done` del BQ25896 i el que pot dir és el que sap (docs/85).
+  bool on_a_cable() const override {
+    return emu::model().gauge && (emu::options().charging || emu::options().charge_done);
   }
 
   // **El que el comptador de coulombs diria** (0.190.155): the emulator of a board whose battery is a BQ27220 answers the two
@@ -686,7 +720,9 @@ class FakePower : public IPower {
       return true;
     }
     out.input = "adapter";
-    out.charge = "fast";
+    // **L'estat que el carregador sap dir i el model no tenia** (0.192.12): `--charge-done` és la cel·la plena en un cable, que és `done` al
+    // `CHRG_STAT` del BQ25896 i no `fast` (docs/50, docs/85).
+    out.charge = emu::options().charge_done ? "done" : "fast";
     out.power_good = true;
     out.vbus_mv = 5100;
     out.vsys_mv = static_cast<int>(emu::options().battery_mv) + 100;
@@ -698,6 +734,14 @@ class FakePower : public IPower {
   bool sleep(SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel = false) override {
     (void)keep_the_panel;
     const char* depth = (mode == SleepMode::kDeep) ? "deep" : "light";
+    // **Una placa que refusa la baixada** (0.191.11): the board is asked last, when the session is written, the rails are down and the
+    // picture of the sleep is on the glass, i el que el nucli ha de fer amb tot això és el que aquesta opció existeix per veure. Les
+    // bandes de debò hi tenen tres maneres de dir que no —cap porta que es pugui armar, un xip que no les pren, una hora que ja ha
+    // passat— i cap model d'aquest emulador en tenia cap (docs/50, docs/85).
+    if (emu::options().cannot_sleep && mode == SleepMode::kDeep) {
+      fprintf(stderr, "power: %s sleep refused by the board (this run stays awake)\n", depth);
+      return false;
+    }
     // **Dos models, i el que mana és si aquest run paga el temps del maquinari** (0.190.66). Amb `--no-delay` —i a tota la suite—
     // el rellotge salta fins a l'hora i el xip no s'atura: és el model de sempre i el que fa que una prova de deu minuts costi un
     // mil·lisegon. Amb els temps de debò el xip **dorm**: el nucli no fa cap volta fins que una interrupció el torna, i el que el
@@ -757,7 +801,14 @@ class FakePower : public IPower {
     // **I un son profund és un reinici del xip** (0.190.68): a la placa la crida no torna —el xip s'arrenca i el nucli fa un boot
     // sencer, amb la pàgina de la persona tornant de la sessió—, i aquí el que es pot fer és dir-ho perquè el torn acabi amb aquest
     // `kernel::boot`. La RTC RAM es queda (és el que fa el xip), o sigui que la marca de l'arrencada i l'hora hi són (docs/60, docs/85).
-    if (mode == SleepMode::kDeep) {
+    // **I el RESET és el pin que atura el xip** (0.192.7): no és un despert d'un son, és una arrencada amb la causa del pin, i el que
+    // dormia no hi té res a dir (docs/50, docs/85).
+    if (why == emu::WakeBy::kReset) {
+      fprintf(stderr, "reset: the pin EN while the chip was asleep, and it starts again\n");
+      emu::note_the_reset(hal::ResetCause::kExternal);
+      emu::note_the_restart();
+      host_clock().note_the_chip_restarted();
+    } else if (mode == SleepMode::kDeep) {
       emu::note_the_reset(hal::ResetCause::kDeepSleep);
       emu::note_the_restart();
       host_clock().note_the_chip_restarted();
@@ -779,6 +830,9 @@ class FakePower : public IPower {
       case emu::WakeBy::kClosing:
         how = "the window being closed";
         break;
+      case emu::WakeBy::kReset:
+        how = "the RESET pin, which is a restart and not a wake";
+        break;
       default:
         how = "nothing at all (this run has no hour and no window to press anything)";
         break;
@@ -790,13 +844,21 @@ class FakePower : public IPower {
 
   // The Paper comes back on the chip's alarm when it is powered off, and on its own timer when it
   // is not; the ATOMs have no chip and only know the timer (docs/50).
-  const char* wakes() override { return emu::model().keeps_the_hour ? "timer, clock" : "timer"; }
+  // **Les portes, amb les paraules del model** (0.192.4): la frase llarga d'una placa és de la placa, i la d'aquest banc és el que imita
+  // de debò —el temporitzador, el rellotge, la tecla i el dit— (docs/50, docs/85).
+  const char* wakes() override { return emu::model().wakes; }
 
   // **I la son fonda d'aquesta placa és el corrent que se'n va** (0.189.182): the emulator of a board with a clock chip jumps the
   // hour to the alarm and the board comes back on the chip, which is a full power off and not a timer of the chip —so the idle
   // policy is allowed to take this board down to its next alarm, and a run can show the board sleeping and coming back for it—
   // (docs/50, docs/85). The ATOMs keep no hour and keep their own timer, which is not a power off (docs/50).
-  bool deep_powers_off() const override { return emu::model().keeps_the_hour; }
+  // **I el model ho diu, en lloc de deduir-ho del rellotge** (0.192.4): the Paper's deep sleep is the supply going away and the T5S3's is
+  // the chip's own with the cell still feeding the board, i les dues tenen un xip de rellotge amb pila (docs/50, docs/85).
+  bool deep_powers_off() const override { return emu::model().deep_sleep_is_a_power_off; }
+
+  // **I si el son és una manera d'estalvi quan no hi ha ningú** (0.192.4): la T5S3 hi baixa encara que no sigui cap apagada; els ATOM i el
+  // T-Koala no tenen cap porta per tornar-n'hi (docs/50, docs/60).
+  bool can_sleep_on_idle() const override { return emu::model().sleeps_on_idle; }
 
   // A board whose supply is cut stops being a board, and an emulator whose supply is cut stops being a
   // process: the answer is yes, the kernel leaves its loop, and the memories that are not a volume
@@ -805,14 +867,25 @@ class FakePower : public IPower {
   bool power_off() override {
     // A board that cannot cut its own supply says no here as well: the emulator answers what the model
     // does and not what the PC could do (docs/85).
-    if (!emu::model().powers_off) return false;
+    if (!emu::model().powers_off || emu::options().cannot_power_off) return false;
+    // **I una placa amb el carregador donant VBUS no es pot tallar** (0.192.4): the T5S3's BQ25896 keeps it up through the cable and its own
+    // maker says so —`battery_25896_is_vbus_in()` before the bit—, o sigui que amb `--charging` el model diu que no (docs/50, docs/85).
+    if (emu::model().charger && emu::options().charging) {
+      fprintf(stderr, "power: off refused (a cable is keeping the board up)\n");
+      return false;
+    }
     fprintf(stderr, "power: off (the emulator ends; rtc.bin and fram.bin are written)\n");
     return true;
   }
 
   // **I la mateixa resposta, preguntada** (0.189.18): the shutdown asks this before the margin, so that a board that cannot
   // be cut does not wait two seconds to be told so (docs/75).
-  bool can_power_off() const override { return emu::model().powers_off; }
+  // **I la mateixa resposta, amb el cable a dins inclòs** (0.192.4): `--cannot-power-off` és una placa sense pany i `--charging` és una placa
+  // amb el carregador sostenint-la, que és el cas de debò de la T5S3 (docs/50, docs/85).
+  bool can_power_off() const override {
+    if (!emu::model().powers_off || emu::options().cannot_power_off) return false;
+    return !(emu::model().charger && emu::options().charging);
+  }
   bool can_sleep_with_the_keys() const override { return emu::model().keys_wake; }
 
   // **El dit com a porta, que aquest model sí que pot dir** (0.190.16): the PC has no touch controller to keep awake, so what is imitated is
@@ -826,7 +899,13 @@ class FakePower : public IPower {
   // **I la becaina sí que es pot modelar** (0.190.66): with the hardware's times on, a nap is the chip stopped for those
   // milliseconds and a key, the glass or the timer bringing it back; with the clock skipped there is no time to sleep, o sigui que
   // la resposta és la de sempre i el sistema espera despert com abans (docs/50, docs/85).
-  bool can_nap() const override { return emu::options().delays; }
+  // **I el model diu si aquesta placa en fa** (0.192.4): la T5S3 no, perquè la seva consola és el USB del xip i un son lleuger l'atura; el
+  // Paper i els ATOM sí (docs/50, docs/85).
+  bool can_nap() const override { return emu::options().delays && emu::model().naps; }
+
+  // **La consola com a porta** (0.192.4): la del Paper és un pont sèrie que segueix escoltant mentre el xip dorm; la de la T5S3 és el USB del
+  // propi xip i una becaina la deixa sorda (docs/50, docs/85).
+  bool the_console_can_wake() const override { return emu::model().console_wakes; }
 
 
   // **La pregunta del reinici, que el nucli fa des del camí de la baixada** (0.190.68): true una vegada quan el darrer son profund
@@ -1762,7 +1841,20 @@ class EmulatorPlatform : public IPlatform {
 
   // **El cercle de sota el vidre, si el run el posa** (0.190.288): no model of this emulator has the false button of the T5S3's front, o
   // sigui que el commutador de la pestanya Input no tindria cap tecla on provar-se (docs/50, docs/85).
-  bool a_button_under_the_glass() const override { return emu::options().button_under_the_glass; }
+  // **Si les tecles caminen la pàgina, que és una pregunta de la placa** (0.192.6): el dial del Paper mou l'anell; la tecla sola de la T5S3
+  // no, i el HAL de la placa ho diu. Aquí ho diu el model (docs/30, docs/50).
+  bool keys_are_for_the_page() const override { return emu::model().keys_for_the_page; }
+
+  // **El cercle del davant, que és del model o del run** (0.192.4): la T5S3 en té un de debò i `--swbutton` continua servant per posar-ne un
+  // a un model que no en té (docs/50, docs/85).
+  // **Si pintar és calcular, que és una pregunta de la placa** (0.192.4): a la T5S3 no hi ha controlador de panell i les files les ha de
+  // reunir el processador, o sigui que el rellotge no pot baixar enmig d'una pintada; el Paper té controlador i espera tinta
+  // (docs/50, docs/95).
+  bool a_paint_is_work() const override { return emu::model().paint_is_work; }
+
+  bool a_button_under_the_glass() const override {
+    return emu::model().sw_button || emu::options().button_under_the_glass;
+  }
 
   // One board, and it is the one this emulator was told to be: an app is accepted or
   // refused here exactly as it would be on that board, which is the only way a manifest
@@ -1808,7 +1900,12 @@ class EmulatorPlatform : public IPlatform {
       // and a finger goes through it, and the binary turns both on unless the run says no. Without this
       // line an app that asks `sys.caps().display` was told no on an emulator that had one, while the view
       // behind it was there and the boot line said so (found running `layers` on the emulator, 1/11).
-      if (emu::model().glass && emu::options().display) caps_.add(kCapDisplay);
+      if (emu::model().glass && emu::options().display) {
+        caps_.add(kCapDisplay);
+        // **I el vidre d'aquest model es renta sencer a cada arrencada** (0.192.10): the panel of the T5S3 keeps the ghost of what it
+        // was showing, and the model says so with the same capability the board's HAL adds (docs/50, docs/85).
+        if (emu::model().wash_at_boot) caps_.add(kCapWashAtBoot);
+      }
       if (emu::model().touch && emu::options().touch) caps_.add(kCapTouch);
       // The light and the sensor are the hardware of the model and of nobody else (docs/50).
       if (emu::model().lights > 0) caps_.add(kCapLed);
@@ -1966,6 +2063,11 @@ bool led_pixel(uint32_t index, uint8_t& r, uint8_t& g, uint8_t& b) {
 // The emulator's clock, moved by hand: a test that watches a five-second breath does not wait
 // five seconds for it (docs/30, docs/85).
 void advance_ms(int64_t delta) { hal::emulator_advance_clock(delta); }
+
+// **I el comptador monòton que el pin `EN` torna a zero** (0.192.8): a reset of the chip is not a wake-up —the `esp_timer` starts again
+// with the firmware—, o sigui que el que mesura un son no compta l'estona que el procés ha viscut abans del pin. **L'hora no es mou**,
+// que és el que `note_the_chip_restarted` ja diu per al son profund, i per això el pin entra per la mateixa porta (docs/50, docs/60).
+void the_chip_was_reset() { hal::emulator_the_chip_was_reset(); }
 
 uint32_t held_the_power() { return g_held_the_power; }
 

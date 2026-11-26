@@ -151,6 +151,15 @@ botiga, quan les escriu totes de cop a la baixada, també les diu** (0.190.111):
 [W][NVS] 1 of the 4 change(s) did not reach the flash: cfg/... (ESP_ERR_NVS_NOT_ENOUGH_SPACE)
 ```
 
+**I la baixada hi deixa el que porta la cel·la** (0.192.0): `power/before` és una fila de text —`kind hora mv punts mAh mA`— escrita
+abans de `settle_before_leaving`, que és qui comet la botiga, i l'arrencada que ve la llegeix una vegada i la gasta (docs/50).
+
+**I el que no hi era no és una escriptura perduda** (0.191.11, trobat al registre de l'amo: *«[W][NVS] 1 of the 4 change(s) did not reach the
+flash: alarms/queue session/app session/path session/detached»*). `nvs_erase_key` torna `ESP_ERR_NVS_NOT_FOUND` per a una clau que no
+existeix —i una baixada esborra coses que aquell run no havia escrit mai, com `session/detached`—, o sigui que la porta d'esborrar ho
+comptava com un fracàs tot i el seu propi comentari: *«esborrar el que no hi és no és un error»*. Ara el «no hi era» és èxit i el recompte de
+la baixada diu la veritat; una placa perfectament desada ja no queda amb un avís.
+
 **I el nivell del registre es desa abans d'aplicar el filtre** (0.190.111): la línia del canvi de nivell és l'última que es veu amb el nivell
 vell, o sigui que `cfg loglevel warn` deixa escrita la línia que diu que el registre ja només vol avisos.
 

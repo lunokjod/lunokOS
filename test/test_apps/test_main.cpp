@@ -13877,23 +13877,33 @@ void test_the_font_viewer_opens_every_format_the_system_reads(void) {
     pump_turns(400);
     return true;
   };
+  // **El dit que camina de costat i torna** (0.192.28): the specimen has no door of its own any more, o sigui que el camí que
+  // aquest cas prem és el gest —dos-cents quaranta píxels cap a un costat, al mig del vidre— (docs/30).
+  auto swipe = [&](int x, int y, int walk) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    for (int step = 1; step <= 4; ++step) {
+      const int here = x + (walk * step) / 4;
+      if (!panel->finger_move(0, static_cast<uint16_t>(view.x + here), static_cast<uint16_t>(view.y + y))) return false;
+      pump_turns(40);
+    }
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
 
   capture_begin();
   TEST_ASSERT_TRUE(tap(row_x, row_y));
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open bdf-sample.bdf BDF"), g_out);
-  int back_x = -1;
-  int back_y = -1;
-  at = strstr(g_out, "fonts: backbox ");
-  TEST_ASSERT_NOT_NULL_MESSAGE(at, g_out);
-  TEST_ASSERT_EQUAL_INT(2, sscanf(at + strlen("fonts: backbox "), "%d %d", &back_x, &back_y));
 
-  // **And the way back is a button**, which is the finger's road to the shelf the pinch takes for a person who knows the
-  // gesture (docs/30).
+  // **I la manera de tornar és el gest** (0.192.28, l'amo: *«Treu el botó UI "back" de la vista detall de Fonts»*): the
+  // specimen is a view on top of the shelf, so the finger that walks sideways gives it back and the shelf is what is left
+  // —the arrow of the card of the bar and the pinch are the other two roads, and they are the system's— (docs/30).
   capture_begin();
-  TEST_ASSERT_TRUE(tap(back_x, back_y));
+  TEST_ASSERT_TRUE(swipe(static_cast<int>(view.width) / 2 - 120, static_cast<int>(view.height) / 2, 240));
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back by the swipe, 240 px"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: row bdf-sample.bdf"), g_out);
 
   if (kernel::app_running()) {
@@ -20277,6 +20287,20 @@ void test_the_faces_app_opens_more_specimens_than_the_board_keeps(void) {
     pump_turns(400);
     return true;
   };
+  // **El gest que torna d'un exemplar** (0.192.28): the door of the detail is gone, o sigui que el camí que aquest cas prem és
+  // el dit que camina de costat.
+  auto swipe = [&](int x, int y, int walk) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    for (int step = 1; step <= 4; ++step) {
+      const int here = x + (walk * step) / 4;
+      if (!panel->finger_move(0, static_cast<uint16_t>(view.x + here), static_cast<uint16_t>(view.y + y))) return false;
+      pump_turns(40);
+    }
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
 
   // **Four specimens, one after the other**: each one opens its face, is looked at and goes back to the shelf —which is
   // where the face has to be given back, because the board keeps three (docs/75).
@@ -20287,16 +20311,12 @@ void test_the_faces_app_opens_more_specimens_than_the_board_keeps(void) {
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open "), g_out);
     TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: cannot open"), g_out);
 
-    // And back, from the door the app says where it is.
-    int back_x = 0;
-    int back_y = 0;
-    const char* box = strstr(g_out, "fonts: backbox ");
-    TEST_ASSERT_NOT_NULL_MESSAGE(box, g_out);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(box, "fonts: backbox %d %d", &back_x, &back_y), g_out);
+    // **I es torna amb el gest** (0.192.28): the specimen has no door of its own any more; the finger that walks sideways
+    // is the road this case takes, i la fletxa de la targeta i el pessic són les del sistema (docs/30).
     capture_begin();
-    TEST_ASSERT_TRUE(tap(back_x, back_y));
+    TEST_ASSERT_TRUE(swipe(static_cast<int>(view.width) / 2 - 120, static_cast<int>(view.height) / 2, 240));
     capture_end(g_out, sizeof(g_out));
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back by the swipe"), g_out);
   }
 
   kernel::shell::close_app();
@@ -20626,6 +20646,20 @@ void test_the_specimen_gives_the_passages_their_room_and_the_way_back_below(void
     pump_turns(400);
     return true;
   };
+  // **El dit que camina de costat i torna** (0.192.28): a face has no door of its own any more, o sigui que el camí que aquest
+  // cas prem és el gest.
+  auto swipe = [&](int x, int y, int walk) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    for (int step = 1; step <= 4; ++step) {
+      const int here = x + (walk * step) / 4;
+      if (!panel->finger_move(0, static_cast<uint16_t>(view.x + here), static_cast<uint16_t>(view.y + y))) return false;
+      pump_turns(40);
+    }
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
 
   // **La fila d'una cara, on l'app diu que és** (`run fonts shelf`, docs/85): a case presses a name and not a coordinate it
   // would have to know.
@@ -20638,15 +20672,11 @@ void test_the_specimen_gives_the_passages_their_room_and_the_way_back_below(void
   TEST_ASSERT_EQUAL_INT(2, sscanf(row + strlen("fonts: row dejavusansmono.ttf "), "%d %d", &row_x, &row_y));
 
   // **Un exemplar que ja era obert** (docs/30): the shape of the app is the one the case of before left, and a page that came
-  // back on a specimen has to go back to the shelf before a row of it is pressed —which is the same door this case is about.
+  // back on a specimen has to go back to the shelf before a row of it is pressed —which is the same gesture this case is
+  // about (0.192.28: the button is gone and the finger that walks sideways is the road)—.
   if (strstr(g_out, "fonts: came back to ") != nullptr) {
-    const char* door = strstr(g_out, "fonts: backbox ");
-    TEST_ASSERT_NOT_NULL_MESSAGE(door, g_out);
-    int door_x = 0;
-    int door_y = 0;
-    TEST_ASSERT_EQUAL_INT(2, sscanf(door + strlen("fonts: backbox "), "%d %d", &door_x, &door_y));
     capture_begin();
-    TEST_ASSERT_TRUE(tap(door_x, door_y));
+    TEST_ASSERT_TRUE(swipe(static_cast<int>(view.width) / 2 - 120, static_cast<int>(view.height) / 2, 240));
     capture_end(g_out, sizeof(g_out));
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
   }
@@ -20680,26 +20710,15 @@ void test_the_specimen_gives_the_passages_their_room_and_the_way_back_below(void
   TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(3, rows_shown, g_out);
   TEST_ASSERT_GREATER_THAN_MESSAGE(rows_shown, lines_total, g_out);
 
-  // **I la manera de tornar, a sota del requadre i dins del vidre**: the button is the last thing of the column, and a page
-  // that pushes it off the glass is a page a finger cannot leave (docs/30).
-  int edge_top = 0;
-  int edge_bottom = 0;
-  const char* edge = strstr(g_out, "fonts: backrows ");
-  TEST_ASSERT_NOT_NULL_MESSAGE(edge, g_out);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(edge + strlen("fonts: backrows "), "%d %d", &edge_top, &edge_bottom), g_out);
-  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(box_y + box_h, edge_top, g_out);
-  TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(static_cast<int>(view.height), edge_bottom, g_out);
+  // **I el peu de la pàgina és el requadre i prou** (0.192.28): with the door gone, what has to fit the glass is the box of
+  // the passages —a box pushed off the bottom is a specimen whose paragraphs nobody can read— (docs/30, docs/90).
+  TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(static_cast<int>(view.height), box_y + box_h, g_out);
 
-  // And the door is the door it says: a finger on it is the shelf again (docs/30).
-  const char* door = strstr(g_out, "fonts: backbox ");
-  TEST_ASSERT_NOT_NULL_MESSAGE(door, g_out);
-  int back_x = 0;
-  int back_y = 0;
-  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(door + strlen("fonts: backbox "), "%d %d", &back_x, &back_y), g_out);
+  // **I la manera de tornar és el gest**: a finger that walks sideways is the shelf again, which is the road the door was for.
   capture_begin();
-  TEST_ASSERT_TRUE(tap(back_x, back_y));
+  TEST_ASSERT_TRUE(swipe(static_cast<int>(view.width) / 2 - 120, static_cast<int>(view.height) / 2, 240));
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back by the swipe"), g_out);
 
   if (kernel::app_running()) {
     kernel::shell::close_app();
@@ -20837,17 +20856,13 @@ void test_the_swipe_to_the_left_of_the_specimen_is_the_way_back(void) {
   TEST_ASSERT_EQUAL_INT(2, sscanf(row + strlen("fonts: row dejavusansmono.ttf "), "%d %d", &row_x, &row_y));
 
   // **Un exemplar que ja era obert** (docs/30): the shape of the app is the one the case of before left, and a page that
-  // came back on a specimen has to be left before a row of the shelf is pressed.
+  // came back on a specimen has to be left before a row of the shelf is pressed —amb el dit que camina, que des de la
+  // 0.192.28 és l'únic camí que té la pàgina a més de la fletxa i el pessic del sistema—.
   if (strstr(g_out, "fonts: came back to ") != nullptr) {
-    const char* door = strstr(g_out, "fonts: backbox ");
-    TEST_ASSERT_NOT_NULL_MESSAGE(door, g_out);
-    int door_x = 0;
-    int door_y = 0;
-    TEST_ASSERT_EQUAL_INT(2, sscanf(door + strlen("fonts: backbox "), "%d %d", &door_x, &door_y));
     capture_begin();
-    TEST_ASSERT_TRUE(tap(door_x, door_y));
+    TEST_ASSERT_TRUE(swipe_sideways(static_cast<int>(view.width) / 2 - 120, static_cast<int>(view.height) / 2, 240));
     capture_end(g_out, sizeof(g_out));
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back by the swipe"), g_out);
   }
 
   capture_begin();

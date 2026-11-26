@@ -655,19 +655,22 @@ local function paintBand(mode)
   ui.text(x + padX, y + padY, words, scale, Ink, mode)
 end
 
--- **The strip: the score, the level, its bar and the speed**, which is what a person reads while playing. The old app's own
--- line and its own bar, with the two doors this port has instead of its card.
-local function speedText() return string.format('%d ms', stepMs()) end
-
+-- **The strip: the score, the best, the level and its bar**, which is what a person reads while playing. The old app's own line
+-- and its own bar, with the two doors this port has instead of its card. **Dues files** (0.192.26): `Score 12   Best 30   L 3` en
+-- una de sola no hi cap a la franja que deixen els botons, i el marcador i el que l'acompanya es reparteixen les dues que hi ha.
 local function scoreText()
+  return string.format('Score %d', score)
+end
+
+local function bestText()
   -- **I de qui és la partida es diu aquí**: `L 3` és el nivell de la persona i `CPU 3` el de la demostració, que són dues escales
   -- i no una (the old app's `paintStatus` and its `tag`, docs/45).
-  return string.format('Score %d   Best %d   %s %d', score, best, demo and 'CPU' or 'L', demo and cpuLevel or level)
+  return string.format('Best %d   %s %d', best, demo and 'CPU' or 'L', demo and cpuLevel or level)
 end
 
 local function paintStatus(mode)
   if the_score ~= nil then the_score.text = scoreText() end
-  if the_speed ~= nil then the_speed.text = speedText() end
+  if the_speed ~= nil then the_speed.text = bestText() end
 
   -- **The bar of the level is a frame and its ink**: a bar of no progress is a frame with nothing in it, and a bar of the
   -- whole level is a frame full of ink (the old app's `paintStatus`). **I és tan ampla com la columna del marcador** i no com
@@ -686,13 +689,13 @@ end
 local function footerText()
   if demo then return 'The CPU is playing. Tap to take over.' end
   if over then
-    if why == 'wall' then return 'The wall. Tap New.' end
-    if why == 'tail' then return 'Its own tail. Tap New.' end
+    if why == 'wall' then return 'The wall. Tap the arrow.' end
+    if why == 'tail' then return 'Your tail. Tap the arrow.' end
     if why == 'full' then return 'The field is full - you win!' end
 
-    return 'Game over. Tap New.'
+    return 'Game over. Tap the arrow.'
   end
-  if paused then return 'Paused. Tap Resume.' end
+  if paused then return 'Paused. Tap the triangle.' end
   if score == 0 then return 'Tap where you want the head to go.' end
 
   return 'Tap to turn.'
@@ -701,7 +704,7 @@ end
 local function paintFooter(mode)
   if the_foot ~= nil then the_foot.text = footerText() end
 
-  if the_pause ~= nil then the_pause.title = paused and 'Resume' or 'Pause' end
+  if the_pause ~= nil then the_pause.icon = paused and 'play' or 'pause' end
 end
 
 -- **The ink of one box is waited before the next is asked for** (`ui.idle`, docs/30): a box that arrives while the glass
@@ -770,14 +773,14 @@ local function measure(w, h)
   fieldX = math.floor((w - fieldW) / 2)
   fieldY = stripH + math.max(0, math.floor((h - stripH - Footer - fieldW) / 2))
 
-  -- **El botó es mesura de la seva paraula** (docs/30, docs/45): a pixel of difference is a word with dots at the end.
-  newW = ui.text_width('New', kSmall) + 2 * BtnPad + 2
-  if newW < BtnMinW then newW = BtnMinW end
+  -- **Els dos botons del joc són quadrats i porten una marca** (0.192.26, l'amo: *«Substitueix els botons de New i Pause per icones
+  -- corresponents»*): `reboot` per a una partida nova i `pause`/`play` per a aturar-la i reprendre-la, i el marcador es queda amb la
+  -- meitat de la franja que abans es menjaven dues paraules (docs/30, docs/45).
+  newW = BtnH + 2
   newX = w - Margin - newW
   newY = 6
 
-  pauseW = ui.text_width('Resume', kSmall) + 2 * BtnPad + 2
-  if pauseW < BtnMinW then pauseW = BtnMinW end
+  pauseW = BtnH + 2
   pauseX = newX - 8 - pauseW
   if pauseX < Margin then pauseX = Margin end
   pauseY = 6
@@ -794,7 +797,7 @@ local function measure(w, h)
     if the_new ~= nil then
       the_new.focusable = false
       the_new.scale = kSmall
-      the_new.title = 'New'
+      the_new.icon = 'reboot'
     end
   else
     the_new:resize(newW, BtnH)
@@ -806,6 +809,7 @@ local function measure(w, h)
     if the_pause ~= nil then
       the_pause.focusable = false
       the_pause.scale = kSmall
+      the_pause.icon = 'pause'
     end
   else
     the_pause:resize(pauseW, BtnH)

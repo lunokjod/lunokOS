@@ -1068,8 +1068,9 @@ function build()
   -- (`cfg.sleep`) perquè el pròxim boot no torni a la política del sistema. El que la fila ensenya és el que la política té, no el que
   -- l'app ha demanat (docs/30, docs/45).
   -- **I el dit com a porta** (0.190.16, l'amo: *«opcionalment el panell tàctil (per defecte false) així no cal mantenir despert el
-  -- panell»*): a finger on the glass wakes the board from a deep sleep, i ve apagat de sèrie perquè sentir un dit vol dir deixar el rail
-  -- del panell i el controlador del tàctil desperts tota la son. El que la fila ensenya és el que el sistema ha acceptat (docs/30, docs/45).
+  -- panell»*): a finger on the glass wakes the board from a deep sleep, i ve apagat de sèrie perquè sentir un dit vol dir deixar el
+  -- controlador del tàctil despert i escombrant tota la son (el rail del panell sí que baixa: el que compta és el controlador, que és qui
+  -- ha de veure el dit). El que la fila ensenya és el que el sistema ha acceptat (docs/30, docs/45).
   -- **I la fila només hi és on la placa hi pot sentir** (0.190.17, l'amo: *«a koala, atom i matri[x] simplement s'ignora el paràmetre»*): a
   -- board with no touch panel keeps the setting and does nothing with it, so a switch that says nothing would be a door to nowhere. The
   -- question is `caps.touch` and not the value, perquè el que decideix si la fila té feina és el maquinari (docs/30, docs/50).

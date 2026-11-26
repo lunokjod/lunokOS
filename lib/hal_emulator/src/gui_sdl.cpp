@@ -29,8 +29,10 @@ uint16_t g_turn = kChipPageDegrees;
 uint8_t g_scale = 1;
 uint8_t g_requested_scale = 0;
 bool g_button_down = false;
-uint8_t g_keys_count = 0;
-KeySide g_side = KeySide::kLeft;
+// **Els botons de la caixa, en una còpia** (0.192.7): `emu::model()` torna el model per valor, o sigui que un punter a les seves tecles
+// quedaria penjat; el que es desa és la taula sencera, que són cinc botons com a molt.
+Button g_buttons[kMostButtons];
+uint8_t g_button_count = 0;
 uint16_t g_win_w = 0;
 uint16_t g_win_h = 0;
 uint16_t g_page_w = 0;
@@ -164,6 +166,28 @@ void draw_lights() {
 
 // **The release the pump owes** (0.179.21): a click is kept down for `kClickHoldMs` so that a turn of the kernel reads it,
 // and this is the pump that puts it back up —the mouse has already been lifted and no more events are coming— (docs/85).
+// **Un botó de la finestra, cadascun amb la seva feina** (0.192.7): només el que és una tecla del nucli passa pel camí de les tecles; el
+// `RESET` reinicia la placa, el `BOOT` compta com una pulsació (desperta un xip adormit) i el que no és res no fa res (docs/50, docs/85).
+void press_button_of(uint8_t at) {
+  if (at >= g_button_count) return;
+  const Button& one = g_buttons[at];
+  switch (one.role) {
+    case ButtonRole::kKey:
+      if (one.key == 0xFF) return;
+      press_key(one.key, true);
+      gui_key_click_down(g_click, one.key, gui_now_ms());
+      return;
+    case ButtonRole::kReset:
+      press_reset();
+      return;
+    case ButtonRole::kBoot:
+      press_boot();
+      return;
+    default:
+      return;
+  }
+}
+
 void draw_keys();
 void release_the_click_if_due() {
   const int key = gui_key_click_held(g_click);
@@ -174,21 +198,17 @@ void release_the_click_if_due() {
 }
 
 void draw_keys() {
-  if (g_renderer == nullptr || g_keys_count == 0) return;
-  const bool row = (g_side == KeySide::kBottom);
-  const int top = gui_keys_top(g_win_h, g_keys_count);
-  const int left = gui_keys_left(g_win_w, g_keys_count);
-  for (uint8_t slot = 0; slot < g_keys_count; ++slot) {
-    const int key = gui_key_of_slot(g_keys_count, slot);
-    const int x = row ? left + slot * static_cast<int>(kKeyButtonWidth + kKeyGap)
-                      : ((g_side == KeySide::kRight)
-                             ? static_cast<int>(g_win_w) - static_cast<int>(kKeyStripWidth) +
-                                   static_cast<int>(kKeyMargin)
-                             : static_cast<int>(kKeyMargin));
-    const int y = row ? static_cast<int>(g_win_h) - static_cast<int>(kKeyRowHeight) +
-                            static_cast<int>(kKeyMargin)
-                      : top + slot * static_cast<int>(kKeyButtonHeight + kKeyGap);
-    const bool down = (key >= 0) && key_down(key);
+  if (g_renderer == nullptr || g_button_count == 0) return;
+  for (uint8_t i = 0; i < g_button_count; ++i) {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    if (!gui_button_rect(g_buttons, g_button_count, i, g_win_w, g_win_h, x, y, w, h)) continue;
+    const Button& one = g_buttons[i];
+    // **Un botó que no és una tecla del sistema no s'apaga mai** (0.192.7): el RESET reinicia i l'IO48 no fa res, o sigui que no hi ha cap
+    // estat que ensenyar; el que sí que s'encén és el `POWER`, que és la tecla que el nucli llegeix (docs/85).
+    const bool down = (one.role == ButtonRole::kKey) && one.key != 0xFF && key_down(one.key);
     SDL_Rect face = {x, y, kKeyButtonWidth, kKeyButtonHeight};
     if (down) {
       set_colour(kKeyPressedR, kKeyPressedG, kKeyPressedB);
@@ -207,22 +227,12 @@ void draw_keys() {
     } else {
       set_colour(kKeyTextR, kKeyTextG, kKeyTextB);
     }
-    // **The sign of the key and not its word** (0.85.1): the runs come from the shared geometry, so the two windows
-    // draw the same arrow and the same circle (docs/85).
-    KeyRun runs[kKeyIconRuns];
-    const uint8_t drawn =
-        gui_key_icon(g_keys_count, key, kKeyButtonWidth, kKeyButtonHeight, runs, kKeyIconRuns);
-    if (drawn > 0) {
-      for (uint8_t run = 0; run < drawn; ++run) {
-        SDL_Rect part = {x + runs[run].x, y + runs[run].y, runs[run].w, runs[run].h};
-        SDL_RenderFillRect(g_renderer, &part);
-      }
-    } else {
-      const char* label = gui_key_label(g_keys_count, key);
-      const int scale = 1;
-      draw_text(label, x + (kKeyButtonWidth - text_width(label, scale)) / 2,
-                y + (kKeyButtonHeight - 7 * scale) / 2, scale);
-    }
+    // **El nom que hi ha escrit a la caixa** (0.192.7): `RESET`, `POWER`, `BOOT`, `IO48`, `PWR`, `UP`, `DOWN`, `BUTTON` — el nom del botó
+    // i no una paraula que el codi s'inventi, perquè una persona que mira la finestra ha de saber què està prement (docs/85).
+    const char* label = one.name;
+    const int scale = 1;
+    draw_text(label, x + (kKeyButtonWidth - text_width(label, scale)) / 2,
+              y + (kKeyButtonHeight - 7 * scale) / 2, scale);
   }
 }
 
@@ -276,14 +286,14 @@ bool on_the_page(int x, int y) {
 
 bool gui_available() { return true; }
 
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights,
-              uint8_t light_max) {
+bool gui_open(uint16_t width, uint16_t height, const Button* buttons, uint8_t count, uint8_t scale,
+              uint8_t lights, uint8_t light_max) {
   if (g_window != nullptr) return true;
   if (width == 0 || height == 0) {
     width = 0;
     height = 0;
   }
-  if (width == 0 && keys == 0 && lights == 0) return false;
+  if (width == 0 && count == 0 && lights == 0) return false;
   if (SDL_Init(SDL_INIT_VIDEO) != 0) return false;
 
   SDL_DisplayMode mode;
@@ -295,17 +305,20 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   g_requested_scale = scale;
   g_width = width;
   g_height = height;
-  g_keys_count = keys;
-  g_side = side;
-  const int strip_w = (keys == 0) ? 0
-                                  : ((side == KeySide::kBottom) ? 0
-                                                                : static_cast<int>(gui_key_strip_width()));
-  const int strip_h = (keys == 0) ? 0
-                                  : ((side == KeySide::kBottom) ? static_cast<int>(gui_key_row_height()) : 0);
-  g_scale = gui_fit_scale(width, height, keys, side, mode.w, mode.h, scale);
+  // **Els botons de la caixa, i poden ser a les dues cares** (0.192.7): the window takes a strip on the left, a strip on the right and a row
+  // under the page, per the face each button is on, and the page keeps the room between them.
+  g_button_count = (count > kMostButtons) ? kMostButtons : count;
+  for (uint8_t i = 0; i < g_button_count; ++i) g_buttons[i] = buttons[i];
+  const bool has_left = gui_buttons_on(g_buttons, g_button_count, KeySide::kLeft) > 0;
+  const bool has_right = gui_buttons_on(g_buttons, g_button_count, KeySide::kRight) > 0;
+  const bool has_row = gui_buttons_on(g_buttons, g_button_count, KeySide::kBottom) > 0;
+  const int strip_w = (has_left ? static_cast<int>(gui_key_strip_width()) : 0) +
+                      (has_right ? static_cast<int>(gui_key_strip_width()) : 0);
+  const int strip_h = has_row ? static_cast<int>(gui_key_row_height()) : 0;
+  g_scale = gui_fit_scale_for(width, height, g_buttons, g_button_count, mode.w, mode.h, scale);
   g_page_w = (width == 0) ? 0 : static_cast<uint16_t>((width + g_scale - 1) / g_scale);
   g_page_h = (height == 0) ? 0 : static_cast<uint16_t>((height + g_scale - 1) / g_scale);
-  g_page_x = static_cast<uint16_t>((side == KeySide::kRight) ? 0 : strip_w);
+  g_page_x = static_cast<uint16_t>(has_left ? gui_key_strip_width() : 0);
   g_page_y = 0;
   // **The band of lights is the third part of the window** (0.179.17): under the page and above the row of keys, so the
   // face of the board reads as the board —the panel of lights, then the button— and a model with no glass has it at the
@@ -319,20 +332,24 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   g_light_max = (light_max == 0) ? 255 : light_max;
   const int lights_w = static_cast<int>(gui_lights_width(g_lights_count));
   const int lights_h = static_cast<int>(gui_lights_height(g_lights_count));
-  const int row_w = (side == KeySide::kBottom) ? static_cast<int>(gui_keys_width(keys)) : 0;
+  const int row_w = has_row ? static_cast<int>(gui_keys_width(gui_buttons_on(g_buttons, g_button_count, KeySide::kBottom))) : 0;
   g_stage_w = static_cast<uint16_t>(g_page_w);
   if (lights_w > static_cast<int>(g_stage_w)) g_stage_w = static_cast<uint16_t>(lights_w);
   if (row_w > static_cast<int>(g_stage_w)) g_stage_w = static_cast<uint16_t>(row_w);
   // **And the stage is at least as tall as a column of keys**: a board of one light and one key on its side would
   // otherwise open a window of twenty-four pixels with a button of forty hanging out of it (found on the window, 12/11).
-  const int column_h = (side == KeySide::kBottom) ? 0 : static_cast<int>(gui_keys_height(keys));
+  const uint8_t most_in_a_column = (gui_buttons_on(g_buttons, g_button_count, KeySide::kLeft) >
+                                    gui_buttons_on(g_buttons, g_button_count, KeySide::kRight))
+                                       ? gui_buttons_on(g_buttons, g_button_count, KeySide::kLeft)
+                                       : gui_buttons_on(g_buttons, g_button_count, KeySide::kRight);
+  const int column_h = static_cast<int>(gui_keys_height(most_in_a_column));
   g_stage_h = static_cast<uint16_t>(g_page_h + lights_h);
   if (column_h > static_cast<int>(g_stage_h)) g_stage_h = static_cast<uint16_t>(column_h);
   g_win_w = static_cast<uint16_t>(strip_w + g_stage_w);
   g_win_h = static_cast<uint16_t>(strip_h + g_stage_h);
   // A row of keys under a stage of nothing is still a window, and so is a panel of lights with no key.
-  if (g_win_w == 0) g_win_w = static_cast<uint16_t>(gui_keys_width(keys) + 2 * kKeyMargin);
-  if (g_win_h == 0) g_win_h = static_cast<uint16_t>(gui_keys_height(keys) + 2 * kKeyMargin);
+  if (g_win_w == 0) g_win_w = static_cast<uint16_t>(gui_keys_width(most_in_a_column) + 2 * kKeyMargin);
+  if (g_win_h == 0) g_win_h = static_cast<uint16_t>(gui_keys_height(most_in_a_column) + 2 * kKeyMargin);
 
   g_window = SDL_CreateWindow("lunokOS", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, g_win_w,
                               g_win_h, SDL_WINDOW_SHOWN);
@@ -371,14 +388,12 @@ void gui_show(const uint8_t* packed, uint16_t width, uint16_t height, uint16_t d
   g_turn = degrees;
   if (g_window == nullptr || packed == nullptr) return;
   if (width != g_width || height != g_height) {
-    const uint8_t keys = g_keys_count;
-    const KeySide side = g_side;
     const uint8_t requested = g_requested_scale;
     // **The colours of the lights outlive the window**: the strip is still latched and a window made again for a turned
     // page shows the frame that is on the board (docs/85).
     const uint8_t lights = g_lights_count;
     gui_close();
-    if (!gui_open(width, height, keys, side, requested, lights, g_light_max)) return;
+    if (!gui_open(width, height, g_buttons, g_button_count, requested, lights, g_light_max)) return;
   }
   if (g_texture == nullptr) return;
   gui_expand(packed, width, height, g_pixels, g_scale);
@@ -410,13 +425,14 @@ void gui_pump() {
         redraw();
       }
     } else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
-      const int key = gui_key_at(event.button.x, event.button.y, g_keys_count, g_win_w, g_win_h, g_side);
-      if (key >= 0) {
-        press_key(key, true);
-        gui_key_click_down(g_click, key, gui_now_ms());
+      // **Cada botó fa el que fa a la placa** (0.192.7): el `POWER` és una tecla del nucli, el `RESET` reinicia la placa, el `BOOT` no és cap
+      // tecla mentre la placa corre i l'`IO48` no és res. El que no és una tecla no passa pel camí de les tecles (docs/50, docs/85).
+      const int at = gui_button_at(event.button.x, event.button.y, g_buttons, g_button_count, g_win_w, g_win_h);
+      if (at >= 0) {
+        press_button_of(at);
         redraw();
         if (options().verbose) {
-          fprintf(stderr, "gui: key %d (%s) down\n", key, gui_key_label(g_keys_count, key));
+          fprintf(stderr, "gui: button %d (%s) down\n", at, g_buttons[at].name);
         }
       } else if (on_the_page(event.button.x, event.button.y)) {
         put_the_finger(event.button.x - static_cast<int>(g_page_x),

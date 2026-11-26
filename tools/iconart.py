@@ -116,6 +116,12 @@ MARKS = {
     # (docs/45, docs/92). Els altres que s'hi van mirar —`project-diagram`, `sitemap`, `broadcast-tower`, `connectdevelop`— o són arbres o
     # són massa dibuix per a una clau de setze mil·límetres.
     "mesh": (0xF1E0, "share-alt: three nodes joined to each other"),
+    # **Les dues del joc** (0.192.26, l'amo: *«Substitueix els botons de New i Pause per icones corresponents»*): the pause and the
+    # play of the three games of this system —Tetris, Snake i Mines—, que fins ara deien una paraula i es menjaven la meitat de la
+    # franja del marcador. `U+F04C` és les dues barres i `U+F04B` el triangle, que és el parell que tot el món llegeix; la represa
+    # és el triangle i no un altre dibuix, perquè el que el botó fa quan la partida està aturada és precisament tornar-hi (docs/45).
+    "pause": (0xF04C, "pause: the game stops where it is"),
+    "play": (0xF04B, "play: the game goes on"),
 }
 
 

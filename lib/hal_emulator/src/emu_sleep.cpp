@@ -54,6 +54,9 @@ WakeBy wait_until(int64_t deadline_ms, bool by_epoch, bool the_glass_is_a_door) 
     // La finestra es mira primer: un clic és una tecla premuda i una finestra tancada és el final del run.
     gui_pump();
     if (gui_close_requested()) return WakeBy::kClosing;
+    // **El RESET no és una porta del son, és el pin que atura el xip** (0.192.7): el que ve després no és el despert sinó una
+    // arrencada, i per això la resposta ho diu abans que res del rellotge —l'hora que s'esperava ja no té cap paper— (docs/50).
+    if (take_reset()) return WakeBy::kReset;
     if (key_presses() != keys_before) return WakeBy::kKey;
     if (the_glass_is_a_door && panel != nullptr && panel->contacts() != glass_before) return WakeBy::kGlass;
     if (deadline_ms > 0) {

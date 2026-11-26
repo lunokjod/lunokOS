@@ -28,10 +28,27 @@ void boot();
 // with a call of its own (docs/30).
 bool open();
 
-// How many rows the card takes under the bar: **a third of what the bar leaves, or the rows its keys need if they are more** —des de la
-// 0.190.219, que la targeta té tres files i les claus arriben més avall que el terç—. A card that covers everything is a page of the
-// system and not a panel (docs/30, docs/92).
+// How many rows the card takes under the bar: **the rows its keys need and no more** (0.192.25, l'amo: *«Ara els panells son molt grans per el
+// contingut que tenen, no?»*). El terç del vidre que era la seva forma des de la 0.179.22 era la mida d'una targeta de tres files; amb dues, el
+// que mana és el contingut, i el terç només hi torna en un vidre més baix que les claus (docs/30, docs/92).
 uint16_t height();
+
+// **Les quatre claus que naveguen són a la targeta de baix** (0.192.24, l'amo: *«Tots els botons de fila de Settings han d'anar abaix:
+// Settings, Home, Close i Back al panell de sistema inferior»*): la roda dels ajustos, la casa, la creu del camí de sortida i la fletxa
+// d'una pàgina enrere les pinta `panel_low`, i **el que saben i el que fan continua sent d'aquí**, perquè les preguntes —quines apps hi
+// ha al disc, quina pàgina es pot deixar, quantes vistes té l'app— les contesta aquest mòdul amb el portal i el shell, i dues targetes no
+// poden tenir dues idees de la mateixa clau (docs/30, docs/45).
+enum class PageKey : uint8_t { kSettings = 0, kHome = 1, kClose = 2, kBack = 3 };
+
+// Si la clau hi és: la creu sobre un llançador, la fletxa en una sola vista, la casa sobre la casa i la roda sense app no es pinten.
+bool a_page_key_is_there(PageKey which);
+
+// I el que fa, amb la targeta que sigui a fora tancada i la pàgina tornada o demanada.
+void press_a_page_key(PageKey which);
+
+// **El disc, preguntat una vegada per cada obertura**: la targeta de baix ha de saber quines apps de `cfg` hi són abans de pintar la
+// roda o la casa, i la resposta és la mateixa que la de dalt (docs/30, docs/40).
+void look_at_what_is_there();
 
 // **The hand of the panel**, asked in every turn before the app's: a drag that comes down from the bar opens the card,
 // **a tap outside the card** puts it away, and while the card is out the gestures the panel did not take are nobody's

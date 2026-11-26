@@ -2343,12 +2343,33 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   // docs/40).
   const bool shows_a_picture = splash && (target.splash[0] != '\0') && !restore;
   // **I una app que puja demana el vidre** (0.190.19): a wake for an alarm keeps the glass exactly as the sleep left it, i el que el
-  // desperta de debò és una pàgina que algú ha de veure —un `raise` d'una alarma, o la pàgina de la persona—. El que s'ha pintat mentre
-  // dormia no s'ha enviat, o sigui que la pàgina es deu sencera i la barra es pinta amb el títol de l'app que arriba (docs/30, docs/60).
+  // desperta de debò és una pàgina que algú ha de veure —un `raise` d'una alarma, o la pàgina de la persona—.
+  //
+  // **I el que el vidre ha de fer abans de continuar amb l'app és el `splash hide`** (0.192.2, l'amo: *«al tornar de deep sleep has de fer
+  // splash hide abans de continuar amb l'app»*). Fins avui aquí només es marcava **el deute de la pàgina**, i un deute es paga amb **la
+  // vista** (540×892 a 0,48) i amb **el mode que demani l'app**: el dibuix del son es quedava a les dues franges del sistema —que no són de
+  // cap app— i a tots els forats on la pàgina no té res, i un `du` o un `gl16` sobre aquella tinta la deixava a mig esborrar. Ara el vidre
+  // sencer torna a paper amb un `gc16` (`splash::hide`) i **després** l'app dibuixa: el que queda sota la seva primera pàgina és paper.
+  //
+  // **I una sola passada per retorn**: quan hi ha algú al davant, el que fa aquesta feina és `kernel::boot` (que renta abans de demanar la
+  // pàgina de casa) i aquí el vidre ja no dorm; aquest camí és el del despert que desperta **una app** —l'alarma que aixeca el Clock— i
+  // el d'una pàgina que torna quan el vidre encara té el dibuix del son. Si l'app porta una imatge pròpia no es paga: la imatge renta el
+  // vidre sencer unes línies més avall (docs/30, docs/50, docs/60).
 #if LUNOK_GLASS
   if (display::the_glass_is_asleep()) {
     display::set_the_glass_asleep(false);
-    ui::owe_the_page();
+    // **I es diu quina de les dues coses ha passat** (0.192.3): the line the boot wrote says the glass was left asleep, o sigui que
+    // aquesta és la que diu qui l'ha netejat —la imatge pròpia de l'app o el `splash hide`— i si no ho ha pogut fer, amb el motiu
+    // (docs/30, docs/60).
+    if (shows_a_picture) {
+      log_printf(pal::kLogInfo, "UI", "the page of %s wakes the glass, and its own picture washes it whole", id);
+    } else if (splash::hide()) {
+      log_printf(pal::kLogInfo, "UI", "the page of %s wakes the glass: washed whole with gc16 before it draws", id);
+    } else {
+      log_printf(pal::kLogWarn, "UI", "the page of %s wakes the glass and the wash did not take: %s", id,
+                 splash::last_error());
+      ui::owe_the_page();
+    }
   }
 #endif
   bar::title(target.title);
@@ -4410,6 +4431,21 @@ bool command_power(const char* argument) {
     out(" mV (");
     out_int(pct);
     out(charging ? " %, charging)" : " %)");
+    // **I les tres respostes que un «38 %» no diu** (0.192.16, l'amo: *«perqué si la batt està al 38% no està carregant?»*): la cel·la és la del
+    // gauge, el **cable** és del carregador (`VBUS_GD`), l'**estat de càrrega** és un altre registre del mateix xip (`CHRG_STAT`: `done` vol dir
+    // que la cel·la és plena per a ell) i el **ple** és del comptador (`FC` del seu `BatteryStatus`). Amb les quatre coses en una línia, un 38 %
+    // amb 4159 mV deixa de ser un misteri: es veu quina de les quatre discrepa (docs/30, docs/50).
+    hal::IPower* gauge = platform().power();
+    if (gauge != nullptr && gauge->on_a_cable()) out(", on a cable");
+    hal::IPower::ChargerDetail charger;
+    if (power::charger_detail(charger) && charger.charge[0] != '\0') {
+      out(", the charger says ");
+      out(charger.charge);
+    }
+    hal::IPower::BatteryDetail detail;
+    if (power::battery_detail(detail)) {
+      out(detail.declared_full ? ", the gauge calls the cell full" : ", the gauge does not call the cell full");
+    }
     newline();
   } else {
     // Not zero volts: "cannot tell", which is what this board means (docs/75).
@@ -5065,6 +5101,46 @@ void close_app(bool say) {
   //if (say) out("app closed\r\n");
 }
 
+// **El pin `EN`** (0.192.8, l'amo: *«vull el comportament del hardware exactament emulat a l'emulador»*): on a board this is not a
+// function and not a way down —the pin pulls `EN`, the chip stops between two instructions and the memory is gone before anybody can
+// say anything—. What the emulator needs is the other half of that sentence: its process does not stop, so the page, its interpreter and
+// its claims have to be let go here or the next boot would find a run that nobody closed. **Nothing is written**: no `on_close`, no
+// session parked, no store committed and not one pixel painted, and the blocks of the session memory go with the RAM (docs/30, docs/50).
+void lose_the_page_to_the_pin() {
+  char lost[24] = {};
+  const bool there_was_one = g_app_alive;
+  if (there_was_one) snprintf(lost, sizeof(lost), "%s", app_id());
+  // The wire and the light are given up first and silently: an app that was on the glass is not there any more, and a port left to a
+  // page that the pin took is a prompt that cannot read (docs/30, docs/50).
+  if (there_was_one) {
+    (void)serial::release_owner(lost, "the pin EN took the chip");
+    led::clear_colour();
+    led::set_state(led::State::kOff);
+    ui::keyboard_hide();
+    luabind::stop();
+    g_app_alive = false;
+  }
+  // **I la memòria de les sessions, que és RAM i no disc**: the blocks go without a park, because a board whose pin has been pulled has
+  // no way to write what was in its memory and this emulator does not invent one (docs/30, docs/75).
+  const uint32_t gone = session::lose_every_block();
+  log_printf(pal::kLogInfo, "MEMORY", "the pin EN takes the memory: %u session block(s) gone, nothing written",
+             static_cast<unsigned>(gone));
+  if (there_was_one) {
+    log_printf(pal::kLogInfo, "APPS", "%s dies with the chip: no goodbye and nothing written", lost);
+  }
+  // The rest is the bookkeeping the next boot would find as a page nobody closed: the finger, the views, the console of the chain and
+  // the glass that an app had taken (docs/30, docs/40).
+  touch::forget_the_page_before();
+  apps::reset_views();
+  g_was_detached = g_app_detached;
+  g_app_detached = false;
+  luabind::set_console_attached(true);
+  g_run_wanted[0] = '\0';
+  g_run_wanted_back = false;
+  ui::give_back_the_glass();
+  bar::title("");
+}
+
 // **La porta única, i prou** (0.190.251): the six positional arguments of `run_app` are turned into fields with names here and nowhere else,
 // o sigui que les portes de fora diuen què volen i no una combinació de booleans. Les tres que hi havia (`start_app`, `restore_app`,
 // `raise_app`) eren exactament això i han marxat; **`raise_app` tancava la pàgina del davant dues vegades** perquè `run_app` ja ho fa
@@ -5312,19 +5388,12 @@ LeaveOutcome close_the_app() {
 // a function and not a second copy: a power off that skips the wait leaves the last page of somebody's app on the glass (docs/50).
 bool power_off(const char* reason) {
   if (reason != nullptr && reason[0] != '\0') log_printf(pal::kLogInfo, "POWER", "power off: %s", reason);
-  // **L'app que és al vidre es tanca amb els seus comiats abans que el corrent es talli** (0.189.54): the way off parked the
-  // sessions and cut the supply **without closing the app**, so an `on_pause`/`on_save`/`on_close` never ran —the hour of
-  // `tz` is written there, and the shape of a page and whatever a page wants to write are too— while
-  // `power::deep_sleep_with_the_keys` did close it (0.189.25). The prompt that says `poweroff` has no app in front and this
-  // is nothing there. It goes **before the picture**, so the last ink on the glass is still the picture of the moment, and
-  // before the margin, because a hook may write (docs/30, docs/40, docs/75).
-  if (g_app_alive) close_app();
-  // **Una placa que no es pot tallar ho diu abans de gastar el repòs** (0.189.18): the picture, the wait and the margin are
-  // for a board that is really going to lose its supply; one that is powered by its cable says so and goes on running.
+  // **Una placa que no es pot tallar ho diu abans de tocar res** (0.189.18, i mogut aquí a la 0.191.9): the picture, the wait and the
+  // margin are for a board that is really going to lose its supply; one that is powered by its cable says so and goes on running.
   //
-  // **I ara de debò, i no després de pintar** (0.190.272): la imatge de la baixada es pintava abans de mirar si la placa pot
-  // baixar, o sigui que una placa endollada —que és l'única que arriba aquí dient que no— ensenyava «apagant-me» i tot seguit
-  // es quedava encesa. El que la placa té a dir es diu **abans** de la primera tinta i abans de dos segons de repòs (docs/50, docs/60).
+  // **I ara sí que és el primer**, and this is what the owner found: demanar `poweroff` amb el cable posat **tancava l'app** —els seus
+  // comiats, la pàgina perduda— i tot seguit deia que no, o sigui que la placa es quedava encesa a la pàgina del prompt havent fet la
+  // meitat de la feina. El que no pot passar no ha de tocar res: ni una app, ni una tinta, ni un repòs de dos segons (docs/30, docs/50).
   const bool can_go = platform().power() != nullptr && platform().power()->can_power_off();
   pal::IConsole* console = pal::system().console();
   if (!can_go) {
@@ -5332,6 +5401,13 @@ bool power_off(const char* reason) {
     if (console != nullptr) console->flush();
     return false;
   }
+  // **L'app que és al vidre es tanca amb els seus comiats abans que el corrent es talli** (0.189.54): the way off parked the
+  // sessions and cut the supply **without closing the app**, so an `on_pause`/`on_save`/`on_close` never ran —the hour of
+  // `tz` is written there, and the shape of a page and whatever a page wants to write are too— while
+  // `power::deep_sleep_with_the_keys` did close it (0.189.25). The prompt that says `poweroff` has no app in front and this
+  // is nothing there. It goes **before the picture**, so the last ink on the glass is still the picture of the moment, and
+  // before the margin, because a hook may write (docs/30, docs/40, docs/75).
+  if (g_app_alive) close_app();
   splash::show(power::going_down_picture(/*deep=*/false));
   if (console != nullptr) console->flush();  // the line has to be out before the supply goes
   splash::wait();
@@ -5348,9 +5424,23 @@ bool power_off(const char* reason) {
     log_printf(parked.ok == parked.files ? pal::kLogInfo : pal::kLogWarn, "MEMORY",
                "%u of %u session file(s) are on the disk", static_cast<unsigned>(parked.ok),
                static_cast<unsigned>(parked.files));
+    // **I el que porta la cel·la i l'hora, abans del repòs** (0.192.0, l'amo: *«Vull que el sistema posi al log la carrega de la batería i
+    // l'hora abans d'entrar en poweroff o DeepSleep»*): the same two lines the deep sleep leaves, o sigui que una apagada i una dormida
+    // es poden comparar, i l'arrencada que ve després diu quant ha durat i quant ha costat (docs/50, docs/60).
+    power::note_the_load_before_the_way_down(power::WayDown::kPowerOff);
     power::settle_before_leaving("the board is going off");
   }
-  if (platform().power() == nullptr || !platform().power()->power_off()) return false;
+  // **I si el corrent no marxa, el vidre no es queda dient que sí** (0.191.9): the write of the supply's own bit can fail —a bus that
+  // does not answer, a charger that refuses— and until now the board painted «powering off», parked everything and then returned with the
+  // picture of the way down still on the glass and nobody to repaint it. El que es fa és treure la imatge i tornar la pàgina de casa, i
+  // dir-ho: una placa que es queda encesa dient «apagant-me» és pitjor que una que no ha intentat res (docs/30, docs/50).
+  if (platform().power() == nullptr || !platform().power()->power_off()) {
+    log_printf(pal::kLogWarn, "POWER", "the supply did not go: the board stays on and its page comes back");
+    splash::hide();
+    (void)ask_for_the_home_app();
+    if (console != nullptr) console->flush();
+    return false;
+  }
   shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
   return true;
 }
@@ -5369,6 +5459,11 @@ bool deep_sleep(const char* reason) {
   // two seconds of a picture that promised a sleep nobody can leave (docs/50, docs/75).
   if (!power::can_deep_sleep()) return false;
   if (!power::deep_sleep_with_the_keys()) return false;
+  // **Un xip que ha reiniciat no s'apaga** (0.192.4): a la placa la crida del son no torna i aquesta línia no es llegeix mai; a l'emulador
+  // amb els temps del maquinari el son **sí** que torna —el procés no es pot reiniciar— i el que ha de passar és el que passa a la placa:
+  // un `kernel::boot` sencer, amb el seu `power::boot`, la seva marca i el seu rentat. `power::the_chip_restarted()` és qui ho diu, i
+  // sense això tot el camí del retorn era l'única cosa que l'emulador no podia ensenyar (docs/60, docs/85).
+  if (power::the_chip_restarted()) return true;
   shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
   return true;
 }
@@ -7680,10 +7775,18 @@ bool execute(char* line) {
   // **El son amb les tecles vives** (0.189.25): the board keeps its power and the chip sleeps until a key is pressed; the page
   // stays on the glass and the app comes back at the next boot. It is the middle way between `sleep` —which waits for an hour—
   // and `poweroff`, which leaves a board nothing but the key of the supply brings back (docs/30, docs/50).
+  // **I la promesa només es diu si la placa hi pot anar** (0.191.11, el mateix que la 0.191.9 va fer amb `poweroff`): el motiu de la
+  // negativa era aquí una sola frase —«no key of it can wake the chip»— i des de la 0.191.11 una placa també pot dir que no **quan ja
+  // s'ha preparat tot** (cap porta que es pugui armar, un `ext1` que el xip no pren, l'hora que ha passat), i en aquest cas la frase era
+  // una mentida sobre una placa que sí que té tecles. Es pregunta primer, i el que queda després és el que la placa ha dit (docs/50).
   if (strcmp(line, "deepsleep") == 0) {
+    if (!power::can_deep_sleep()) {
+      error_out("this board cannot sleep with its keys awake: no key of it can wake the chip\r\n");
+      return false;
+    }
     out("deep sleep...\r\n");
     if (!deep_sleep("the prompt")) {
-      error_out("this board cannot sleep with its keys awake: no key of it can wake the chip\r\n");
+      error_out("the board did not go down: it stays awake and its page comes back\r\n");
       return false;
     }
     return true;
@@ -7695,9 +7798,18 @@ bool execute(char* line) {
   if (strcmp(line, "poweroff") == 0) {
     // **The picture of the moment, and then the supply**: the sequence is `power_off`, the same one the card of the panel
     // asks for, so the prompt and a finger do exactly the same thing to the glass (0.185.0, docs/50).
+    //
+    // **I la promesa només es diu si hi ha apagada** (0.191.9, l'amo amb el cable posat: *«lunok> poweroff / powering off... / this board
+    // cannot cut its own power…»*): the line that promises the way off was written **before** asking, o sigui que la placa deia dues
+    // coses contràries en dues línies seguides i la persona es quedava mirant el vidre esperant una imatge que no arribava mai. Ara es
+    // pregunta primer i en surt una de les dues: la promesa, o el motiu (docs/30, docs/50).
+    if (!power::can_power_off()) {
+      error_out("this board cannot cut its own power: it holds nothing to switch off, or the cable is keeping it up\r\n");
+      return false;
+    }
     out("powering off...\r\n");
     if (!power_off("the prompt")) {
-      error_out("this board cannot cut its own power: it holds nothing to switch off, or the cable is keeping it up\r\n");
+      error_out("the supply did not go: the board stays on\r\n");
       return false;
     }
     return true;

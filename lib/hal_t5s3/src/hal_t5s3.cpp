@@ -201,6 +201,12 @@ const uint8_t kDoorClock = 1;
 const uint8_t kDoorKey = 2;
 const uint8_t kDoorGlass = 4;
 
+// **Si la baixada que s'està preparant és la fonda** (0.191.11): `arm_the_doors` és de tots dos sons i el tàctil només s'ha d'adormir quan
+// el xip s'atura de debò. Aquest pany és el que fa que `TOUCH_RST` es subjecti **només** quan les portes ja són armades i la placa baixa —
+// i no abans, que és el que passava fins ara: el reset es subjectava al començament de `sleep` i després es parlava amb el controlador per
+// I2C (`[W][I2C] write to 5d failed (ESP_FAIL)`), i una baixada refusada hauria deixat el vidre sense tàctil fins al proper reinici (docs/50).
+bool g_going_deep = false;
+
 // **Un buffer per crida i no una estàtica** (0.190.149): the line says the doors it armed **and** the ones it found open, and a static
 // shared by the two calls would print the second one twice —a line that lies about the very thing it exists to explain (docs/50).
 void doors_words(uint8_t bits, char* said, size_t cap) {
@@ -383,9 +389,13 @@ class T5Power : public Esp32Power {
       // és una porta sinó un despert immediat —i `the_line_is_free` la refusaria i el dit no obriria mai res—. El parell és el del driver:
       // `wake_up()` dona un pols i torna la línia a entrada amb la seva vora (docs/50, docs/60).
       glass->wake_up();
-      // **El vidre baixa al terra abans de dormir** (0.190.107): whether the glass is adaptive or at its top speed while the board is awake,
-      // a deep sleep that is only waiting for a line to fall does not need a hundredth of a second of resolution (docs/50, docs/60).
-      glass->quiet_now();
+      // **El terra és del son profund i no de la becaina** (0.192.28, l'amo: *«Els panells desplegables del sistema deixen de funcionar al
+      // tornar d'sleep?»* i *«Estic segur que baixes la velocitat i no la tornes a pujar al despertar»*): `quiet_now` baixa el xip a deu
+      // escombrats per segon, i el que paga una becaina és el primer gest en tornar —una fregada curta a la barra, que a deu hertzs cau
+      // entre dos escombrats i no existeix, mentre que una de llarga de costat sí que hi cap—. Un son profund és una nit sencera amb el
+      // xip de guàrdia i el terra hi val la pena; un de lleuger torna de seguida i el panell s'ha de sentir com abans de baixar (docs/50,
+      // docs/60). El que no s'ha perdut és el terra de debò: el xip que s'adorm del tot (`sleep_now`, més avall) i el de la nit.
+      if (g_going_deep) glass->quiet_now();
       if (the_line_is_free(glass, kTouchIntPin)) {
         rtc_gpio_pullup_en(static_cast<gpio_num_t>(kTouchIntPin));
         rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(kTouchIntPin));
@@ -433,7 +443,22 @@ class T5Power : public Esp32Power {
       logf(pal::kLogWarn, "POWER", "the chip did not take the doors of the deep sleep (%d and the glass)", kClockIntPin);
       return false;
     }
-    if (!wake_on_touch() && glass != nullptr) glass->sleep_now();
+    // **I el tàctil, l'últim i en l'ordre del fabricant** (0.191.11, trobat al registre de l'amo: *«[W][I2C] write to 5d failed
+    // (ESP_FAIL)»* just abans de baixar). El controlador ha de rebre el seu son **mentre el bus encara li parla**, i el reset subjectat ve
+    // després i és l'últim que se li fa —és el que fa el seu `ui_sleep()`: `gpio_hold_en(TOUCH_RST)` amb el pin a zero—. Abans el reset es
+    // subjectava al començament de `sleep`, o sigui que aquesta escriptura anava a un xip en repòs forçat i l'`ESP_FAIL` semblava un error.
+    // **I només si la placa baixa de debò** (`g_going_deep`) i el vidre no és una porta: un son lleuger deixa el xip despert i el dit ha de
+    // poder tocar el vidre (docs/50, docs/60).
+    if (g_going_deep && !wake_on_touch() && glass != nullptr) {
+      glass->sleep_now();
+      gpio_set_direction(static_cast<gpio_num_t>(kTouchResetPin), GPIO_MODE_OUTPUT);
+      gpio_set_level(static_cast<gpio_num_t>(kTouchResetPin), 0);
+      gpio_hold_en(static_cast<gpio_num_t>(kTouchResetPin));
+      // **I el pany global, un altre cop i al final**, que és l'ordre del fabricant al seu `ui_sleep()` (`gpio_hold_en` de cada pin i
+      // després `gpio_deep_sleep_hold_en()`): `T5Power::sleep` ja l'havia demanat abans de la resta de retencions, i aquesta línia és la
+      // que deixa el reset del tàctil subjectat quan el xip s'atura. Cridar-la dues vegades no fa res (docs/50).
+      gpio_deep_sleep_hold_en();
+    }
     return true;
   }
 
@@ -454,6 +479,19 @@ class T5Power : public Esp32Power {
   // versió no sembla fer-ho bé»*) (docs/50, docs/60).
   bool can_power_off() const override { return !gauge_.on_a_cable(); }
 
+  // **I el carregador, posat com el fabricant el posa** (0.192.13): the platform holds the board at the boot and this board's supply is the
+  // charger's business, o sigui que la porta és aquí i la crida és d'allà. Una vegada i prou: quatre transaccions de bus no són una feina
+  // per torn (docs/50, docs/95).
+  void set_the_charger_as_the_maker_does() {
+    if (charger_set_) return;
+    charger_set_ = true;
+    gauge_.set_the_charger_as_the_maker_does();
+    // **I el model de la bateria, que és l'altra meitat** (0.192.14): el gauge comptava sobre 3000 mAh en una cel·la de 1500. Va després del
+    // carregador perquè el que es llegeix del xip —i el que es compara amb el perfil— depèn de les tensions que el carregador acaba de configurar
+    // (docs/50, docs/95).
+    gauge_.write_the_maker_profile();
+  }
+
   // **La baixada d'aquesta placa, que no és la del xip i prou** (0.190.272). El camí comú d'un son profund d'ESP32 arma les
   // portes i atura els rellotges, i aquí això deixa tres coses enceses que el fabricant apaga a mà al seu `ui_sleep()`:
   //
@@ -469,6 +507,8 @@ class T5Power : public Esp32Power {
   // algú tornarà a aquesta imatge sense ningú al davant, o sigui que els rails es queden on són i el despert següent no ha de
   // reinicialitzar el panell ni repintar res (docs/50, docs/60).
   bool sleep(hal::SleepMode mode, int64_t at_epoch_ms, bool keep_the_panel) override {
+    // **Quin son s'està preparant**, que és el que `arm_the_doors` necessita saber per adormir el tàctil (0.191.11, docs/50).
+    g_going_deep = (mode == hal::SleepMode::kDeep);
     if (mode == hal::SleepMode::kDeep) {
       // **La llum, a zero, abans que res**: the pins lose their state with the chip and a floating `EN` of the boost is a
       // backlight nobody decided about (docs/50).
@@ -481,16 +521,9 @@ class T5Power : public Esp32Power {
           if (glass->rest()) logf(pal::kLogDebug, "PANEL", "the panel's supply is down for the sleep");
         }
       }
-      // **El reset del tàctil NO es subjecta quan el vidre és una porta** (0.191.5, i era el forat que feia impossible despertar-se amb
-      // un dit): el fabricant subjecta `TOUCH_RST` baix al seu `ui_sleep()` perquè el seu son només torna amb el BOOT, i nosaltres ho
-      // copiàvem **sempre** —però un reset baix i subjectat deixa el GT911 en repòs forçat, o sigui que el controlador no escombra mai,
-      // la seva línia no baixa mai i la porta que `arm_the_doors` acaba d'armar no s'obre mai. Amb «Wake on touch» encès el controlador
-      // s'ha de quedar despert i escombrant, que és exactament el que el commutador diu (docs/50, docs/60).
-      if (!wake_on_touch()) {
-        gpio_set_direction(static_cast<gpio_num_t>(kTouchResetPin), GPIO_MODE_OUTPUT);
-        gpio_set_level(static_cast<gpio_num_t>(kTouchResetPin), 0);
-        gpio_hold_en(static_cast<gpio_num_t>(kTouchResetPin));
-      }
+      // **El tàctil no es toca aquí** (0.191.11): el seu son i el reset subjectat són d'`arm_the_doors`, que és l'últim que corre abans
+      // que el xip s'aturi —o sigui que només es fan si la baixada passa de debò—. Fins a la 0.191.10 el reset es subjectava en aquest
+      // punt, i amb ell subjectat el controlador ja no contestava l'escriptura del seu son (docs/50, docs/60).
       gpio_set_direction(static_cast<gpio_num_t>(kLoraResetPin), GPIO_MODE_OUTPUT);
       gpio_set_level(static_cast<gpio_num_t>(kLoraResetPin), 0);
       gpio_hold_en(static_cast<gpio_num_t>(kLoraResetPin));
@@ -503,7 +536,11 @@ class T5Power : public Esp32Power {
         (void)rail->write(Expander::kLoraEnable, false);
       }
     }
-    return Esp32Power::sleep(mode, at_epoch_ms, keep_the_panel);
+    const bool back = Esp32Power::sleep(mode, at_epoch_ms, keep_the_panel);
+    // **I una baixada refusada no deixa res subjectat**: `arm_the_doors` no ha tocat el tàctil perquè no ha arribat al final, o sigui que
+    // el que queda és desfer el pany d'aquest run i dir-ho (docs/50).
+    if (!back) g_going_deep = false;
+    return back;
   }
   bool power_off() override {
     if (gauge_.on_a_cable()) {
@@ -514,6 +551,10 @@ class T5Power : public Esp32Power {
     return gauge_.shut_down();
   }
   bool battery(int& mv, int& pct, bool& charging) override { return gauge_.read(mv, pct, charging); }
+  // **I el cable, preguntat al carregador i no a l'estat de càrrega** (0.192.12): `VBUS_GD` de REG11 és «hi ha una entrada bona», que és
+  // el que la marca del port de la barra vol dir; `CHRG_STAT` diu «la cel·la s'està omplint» i amb la cel·la plena contesta `done`, o
+  // sigui que la icona s'apagava amb el cable posat (l'amo: *«I perqué no es veu l'icona del usb quan està endollat?»*, docs/50).
+  bool on_a_cable() const override { return gauge_.on_a_cable(); }
   // **I el que el comptador de coulombs sap de més** (0.190.155): the current going in or out of the cell and the capacity that is
   // left, which a board with a divider on an ADC cannot say. The gauge answers false when the bus is not there (docs/50, docs/60).
   bool battery_detail(BatteryDetail& out) override { return gauge_.detail(out); }
@@ -537,15 +578,16 @@ class T5Power : public Esp32Power {
   // alarma rtc i touch al panell tàctil com a fonts de wake»*). Tres línies poden despertar aquesta placa i el xip no en diu quina: el que
   // diu és que ha estat una línia de l'`ext1`, i amb tres armades alhora això és el mateix que res. El que sap quines eren és aquest fitxer
   // —les tres estan declarades aquí—, o sigui que la resposta es fa aquí i el nucli la posa a la línia de l'arrencada en lloc de la seva.
-  const char* the_door_that_opened() const override {
+  hal::IPower::Door the_door_that_opened() const override {
     const uint8_t opened = the_doors_that_opened();
-    if (opened == (kDoorClock | kDoorKey | kDoorGlass)) return "more than one line of the board";
-    if (opened == kDoorClock) return "the clock chip's alarm";
-    if (opened == kDoorKey) return "the key of the board";
-    if (opened == kDoorGlass) return "a finger on the glass";
-    if (opened != 0) return "two lines of the board";
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) return "the timer of the chip";
-    return nullptr;
+    // **Una línia que és una persona mana sobre el rellotge** (0.191.11): si el dit o el BOOT són entre les que han baixat, hi ha algú al
+    // davant i el vidre s'ha de despertar, encara que el rellotge també hagi saltat.
+    if (opened & kDoorGlass) return hal::IPower::Door::kGlass;
+    if (opened & kDoorKey) return hal::IPower::Door::kKey;
+    if (opened & kDoorClock) return hal::IPower::Door::kClock;
+    if (opened != 0) return hal::IPower::Door::kMore;
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) return hal::IPower::Door::kTimer;
+    return hal::IPower::Door::kUnknown;
   }
 
   // **Aquesta placa no fa becaines, i és la consola qui ho diu** (0.190.63): its console is the chip's own USB (`ARDUINO_USB_CDC_ON_BOOT`),
@@ -558,6 +600,9 @@ class T5Power : public Esp32Power {
 
  private:
   T5Gauge gauge_{esp32_i2c(kI2cSdaPin, kI2cSclPin)};
+  // **Si el carregador ja s'ha posat com el fabricant el posa** (0.192.13): `hold_the_power` la plataforma el crida una vegada a l'arrencada
+  // i això ho fa idempotent, que és el que aquesta casa demana de tot el que toca un registre (docs/50).
+  bool charger_set_ = false;
 };
 
 class T5Platform : public IPlatform {
@@ -571,6 +616,34 @@ class T5Platform : public IPlatform {
   const char* id() const override { return board::id(); }
   const char* family() const override { return board::family(); }
   bool emulator() const override { return board::emulator(); }
+
+  // **I el carregador es posa com el fabricant el posa, un sol cop a l'arrencada** (0.192.13, l'amo: *«La batería no carrrga mai al 100%,
+  // perqué?»*): el ganxo és aquest perquè `kernel::boot` el crida **abans de qualsevol altra cosa** i perquè el que es fa aquí és
+  // exactament això: subjectar la placa —i en aquesta placa el que la subjecta i la carrega és el carregador (docs/50, docs/95).
+  //
+  // **I abans de res, els pins que la dormida va subjectar** (0.192.15, el seu `idf_setup()`: *«gpio_hold_dis(TOUCH_RST);
+  // gpio_hold_dis(LORA_RST); gpio_deep_sleep_hold_dis();»*): la baixada d'aquesta placa deixa el **reset del GT911 subjectat a zero** i
+  // el del LoRa també, i una retenció digital **sobreviu al reset del xip** —és a la RAM del RTC, que el son no s'emporta—, o sigui que
+  // cada tornada d'un son es trobava el controlador del vidre en reset i el dit no hi era. Es deixa anar la retenció, es torna a fer el
+  // pols del reset del tàctil (deu mil·lisegons a zero i el xip arrenca) i el LoRa es queda **a reset i amb el seu CS alt**, que és com
+  // aquesta casa el vol tenir: la ràdio no hi és (docs/50).
+  void hold_the_power() override {
+    if (!the_pins_are_free_) {
+      the_pins_are_free_ = true;
+      gpio_deep_sleep_hold_dis();
+      gpio_hold_dis(static_cast<gpio_num_t>(kTouchResetPin));
+      gpio_hold_dis(static_cast<gpio_num_t>(kLoraResetPin));
+      gpio_set_direction(static_cast<gpio_num_t>(kTouchResetPin), GPIO_MODE_OUTPUT);
+      gpio_set_level(static_cast<gpio_num_t>(kTouchResetPin), 0);
+      pal::delay_us(10000);
+      gpio_set_level(static_cast<gpio_num_t>(kTouchResetPin), 1);
+      gpio_set_direction(static_cast<gpio_num_t>(kLoraResetPin), GPIO_MODE_OUTPUT);
+      gpio_set_level(static_cast<gpio_num_t>(kLoraResetPin), 0);
+      logf(pal::kLogInfo, "BOARD",
+           "the holds of the sleep are let go: the glass's controller is out of reset and the radio is kept in it");
+    }
+    power_.set_the_charger_as_the_maker_does();
+  }
 
   // **Per què s'ha reiniciat el xip** (0.190.68, l'amo: *«recorda que l'esp32 te estats al arrencar, així el firmware sabrà si ha
   // despertat normal o d'un deep sleep»*): ho respon el maquinari i no una marca desada, que és el que fa que una arrencada es
@@ -600,7 +673,14 @@ class T5Platform : public IPlatform {
       // **El vidre**: the panel answers —the supply says its power is good and the bus is there— and from that moment an
       // app can draw on it (docs/50). It is the last one because it is the most expensive question of this function: it
       // brings up the parallel bus, the supply and a frame of 259 200 bytes (docs/75).
-      if (const_cast<T5Platform*>(this)->display() != nullptr) caps_.add(kCapDisplay);
+      if (const_cast<T5Platform*>(this)->display() != nullptr) {
+        caps_.add(kCapDisplay);
+        // **I aquest vidre es renta sencer a cada arrencada** (0.192.10): the ED047TC1 keeps the ghost of what it was showing and the
+        // picture of a sleep is ink that belongs to nobody, so the boot of this board cleans the whole paper with a `gc16` before
+        // anything else is painted —the page of the person, a window of an alarm or the card of the boot— (l'amo: *«Que aquest model
+        // SEMPRE al boot netegi la pantalla amb splash hide (que neteja al màxim)»*, docs/50).
+        caps_.add(kCapWashAtBoot);
+      }
       // **I la llum de fons hi és** (0.190.99): the supply took the PWM, o sigui que una app pot demanar-ne la intensitat com demana la
       // d'una tira. Es pregunta després del vidre perquè una placa sense vidre tampoc no té res a il·luminar (docs/30, docs/50).
       if (const_cast<T5Platform*>(this)->led() != nullptr) caps_.add(kCapLed);
@@ -764,6 +844,9 @@ class T5Platform : public IPlatform {
 
   mutable Caps caps_;
   mutable bool built_ = false;
+  // **I si les retencions que la dormida va deixar ja s'han deixat anar** (0.192.15): el reset del tàctil i el del LoRa es subjecten a la
+  // baixada i la retenció sobreviu al reset del xip, o sigui que el primer que fa aquesta arrencada és desfer-les (docs/50).
+  bool the_pins_are_free_ = false;
   // **Quatre portes**: la tecla BOOT, la interrupció del rellotge, i la de l'expansor, que és la que fa que el botó `S3` i el
   // `POWER_GOOD` tornin la placa d'una becaina (0.190.99). El vidre no hi és com a porta perquè la línia del dit no és d'aquesta
   // placa; el quart lloc és el de l'expansor (docs/50, docs/60).

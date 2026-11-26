@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "emu/ink.h"
+#include "emu/model.h"
 #include "emu/options.h"
 #include "hal/log.h"
 #include "pal/pal.h"
@@ -251,6 +252,13 @@ void MemorySurface::wait_and_pump(uint32_t us) {
 bool MemorySurface::flush(hal::UpdateMode mode) {
   ++flushes_;
   last_mode_ = mode;
+  // **Un repòs que és la font es desfà sol** (0.192.4): al TPS65185 de la T5S3 `rest()` baixa els rails i la pintada següent els torna a
+  // pujar (`epd_poweron`), o sigui que el panell d'aquest model no refusa res: torna a estar encès i pinta. El controlador del Paper sí que
+  // s'adorm de debò i el que arriba després es refusa amb el seu motiu (0.183.0, docs/50, docs/85).
+  if (resting_ && emu::model().rest_is_the_supply) {
+    resting_ = false;
+    hal::logf(pal::kLogDebug, "PANEL", "the panel's supply comes back for a paint");
+  }
   if (resting_) {
     // **A glass that has been told to sleep paints nothing** (0.183.0): the same answer the controller of the Paper gives,
     // and the reason is said instead of a page that goes nowhere (docs/50).

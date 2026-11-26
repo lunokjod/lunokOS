@@ -186,6 +186,12 @@ Forgotten forget_key(const char* key, bool say = true);
 // whether the block is still the one it was given, or the relief of the allocator has taken it (docs/75, docs/90).
 uint32_t generation();
 
+// **El que el pin `EN` s'endú** (0.192.8, l'amo: *«vull el comportament del hardware exactament emulat a l'emulador»*): every block goes
+// **and nothing is written**, which is what a chip loses when the reset pin takes it —there is no app left to ask, no goodbye to run
+// and no session to park—. It answers how many blocks were in the memory, and it is the emulator's reset and nobody else's: a board
+// writes its sessions down in every other way down it has (docs/30, docs/75, docs/85).
+uint32_t lose_every_block();
+
 }  // namespace session
 }  // namespace kernel
 

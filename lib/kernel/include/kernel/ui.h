@@ -1174,6 +1174,10 @@ bool is_full_screen();
 bool poll_full_screen();
 // **The view of every app again**, said to nobody: the app that took the whole glass is gone (0.136.0).
 void give_back_the_glass();
+// **El vidre sencer és de l'app que el va demanar i marxa amb ella** (0.192.30): asked once per turn, right beside the three
+// taps —`poll_full_screen`—, and it puts the bar back when the page in front is not the one that took the glass. It also retries
+// a `make_view(false)` that said no for want of memory, perquè una placa sense barra no té cap camí cap a ella (docs/30, docs/50).
+bool give_back_a_stray_glass();
 
 // ---- la pantalla bloquejada, que és d'un administrador (0.189.99) ----
 //

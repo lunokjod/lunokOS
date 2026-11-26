@@ -65,6 +65,11 @@ bool show(const char*) { return false; }
 
 bool hide() { return false; }
 
+// **I el rentat del vidre sencer, que aquí no hi ha** (0.192.1): the header has the door and the four boards without a panel do not call
+// it —`kernel::boot`'s wash lives inside `#if LUNOK_GLASS`—, però una porta del capçal que no existeix a la banda és un enllaç trencat
+// esperant el proper que la cridi (docs/50, docs/75).
+bool wash() { return false; }
+
 const char* last_error() { return kNoGlass; }
 
 bool wait() { return true; }
@@ -115,6 +120,16 @@ void attach() {}
 void attach_under_a_picture() {}
 
 void give_back_the_glass() {}
+
+// **I el vidre sencer d'una app que ja no hi és** (0.192.30): a board with no glass has no bar and no cards, so there is nothing
+// to give back and the question answers no (docs/30, docs/50).
+bool give_back_a_stray_glass() { return false; }
+
+// **I la pintada de la pàgina, que aquí no hi ha on fer** (0.191.11): `shell::run_app` la demana perquè la primera pàgina d'una app que
+// torna d'un son pagui el deute del vidre sencer abans de dibuixar, i una placa sense vidre no té ni deute ni pàgina que pintar. La
+// porta existia només a la banda del vidre, o sigui que **aquestes quatre bandes no enllaçaven** des de la 0.190.294: `undefined
+// reference to kernel::ui::present()` (docs/50, docs/75).
+bool present() { return false; }
 
 void owe_the_page() {}
 
