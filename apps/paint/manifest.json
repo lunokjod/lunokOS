@@ -1,0 +1,10 @@
+{
+  "title": "Paint",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "paint.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "opens": "ics",
+  "description": "A page to draw with a finger, and the ink waits for the hand to go: the glass is sampled while the finger moves and nothing is painted until it has been still for two and a half seconds —an e-ink panel is not a canvas that follows a finger—. The tools are a brush with its thickness and a bucket, and the palette is the sixteen tones the panel has. A drawing is saved as ICS1, the cheapest picture of this system (four bits a pixel, the same file a thumbnail is made of), and Export writes an eight-bit PGM that any other page here can open. The extension it claims is .ics, and a drawing opened from Files comes back to this page."
+}

@@ -510,6 +510,20 @@ uint32_t allowed_step(uint32_t want) {
   return (biggest != 0) ? biggest : want;
 }
 
+namespace {
+
+// **La finestra es mou quan una app la pregunta** (0.192.48): `load()` is what advances the window —two readings of the meters a
+// quarter of a second apart—, i `load_percent10()` tot sol donaria a una gràfica el número de l'última vegada que la política va
+// preguntar, o sigui una línia recta que no és la càrrega de res. El número i la paraula surten de **la mateixa** lectura, perquè
+// dues crides podrien caure a banda i banda d'una finestra i dir dues coses (docs/30, docs/60).
+uint32_t load_for_an_app(const char** word) {
+  const Load now = load();
+  if (word != nullptr) *word = load_name(now);
+  return load_percent10();
+}
+
+}  // namespace
+
 void boot(hal::IPlatform& platform, bool for_an_alarm) {
   g_power = platform.power();
   g_clock = platform.clock();
@@ -635,6 +649,9 @@ void boot(hal::IPlatform& platform, bool for_an_alarm) {
   }
   // **I el comptador de la quietud, que és d'aquesta casa i no de cada pàgina** (0.190.9).
   ops.idle_ms = &quiet_ms;
+  // **I la càrrega, que no és de la placa sinó dels comptadors del nucli** (0.192.48): surt sempre, encara que no hi hagi
+  // interfície d'energia, perquè la mesura és del sistema i no del maquinari (docs/30, docs/60).
+  ops.load = &load_for_an_app;
   luabind::set_power_ops(ops);
 
   if (g_power == nullptr) return;

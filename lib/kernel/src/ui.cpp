@@ -1947,6 +1947,10 @@ bool canvas_invert_for_lua(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uin
   return canvas_invert(slot, x, y, w, h, mode);
 }
 
+bool canvas_fill_for_lua(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode) {
+  return canvas_flood(slot, x, y, level, mode);
+}
+
 bool present_for_lua(const char* mode) {
   // **Una pàgina que torna després d'una imatge torna la barra** (0.183.0): a splash washes the whole panel —the strip of the
   // system with it— and its own place is not painted again by anybody: the clock and the charge are the bar's, and the bar
@@ -2532,6 +2536,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      icon_grid_ring_for_lua,
                                      invert_for_lua,
                                      canvas_invert_for_lua,
+                                     canvas_fill_for_lua,
                                      textbox_column_at,
                                      picker_draw,
                                      picker_hit,
@@ -3073,6 +3078,80 @@ bool canvas_fill_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t
 // —or the size of the picture— scaled as it is read, cut to the canvas and to what the control owes, and the
 // damage left where it landed. The file is read into the app's extra memory and the decoder's block with it,
 // and both go back before this returns: a picture is on the page, not in the heap (docs/75).
+// **El cubell: una regió d'un to que es torna d'un altre to** (0.192.47, l'amo: *«Fes un cubell de pintura»*). És una primitiva del
+// canvas i no un bucle de Lua: la pàgina d'un dibuix és de centenars de kilobytes de quatre bits, i portar-la a l'intèrpret per tornar-la
+// pintada seria la memòria d'una app pagada per una eina. The walk is the classic scanline one —a run of the same level is filled and
+// every contiguous run of the rows above and below it is a seed— with the stack of spans in the extra memory, i el que queda sense
+// cabuda a la pila es diu: la regió no s'acaba de pintar i el que hi ha pintat és el de debò (docs/30, docs/50).
+uint8_t level_at(const Canvas& canvas, int32_t x, int32_t y) {
+  const uint8_t byte = canvas.bits[static_cast<uint32_t>(y) * canvas.stride + static_cast<uint32_t>(x) / 2];
+  return ((x & 1) == 0) ? static_cast<uint8_t>((byte >> 4) & 0x0F) : static_cast<uint8_t>(byte & 0x0F);
+}
+
+bool canvas_flood(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode) {
+  hal::UpdateMode chosen = hal::UpdateMode::kDu;
+  if (!mode_or_default(mode, chosen)) return false;
+  if (!g_attached || level > 15) return true;
+  Canvas* canvas = find(slot);
+  if (canvas == nullptr || canvas->bits == nullptr) return false;
+  if (x >= canvas->width || y >= canvas->height) return false;
+  const uint8_t was = level_at(*canvas, x, y);
+  if (was == level) return true;
+  struct Span {
+    int32_t x;
+    int32_t y;
+  };
+  const int32_t kSpans = 512;
+  void* block = pal::extra_memory().allocate(static_cast<size_t>(kSpans) * sizeof(Span), true);
+  if (block == nullptr) return false;
+  Span* stack = static_cast<Span*>(block);
+  int32_t count = 0;
+  stack[count].x = x;
+  stack[count].y = y;
+  ++count;
+  int32_t left = canvas->width;
+  int32_t top = canvas->height;
+  int32_t right = -1;
+  int32_t bottom = -1;
+  while (count > 0) {
+    const Span seed = stack[--count];
+    if (level_at(*canvas, seed.x, seed.y) != was) continue;
+    int32_t from = seed.x;
+    int32_t to = seed.x;
+    while (from > 0 && level_at(*canvas, from - 1, seed.y) == was) --from;
+    while (to + 1 < canvas->width && level_at(*canvas, to + 1, seed.y) == was) ++to;
+    for (int32_t at = from; at <= to; ++at) put_pixel(*canvas, at, seed.y, level);
+    if (from < left) left = from;
+    if (to > right) right = to;
+    if (seed.y < top) top = seed.y;
+    if (seed.y > bottom) bottom = seed.y;
+    for (int32_t dy = -1; dy <= 1; dy += 2) {
+      const int32_t near = seed.y + dy;
+      if (near < 0 || near >= canvas->height) continue;
+      int32_t at = from;
+      while (at <= to) {
+        if (level_at(*canvas, at, near) != was) {
+          ++at;
+          continue;
+        }
+        if (count < kSpans) {
+          stack[count].x = at;
+          stack[count].y = near;
+          ++count;
+        }
+        while (at <= to && level_at(*canvas, at, near) == was) ++at;
+      }
+    }
+  }
+  pal::extra_memory().release(block);
+  if (right < left || bottom < top) return true;
+  note_level(level);
+  damage_add(*canvas, static_cast<uint16_t>(left), static_cast<uint16_t>(top),
+             static_cast<uint16_t>(right - left + 1), static_cast<uint16_t>(bottom - top + 1), chosen,
+             mode != nullptr);
+  return true;
+}
+
 bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
                   bool mask, const char*& code, const char*& reason) {
   pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
@@ -3548,9 +3627,12 @@ struct Icon {
 // —the set is what `an_icon_named` asks, and a mark that is not in it is not painted at all— i el candau de la 0.189.151 hi és des
 // de llavors, i **les tres de la ràdio** (docs/30, docs/45). **I les dues del joc** (0.192.26): la pausa i el play dels tres jocs,
 // que són la marca d'un botó d'una app com les altres i no una clau de la targeta (docs/45).
+// **I les dues de l'app de dibuix** (0.192.47, l'amo: *«Fes un cubell de pintura i un pinzell gros com a icona, usant l'estètica
+// predominant en les icones, posa-li detalls»*): the bucket and the brush are marks of the same set as the other fifteen —the card
+// of the bar and the tools of an app are drawn by one function and named by one table— (docs/30, docs/45, docs/92).
 const Icon kIcons[] = {
     {"back"}, {"close"}, {"settings"}, {"reboot"}, {"poweroff"}, {"home"}, {"lock"}, {"deepsleep"},
-    {"bluetooth"}, {"wifi"}, {"mesh"}, {"pause"}, {"play"},
+    {"bluetooth"}, {"wifi"}, {"mesh"}, {"pause"}, {"play"}, {"bucket"}, {"brush"},
 };
 const uint8_t kIconCount = static_cast<uint8_t>(sizeof(kIcons) / sizeof(kIcons[0]));
 
@@ -3791,6 +3873,49 @@ bool draw_icon(Canvas& view, const char* name, int32_t x, int32_t y, int32_t wid
                    static_cast<uint16_t>(bar_w), static_cast<uint16_t>(h), level, mode);
     draw_fill_rect(view, static_cast<uint16_t>(cx + gap / 2), static_cast<uint16_t>(top), static_cast<uint16_t>(bar_w),
                    static_cast<uint16_t>(h), level, mode);
+  } else if (strcmp(name, "bucket") == 0) {
+    // **El cubell** (0.192.47): the rim, the two walls that come in towards the bottom, the bottom itself, **the handle over the
+    // rim** and **the drip that falls from the right corner**, que és el que diu «aquí hi ha pintura» i el detall que el separa d'un
+    // poal buit. És el dibuix de `fill-drip` del clipart amb les línies d'aquest fitxer (docs/30, docs/45).
+    const int32_t rim_y = cy - (reach * 40) / 100;
+    const int32_t rim_half = (reach * 72) / 100;
+    const int32_t bottom_y = cy + (reach * 78) / 100;
+    const int32_t bottom_half = (reach * 42) / 100;
+    icon_line(view, cx - rim_half, rim_y, cx + rim_half, rim_y, stroke, level, mode);
+    icon_line(view, cx - rim_half, rim_y, cx - bottom_half, bottom_y, stroke, level, mode);
+    icon_line(view, cx + rim_half, rim_y, cx + bottom_half, bottom_y, stroke, level, mode);
+    icon_line(view, cx - bottom_half, bottom_y, cx + bottom_half, bottom_y, stroke, level, mode);
+    // the handle: the two sides of an arc that leaves the rim and comes back to it, sobre seu
+    const int32_t handle_top = cy - reach;
+    icon_line(view, cx - rim_half, rim_y, cx - (rim_half * 40) / 100, handle_top, stroke, level, mode);
+    icon_line(view, cx + rim_half, rim_y, cx + (rim_half * 40) / 100, handle_top, stroke, level, mode);
+    icon_line(view, cx - (rim_half * 40) / 100, handle_top, cx + (rim_half * 40) / 100, handle_top, stroke, level, mode);
+    // the drip, outside the right wall and under the rim: a drop is a tip and a belly
+    const int32_t drip_x = cx + rim_half + (reach * 18) / 100;
+    const int32_t drip_top = cy + (reach * 5) / 100;
+    const int32_t drop = (reach * 22) / 100 + 1;
+    icon_triangle(view, drip_x, drip_top, drip_x - drop / 2, drip_top + drop, drip_x + drop / 2, drip_top + drop, level,
+                  mode);
+    draw_disc(view, drip_x, drip_top + drop + drop / 3, drop - drop / 3, level, mode);
+  } else if (strcmp(name, "brush") == 0) {
+    // **El pinzell** (0.192.47): the handle from the bottom left to the top right, **the collar of two lines** where the wood meets
+    // the bristles and **the bristles that open in a tip**, which is the `paint-brush` of the clipart —un traç gruixut i no la ploma
+    // d'escriure— amb el detall que el fa reconèixer a quaranta píxels (docs/30, docs/45).
+    const int32_t handle_from_x = cx - (reach * 20) / 100;
+    const int32_t handle_from_y = cy + (reach * 20) / 100;
+    const int32_t handle_to_x = cx + reach;
+    const int32_t handle_to_y = cy - reach;
+    icon_line(view, handle_from_x, handle_from_y, handle_to_x, handle_to_y, stroke, level, mode);
+    // the collar, across the handle at the third of its length
+    const int32_t collar_x = cx - (reach * 5) / 100;
+    const int32_t collar_y = cy + (reach * 5) / 100;
+    icon_line(view, collar_x - stroke, collar_y - stroke * 2, collar_x + stroke * 2, collar_y + (reach * 18) / 100 + stroke,
+              stroke, level, mode);
+    // the bristles: a filled tip that widens from the collar to the bottom left corner
+    const int32_t tip_x = cx - reach;
+    const int32_t tip_y = cy + reach;
+    icon_triangle(view, tip_x, tip_y, tip_x + (reach * 55) / 100, tip_y - (reach * 12) / 100,
+                  tip_x + (reach * 20) / 100, tip_y - (reach * 58) / 100, level, mode);
   } else if (strcmp(name, "play") == 0) {
     // **El triangle del play** (0.192.26): the same filled tip the restart uses for its head, and it is the same triangle function
     // —un joc que reprèn és una cosa que torna a caminar, i el dibuix ho diu amb la forma que aquest fitxer ja té (docs/30).

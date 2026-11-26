@@ -14627,7 +14627,53 @@ namespace kernel {
 // El vist a l'emulador: les tres claus en negre amb el cercle buit o ple segons `cfg bt`, `cfg wifi` i el mesh, sense cap requadre darrere
 // la marca, i la targeta vint files més alta.
 
-static const char kVersion[] = "0.192.46";
+// **0.192.47 — l'app `paint`: el dibuix a mà alçada, i el cubell com a primitiva** (l'amo: *«Fer un app de dibuix a má alçada: Mentre
+// el dit sigui al vidre no dibuixar res, guardar tots els moviments del dit i pendre mostres del dit a la major velocitat possible …
+// Un cop el dit s'hagi aixecat (passats 2,3 segons) es fa el dibuixat … L'app ha de guardar l'imatge en el format mes económic
+// possible … Un menú contextual amb el típic File -> Open, Save, Export, Close … Un selector del gruix del traç i una paleta de colors.
+// Fes un cubell de pintura i un pinzell gros com a icona»*, i després *«No posis l'opció "Open", ja es fà desde l'app Files o la
+// comanda open»*).
+//
+//   - **`apps/paint` 0.1.0**, una pàgina que dibuixa quan la mà ha marxat: el bucle pregunta `touch.read()` cada dos mil·lisegons
+//     mentre el dit hi és —el GT911 dona un marc cada deu, o sigui que no se'n perd cap— i **no pinta res**; quan el vidre s'ha
+//     quedat quiet dos segons i mig, els traços que s'han apuntat es pinten d'un sol cop (`gc16`). El paper és un `ui.canvas`, que
+//     és el que fa que es pugui desar (una captura) i omplir (el cubell) (docs/30, docs/50).
+//   - **El format és `ICS1` i el demana el manifest** (`"opens": "ics"`): quatre bits per píxel i una capçalera de vuit bytes, o
+//     sigui el mateix fitxer que fa una miniatura d'aquest sistema i el més barat que hi ha; `Export` escriu un `PGM` (`P5`, vuit
+//     bits) que `lib/img` ja sap llegir, i el dibuix s'obre des de `Files`/`run paint <camí>` amb `app.args.path` (docs/46, docs/70).
+//   - **`cv:fill(x, y, level)`** (nou, `canvas_flood` a `ui.cpp` i un punter més a `UIOps`): el cubell, amb el camí de trossos de
+//     sempre i la pila a la memòria extra, perquè la pàgina d'un dibuix no cap a l'intèrpret (docs/30, docs/50).
+//   - **I dues marques noves del sistema**: `bucket` (`fill-drip`) i `brush` (`paint-brush`) a `tools/iconart.py` i a `draw_icon`,
+//     que són el joc de quinze de la targeta i de les eines (docs/45, docs/92).
+//
+// El vist a l'emulador: un traç de 3 px no apareix mentre el dit es mou i surt sol al cap de dos segons i mig; el slider canvia el
+// gruix i la paleta el to; el cubell omple la pàgina del to triat; `Save` escriu un `draw-N.ics` de 188 090 B que es descodifica
+// exacte, `Export` un `.pgm` de 376 179 B que `lib/img` llegeix, i `run paint /data/paint/drawings/draw-1.ics` torna el dibuix al
+// vidre. **I el dibuix no es perd en tancar**: `Close` escriu un esborrany a `/data/paint/drawings/draft.ics` —el camí que torna del
+// seu propi script no sent les tres portes del shell— i la pàgina següent el torna a obrir.
+
+// **0.192.48 — la pestanya `Load` de l'app `Stats`: la càrrega i la memòria, cada deu segons** (l'amo: *«A l'app d'Stats: afegir una
+// pestanya nova: "Load", i anar monitoritzant la cárrega del sistema (comanda load) fent una gráfica. I assota unaltra gráfica amb la
+// quantitat de memoria en us actualment (refresc de les gráfiques temporitzat mentre la vista estigui activa, cada 10 segons)»*).
+//
+//   - **`power.load()`** (nou: un punter a `PowerOps`, `l_power_load` i la fila de docs/30): el quart de segon que el nucli ha
+//     passat treballant i no esperant, **en dècimes de punt**, i la paraula de la política al darrere (`low`, `normal`, `high`). És
+//     la mateixa finestra que imprimeix `load` al prompt i la mateixa que mou la velocitat del processador: una pàgina no pot dir
+//     una cosa que la placa no pensa. **Una crida i no dues**, perquè el número i la paraula no poden venir de dues finestres; i
+//     cridar-la és el que fa avançar la finestra, o sigui que una app que mostreja cada deu segons veu deu segons de mitjana.
+//   - **`apps/stats` 0.2.0, la pestanya `Load`**: dues gràfiques (`ui.chart`) amb el número d'ara a sobre de cada una —la càrrega en
+//     % i la memòria en ús en KB del pressupost de Lua— i una mostra cada deu segons **mentre la pestanya és al vidre**, que és el
+//     que va demanar l'amo. La finestra és de l'app (quaranta-vuit mostres, vuit minuts), l'eix de l'esquerra diu quants segons o
+//     minuts s'està veient i el de la dreta diu `now`; una finestra que s'ha quedat quieta més de mig minut es comença de nou en
+//     comptes de dibuixar una recta entre dues vores que no han estat juntes mai (docs/30, docs/45, docs/90).
+//   - **I la forma de la sessió puja a `v4`**: la pestanya nova mou les de Memory i Info un lloc, o sigui que un `tab=3` d'abans
+//     seria ara la pestanya nova i el que s'ha llegit d'una altra forma es llença (docs/30, docs/45).
+//
+// El vist a l'emulador: la pestanya `Load` amb les dues gràfiques i la lletra de sobre, la línia de la càrrega que es mou a cada
+// mostra de deu segons, la de la memòria plana al voltant del que l'intèrpret té demanat, i el canvi de pestanya que deixa de
+// mostrejar sense perdre el que ja hi havia.
+
+static const char kVersion[] = "0.192.48";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

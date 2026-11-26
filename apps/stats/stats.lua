@@ -12,14 +12,20 @@
 --   · **Time**: el **pastís** de quatre porcions amb la **llegenda** al costat: el vidre, l'emmagatzematge, Lua i la resta del que s'ha
 --     mesurat, amb una barra, el temps i el percentatge de cada un. Els tons de la llegenda són els del control (`color`, `+4`, `+8`,
 --     `+12`), o sigui que la quadrícula i la porció són el mateix to (docs/30);
+--   · **Load**: dues gràfiques que es refresquen cada deu segons mentre la pestanya és al vidre —la càrrega del sistema
+--     (`power.load()`, la mateixa mesura que imprimeix `load` al prompt) i la memòria en ús (`sys.heap()`)—, que és el que va
+--     demanar l'amo: *«A l'app d'Stats: afegir una pestanya nova: "Load", i anar monitoritzant la cárrega del sistema (comanda
+--     load) fent una gráfica. I assota unaltra gràfica amb la quantitat de memoria en us actualment (refresc de les gráfiques
+--     temporitzat mentre la vista estigui activa, cada 10 segons)»* (0.192.48);
 --   · **Memory**: `sys.heap()` —la RAM, el bloc més gran, la memòria extra i el cim de Lua—;
 --   · **Info**: el que l'`info_app` ensenyava —placa, versió, uptime, bateria, ràdio—.
 --
 -- **El que NO fa**: no reseteja cap comptador ni esborra res. Una pàgina de diagnòstic que toca el que mesura menteix la propera vegada.
 --
--- **I no té la gràfica de línies de l'antic**: aquella era el **ritme de línies del registre** («lines per 2 s») i aquest sistema no
--- guarda cap història que una app pugui llegir —`sys.stats` dona el total d'un comptador i prou—. Una ratlla inventada sobre dades que
--- no existeixen és una mentida amb bona pinta, i el que sí que hi ha són les barres de cada comptador i el pastís de les famílies.
+-- **I la gràfica de línies de l'antic no la pot fer cap pàgina sobre comptadors**: aquella era el **ritme de línies del registre**
+-- («lines per 2 s») i aquest sistema no guarda cap història —`sys.stats` dona el total d'un comptador i prou—. Una ratlla inventada
+-- sobre dades que no existeixen és una mentida amb bona pinta. **El que sí que es pot mostrejar és el present** (0.192.48): la
+-- càrrega i la memòria es pregunten cada deu segons, la finestra és d'aquesta app i el que hi ha a la gràfica és el que s'ha mesurat.
 
 local caps = sys.caps()
 if not caps.display then
@@ -27,8 +33,9 @@ if not caps.display then
   return
 end
 
--- **`v3`**: les barres i la llegenda són dibuixos i no files de llista; una forma de la `v1` o la `v2` es llença (docs/30, docs/45).
-local kLayout = 'v3'
+-- **`v4`**: la pestanya **Load** entra a la tira i mou les de Memory i Info un lloc (0.192.48), o sigui que una forma de la `v1`,
+-- la `v2` o la `v3` es llença: un `tab=3` d'abans seria ara la pestanya nova (docs/30, docs/45).
+local kLayout = 'v4'
 local kStateBytes = 1024
 
 local MARGIN = 16
@@ -40,7 +47,9 @@ local ROW_H = 58
 local ROW_H_WIDE = 66
 local PIE_SIDE = 244   -- el costat del pastís; el radi del vidre es talla a 120, o sigui que aquest és el màxim
 
-local TABS = { 'Cost', 'Time', 'Memory', 'Info' }
+-- **L'ordre de la tira és l'ordre de les pestanyes** i els seus números són els que `shape.tab` desa (docs/30).
+local kCostTab, kTimeTab, kLoadTab, kMemoryTab, kInfoTab = 1, 2, 3, 4, 5
+local TABS = { 'Cost', 'Time', 'Load', 'Memory', 'Info' }
 
 local state_block = nil
 -- **`shape` abans de les funcions que el llegeixen**: un `local` només existeix per a les funcions que es defineixen després.
@@ -229,6 +238,7 @@ end
 -- pestanyes no es toquen mai, i la resta se'n va amb `release()` quan la pestanya canvia (docs/30, docs/90).
 local title, subtitle, tabs
 local bars, pie, legend, strip, the_list
+local load_caption, load_chart, mem_caption, mem_chart
 local wid, hei = 0, 0
 
 local owned = {}
@@ -248,6 +258,110 @@ local function give_back_the_view()
   end
   owned = {}
   bars, pie, legend, strip, the_list = nil, nil, nil, nil, nil
+  load_caption, load_chart, mem_caption, mem_chart = nil, nil, nil, nil
+end
+
+-- ------------------------------------------------------------------ la càrrega i la memòria, mostrejades cada deu segons
+
+-- **La finestra és de l'app i no del control** (docs/30): `ui.chart` dibuixa les mostres que li donen, i qui decideix quantes i
+-- cada quant és aquesta pàgina. Deu segons és el que va demanar l'amo, i quaranta-vuit mostres —el que cap a una gràfica
+-- d'aquest sistema— són vuit minuts de memòria d'una pestanya oberta.
+local kSampleMs = 10000
+local kSamples = 48
+
+-- **Les dues sèries, i la seva hora**: `times` són els segons des de la primera mostra de la finestra, o sigui que el gràfic
+-- les col·loca per temps de debò i no pel seu índex (docs/30, docs/90).
+local load_values, load_times = {}, {}
+local mem_values, mem_times = {}, {}
+local load_word, load_pct10 = '-', 0
+local mem_used_kb, mem_limit_kb = 0, 0
+local sampling_from = nil
+local last_sample_ms = nil
+
+local function copy_of(list)
+  local out = {}
+  for i = 1, #list do out[i] = list[i] end
+  return out
+end
+
+local function push_sample(values, times, value, second)
+  values[#values + 1] = value
+  times[#times + 1] = second
+  while #values > kSamples do table.remove(values, 1) end
+  while #times > kSamples do table.remove(times, 1) end
+end
+
+-- **Una finestra amb un forat no és una finestra**: si l'última mostra és de fa més de mig minut —la pestanya no era al vidre,
+-- l'app dormia, la placa ha tornat d'una becaina—, el que hi havia a la gràfica ja no toca el que hi arriba i es comença de nou
+-- en comptes de dibuixar una recta entre dues vores que no han estat juntes mai (docs/30, docs/90).
+local function empty_the_window()
+  load_values, load_times = {}, {}
+  mem_values, mem_times = {}, {}
+  sampling_from = nil
+end
+
+-- **Les dues preguntes d'una mostra.** La càrrega és `power.load()` —el tros de la finestra que el nucli ha passat treballant i no
+-- esperant, en dècimes de punt; la finestra és la que hi ha des de l'última mostra, o sigui deu segons quan la pestanya és al
+-- vidre— i la memòria és `sys.heap()`: el que aquest sistema té donat a Lua, en KB. Les dues poden faltar (una placa que no
+-- mesura la càrrega, una memòria curta) i llavors no s'apunta res: una barra de zero no és una mesura (docs/30).
+local function take_a_sample()
+  local now = sys.time_ms() or 0
+  if last_sample_ms ~= nil and now - last_sample_ms > 3 * kSampleMs then empty_the_window() end
+  if sampling_from == nil then sampling_from = now end
+  local second = math.max(0, math.floor((now - sampling_from) / 1000))
+  local ok, pct10, word = pcall(power.load)
+  if ok and type(pct10) == 'number' then
+    load_pct10 = pct10
+    load_word = (type(word) == 'string') and word or '-'
+    push_sample(load_values, load_times, pct10, second)
+  end
+  local okm, heap = pcall(sys.heap)
+  if okm and type(heap) == 'table' and type(heap.used) == 'number' then
+    mem_used_kb = math.floor(heap.used / 1024)
+    mem_limit_kb = math.floor((heap.limit or 0) / 1024)
+    if mem_limit_kb < mem_used_kb then mem_limit_kb = mem_used_kb end
+    push_sample(mem_values, mem_times, mem_used_kb, second)
+  end
+  last_sample_ms = now
+end
+
+-- **El text de l'eix és de l'app** (docs/30): la finestra és meva i sé quant ha durat, o sigui que el cap de l'esquerra diu els
+-- segons o els minuts que s'està veient i el de la dreta diu que l'última mostra és ara mateix.
+local function axis_left_of(times)
+  local span = (#times > 0) and (times[#times] - times[1]) or 0
+  if span >= 120 then return string.format('-%d min', span // 60) end
+  return string.format('-%d s', span)
+end
+
+local function tenths(pct10)
+  return string.format('%d.%d %%', pct10 // 10, pct10 % 10)
+end
+
+-- **Les dues gràfiques, amb el número d'ara a sobre de cada una**: la banda del gràfic diu l'escala de la finestra i el que
+-- s'ha mesurat fa un moment és a la llegenda, perquè una línia que puja no diu si puja de 3 o de 60 (docs/30, docs/45).
+local function show_the_samples()
+  if load_chart ~= nil then
+    load_chart.values = copy_of(load_values)
+    load_chart.times = copy_of(load_times)
+    load_chart.min = 0
+    load_chart.max = 1000
+    load_chart.left = axis_left_of(load_times)
+    load_chart.right = (#load_times > 0) and 'now' or ''
+  end
+  if load_caption ~= nil then
+    load_caption.text = string.format('the load: %s, %s', load_word, tenths(load_pct10))
+  end
+  if mem_chart ~= nil then
+    mem_chart.values = copy_of(mem_values)
+    mem_chart.times = copy_of(mem_times)
+    mem_chart.min = 0
+    mem_chart.max = (mem_limit_kb > 0) and mem_limit_kb or 1024
+    mem_chart.left = axis_left_of(mem_times)
+    mem_chart.right = (#mem_times > 0) and 'now' or ''
+  end
+  if mem_caption ~= nil then
+    mem_caption.text = string.format('the memory in use: %d KB of %d KB', mem_used_kb, mem_limit_kb)
+  end
 end
 
 -- ------------------------------------------------------------------ el dibuix de les barres
@@ -369,6 +483,11 @@ local function geometry()
   g.top = MARGIN + TITLE_H + SUB_H + GAP + TABS_H + GAP
   g.room = hei - g.top - MARGIN
   g.pie = math.min(PIE_SIDE, math.floor(g.room * 6 / 10))
+  -- **La pestanya Load: dues gràfiques i dues lletres** (0.192.48). Cada gràfica s'emporta el mateix tros del que queda, que és
+  -- el que fa que la càrrega i la memòria es puguin comparar d'un cop d'ull, i la lletra de sobre és la que diu el número d'ara
+  -- perquè una línia que puja no diu si puja de tres o de seixanta (docs/30, docs/45).
+  g.caption = SUB_H
+  g.chart = math.max(96, (g.room - 2 * g.caption - 2 * GAP) // 2)
   return g
 end
 
@@ -390,6 +509,15 @@ local function layout()
     tabs:place(MARGIN, y)
   end
   if bars ~= nil then bars:place(MARGIN, g.top) end
+  if load_chart ~= nil then
+    load_caption:resize(g.width, g.caption)
+    load_caption:place(MARGIN, g.top)
+    load_chart:place(MARGIN, g.top + g.caption)
+    local below = g.top + g.caption + g.chart + GAP
+    mem_caption:resize(g.width, g.caption)
+    mem_caption:place(MARGIN, below)
+    mem_chart:place(MARGIN, below + g.caption)
+  end
   if the_list ~= nil then
     the_list:resize(g.width, g.room)
     the_list:place(MARGIN, g.top)
@@ -461,14 +589,20 @@ end
 
 local function refresh()
   if the_list ~= nil then
-    if shape.tab == 3 then
+    if shape.tab == kMemoryTab then
       the_list.items = memory_rows()
-    elseif shape.tab == 4 then
+    elseif shape.tab == kInfoTab then
       the_list.items = info_rows()
     end
     the_list.page = shape.page
     shape.page = the_list.page
     save_state()
+  end
+  -- **La pestanya Load es mostra sempre que s'obre i després cada deu segons** (0.192.48): la primera mostra es pren aquí, o
+  -- sigui que una pestanya que s'acaba d'obrir no ensenya una gràfica buida esperant el rellotge.
+  if load_chart ~= nil then
+    take_a_sample()
+    show_the_samples()
   end
   if pie ~= nil then
     -- **El pastís rep el que es veu i no el que es mesura**: el pont talla cada porció a 65535, i els microsegons d'una
@@ -499,7 +633,7 @@ end
 
 local function build_the_view()
   local g = geometry()
-  if shape.tab == 1 then
+  if shape.tab == kCostTab then
     count_the_cost()
     bars = keep(ui.canvas(g.width, g.room))
     if bars ~= nil then
@@ -509,7 +643,7 @@ local function build_the_view()
     if subtitle ~= nil then
       subtitle.text = string.format('read %s after the board came up', human(read_at * 1000))
     end
-  elseif shape.tab == 2 then
+  elseif shape.tab == kTimeTab then
     pie = keep(ui.pie(g.pie, g.pie))
     if pie ~= nil then
       pie.color = 0
@@ -524,6 +658,43 @@ local function build_the_view()
       strip.on_draw = function(self) paint_the_strip(self) end
     end
     if subtitle ~= nil then subtitle.text = 'where the time went' end
+  elseif shape.tab == kLoadTab then
+    -- **Les dues gràfiques de la pestanya nova** (0.192.48): la càrrega a sobre i la memòria a sota, amb el seu número a sobre
+    -- de cada una. El `decimals = 1` de la càrrega és el que fa que mitja dècima de punt es vegi (`3.4 %`) en un gràfic d'un
+    -- centenar de línies; la memòria va en KB sencers perquè un byte no és una cosa que una persona llegeixi (docs/30, docs/90).
+    load_caption = keep(ui.label(g.width, g.caption))
+    if load_caption ~= nil then
+      load_caption.scale = 2
+      load_caption.align = 'left'
+      load_caption.color = 8
+      load_caption.text = 'the load: -'
+    end
+    load_chart = keep(ui.chart(g.width, g.chart))
+    if load_chart ~= nil then
+      load_chart.suffix = '%'
+      load_chart.decimals = 1
+      load_chart.min = 0
+      load_chart.max = 1000
+      load_chart.scale = g.wide and 3 or 2
+      load_chart.color = 0
+    end
+    mem_caption = keep(ui.label(g.width, g.caption))
+    if mem_caption ~= nil then
+      mem_caption.scale = 2
+      mem_caption.align = 'left'
+      mem_caption.color = 8
+      mem_caption.text = 'the memory in use: -'
+    end
+    mem_chart = keep(ui.chart(g.width, g.chart))
+    if mem_chart ~= nil then
+      mem_chart.suffix = ' KB'
+      mem_chart.decimals = 0
+      mem_chart.min = 0
+      mem_chart.max = 1024
+      mem_chart.scale = g.wide and 3 or 2
+      mem_chart.color = 0
+    end
+    if subtitle ~= nil then subtitle.text = 'the load and the memory, every ten seconds' end
   else
     the_list = keep(ui.list(g.width, g.room))
     if the_list ~= nil then
@@ -533,8 +704,8 @@ local function build_the_view()
       end
     end
     if subtitle ~= nil then
-      subtitle.text = (shape.tab == 3) and 'the memory of this board and of this app'
-                                             or ('what this board is: ' .. tostring(sys.board or '-'))
+      subtitle.text = (shape.tab == kMemoryTab) and 'the memory of this board and of this app'
+                                                 or ('what this board is: ' .. tostring(sys.board or '-'))
     end
   end
   set_the_body(g.wide)
@@ -621,9 +792,19 @@ function on_save() save_state() end
 function on_close() save_state() end
 
 -- **El que aquest bucle ha de fer és deixar girar el nucli** (docs/30): un `present` sense res de nou no pinta ni un píxel, i
--- aquesta pàgina no canvia sola —el que ha canviat es llegeix tornant a la pestanya—, o sigui que no hi ha cap passada de
--- panell mentre algú la mira (docs/85).
+-- aquesta pàgina no canvia sola —el que ha canviat es llegeix tornant a la pestanya—. **L'excepció és la pestanya Load**
+-- (0.192.48, l'amo: *«refresc de les gráfiques temporitzat mentre la vista estigui activa, cada 10 segons»*): mentre és al vidre
+-- es pregunta la càrrega i la memòria cada deu segons i es pinta el que ha canviat, amb `gl16`, que és la passada que no fa
+-- parpellejar el panell (docs/30, docs/50, docs/85).
 while true do
   ui.present()
+  if load_chart ~= nil then
+    local now = sys.time_ms() or 0
+    if last_sample_ms == nil or now - last_sample_ms >= kSampleMs then
+      take_a_sample()
+      show_the_samples()
+      ui.present('gl16')
+    end
+  end
   sys.delay(50):await()
 end

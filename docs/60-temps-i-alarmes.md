@@ -425,7 +425,10 @@ al sostre pel seu compte de càrrega entre dos locks:
   noranta-un per cent en una pàgina que no feia res). Contesta `low` per sota del 20 %, `normal` entre el 20 i el 60 i `high`
   per sobre del 60, **amb cinc punts de banda a cada llindar** perquè un rellotge que es mou a cada torn costa més que el que
   estalvia, i el percentatge va al costat de la paraula (`low (2.7 %)`) perquè una paraula sense número no es pot afinar.
-  `power::load_of()` és la decisió sola i pura, i la suite del shell la subjecta sense placa.
+  `power::load_of()` és la decisió sola i pura, i la suite del shell la subjecta sense placa. **I una pàgina la pot llegir**
+  (0.192.48): `power.load()` és la mateixa finestra dita en dècimes de punt i amb la paraula al darrere, i cridar-la és el que la fa
+  avançar —el que una app ha de mostrar quan mostreja no és el número de l'última vegada que la política va preguntar, sinó el que ha
+  passat des de la seva mostra anterior—, que és el que fa la pestanya `Load` de l'app `Stats` cada deu segons (docs/30, docs/45).
 - **I la tendència del minut és la que mou la CPU, sola** (0.189.95, l'amo: *«no facis el canvi de freqüència tant sovint...
   Guarda mostres, durant un minut: si la tendència és a més, puja la CPU; si és a menys, la baixes; si és semblant, et quedes
   com estàs»*). **`low` és 80 MHz, `normal` 160 i `high` 240**, i el rellotge no es mou per una lectura sinó per una

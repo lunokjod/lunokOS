@@ -603,6 +603,12 @@ struct PowerOps {
   // on the glass, a key of the dial—, which is the **one** counter the deep sleep and the lock read. An app that dims a page, that
   // stops a game or that says "you have been reading for an hour" asks here, and no app keeps a copy (docs/30, docs/60).
   int64_t (*idle_ms)();
+  // **La càrrega del sistema** (0.192.48): one reading of the window —a quarter of a second, or the time since somebody last asked
+  // if that is longer— that answers, in tenths of a point, the share of it that the kernel spent working and not waiting, and in
+  // `word` the name of the speed policy that goes with it.
+  // **One call and not two**, perquè el número i la paraula no poden venir de dues finestres diferents; i és el mateix parell que
+  // imprimeix el `load` del prompt, o sigui que una pàgina no pot dir una cosa que la placa no pensa (docs/30, docs/50, docs/60).
+  uint32_t (*load)(const char** word);
 };
 
 void set_power_ops(const PowerOps& ops);
@@ -1267,6 +1273,9 @@ struct UIOps {
   // second one is the same on a canvas of the app, which is where a launcher turns its icon over.
   bool (*invert)(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
   bool (*canvas_invert)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
+  // **El cubell d'un canvas** (0.192.47): omple la regió del to que hi ha a `x, y` amb `level`, i és una primitiva del nucli perquè
+  // la pàgina d'un dibuix no cap a l'intèrpret (docs/30, docs/50).
+  bool (*canvas_fill)(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
   // **On cau un dit dins una caixa d'una línia** (0.179.77): the column the finger asked for, as an offset in the text. A box of
   // one line has no rows to work out —only a column— and this is what puts the caret where a person tapped, the same way the box
   // of several lines does it at the lift (docs/30, docs/90).

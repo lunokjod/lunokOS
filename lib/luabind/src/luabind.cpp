@@ -9826,6 +9826,27 @@ int l_canvas_invert(lua_State* L) {
   return 1;
 }
 
+// **`cv:fill(x, y, level [, mode])`**: the bucket (0.192.47). The region of the level under the point —and not of the shape the app
+// thinks it drew— becomes `level`, which is what a person expects of a bucket: the ink that is on the glass is the truth, and a
+// fill that reads a model of the drawing would leave the seams a thick stroke left. The walk is the kernel's (`canvas_flood`),
+// perquè la pàgina d'un dibuix són centenars de kilobytes i el bucle de Lua els pagaria en torns (docs/30, docs/50).
+int l_canvas_fill(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const lua_Integer x = luaL_checkinteger(L, 2);
+  const lua_Integer y = luaL_checkinteger(L, 3);
+  const lua_Integer level = luaL_checkinteger(L, 4);
+  const char* mode = luaL_optstring(L, 5, nullptr);
+  if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
+  if (g_ui_ops.canvas_fill == nullptr ||
+      !g_ui_ops.canvas_fill(canvas->slot, static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                            static_cast<uint8_t>(level), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 // canvas:place(x, y): where it sits inside the one that holds it, in that canvas' pixels (docs/90).
 int l_canvas_place(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
@@ -10665,6 +10686,7 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "rect", l_canvas_rect);
   set_function(L, "pixel", l_canvas_pixel);
   set_function(L, "invert", l_canvas_invert);
+  set_function(L, "fill", l_canvas_fill);
   set_function(L, "place", l_canvas_place);
   set_function(L, "resize", l_canvas_resize);
   set_function(L, "frame", l_canvas_frame);
@@ -12434,6 +12456,26 @@ int l_power_cpu_auto(lua_State* L) {
   return 1;
 }
 
+// **`power.load()`: com va la màquina** (0.192.48, l'amo: *«A l'app d'Stats: afegir una pestanya nova: "Load", i anar monitoritzant la
+// cárrega del sistema (comanda load) fent una gráfica»*): the share of the last window —a quarter of a second, or the time since
+// somebody last asked if that is longer— that the kernel spent working and not waiting, **in tenths of a point** so that a chart of
+// a hundred lines does not lose the decimal, and the word of the speed policy beside it. Two values and not one because they are two readers: a graph wants the number and a person wants `normal`
+// (docs/30, docs/60). The window belongs to the kernel —the same one `load` at the prompt prints— i una app no en pot inventar cap.
+int l_power_load(lua_State* L) {
+  if (g_power_ops.load == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build does not measure its own load");
+  }
+  const char* word = nullptr;
+  const uint32_t pct10 = g_power_ops.load(&word);
+  lua_pushinteger(L, static_cast<lua_Integer>(pct10));
+  if (word != nullptr) {
+    lua_pushstring(L, word);
+  } else {
+    lua_pushnil(L);
+  }
+  return 2;
+}
+
 // power.keep_awake(b): the app says it is doing something that must not be
 // interrupted by a sleep the system decides on its own (docs/30).
 int l_power_keep_awake(lua_State* L) {
@@ -14028,6 +14070,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "keep_awake", l_power_keep_awake);
   set_function(L, "cpu", l_power_cpu);
   set_function(L, "cpu_auto", l_power_cpu_auto);
+  set_function(L, "load", l_power_load);
   lua_setglobal(L, "power");
 
   // **I els sensors, quan els tres àmbits ja existeixen** (0.190.158): `env`, `power` i `imu` són taules globals i les de cada

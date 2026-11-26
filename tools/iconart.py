@@ -127,6 +127,13 @@ MARKS = {
     # icona d'una app de números ha de dir en un quadrat de noranta-quatre. L'antic sistema la tenia oculta i s'obria per nom, o sigui que
     # no en tenia cap de dibuix; aquesta és nova (docs/45, docs/92).
     "stats": (0xF201, "chart-line: what every meter has cost"),
+    # **Les dues de l'app de dibuix** (0.192.47, l'amo: *«Fes un cubell de pintura i un pinzell gros com a icona, usant l'estètica
+    # predominant en les icones, posa-li detalls»*): el cubell és `fill-drip` —un poal que aboca la pintura i la gota que cau, que és
+    # el dibuix que tothom llegeix com «omple això»— i el pinzell és `paint-brush`, el pinzell de pintor amb el mànec i la punta, que
+    # és el traç i no la ploma d'escriure. Són marques del sistema i no dibuixos de l'app: la barra de l'app les crida pel nom com les
+    # altres tretze, o sigui que el joc sencer de la targeta i les eines d'una app són els mateixos disset glifs (docs/45, docs/92).
+    "bucket": (0xF576, "fill-drip: the bucket pours, and the drip says fill"),
+    "brush": (0xF1FC, "paint-brush: the thick stroke of a painter"),
 }
 
 

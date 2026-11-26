@@ -270,6 +270,11 @@ bool canvas_pixel(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const cha
 // the dial lands on it, so the picture it holds goes into the black block with its own greys and without the box of its
 // paper (docs/30, docs/92).
 bool canvas_invert(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
+
+// **El cubell** (0.192.47): the region of the level that is at `x, y` becomes `level` —the ink of the canvas is what is filled, and
+// not a model of what the app thinks it drew—. It is a walk of the canvas and not a loop of Lua: the page of a drawing is hundreds of
+// kilobytes of four bits and the interpreter would pay them in turns (docs/30, docs/50).
+bool canvas_flood(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
 uint8_t canvas_damage(int16_t slot);
 
 // ---- the primitives of a canvas, and the text (docs/30, docs/90) ----
