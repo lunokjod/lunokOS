@@ -1,9 +1,9 @@
 {
   "title": "Time zone",
   "author": "@lunokjod",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "entry": "tz.lua",
   "boards": ["esp32"],
   "icon": "res/icon.png",
-  "description": "The hour of the person, chosen on a map of the world: a tap on a zone says what it is, the leap day and the first day of the week are in the same page, and the offset is saved when the app closes rather than while it is used."
+  "description": "The hour of the person, chosen on a map of the world: a tap on a zone says what it is, the hour of summer and the first day of the week are in the same page, and the offset is saved when the app closes rather than while it is used."
 }

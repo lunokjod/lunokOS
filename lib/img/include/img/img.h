@@ -93,6 +93,41 @@ uint32_t ics_bytes(uint16_t width, uint16_t height);
 void ics_header(uint16_t width, uint16_t height, uint8_t out[8]);
 uint32_t ics_row(uint16_t width, const uint8_t* row, uint8_t* out, uint32_t cap);
 
+// **A picture goes out as well as it comes in** (0.192.51, l'amo: *«Si exportar la imatge a png es massa feixuc per l'app lua, que ho
+// faci el sistema (li passes el canvas i ell guarda)»*): the caller hands the picture the way the glass already has it —two pixels a
+// byte, the left one in the high nibble— and a sink, and this writes a **PNG** of eight bits of grey with the level times seventeen,
+// which is what the panel taught the eye. **No allocation, no deflate**: the stream is stored with its three bytes of the zlib header
+// and its blocks of raw rows, o sigui que el que costa és el fil i no la compressió, i el resultat el llegeix qualsevol programa
+// (docs/30, docs/50).
+//
+// **I `ICS1` és l'altra meitat**: `ics_bytes`/`ics_header`/`ics_row` d'aquí dalt escriuen el format d'aquest sistema, i el que el
+// llegeix és aquest mateix `decode` —una foto que escriu una pàgina la pinta la següent, que és el que fa que el cau d'un llibre
+// sigui una imatge (docs/46, C11)—.
+//
+// El que escriu és l'app o el nucli, i el sink és el que decideix on va: un fitxer de la targeta, un altre sink, una prova. El bufet
+// de sortida és del mòdul i el travessa un tros a la vegada, o sigui que una foto de mig megabyte no demana mig megabyte (docs/75).
+class PngSink {
+ public:
+  virtual ~PngSink() {}
+  virtual bool write(const uint8_t* data, uint32_t len) = 0;
+};
+
+uint32_t png_bytes(uint16_t width, uint16_t height);
+bool png_write(uint16_t width, uint16_t height, const uint8_t* packed, uint32_t stride, PngSink& sink);
+
+// **La imatge d'una font que en dona una fila a la vegada** (0.192.59): el `png_write` de dalt vol la foto sencera en un bloc, i una
+// captura de pantalla la té al vidre: demanar dos-cents seixanta kilobytes per copiar-la és un bloc que aquesta placa pot no tenir i
+// una còpia que no serveix de res. Amb això el fitxer s'escriu **mentre es llegeix**, fila a fila, amb els mateixos bytes (docs/75).
+class RowSource {
+ public:
+  virtual ~RowSource() {}
+  // The row `y` —two pixels a byte, the left one in the high nibble— and the bytes between two of them. False when the picture
+  // has no more rows, which is a file that ends before its header says.
+  virtual bool row(uint16_t y, const uint8_t*& packed, uint32_t& stride) = 0;
+};
+
+bool png_write_rows(uint16_t width, uint16_t height, RowSource& source, PngSink& sink);
+
 }  // namespace img
 
 #endif  // LUNOK_IMG_IMG_H

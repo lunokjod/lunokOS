@@ -1,0 +1,9 @@
+{
+  "title": "LoRa",
+  "author": "@lunokjod",
+  "version": "0.1.1",
+  "entry": "lora.lua",
+  "icon": "res/icon.png",
+  "boards": ["esp32"],
+  "description": "A monitor and sniffer of the air: sweeps a band of 868, 433 or 915 MHz and draws the energy it finds in every channel with the instantaneous RSSI of the SX1262, then listens on the loudest one and turns through the six spreading factors until a packet arrives, with its hour, its power, its SNR and its bytes. It never transmits: the radio this system exposes has no way to speak."
+}

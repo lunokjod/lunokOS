@@ -1,11 +1,11 @@
 {
   "title": "Tetris",
   "author": "@lunokjod",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "entry": "tetris.lua",
   "boards": [
     "esp32"
   ],
   "icon": "res/icon.png",
-  "description": "Ten by eighteen, in black and white, and the finger is the controls.\nTap the piece to turn it; tap left, right or below to move it. The lines go away."
+  "description": "Ten by eighteen, in black and white, and the finger is the controls.\nTap the piece to turn it; tap left, right or below to move it, or swipe: left and right walk it one column each, up turns it and down drops it to the floor. The lines go away, and the game says how it ended."
 }

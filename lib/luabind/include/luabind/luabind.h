@@ -240,8 +240,8 @@ struct Settings {
   const char* home = "";
   const char* week = "monday";
   const char* tz = "+00:00";
-  // The three switches and the one number, with the types a page wants to compare.
-  bool leap = true;
+  // The two switches and the one number, with the types a page wants to compare. **El dia de traspàs no hi és** (0.192.57):
+  // a leap year is counted from the date, so there is no setting to hand a page (docs/30, docs/60).
   bool dst = false;
   bool sort_by_usage = false;
   uint32_t turn = 0;
@@ -294,6 +294,10 @@ struct CfgOps {
   const char* (*home)();
   bool (*set_home)(const char* id);
   bool (*sort_by_usage)();
+  // **El commutador de Settings→Clock** (0.192.63): si el rellotge es creu el cel. És una preferència de la persona i viu a `/cfg`
+  // com les altres, o sigui que la pàgina la desa per la mateixa porta que la resta (docs/30, docs/60).
+  bool (*gps_sync)();
+  bool (*set_gps_sync)(bool on);
   bool (*set_sort_by_usage)(bool on);
   uint32_t (*turn)();
   bool (*set_turn)(uint32_t instructions);
@@ -483,11 +487,10 @@ struct TimeOps {
   // Sakamoto live once in this system (`kernel/calendar.h`), and a second copy written here would be a second answer
   // that disagrees twice a year (docs/60, docs/90).
   uint8_t (*weekday_of)(uint16_t year, uint8_t month, uint8_t day);
-  // **The two decisions of a calendar a person can move** (0.170.0): whether February has twenty-nine days, and which
-  // weekday a week begins on. They are the kernel's —`kernel/calendar.h`— and the calls are only the door, the same
-  // way `set_tz_minutes` is the door of the offset (docs/30, docs/60).
-  bool (*leap_years)();
-  bool (*set_leap_years)(bool on);
+  // **El primer dia de la setmana** (0.170.0): which weekday a week begins on. It is the kernel's —`kernel/calendar.h`— and
+  // the call is only the door, the same way `set_tz_minutes` is the door of the offset (docs/30, docs/60). **El dia de
+  // traspàs no té porta** (0.192.57): `time.leap()` answers what the Gregorian calendar says about the year of the clock, i
+  // la regla viu una sola vegada a `hal::is_leap_year` (docs/50, docs/60).
   // **L'hora d'estiu** (0.182.0): whether the hour a person reads is the offset of the map plus sixty minutes, and the offset
   // that counts —the map's plus that hour—. It is a setting of the system because the RTC counts seconds and has no summer and
   // the chip's library would want a zone name per country (docs/30, docs/60).
@@ -683,6 +686,45 @@ struct ImuOps {
 };
 
 void set_imu_ops(const ImuOps& ops);
+
+// **La ràdio de LoRa, que només escolta** (0.192.49). **Every one of the eleven doors is absent on a board without the
+// chip**, i llavors `lora.*` no és cap taula i una app ho pot preguntar abans de dibuixar un espectre. **No hi ha cap
+// porta de transmetre**, i no n'hi haurà: el que aquesta interfície exposa és el que el xip pot fer sense parlar
+// (docs/30, docs/50).
+struct LoraOps {
+  bool (*caps)(hal::LoraCaps& out);
+  bool (*begin)();
+  bool (*frequency_set)(uint32_t hz);
+  uint32_t (*frequency_get)();
+  bool (*reception_set)(const hal::LoraConfig& config);
+  bool (*listen)(uint32_t timeout_ms);
+  bool (*sniff)();
+  int32_t (*rssi)();
+  bool (*poll)(hal::LoraPacket& packet);
+  bool (*idle)();
+  bool (*sleep)();
+  const char* (*last_error)();
+};
+
+void set_lora_ops(const LoraOps& ops);
+
+// **El receptor del cel, com el llegeix una app** (0.192.63): the fix, the satellites of the sky and the two switches —power it,
+// leave it dark—. The kernel fills this and the interpreter turns it into `gps.*`; una placa sense receptor deixa la taula
+// absent i llavors `gps.on()` no existeix en lloc de contestar una mentida (docs/30, docs/50).
+struct GpsOps {
+  bool (*available)();
+  bool (*on)();
+  bool (*off)();
+  bool (*powered)();
+  bool (*fix)(hal::GpsFix& out);
+  const hal::GpsSatellite* (*satellites)(uint8_t& count);
+  bool (*caps)(hal::GpsCaps& out);
+  int64_t (*last_sync)();
+  int64_t (*last_shift)();
+  const char* (*last_error)();
+};
+
+void set_gps_ops(const GpsOps& ops);
 
 // The button, as the interpreter uses it: an app asks for the next press as a
 // promise (docs/30).
@@ -1106,9 +1148,12 @@ struct UIOps {
                          uint8_t color, uint8_t background);
   // **I el gràfic d'una sèrie en el temps** (0.189.144): la línia, el marc, les tres guies amb els seus números i les
   // dues hores de la finestra. Els valors i els minuts els dona l'app, que és qui sap quina finestra ensenya.
+  // **I `span`**, la finestra que no es mou (0.192.50): zero és la de les mostres i un número és la que es queda quieta mentres
+  // la corba hi camina (docs/30, docs/90).
   bool (*chart_draw)(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
                      uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high,
-                     uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes);
+                     uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes,
+                     int32_t span);
   bool (*pie_draw)(int16_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background);
   // **A calendar month** (docs/30, docs/90): seven columns and six weeks, the names of the days from the app —a
   // language is not the kernel's— and which day a point of the grid is on, for the finger.
@@ -1312,6 +1357,11 @@ struct UIOps {
   // and one key has no dial: el control era d'una pàgina que ningú no podia canviar (docs/30, docs/90).
   int16_t (*slider_value_at)(int16_t slot, uint16_t x, const char* suffix, uint8_t scale, int16_t minimum,
                              int16_t maximum, int16_t step);
+  // **Guardar el que hi ha en un canvas** (0.192.51, l'amo: *«Si exportar la imatge a png es massa feixuc per l'app lua, que ho faci
+  // el sistema (li passes el canvas i ell guarda)»*): the pixels a canvas already has, written as a **PNG** of eight bits of grey. The
+  // app gives the canvas and the path and nothing else —ni un byte de píxels, ni una fila, ni una compressió—, i un dibuix de mig
+  // megabyte surt d'una crida en lloc de mig milió de voltes de Lua (docs/30, docs/75).
+  bool (*canvas_export)(int16_t slot, const char* path, const char*& code, const char*& reason);
 };
 
 void set_ui_ops(const UIOps& ops);

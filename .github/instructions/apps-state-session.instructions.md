@@ -27,9 +27,35 @@ s'hi ha de mapejar en portar una app és a **`docs/45-portar-una-app-del-paper.m
    forma antiga cap a una de nova: un estat d'una altra forma es llença.
 4. **El bloc no pot fer res que no sigui recordar la forma**: si el que hi vols posar és una decisió de la persona (tema,
    unitat, idioma, ordre), va a `/cfg` o a `fs.data`, no a `state`. La prova: si l'app ho pot decidir tota sola i la
-   persona no ho trobaria a faltar, és forma.
+   persona no ho trobaria a faltar, és forma. **I el nom del document que l'app té obert tampoc no hi va** (0.192.56): el
+   nucli **esborra el `state` a cada arrencada de debò**, o sigui que una pàgina que el llegís tornaria al document per
+   defecte —el Paint, que desava el dibuix al seu fitxer i en tornar obria sempre l'esborrany d'un altre dibuix—. Un
+   document es recorda en una **sessió pròpia** (`sys.session('status', 256)`, amb el camí a dins), que és el que el nucli
+   desa a la targeta abans d'apagar la placa; i si l'app necessita desfer un pas, el que desa és una captura en una altra
+   sessió (`undo`) que es llença amb `sys.session_destroy` quan la pàgina marxa, perquè un bloc que viu s'escriu a la
+   targeta a cada pausa.
 5. **Mira que `sys.session` pugui tornar `nil`** (la memòria era curta): l'app ha de construir la pàgina com si fos el
    primer cop, no petar.
+6. **I mira si el bloc que tens desat encara és teu** (0.192.55, i això mata apps): `alive()` és `false` des que l'allocator
+   l'ha donat per falta de memòria, i llavors `clear()`, `write()` i `read()` **aixequen `the session memory was given back`**
+   i l'app s'acaba. Ho va petar el Paint desant un dibuix —la captura dels píxels demana cent vuitanta kilobytes, o sigui que
+   la pressió arriba justament quan deses— i hi havia dotze apps més amb el mateix forat. El guardià és una línia, i va al
+   costat de la petició, no a cada crida:
+
+   ```lua
+   local function the_state()
+     if state_block ~= nil and not state_block:alive() then state_block = nil end
+     if state_block == nil then
+       local block = sys.session('state', kStateBytes)
+       if block == nil then return nil end
+       state_block = block
+     end
+     return state_block
+   end
+   ```
+
+   I una app que escriu molt de gust el torna a preguntar just abans d'escriure, perquè entre la petició i l'escriptura hi ha
+   la feina de la pàgina.
 
 ## El que no s'hi posa mai
 

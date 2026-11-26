@@ -52,6 +52,8 @@
 #include "t5s3/epd47.h"
 #include "t5s3/expander.h"
 #include "t5s3/gauge.h"
+#include "t5s3/gps_m10q.h"
+#include "t5s3/lora_sx1262.h"
 
 namespace hal {
 namespace {
@@ -684,6 +686,13 @@ class T5Platform : public IPlatform {
       // **I la llum de fons hi és** (0.190.99): the supply took the PWM, o sigui que una app pot demanar-ne la intensitat com demana la
       // d'una tira. Es pregunta després del vidre perquè una placa sense vidre tampoc no té res a il·luminar (docs/30, docs/50).
       if (const_cast<T5Platform*>(this)->led() != nullptr) caps_.add(kCapLed);
+      // **I la ràdio de LoRa, si el xip contesta** (0.192.49): el SX1262 penja del rail de l'expansor i la pregunta és la que
+      // el driver fa una vegada —reset, repòs i la calibració de la imatge—. Una placa on no hi sigui no ha de dir que
+      // escolta: un espectre pla és una resposta i una ràdio que no hi és no ho és (docs/30, docs/50).
+      if (const_cast<T5Platform*>(this)->lora() != nullptr) caps_.add(kCapLora);
+      // **I la mirada al cel** (0.192.63): el mòdul hi és si el rail hi és —el pinmap diu que ve soldat—, i el que no se sap fins que
+      // es pregunta és quin dels dos models és (docs/50).
+      if (const_cast<T5Platform*>(this)->gps() != nullptr) caps_.add(kCapGps);
     }
     return caps_;
   }
@@ -716,6 +725,12 @@ class T5Platform : public IPlatform {
   // **I el mesh d'aquesta ràdio** (0.190.212): the node of Bluetooth Mesh, which is the same chip's and another way of using the radio.
   IMesh* mesh() override { return esp32_mesh(); }
   IPower* power() override { return &power_; }
+  // **El SX1262, que només escolta** (0.192.49): el driver del xip és `t5s3/lora_sx1262.cpp` i el seu rail és el mateix
+  // expansor que obre el panell. Es construeix la primera vegada que es demana, com el vidre i la llum de fons (docs/50).
+  ILora* lora() override { return t5s3_lora(expander()); }
+  // **I el receptor del cel** (0.192.63): el MIA-M10Q (o el L76K, segons la tirada de la placa) al rail que comparteix amb la ràdio i a
+  // la UART de les potes 43/44, que aquesta placa pot fer servir perquè la seva consola és el USB natiu (docs/50).
+  IGps* gps() override { return t5s3_gps(expander()); }
   // **El vidre** (0.190.33): l'expansor obre les portes del panell i el TPS65185 li dona les tensions, o sigui que el
   // driver dels dos és el que el construeix. **I es pregunta de debò** (0.190.34): a panel whose bus or frame did not
   // come up answers nothing and this says `nullptr` with the reason in the log, perquè una placa sense vidre ha de

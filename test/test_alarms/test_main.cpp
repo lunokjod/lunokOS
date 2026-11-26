@@ -67,6 +67,46 @@ void test_a_repeating_alarm_moves_to_its_next_occurrence(void) {
   TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
 }
 
+// **Un tick no és una alarma: no arma el despertar, no es desa i no compta les voltes perdudes** (0.192.60). The queue is one
+// and the three promises are the difference: `next_due_mono_ms` is the next thing that has to be served —by the turn of the
+// loop— and `next_wake_mono_ms` is the next thing that can bring the board back, which a tick never is. `dump` writes it
+// nowhere (a tick is the app's, and the app asks again when it opens) and a night of sleep is not a tick that was lost.
+void test_a_tick_is_served_by_the_loop_and_never_arms_the_wake(void) {
+  alarms::Spec tick = make("stats", 1000, 60000);
+  tick.awake_only = true;
+  const uint32_t id = alarms::add(tick);
+  TEST_ASSERT_TRUE(id != 0);
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+
+  // S'ha de servir, però no és cap hora a la qual despertar-se.
+  TEST_ASSERT_EQUAL_INT64(1000, alarms::next_due_mono_ms());
+  TEST_ASSERT_EQUAL_INT64(-1, alarms::next_wake_mono_ms());
+
+  // Una alarma de debò al darrere és la que mana al despertar, i el tick encara no hi és.
+  TEST_ASSERT_TRUE(alarms::add(make("clock", 5000)) != 0);
+  TEST_ASSERT_EQUAL_INT64(1000, alarms::next_due_mono_ms());
+  TEST_ASSERT_EQUAL_INT64(5000, alarms::next_wake_mono_ms());
+
+  // La volta que ha perdut la placa adormida no és una volta perduda, i la cua no ha canviat per a la NVS.
+  const uint32_t revision = alarms::revision();
+  alarms::Entry out;
+  TEST_ASSERT_TRUE(alarms::take_due(1000 + 5 * 60000, out));
+  TEST_ASSERT_TRUE(out.awake_only);
+  TEST_ASSERT_EQUAL_UINT32(0, out.missed);
+  TEST_ASSERT_EQUAL_UINT32(revision, alarms::revision());
+  // El tick ha tornat a la cua a la seva volta següent, i el que mana ara és l'alarma de debò, que és abans.
+  TEST_ASSERT_EQUAL_INT64(5000, alarms::next_due_mono_ms());
+  TEST_ASSERT_TRUE(alarms::take_due(1000 + 5 * 60000, out));
+  TEST_ASSERT_FALSE(out.awake_only);
+  TEST_ASSERT_EQUAL_INT64(1000 + 6 * 60000, alarms::next_due_mono_ms());
+  // I el que queda no pot despertar la placa: un tick no ho fa mai.
+  TEST_ASSERT_EQUAL_INT64(-1, alarms::next_wake_mono_ms());
+
+  // I el desament no se l'emporta.
+  char blob[256];
+  TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(alarms::dump(0, 1700000000000LL, blob, sizeof(blob))));
+}
+
 // An app only cancels its own alarms.
 void test_only_the_owner_cancels(void) {
   const uint32_t id = alarms::add(make("mine", 1000));
@@ -280,6 +320,48 @@ void test_remove_of_moves_the_revision(void) {
   TEST_ASSERT_TRUE(alarms::revision() != before);
 }
 
+// **Els ticks d'una app, tots fora i els dels altres quiets** (0.192.63, l'amo: *«Només un tick per app. Si una app en demana
+// unaltre, s'esborra l'anterior i es fa la que acaben de demanar»*): la porta de `tick.every` esborra els de la pròpia app abans
+// d'afegir-hi el nou, i el que no toca és una alarma de debò ni el tick d'una altra app. **La revisió no es mou**: un tick no
+// s'escriu a la NVS i treure'l no ha de fer escriure cap clau (docs/30, docs/60).
+void test_remove_awake_only_of_takes_the_ticks_of_one_app_and_nothing_else(void) {
+  alarms::Spec a_tick = make("stats", 60000, 60000);
+  a_tick.awake_only = true;
+  alarms::Spec another_tick = make("stats", 70000, 30000);
+  another_tick.awake_only = true;
+  alarms::Spec other_tick = make("gps", 80000, 60000);
+  other_tick.awake_only = true;
+  TEST_ASSERT_TRUE(alarms::add(a_tick) != 0);
+  TEST_ASSERT_TRUE(alarms::add(another_tick) != 0);
+  TEST_ASSERT_TRUE(alarms::add(other_tick) != 0);
+  // Una alarma de debò de la mateixa app: no és un tick i no se l'emporta.
+  TEST_ASSERT_TRUE(alarms::add(make("stats", 90000)) != 0);
+  const uint32_t before = alarms::revision();
+
+  TEST_ASSERT_EQUAL_UINT32(2, alarms::remove_awake_only_of("stats"));
+  TEST_ASSERT_EQUAL_UINT32(2, alarms::count());
+  TEST_ASSERT_EQUAL_UINT32(before, alarms::revision());
+
+  // El que queda és l'alarma de debò i el tick de l'altra app.
+  bool found_alarm = false;
+  bool found_other = false;
+  for (uint32_t i = 0; i < alarms::count(); ++i) {
+    const alarms::Entry* entry = alarms::at(i);
+    TEST_ASSERT_TRUE(entry != nullptr);
+    if (entry->awake_only) {
+      found_other = true;
+    } else {
+      found_alarm = true;
+    }
+  }
+  TEST_ASSERT_TRUE(found_alarm);
+  TEST_ASSERT_TRUE(found_other);
+
+  // I una app que no en té cap no mou res.
+  TEST_ASSERT_EQUAL_UINT32(0, alarms::remove_awake_only_of("nobody"));
+  TEST_ASSERT_EQUAL_UINT32(2, alarms::count());
+}
+
 // **La mateixa promesa no s'hi pot posar dues vegades** (0.189.172, l'amo: *«les alarmes de les apps es multipliquen»*): una
 // alarma que es repeteix no té hora pròpia —torna a la cua a la seva ocurrència següent—, o sigui que el seu període i el
 // seu payload són tota la configuració, i una altra app amb les mateixes paraules és una altra promesa (docs/30, docs/60).
@@ -341,6 +423,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_queue_is_ordered_by_deadline);
   RUN_TEST(test_take_due_only_takes_what_is_due);
   RUN_TEST(test_a_repeating_alarm_moves_to_its_next_occurrence);
+  RUN_TEST(test_a_tick_is_served_by_the_loop_and_never_arms_the_wake);
   RUN_TEST(test_only_the_owner_cancels);
   RUN_TEST(test_the_alarm_keeps_its_own_copy);
   RUN_TEST(test_the_list_has_a_ceiling);
@@ -352,6 +435,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_describe_refuses_what_it_cannot_say);
   RUN_TEST(test_remove_of_takes_the_alarms_of_one_app);
   RUN_TEST(test_remove_of_moves_the_revision);
+  RUN_TEST(test_remove_awake_only_of_takes_the_ticks_of_one_app_and_nothing_else);
   RUN_TEST(test_the_same_configuration_is_found_and_only_for_its_app);
   RUN_TEST(test_a_one_shot_is_the_same_instant_to_the_second);
   return UNITY_END();

@@ -67,6 +67,11 @@ class MemorySurface : public hal::ISurface {
   // Whether the sleep has been asked for, which is what a test reads.
   bool resting() const { return resting_; }
 
+  // **La pàgina, tal com la té el vidre** (0.192.59): the same bytes `bits()` gives a test, a row at a time, i és el que la
+  // comanda `screenshot` desa. El que torna és **el que s'ha pintat** i no el que el model de tinta mostra: una foto no ha de
+  // portar-hi els fantasmes d'una passada `du`, que són del panell i no de la imatge (docs/50, docs/85).
+  bool read_row(uint16_t y, uint8_t* packed, uint16_t stride) const override;
+
   // What a test asks: the pixels themselves, and how the panel was asked to work.
   const uint8_t* bits() const { return bits_; }
   uint8_t level_at(uint16_t x, uint16_t y) const;

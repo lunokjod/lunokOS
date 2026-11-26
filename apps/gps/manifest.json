@@ -1,0 +1,9 @@
+{
+  "title": "GPS",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "gps.lua",
+  "icon": "res/icon.png",
+  "boards": ["esp32"],
+  "description": "The sky as the receiver sees it: the position in degrees and metres with the quality of the fix, the speed and the course, and a map of the sky with every satellite of the last GSV placed by its azimuth and its elevation, sized by whether the receiver counts it and toned by its signal. It also says what the sky's clock says and whether the board's clock has believed it, which is the switch of Settings->Clock."
+}

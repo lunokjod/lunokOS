@@ -14,6 +14,8 @@
 
 #include "emu/options.h"
 #include "emu/gt911.h"
+#include "emu/gps.h"
+#include "emu/lora.h"
 #include "emu/gui.h"
 #include "emu/memories.h"
 #include "emu/model.h"
@@ -1929,6 +1931,13 @@ class EmulatorPlatform : public IPlatform {
       if (emu::model().imu) caps_.add(kCapImu);
       // The air: the model's, and only the model's (docs/50, docs/85).
       if (emu::model().env) caps_.add(kCapEnv);
+      // **I la ràdio de LoRa, si el model la porta** (0.192.49): la T5S3 és l'única placa d'aquest emulador amb un SX1262, i
+      // el model ho diu perquè una app d'escombrat pugui dir «aquesta placa no escolta» en comptes de dibuixar un aire buit
+      // (docs/30, docs/50, docs/85).
+      if (emu::model().lora) caps_.add(kCapLora);
+      // **I el receptor del cel, si el model el porta** (0.192.63): la mateixa regra que la ràdio, perquè una pàgina del cel pugui
+      // dir «aquesta placa no mira el cel» en comptes de dibuixar un mapa amb el cel buit (docs/30, docs/50).
+      if (emu::model().gps) caps_.add(kCapGps);
     }
     return caps_;
   }
@@ -1995,6 +2004,10 @@ class EmulatorPlatform : public IPlatform {
     static FakeLed instance;
     return &instance;
   }
+  // **La ràdio de LoRa** (0.192.49): només el model que la porta, i només per escoltar. El que dona és un aire inventat
+  // —tres nodes a 868 i un polsador a 433,92— que fa que una pàgina d'escombrat tingui què ensenyar (docs/50, docs/85).
+  ILora* lora() override { return emu::emu_lora(); }
+  IGps* gps() override { return emu::emu_gps(); }
   IImu* imu() override {
     if (!emu::model().imu) return nullptr;
     static FakeImu instance;

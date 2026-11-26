@@ -14,6 +14,7 @@
 //   - the command table in `execute()`, and the console feed, the line editor and the Lua prompt.
 #include "kernel/session.h"
 #include "kernel/shell.h"
+#include "kernel/screenshot.h"
 #include "kernel/splash.h"
 
 #include <stdio.h>
@@ -28,6 +29,7 @@
 #include "kernel/button.h"
 #include "kernel/cfg.h"
 #include "kernel/display.h"
+#include "kernel/gps.h"
 #include "kernel/kernel.h"
 #include "kernel/led.h"
 #include "kernel/line_editor.h"
@@ -74,6 +76,9 @@ void run_a_line(const char* text);
 namespace {
 
 const size_t kPrintCap = 1024;
+// **El nom amb què el prompt té el port sèrie** (0.192.61): `serial claim` el posa i `serial send` mira si el que hi ha és seu
+// per aprofitar-lo i no tornar un bloqueig que no havia demanat (docs/30, docs/50).
+const char kPromptOwner[] = "the prompt";
 // Largest entry chunk that will be run. It was 4 096 B and the `matrix` app grew past it; it was 8 192 B and
 // the `buttons` example grew past it at 9 329 B, which is a limit saying no to an app that fits the board. It
 // was 16 384 B and the editor that speaks vim grew past it at 26 644 B (4/11), and the buffer is not static
@@ -776,6 +781,8 @@ void print_help(const char* only) {
   help_continuation("                      default), ten or fifteen. With no alarm, a key wakes it", only);
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot,", only);
   help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
+  help_line("  screenshot [<path>]  the glass as a picture: .ics (four bits a pixel, the", only);
+  help_continuation("                    default) or .png, at /sd/capture.ics with no path)", only);
   help_line("  panel [edge|box]  where a partial paint starts: the edge of the image or the change", only);
   help_line("  rotate [n]        the turn of the glass (0, 90, 180 or 270), saved for the next boot", only);
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
@@ -783,7 +790,7 @@ void print_help(const char* only) {
       "                    lives (and `/data`, which a flash does not keep), the keyboard, the picture of the boot and", only);
   help_continuation("                    the app that comes up with the board;", only);
   help_continuation(
-      "                    `cfg tz [<offset>]`, `cfg leap [on|off]`, `cfg dst [on|off]`, `cfg week [monday|sunday]` and", only);
+      "                    `cfg tz [<offset>]`, `cfg dst [on|off]`, `cfg week [monday|sunday]` and", only);
   help_continuation("                    `cfg sort [on|off]`, whether the launcher draws the apps by how many times they",
                     only);
   help_continuation("                    have been opened, and `cfg turn [<instructions>]`, the slice of Lua a turn is worth",
@@ -810,6 +817,7 @@ void print_help(const char* only) {
   help_line("  repo install <app>  the whole folder of an app, onto the disk `cfg` names", only);
   help_line("  alarm [list]      the queue of alarms, the nearest first, and where the wake is armed", only);
   help_line("  cfg lock [<id>|none]  the page that covers the screen, and `cfg lockon on|off` with `cfg lockafter 5|10|15`", only);
+  help_line("  cfg gpssync on|off  whether the clock is set from the sky, which is the switch of Settings->Clock", only);
   help_line("  cfg sleep on|off      whether the board sleeps until its next alarm when nobody uses it", only);
   help_line("  cfg touchwake on|off  whether a finger on the glass wakes the board from a deep sleep", only);
   help_line("  cfg nap on|off        whether the waits of the board are spent in a light sleep", only);
@@ -828,6 +836,9 @@ void print_help(const char* only) {
   help_line("  led [rrggbb|off]  the light of the board", only);
   help_line("  serial [claim|release]  cede the serial port to an app, or take it back: while it is ceded the", only);
   help_continuation("                    system writes nothing here and the log stays in the ring", only);
+  help_line("  gps [on|off]      the receiver of the sky: what it sees, and whether it sets the clock", only);
+  help_line("  serial send <path>  send a file out of the port, byte for byte and with the port claimed so", only);
+  help_continuation("                    that nothing of the system lands in the middle of it (Control+C stops it)", only);
   help_line("  button            the button, right now", only);
   help_line("  sleep [light|deep] <ms>  sleep, and come back at a time", only);
   help_line("  sleep at <epoch seconds>  the same, at a time of the clock", only);
@@ -1647,6 +1658,41 @@ bool command_panel(const char* rest) {
   return true;
 }
 
+// **`screenshot [<path>]`**: la pantalla, desada com una foto (0.192.59, l'amo: *«Una comanda per fer captura de la pantalla i escollir
+// format de sortida (per defecte ics) "screenshoot /sd/capture.ics"»*). **El format el diu l'extensió**: `.ics` —quatre bits per píxel,
+// el fitxer més barat que aquest sistema té i el que ell mateix llegeix com qualsevol foto— i `.png`, que és el que obre qualsevol
+// programa; un camí sense extensió és un `ICS1` i la comanda diu el nom que ha escrit. **Sense camí va a `/sd/capture.ics`**, que és
+// on una targeta el fa trobar des de qualsevol ordinador. Els píxels es llegeixen del vidre una fila a la vegada i no passen per cap
+// bloc de dos-cents seixanta kilobytes (docs/30, docs/50, docs/70).
+bool command_screenshot(const char* rest) {
+  char words[1][kWordCap];
+  size_t count = 0;
+  if (!read_words(rest, words, 1, count)) return false;
+  if (count > 1) {
+    usage_out("usage: screenshot [<path>] (.ics, the default, or .png)\r\n");
+    return false;
+  }
+  char path[128];
+  if (count == 0) {
+    snprintf(path, sizeof(path), "/sd/capture.ics");
+  } else {
+    snprintf(path, sizeof(path), "%s", words[0]);
+  }
+  char written[160];
+  const char* code = "";
+  const char* reason = "";
+  if (!screenshot::capture(path, written, sizeof(written), code, reason)) {
+    out("screenshot: ");
+    out((reason[0] != '\0') ? reason : code);
+    out("\r\n");
+    return false;
+  }
+  out("screenshot: ");
+  out(written);
+  out("\r\n");
+  return true;
+}
+
 // **`splash`**: the picture of a moment on the glass, washed whole, or the glass given back to paper. With no
 // word it says which moments this build carries a picture for, which is the question a person asks before
 // writing a picture of their own (0.111.0, docs/30, docs/92).
@@ -1998,6 +2044,139 @@ bool print_file(const char* path) {
   // A file that does not end in a newline gets one, or the prompt would be glued to its last line.
   if (total > 0 && last != '\n') newline();
   return true;
+}
+
+// **Un fitxer pel cable, amb el port cedit** (0.192.61, l'amo: *«Crea una subcomanda a serial anomenada "send" "serial [send]
+// [/path/filename]" que permeti enviar un arxiu per port serie, usant el bloqueig de serial per evitar soroll.»*). El bloqueig és
+// el que fa la feina: mentre el port és cedit el sistema **no hi escriu res** —ni el prompt, ni el mirall del registre, ni la
+// taula d'una comanda—, o sigui que el que arriba a l'altre cap del cable és el fitxer i prou (docs/30, docs/50).
+//
+// **I els bytes hi van sense el filtre dels codis** (0.192.61): `out_bytes` treu les seqüències d'escapament perquè qui escriu
+// una pàgina vol dir un color, i un fitxer no és una pàgina —un binari amb un `0x1b` a dins arribaria canviat i ni el tamany
+// quadraría—. Per això aquest camí agafa la consola del PAL directament; el que aquesta comanda **diu** sí que passa per `out`,
+// que és el que fa que una sessió del Shell llegeixi la resposta a la seva pàgina.
+const size_t kSendCap = 1024;
+
+bool send_file_to_the_wire(const char* path) {
+  hal::Stat info;
+  if (!vfs::stat(path, info)) {
+    error_out("no such file: ");
+    out(path);
+    newline();
+    say_where_it_is(path);
+    return false;
+  }
+  if (info.type != hal::NodeType::kFile) {
+    error_out("that is not a file: ");
+    out(path);
+    newline();
+    return false;
+  }
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) {
+    error_out("cannot read: ");
+    out(path);
+    newline();
+    return false;
+  }
+  // **El fitxer s'obre abans de demanar el port** (0.192.61): un bloqueig que envolta un fitxer que no es pot llegir és un
+  // silenci per a res, i la persona es quedaria amb el port cedit i sense saber per què.
+  hal::FileSlot slot;
+  StorageReadClock clock(storage);
+  clock.begin();
+  const bool opened = storage->open(rel, hal::OpenMode::kRead, slot);
+  clock.end();
+  if (!opened) {
+    error_out("cannot read: ");
+    out(path);
+    newline();
+    return false;
+  }
+
+  pal::IConsole* wire = pal::system().console();
+  if (wire == nullptr) {
+    error_out("serial: this board has no port to send it to\r\n");
+    clock.begin();
+    storage->close(slot);
+    clock.end();
+    return false;
+  }
+  // **I si el port és d'una app, el fitxer no hi passa** (0.192.61): dues coses escrivint al mateix cable és exactament el que
+  // el bloqueig existeix per evitar, o sigui que es diu de qui és i no s'hi envia res. Si qui el té és **la persona** (`serial
+  // claim`), el bloqueig ja hi és: s'aprofita i no es torna en acabar, perquè no era d'aquesta comanda.
+  const bool already = serial::claimed();
+  if (already && strcmp(serial::owner(), kPromptOwner) != 0) {
+    error_out("serial: the port is ");
+    error_out(serial::owner());
+    error_out("'s: a file cannot go out through it\r\n");
+    clock.begin();
+    storage->close(slot);
+    clock.end();
+    return false;
+  }
+  if (!already && !serial::claim(kPromptOwner, "a file is going out")) {
+    clock.begin();
+    storage->close(slot);
+    clock.end();
+    return false;
+  }
+
+  const uint32_t started = pal::system().millis();
+  char buf[kSendCap];
+  uint32_t total = 0;
+  bool aborted = false;
+  bool stuck = false;
+  while (true) {
+    clock.begin();
+    const int32_t got = storage->read(slot, buf, static_cast<uint32_t>(sizeof(buf)));
+    clock.end();
+    if (got <= 0) break;
+    // **Un tros que la línia no s'emporta sencer es torna a demanar** (0.192.61): a 115 200 bauds el que hi ha a la cua del
+    // xip és més petit que la finestra, i donar la transferència per bona quan el `write` torna curt és un fitxer tallat que
+    // ningú veu fins que l'altre cap l'obre.
+    size_t at = 0;
+    while (at < static_cast<size_t>(got)) {
+      const size_t went = wire->write(buf + at, static_cast<size_t>(got) - at);
+      if (went == 0) {
+        stuck = true;
+        break;
+      }
+      at += went;
+    }
+    total += static_cast<uint32_t>(at);
+    if (stuck || at < static_cast<size_t>(got)) break;
+    // **I es pot aturar**: un fitxer d'un mega a 115 200 bauds són dos minuts, i la tecla que atura el registre en directe
+    // (`log follow`) és la mateixa que atura això —Control+C—; el que arribi mentres no sigui això es descarta, que és el preu
+    // de mirar-hi (docs/30).
+    char key = 0;
+    if (wire->read(&key, 1) > 0 && key == 0x03) {
+      aborted = true;
+      break;
+    }
+  }
+  clock.begin();
+  storage->close(slot);
+  clock.end();
+  // **El que queda a dins del port s'empeny abans de tornar-lo** (0.192.61): una línia sèrie guarda bytes en vol després del
+  // `write`, o sigui que tornar el port abans del `flush` faria que la cua del registre i la del sistema s'hi barregessin.
+  wire->flush();
+  if (!already) (void)serial::release("the file went out");
+  const uint32_t took = pal::system().millis() - started;
+
+  // **I el que ha passat s'escriu quan el port ja no és cedit**: mentres ho era, `out` no tenia on escriure. Si el port era de la
+  // persona i encara és seu, la resposta no arriba al cable —el silenci és el contracte de `serial claim`— i la línia del
+  // registre és l'única que ho diu, i es llegeix amb `serial release` i un `log` al darrere (docs/30, docs/50).
+  log_printf(aborted ? pal::kLogWarn : pal::kLogInfo, "SERIAL", "sent %u B of %s to the wire in %u ms%s", total, path, took,
+             aborted ? " (stopped with Control+C)" : (stuck ? " (the port took nothing more)" : ""));
+  if (!serial::claimed()) {
+    (aborted ? error_out : good_out)(aborted ? "serial: stopped after " : "serial: ");
+    out_num(total);
+    out(" B of ");
+    out(path);
+    out(aborted ? " (Control+C)\r\n" : " went to the wire\r\n");
+  }
+  return !aborted && !stuck;
 }
 
 // Hexdump: a file as eight digits of offset, sixteen bytes in hex, and the same sixteen between bars.
@@ -4615,6 +4794,107 @@ void print_key(const char* label, const uint8_t key[16]) {
 // led [rrggbb|off]: the light of the board, by hand. It is the colour an app takes,
 // so `led off` gives it back to the system and the shell says which one is showing
 // (docs/30, docs/50).
+// **`gps [on|off]`** (0.192.63, l'amo: *«Crea una comanda /gps [on|off]»*): the receiver of the sky as a person's command —it is on
+// or off, what it sees, and what the clock has believed—, i el mateix que fa la pàgina de l'app quan prem un botó (docs/30, docs/50).
+//
+// **No hi ha cap «gps fix» ni cap «gps status»**: with no word the command already says what there is —the module, whether it is on,
+// the position or the reason there is none, the sky and the last time the clock was set—, i una segona paraula per dir el mateix amb
+// un altre nom seria una comanda que una persona ha de recordar sense cap motiu (docs/30).
+bool command_gps(const char* argument) {
+  char words[1][kWordCap];
+  size_t count = 0;
+  if (!read_words(argument, words, 1, count)) return false;
+  if (count > 0 && strcmp(words[0], "on") == 0) {
+    if (!gps::available()) {
+      out("gps: this board does not look at the sky\r\n");
+      return false;
+    }
+    if (!gps::turn_on()) {
+      error_out("gps: the receiver does not answer: ");
+      out(gps::last_error());
+      newline();
+      return false;
+    }
+    out("gps: the receiver is on, and the clock is set from it while the switch is on\r\n");
+    return true;
+  }
+  if (count > 0 && strcmp(words[0], "off") == 0) {
+    if (!gps::available()) {
+      out("gps: this board does not look at the sky\r\n");
+      return false;
+    }
+    const bool was = gps::turn_off();
+    out(was ? "gps: the receiver is off, and it draws nothing from the rail\r\n" : "gps: the receiver was already off\r\n");
+    return true;
+  }
+  if (count > 0) {
+    usage_out("usage: gps [on|off]\r\n");
+    return false;
+  }
+  if (!gps::available()) {
+    out("gps: this board does not look at the sky\r\n");
+    return false;
+  }
+
+  hal::GpsCaps caps;
+  gps::caps(caps);
+  out("gps: ");
+  out(caps.chip);
+  out(", ");
+  out(caps.powered ? "on" : "off");
+  out(", ");
+  out_num(caps.baud);
+  out(" bauds\r\n");
+
+  hal::GpsFix info;
+  const bool has = gps::fix(info);
+  char line[224];
+  if (!has) {
+    // **La diferència que importa**, dita amb les dues cares: el receptor parla i encara no té posició, o el cable és mort (docs/30).
+    if (info.sentences == 0) {
+      out("  no sentences: the module has not said anything yet\r\n");
+    } else {
+      snprintf(line, sizeof(line), "  no position yet: %u sentence(s), %u of them bad, %u satellite(s) in view",
+               static_cast<unsigned>(info.sentences), static_cast<unsigned>(info.bad_sentences),
+               static_cast<unsigned>(info.satellites_seen));
+      out(line);
+      newline();
+    }
+  } else {
+    // **Els graus amb set decimals i el costat del món amb una lletra**: 10⁻⁷ de grau és un centímetre damunt del terra, o sigui que
+    // els decimals que el receptor dona es veuen tots (docs/30, docs/50).
+    snprintf(line, sizeof(line), "  %0.7f %c, %0.7f %c", static_cast<double>(info.lat_e7) / 10000000.0, (info.lat_e7 < 0) ? 'S' : 'N',
+             static_cast<double>(info.lon_e7) / 10000000.0, (info.lon_e7 < 0) ? 'W' : 'E');
+    out(line);
+    newline();
+    snprintf(line, sizeof(line), "  %0.2f m over the sea (geoid %0.2f m), %0.2f m/s at %0.1f deg, %u of %u satellite(s), hdop %0.1f",
+             static_cast<double>(info.altitude_cm) / 100.0, static_cast<double>(info.geoid_cm) / 100.0,
+             static_cast<double>(info.speed_cm_s) / 100.0, static_cast<double>(info.course_deg10) / 10.0,
+             static_cast<unsigned>(info.satellites_used), static_cast<unsigned>(info.satellites_seen),
+             static_cast<double>(info.hdop_x10) / 10.0);
+    out(line);
+    newline();
+  }
+  if (info.time.valid) {
+    snprintf(line, sizeof(line), "  the sky says %04u-%02u-%02u %02u:%02u:%02u UTC", info.time.year, info.time.month, info.time.day,
+             info.time.hour, info.time.minute, info.time.second);
+    out(line);
+    newline();
+  }
+  const int64_t synced = gps::last_sync_ms();
+  if (synced >= 0) {
+    snprintf(line, sizeof(line), "  the clock was set from it %lld s ago (%+lld ms)",
+             static_cast<long long>(synced / 1000), static_cast<long long>(gps::last_shift_ms()));
+    out(line);
+    newline();
+  } else if (cfg::gps_sync()) {
+    out("  the clock will be set from it when there is a date\r\n");
+  }
+  out(cfg::gps_sync() ? "  Settings->Clock: the sky sets the clock and the hour of the person\r\n"
+                      : "  Settings->Clock: the sky does not set the clock\r\n");
+  return true;
+}
+
 bool command_led(const char* argument) {
   char words[1][kWordCap];
   size_t count = 0;
@@ -5208,19 +5488,23 @@ bool start_a_page(const AStart& start) {
 // away. It never runs on top of another app, and its console writes are at the
 // foreground prompt because there is no separate log console yet.
 bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
+  // **La finestra diu què l'ha oberta** (0.192.69): a tick and an alarm share the road and the queue, o sigui que les seves
+  // línies han de dir quina de les dues coses és (docs/30, docs/60).
+  const char* tag = entry.awake_only ? "TICK" : "ALARM";
+  const char* what = entry.awake_only ? "tick" : "alarm";
   // **El perquè no s'ha pogut, dit de veritat** (0.189.175): the single sentence `no window (app gone or no on_alarm)` said two
   // things and neither of them was the one that happened —the owner's log of the 18th had the page of the launcher in front
   // and the app well and truly on the disk—, o sigui que cada porta diu la seva i el qui la demana no hi afegeix res
   // (docs/30, docs/60).
   if (g_app_alive) {
-    log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (the page of %s is in front)",
+    log_printf(pal::kLogWarn, tag, "%u for %s: no window (the page of %s is in front)",
                static_cast<unsigned>(entry.id), id, app_id());
     return false;
   }
   RunTarget target;
   size_t len = 0;
   if (!load_source(id, target, len)) {
-    log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (the app is not on the disk)",
+    log_printf(pal::kLogWarn, tag, "%u for %s: no window (the app is not on the disk)",
                static_cast<unsigned>(entry.id), id);
     return false;
   }
@@ -5245,7 +5529,7 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   // carregant-lo, la crida, el tancament…) No veig que l'app sigui avisada de res!»*). A window ran a whole app —loaded the text,
   // built the machine, called the hook and destroyed it— and the log only said `1 delivered to battery in a window`: el que la
   // persona necessita és veure **la vida de la finestra** i el que l'app hi diu, i les dues coses es diuen aquí (docs/30, docs/60).
-  log_printf(pal::kLogInfo, "ALARM", "a window opens for %s (%lld ms late): loading it", id,
+  log_printf(pal::kLogInfo, tag, "a window opens for %s (%lld ms late): loading it", id,
              static_cast<long long>(late_ms));
   // **Obrir una app, mesurada**: the interpreter comes up and the chunk is compiled here, o sigui que el que una persona espera
   // després de prémer una cel·la és aquesta fila i no el metre de l'app, que encara no corre (docs/30, docs/75).
@@ -5256,7 +5540,7 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   }
   if (!the_interpreter) {
     drop_source();  // the text was read and nobody is going to compile it
-    log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (no room for another interpreter)",
+    log_printf(pal::kLogWarn, tag, "%u for %s: no window (no room for another interpreter)",
                static_cast<unsigned>(entry.id), id);
     return false;
   }
@@ -5291,12 +5575,21 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
     // res** (0.190.19): un despert per una alarma de fons deixa la pantalla exactament com era, i apuntar-hi una pàgina faria que la
     // baixada hi tornés a pintar una imatge per res (docs/30, docs/60).
     if (ok && !display::the_glass_is_asleep()) power::note_a_page_on_the_glass();
-    log_printf(ok ? pal::kLogInfo : pal::kLogWarn, "ALARM", "%s %s the alarm", id,
-               ok ? "answered" : "did not answer");
+    log_printf(ok ? pal::kLogInfo : pal::kLogWarn, tag, "%s %s the %s", id,
+               ok ? "answered" : "did not answer", what);
   } else {
-    log_printf(pal::kLogWarn, "ALARM", "%s did not load: the window has no hook to call", id);
+    log_printf(pal::kLogWarn, tag, "%s did not load: the window has no hook to call", id);
   }
   luabind::stop();
+  // **I el que la finestra ha escrit a la seva caché baixa al disc** (0.192.70): a page flushes its blocks when it closes
+  // (`close_app`), i una finestra que només ve a prendre una mostra no tenia cap moment per fer-ho, o sigui que la mostra es
+  // quedava a la memòria i s'esvaïa amb l'intèrpret. És el que fa que un tick amb la pàgina tancada serveixi d'alguna cosa
+  // (docs/30, docs/60, docs/75).
+  const session::Parked flushed = session::flush(id);
+  if (flushed.written > 0) {
+    log_printf(pal::kLogInfo, tag, "%s: %u session block(s) written to /session", id,
+               static_cast<unsigned>(flushed.written));
+  }
   // **I la consola torna a ser del prompt**: the next thing that writes to it is the person (docs/30).
   luabind::set_console_attached(true);
   // **A window is an app too, for the glass** (0.136.0, docs/46 D1): whatever it asked for is given back when it goes,
@@ -5304,7 +5597,7 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   // es toca**: the page under it is the one of the app that stepped aside, and `give_back` frees the view without painting
   // (0.189.175).
   ui::give_back_the_glass();
-  log_printf(pal::kLogInfo, "ALARM", "the window of %s closes", id);
+  log_printf(pal::kLogInfo, tag, "the window of %s closes", id);
   return ok;
 }
 
@@ -5836,8 +6129,8 @@ bool command_cfg(const char* argument) {
   // entès el que li han dit (docs/30).
   static const char* const kUsage =
       "usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|lock [<id>|none]|"
-      "leap [on|off]|dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
-      "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [5|10|15]|nap [on|off]|wifi [on|off]|"
+      "dst [on|off]|week [monday|sunday]|sort [on|off]|turn [<instructions>]|freq [<mhz> on|off]|"
+      "settings [<id>|none]|lockon [on|off]|lockafter [5|10|15]|idle [5|10|15]|nap [on|off]|wifi [on|off]|gpssync [on|off]|"
       "bt [on|off]|cursor delay [<ms>]]\r\n";
   char words[3][kWordCap];
   size_t count = 0;
@@ -5970,6 +6263,29 @@ bool command_cfg(const char* argument) {
       }
       const bool kept = cfg::set_lock_on(on);
       out("settings: lock ");
+      out(on ? "on" : "off");
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
+    // **`cfg gpssync on|off`** (0.192.63): el commutador de Settings→Clock, que és si el rellotge es creu el cel. Encendre'l encén
+    // també el receptor —un commutador que diu que sí i no pregunta mai l'hora seria una promesa que no es compleix— i apagar-lo no
+    // l'apaga, perquè el mòdul és una altra cosa i una pàgina el pot estar mirant (docs/30, docs/50).
+    if (strcmp(words[0], "gpssync") == 0) {
+      if (!gps::available()) {
+        out("cfg: this board does not look at the sky\r\n");
+        return false;
+      }
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the sky sets the clock or it does not: on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_gps_sync(on);
+      if (on) (void)gps::turn_on();
+      out("settings: gps sync ");
       out(on ? "on" : "off");
       newline();
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
@@ -6266,9 +6582,9 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
-    // **The calendar of the person** (0.170.0): the leap day and the first day of the week, the two settings the app of
-    // the time zone writes from Lua with the same words —`on`/`off` and `monday`/`sunday`— so that a person and an app
-    // never disagree about what a calendar is (docs/30, docs/60).
+    // **El calendari de la persona** (0.170.0): the first day of the week, the setting the app of the time zone writes from
+    // Lua with the same words —`monday`/`sunday`— so that a person and an app never disagree about what a calendar is
+    // (docs/30, docs/60). **El dia de traspàs ja no és cap d'ells** (0.192.57): es compta de la data (docs/60).
     // **I l'hora d'estiu** (0.182.0): the box of the Time zone page has the same setting and the same two words, so the prompt and
     // the app never disagree about whether the board is in summer (docs/30, docs/60).
     if (strcmp(words[0], "dst") == 0) {
@@ -6286,35 +6602,20 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
-    if (strcmp(words[0], "leap") == 0 || strcmp(words[0], "week") == 0) {
-      bool kept = false;
-      if (strcmp(words[0], "leap") == 0) {
-        bool on = false;
-        if (strcmp(words[1], "on") == 0) {
-          on = true;
-        } else if (strcmp(words[1], "off") != 0) {
-          out("cfg: the leap day is on or off\r\n");
-          return false;
-        }
-        kept = cfg::set_leap_years(on);
-        out("settings: leap ");
-        out(cfg::leap_years() ? "on" : "off");
-        newline();
+    if (strcmp(words[0], "week") == 0) {
+      uint8_t first = 0;
+      if (strcmp(words[1], "monday") == 0) {
+        first = 1;
+      } else if (strcmp(words[1], "sunday") == 0) {
+        first = 7;
       } else {
-        uint8_t first = 0;
-        if (strcmp(words[1], "monday") == 0) {
-          first = 1;
-        } else if (strcmp(words[1], "sunday") == 0) {
-          first = 7;
-        } else {
-          out("cfg: a week begins on monday or on sunday\r\n");
-          return false;
-        }
-        kept = cfg::set_week_start(first);
-        out("settings: week ");
-        out((cfg::week_start() == 7) ? "sunday" : "monday");
-        newline();
+        out("cfg: a week begins on monday or on sunday\r\n");
+        return false;
       }
+      const bool kept = cfg::set_week_start(first);
+      out("settings: week ");
+      out((cfg::week_start() == 7) ? "sunday" : "monday");
+      newline();
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
@@ -6551,6 +6852,12 @@ bool command_cfg(const char* argument) {
       out(" minutes\r\n");
       return true;
     }
+    if (strcmp(words[0], "gpssync") == 0) {
+      out("settings: gps sync ");
+      out(cfg::gps_sync() ? "on" : "off");
+      newline();
+      return true;
+    }
     if (strcmp(words[0], "lockon") == 0) {
       out("settings: lock ");
       out(cfg::lock_on() ? "on" : "off");
@@ -6593,17 +6900,17 @@ bool command_cfg(const char* argument) {
       newline();
       return true;
     }
-    if (strcmp(words[0], "leap") == 0) {
-      out("settings: leap ");
-      out(cfg::leap_years() ? "on" : "off");
-      newline();
-      return true;
-    }
     if (strcmp(words[0], "week") == 0) {
       out("settings: week ");
       out((cfg::week_start() == 7) ? "sunday" : "monday");
       newline();
       return true;
+    }
+    // **El dia de traspàs no és cap ajust** (0.192.57): un dit que encara el demani —o una app d'abans— es troba una frase
+    // que ho diu, i no el «auto, sd o littlefs» de la porta de sota, que seria una resposta a una altra pregunta (docs/30).
+    if (strcmp(words[0], "leap") == 0) {
+      out("cfg: the leap day is not a setting; it is counted from the date\r\n");
+      return false;
     }
     if (!cfg::set_unit(words[0])) {
       // The reason is named: a person who asked for the card needs to know whether the
@@ -6654,9 +6961,6 @@ bool command_cfg(const char* argument) {
   newline();
   out("  home: ");
   out((cfg::home_app()[0] != '\0') ? cfg::home_app() : "none");
-  newline();
-  out("  leap: ");
-  out(cfg::leap_years() ? "on" : "off");
   newline();
   out("  week: ");
   out((cfg::week_start() == 7) ? "sunday" : "monday");
@@ -7518,6 +7822,9 @@ bool execute(char* line) {
   if (strncmp(line, "splash", 6) == 0 && (line[6] == '\0' || line[6] == ' ')) {
     return command_splash(line + 6);
   }
+  if (strncmp(line, "screenshot", 10) == 0 && (line[10] == '\0' || line[10] == ' ')) {
+    return command_screenshot(line + 10);
+  }
   if (strncmp(line, "panel", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
     return command_panel(line + 5);
   }
@@ -7924,13 +8231,18 @@ bool execute(char* line) {
   if (strncmp(line, "heapguard", 9) == 0 && (line[9] == '\0' || line[9] == ' ')) {
     return command_heapguard(line + 9);
   }
-  // **`serial`**: el port sèrie cedit a una app —o a una persona— i el silenci del sistema mentre ho és (0.189.20). Three
-  // words and nothing else: with no word it says who has the port, `claim` takes it and `release` gives it back, and the
-  // one who took it is the one who can give it back (docs/30, docs/50).
+  // **`serial`**: el port sèrie cedit a una app —o a una persona— i el silenci del sistema mentre ho és (0.189.20). With no word
+  // it says who has the port, `claim` takes it and `release` gives it back, and the one who took it is the one who can give it
+  // back. **I `send` hi entra amb un camí** (0.192.61, l'amo: *«Crea una subcomanda a serial anomenada "send" "serial [send]
+  // [/path/filename]" que permeti enviar un arxiu per port serie, usant el bloqueig de serial per evitar soroll.»*), o sigui que
+  // la llista de paraules és de dues i no d'una (docs/30, docs/50).
+  if (strncmp(line, "gps", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
+    return command_gps(line + 3);
+  }
   if (strncmp(line, "serial", 6) == 0 && (line[6] == '\0' || line[6] == ' ')) {
-    char words[1][kWordCap];
+    char words[2][kWordCap];
     size_t count = 0;
-    if (!read_words(line + 6, words, 1, count)) return false;
+    if (!read_words(line + 6, words, 2, count)) return false;
     if (count == 0) {
       if (serial::claimed()) {
         // **I mentre és cedit no es pot contestar**: the system writes nothing to the port, so this line goes nowhere and
@@ -7943,6 +8255,21 @@ bool execute(char* line) {
       }
       return true;
     }
+    // **`serial send <path>`** (0.192.61): the file goes out of the port with the port ceded, o sigui que el que l'altre cap
+    // rep és el fitxer i prou (docs/30, docs/50). Va abans que el claim i el release perquè és l'única de les tres que menja una
+    // segona paraula; i el camí pot anar entre cometes, que és com aquesta casa diu una ruta amb espais (`read_words`).
+    if (strcmp(words[0], "send") == 0) {
+      if (count < 2) {
+        usage_out("usage: serial send <path>\r\n");
+        return false;
+      }
+      return send_file_to_the_wire(words[1]);
+    }
+    // **I les altres dues no en volen cap més**: `serial claim foo` es refusa amb la línia d'ús en lloc d'endevinar-se.
+    if (count > 1) {
+      error_out("usage: serial [claim|release] | serial send <path>\r\n");
+      return false;
+    }
     if (strcmp(words[0], "claim") == 0) {
       if (serial::claimed()) {
         error_out("serial: the port is already ");
@@ -7952,7 +8279,7 @@ bool execute(char* line) {
       }
       // **La resposta s'escriu abans de tancar el port**, perquè si no el silenci s'enduria la pròpia confirmació.
       out("serial: the port is the prompt's, and the system writes nothing to it until `serial release`\r\n");
-      return serial::claim("the prompt", "a person asked for it");
+      return serial::claim(kPromptOwner, "a person asked for it");
     }
     if (strcmp(words[0], "release") == 0) {
       // **I el retorn s'anuncia després de recuperar-lo**, que és quan es pot llegir: mentres era cedit la línia hauria
@@ -7961,7 +8288,7 @@ bool execute(char* line) {
       out(had ? "serial: the port is the system's again\r\n" : "serial: nothing was ceded\r\n");
       return true;
     }
-    error_out("usage: serial [claim|release]\r\n");
+    error_out("usage: serial [claim|release] | serial send <path>\r\n");
     return false;
   }
   if (strncmp(line, "button", 6) == 0 && (line[6] == '\0' || line[6] == ' ')) {
@@ -8551,11 +8878,12 @@ uint32_t session_dropped(uint8_t id) {
 // one list that will disagree with itself (docs/30).
 const char* const kCommandNames[] = {
     "help",     "version",  "caps",     "mem",      "sessions", "apps",     "mounts",   "splash",
-    "panel",    "rotate",   "cfg",      "run",      "kill",     "stop",     "home",     "repo",     "lua",      "keys",
+    "screenshot", "panel",    "rotate",   "cfg",      "run",      "kill",     "stop",     "home",     "repo",     "lua",      "keys",
     "fonts",    "wifi",     "provision", "ntp",     "tz",       "date",     "alarm",    "sleep",
     "bt",
     "load",
     "poweroff", "deepsleep", "reboot",   "battery",  "led",      "serial",   "imu",      "touch",    "buttons",  "log",
+    "gps",
     // **I el que no hi és, no s'ofereix** (0.190.238): `free` i `history` eren en aquesta taula i no tenen cap mà que els contesti —el
     // tabulador els oferia i la línia queia a `unknown command`—, o sigui que surten. La taula del tabulador i la llista de `help` han de
     // dir el que aquesta casa sap fer de debò (docs/30, docs/45).

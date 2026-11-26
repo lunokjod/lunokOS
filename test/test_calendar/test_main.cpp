@@ -1,5 +1,5 @@
-// The calendar arithmetic of the system: the leap years and the weekday of a date, which are the two numbers a
-// calendar control needs and the two a second copy of the rule would get wrong (docs/60, docs/90).
+// The calendar arithmetic of the system: the days of a month —February with its leap day— and the weekday of a date,
+// which are the two numbers a calendar control needs and the two a second copy of the rule would get wrong (docs/60, docs/90).
 #include <unity.h>
 
 #include "kernel/calendar.h"
@@ -48,24 +48,20 @@ void test_the_week_begins_on_monday(void) {
   TEST_ASSERT_EQUAL_UINT8(0, weekday_of(2026, 4, 0));
 }
 
-// **The leap day is a setting and the weekday of a date is not** (0.170.0): a calendar told to leave the twenty-ninth
-// of February out says February has twenty-eight days in every year, and the day of the week a date falls on does not
-// move because a page hides one day (docs/60, docs/90).
-void test_the_leap_day_is_a_setting_and_the_weekday_is_not(void) {
-  TEST_ASSERT_TRUE(leap_years());
+// **El dia de traspàs no es pot apagar** (0.192.57, l'amo: *«sabem com calcular si es any de taspàs o no ho es… no cal un
+// toggle manual»*): a leap year is a fact of the Gregorian calendar and there is no door that hides the twenty-ninth of
+// February any more —the two calls that did it are gone from `kernel/calendar.h`—, so what is proved here is that the
+// rule is the one of the sky for the years that matter and that a date that does not exist has no weekday (docs/60, docs/90).
+void test_the_leap_day_is_the_calendar_s_and_nobody_turns_it_off(void) {
   TEST_ASSERT_EQUAL_UINT8(29, days_in_month(2024, 2));
-
-  set_leap_years(false);
-  TEST_ASSERT_FALSE(leap_years());
-  TEST_ASSERT_EQUAL_UINT8(28, days_in_month(2024, 2));
-  TEST_ASSERT_EQUAL_UINT8(28, days_in_month(2000, 2));
-  // The sky does not move: the twenty-ninth of February 2024 was a Thursday with the day and without it.
+  TEST_ASSERT_EQUAL_UINT8(29, days_in_month(2000, 2));
+  TEST_ASSERT_EQUAL_UINT8(28, days_in_month(2026, 2));
+  TEST_ASSERT_EQUAL_UINT8(28, days_in_month(2100, 2));
+  // The sky does not move: the twenty-ninth of February 2024 was a Thursday, and it is not a day at all in 2026.
   TEST_ASSERT_EQUAL_UINT8(4, weekday_of(2024, 2, 29));
+  TEST_ASSERT_EQUAL_UINT8(0, weekday_of(2026, 2, 29));
   // And March is the same month it was.
   TEST_ASSERT_EQUAL_UINT8(31, days_in_month(2024, 3));
-
-  set_leap_years(true);
-  TEST_ASSERT_EQUAL_UINT8(29, days_in_month(2024, 2));
 }
 
 // **A week begins on a day of the week and not on nothing** (0.170.0): this is the mechanism —any of the seven— and
@@ -94,7 +90,7 @@ int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_a_month_has_the_days_it_has);
   RUN_TEST(test_the_week_begins_on_monday);
-  RUN_TEST(test_the_leap_day_is_a_setting_and_the_weekday_is_not);
+  RUN_TEST(test_the_leap_day_is_the_calendar_s_and_nobody_turns_it_off);
   RUN_TEST(test_a_week_begins_on_a_day_of_the_week);
   return UNITY_END();
 }

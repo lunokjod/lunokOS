@@ -13,7 +13,13 @@ namespace {
 // typical and 400 at most**. **littlefs does not write over what is there**: a commit takes a fresh block,
 // so even a small write pays the sixteen page programmes of the block —11.2 ms— and the sector it had to
 // erase, and there is where the seconds of writing a file come from (docs/50, docs/85).
-const DiskTiming kFlash = {60, 4096, 819, 256, 700, 45000};
+// **I el que el xip no diu, que és el controlador** (0.192.62, mesurat a la T5S3 de debò amb `stats`, `tools/` de la
+// sessió): la xifra del fabricant és el que costa el *cable*, i a sobre hi ha el controlador de la SPI, la cache del flaix i
+// els `mutex` de littlefs, que en aquesta placa són **més cars que el cable** —`flash.stat` val 7,2–8,5 ms de debò (una
+// transacció de 60 µs aquí) i `flash.read` 12–15 ms per cada finestra de 1 KB (una de 4 KB en costava 0,9 ms)—. Sense aquests
+// dos números l'emulador pintava una pàgina en 1,6 s quan la placa hi posa 5,4 s, o sigui que l'app anava tres cops més
+// de pressa que a la butxaca (docs/85, docs/95).
+const DiskTiming kFlash = {9000, 1024, 1900, 256, 700, 45000};
 // **The card in the slot.** FATFS over the SPI bus at **10 MHz** (docs/50): a sector of 512 B is 410 us
 // of wire, a command the card answers in about 200 us, and writing a sector is the card's own time, which
 // is slower than reading it and is what its datasheet asks for a block programme.

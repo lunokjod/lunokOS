@@ -540,11 +540,12 @@ ho demani). Un nom que la porta de les apps no presenta es refusa allà on s'esc
 —una targeta que no hi és, una app esborrada— és una línia al log i el prompt: la placa no s'hi queda engegant una
 app que no hi és (docs/30, docs/40, docs/90).
 
-**I el calendari té dos ajustos més, que són del sistema i no d'una app** (0.170.0): `cfg leap on|off` i
-`cfg week monday|sunday` —o `time.leap` i `time.week` des de Lua— amb les claus `cfg/leap` i `cfg/week` a l'NVS,
-escrites amb les paraules que una persona llegeix (`on`/`off`, `monday`/`sunday`) i llegides **abans de la primera
-pàgina**, perquè `ui.month` i el calendari d'una app han de comptar el mateix. La regla i el que cada ajust mou són a
-docs/60, i les crides a docs/30.
+**I el calendari té un ajust més, que és del sistema i no d'una app** (0.170.0): `cfg week monday|sunday` —o
+`time.week` des de Lua— amb la clau `cfg/week` a l'NVS, escrita amb la paraula que una persona llegeix
+(`monday`/`sunday`) i llegida **abans de la primera pàgina**, perquè `ui.month` i el calendari d'una app han de comptar el
+mateix. La regla i el que l'ajust mou són a docs/60, i les crides a docs/30. **El dia de traspàs no hi és** (0.192.57): un
+any de traspàs es compta de la data, o sigui que no hi ha cap clau `cfg/leap` que llegir —i `cfg::boot` esborra la que
+deixés una build anterior, que és l'única cosa que aquest sistema fa encara amb aquell nom (docs/60).
 
 **I el cinquè ajust és el més estrany de tots, perquè no és una preferència sinó una latència** (0.174.7): `cfg turn
 <n>` diu quantes instruccions de Lua val un torn de l'app abans que el nucli el recuperi per al vidre, les tecles i la
@@ -636,6 +637,10 @@ silenciar el log: és **no obrir el que no hi és**.
   `E_NO_HANDLES` no es poden confondre mai.
 - `cat` mira primer i diu què passa: `no such file: …`, `that is not a file: …` o `cannot read: …`,
   i **torna fals** quan no ha pogut llegir, que és el que fa que una ordre fallida surti amb codi 1.
+- **I `serial send` les fa servir totes tres** (0.192.61): `serial send <path>` mira abans, diu `no such file: …` amb la
+  pista de dalt, `that is not a file: …` per a una carpeta i `cannot read: …` quan el backend diu que no, i **obre el fitxer
+  abans de quedar-se el port sèrie** —un bloqueig que envolta un fitxer que no es pot llegir és un silenci per a res—. El que
+  en surt va **byte a byte** pel cable i sense el filtre dels codis: un fitxer no és una pàgina (docs/30, docs/50).
 - **`ls` fa la mateixa pregunta** (0.86.1): `no such directory: <camí>` quan no hi és, i **la pista de
   on sí que hi ha alguna cosa** —`/sd has: apps` quan s'ha escrit `/sd/app/…`—, que és el que fa trobar
   la lletra que falta. `ls` d'un fitxer el llista amb el nom i la mida, i un error de lectura de debò

@@ -59,6 +59,10 @@ class It8951 : public ISurface {
   void pixel(uint16_t x, uint16_t y, uint8_t level) override;
   void blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* packed,
             uint16_t stride) override;
+  // **La pàgina, donada enrere** (0.192.59): aquest conductor ja guarda la imatge **en el marc de l'app** (`image_`, un nibble per
+  // píxel i la meitat d'ample), o sigui que una fila és una còpia i no hi ha cap gir a desfer —el gir d'aquest panell es fa en
+  // enviar els píxels i no al buffer— (docs/50, docs/85).
+  bool read_row(uint16_t y, uint8_t* packed, uint16_t stride) const override;
   // Sends what changed and asks for it to be painted. It returns **before the glass has finished**:
   // the ink takes its time and the kernel cannot wait for it. `idle()` is how a later turn asks
   // whether the panel is done (docs/50).

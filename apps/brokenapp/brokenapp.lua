@@ -17,9 +17,10 @@
 -- on toca.
 --
 -- **El botó no peta, i això és la lliçó**: an error thrown inside `on_click` is a hook of the system and it is called in a protected
--- call of its own, so the app would go on as if nothing had happened (the same road that made `app.exit()` inside a hook not close
--- the app, 0.189.101). The button writes a wish and **the page's own turn** is what breaks, which is the road a control of this
--- system takes for anything that ends the app (docs/30, docs/90).
+-- call of its own, so the app would go on as if nothing had happened. **El que sí que travessa el ganxo és `app.exit()`** des de la
+-- 0.192.49 —el comiat és una intenció i no un error, i el torn del nucli el compleix quan el ganxo ha tornat—, però un error de
+-- debò no: el botó escriu un desig i **el torn de la pàgina** és el que peta, que és el camí que un control d'aquest sistema fa per
+-- a qualsevol cosa que acaba l'app (docs/30, docs/90).
 
 local kTitle = 4
 local kBody = 2

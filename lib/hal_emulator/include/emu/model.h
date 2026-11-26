@@ -61,6 +61,15 @@ struct Model {
   // Paper i el T-Koala no. No hi ha cap `kCap` per a ella, perquè una placa pot ser un teclat i no un amfitrió: el que es pregunta
   // és `IBluetooth::can_bluetooth`, i aquí només es diu si hi ha ràdio (docs/50, docs/85).
   bool bt;
+  // **La ràdio de LoRa** (0.192.49): the T5S3 carries a SX1262 on the SPI bus of its card slot, and it is the only board of
+  // this emulator that has one. **De mentida i només per escoltar**: el model de l'emulador no pot parlar cap LoRa de debò —no
+  // hi ha cap xip a l'altre costat—, i el que dona és un aire amb portadores i paquets perquè una pàgina d'escombrat tingui
+  // què ensenyar. El que el HAL imita és el contracte i no el fil (docs/50, docs/85).
+  bool lora = false;
+  // **El receptor del cel** (0.192.63): la T5S3 en porta un de soldat —un `MIA-M10Q` o un `L76K`, segons la tirada— i cap altra placa
+  // d'aquest emulador no en té. De mentida: el model no llegeix cap NMEA ni obre cap UART, i el que dona és un receptor que triga uns
+  // segons a tenir posició i que després camina per un lloc que existeix, amb els satèl·lits del seu horitzó (docs/50, docs/85).
+  bool gps = false;
   // **Si el xip d'aquest model escala el rellotge sol** (0.190.227): els dos ATOM no —l'amo els vol sempre a 240— i el Paper i el T-Koala
   // sí. És el que respon `IPower::scales_the_clock` quan l'emulador fa aquesta placa, perquè les proves puguin veure les dues bandes
   // (docs/50, docs/85).

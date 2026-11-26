@@ -21,13 +21,9 @@ uint8_t weekday_of(uint16_t year, uint8_t month, uint8_t day) {
   return calendar::weekday_of(year, month, day);
 }
 
-bool leap_years() { return cfg::leap_years(); }
-
 bool dst() { return cfg::dst(); }
 bool set_dst(bool on) { return cfg::set_dst(on); }
 int32_t offset_minutes() { return cfg::offset_minutes(); }
-
-bool set_leap_years(bool on) { return cfg::set_leap_years(on); }
 
 uint8_t week_start() { return cfg::week_start(); }
 
@@ -46,8 +42,6 @@ void install_time_ops() {
   ops.dst = &dst;
   ops.set_dst = &set_dst;
   ops.offset_minutes = &offset_minutes;
-  ops.leap_years = &leap_years;
-  ops.set_leap_years = &set_leap_years;
   ops.week_start = &week_start;
   ops.set_week_start = &set_week_start;
   luabind::set_time_ops(ops);

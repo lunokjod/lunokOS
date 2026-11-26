@@ -29,6 +29,12 @@ const CapEntry kCaps[] = {
     {"imu", kCapImu},
     {"env", kCapEnv},
     {"touch", kCapTouch},
+    // **I les dues que hi faltaven** (0.192.63): la ràdio de LoRa i el receptor del cel. Eren capacitats de debò —el nucli les
+    // encén i l'app del LoRa les pregunta— però no eren en aquesta taula, o sigui que `caps` no les deia i **`sys.caps().lora` era
+    // fals en una placa que té el SX1262 soldat**. La taula d'aquí és la que `sys.caps()` recorre, i el que no hi és, no existeix
+    // (docs/30, docs/50).
+    {"lora", kCapLora},
+    {"gps", kCapGps},
 };
 const uint32_t kCapCount = static_cast<uint32_t>(sizeof(kCaps) / sizeof(kCaps[0]));
 

@@ -1737,7 +1737,7 @@ capacitats perquè seria la de l'ATOM amb guions a sobre, i diria dues vegades e
 | Pantalla | **ED047TC1, 4,7", 960 × 540, setze nivells, en paral·lel i sense controlador** — el driver no hi és encara |
 | Entrada | La tecla BOOT del mòdul (GPIO0). El botó `S3` de la placa és a l'expansor PCA9535 i arribarà amb ell |
 | Llum | **El LED blanc de retroil·luminació del panell, a GPIO11, amb PWM** (0.190.99): no és cap tira —un sol punt, sense color— i el HAL la declara `KBacklight`, o sigui que la governa el nivell que una persona tria i no el color d'una app. La fitxa deia «cap» perquè el driver és posterior (docs/30, docs/50) |
-| Sensor | Cap (té LoRa SX1262 i GPS, sense driver) |
+| Sensor | Cap (té **LoRa SX1262**, que des de la 0.192.49 escolta, i GPS, sense driver) |
 | Rellotge | **PCF85063** (0x51) amb pila de botó, i el del SoC. El full del fabricant en diu PCF85063 i el seu exemple `rtc_pcf8563` en diu PCF8563: és el mateix mapa de registres, i el de la placa afegeix l'any de quatre xifres |
 | Bateria | **BQ27220** (0x55) d'indicador i **BQ25896** (0x6B) de càrrega, per I2C. La cel·la que el comptador té escrita al seu *data memory* és de **3000 mAh**, la que la placa va portar de fàbrica (vegeu l'apartat del carregador) |
 | Consola | La UART0 del xip, **GPIO43/GPIO44**, que també van al GPS |
@@ -1750,8 +1750,33 @@ no hi ha l'`HSPI` del D0WDQ6) i el seu propi joc de fonts de despertar. O sigui 
 **la prova que `lib/hal_esp32` és de la família i no del xip**: el que hi ha escrit és el que els dos
 xips comparteixen, i el que no ho és viu a `lib/hal_t5s3/`.
 
-**Què fa avui** (0.190.33): el prompt, les alarmes, la targeta, la NVS, la ràdio, l'hora del PCF8563,
-el tàctil GT911, l'indicador de bateria **i el vidre**. El driver del panell és
+**Què fa avui** (0.192.63): el prompt, les alarmes, la targeta, la NVS, la ràdio, l'hora del PCF8563,
+el tàctil GT911, l'indicador de bateria, **el vidre**, **el LoRa, que només escolta** i **el receptor GNSS**.
+
+**El LoRa d'aquesta placa** (`lib/hal_t5s3/src/lora_sx1262.cpp`, 0.192.49): un SX1262 amb els pins del
+fabricant (`docs/pinmap.md`: CS 46, DIO1 10, RST 1, BUSY 47) i el rail `LORA_EN` de l'expansor, en el
+**mateix bus SPI2 que la targeta** (SCK 14, MOSI 13, MISO 21), o sigui que el driver **afegeix un
+dispositiu** a un bus que potser ja és a dalt en comptes d'inicialitzar-lo. El que sap fer és posar-se a
+escoltar —`SetRx`, el nivell del canal amb `GetRssiInst` i el paquet amb `GetRxBufferStatus`,
+`ReadBuffer` i `GetPacketStatus`— i **no té cap `SetTx`**: aquesta ràdio no parla, i la pàgina que la fa
+servir (`apps/lora`) és un monitor de l'aire i no un aparell de comunicacions (docs/30). **El GPS del
+mateix rail té el seu des de la 0.192.63** (vegeu el paràgraf del GNSS, més avall).
+
+**El receptor GNSS d'aquesta placa** (`lib/hal_t5s3/src/gps_m10q.cpp`, 0.192.63): les potes del fabricant
+(`docs/pinmap.md` §GPS) són **GPIO43 per al TX del xip cap al RX del mòdul i GPIO44 a l'inrevés**, el rail `LORA_EN` de
+l'expansor —**el mateix del LoRa**, o sigui que encendre'l encén els dos i apagar-lo callaria la ràdio, i per això el
+driver del receptor no l'apaga mai— i **cap línia d'interrupció**: el mòdul no avisa, i el que arriba es llegeix a cada
+volta de bucle (`gps::poll`). **Aquesta placa pot fer servir les potes 43 i 44, que són les de la UART0, perquè la seva
+consola és el USB natiu** (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` i `CONFIG_ESP_CONSOLE_UART_NUM=-1`): el driver obre la
+**UART1** i la porta allà amb la matriu del xip, o sigui que no toca res del que el sistema ja té. **I la placa pot portar
+dos mòduls amb el mateix peu** —la `MIA-M10Q` de u-blox a **38 400 bauds** i la `L76K` de Quectel a **9 600**—, o sigui
+que el driver prova el primer ritme, espera mil dos-cents mil·lisegons una frase i, si no en sent cap, canvia al segon: una
+placa muntada amb l'altre mòdul no es queda muda. Les cinc frases que llegeix són les que un M10Q dona de fàbrica (NMEA
+0183: **RMC, GGA, GSA, GSV i VTG**) amb el **segell XOR comprovat** —una frase que no quadra no es llegeix, perquè un
+caràcter perdut en un cable llarg dona un número que sembla una latitud— i **sense enviar cap trama de configuració**: un
+UBX escrit a cegues és la mena de cosa que deixa un receptor en un estat que ningú sap desfer (docs/30, docs/95).
+
+El driver del panell és
 `lib/hal_t5s3/src/epd47.cpp` i el de l'expansor `lib/hal_t5s3/src/expander.cpp`, i el que hi ha dins
 són tres coses que el Paper no havia de fer mai:
 

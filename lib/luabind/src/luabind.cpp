@@ -127,6 +127,11 @@ int g_waiting_ref = LUA_NOREF;
 bool g_failed = false;
 int g_exit_code = 0;
 bool g_exited_by_app = false;  // app.exit() was called: the error is not one
+// **Una app que s'acomiada des d'un ganxo** (0.192.49): `app.exit()` llança un error, i dins d'un `on_pick` o un `on_change`
+// aquest error el recull el `pcall` del ganxo i la pàgina segueix viva —el sistema deia `on_pick: app.exit` al registre i no
+// tancava res—. El comiat és una intenció i no un error, o sigui que es desa aquí i el torn la compleix: **qualsevol porta de
+// l'API es pot fer servir des de qualsevol lloc**, que és el que una app espera d'ella (trobat a `apps/lora`, docs/30, docs/90).
+bool g_app_wants_to_stop = false;
 
 // The keyboard of the app. A line is assembled here and handed to whoever is
 // waiting for it; the echo is done here too, because the shell is not looking at
@@ -1155,15 +1160,14 @@ int l_time_epoch(lua_State* L) {
   // **El trenta-u de febrer no és un dia i no s'ha de convertir en el dos de març** (0.189.142): `days_from_civil` is a count of
   // days and not a calendar —it will hand back the two of March for a day that does not exist—, and the page of the settings
   // offers the day thirty-one of every month, so a person who chose it would have set the clock to a day they never asked for
-  // and the page would have said the one they did. The month's length is the calendar's: February's, with the leap day that
-  // `cfg leap` turns on, which is the same rule `time.date` counts back (docs/30, docs/60).
-  const bool leap = (g_time_ops.leap_years == nullptr) || g_time_ops.leap_years();
+  // and the page would have said the one they did. The month's length is the calendar's and **the leap year is counted and not
+  // set** (0.192.57): `hal::is_leap_year` is the one copy of the rule, la mateixa que compta el febrer de `time.date`
+  // (docs/30, docs/50, docs/60).
   int last = 31;
   if (month == 4 || month == 6 || month == 9 || month == 11) {
     last = 30;
   } else if (month == 2) {
-    const bool february_29 = leap && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0));
-    last = february_29 ? 29 : 28;
+    last = hal::is_leap_year(year) ? 29 : 28;
   }
   if (day > last) {
     return push_nil_error(L, "E_INVAL", "that day is not in that month");
@@ -1249,35 +1253,22 @@ int l_time_dst(lua_State* L) {
   return 1;
 }
 
-// time.leap([on]): **whether February has its twenty-ninth day** (0.170.0). With no argument it answers the setting;
-// with one it writes it and answers the new one, and the word it takes is a boolean or the two words a person types in
-// the prompt, `on` and `off`. It is a setting of the system —`ui.month` and `time.utc`/`date` count the days of a
-// month with it— and it is kept in the store, so it survives a reboot (docs/30, docs/60).
+// time.leap(): **si el febrer de l'any que és al rellotge té el vint-i-nou** (0.170.0, i des de la 0.192.57 només es
+// pregunta). A leap year is a fact of the Gregorian calendar and not a setting of the board —l'amo: *«sabem com calcular si
+// es any de taspàs o no ho es… no cal un toggle manual»*—, so the answer is counted from the date and nothing is written:
+// the rule is `hal::is_leap_year`, one copy for the whole system, i el que una pàgina fa amb el número és comptar el febrer
+// del mes que dibuixa (docs/30, docs/50, docs/60).
 int l_time_leap(lua_State* L) {
-  if (g_time_ops.leap_years == nullptr || g_time_ops.set_leap_years == nullptr) {
-    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no calendar of its own");
-  }
   if (!lua_isnoneornil(L, 1)) {
-    bool on = false;
-    if (lua_isboolean(L, 1)) {
-      on = lua_toboolean(L, 1) != 0;
-    } else if (lua_isstring(L, 1)) {
-      const char* word = lua_tostring(L, 1);
-      if (strcmp(word, "on") == 0 || strcmp(word, "true") == 0) {
-        on = true;
-      } else if (strcmp(word, "off") == 0 || strcmp(word, "false") == 0) {
-        on = false;
-      } else {
-        return push_nil_error(L, "E_INVAL", "the leap day is on or off");
-      }
-    } else {
-      return push_nil_error(L, "E_INVAL", "the leap day is on or off");
-    }
-    if (!g_time_ops.set_leap_years(on)) {
-      return push_nil_error(L, "E_INVAL", "the calendar did not take that");
-    }
+    return push_nil_error(L, "E_INVAL", "the leap day is counted from the date and not set");
   }
-  lua_pushboolean(L, g_time_ops.leap_years() ? 1 : 0);
+  // **L'any que compta és el de l'hora de la persona**, el mateix que `time.date()` dona: the offset of the map and the
+  // hour of summer are the two numbers that decide which day is now, and a leap year is asked about that day (docs/30).
+  const int32_t shift = (g_time_ops.offset_minutes != nullptr) ? g_time_ops.offset_minutes()
+                                                               : ((g_time_ops.tz_minutes != nullptr) ? g_time_ops.tz_minutes() : 0);
+  int year = 1970, month = 1, day = 1, hour = 0, minute = 0, second = 0;
+  hal::epoch_ms_to_civil(moment_ms(L, 1) + static_cast<int64_t>(shift) * 60000, year, month, day, hour, minute, second);
+  lua_pushboolean(L, hal::is_leap_year(year) ? 1 : 0);
   return 1;
 }
 
@@ -1590,6 +1581,148 @@ int l_alarm_caps(lua_State* L) {
 }
 
 // ---------------------------------------------------------------------------
+// tick: la rellotgeria d'una app mentre la placa és desperta (0.192.60)
+// ---------------------------------------------------------------------------
+
+// **El mínim d'un tick** (0.192.60): a `tick` is the app's own clock and not a `sys.delay` loop —the system looks for it between
+// two turns of the kernel, which is what lets a page take a sample while its own loop is idle—, o sigui que una crida cada segon
+// només gastaria voltes per a res i faria que una app que no vol res escrigués al disc tot el dia. Five seconds is the shortest
+// interval that still means something to a sensor of this house (docs/30, docs/60).
+const int64_t kMinTickMs = 5000;
+
+// **`tick.every(segons, payload[, opcions])`** (0.192.60, l'amo: *«M'agradaría que l'app Stats rebés una crida cada minut, però
+// només si la placa està desperta. No vull que vaigi a l'RTC i desperti la placa. Una crida periódica, demanada per l'app i que el
+// sistema cridi sempre que estigui despert (deixant-ho de fer si cau en sleeep, i tornant quan es desperta)»*). It goes into the
+// same queue as the alarms —so an idle kernel looks at nothing new— with the three marks that make it a tick and not a promise:
+// `awake_only` (it never arms the wake of the chip), not `persist` (nobody writes it down: the app asks again when it opens) and,
+// by default, **no window**: a tick only happens while the app is already in front, unless the options ask for `raise`
+// (l'amo: *«Però només si l'app demana primer plà. Per defecte no obre finestra.»*). Answers the id, and `true` as a second value
+// when there was already a tick with this very configuration (docs/30, docs/60).
+int l_tick_every(lua_State* L) {
+  const lua_Number seconds = luaL_checknumber(L, 1);
+  if (alarm_owner()[0] == '\0') {
+    return raise_coded(L, "E_NOTASK", "a tick needs an app to belong to");
+  }
+  const int64_t period_ms = static_cast<int64_t>(seconds * 1000.0);
+  if (period_ms < kMinTickMs) {
+    return raise_coded(L, "E_INVAL", "a tick repeats at least every 5 s");
+  }
+
+  alarms::Spec spec;
+  spec.app = alarm_owner();
+  spec.repeat_ms = static_cast<int32_t>(period_ms);
+  spec.on_mono_ms = alarm_mono_now() + period_ms;
+  spec.awake_only = true;
+  spec.persist = false;
+
+  char store[alarms::kPayloadBytes];
+  if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) {
+    if (!read_payload(L, 2, spec, store, sizeof(store))) {
+      return raise_coded(L, "E_INVAL", "the payload of a tick is a string or a number");
+    }
+  }
+  // **I si vol el davant** (0.192.60): `raise = true` means the app wants to be brought to the glass when the tick fires and the
+  // page in front is not it —the one case where a tick is allowed to open something— (docs/30, docs/60).
+  if (lua_gettop(L) >= 3 && lua_istable(L, 3)) {
+    lua_getfield(L, 3, "raise");
+    spec.raise_to_front = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+  }
+
+  // **El mateix tick que ja hi és no es toca** (0.192.60): the app asks again every time it opens, and a tick that started its
+  // minute again at every page would never fire (docs/30).
+  const uint32_t same = alarms::find_same(spec);
+  if (same != 0) {
+    hal::logf(pal::kLogInfo, "TICK", "%s already has #%u with this configuration: nothing added", alarm_owner(),
+              static_cast<unsigned>(same));
+    lua_pushinteger(L, static_cast<lua_Integer>(same));
+    lua_pushboolean(L, 1);
+    return 2;
+  }
+  // **I un tick per app, no una col·lecció** (0.192.63, l'amo: *«es repeteixen els ticks a la cua? Només un tick per app. Si una app
+  // en demana unaltre, s'esborra l'anterior i es fa la que acaben de demanar»*): the queue has eight seats for the whole system and an
+  // app that changes its rhythm is not asking for two clocks. The old one goes **before** the new one arrives, so a page that asks for
+  // a shorter period does not lose a turn in between (docs/30, docs/60).
+  const uint32_t replaced = alarms::remove_awake_only_of(alarm_owner());
+  if (replaced > 0) {
+    hal::logf(pal::kLogInfo, "TICK", "%s asks for another tick and its %u old one(s) go", alarm_owner(),
+              static_cast<unsigned>(replaced));
+  }
+
+  const uint32_t id = alarms::add(spec);
+  if (id == 0) return raise_coded(L, "E_NOMEM", "no room for another tick");
+  // **I la línia diu que és un tick** (0.192.60): the queue is one and the log has to tell which of the two things it is looking
+  // at, or every line of the Stats app would be read as an alarm (docs/30, docs/60).
+  hal::logf(pal::kLogInfo, "TICK", "%s ticks every %lld s as #%u%s%s", alarm_owner(),
+            static_cast<long long>(period_ms / 1000), static_cast<unsigned>(id),
+            (spec.raise_to_front ? ", and it raises the app" : ", only while it is in front"),
+            (spec.payload_kind != alarms::Payload::kNone) ? "" : " (no payload)");
+  lua_pushinteger(L, static_cast<lua_Integer>(id));
+  return 1;
+}
+
+int l_tick_cancel(lua_State* L) {
+  const uint32_t id = static_cast<uint32_t>(luaL_checkinteger(L, 1));
+  // **Una app només pot treure's les seves** (0.192.60): `alarms::cancel` ja ho mira, i aquí la línia del registre ho diu amb el
+  // nom del tick i no amb el d'una alarma (docs/30, docs/60).
+  const bool gone = alarms::cancel(alarm_owner(), id);
+  if (!gone) {
+    hal::logf(pal::kLogWarn, "TICK", "%s cannot cancel #%u: it is not one of its ticks", alarm_owner(),
+              static_cast<unsigned>(id));
+  } else {
+    hal::logf(pal::kLogInfo, "TICK", "%s cancels #%u", alarm_owner(), static_cast<unsigned>(id));
+  }
+  lua_pushboolean(L, gone ? 1 : 0);
+  return 1;
+}
+
+// tick.list(): the ticks of this app, with the period —not the alarm queue, which is `alarm.list()`— (docs/30).
+int l_tick_list(lua_State* L) {
+  uint32_t mine = 0;
+  for (uint32_t i = 0; i < alarms::count(); ++i) {
+    const alarms::Entry* entry = alarms::at(i);
+    if (entry != nullptr && entry->awake_only && strcmp(entry->app, alarm_owner()) == 0) ++mine;
+  }
+  lua_createtable(L, static_cast<int>(mine), 0);
+  uint32_t used = 0;
+  for (uint32_t i = 0; i < alarms::count(); ++i) {
+    const alarms::Entry* entry = alarms::at(i);
+    if (entry == nullptr || !entry->awake_only) continue;
+    if (strcmp(entry->app, alarm_owner()) != 0) continue;
+    lua_createtable(L, 0, 4);
+    lua_pushinteger(L, static_cast<lua_Integer>(entry->id));
+    lua_setfield(L, -2, "id");
+    lua_pushinteger(L, static_cast<lua_Integer>(entry->repeat_ms / 1000));
+    lua_setfield(L, -2, "period");
+    lua_pushboolean(L, entry->raise_to_front ? 1 : 0);
+    lua_setfield(L, -2, "raise");
+    if (entry->payload_kind == alarms::Payload::kText) {
+      lua_pushstring(L, entry->payload);
+    } else if (entry->payload_kind == alarms::Payload::kNumber) {
+      lua_pushnumber(L, atof(entry->payload));
+    } else {
+      lua_pushnil(L);
+    }
+    lua_setfield(L, -2, "payload");
+    lua_rawseti(L, -2, static_cast<lua_Integer>(++used));
+  }
+  return 1;
+}
+
+int l_tick_caps(lua_State* L) {
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, static_cast<lua_Integer>(alarms::max()));
+  lua_setfield(L, -2, "max");
+  lua_pushinteger(L, static_cast<lua_Integer>(kMinTickMs));
+  lua_setfield(L, -2, "min_period_ms");
+  // **I que un tick no despertarà res, digui el que digui la placa** (0.192.60): it is the one promise the API makes, o sigui que
+  // ha de viatjar amb les capacitats i no deixar-se llegir d'un `alarm.caps().wake` que parla d'una altra cosa (docs/30, docs/60).
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "wake");
+  return 1;
+}
+
+// ---------------------------------------------------------------------------
 // fs: reading and writing, with the app's own ground (docs/30 and docs/70)
 // ---------------------------------------------------------------------------
 
@@ -1621,6 +1754,8 @@ SerialOps g_serial_ops = {};  // and serial.*
 CryptoOps g_crypto_ops = {};  // and crypto.* — the arithmetic of a secret, filled by the kernel (0.190.258)
 ImuOps g_imu_ops = {};      // and imu.*
 EnvOps g_env_ops = {};      // and env.*
+LoraOps g_lora_ops = {};    // and lora.* — the radio that only listens (0.192.49)
+GpsOps g_gps_ops = {};      // and gps.* — the receiver of the sky (0.192.63)
 ButtonOps g_button_ops = {};  // and button.*
 TimeOps g_time_ops = {};      // and time.tz() / time.local()
 
@@ -2735,6 +2870,7 @@ int l_term_height(lua_State* L) {
 int l_app_exit(lua_State* L) {
   g_exit_code = static_cast<int>(luaL_optinteger(L, 1, 0));
   g_exited_by_app = true;
+  g_app_wants_to_stop = true;
   lua_pushliteral(L, "app.exit");
   return lua_error(L);
 }
@@ -3985,6 +4121,205 @@ int l_env_read(lua_State* L) {
   lua_setfield(L, -2, "celsius");
   lua_pushnumber(L, humidity);
   lua_setfield(L, -2, "humidity");
+  return 1;
+}
+
+// ---------------------------------------------------------------------------
+// lora: **l'aire, i només mirar-lo** (0.192.49)
+// ---------------------------------------------------------------------------
+//
+// **Un monitor i no un transmissor** (l'amo: *«Fer una app Monitor/Sniffer LORA. Ha de buscar senyals»*): les set portes
+// d'aquí són les d'un receptor —on s'escolta, amb quina modulació, quanta energia hi ha i què ha arribat— i **no hi ha cap
+// `send`**, ni n'hi haurà: una ràdio que només escolta es pot deixar encesa sense demanar permís a ningú i no pot tapar la veu
+// de ningú altre (docs/30, docs/50).
+//
+// **Tots els números són enters i en les unitats del xip** perquè una pàgina no ha de fer aritmètica de coma flotant per pintar
+// una barra: l'RSSI arriba en dècimes de dB (`-1043` és −104,3 dBm), l'SNR en quarts de dB, i la freqüència en hertz (docs/30).
+int l_lora_caps(lua_State* L) {
+  hal::LoraCaps caps;
+  if (g_lora_ops.caps == nullptr || !g_lora_ops.caps(caps)) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  lua_createtable(L, 0, 6);
+  lua_pushboolean(L, caps.present ? 1 : 0);
+  lua_setfield(L, -2, "present");
+  lua_pushinteger(L, static_cast<lua_Integer>(caps.min_hz));
+  lua_setfield(L, -2, "min_hz");
+  lua_pushinteger(L, static_cast<lua_Integer>(caps.max_hz));
+  lua_setfield(L, -2, "max_hz");
+  lua_pushinteger(L, static_cast<lua_Integer>(caps.min_sf));
+  lua_setfield(L, -2, "min_sf");
+  lua_pushinteger(L, static_cast<lua_Integer>(caps.max_sf));
+  lua_setfield(L, -2, "max_sf");
+  lua_pushstring(L, (caps.chip != nullptr) ? caps.chip : "LoRa");
+  lua_setfield(L, -2, "chip");
+  return 1;
+}
+
+int l_lora_begin(lua_State* L) {
+  if (g_lora_ops.begin == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  if (!g_lora_ops.begin()) {
+    return push_nil_error(L, "E_IO", (g_lora_ops.last_error != nullptr) ? g_lora_ops.last_error()
+                                                                        : "the radio did not answer");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **`lora.frequency([hz])`: on s'escolta** (0.192.49). Sense argument contesta on és; amb un, hi va i torna el que el xip ha
+// acceptat, que és el mateix o un error: una freqüència fora del rang del xip es refusa i no s'aproxima, perquè un espectre
+// que diu 433 i escolta 470 és una pàgina que menteix (docs/30).
+int l_lora_frequency(lua_State* L) {
+  if (g_lora_ops.frequency_get == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  if (lua_isnoneornil(L, 1)) {
+    lua_pushinteger(L, static_cast<lua_Integer>(g_lora_ops.frequency_get()));
+    return 1;
+  }
+  const lua_Integer hz = luaL_checkinteger(L, 1);
+  if (hz < 150000000 || hz > 960000000) {
+    return push_nil_error(L, "E_INVAL", "the radio listens from 150 to 960 MHz");
+  }
+  if (g_lora_ops.frequency_set == nullptr || !g_lora_ops.frequency_set(static_cast<uint32_t>(hz))) {
+    return push_nil_error(L, "E_IO", (g_lora_ops.last_error != nullptr) ? g_lora_ops.last_error()
+                                                                        : "the radio did not take the frequency");
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_lora_ops.frequency_get()));
+  return 1;
+}
+
+// **`lora.reception{...}`: amb què s'escolta** (0.192.49). Els camps són els del xip i tots són opcionals: el que no es diu es
+// queda com estava, o sigui que una pàgina pot canviar l'SF sense repetir la freqüència (docs/30).
+int l_lora_reception(lua_State* L) {
+  if (g_lora_ops.reception_set == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  if (!lua_istable(L, 1)) {
+    return push_nil_error(L, "E_INVAL", "reception takes a table of the settings to listen with");
+  }
+  hal::LoraConfig config;
+  if (g_lora_ops.frequency_get != nullptr) config.hz = g_lora_ops.frequency_get();
+  lua_getfield(L, 1, "sf");
+  if (lua_isnumber(L, -1)) config.sf = static_cast<uint8_t>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "bw");
+  if (lua_isnumber(L, -1)) config.bw = static_cast<uint8_t>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "cr");
+  if (lua_isnumber(L, -1)) config.cr = static_cast<uint8_t>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "sync");
+  if (lua_isnumber(L, -1)) config.sync = static_cast<uint8_t>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "preamble");
+  if (lua_isnumber(L, -1)) config.preamble = static_cast<uint16_t>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "crc");
+  if (!lua_isnil(L, -1)) config.crc = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, 1, "invert");
+  if (!lua_isnil(L, -1)) config.invert_iq = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  if (config.sf < 5 || config.sf > 12) {
+    return push_nil_error(L, "E_INVAL", "the spreading factor goes from 5 to 12");
+  }
+  if (config.bw > 9) {
+    return push_nil_error(L, "E_INVAL", "the bandwidth code goes from 0 to 9 (7 is 125 kHz)");
+  }
+  if (config.cr < 1 || config.cr > 4) {
+    return push_nil_error(L, "E_INVAL", "the coding rate is 1 to 4, or 4/5 to 4/8");
+  }
+  if (!g_lora_ops.reception_set(config)) {
+    return push_nil_error(L, "E_IO", (g_lora_ops.last_error != nullptr) ? g_lora_ops.last_error()
+                                                                        : "the radio did not take the modulation");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_lora_listen(lua_State* L) {
+  if (g_lora_ops.listen == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  const lua_Integer timeout = luaL_optinteger(L, 1, 0);
+  if (!g_lora_ops.listen(static_cast<uint32_t>((timeout > 0) ? timeout : 0))) {
+    return push_nil_error(L, "E_IO", (g_lora_ops.last_error != nullptr) ? g_lora_ops.last_error()
+                                                                        : "the radio did not start listening");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_lora_sniff(lua_State* L) {
+  if (g_lora_ops.sniff == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  if (!g_lora_ops.sniff()) {
+    return push_nil_error(L, "E_IO", (g_lora_ops.last_error != nullptr) ? g_lora_ops.last_error()
+                                                                        : "the radio did not start measuring");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **`lora.rssi()`: quanta energia hi ha al canal** (0.192.49), en dècimes de dB. És la lectura d'un escombrat i no una mitjana:
+// qui vulgui una mitjana la fa amb les mostres que vulgui (docs/30).
+int l_lora_rssi(lua_State* L) {
+  if (g_lora_ops.rssi == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_lora_ops.rssi()));
+  return 1;
+}
+
+// **`lora.poll()`: hi ha un paquet?** (0.192.49). `nil` vol dir «encara no» i no un error, i el que torna quan n'hi ha un és la
+// taula del paquet amb el que el xip n'ha mesurat. **Un paquet amb el CRC malament també arriba** (`crc = false`), perquè una
+// senyal que hi és i que no s'ha pogut llegir és informació i no un silenci (docs/30).
+int l_lora_poll(lua_State* L) {
+  if (g_lora_ops.poll == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  hal::LoraPacket packet;
+  if (!g_lora_ops.poll(packet)) {
+    lua_pushnil(L);
+    return 1;
+  }
+  lua_createtable(L, 0, 8);
+  lua_pushlstring(L, reinterpret_cast<const char*>(packet.data), packet.length);
+  lua_setfield(L, -2, "data");
+  lua_pushinteger(L, packet.length);
+  lua_setfield(L, -2, "length");
+  lua_pushinteger(L, packet.rssi_dbm10);
+  lua_setfield(L, -2, "rssi");
+  lua_pushinteger(L, packet.snr_db4);
+  lua_setfield(L, -2, "snr");
+  lua_pushinteger(L, packet.freq_offset_hz);
+  lua_setfield(L, -2, "offset_hz");
+  lua_pushinteger(L, static_cast<lua_Integer>(packet.hz));
+  lua_setfield(L, -2, "hz");
+  lua_pushinteger(L, static_cast<lua_Integer>(packet.ms));
+  lua_setfield(L, -2, "ms");
+  lua_pushboolean(L, packet.crc_ok ? 1 : 0);
+  lua_setfield(L, -2, "crc");
+  return 1;
+}
+
+int l_lora_idle(lua_State* L) {
+  if (g_lora_ops.idle == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  lua_pushboolean(L, g_lora_ops.idle() ? 1 : 0);
+  return 1;
+}
+
+int l_lora_sleep(lua_State* L) {
+  if (g_lora_ops.sleep == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no LoRa radio");
+  }
+  lua_pushboolean(L, g_lora_ops.sleep() ? 1 : 0);
   return 1;
 }
 
@@ -5313,7 +5648,12 @@ bool panel_field_valid(lua_State* L, const char* key, int value) {
 // so a typo in it was a cross that did not appear instead of a line, docs/30).
 bool is_tabs_field(const char* key) {
   return strcmp(key, "items") == 0 || strcmp(key, "index") == 0 || strcmp(key, "text") == 0 ||
-         strcmp(key, "background") == 0 || strcmp(key, "scale") == 0 || strcmp(key, "closeable") == 0;
+         strcmp(key, "background") == 0 || strcmp(key, "scale") == 0 || strcmp(key, "closeable") == 0 ||
+         // **On és la inversió de la tira** (0.192.49): the dial writes it when it walks the strip, i una app que la vulgui en una
+         // altra pestanya que la triada també l'ha de poder escriure. **El que una app no ha de fer és escriure-la perquè la
+         // pestanya segueixi**: això ho fa `ui.focus` sobre una tira, que posa el cercle a l'`index` i no a la primera parada
+         // (trobat a l'app `lora`, docs/30, docs/90).
+         strcmp(key, "focus_index") == 0;
 }
 
 bool tabs_field_valid(lua_State* L, const char* key, int value) {
@@ -5321,7 +5661,7 @@ bool tabs_field_valid(lua_State* L, const char* key, int value) {
   if (strcmp(key, "closeable") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
-  if (strcmp(key, "index") == 0) return number >= 0 && number <= 8;
+  if (strcmp(key, "index") == 0 || strcmp(key, "focus_index") == 0) return number >= 0 && number <= 8;
   if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
   return number >= 0 && number <= 15;
 }
@@ -5387,7 +5727,8 @@ bool is_chart_field(const char* key) {
   return strcmp(key, "values") == 0 || strcmp(key, "times") == 0 || strcmp(key, "color") == 0 ||
          strcmp(key, "background") == 0 || strcmp(key, "scale") == 0 || strcmp(key, "suffix") == 0 ||
          strcmp(key, "min") == 0 || strcmp(key, "max") == 0 || strcmp(key, "decimals") == 0 ||
-         strcmp(key, "left") == 0 || strcmp(key, "right") == 0 || strcmp(key, "gap") == 0;
+         strcmp(key, "left") == 0 || strcmp(key, "right") == 0 || strcmp(key, "gap") == 0 ||
+         strcmp(key, "span") == 0;
 }
 
 bool chart_field_valid(lua_State* L, const char* key, int value) {
@@ -5406,6 +5747,9 @@ bool chart_field_valid(lua_State* L, const char* key, int value) {
   if (strcmp(key, "decimals") == 0) return number >= 0 && number <= 2;
   // **El forat, en minuts** (0.189.169): zero és «no hi ha forat possible», que és el que demana una sèrie ja aprimada.
   if (strcmp(key, "gap") == 0) return number >= 0 && number <= 255;
+  // **La finestra que no es mou** (0.192.50): zero és la de les mostres, i un número són les unitats de l'eix que la finestra
+  // cobreix —els segons d'aquesta pàgina, els minuts d'un registre— amb l'última mostra a la dreta (docs/30, docs/90).
+  if (strcmp(key, "span") == 0) return number >= 0 && number <= 86400;
   // **Els dos caps de l'escala són números qualssevol**: a chart of temperatures goes under zero and one of a battery goes to
   // a hundred, so the range is not the range of a tone (docs/90).
   if (strcmp(key, "min") == 0 || strcmp(key, "max") == 0) {
@@ -7849,7 +8193,9 @@ const uint8_t kMaxSparkSamples = 24;
 const uint8_t kMaxPieSlices = 4;
 // **I quaranta-vuit mostres per al gràfic** (0.189.144): the same number the kernel holds, written here once because the
 // bridge cannot include the kernel to read it (docs/30, docs/75).
-const uint8_t kMaxChartSamples = 48;
+// **El mateix sostre que el dibuix** (0.192.60): the copy has to follow `ui.h`, or a page that gives a hundred and eighty samples
+// would be cut at forty-eight on the way in and the chart would say the window is shorter than it is (docs/30).
+const uint8_t kMaxChartSamples = 192;
 
 // **A table of Lua numbers as the samples of a chart**: forty of them is all a sparkline of a page can show, and a
 // table that is longer is cut and not an error (docs/90).
@@ -8060,9 +8406,14 @@ int l_chart_draw(lua_State* L) {
   lua_getfield(L, fields, "gap");
   if (lua_isnumber(L, -1)) gap = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
+  // **La finestra fixa** (0.192.50): zero vol dir la de les mostres, que és el dibuix de sempre.
+  int span = 0;
+  lua_getfield(L, fields, "span");
+  if (lua_isnumber(L, -1)) span = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
   g_ui_ops.chart_draw(canvas->slot, values, times, count, ink_or_dim(off, static_cast<uint8_t>(color)),
                       static_cast<uint8_t>(background), static_cast<uint8_t>(scale), suffix, low, high,
-                      static_cast<uint8_t>(decimals), axis_left, axis_right, static_cast<uint8_t>(gap));
+                      static_cast<uint8_t>(decimals), axis_left, axis_right, static_cast<uint8_t>(gap), span);
   lua_pop(L, 3);  // the times, the values and the fields table
   return 0;
 }
@@ -8097,6 +8448,8 @@ int l_ui_chart(lua_State* L) {
   lua_setfield(L, -2, "right");
   lua_pushinteger(L, 60);
   lua_setfield(L, -2, "gap");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "span");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "color");
   lua_pushinteger(L, 15);
@@ -9693,6 +10046,26 @@ uint8_t* piece_lent(uint32_t bytes) {
 // **`cv:capture(session [, offset])`** (0.179.0): the pixels of this canvas into the memory of a session, which is how an
 // app keeps a picture it has already decoded —the file and the decoder are paid once and not at every paint—. The block
 // is four bits a pixel with the left one in the high nibble, exactly what `cv:blit` takes back (docs/30, docs/75).
+// **`cv:export(path)`: el canvas, guardat com a PNG pel sistema** (0.192.51, l'amo: *«Si exportar la imatge a png es massa feixuc per
+// l'app lua, que ho faci el sistema (li passes el canvas i ell guarda)»*). The app gives the path and nothing else: the pixels are
+// already in the kernel, and turning them into a file is one call instead of half a million steps of Lua. El que torna és el camí o
+// `nil` i el perquè —`E_NOSPC` si al disc no hi cap, `E_IO` si no s'ha pogut escriure— (docs/30, docs/70).
+int l_canvas_export(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  const char* path = luaL_checkstring(L, 2);
+  if (g_ui_ops.canvas_export == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board cannot write a picture");
+  }
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const char* code = "E_IO";
+  const char* reason = "";
+  if (!g_ui_ops.canvas_export(canvas->slot, path, code, reason)) {
+    return push_nil_error(L, code, (reason != nullptr && reason[0] != '\0') ? reason : "the picture did not write");
+  }
+  lua_pushstring(L, path);
+  return 1;
+}
+
 int l_canvas_capture(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
@@ -10696,6 +11069,7 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "text", l_canvas_text);
   set_function(L, "image", l_canvas_image);
   set_function(L, "capture", l_canvas_capture);
+  set_function(L, "export", l_canvas_export);
   set_function(L, "blit", l_canvas_blit);
   set_function(L, "font", l_canvas_font);
   set_function(L, "add", l_canvas_add);
@@ -11046,13 +11420,15 @@ bool ui_call_hook(lua_State* L, int object, const char* name, bool with_flag, bo
     lua_pushboolean(L, flag ? 1 : 0);
     ++arguments;
   }
-  if (lua_pcall(L, arguments, 0, 0) != LUA_OK) {
+  if (lua_pcall(L, arguments, 0, 0) != LUA_OK && !g_exited_by_app) {
     con_text(name);
     con_text(": ");
     const char* message = lua_tostring(L, -1);
     con_text((message != nullptr) ? message : "(no message)");
     con_text("\r\n");
     lua_pop(L, 1);
+  } else if (g_exited_by_app) {
+    lua_pop(L, 1);  // the message of the goodbye, which is not one
   }
   lua_pop(L, 1);  // the fields table
   return true;
@@ -11089,7 +11465,7 @@ bool ui_call_hook_number(lua_State* L, int object, const char* name, lua_Integer
   }
   lua_pushvalue(L, object);
   lua_pushinteger(L, number);
-  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK && !g_exited_by_app) {
     con_text(name);
     con_text(": ");
     const char* message = lua_tostring(L, -1);
@@ -11118,13 +11494,15 @@ bool ui_call_hook_pair(lua_State* L, int object, const char* name, lua_Integer f
   lua_pushvalue(L, object);
   lua_pushinteger(L, first);
   lua_pushinteger(L, second);
-  if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+  if (lua_pcall(L, 3, 0, 0) != LUA_OK && !g_exited_by_app) {
     con_text(name);
     con_text(": ");
     const char* message = lua_tostring(L, -1);
     con_text((message != nullptr) ? message : "(no message)");
     con_text("\r\n");
     lua_pop(L, 1);
+  } else if (g_exited_by_app) {
+    lua_pop(L, 1);  // the message of the goodbye, which is not one
   }
   lua_pop(L, 1);  // the fields table
   return true;
@@ -11146,13 +11524,15 @@ bool ui_call_hook_text(lua_State* L, int object, const char* name, const char* t
   }
   lua_pushvalue(L, object);
   lua_pushstring(L, (text != nullptr) ? text : "");
-  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK && !g_exited_by_app) {
     con_text(name);
     con_text(": ");
     const char* message = lua_tostring(L, -1);
     con_text((message != nullptr) ? message : "(no message)");
     con_text("\r\n");
     lua_pop(L, 1);
+  } else if (g_exited_by_app) {
+    lua_pop(L, 1);  // the message of the goodbye, which is not one
   }
   lua_pop(L, 1);  // the fields table
   return true;
@@ -11948,6 +12328,16 @@ int l_ui_focus(lua_State* L) {
   for (int i = 0; i < count; ++i) {
     if (targets[i].slot == canvas->slot) {
       ui_apply_focus(L, targets, count, objects, i);
+      // **Una tira que rep el cercle el posa a la pestanya triada i no a la primera** (0.192.49): the walk gives a strip one
+      // stop per tab, and the stop the walk lands on is the first one; una app que diu «el focus és d'aquest control» vol dir
+      // la pestanya que té, i el vidre ha d'ensenyar la que la pàgina diu. El dial no passa per aquí —camina amb
+      // `ui_apply_focus` i prou—, o sigui que el cercle de la tira encara es pot moure per triar-ne una altra (docs/30, docs/90).
+      lua_rawgeti(L, objects, i + 1);
+      if (ui_field_bool(L, -1, "__tabs", false)) {
+        const lua_Integer chosen = ui_field_number(L, -1, "index", 0);
+        if (chosen >= 1 && ui_set_field_number(L, -1, "focus_index", chosen)) ui_invalidate(L, -1);
+      }
+      lua_pop(L, 1);
       // The ring the app asked for is on the glass without waiting for the page to be presented again: this call
       // is made right after a page is built, before its first present, and a ring nobody sees is not an answer.
       ui_feedback();
@@ -13156,8 +13546,6 @@ int l_sys_settings(lua_State* L) {
   lua_setfield(L, -2, "week");
   lua_pushstring(L, (now.tz != nullptr) ? now.tz : "+00:00");
   lua_setfield(L, -2, "tz");
-  lua_pushboolean(L, now.leap);
-  lua_setfield(L, -2, "leap");
   lua_pushboolean(L, now.dst);
   lua_setfield(L, -2, "dst");
   lua_pushboolean(L, now.sort_by_usage);
@@ -13181,8 +13569,8 @@ int l_sys_settings(lua_State* L) {
 // values are the words the prompt prints: a keyboard is its id, the boot is its word, the home app is its id (`"none"` for
 // no home app), and the three numbers are a slice of instructions, a blink in milliseconds and the hour of the map.
 //
-// **El que no és d'aquesta taula és el rellotge i el disc**, que ja tenen les seves portes de sempre: `time.tz`, `time.leap`,
-// `time.dst`, `time.week` i `fs.cfg` (docs/30, docs/70).
+// **El que no és d'aquesta taula és el rellotge i el disc**, que ja tenen les seves portes de sempre: `time.tz`, `time.dst`,
+// `time.week` i `fs.cfg` (docs/30, docs/70).
 
 // **Els sis mots d'un commutador** (0.189.13): the same six `cfg` takes —`on`, `true`, `yes` and `off`, `false`, `no`— and a
 // Lua boolean, because a page writes `true` and not the word.
@@ -13321,6 +13709,27 @@ int l_cfg_lock(lua_State* L) {
     }
   }
   lua_pushstring(L, g_cfg_ops.lock_app());
+  return 1;
+}
+
+// **`cfg.gps_sync([on])`** (0.192.63): el commutador de Settings→Clock, el mateix que `cfg gpssync on|off` del prompt. Una placa
+// que no mira el cel el refusa en lloc d'acceptar un sí que no vol dir res (docs/30, docs/60).
+int l_cfg_gps_sync(lua_State* L) {
+  if (g_cfg_ops.gps_sync == nullptr || g_cfg_ops.set_gps_sync == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board does not look at the sky");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    // **Una placa que no mira el cel no pot acceptar un sí** (0.192.63): the switch of Settings is drawn dead on a board without a
+    // receiver, and a page that turned it on anyway would be storing a promise nothing can keep (docs/30, docs/50).
+    if (!hal::platform().caps().has(hal::kCapGps)) {
+      return push_nil_error(L, "E_UNSUPPORTED", "this board does not look at the sky");
+    }
+    bool on = false;
+    if (!cfg_switch(L, 1, on) || !g_cfg_ops.set_gps_sync(on)) {
+      return push_nil_error(L, "E_INVAL", "the sky sets the clock or it does not: on or off");
+    }
+  }
+  lua_pushboolean(L, g_cfg_ops.gps_sync() ? 1 : 0);
   return 1;
 }
 
@@ -13727,6 +14136,157 @@ void open_shell_library(lua_State* L) {
 // existeix per a ell.
 int l_touch_triple_tap_close(lua_State* L);
 
+// ---------------------------------------------------------------------------
+// gps: el cel, i el que un receptor en diu (0.192.63)
+// ---------------------------------------------------------------------------
+
+// **`gps.caps()`**: what this board's receiver is —the name of the module, its bauds and whether the rail is on—, or
+// `E_UNSUPPORTED` on a board that does not look at the sky (docs/30, docs/50).
+int l_gps_caps(lua_State* L) {
+  if (g_gps_ops.caps == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board does not look at the sky");
+  }
+  hal::GpsCaps caps;
+  if (!g_gps_ops.caps(caps)) return push_nil_error(L, "E_UNSUPPORTED", "this board does not look at the sky");
+  lua_createtable(L, 0, 4);
+  lua_pushstring(L, caps.chip);
+  lua_setfield(L, -2, "chip");
+  lua_pushinteger(L, static_cast<lua_Integer>(caps.baud));
+  lua_setfield(L, -2, "baud");
+  lua_pushboolean(L, caps.powered ? 1 : 0);
+  lua_setfield(L, -2, "powered");
+  lua_pushstring(L, (g_gps_ops.last_error != nullptr) ? g_gps_ops.last_error() : "");
+  lua_setfield(L, -2, "last_error");
+  return 1;
+}
+
+// **`gps.on()` / `gps.off()`**: el rail i el cable, i el que ja hi havia es llegeix a la crida següent (docs/30).
+int l_gps_on(lua_State* L) {
+  if (g_gps_ops.on == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board does not look at the sky");
+  if (!g_gps_ops.on()) return push_nil_error(L, "E_IO", "the receiver does not answer");
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_gps_off(lua_State* L) {
+  if (g_gps_ops.off == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board does not look at the sky");
+  lua_pushboolean(L, g_gps_ops.off() ? 1 : 0);
+  return 1;
+}
+
+// **`gps.info()`: tot el que el receptor diu, en una taula** (0.192.63, l'amo: *«Mostrar tota l'info que aquest MIA-M10Q GNSS ens
+// pugui donar»*): the position in degrees —and in degrees times ten million, which is what the receiver gave and what a page does
+// not have to lose to a float—, the height, the movement, the dilution, the time of the sky and the health of the wire. `fix` is
+// false when there is no position: **una taula amb zeros no és el mateix que no tenir posició**, i una pàgina que les confongui
+// ensenya el punt zero de l'Atlàntic (docs/30, docs/50).
+int l_gps_info(lua_State* L) {
+  if (g_gps_ops.fix == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board does not look at the sky");
+  hal::GpsFix fix;
+  const bool has = g_gps_ops.fix(fix);
+  lua_createtable(L, 0, 22);
+  lua_pushboolean(L, has ? 1 : 0);
+  lua_setfield(L, -2, "fix");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.quality));
+  lua_setfield(L, -2, "quality");
+  lua_pushnumber(L, static_cast<lua_Number>(fix.lat_e7) / 10000000.0);
+  lua_setfield(L, -2, "lat");
+  lua_pushnumber(L, static_cast<lua_Number>(fix.lon_e7) / 10000000.0);
+  lua_setfield(L, -2, "lon");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.lat_e7));
+  lua_setfield(L, -2, "lat_e7");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.lon_e7));
+  lua_setfield(L, -2, "lon_e7");
+  lua_pushnumber(L, static_cast<lua_Number>(fix.altitude_cm) / 100.0);
+  lua_setfield(L, -2, "altitude");
+  lua_pushnumber(L, static_cast<lua_Number>(fix.geoid_cm) / 100.0);
+  lua_setfield(L, -2, "geoid");
+  lua_pushnumber(L, static_cast<lua_Number>(fix.speed_cm_s) / 100.0);
+  lua_setfield(L, -2, "speed");
+  // **El rumb en dècimes de grau i la seva paraula**: 45,0° és un número i `NE` és el que una persona llegeix d'un cop (docs/30).
+  lua_pushnumber(L, static_cast<lua_Number>(fix.course_deg10) / 10.0);
+  lua_setfield(L, -2, "course");
+  static const char* const kPoints[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+  int32_t point = ((fix.course_deg10 / 10) + 22) / 45;
+  if (point < 0) point = 0;
+  if (point > 7) point = 7;
+  lua_pushstring(L, kPoints[point]);
+  lua_setfield(L, -2, "course_name");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.satellites_used));
+  lua_setfield(L, -2, "satellites_used");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.satellites_seen));
+  lua_setfield(L, -2, "satellites_seen");
+  lua_pushnumber(L, static_cast<lua_Number>(fix.hdop_x10) / 10.0);
+  lua_setfield(L, -2, "hdop");
+  lua_pushnumber(L, static_cast<lua_Number>(fix.vdop_x10) / 10.0);
+  lua_setfield(L, -2, "vdop");
+  lua_pushnumber(L, static_cast<lua_Number>(fix.pdop_x10) / 10.0);
+  lua_setfield(L, -2, "pdop");
+  // **L'hora del cel, que és UTC i no la de la persona**: la pàgina l'ha de poder ensenyar tal com arriba (docs/30, docs/60).
+  lua_createtable(L, 0, 8);
+  lua_pushboolean(L, fix.time.valid ? 1 : 0);
+  lua_setfield(L, -2, "valid");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.time.year));
+  lua_setfield(L, -2, "year");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.time.month));
+  lua_setfield(L, -2, "month");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.time.day));
+  lua_setfield(L, -2, "day");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.time.hour));
+  lua_setfield(L, -2, "hour");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.time.minute));
+  lua_setfield(L, -2, "minute");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.time.second));
+  lua_setfield(L, -2, "second");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.time.hundredths));
+  lua_setfield(L, -2, "hundredths");
+  lua_setfield(L, -2, "time");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.sentences));
+  lua_setfield(L, -2, "sentences");
+  lua_pushinteger(L, static_cast<lua_Integer>(fix.bad_sentences));
+  lua_setfield(L, -2, "bad_sentences");
+  lua_pushboolean(L, (g_gps_ops.powered != nullptr && g_gps_ops.powered()) ? 1 : 0);
+  lua_setfield(L, -2, "powered");
+  // **I el que el sistema ha cregut del cel**: quan va ser l'última vegada i quant es va moure el rellotge, que és el que diu si la
+  // sincronització ha fet res (docs/30, docs/60).
+  if (g_gps_ops.last_sync != nullptr) {
+    const int64_t ms = g_gps_ops.last_sync();
+    if (ms >= 0) {
+      lua_pushinteger(L, static_cast<lua_Integer>(ms));
+      lua_setfield(L, -2, "synced_ms");
+      lua_pushinteger(L, static_cast<lua_Integer>((g_gps_ops.last_shift != nullptr) ? g_gps_ops.last_shift() : 0));
+      lua_setfield(L, -2, "shift_ms");
+    }
+  }
+  return 1;
+}
+
+// **`gps.sky()`: els satèl·lits de l'últim GSV**, amb l'elevació, l'azimut i la força de cada un, que és el que es dibuixa en un
+// mapa del cel (docs/30, docs/50).
+int l_gps_sky(lua_State* L) {
+  if (g_gps_ops.satellites == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board does not look at the sky");
+  }
+  uint8_t count = 0;
+  const hal::GpsSatellite* sky = g_gps_ops.satellites(count);
+  lua_createtable(L, static_cast<int>(count), 0);
+  for (uint8_t i = 0; sky != nullptr && i < count; ++i) {
+    lua_createtable(L, 0, 5);
+    lua_pushinteger(L, static_cast<lua_Integer>(sky[i].id));
+    lua_setfield(L, -2, "id");
+    lua_pushinteger(L, static_cast<lua_Integer>(sky[i].elevation));
+    lua_setfield(L, -2, "elevation");
+    lua_pushinteger(L, static_cast<lua_Integer>(sky[i].azimuth));
+    lua_setfield(L, -2, "azimuth");
+    lua_pushinteger(L, static_cast<lua_Integer>(sky[i].snr));
+    lua_setfield(L, -2, "snr");
+    lua_pushboolean(L, sky[i].used ? 1 : 0);
+    lua_setfield(L, -2, "used");
+    lua_rawseti(L, -2, static_cast<lua_Integer>(i + 1));
+  }
+  return 1;
+}
+
+
 void seal_globals(lua_State* L) {
   lua_pushnil(L);
   lua_setglobal(L, "dofile");
@@ -13795,6 +14355,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "freq", l_cfg_freq);
   set_function(L, "settings", l_cfg_settings_app);
   set_function(L, "lock", l_cfg_lock);
+  set_function(L, "gps_sync", l_cfg_gps_sync);
   set_function(L, "lock_on", l_cfg_lock_on);
   set_function(L, "lock_after", l_cfg_lock_after);
   set_function(L, "sleep", l_cfg_sleep);
@@ -13856,6 +14417,15 @@ void seal_globals(lua_State* L) {
   set_function(L, "list", l_alarm_list);
   set_function(L, "caps", l_alarm_caps);
   lua_setglobal(L, "alarm");
+
+  // **tick: el rellotge d'una app mentre la placa és desperta** (0.192.60): the same queue as the alarms and none of their
+  // promises —it never wakes the board, it is not written down, and by default it does not open a window— (docs/30, docs/60).
+  lua_createtable(L, 0, 4);
+  set_function(L, "every", l_tick_every);
+  set_function(L, "cancel", l_tick_cancel);
+  set_function(L, "list", l_tick_list);
+  set_function(L, "caps", l_tick_caps);
+  lua_setglobal(L, "tick");
 
   // qr: any QR this build can draw, for anything an app wants to encode.
   lua_createtable(L, 0, 2);
@@ -13963,6 +14533,35 @@ void seal_globals(lua_State* L) {
   lua_newtable(L);
   set_function(L, "read", l_env_read);
   lua_setglobal(L, "env");
+
+  // **La ràdio que només escolta** (0.192.49): només on el xip hi és, o sigui que una placa sense LoRa no té cap taula `lora`
+  // i una app ho pot preguntar abans de dibuixar un espectre (docs/30, docs/50).
+  if (g_lora_ops.caps != nullptr) {
+    lua_newtable(L);
+    set_function(L, "caps", l_lora_caps);
+    set_function(L, "begin", l_lora_begin);
+    set_function(L, "frequency", l_lora_frequency);
+    set_function(L, "reception", l_lora_reception);
+    set_function(L, "listen", l_lora_listen);
+    set_function(L, "sniff", l_lora_sniff);
+    set_function(L, "rssi", l_lora_rssi);
+    set_function(L, "poll", l_lora_poll);
+    set_function(L, "idle", l_lora_idle);
+    set_function(L, "sleep", l_lora_sleep);
+    lua_setglobal(L, "lora");
+  }
+
+  // **I el cel, quan la placa el mira** (0.192.63): la taula només hi és amb un receptor, o sigui que una app que comprova
+  // `sys.caps().gps` i després crida `gps.on()` no es pot trobar mai una funció que contesta una mentida (docs/30).
+  if (g_gps_ops.caps != nullptr) {
+    lua_newtable(L);
+    set_function(L, "caps", l_gps_caps);
+    set_function(L, "on", l_gps_on);
+    set_function(L, "off", l_gps_off);
+    set_function(L, "info", l_gps_info);
+    set_function(L, "sky", l_gps_sky);
+    lua_setglobal(L, "gps");
+  }
 
   lua_createtable(L, 0, 1);
   set_function(L, "wait", l_button_wait);
@@ -14875,6 +15474,9 @@ void set_imu_ops(const ImuOps& ops) { g_imu_ops = ops; }
 void set_crypto_ops(const CryptoOps& ops) { g_crypto_ops = ops; }
 
 void set_env_ops(const EnvOps& ops) { g_env_ops = ops; }
+void set_lora_ops(const LoraOps& ops) { g_lora_ops = ops; }
+
+void set_gps_ops(const GpsOps& ops) { g_gps_ops = ops; }
 
 void set_button_ops(const ButtonOps& ops) { g_button_ops = ops; }
 
@@ -17441,10 +18043,14 @@ bool call_button(const char* kind, int64_t held_ms, uint32_t key) {
   // declares on_button(kind) or on_button(kind, held) and keeps working (docs/30).
   lua_pushinteger(L, static_cast<lua_Integer>(key));
   if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
-    con_text("on_button: ");
-    const char* message = lua_tostring(L, -1);
-    con_text((message != nullptr) ? message : "(no message)");
-    con_text("\r\n");
+    // **`app.exit()` des d'un ganxo no és una fallada** (0.192.49): el comiat és una intenció i el torn del nucli el
+    // compleix, o sigui que el ganxo no ha de dir res i l'app s'acaba igual (docs/30, docs/90).
+    if (!g_exited_by_app) {
+      con_text("on_button: ");
+      const char* message = lua_tostring(L, -1);
+      con_text((message != nullptr) ? message : "(no message)");
+      con_text("\r\n");
+    }
     lua_settop(L, top);
     return false;
   }
@@ -17471,10 +18077,14 @@ bool call_resize(uint16_t width, uint16_t height) {
   lua_pushinteger(L, static_cast<lua_Integer>(width));
   lua_pushinteger(L, static_cast<lua_Integer>(height));
   if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-    con_text("on_resize: ");
-    const char* message = lua_tostring(L, -1);
-    con_text((message != nullptr) ? message : "(no message)");
-    con_text("\r\n");
+    // **`app.exit()` des d'un ganxo no és una fallada** (0.192.49): el comiat és una intenció i el torn del nucli el
+    // compleix, o sigui que el ganxo no ha de dir res i l'app s'acaba igual (docs/30, docs/90).
+    if (!g_exited_by_app) {
+      con_text("on_resize: ");
+      const char* message = lua_tostring(L, -1);
+      con_text((message != nullptr) ? message : "(no message)");
+      con_text("\r\n");
+    }
     lua_settop(L, top);
     return false;
   }
@@ -17498,10 +18108,14 @@ bool call_back(uint8_t depth) {
   }
   lua_pushinteger(L, static_cast<lua_Integer>(depth));
   if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-    con_text("on_back: ");
-    const char* message = lua_tostring(L, -1);
-    con_text((message != nullptr) ? message : "(no message)");
-    con_text("\r\n");
+    // **`app.exit()` des d'un ganxo no és una fallada** (0.192.49): el comiat és una intenció i el torn del nucli el
+    // compleix, o sigui que el ganxo no ha de dir res i l'app s'acaba igual (docs/30, docs/90).
+    if (!g_exited_by_app) {
+      con_text("on_back: ");
+      const char* message = lua_tostring(L, -1);
+      con_text((message != nullptr) ? message : "(no message)");
+      con_text("\r\n");
+    }
     lua_settop(L, top);
     return false;
   }
@@ -17537,8 +18151,62 @@ bool call_hook(const char* name) {
 // An alarm arrives between two turns, with the app's coroutine suspended: the
 // function runs in the main thread, so it cannot await. That is a limit of the
 // delivery, not of the app, and docs/60 says so.
+// **El ganxo d'un tick** (`on_tick(payload, meta)`, 0.192.60): it is not `on_alarm` because the two are not the same thing —an
+// alarm is a promise the system keeps for an app that is not running, and a tick is the app's own clock while the board is
+// awake—, o sigui que una pàgina que rep les dues coses les ha de poder distingir pel nom del ganxo i no per un camp (docs/30).
+// `meta` porta `id` (el que va tornar `tick.every`), `period_ms` i `late_ms`; **no hi ha `missed`**: un tick que s'ha perdut
+// mentre la placa dormia no s'ha perdut, no s'havia de fer (docs/60).
+bool call_tick(const alarms::Entry& entry, int64_t late_ms) {
+  if (g_state == nullptr) return false;
+  lua_State* L = g_state;
+  const int top = lua_gettop(L);
+  lua_getglobal(L, "on_tick");
+  if (!lua_isfunction(L, -1)) {
+    lua_settop(L, top);
+    return false;
+  }
+
+  if (entry.payload_kind == alarms::Payload::kText) {
+    lua_pushstring(L, entry.payload);
+  } else if (entry.payload_kind == alarms::Payload::kNumber) {
+    lua_pushnumber(L, atof(entry.payload));
+  } else {
+    lua_pushnil(L);
+  }
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, static_cast<lua_Integer>(entry.id));
+  lua_setfield(L, -2, "id");
+  lua_pushinteger(L, static_cast<lua_Integer>(entry.repeat_ms));
+  lua_setfield(L, -2, "period_ms");
+  lua_pushinteger(L, static_cast<lua_Integer>(late_ms));
+  lua_setfield(L, -2, "late_ms");
+
+  // **I el ganxo pot dir que no hi havia res a fer** (0.192.65): `on_tick` returning `false` means "I had nothing to add with this
+  // one" —the app's loop is already sampling, or the moment was not worth a point—, and the line says so instead of leaving the
+  // person with a tick that fired and silence after it. A hook that returns nothing took it, which is what every app written
+  // before this did (docs/30, docs/60).
+  if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
+    if (!g_exited_by_app) {
+      con_text("on_tick: ");
+      const char* message = lua_tostring(L, -1);
+      con_text((message != nullptr) ? message : "(no message)");
+      con_text("\r\n");
+    }
+    lua_settop(L, top);
+    return false;
+  }
+  const bool nothing = lua_isboolean(L, -1) && lua_toboolean(L, -1) == 0;
+  lua_settop(L, top);
+  hal::logf(pal::kLogDebug, "TICK", "#%u for %s: %s", static_cast<unsigned>(entry.id), entry.app,
+            nothing ? "the app had nothing to add" : "the app answered it");
+  return true;
+}
+
 bool call_alarm(const alarms::Entry& entry, int64_t late_ms) {
   if (g_state == nullptr) return false;
+  // **Un tick i una alarma no es criden igual** (0.192.60): the same queue, o sigui que la porta d'entrada és la mateixa i el que
+  // canvia és el ganxo (docs/30, docs/60). It also covers the rare window of a raising tick, that goes through `run_window`.
+  if (entry.awake_only) return call_tick(entry, late_ms);
 
   lua_State* L = g_state;
   const int top = lua_gettop(L);
@@ -17563,10 +18231,14 @@ bool call_alarm(const alarms::Entry& entry, int64_t late_ms) {
   lua_setfield(L, -2, "missed");
 
   if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
-    con_text("on_alarm: ");
-    const char* message = lua_tostring(L, -1);
-    con_text((message != nullptr) ? message : "(no message)");
-    con_text("\r\n");
+    // **`app.exit()` des d'un ganxo no és una fallada** (0.192.49): el comiat és una intenció i el torn del nucli el
+    // compleix, o sigui que el ganxo no ha de dir res i l'app s'acaba igual (docs/30, docs/90).
+    if (!g_exited_by_app) {
+      con_text("on_alarm: ");
+      const char* message = lua_tostring(L, -1);
+      con_text((message != nullptr) ? message : "(no message)");
+      con_text("\r\n");
+    }
     lua_settop(L, top);
     return false;
   }
@@ -17600,10 +18272,14 @@ bool call_apps_event(const char* what, uint32_t generation) {
   lua_setfield(L, -2, "generation");
 
   if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-    con_text("on_event: ");
-    const char* message = lua_tostring(L, -1);
-    con_text((message != nullptr) ? message : "(no message)");
-    con_text("\r\n");
+    // **`app.exit()` des d'un ganxo no és una fallada** (0.192.49): el comiat és una intenció i el torn del nucli el
+    // compleix, o sigui que el ganxo no ha de dir res i l'app s'acaba igual (docs/30, docs/90).
+    if (!g_exited_by_app) {
+      con_text("on_event: ");
+      const char* message = lua_tostring(L, -1);
+      con_text((message != nullptr) ? message : "(no message)");
+      con_text("\r\n");
+    }
     lua_settop(L, top);
     return false;
   }
@@ -17630,6 +18306,7 @@ bool run_source(const char* name, const char* source, size_t len) {
   forget_the_error();
   g_exit_code = 0;
   g_exited_by_app = false;
+  g_app_wants_to_stop = false;
 
   if (luaL_loadbuffer(g_state, source, len, chunk) != LUA_OK) {
     report_error();
@@ -17664,6 +18341,14 @@ bool run_source(const char* name, const char* source, size_t len) {
 
 bool poll() {
   if (g_state == nullptr || g_task == nullptr) return true;
+
+  // **Un comiat demanat des d'un ganxo es compleix aquí** (0.192.49): el ganxo ja ha tornat, la pàgina no ha de córrer ni una
+  // línia més, i el que queda és tancar el task com qualsevol sortida neta (docs/30, docs/90).
+  if (g_app_wants_to_stop) {
+    g_app_wants_to_stop = false;
+    finish_task();
+    return false;
+  }
 
   settle_due();
 

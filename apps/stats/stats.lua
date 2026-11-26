@@ -16,7 +16,11 @@
 --     (`power.load()`, la mateixa mesura que imprimeix `load` al prompt) i la memòria en ús (`sys.heap()`)—, que és el que va
 --     demanar l'amo: *«A l'app d'Stats: afegir una pestanya nova: "Load", i anar monitoritzant la cárrega del sistema (comanda
 --     load) fent una gráfica. I assota unaltra gràfica amb la quantitat de memoria en us actualment (refresc de les gráfiques
---     temporitzat mentre la vista estigui activa, cada 10 segons)»* (0.192.48);
+--     temporitzat mentre la vista estigui activa, cada 10 segons)»* (0.192.48). **I la finestra és de mitja hora** (0.192.60,
+--     l'amo: *«Que les gráfiques de la pestanya Load de l'app Stats pugui cabre historial de 30 minuts enrrere, ara la gráfica
+--     apenes aguanta 7 minuts»*), amb la història en una sessió pròpia que es torna a trobar en entrar-hi
+--     (*«Usa session state per guardar l'historial entre sortir i tornar a l'app»*) i un **`tick`** del sistema que en pren una
+--     cada minut mentre la placa és desperta;
 --   · **Memory**: `sys.heap()` —la RAM, el bloc més gran, la memòria extra i el cim de Lua—;
 --   · **Info**: el que l'`info_app` ensenyava —placa, versió, uptime, bateria, ràdio—.
 --
@@ -38,13 +42,15 @@ end
 local kLayout = 'v4'
 local kStateBytes = 1024
 
+-- **La lletra d'aquesta pàgina és gran i fosca** (0.192.66, l'amo: *«A tot l'app Stats, excepte les pestanyes. Text mes gran en
+-- genera, i no usis grisos claret»*): the body of the glass is thirty-six pixels (four steps), o sigui que una fila de tres
+-- línies a dos passos —divuit— era mitja pàgina de text que no es llegeix. El cos de la lletra d'aquí és **tres passos** (vint-i-set
+-- píxels) a tot arreu, i el to del detall és el gris fosc de la casa i no el clar, que sobre aquest paper no es veu (docs/30, docs/92).
 local MARGIN = 16
 local GAP = 10
-local TITLE_H = 48
-local SUB_H = 22
+local TITLE_H = 52
+local SUB_H = 34
 local TABS_H = 46
-local ROW_H = 58
-local ROW_H_WIDE = 66
 local PIE_SIDE = 244   -- el costat del pastís; el radi del vidre es talla a 120, o sigui que aquest és el màxim
 
 -- **L'ordre de la tira és l'ordre de les pestanyes** i els seus números són els que `shape.tab` desa (docs/30).
@@ -56,6 +62,11 @@ local state_block = nil
 local shape = { tab = 1, page = 1 }
 
 local function the_state()
+  -- **Un bloc que el sistema s'ha quedat no es pot fer servir** (0.192.55): the session blocks are the first thing the allocator
+  -- gives back when the memory is short, and every call on one that is gone raises `the session memory was given back`, which ends
+  -- the app. It is asked again —that is what the contract says an app must do— and if there is no room the page is built as if it
+  -- were the first time (docs/30, docs/75).
+  if state_block ~= nil and not state_block:alive() then state_block = nil end
   if state_block == nil then
     local block = sys.session('state', kStateBytes)
     if block == nil then return nil end
@@ -109,8 +120,20 @@ local function kb(bytes)
   return string.format('%.1f KB', bytes / 1024)
 end
 
-local function row(title, detail, subtitle)
-  return { title = title, detail = detail, subtitle = subtitle }
+-- **I una fila pot portar la seva barra de %** (0.192.67, l'amo: *«Al usar llistes hem perdut la barra de %? no podem anidar-la?»*):
+-- a row of a list is an entry the app fills (`ui.list_entry` + `:add`), o sigui que el que hi ha dins pot ser el que la pàgina vulgui:
+-- el títol, el número i **una barra del sistema** (`ui.progress`). `bar` és el percentatge, o `nil` quan la fila no té un total amb
+-- què comparar-se (docs/30, docs/90).
+local function row(title, detail, subtitle, bar)
+  return { title = title, detail = detail, subtitle = subtitle, bar = bar }
+end
+
+local function percent_of(part, whole)
+  if part == nil or whole == nil or whole <= 0 then return nil end
+  local pct = math.floor(part * 100 / whole + 0.5)
+  if pct < 0 then pct = 0 end
+  if pct > 100 then pct = 100 end
+  return pct
 end
 
 -- ------------------------------------------------------------------ les quatre fulles
@@ -191,41 +214,48 @@ local function memory_rows()
     out[#out + 1] = row('memory', '-', 'this build cannot say')
     return out
   end
-  out[#out + 1] = row('free heap', kb(heap.ram_free), 'the RAM of the board, not the extra memory')
-  out[#out + 1] = row('largest block', kb(heap.ram_largest), 'the biggest piece still in one go')
+  out[#out + 1] = row('free heap', kb(heap.ram_free), 'the RAM of the board')
+  out[#out + 1] = row('largest block', kb(heap.ram_largest), 'in one piece', percent_of(heap.ram_largest, heap.ram_free))
   if heap.extra_total ~= nil and heap.extra_total > 0 then
-    out[#out + 1] = row('extra memory', kb(heap.extra_free), string.format('of %s usable', kb(heap.extra_total)))
+    out[#out + 1] = row('extra memory', kb(heap.extra_free), string.format('of %s usable', kb(heap.extra_total)),
+                        percent_of(heap.extra_free, heap.extra_total))
   else
-    out[#out + 1] = row('extra memory', 'none', 'this board carries no PSRAM')
+    out[#out + 1] = row('extra memory', 'none', 'this board has no PSRAM')
   end
-  out[#out + 1] = row('lua peak', kb(heap.peak), string.format('of %s allowed', kb(heap.limit)))
-  out[#out + 1] = row('lua pool', kb(heap.used), string.format('of %s, %s free', kb(heap.limit), kb(heap.free)))
+  out[#out + 1] = row('lua peak', kb(heap.peak), string.format('of %s allowed', kb(heap.limit)),
+                      percent_of(heap.peak, heap.limit))
+  out[#out + 1] = row('lua pool', kb(heap.used), string.format('of %s', kb(heap.limit)),
+                      percent_of(heap.used, heap.limit))
   return out
 end
 
 local function info_rows()
   local out = {}
   local ok, heap = pcall(sys.heap)
-  out[#out + 1] = row('Board', tostring(sys.board or '-'), sys.emulator and 'the emulator' or 'the board itself')
+  -- **El nom de la placa va a sota i no a la columna del número**: és l'únic valor d'aquesta pàgina que no cap a la dreta a tres
+  -- passos (`lilygo-t5s3-epaper-pro`), i tallat amb punts no diu quina placa és (docs/45, docs/92).
+  out[#out + 1] = row('Board', sys.emulator and 'emulator' or 'the board', tostring(sys.board or '-'))
   out[#out + 1] = row('Version', tostring(sys.version or '-'), 'lunokOS')
-  out[#out + 1] = row('Uptime', human((sys.time_ms() or 0) * 1000), 'since the board came up')
+  out[#out + 1] = row('Uptime', human((sys.time_ms() or 0) * 1000), 'since it came up')
   if ok and type(heap) == 'table' then
-    out[#out + 1] = row('Heap', kb(heap.ram_free), string.format('largest block %s', kb(heap.ram_largest)))
+    out[#out + 1] = row('Heap', kb(heap.ram_free), string.format('largest %s', kb(heap.ram_largest)),
+                        percent_of(heap.ram_largest, heap.ram_free))
     if heap.extra_total ~= nil and heap.extra_total > 0 then
-      out[#out + 1] = row('PSRAM', kb(heap.extra_free), string.format('of %s usable', kb(heap.extra_total)))
+      out[#out + 1] = row('PSRAM', kb(heap.extra_free), string.format('of %s usable', kb(heap.extra_total)),
+                          percent_of(heap.extra_free, heap.extra_total))
     end
   end
   local okb, b = pcall(power.battery)
   if okb and type(b) == 'table' and b.mv ~= nil then
     out[#out + 1] = row('Battery', string.format('%d mV', b.mv),
-                        string.format('%d%%%s', b.pct or 0, b.charging and ' · charging' or ''))
+                        string.format('%d%%%s', b.pct or 0, b.charging and ' · charging' or ''), b.pct)
   else
     out[#out + 1] = row('Battery', 'unknown', 'this board cannot read its cell')
   end
   if caps.net_wifi then
     local okn, n = pcall(net.status)
-    out[#out + 1] = row('WiFi', (okn and type(n) == 'table' and n.connected) and 'connected' or 'disconnected',
-                        'the radio of the build')
+    out[#out + 1] = row('WiFi', (okn and type(n) == 'table' and n.connected) and 'yes' or 'no',
+                        'the radio of this build')
   end
   return out
 end
@@ -242,6 +272,9 @@ local load_caption, load_chart, mem_caption, mem_chart
 local wid, hei = 0, 0
 
 local owned = {}
+-- **Els controls de cada fila de Memory i d'Info** (0.192.67): es fan amb la pestanya i es tornen amb ella, o sigui que viuen amb
+-- la resta del que és de la vista.
+local facts = {}
 local cost_data = {}
 local total_measured = 0
 local read_at = 0
@@ -257,6 +290,7 @@ local function give_back_the_view()
     if one ~= nil then pcall(function() one:release() end) end
   end
   owned = {}
+  facts = {}
   bars, pie, legend, strip, the_list = nil, nil, nil, nil, nil
   load_caption, load_chart, mem_caption, mem_chart = nil, nil, nil, nil
 end
@@ -264,10 +298,55 @@ end
 -- ------------------------------------------------------------------ la càrrega i la memòria, mostrejades cada deu segons
 
 -- **La finestra és de l'app i no del control** (docs/30): `ui.chart` dibuixa les mostres que li donen, i qui decideix quantes i
--- cada quant és aquesta pàgina. Deu segons és el que va demanar l'amo, i quaranta-vuit mostres —el que cap a una gràfica
--- d'aquest sistema— són vuit minuts de memòria d'una pestanya oberta.
+-- cada quant és aquesta pàgina. **Una mostra cada deu segons i mitja hora de finestra** (0.192.60, l'amo: *«Que les gráfiques de
+-- la pestanya Load de l'app Stats pugui cabre historial de 30 minuts enrrere»*): cent vuitanta-un punts, que és el que el
+-- control ja sap dibuixar des de la 0.192.60 (`kMaxChartSamples` ja no és quaranta-vuit) i el que cab en un bloc de quatre
+-- kilobytes. Deu segons i no cinc perquè la finestra és sis vegades més llarga i el bloc no és infinit.
 local kSampleMs = 10000
-local kSamples = 48
+local kSamples = 181
+local kWindowMs = 30 * 60 * 1000
+-- **I quan la finestra s'omple, la corba camina** (0.192.50, l'amo: *«si s'omple la gráfica es va desplaçant cap a la dreta
+-- (scroll)»*): aquí no fa falta cap `span` que no es mogui perquè la finestra ja la talla la història —el que en surt s'oblida—,
+-- i el que queda és sempre l'última mitja hora de debò (docs/30, docs/90).
+local kGapSeconds = 4 * kSampleMs // 1000
+-- **I la memòria de la finestra viu en una sessió pròpia** (0.192.60, l'amo: *«Usa session state per guardar l'historial entre
+-- sortir i tornar a l'app»*). No és `state` —allò és la forma de la vista— sinó una caché amb la seva clau, que és el que aquesta
+-- casa demana per a una caché (docs/30, docs/75): es torna a trobar en tornar a l'app, i el nucli la desa a la targeta quan l'app
+-- s'acaba. Quatre kilobytes per cent vuitanta-una línies de `ms pct10 memkb` (uns disset bytes cada una) i la capçalera.
+-- **I la finestra creua els reinicis** (0.192.68, l'amo: *«Load bé, però perd el log entre reinicis?»* —sí que el perdia—): the
+-- samples are stamped with the **epoch** (`time.now_ms`) when the board's clock knows it, and with the uptime of this boot
+-- (`sys.time_ms`) when it does not —a board without an hour has no way to say when a sample was taken—. The block says which of
+-- the two it is in its first line: `v2` is the world's time and `v1` is this boot's, and a block of the other shape is thrown
+-- away, perquè una hora d'aran i una del món a la mateixa gràfica serien dues escales i una corba que menteix (docs/30, docs/60,
+-- docs/75).
+local kHistoryKey = 'load'
+local kHistoryLayout = 'v2'
+local kHistoryLayoutUptime = 'v1'
+local kHistoryBytes = 4096
+
+-- **El rellotge del món, quan n'hi ha**: `time.now_ms()` torna zero mentre ningú no ha posat l'hora (docs/30), i un zero no és
+-- una hora: val més l'uptime d'aquesta encesa, que almenys diu quan va ser respecte de l'arrencada.
+local function the_world_ms()
+  local ok, ms = pcall(time.now_ms)
+  if not ok or type(ms) ~= 'number' or ms <= 0 then return nil end
+  return ms
+end
+
+local function the_layout()
+  return (the_world_ms() ~= nil) and kHistoryLayout or kHistoryLayoutUptime
+end
+
+-- **El segell d'una mostra i la forma del bloc que li toca**, dits alhora.
+local function the_stamp()
+  local world = the_world_ms()
+  if world ~= nil then return world, kHistoryLayout end
+  return sys.time_ms() or 0, kHistoryLayoutUptime
+end
+-- **I una crida del sistema cada minut** (0.192.60, l'amo: *«M'agradaría que l'app Stats rebés una crida cada minut, però només si
+-- la placa està desperta»*): mentre la pestanya Load és al vidre aquesta app es mostreja sola cada deu segons, o sigui que el que
+-- afegeix el tick és la mostra de les altres quatre pestanyes —mirar la memòria o el pastís no ha de deixar un forat a la corba— i
+-- la de la pàgina que s'ha quedat oberta sense ningú mirant-la (docs/30, docs/60).
+local kTickSeconds = 60
 
 -- **Les dues sèries, i la seva hora**: `times` són els segons des de la primera mostra de la finestra, o sigui que el gràfic
 -- les col·loca per temps de debò i no pel seu índex (docs/30, docs/90).
@@ -277,11 +356,70 @@ local load_word, load_pct10 = '-', 0
 local mem_used_kb, mem_limit_kb = 0, 0
 local sampling_from = nil
 local last_sample_ms = nil
+-- **El bloc i on s'ha arribat a escriure**: `history_used` és el byte lliure del bloc, o sigui que una mostra nova s'hi afegeix
+-- amb disset bytes i no torna a escriure els tres mil que ja hi eren (docs/75).
+local history_block = nil
+local history_used = 0
+local history_layout = nil
 
 local function copy_of(list)
   local out = {}
   for i = 1, #list do out[i] = list[i] end
   return out
+end
+
+-- **El bloc de la història, i el guardià de sempre** (0.192.55, docs/30): the session blocks are the first thing the allocator
+-- gives back when the memory is short, and every call on one that is gone raises and ends the app. It is asked again here, next
+-- to the ask and not on each call.
+local function the_history()
+  if history_block ~= nil and not history_block:alive() then history_block = nil end
+  if history_block == nil then
+    local block = sys.session(kHistoryKey, kHistoryBytes)
+    if block == nil then return nil end
+    history_block = block
+  end
+  return history_block
+end
+
+-- **El text del bloc** (docs/75): the block is zeroed bytes after its tail, o sigui que la cadena s'ha de tallar al primer zero
+-- o l'última línia arriba amb fotges i no es pot llegir (el parany que la 0.192.56 va tancar al Paint).
+local function the_history_text()
+  local block = the_history()
+  if block == nil then return nil end
+  local text = block:read(0, kHistoryBytes) or ''
+  local zero = text:find('\0', 1, true)
+  if zero ~= nil then text = text:sub(1, zero - 1) end
+  return text
+end
+
+-- **Una llista de línies i prou**: the block is `v1` and then one line per sample —`ms pct mem`, with a `-` where a measurement
+-- is missing— so the file of a session can be read by a person, and the app writes it once and not once per field (docs/45).
+local function write_the_history(lines)
+  local block = the_history()
+  if block == nil then return false end
+  local text = the_layout() .. '\n'
+  if #lines > 0 then text = text .. table.concat(lines, '\n') .. '\n' end
+  block:clear()
+  block:write(0, text)
+  history_used = #text
+  history_layout = the_layout()
+  return true
+end
+
+-- **La finestra que queda, tornada a escriure**: it is what makes the curve walk —the oldest line leaves the block when the window
+-- is full— and it only happens when the block has physically filled up, not at every sample (docs/30, docs/75).
+local function compact_the_history(keep)
+  local text = the_history_text()
+  if text == nil then return false end
+  local lines = {}
+  for line in (text .. '\n'):gmatch('([^\n]*)\n') do
+    if line ~= '' and line ~= kHistoryLayout and line ~= kHistoryLayoutUptime then lines[#lines + 1] = line end
+  end
+  local first = #lines - keep + 1
+  if first < 1 then first = 1 end
+  local kept = {}
+  for i = first, #lines do kept[#kept + 1] = lines[i] end
+  return write_the_history(kept)
 end
 
 local function push_sample(values, times, value, second)
@@ -291,43 +429,158 @@ local function push_sample(values, times, value, second)
   while #times > kSamples do table.remove(times, 1) end
 end
 
--- **Una finestra amb un forat no és una finestra**: si l'última mostra és de fa més de mig minut —la pestanya no era al vidre,
--- l'app dormia, la placa ha tornat d'una becaina—, el que hi havia a la gràfica ja no toca el que hi arriba i es comença de nou
--- en comptes de dibuixar una recta entre dues vores que no han estat juntes mai (docs/30, docs/90).
-local function empty_the_window()
-  load_values, load_times = {}, {}
-  mem_values, mem_times = {}, {}
-  sampling_from = nil
+-- **Una mostra al bloc, i només disset bytes** (0.192.60): what is written is the new line, not the three kilobytes that were
+-- already there —the block is in the memory and the disk only sees it when the app ends—, i quan no hi cap es torna a escriure
+-- amb la finestra que queda.
+local function remember_the_sample(ms, pct10, mem_kb)
+  local block = the_history()
+  if block == nil then return false end
+  -- **I si el rellotge del món ha arribat ara** (una sincronització amb el GPS amb la pàgina oberta): el bloc canvia de forma i
+  -- el que hi havia eren segons d'aquesta encesa, o sigui que es comença de nou en lloc de mesclar dues escales (docs/30, docs/60).
+  if history_used == 0 or history_layout ~= the_layout() then
+    local head = the_layout() .. '\n'
+    block:clear()
+    block:write(0, head)
+    history_used = #head
+    history_layout = the_layout()
+  end
+  local line = string.format('%d %s %s\n', math.floor(ms),
+                             (pct10 ~= nil) and string.format('%d', pct10) or '-',
+                             (mem_kb ~= nil) and string.format('%d', mem_kb) or '-')
+  if history_used + #line > kHistoryBytes then
+    compact_the_history(kSamples)
+  end
+  if history_used + #line > kHistoryBytes then return false end
+  block:write(history_used, line)
+  history_used = history_used + #line
+  return true
+end
+
+-- **La història que hi havia, en entrar a l'app** (0.192.60, l'amo: *«Usa session state per guardar l'historial entre sortir i
+-- tornar a l'app»*): the block is read, what is older than the window is forgotten, i el que queda es torna a escriure compactat.
+-- Les dues sèries es reconstrueixen d'aquí i no d'una còpia a part (docs/30, docs/75). **I des de la 0.192.68 la finestra creua un
+-- reinici**: amb la forma `v2` les mostres són l'època i mitja hora enrere vol dir mitja hora del món, no d'aquesta encesa.
+local function load_the_history()
+  local text = the_history_text()
+  if text == nil then return false end
+  -- **Una forma que no és la meva es llença** (docs/30, docs/45): the header is the layout, i un bloc d'una altra versió no es
+  -- migra mai —el que hi hagués seria una corba de números que volen dir una altra cosa—. Un `v1` (l'uptime d'una encesa d'abans)
+  -- i un `v2` (l'època) no es poden llegir junts, o sigui que el que no és la forma d'ara comença de zero.
+  local layout = the_layout()
+  if (text:match('^([^\n]*)') or '') ~= layout then
+    history_used = 0
+    write_the_history({})
+    return false
+  end
+  local now = (layout == kHistoryLayout) and (the_world_ms() or 0) or (sys.time_ms() or 0)
+  local kept, lines = {}, 0
+  for line in (text .. '\n'):gmatch('([^\n]*)\n') do
+    if line ~= '' and line ~= kHistoryLayout and line ~= kHistoryLayoutUptime then
+      lines = lines + 1
+      local ms, pct, mem = line:match('^(%d+) (%S+) (%S+)$')
+      local when = tonumber(ms)
+      if when ~= nil and when <= now + 60000 and now - when <= kWindowMs then
+        kept[#kept + 1] = line
+      end
+    end
+  end
+  while #kept > kSamples do table.remove(kept, 1) end
+  load_values, load_times, mem_values, mem_times = {}, {}, {}, {}
+  local base = nil
+  for i = 1, #kept do
+    local ms, pct, mem = kept[i]:match('^(%d+) (%S+) (%S+)$')
+    local when = tonumber(ms)
+    if base == nil then base = when end
+    local second = math.max(0, math.floor((when - base) / 1000))
+    local p = tonumber(pct)
+    local m = tonumber(mem)
+    if p ~= nil then
+      push_sample(load_values, load_times, p, second)
+      load_pct10 = p
+    end
+    if m ~= nil then
+      push_sample(mem_values, mem_times, m, second)
+      mem_used_kb = m
+    end
+  end
+  sampling_from = base
+  last_sample_ms = nil
+  if lines ~= #kept then return write_the_history(kept) end
+  history_used = #text
+  history_layout = layout
+  return #kept > 0
 end
 
 -- **Les dues preguntes d'una mostra.** La càrrega és `power.load()` —el tros de la finestra que el nucli ha passat treballant i no
 -- esperant, en dècimes de punt; la finestra és la que hi ha des de l'última mostra, o sigui deu segons quan la pestanya és al
 -- vidre— i la memòria és `sys.heap()`: el que aquest sistema té donat a Lua, en KB. Les dues poden faltar (una placa que no
 -- mesura la càrrega, una memòria curta) i llavors no s'apunta res: una barra de zero no és una mesura (docs/30).
+--
+-- **I el forat s'hi veu, no es llença** (0.192.60): abans, una mostra que arribava deu minuts després de l'última esborrava la
+-- finestra sencera i la corba començava de zero —una app que s'obre i es tanca cada deu minuts no tenia mai més d'un punt—. Ara
+-- la mostra s'apunta on toca i el que hi ha entremig és el que la gràfica dibuixa com a forat (`gap`), que és el que va passar:
+-- la placa no ho va mesurar (docs/30, docs/90).
 local function take_a_sample()
+  -- **El rellotge de les mostres és el del món i el del frec, el de l'encesa** (0.192.68): `now` és el monòton —el que mesura de
+  -- quant van dues mostres— i `stamp` és el que s'escriu al bloc, que ha de volar un reinici (docs/30, docs/60).
   local now = sys.time_ms() or 0
-  if last_sample_ms ~= nil and now - last_sample_ms > 3 * kSampleMs then empty_the_window() end
-  if sampling_from == nil then sampling_from = now end
-  local second = math.max(0, math.floor((now - sampling_from) / 1000))
-  local ok, pct10, word = pcall(power.load)
-  if ok and type(pct10) == 'number' then
+  -- **Una mostra que arriba abans d'hora no s'apunta**: the loop of this page (each ten seconds while the tab is on the glass)
+  -- and the tick of the system (each minute) can call here in the same turn, i dues mostres al mateix segon serien un punt doble
+  -- a la corba i una línia més al bloc per res (docs/30).
+  if last_sample_ms ~= nil and now - last_sample_ms < kSampleMs // 2 then return false end
+  local stamp, layout = the_stamp()
+  -- **Una finestra que ha canviat de forma o que ha saltat comença de nou**: el rellotge del món pot arribar amb una
+  -- sincronització del GPS, i aleshores el que hi havia eren segons d'aquesta encesa; un salt més gran que la finestra és una
+  -- escala que no vol dir res. Les dues coses es diuen al registre i no es mesclen (docs/30, docs/60).
+  if sampling_from == nil or layout ~= history_layout or stamp < sampling_from
+     or (stamp - sampling_from) > kWindowMs then
+    if sampling_from ~= nil and (layout ~= history_layout or (stamp - sampling_from) > kWindowMs) then
+      load_values, load_times, mem_values, mem_times = {}, {}, {}, {}
+      write_the_history({})
+    end
+    sampling_from = stamp
+  end
+  local second = math.max(0, math.floor((stamp - sampling_from) / 1000))
+  local pct10, mem_kb = nil, nil
+  local ok, pct, word = pcall(power.load)
+  if ok and type(pct) == 'number' then
+    pct10 = math.floor(pct)
     load_pct10 = pct10
     load_word = (type(word) == 'string') and word or '-'
     push_sample(load_values, load_times, pct10, second)
   end
   local okm, heap = pcall(sys.heap)
   if okm and type(heap) == 'table' and type(heap.used) == 'number' then
-    mem_used_kb = math.floor(heap.used / 1024)
+    mem_kb = math.floor(heap.used / 1024)
+    mem_used_kb = mem_kb
     mem_limit_kb = math.floor((heap.limit or 0) / 1024)
     if mem_limit_kb < mem_used_kb then mem_limit_kb = mem_used_kb end
-    push_sample(mem_values, mem_times, mem_used_kb, second)
+    push_sample(mem_values, mem_times, mem_kb, second)
   end
+  if pct10 == nil and mem_kb == nil then return false end
   last_sample_ms = now
+  remember_the_sample(stamp, pct10, mem_kb)
+  return true
 end
 
 -- **El text de l'eix és de l'app** (docs/30): la finestra és meva i sé quant ha durat, o sigui que el cap de l'esquerra diu els
 -- segons o els minuts que s'està veient i el de la dreta diu que l'última mostra és ara mateix.
+-- **El rellotge el demana l'app i el sistema li dona** (0.192.60): `tick.every` posa una entrada a la cua del sistema que **no arma
+-- el despertar de la placa** —una app no ha de fer sonar el xip del rellotge per una mostra—, i per defecte **no obre finestra**: si
+-- la pàgina no és al davant, la crida es perd i prou (l'amo: *«Però només si l'app demana primer plà. Per defecte no obre
+-- finestra.»*). Es demana en obrir i es treu en tancar, que és el que deixa la cua sense el rellotge d'una app que ja no hi és
+-- (docs/30, docs/60).
+local tick_id = nil
+
+local function arm_the_tick()
+  local ok, id = pcall(tick.every, kTickSeconds, 'sample')
+  if ok and type(id) == 'number' then tick_id = id end
+end
+
 local function axis_left_of(times)
+  -- **El cap de l'esquerra és el que es veu i no una constant** (0.192.50, 0.192.60): with the window cut by the history, what is
+  -- on the left is the oldest sample the block still has, o sigui que el text diu la veritat de cada moment —`-12 s` quan la
+  -- pàgina s'acaba d'obrir, `-30 min` quan la finestra ja és plena— i no una promesa (docs/30).
   local span = (#times > 0) and (times[#times] - times[1]) or 0
   if span >= 120 then return string.format('-%d min', span // 60) end
   return string.format('-%d s', span)
@@ -345,6 +598,10 @@ local function show_the_samples()
     load_chart.times = copy_of(load_times)
     load_chart.min = 0
     load_chart.max = 1000
+    load_chart.span = 0
+    -- **El forat, en les unitats de l'eix** (0.192.50): `gap` compta el mateix que `times`, que aquí són segons; quatre
+    -- mostres perdudes són un forat i la línia s'hi talla (docs/30).
+    load_chart.gap = kGapSeconds
     load_chart.left = axis_left_of(load_times)
     load_chart.right = (#load_times > 0) and 'now' or ''
   end
@@ -356,20 +613,22 @@ local function show_the_samples()
     mem_chart.times = copy_of(mem_times)
     mem_chart.min = 0
     mem_chart.max = (mem_limit_kb > 0) and mem_limit_kb or 1024
+    mem_chart.span = 0
+    mem_chart.gap = kGapSeconds
     mem_chart.left = axis_left_of(mem_times)
     mem_chart.right = (#mem_times > 0) and 'now' or ''
   end
   if mem_caption ~= nil then
-    mem_caption.text = string.format('the memory in use: %d KB of %d KB', mem_used_kb, mem_limit_kb)
+    mem_caption.text = string.format('in use: %d KB of %d', mem_used_kb, mem_limit_kb)
   end
 end
 
 -- ------------------------------------------------------------------ el dibuix de les barres
 
-local kBarPitch = 34     -- el pas d'una fila: el nom, la barra i el número
-local kBarThick = 14     -- el gruix de la barra, el de l'antic
-local kBarScale = 2      -- el pas del text de la gràfica
-local kNumberW = 104     -- la columna del número, a la dreta
+local kBarPitch = 42     -- el pas d'una fila: el nom, la barra i el número
+local kBarThick = 16     -- el gruix de la barra, el de l'antic
+local kBarScale = 3      -- el pas del text de la gràfica
+local kNumberW = 150     -- la columna del número, a la dreta (un `3 min 07 s` a tres passos hi cap)
 
 local function fit(text, width, scale)
   if ui.text_width(text, scale) <= width then return text end
@@ -395,8 +654,8 @@ local function paint_the_bars(canvas)
   if bar_w < 40 then bar_w = 40 end
 
   canvas:clear(15)
-  local caption = string.format('%d meters, %s measured, the biggest first', #cost_data, human(total_measured))
-  canvas:text(0, 0, caption, kBarScale, 8)
+  local caption = string.format('%d meters, %s measured', #cost_data, human(total_measured))
+  canvas:text(0, 0, caption, kBarScale, 4)
 
   local peak = 0
   for _, m in ipairs(cost_data) do
@@ -413,7 +672,7 @@ local function paint_the_bars(canvas)
     local bar_y = y + (kBarPitch - kBarThick) // 2
     local ty = y + (kBarPitch - lh) // 2
     canvas:text(0, ty, fit(m.word, name_w, kBarScale), kBarScale, 0)
-    canvas:rect(name_w + gap, bar_y, bar_w, kBarThick, 12)
+    canvas:rect(name_w + gap, bar_y, bar_w, kBarThick, 8)
     if peak > 0 and m.us > 0 then
       local share = math.floor(bar_w * m.us / peak)
       if share < 3 then share = 3 end
@@ -425,8 +684,8 @@ local function paint_the_bars(canvas)
   end
 
   if drawn < #cost_data then
-    local rest = string.format('... and %d more: /stats at the prompt', #cost_data - drawn)
-    canvas:text(0, box.height - lh, rest, kBarScale, 8)
+    local rest = string.format('... and %d more: /stats', #cost_data - drawn)
+    canvas:text(0, box.height - lh, rest, kBarScale, 4)
   end
 end
 
@@ -458,7 +717,6 @@ local kStripBar = 26
 
 local function paint_the_strip(canvas)
   local box = canvas:caps()
-  local scale = 2
   local sum, total = time_slices()
   canvas:clear(15)
   if total > 0 then
@@ -470,7 +728,7 @@ local function paint_the_strip(canvas)
     end
   end
   canvas:frame(0, 0, box.width, kStripBar, 0)
-  canvas:text(0, kStripBar + 6, 'the same shares in one strip, the glass first', scale, 8)
+  canvas:text(0, kStripBar + 8, 'the same shares, the glass first', 3, 4)
 end
 
 -- ------------------------------------------------------------------ la disposició
@@ -543,11 +801,11 @@ end
 -- family's name, a dark bar with its share and the time and the percentage on the right, que és el que l'antic posava al
 -- costat del pastís. Així el nom, la barra i el número estan alineats per construcció i no per tres amplades que han de
 -- coincidir.
-local kLegendPitch = 46
+local kLegendPitch = 58
 
 local function paint_the_legend(canvas)
   local box = canvas:caps()
-  local scale = 2
+  local scale = 3
   local lh = ui.line_height(scale)
   local sum, total = time_slices()
   local peak = 0
@@ -556,8 +814,8 @@ local function paint_the_legend(canvas)
   end
   canvas:clear(15)
   local gap = 10
-  local name_w = math.floor(box.width * 34 / 100)
-  local number_w = 170
+  local name_w = math.floor(box.width * 30 / 100)
+  local number_w = 200
   local bar_x = 26 + name_w + gap
   local bar_w = box.width - bar_x - number_w
   if bar_w < 40 then bar_w = 40 end
@@ -570,7 +828,7 @@ local function paint_the_legend(canvas)
     canvas:rect(0, bar_y, 16, 16, math.min(15, (i - 1) * 4))
     canvas:frame(0, bar_y, 16, 16, 0)
     canvas:text(26, ty, family.name, scale, 0)
-    canvas:rect(bar_x, bar_y, bar_w, kBarThick, 12)
+    canvas:rect(bar_x, bar_y, bar_w, kBarThick, 8)
     if peak > 0 and sum[i] > 0 then
       local share = math.floor(bar_w * sum[i] / peak)
       if share < 3 then share = 3 end
@@ -583,17 +841,106 @@ local function paint_the_legend(canvas)
   -- **El total i el que no hi és**: `kernel.loop` és el torn sencer i `queue.wait` i `lua.own` en són trossos, o sigui que
   -- sumar-los tots diria el temps dues vegades; el peu ho diu, perquè una roda que no quadra amb la llista és una roda que
   -- menteix (docs/30, docs/95).
-  local foot = string.format('%s of the meters, without the turn itself', human(total))
-  canvas:text(0, box.height - lh, foot, scale, 8)
+  local foot = string.format('%s, without the turn itself', human(total))
+  canvas:text(0, box.height - lh, foot, scale, 4)
+end
+
+-- **Una fila de Memory o d'Info és un control de l'app, i per això hi cap una barra** (0.192.67): `ui.list` amb `items` dibuixa
+-- el títol, el número i la lletra de sota, i res més; amb **entrades** (`ui.list_entry`) la fila és meva i hi poso el que hi ha
+-- d'anar: dues lletres a tres passos i la **barra del sistema** (`ui.progress`) quan la fila té un total amb què comparar-se.
+-- `facts` guarda els controls de cada fila per tornar-los a omplir sense tornar-los a fer (docs/30, docs/90).
+local kFactBar = 16
+
+-- **L'alçada d'una fila es compta amb la lletra que hi ha** (0.192.67): tres bandes —el títol i el número, la lletra de sota i la
+-- barra— i el pas de la lletra el diu el sistema, no aquesta pàgina. Donar-lo per fet va deixar la barra sota la vora de la fila,
+-- on el dibuix la talla (docs/30, docs/90).
+local function fact_row_height()
+  return 4 + 2 * ui.line_height(3) + 4 + kFactBar + 2
+end
+
+local function a_label(width, height, text, color, align)
+  local label = ui.label(width, height)
+  if label == nil then return nil end
+  label.text = text
+  label.scale = 3
+  label.align = align or 'left'
+  label.color = color or 0
+  label.background = 15
+  return label
+end
+
+local function fill_a_fact(one, controls)
+  if controls.title ~= nil then controls.title.text = one.title end
+  if controls.value ~= nil then controls.value.text = one.detail end
+  if controls.subtitle ~= nil then controls.subtitle.text = one.subtitle or '' end
+  if controls.bar ~= nil and one.bar ~= nil then controls.bar.value = one.bar end
+end
+
+-- **Les files d'una pestanya, fetes una vegada**: el nombre de files no canvia mentre la pestanya és al vidre, o sigui que els
+-- controls es fan en entrar-hi i el que es refresca és el seu contingut (docs/30, docs/75).
+local function build_the_facts(width, row_height)
+  facts = {}
+  local list_of = (shape.tab == kMemoryTab) and memory_rows() or info_rows()
+  local lh = ui.line_height(3)
+  for _, one in ipairs(list_of) do
+    local entry = ui.list_entry(width, row_height)
+    if entry ~= nil then
+      entry.background = 15
+      entry.separator = true
+      local controls = {}
+      local value_w = ui.text_width(one.detail, 3) + 10
+      if value_w < 150 then value_w = 150 end
+      if value_w > math.floor(width * 46 / 100) then value_w = math.floor(width * 46 / 100) end
+      controls.title = a_label(width - value_w - 30, lh + 4, one.title, 0, 'left')
+      if controls.title ~= nil then
+        controls.title:place(12, 4)
+        entry:add(controls.title)
+      end
+      controls.value = a_label(value_w, lh + 4, one.detail, 0, 'right')
+      if controls.value ~= nil then
+        controls.value:place(width - value_w - 12, 4)
+        entry:add(controls.value)
+      end
+      controls.subtitle = a_label(width - 24, lh + 4, one.subtitle or '', 4, 'left')
+      if controls.subtitle ~= nil then
+        controls.subtitle:place(12, 4 + lh + 2)
+        entry:add(controls.subtitle)
+      end
+      -- **La barra a sota, ampla i del sistema** (l'amo: *«no podem anidar-la?»*): `track` és la pista i `fill` el tros fet, tots
+      -- dos tons del paper d'aquesta casa, i **només hi és a la fila que té un total amb què comparar-se** —una barra buida diria
+      -- un zero que no és cert— (docs/30, docs/90).
+      if one.bar ~= nil then
+        local bar = ui.progress(width - 24, kFactBar)
+        if bar ~= nil then
+          bar.value = one.bar
+          bar.background = 15
+          bar.track = 8
+          bar.fill = 0
+          bar.border = 4
+          bar:place(12, 4 + 2 * lh + 4)
+          entry:add(bar)
+          controls.bar = bar
+        end
+      end
+      facts[#facts + 1] = controls
+      the_list:add(entry)
+    end
+  end
+end
+
+-- **I el que canvia és el número, no la fila**: `refresh` torna a preguntar les files i les aboca als controls que ja hi són.
+local function refresh_the_facts()
+  if the_list == nil or #facts == 0 then return end
+  local list_of = (shape.tab == kMemoryTab) and memory_rows() or info_rows()
+  for i, one in ipairs(list_of) do
+    local controls = facts[i]
+    if controls ~= nil then fill_a_fact(one, controls) end
+  end
 end
 
 local function refresh()
   if the_list ~= nil then
-    if shape.tab == kMemoryTab then
-      the_list.items = memory_rows()
-    elseif shape.tab == kInfoTab then
-      the_list.items = info_rows()
-    end
+    refresh_the_facts()
     the_list.page = shape.page
     shape.page = the_list.page
     save_state()
@@ -619,15 +966,20 @@ end
 
 local function set_the_body(wide)
   if title ~= nil then title.scale = wide and 5 or 4 end
+  -- **La tira de pestanyes no es toca** (l'amo: *«A tot l'app Stats, excepte les pestanyes»*).
   if tabs ~= nil then tabs.scale = wide and 3 or 2 end
   if the_list ~= nil then
-    the_list.row_height = wide and ROW_H_WIDE or ROW_H
-    the_list.scale = wide and 3 or 2
+    the_list.row_height = fact_row_height()
+    the_list.scale = 3
+    -- **El valor de la dreta és el número que es busca**: vuit és un gris que sobre aquest paper no es llegeix, i el que ha de
+    -- dir-se es diu amb tinta (docs/30, docs/92).
+    the_list.text = 0
+    the_list.dim = 4
   end
   if subtitle ~= nil then
-    subtitle.scale = 2
+    subtitle.scale = 3
     subtitle.align = 'left'
-    subtitle.color = 8
+    subtitle.color = 4
   end
 end
 
@@ -641,7 +993,7 @@ local function build_the_view()
       bars:place(MARGIN, g.top)
     end
     if subtitle ~= nil then
-      subtitle.text = string.format('read %s after the board came up', human(read_at * 1000))
+      subtitle.text = string.format('read %s after the boot', human(read_at * 1000))
     end
   elseif shape.tab == kTimeTab then
     pie = keep(ui.pie(g.pie, g.pie))
@@ -649,11 +1001,11 @@ local function build_the_view()
       pie.color = 0
       pie.slices = { 0, 0, 0, 0 }
     end
-    legend = keep(ui.canvas(g.width, #FAMILIES * kLegendPitch + ui.line_height(2) + 8))
+    legend = keep(ui.canvas(g.width, #FAMILIES * kLegendPitch + ui.line_height(3) + 8))
     if legend ~= nil then
       legend.on_draw = function(self) paint_the_legend(self) end
     end
-    strip = keep(ui.canvas(g.width, kStripBar + ui.line_height(2) + 8))
+    strip = keep(ui.canvas(g.width, kStripBar + ui.line_height(3) + 8))
     if strip ~= nil then
       strip.on_draw = function(self) paint_the_strip(self) end
     end
@@ -664,9 +1016,9 @@ local function build_the_view()
     -- centenar de línies; la memòria va en KB sencers perquè un byte no és una cosa que una persona llegeixi (docs/30, docs/90).
     load_caption = keep(ui.label(g.width, g.caption))
     if load_caption ~= nil then
-      load_caption.scale = 2
+      load_caption.scale = 3
       load_caption.align = 'left'
-      load_caption.color = 8
+      load_caption.color = 0
       load_caption.text = 'the load: -'
     end
     load_chart = keep(ui.chart(g.width, g.chart))
@@ -675,15 +1027,15 @@ local function build_the_view()
       load_chart.decimals = 1
       load_chart.min = 0
       load_chart.max = 1000
-      load_chart.scale = g.wide and 3 or 2
+      load_chart.scale = g.wide and 4 or 3
       load_chart.color = 0
     end
     mem_caption = keep(ui.label(g.width, g.caption))
     if mem_caption ~= nil then
-      mem_caption.scale = 2
+      mem_caption.scale = 3
       mem_caption.align = 'left'
-      mem_caption.color = 8
-      mem_caption.text = 'the memory in use: -'
+      mem_caption.color = 0
+      mem_caption.text = 'in use: -'
     end
     mem_chart = keep(ui.chart(g.width, g.chart))
     if mem_chart ~= nil then
@@ -691,21 +1043,23 @@ local function build_the_view()
       mem_chart.decimals = 0
       mem_chart.min = 0
       mem_chart.max = 1024
-      mem_chart.scale = g.wide and 3 or 2
+      mem_chart.scale = g.wide and 4 or 3
       mem_chart.color = 0
     end
-    if subtitle ~= nil then subtitle.text = 'the load and the memory, every ten seconds' end
+    if subtitle ~= nil then subtitle.text = 'every 10 s, half an hour' end
   else
     the_list = keep(ui.list(g.width, g.room))
     if the_list ~= nil then
+      the_list.row_height = fact_row_height()
       the_list.on_page = function(self, page)
         shape.page = page
         save_state()
       end
+      build_the_facts(g.width, the_list.row_height)
     end
     if subtitle ~= nil then
-      subtitle.text = (shape.tab == kMemoryTab) and 'the memory of this board and of this app'
-                                                 or ('what this board is: ' .. tostring(sys.board or '-'))
+      subtitle.text = (shape.tab == kMemoryTab) and 'the memory of this board'
+                                                 or tostring(sys.board or '-')
     end
   end
   set_the_body(g.wide)
@@ -755,13 +1109,16 @@ end
 
 -- ------------------------------------------------------------------ l'app
 
+-- **Una finestra no és una pàgina** (0.192.70): `console.is_foreground()` és fals quan el sistema ha obert l'app en una finestra
+-- per donar-li una crida —el tick— sense posar-la al vidre. En aquest cas el que es fa és el que la crida necessita: carregar la
+-- forma i la història, deixar els ganxos definits i prou. Res de construir la pàgina, res de pintar i cap bucle: la finestra dura
+-- una crida i es tanca (docs/30, docs/60).
+local in_a_window = not console.is_foreground()
+
 load_state()
-build()
-build_the_view()
-layout()
-refresh()
-ui.focus(tabs)
-ui.present()
+-- **La finestra que hi havia es torna a trobar abans de pintar-la** (0.192.60): the block of the session is the history, i el que
+-- `refresh` pinta és el que ja hi era més la mostra d'ara, no una gràfica buida que s'omple a poc a poc (docs/30, docs/75).
+load_the_history()
 
 -- **La pàgina es renta sempre que un control se'n va** (0.192.36): el forat que deixa un canvas alliberat no és el paper de la
 -- pàgina —surt un gris de targeta—, i el que el tapa és el `ui.clear` de l'app, que és el que fa el `show_tab` i el que fan
@@ -789,7 +1146,36 @@ end
 
 function on_pause() save_state() end
 function on_save() save_state() end
-function on_close() save_state() end
+function on_close()
+  save_state()
+  -- **El rellotge no marxa amb la pàgina** (0.192.69, l'amo: *«la crida "tick" desapareix quan l'app es tanca?… si es així de que
+  -- serveix?… La idea del tick es que continui durant tota la sessió fins reiniciar o apagar»*): the tick is the app's for the
+  -- whole session —asking again with the same configuration gives the same id back, o sigui que la cadència no es reinicia mai
+  -- quan la pàgina torna— i el que no fa mentre la pàgina no hi és és apartar la pàgina de la persona per prendre una mostra. El
+  -- forat que deixa es veu a la corba, que és el que va passar (docs/30, docs/60).
+end
+
+-- **La crida del sistema, cada minut mentre la placa és desperta** (0.192.60): it does what the loop does —one sample—, i amb la
+-- pestanya Load al vidre **no cal que faci res**: el bucle ja en pren una cada deu segons, i el tick només existeix per a quan la
+-- pàgina mira una altra pestanya (docs/30, docs/85). **I la resposta es diu** (0.192.65): `false` vol dir «no hi havia res a
+-- fer amb aquesta», i el registre ho escriu (`#4 for stats: the app had nothing to add`), que és l'única manera de saber des de
+-- fora què ha fet l'app amb la crida.
+function on_tick(payload, meta)
+  if load_chart ~= nil then return false end
+  return take_a_sample()
+end
+
+-- **I la finestra acaba aquí**: els ganxos ja hi són, el sistema crida `on_tick` just després del chunk i el que la crida ha
+-- escrit al bloc baixa al disc quan la finestra es tanca (docs/30, docs/60, docs/75).
+if in_a_window then return end
+
+build()
+build_the_view()
+layout()
+refresh()
+arm_the_tick()
+ui.focus(tabs)
+ui.present()
 
 -- **El que aquest bucle ha de fer és deixar girar el nucli** (docs/30): un `present` sense res de nou no pinta ni un píxel, i
 -- aquesta pàgina no canvia sola —el que ha canviat es llegeix tornant a la pestanya—. **L'excepció és la pestanya Load**

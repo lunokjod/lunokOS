@@ -357,6 +357,11 @@ bool canvas_book_page(int16_t slot, const epub::Item* items, const char* words, 
 // **The pixels of a canvas into a block** (0.179.0): what `canvas_bitmap` paints, read the other way, so an app can keep a
 // picture it has already decoded and paint it again without the file and without the decoder (docs/30, docs/75).
 bool canvas_capture(int16_t slot, uint8_t* out, size_t capacity, size_t& wrote);
+// **Els píxels d'un canvas, sense copiar-los** (0.192.51): the four bits a pixel the glass already has, so a caller of this same turn
+// can read them —the export of a drawing is a picture of what is in the canvas, and copying a hundred and eighty kilobytes to read
+// them once is a block that nobody needs—. The pointer is good until the canvas is drawn on or resized, and nullptr is a canvas that
+// is not there (docs/30, docs/75).
+const uint8_t* canvas_pixels(int16_t slot, uint16_t& width, uint16_t& height, uint32_t& stride);
 bool canvas_bitmap(int16_t slot, int16_t x, int16_t y, uint16_t w, uint16_t h, const uint8_t* bits,
                    uint16_t stride, const char* mode, bool dark = false);
 
@@ -469,7 +474,8 @@ bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mar
 //
 // **A calendar is a grid that never changes size**: seven columns, the weekdays on top and **six weeks always**, so
 // the row under it does not move in February. Which day of the week the first of the month falls on comes from
-// `kernel/calendar.h`, which is the one copy of the leap year rule in the whole system. `selected` is inverted and
+// `kernel/calendar.h`, and the days of February from `hal::is_leap_year`, which is the one copy of the leap year rule in
+// the whole system (docs/50, docs/60). `selected` is inverted and
 // `today` wears a frame: two signals, because on this glass there is no colour for two things (docs/90).
 //
 // `weekdays` is an array of seven short names from the app, because the names of the days are a language and a
@@ -501,8 +507,11 @@ bool sparkline_draw(int16_t slot, const uint16_t* samples, const uint16_t* top, 
 // of the two ends of the window, which is a chart with an axis and not a strip. **The samples come from the app** —it
 // is the app that knows how many there are, what window it is showing and what the hour of each one is—, and the
 // control draws the frame, the three guides with their numbers, the line through the samples and the mark of the last
-// one. Forty-eight samples is what a window of five hundred pixels holds without fusing two into a column.
-const uint8_t kMaxChartSamples = 48;
+// one. **Cent noranta-dues** (0.192.60): una finestra de mitja hora amb una mostra cada deu segons en demana cent vuitanta, i
+// quaranta-vuit només arribaven a quatre minuts a cinc segons (l'amo: *«Que les gráfiques de la pestanya Load de l'app Stats
+// pugui cabre historial de 30 minuts enrere, ara la gráfica apenes aguanta 7 minuts»*). The twenty that are over are the air
+// the window needs at its two ends (docs/30, docs/90).
+const uint8_t kMaxChartSamples = 192;
 // `values` and `times` are two arrays of `count`: the value of each sample and the minute of the day it was taken
 // (**negative is "this board has no clock"**, and then the samples are put one after the other and the axis says so),
 // `suffix` is written after the three numbers (`"%"`), and `ink`/`background` are the tones of the drawing.
@@ -518,9 +527,15 @@ const uint8_t kMaxChartSamples = 48;
 // **I `gap_minutes` és el forat** (0.189.169): six samples missed are a hole and a curve does not join its two sides —una
 // recta entre dos punts d'una sala que va estar apagada afirma una cosa que ningú ha mesurat—. Zero vol dir «no hi ha forat
 // possible» i és el que demana una sèrie que l'app ja ha aprimat, on un pas gran és la seva resolució i no un forat.
+//
+// **I `span` és la finestra que no es mou** (0.192.50, l'amo: *«si s'omple la gráfica es va desplaçant cap a la dreta (scroll)»*):
+// zero vol dir la de sempre —la de les mostres, que s'estira fins a omplir l'amplada— i un número vol dir «aquesta finestra i prou»,
+// amb l'última mostra a la dreta i les que ja hi cabien anant-se'n per l'esquerra. És el que un monitor vol: una corba que camina
+// en lloc d'una que es torna a escalar a cada mostra (docs/30, docs/90). Les mostres més velles que la finestra no es dibuixen.
 bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
                 uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high,
-                uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes);
+                uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes,
+                int32_t span);
 
 // **A pie is four slices at most and its tones are the control's**: the app says the darkest one and the control
 // walks four steps of four from it, so the legend an app draws beside it can say the same numbers and not almost

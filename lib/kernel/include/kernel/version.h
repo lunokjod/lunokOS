@@ -14673,7 +14673,582 @@ namespace kernel {
 // mostra de deu segons, la de la memòria plana al voltant del que l'intèrpret té demanat, i el canvi de pestanya que deixa de
 // mostrejar sense perdre el que ja hi havia.
 
-static const char kVersion[] = "0.192.48";
+// **0.192.49 — el monitor de LoRa: el SX1262 escoltant i una pàgina que busca senyals** (l'amo: *«Fer una app Monitor/Sniffer LORA.
+// Ha de buscar senyals»*).
+//
+//   - **`hal/lora.h`, la ràdio que només escolta**: setze portes i **cap de transmetre** —ni `SetTx`, ni el PA, ni una manera de
+//     dir res a l'aire— perquè un aparell que només mira es pot deixar encesa sense permís de ningú i no pot tapar la veu de ningú
+//     altre (docs/30, docs/50). `kCapLora` diu si hi és, i una placa sense el xip no té ni la taula `lora` a Lua.
+//   - **El driver del SX1262 de la T5S3** (`lib/hal_t5s3/src/lora_sx1262.cpp`), amb els pins del fabricant: CS 46, DIO1 10,
+//     RST 1, BUSY 47 i el rail `LORA_EN` de l'expansor; el bus és el de la targeta (SPI2, 14/13/21) i el driver **afegeix un
+//     dispositiu** a un bus que potser ja és a dalt en comptes d'inicialitzar-lo a la seva manera. Reset, repòs, la calibració de
+//     la imatge per cinc bandes (només quan se'n canvia), `SetRx` continu, `GetRssiInst` per al nivell del canal i
+//     `GetIrqStatus`/`GetRxBufferStatus`/`ReadBuffer`/`GetPacketStatus` per al paquet amb el seu RSSI, el seu SNR i el seu
+//     desplaçament (docs/50).
+//   - **El pont i el servei**: `lora.*` a Lua amb els números del xip (RSSI en dècimes de dB, SNR en quarts, hertz) i tres
+//     comptadors nous (`lora.listen`, `lora.sniff`, `lora.poll`). **I el torn tanca una ràdio òrfena**: si el xip està en recepció
+//     i no hi ha intèrpret, el servei el posa en repòs i ho diu una vegada, perquè una app que peta no deixi mil·liampers encesos
+//     (docs/30, docs/50).
+//   - **La pestanya `Load` del Stats no** (això és la 0.192.48): aquí hi ha `apps/lora` 0.1.0, una pàgina amb **dues vistes** —
+//     l'**espectre** de la banda triada (863–870, 433,05–434,79 o 902–928, amb un canal de pas) i la **llista de paquets** amb
+//     l'hora, el canal, el SF, la potència, l'SNR i el CRC. `File` té `Scan`, `Listen`, `Stop` i `Close`; `Band` tria la banda
+//     amb les tres marques. **L'escombrat reparteix els canals entre les voltes** (sis per volta) perquè quaranta mesures dins una
+//     sola volta serien mig segon sense respostes, i **escoltar prova els sis SF de dos en dos segons**, que és el que un paquet
+//     de LoRa necessita perquè només arriba a qui l'escolta amb el seu (docs/30, docs/50).
+//   - **L'aire de l'emulador**: el model de la T5S3 diu que porta la ràdio i `emu_lora.cpp` és **un espectre declarat de mentida** —
+//     tres nodes a 868,1, 868,3 i 868,5 amb SF9, SF7 i SF12 i el seu text, una portadora contínua a 433,92 que no diu res (el que
+//     un detector d'energia ha de distingir d'un paquet) i un terra de soroll que es mou (docs/85).
+//   - **I `focus_index` és un camp escrivible de la tira de pestanyes**: `ui.focus` sobre una tira dóna el cercle a la seva primera
+//     parada, o sigui que una app que canvia la pestanya des del seu codi es trobava la inversió a la de la primera i la pàgina
+//     ensenyava una cosa i en deia una altra (trobat aquí, docs/30, docs/90).
+//
+// El vist a l'emulador: l'escombrat de 868 dibuixa tres pics i marca el més fort (-67 dBm a 868,100); `Listen` hi escolta i als
+// pocs segons arriben paquets amb la seva hora, `SF9`, −67 dBm i 11 dB d'SNR; la banda de 433 ensenya el polsador de 433,950 com
+// una barra i **cap paquet**, que és el que un monitor ha de dir; la pestanya triada és la invertida després de canviar de banda i
+// de plegar un menú; i `Close` deixa el paper net, diu `lora: closed` i deixa la ràdio en repòs.
+
+// **0.192.50 — el Stats cada cinc segons, i una gràfica que camina** (l'amo: *«Stats refresca cada 5 segons millor, i si s'omple la
+// gráfica es va desplaçant cap a la dreta (scroll)»*).
+//
+//   - **`ui.chart` té `span`** (0.192.50): la finestra que no es mou, en les mateixes unitats que `times`. Amb un span, l'esquerra
+//     del gràfic és l'última mostra menys el span i no es mou quan n'arriba una de nova —la nova entra per la dreta i la vella surt
+//     per l'esquerra, i les que ja són fora no es dibuixen—; sense span, el que fa la corba a cada mostra és tornar-se a escalar, o
+//     sigui que una línia d'un monitor es veia quieta. El forat (`gap`) continua tallant la línia dins de la finestra (docs/30,
+//     docs/90).
+//   - **`apps/stats` 0.2.1**: el mostreig passa de deu segons a **cinc** (l'amo: *«refresca cada 5 segons millor»*), o sigui que la
+//     finestra de quaranta-vuit mostres són quatre minuts en lloc de vuit, i la pestanya `Load` posa el `span` quan la finestra és
+//     plena: la corba camina en lloc de re-escalar-se. El forat es diu en les unitats de l'eix (quatre mostres, vint segons), o sigui
+//     que una estona amb la pestanya fora del vidre talla la línia en lloc de dibuixar-hi una recta (docs/30, docs/45).
+//
+// El vist a l'emulador: la pestanya `Load` amb la finestra curta (una prova amb sis mostres d'un segon) passa de `-3 s` creixent a
+// `-6 s` fix i la corba s'hi desplaça; amb els números de debò l'eix comença a `-15 s` i s'hi veu créixer fins als quatre minuts.
+
+// **0.192.51 — el Paint desa amb una pàgina i exporta amb una crida** (l'amo: *«Paint: Save no mostra una vista per guardar amb nom.
+// Export tampoc i penja l'app. Usa una vista nova, no facis un modal.»* i *«Si exportar la imatge a png es massa feixuc per l'app lua,
+// que ho faci el sistema (li passes el canvas i ell guarda)»*).
+//
+//   - **`apps/paint` 0.2.0, la pàgina del nom**: `File → Save` i `File → Export` ja no desen res; obren **una pàgina de l'app** —el
+//     full blanc, el títol, el camp del nom, la lletra del que serà i `Cancel`/`Save`— que no és cap targeta del sistema i que tapa el
+//     dibuix sense tocar-lo. El nom que s'hi escriu és un **nom** i no un camí (les barres es tornen guions, l'extensió la posa l'app),
+//     i el que el botó deixa és un desig: el bucle fa la feina i diu al peu com ha anat (docs/30, docs/90).
+//   - **`cv:export(path)`** (nou, `png_write` a `lib/img` i `export_a_png` al nucli): el canvas que l'app ja té, escrit com un **PNG de
+//     vuit bits de gris** pel sistema. L'app dona la ranura i el camí i **no passa ni un byte**: els píxels ja són al nucli. El zlib va
+//     **stored** —el projecte sap descomprimir i no comprimir—, o sigui que el fitxer és més gran i és tan vàlid com qualsevol, i el
+//     lector de mitjà món l'obre. És el que fa que `Export` deixi de penjar: abans eren cinc-centes quaranta files llegides i escrites
+//     des de Lua, que és el que es menjava el pressupost del torn (docs/30, docs/75).
+//   - **I el toc sol no dibuixa res**: the gesture of a control and the gesture of the page are the same one, i un botó de la pàgina del
+//     nom deixava un puntet al paper de sota. El que dibuixa és un dit que es mou (docs/30).
+//
+// El vist a l'emulador: `Save` obre la pàgina amb `draw-1` escrit, el teclat del sistema a baix i el peu dient `saved draw-1.ics` en
+// tornar; `Export` fa el mateix i deixa un `draw-1.png` de 516×707 que Pillow obre amb el traç a dins (extrems 0 i 255) i cap puntet
+// sota els botons, en 1,7 s de rellotge simulat.
+
+// **0.192.52 — el Paint guarda el rellotge de cada mostra i suavitza segons com anava el dit** (l'amo: *«Paint: Guarda el temps de
+// cada mostra, així podrem saber si el traç era ràpid o lent. Suavitzarem mes o menys les corbes en funció a la distancia i la
+// velocitat entre mostres.»*).
+//
+//   - **`apps/paint` 0.2.1, cada mostra porta el seu mil·lisegon**: un punt d'un traç és `{ x, y, t }` i `t` és el `sys.time_ms()` del
+//     torn que el va recollir. És **l'única cosa** que distingeix un dit que descansa d'un que va de pressa: el tàctil dona una mostra
+//     cada deu mil·lisegons i `add_a_point` en llença les que repeteixen el píxel, o sigui que a poc a poc el que queda són punts
+//     separats en el temps i no en l'espai (docs/50). **El rellotge no va al fitxer**: un `.ics` és una imatge i una imatge no té
+//     mostres (docs/46), i el que el dibuix vol de la velocitat ho vol mentres el traç s'està pintant.
+//   - **El suavitzat, i com de fort és** (`the_smoothing`): cada punt del mig es tiba cap al mig dels seus dos veïns, amb un pes de 0 a
+//     0,85 que surt **de la més prudent de dues lectures** —el pas en píxels (3 junts … 15 separats) i la velocitat en píxels per segon
+//     (80 aturat … 700 volant)—. Un dit lent deixa mostres a un píxel de distància i una escala de graons, i això és el que s'emporta
+//     el pes; un dit ràpid deixa mostres a vint píxels i no hi ha res a mig camí per allisar, i tibar-ne una seria moure la línia on el
+//     dit no va anar, o sigui que el pes hi cau a zero i el traç queda la polilínia que la mà va dibuixar. Els extrems **no es mouen
+//     mai**: són on el dit va tocar i on va deixar de tocar.
+//   - **I el dibuixat no fa cap còpia del traç**: els quatre mil punts d'un traç són quatre mil taules i el munt té un sostre (docs/75),
+//     o sigui que `paint_a_stroke` camina del primer a l'últim amb el punt suavitzat a la mà —llegeix els tres que necessita, pinta el
+//     tros i passa al següent—. El tros de traç (la línia d'un pèl o la fila de rodones d'un pinzell gruixut) és ara `paint_a_bit`.
+//   - **I el pas del traç surt al registre**, una línia per traç: `paint: 1180 samples in 11840 ms, 806 px at 68 px/s` —mostres, el
+//     temps que el dit hi va estar i la velocitat que portava—, que és el que diu si el que va malament va ser la mà o els pesos
+//     (docs/85).
+//
+// El vist a l'emulador, amb dos traços del mateix gest i rellotges oposats: el lent deixa `paint: 71 samples in 4897 ms, 281 px at
+// 57 px/s` i surt **allisat** —portava un serrell de ±4 píxels cada tres mostres i al vidre hi ha una ondulació suau—; el ràpid deixa
+// `paint: 7 samples in 161 ms, 484 px at 3005 px/s` i surt amb **els seus vèrtexs on eren**, que és el pes a zero. I un dit que
+// prem i no es mou deixa un punt, que és el camí d'una sola mostra.
+
+// **0.192.53 — el Paint té `Save as`, i `Save` i `Export` diuen què fan amb el nom** (l'amo: *«Al polsar "Export" d'un arxiu ja
+// guardat, usa el mateix nom per l'arxiu exportat (l'extensiò es diferent)»* i *«Afegeix també "Save as" per si l'usuari vol guardar el
+// dibuix amb unaltre nom. A exportar sempre pregunt nom, només suggereix el mateix nom que s'ha guardat.»*).
+//
+//   - **`apps/paint` 0.3.0, el menú `File` té quatre portes**: `Save`, `Save as`, `Export` i `Close`. **`Save` desa amb el nom que el
+//     dibuix ja té** i no pregunta res —obrir una pàgina per confirmar el nom que ja hi és era una pregunta amb una sola resposta—, i
+//     només demana quan el dibuix encara no en té. **`Save as` sempre pregunta** —és la porta per a un altre nom— i el camp comença amb
+//     **el nom que el dibuix ja té**, que és el que s'escurça o s'allarga; sense nom, amb el primer de lliure. **`Export` sempre pregunta**
+//     i també suggereix **el nom del dibuix**, perquè el que canvia és només l'extensió —el PNG va al costat del `.ics` i amb el mateix
+//     nom, que és com una persona el troba.
+//   - **I un esborrany no és un nom** (`keep_the_drawing`): `save_the_paper` es queda el camí que ha escrit, i el d'un esborrany
+//     (`draft.ics`) no és el nom del dibuix —ningú no ha escrit mai `draft`—. Amb el `Save` nou això hauria fet que un dibuix sense nom
+//     es desés a sobre d'un `draft.ics` sense demanar-ho, o sigui que el nom es torna a deixar com era després de desar l'esborrany.
+//
+// El vist a l'emulador: un dibuix desat com a `vasa.ics` es desa amb un sol `Save` (cap pàgina, `saved vasa.ics` al peu) i `Export` obre
+// la pàgina amb `vasa` al camp i el peu diu `exported vasa.png`; `Save as` obre la pàgina amb `vasa` i el que s'hi escriu fa un fitxer
+// nou sense tocar el dibuix que hi havia, i amb el peu net —dues notes seguides ja no es llegeixen l'una a sobre de l'altra.
+
+// **0.192.54 — la icona del Paint és el pot de pintura, amb la silueta en tinta i la cara clara** (l'amo: *«L'icona de Paint es
+// horrible, agafa algun clipart d'un pinzell ample de paret i donali volum. Un disseny que cuadri,en harmonía amb la resta d'icones.
+// El mateix estil.»*, i després de moltes proves: *«està clar que el rasclet no et funciona»*, *«busca a internet pinture can perqué
+// sápigues que es»*, i al final, quan li vaig ensenyar cinc cliparts de Font Awesome, *«cap d'aquests: el pot que he dibuixat, però
+// polit»* amb l'acabat *«silueta fosca i cara clara»*).
+//
+//   - **`apps/paint` 0.3.1**: la icona és **el pot de pintura** —la vora el·líptica amb la pintura a dins, el cos de cilindre en
+//     perspectiva que s'estreta cap al cul, la costella del cul, **l'etiqueta del mig** (*«una etiqueta al mig el pot....»*), l'ansa de
+//     filferro amb les seves dues orelles, i tres regalims de llargades diferents que pengen per fora— en l'acabat dels cliparts de la
+//     targeta: **el contorn és la silueta**, gruixut (un 4 % del quadre, el doble del que fa una icona de línia), la cara del pot és el
+//     gris clar i **el que és pintura és tinta pura**.
+//   - **L'etiqueta del mig va amb la perspectiva del cilindre** (l'amo: *«l'etiqueta te malament la perspectiva»*): les dues vores són
+//     la mateixa corba cap avall —el mateix radi que el cul— i els costats s'estrenyen amb el pot, o sigui que la banda es llegeix
+//     enganxada al cos i no pas un escut.
+//   - **I les taques a terra són el·lipses** (l'amo: *«mes pintua, mes taques (ovalades per donar perspectiva)»*): un terra vist de
+//     biaix converteix cada bassal en una el·lipse ampla i plana, i les de darrere passen per sota del pot i les de davant pel damunt
+//     del cul, que és el que dona perspectiva i el que fa que el pot no sembli que flota.
+//   - **I el que es va aprendre pel camí** (docs/45, docs/92): les icones d'aquesta casa són dibuixos de línia —el `Clock` té un
+//     12,5 % de tinta i un 87,5 % de paper— i els meus primers intents tenien un 24 % de fosc, o sigui el doble de negre i la meitat
+//     d'aire; el que es veia com «és horrible» era, en bona part, el pes. Aquest és un altre acabat, i és el que l'amo va triar.
+//   - **El dibuix es torna a fer amb `tools/make_paint_icon.py`** i el mestre de 448 es baixa a noranta-quatre amb
+//     `tools/make_icon.py`, com les altres icones (docs/45).
+//   - **L'objecte no es toca més**: el pinzell, el rasclet, la taca i els cliparts es van provar i es van descartar; el que hi ha és el
+//     pot, polit.
+//
+// El vist al vidre: a la graella, al costat de la `Files`, la `Battery`, el `Clock`, l'`Editor` i la `About`, el pot té el contorn
+// gruixut dels cliparts i a noranta-quatre píxels s'hi llegeixen el pot, l'ansa i la pintura que cau.
+
+// **0.192.55 — un bloc de la sessió que el sistema s'ha quedat no es pot fer servir, i tretze apps ho feien** (l'amo: *«L'app paint
+// guarda i exporta? no ho sembla, no mostra dialeg de guardar i exportar»*, amb el registre al darrere:
+// `paint.lua:114: the session memory was given back` i `the page of paint is on the glass`).
+//
+//   - **El que passava** (docs/30, docs/75): el blocs de la sessió són **el primer que l'allocator dóna** quan la memòria va curta, i
+//     `clear()`/`write()` sobre un bloc que se n'ha anat **aixequen un error** —el contracte és que l'app pregunti `alive()` abans de
+//     fer-lo servir—. El Paint desa un dibuix capturant-ne els píxels en un bloc de **cent vuitanta kilobytes**, o sigui que **la
+//     pressió de memòria arriba justament quan deses**: el sistema es queda el bloc de la forma (512 B), i el següent canvi d'eina
+//     cridava `save_state()` sobre un bloc mort i l'app s'acabava. El que l'amo veia era que `Save` i `Export` «no feien res»: la
+//     pàgina del nom no arribava a obrir-se perquè el procés havia mort abans.
+//   - **El guardià** (`the_state`): si el bloc desat no és viu es deixa anar i es torna a demanar; i `save_state` ho torna a mirar
+//     just abans d'escriure, perquè entre la petició i l'escriptura hi ha la feina de la pàgina. **És una línia per app i no una
+//     crida a cada lloc**: la pregunta costa una comparació.
+//   - **I no era només el Paint**: dotze apps més desaven el bloc de la forma sense preguntar mai si era viu —`reader`, `splash`,
+//     `energy`, `calculator`, `lora`, `stats`, `images`, `wipe`, `editor`, `tz`, `about` i `appinfo`—, o sigui que qualsevol d'elles
+//     podia morir igual. Totes porten el mateix guardià, i les seves versions pugen (0.1.2, 0.1.3, 0.1.1, 0.2.3, 0.1.1, 0.2.2, 0.1.1,
+//     0.1.2, 0.1.2, 0.1.7, 0.5.294, 0.1.9). La regla queda escrita a
+//     `.github/instructions/apps-state-session.instructions.md` (punt 6) perquè la següent app no la torni a oblidar.
+//
+// El vist: amb l'emulador limitat a 190 KB el dibuix no arriba ni a arrencar (el llançador mateix es queda sense memòria), així que la
+// reclamació no s'ha pogut forçar a mà; el que sí que s'ha vist és el camí bo sencer amb el guardià posat —dibuix, `Save`, la pàgina
+// del nom, el fitxer escrit— i el registre sense cap `the session memory was given back`.
+
+// **0.192.56 — el pinzell es fa gruixut de debò, el dibuix es recorda i el menú té `New` i `Undo`** (l'amo: *«El tamany del pinzell de
+// l'app Paint ha de ser un rang mes gran, el pinzell ha de poder ser molt mes gruixut, 16px no es suficient»*, *«Paint ha de recordar
+// l'imatge que està pintant amb session status»* i *«Al Menú contextual de Paint li falta File->New, també Edit -> Undo (per desfer
+// l'últim traç)»*). Tot és dins del Paint, i la versió de l'app puja a **0.3.3**.
+//
+//   - **El gruix arriba als seixanta-quatre píxels** (`kThickest`): the slider was capped at sixteen —which is a hair on a paper of
+//     five hundred— i el que un pinzell vol és un rang que arribi a un terç del paper. El disc del traç ja camina amb el radi com a
+//     pas, o sigui que no hi havia res més a canviar que el sostre: el número, el sostre del control i el de la forma llegida.
+//   - **I el pas del disc és mig radi i no el radi sencer** (trobat a l'emulador amb el pinzell nou): two discs whose centres are a
+//     radius apart touch, but the envelope between them **dips by 0,134·r** —a pixel and a half with the old ceiling of sixteen, i
+//     **quatre amb el de seixanta-quatre**, que és la eruga que deixava un pinzell gruixut sobre el paper—. Mig radi deixa el forat
+//     en un terç de píxel, i el preu és el doble de discs en un tros de traç (docs/30, docs/90).
+//   - **El nom del dibuix es recorda en una sessió que es diu `status`** i no a `state`, que el nucli **esborra a cada arrencada de
+//     debò**: fins ara la pàgina desava el dibuix al seu fitxer però en tornar obria sempre el **esborrany**, que és el darrer dibuix
+//     que no tenia nom, o sigui que una persona que tornava a `vasa.ics` veia un altre dibuix. El bloc és de 256 bytes, es desa a la
+//     targeta amb els altres quan la placa s'apaga i es torna a llegir en arrencar (docs/30, docs/75).
+//   - **`File → New`** no llença res: el dibuix que es deixa va primer al seu fitxer —la mateixa porta que `Close`— i el que queda és
+//     un paper blanc sense nom.
+//   - **`Edit → Undo` és un sol pas enrere** i el que el fa possible és una captura del paper **abans** de pintar els traços, en un
+//     bloc de la sessió que es diu `undo`: el paper és un canvas i un canvas no té història. Un traç que encara no s'ha pintat es
+//     desfà sense tocar el bloc, que és el cas més freqüent. **El bloc es llença a `on_pause` i en tancar** (docs/75): a block of the
+//     size of the paper that lives is half a second of writing to the card every time an app comes and goes, o sigui que el pas
+//     enrere és de la pàgina que és al vidre i no una cosa que sobreviu a marxar-ne.
+//   - **I el to de la paleta torna sol després d'un reinici** (0.192.56, trobat fent això): el bloc de la forma és més llarg que el
+//     text i el que hi ha darrere són zeros, o sigui que `tonumber('2\0\0')` donava `nil` i la darrera línia —`level`— no es llegia
+//     mai. Es talla a la primera marca de zero, com fa el lector de llibres, i `kLayout` puja a `v2` perquè una forma vella es llença
+//     en lloc de migrar-se (docs/30).
+
+// **0.192.57 — el dia de traspàs deixa de ser un ajust i es compta de la data** (l'amo: *«Treu el toggle de Leap year de l'app
+// Settings->Clock, sabem com calcular si es any de taspàs o no ho es… no cal un toggle manual. Treu tota referencia al sistema
+// d'aquest opció. Si hi ha alguna crida que ho consulti, es calcula segons la data actual i llestos.»*).
+//
+//   - **La regla viu ara una sola vegada, i en una crida pura** (`hal::is_leap_year`, a `lib/hal/include/hal/civil.h`): four
+//     divides it, except the centuries, except every four hundred. Abans hi havia la còpia de `kernel/calendar.cpp` i **una
+//     segona expressió dins de `time.epoch`** a `luabind.cpp`, que és exactament la mena de duplicat que el projecte diu que
+//     no vol; les dues desapareixen i `days_in_month`, `time.epoch` i `time.leap()` pregunten la mateixa funció (docs/50, docs/60).
+//   - **El que s'ha tret, sencer**: la clau `cfg/leap` de l'NVS i les funcions `cfg::leap_years()`/`cfg::set_leap_years()`; la
+//     comanda `cfg leap on|off` (la de llegir i la d'escriure) i la seva línia a l'ajuda i a l'ús de `cfg`; el `leap` de la
+//     línia `/cfg on …` del registre; el camp `leap` de `sys.settings()`; la capacitat `leap_years`/`set_leap_years` de `TimeOps`;
+//     `calendar::leap_years()` i `calendar::set_leap_years()`; la casella **Leap year** de la pestanya Clock del panell d'ajustos
+//     (`kLayout` de l'app puja a `v3`); i el tros de l'app de la zona horària que encenia el traspàs sol quan l'hora venia d'un
+//     servidor. Les versions: `settings` 0.2.13, `tz` 0.1.8, `hal` 0.5.1, `luabind` 0.11.3 i `kernel` 0.9.70.
+//   - **`time.leap()` queda i només pregunta**: diu si l'any de l'hora de la persona és de traspàs, es compta de la data del
+//     rellotge —amb l'offset del mapa i l'hora d'estiu, els mateixos números que `time.date()`— i `time.leap(true)` és un
+//     `E_INVAL` que diu que el dia es compta i no s'escriu. El que una pàgina fa amb això és comptar el febrer del mes que dibuixa,
+//     i l'app del rellotge ja no depèn de cap ajust per fer-ho (docs/30, docs/60).
+//   - **I una placa que ve d'una build anterior es queda sense la clau**: `cfg::boot` esborra `cfg/leap` del magatzem si hi és
+//     —comptat com una escriptura al comptador, que un esborrar desgasta la flash igual— i ho diu al registre; i un `cfg leap`
+//     teclejat al prompt contesta que el dia es compta de la data en lloc de caure a la porta de la unitat del disc, que seria una
+//     resposta a una altra pregunta (docs/60, docs/70).
+//   - **Les proves**: `test_calendar` canvia el cas del traspàs apagat per un que comprova la regla (2024 i 2000 sí, 2026 i 2100
+//     no) i que el 29 de febrer de 2026 no és cap dia; `test_luabind` guanya `test_time_leap_is_counted_from_the_date_and_cannot_be_set`
+//     (2026 diu fals, 2028 diu cert, i `time.leap(true)` és `E_INVAL`) i la instantània ja no té el camp; `test_apps` deixa de mirar
+//     `cfg::leap_years()` a la pàgina de la zona horària, comprova que el `cfg` del prompt no diu `leap` i que `cfg leap` s'explica,
+//     i `test_the_civil_calendar_round_trips` pregunta les cinc dates de la regla a `hal::is_leap_year` (docs/80). **I `test_ui`
+//     torna a compilar**: les seves quatre crides de `chart_draw` eren d'abans del paràmetre `span` de la 0.192.50 i el binari de
+//     les suites no es podia construir; ara hi passen un `0`, que és la finestra de sempre.
+
+// **0.192.58 — el gest del dit juga al Tetris, i el final de la partida es veu** (l'amo: *«El drop(swipe) esquerra-dreta al joc
+// Tetris. Tap gira la peça, el drop/swipe en una direcció mou la peça (afegir al toc que hi ha ara a esquerra/dreta de la peça que
+// cau) Les gestures s'empassen els events que li pertanyen i a vegades jugant es dificil de fer un toc i es fa un drop o swipe,
+// perdent temps valuós de partida. Que sigui detecció de les dues maneres (toc i drop) aixì l'usuari aconseguirà el moviment que
+// busca»*, *«El swipe(drop) cap avall a l'app Tetris significa baixar la peça inmediatament»* i *«Quan el jugador-CPU perd, a
+// l'Snake es veu "Game over" i els punts que ha fet i com tenía la partida. Però al Tetris no passa igual? vull que es faci el
+// mateix»*). Tot és dins del Tetris, i la versió de l'app puja a **0.1.5**.
+//
+//   - **El lliscament és una ordre i no un gest que es llença** (`dragAt`): un dit que caminava més del que val un toc **no feia
+//     res** —el gest es prenia i es llençava, i el moviment que la persona buscava es perdia amb ell—. Ara **l'esquerra i la dreta
+//     mouen la peça una columna per cada amplada que el dit ha caminat** (com a mínim una, i el mur la para), **avall la deixa
+//     caure** i **amunt la gira**, que és el que fa un toc a sobre. **Les dues deteccions conviuen**: el toc i el seu lloc manen
+//     com sempre, i un lliscament més curt de **mig quadrant** és un toc que ha tremolat —el llindar era de dotze píxels, que amb la
+//     cel·la d'aquest joc i un dit que juga és massa estret (docs/30, docs/45).
+//   - **El *hard drop* de debò** (`hardDrop`): la peça es posa on cap d'un sol cop —vuit marques i no divuit files— i es pinta allà
+//     abans de tocar el pou, perquè el `lock` d'aquest joc no torna a pintar les cel·les de la peça que aterra. Una peça que
+//     baixa d'un gest és el que un swipe avall vol dir, i la baixada d'una fila continua sent el toc de sota (docs/45).
+//   - **El final d'una partida, amb els números** (`paintBand`): la banda deia `GAME OVER` i prou. Ara, quan el joc s'acaba, hi ha
+//     **els punts i les línies i el nivell** a sota del títol, que és el que la pàgina de l'Snake ensenya quan la serp mor, i la
+//     línia de baix diu el final (`Game over. Tap the arrow.`, o `The CPU lost.` quan la demostració és la que perd) (docs/30).
+//   - **I el forat que feia que no es veiés mai**: el final d'una partida de debò és **una peça que no pot néixer** després d'una
+//     aterrada que no fa cap línia, i aquell camí de `lock` marxava sense pintar la banda —el camí de la línia sí que la pintava—.
+//     O sigui que la banda només sortia en una partida que s'acabava fent un tetris al mateix moviment, que és el cas rar. Ara hi
+//     és als dos camins (docs/45).
+//   - **I una partida desada torna amb la peça que cau** (trobat provant els gestos a l'emulador): `load` tornava el pou, els punts,
+//     el nivell i la peça que ve, però **la que estava caient no es desa**, i ningú la feia néixer: una placa que havia desat una
+//     partida l'obria amb el pou quiet per sempre. El naixement és una ratlla al costat del `load` (docs/45).
+//   - **I `run tetris lose` és un final a mà**: el pou ple de la segona fila cap avall tret d'una columna i una `O` a la primera, o
+//     sigui que la baixada la deixa allà, no fa cap línia i la que ve no neix. És la manera que una prova (i una persona) vegi la
+//     banda sense jugar deu minuts.
+//   - **Les proves** (`test_apps`): el cas del Tetris guanya tres lliscaments de debò —dues cel·les a l'esquerra, una caiguda al
+//     terra amb una peça nova a dalt— i el cas de `lose`, que mira l'estat (`over=1`, cap peça) i **el paper de la banda al mig del
+//     pou** (amb el pou ple aquella columna és tinta de dalt a baix, i la banda hi deixa més de quaranta píxels de paper) (docs/80).
+
+// **0.192.59 — la captura de pantalla, i l'`ICS1` que ja se sabia escriure** (l'amo: *«Revisa si al lector d'imatges del kernel hi ha
+// el format ics, tant lectura com escriptura»* i *«Una comanda per fer captura de la pantalla i escollir format de sortida (per
+// defecte ics) "screenshoot /sd/capture.ics"»*).
+//
+//   - **La revisió, primer**: `lib/img` **llegeix** un `ICS1` des de la 0.146.0 —`ics_info`, `ics_scratch` i `decode_ics`, registrats
+//     a `img::read_info` i `img::decode` com qualsevol altra família, o sigui que el cau d'un llibre i la cara d'una foto són fotos
+//     per a qui les demana— i **l'escriu** des de la mateixa versió, però només amb les tres primitives (`ics_bytes`, `ics_header`,
+//     `ics_row`): el capçal, una fila i la mida del fitxer. No hi havia cap «escriu la imatge sencera» com el `png_write` de la
+//     0.192.51, i no calia: el que escriu un `ICS1` té la imatge a trossos —una captura la té al vidre— i les tres crides són
+//     exactament la forma d'escriure-la sense demanar-ne una còpia (docs/30 § «les fotos», docs/46 C11, docs/75).
+//   - **`hal::ISurface::read_row`** (0.192.59): la porta que faltava, **els píxels que hi ha al vidre donats enrere** una fila a la
+//     vegada, en el marc de la pàgina i en l'empaquetat de sempre (dos píxels un byte, el de l'esquerra al nibble de dalt). **El gir el
+//     desfà el vidre** i no el nucli —`to_glass` és seu—, o sigui que la imatge que en surt és la que una persona mira i no la
+//     rectangle del xip: a l'`Epd47` la fila es camina cel·la a cel·la amb el gir de la pàgina, i a l'`It8951` i a l'emulador és una
+//     còpia perquè els dos ja guarden la pàgina en el marc de l'app (docs/50, docs/85).
+//   - **`screenshot [<path>]` al prompt** (l'amo: *«Una comanda per fer captura de la pantalla i escollir format de sortida (per
+//     defecte ics)»*): **el format el diu l'extensió** —`.ics`, que és quatre bits per píxel i el fitxer més barat d'aquesta casa, i
+//     `.png`, que és el que obre qualsevol programa—; un camí sense extensió és un `ICS1` i l'extensió s'hi posa, i **sense camí va a
+//     `/sd/capture.ics`**, que és on una targeta el deixa a mà des de qualsevol ordinador. El que no és cap dels dos es refusa amb la
+//     frase i no s'endevina, i la resposta diu **el fitxer que hi ha** i no el que es va demanar (docs/30, docs/50, docs/70).
+//   - **I no hi ha cap bloc de dos-cents seixanta kilobytes pel mig**: la captura llegeix una fila, l'escriu i passa a la següent, amb
+//     una fila a la pila i el bufet de mil vint-i-quatre bytes que l'escriptor del PNG ja tenia. **Una captura de 540 × 960 són
+//     259 208 B en `ICS1` i 521 963 en PNG**, i els dos s'han mirat al vidre de l'emulador convertits a part: són la pàgina sencera,
+//     amb la barra del sistema i la graella del llançador, píxel a píxel (docs/75, docs/85).
+//   - **I `img::png_write_rows`** (0.192.59): l'escriptor del PNG demanava la foto sencera en un bloc i una captura no la té; ara el
+//     que li arriba és una **font de files** (`img::RowSource`) i el fitxer s'escriu mentre es llegeix, amb els mateixos bytes. El
+//     `png_write` de sempre és un embolcall d'un `BlockSource`, o sigui que les pàgines que l'usen no canvien ni un byte (docs/75).
+//   - **Les versions**: `hal` 0.5.2, `hal_emulator` 0.3.1, `hal_t5s3` 0.3.1, `hal_esp32` 0.3.8, `img` 0.2.1 i `kernel` 0.9.72. Les
+//     compilacions: `emulator`, `lilygo-t5s3-idf` i `m5-paper-idf` (que és qui enllaça l'`It8951`) **SUCCESS**.
+//   - **El que queda per a la propera**: el cas de prova `test_the_screenshot_writes_the_glass_as_ics_and_as_png` —ja escrit a
+//     `test_apps`— i la línia dels documents; l'amo va dir de parar aquí i seguir-hi més endavant (docs/80).
+
+// **0.192.60 — el `tick`: una crida periòdica que només vol la placa desperta** (l'amo: *«M'agradaría que l'app Stats rebés una crida
+// cada minut, però només si la placa està desperta. No vull que vaigi a l'RTC i desperti la placa. Una crida periódica, demanada per
+// l'app i que el sistema cridi sempre que estigui despert (deixant-ho de fer si cau en sleeep, i tornant quan es desperta) No li
+// diguem alarm (pero funciona igual, fent una crida a l'app lua)... quin nom li posem?»*, i després *«Però només si l'app demana
+// primer plà. Per defecte no obre finestra.»*).
+//
+//   - **El nom és `tick`** i no una alarma perquè no ho és: una alarma és una promesa que el sistema guarda per a una app que no hi
+//     és —la desa a la NVS, arma el rellotge del xip i obre la pàgina o una finestra quan toca—, i un tick és **el rellotge de l'app
+//     mentres la placa és encesa**. Comparteixen cua (`alarms::Spec`/`Entry` tenen un `awake_only` nou) i no comparteixen cap de les
+//     tres promeses (docs/30, docs/60).
+//   - **No arma mai el despertar**: `alarms::next_wake_mono_ms()` és la nova porta que diu la propera entrada que **pot** despertar la
+//     placa, i és la que fa servir `arm_nearest_alarm`; `next_due_mono_ms()` —la que toca abans, tick o no— és la que mira el bucle per
+//     escurçar la seva volta. O sigui que una app que demana una crida cada minut **no fa sonar el xip del rellotge ni un cop**, i la
+//     baixada tampoc no la pren com a hora (`power::the_hour_of_a_sleep` i `idle_report` miren `next_wake_mono_ms`) (docs/30, docs/50).
+//   - **No es desa i no compta les perdudes**: `dump` el salta, `take_due` no li apuja la revisió —o sigui que no fa escriure la NVS a
+//     cada volta— i no li apunta cap `missed`: una placa que ha dormit mitja hora no ha perdut res, perquè el tick no era per a ningú
+//     (docs/60).
+//   - **I per defecte no obre finestra**: si `luabind::running()` no és l'app del tick, la volta es descarta amb una línia al registre
+//     —obrir-ne una seria apartar la pàgina de la persona cada minut per tornar-la a posar—. L'única manera que un tick toqui la
+//     pàgina d'una altra app és demanar-ho (`tick.every(s, p, {raise = true})`), i aleshores va pel camí del `raise` d'una alarma
+//     (docs/30, docs/60).
+//   - **L'API** (docs/30): `tick.every(segons, payload[, {raise}])` —mínim cinc segons, respon l'id i `true` com a segon valor quan
+//     ja n'hi havia un amb la mateixa configuració, com `alarm.at`—, `tick.cancel(id)`, `tick.list()` —els d'aquesta app— i
+//     `tick.caps()` (`max`, `min_period_ms` i un `wake` que **sempre és fals**, perquè és l'única promesa de l'API—). El ganxo és
+//     **`on_tick(payload, meta)`** i no `on_alarm`: `meta` porta `id`, `period_ms` i `late_ms`, i no hi ha `missed` perquè no n'hi ha.
+//   - **I el gràfic deixa de tenir quaranta-vuit mostres**: `kMaxChartSamples` és **cent noranta-dues** (a `ui.h` i a la còpia de
+//     `luabind`), que és el que demana la finestra de mitja hora de l'Stats —cent vuitanta-una mostres cada deu segons— amb l'aire
+//     dels dos caps. La pila del binding creix uns mil cent cinquanta bytes, que és el que costen els dos arrays de la crida
+//     (docs/30, docs/90).
+//   - **I l'Stats**: la finestra és de **mitja hora** amb una mostra cada deu segons (l'amo: *«Que les gráfiques de la pestanya Load
+//     de l'app Stats pugui cabre historial de 30 minuts enrrere, ara la gráfica apenes aguanta 7 minuts»*), la història viu en una
+//     **sessió pròpia** (`sys.session('load', 4096)`, l'amo: *«Usa session state per guardar l'historial entre sortir i tornar a
+//     l'app»*) amb una línia `ms pct mem` per mostra —s'hi afegeixen disset bytes i el bloc només es reescriu quan s'omple o en
+//     entrar—, i el **tick d'un minut** és el que pren la mostra quan la pestanya Load no és la del vidre. El forat d'una estona sense
+//     mesures ja no esborra la finestra: el dibuixa la gràfica (`gap`) (docs/30, docs/45).
+//   - **Les versions**: `alarms` 0.2.1, `luabind` 0.11.4, `kernel` 0.9.73 i `stats` 0.2.3.
+
+// **0.192.61 — `serial send`: un fitxer pel cable, amb el port cedit** (l'amo: *«Crea una subcomanda a serial anomenada "send"
+// "serial [send] [/path/filename]" que permeti enviar un arxiu per port serie, usant el bloqueig de serial per evitar soroll.»*).
+//
+//   - **El bloqueig és el que fa la feina**: mentre el port és cedit el sistema no hi escriu res —ni el prompt, ni el mirall del
+//     registre, ni la taula d'una comanda—, o sigui que el que arriba a l'altre cap del cable és el fitxer i prou. `send` agafa
+//     el bloqueig ell mateix si el port és del sistema; **si ja és de la persona l'aprofita i no el torna** (no era seu) i **si
+//     és d'una app no hi envia res** i diu de qui és, que és exactament el desori que el bloqueig existeix per evitar (docs/30).
+//   - **I els bytes hi van sense el filtre dels codis** (0.192.61): `out_bytes` treu les seqüències d'escapament perquè qui escriu
+//     una pàgina vol dir un color, i un fitxer no és una pàgina —un binari amb un `0x1b` a dins arribaria canviat i ni el tamany
+//     quadraría—. Aquest camí agafa la consola del PAL directament; el que la comanda **diu** sí que passa per `out`, que és el que
+//     fa que una sessió del Shell llegeixi la resposta a la seva pàgina (docs/30, docs/50).
+//   - **Un tros que no s'emporta sencer es torna a demanar** i **Control+C atura** la transferència (la mateixa tecla que atura
+//     `log follow`), perquè un mega a 115 200 bauds són dos minuts. Abans de tornar el port hi ha un `flush`: una línia sèrie
+//     guarda bytes en vol després del `write` (docs/30, docs/50).
+//   - **I el que ha passat s'escriu quan el port ja no és cedit** —mentres ho era, `out` no tenia on escriure—; si el port era de
+//     la persona i encara és seu, la resposta no arriba al cable (el silenci és el contracte de `serial claim`) i la línia del
+//     registre és l'única que ho diu: `[I][SERIAL] sent 33 B of /sd/x.bin to the wire in 4 ms` (docs/30, docs/70).
+//   - **Els casos de prova** (`test_shell`): un fitxer amb un `0x1b` a dins que arriba **sencer i sense filtrar** i el port
+//     tornat al sistema tot sol, i un port que és d'una altra app, on no surt ni un byte del fitxer i l'amo no canvia (docs/80).
+//   - **Les versions**: `kernel` 0.9.74.
+
+// **0.192.62 — els temps del flaix, mesurats a la T5S3 de debò** (l'amo: *«Captura els temps dels dispositius amb la comanda stat
+// a la placa real via port serie, crea varis scripts per executar en segon plà que facin diverses tasques concretes i vas mesurant
+// els timings amb les comandes que tens al sistema, amb això obtindrás els timings de la placa amb un ESP32-S3 i podràs aplicar
+// aquests delays als dispositius emulats amb la mateixa placa emulada (T5-S3 Pro) fent-la mes acurada.»*).
+//
+//   - **La mesura**: sis guions fora del repositori (`drv.py`, `tasks.py`, `plan.py`, `board_csv.py`, `emu_csv.py` i
+//     `compare.py`, a la carpeta de la sessió) fan les mateixes vint-i-cinc tasques a la placa i a l'emulador —`stats reset`, la
+//     tasca, `stats`— i guarden les dues taules en un CSV; `compare.py` les posa l'una al costat de l'altra. El port s'obre amb
+//     `os.open` i **no amb pyserial**, que aixeca DTR i reinicia l'ESP32 (docs/85, docs/95).
+//   - **El que la placa diu** (T5S3, 0.192.61 al port sèrie): `flash.stat` **7,2–8,5 ms**, `flash.read` **11,4–15,2 ms** per
+//     finestra de mil vint-i-quatre bytes, `flash.list` **13,6 ms per entrada** (502 ms per una carpeta de trenta-set),
+//     `glass.gc16` **279 ms** (una pàgina sencera: 3 rentats), `boot` 4,13 s, `app.start` 24,3 ms, `psram.alloc` 0,19 ms i un
+//     llaç de **17,8 ms per torn** en repòs (docs/85, docs/95).
+//   - **I el que l'emulador deia**: `flash.stat` **0,12 ms** —seixanta-nou vegades més de pressa que la placa—, `flash.read`
+//     3,0 ms i `flash.list` 1,7 ms per entrada, o sigui que **una pàgina del llançador la pintava en 1,60 s quan la placa hi
+//     posa 5,41 s**. El model del disc era el full de dades del xip (una transacció de 60 µs, un bloc de 4 KB en 819 µs) i el
+//     que falta a la placa no és el cable sinó el **controlador de la SPI, la cache del flaix i els `mutex` de littlefs**
+//     (docs/50, docs/85).
+//   - **El que s'ha canviat** (`lib/hal_emulator/src/emu_disk.cpp`, `kFlash`): la transacció passa de 60 µs a **9 ms** i la
+//     lectura deixa de ser un bloc de quatre kilobytes per ser **1 900 µs per kilobyte** damunt d'aquella transacció. Amb els
+//     dos números, `flash.stat` val **9,1 ms** (la placa en posa 7,4–8,3), una lectura de tres kilobytes **14,7 ms** (15,2 de
+//     debò) i una entrada d'una llista **10,9 ms** (13,6); la mateixa pàgina del llançador passa de 1,60 s a **3,67 s**, i
+//     `apps` de 0,27 s a **3,73 s** contra els 3,88 s de la placa (docs/85).
+//   - **El que queda per ajustar, amb el número a la mà**: `kv.set` l'emulador el cobra **seixanta-sis cops més car** (10,0 ms
+//     contra 0,15 ms, perquè una escriptura de la NVS paga setze programacions de pàgina i a la placa en val una), `rtc.read`
+//     trenta-sis cops més barat (0,011 ms contra 0,53), `sd.list` dotze més barat (0,81 contra 10,3), `sd.stat` nou més car
+//     (0,27 contra 0,03), `psram.alloc` setze més barat, `app.start` i `lua.call` quatre més barats i `led.show` tretze més
+//     car; i el **cost de la instrucció de Lua** (`--lua-cpu`, 60 ns) és quatre o cinc cops curt, que és el que fa que el torn
+//     de l'app sigui de 2,1 s a l'emulador i de 3,8 s a la placa (docs/85, docs/95).
+//   - **I dues coses de la placa que no són temps**: el prompt **no té `rm`, `mkdir`, `cp`, `mv`, `fonts`, `battery`, `date`,
+//     `imu`, `touch`, `keys`, `buttons`, `fs`, `tz` ni `bt`** tot i que són a la taula del tabulador i de l'app Shell (responen
+//     `unknown command`, que és el que la 0.190.238 volia que no passés), i el `lua` del prompt té el terreny `/data/lua`, o
+//     sigui que no pot esborrar el que una tasca ha deixat a la targeta.
+//   - **Les versions**: `hal_emulator` 0.3.2.
+
+// **0.192.63 — el cel: el receptor GNSS de la T5S3, la seva hora i la seva pàgina** (l'amo: *«Fes un app de GPS … Si es pot utilitzar
+// la senyal per ajustar l'hora i la zona horària del sistema: afegir l'opció a l'app Settings->Clock un ToggleBox "Sync with GPS"
+// (deshabilitat en cas de no tenir gps al sistema) … Mostrar tota l'info que aquest MIA-M10Q GNSS ens pugui donar … Revisa bé el
+// pinout de la placa T5S3 paper Pro, veurás qué no tenim interrupcions per el GPS, així que haurem de llegir-lo manualment … Crea la
+// part del sistema, les potes lua i finalment l'app. Crea una comanda /gps [on|off]»*).
+//
+//   - **El maquinari, del pinmap del fabricant** (`docs/pinmap.md` de la placa, §GPS): la UART a **GPIO43 (TX) i GPIO44 (RX)**, el
+//     rail `LORA_EN` a l'expansor PCA9535 `IO0_0` —**compartit amb el LoRa**— i **cap línia d'interrupció**, o sigui que el mòdul
+//     s'ha de llegir a cada volta. La placa en pot portar dos, la `MIA-M10Q` (38 400 bauds) i la `L76K` (9 600), i el driver els
+//     prova els dos. Aquesta placa pot fer servir aquestes potes perquè la seva consola és el USB natiu (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`,
+//     `CONFIG_ESP_CONSOLE_UART_NUM=-1`) (docs/50).
+//   - **`hal/gps.h`**: `IGps` amb el vocabulari del receptor —`GpsFix` (posició en graus per deu milions, alçada, velocitat, rumb,
+//     dilucions, l'hora UTC del cel i la salut del cable), `GpsSatellite` (PRN, elevació, azimut, SNR i si compta) i `GpsCaps` (el
+//     nom del mòdul i els bauds)—, `kCapGps` i `IPlatform::gps()` (docs/30, docs/50).
+//   - **`t5s3/gps_m10q.cpp`**: la UART 1 a les potes 43/44, el sondeig de bauds (38 400 i, si no hi ha ni una frase, 9 600) i les
+//     cinc frases NMEA 0183 que un M10Q dona de fàbrica —RMC, GGA, GSA, GSV i VTG— amb el **segell comprovat**: una frase que no
+//     quadra no es llegeix, perquè un caràcter perdut en un cable llarg dona un número que sembla una latitud. **No s'hi envia cap
+//     trama de configuració** (docs/50).
+//   - **`kernel/gps.cpp`**: el servei que el torn llegeix (`gps::poll`), el comptador del que costa (`gps.on`, `gps.poll`) i **la
+//     decisió d'hora**: amb el commutador encès, una data bona posa l'època del rellotge —que el HAL desa també a la RTC del xip— i
+//     la **zona amb la longitud** arrodonida a l'hora, perquè el NMEA no porta cap zona i el sol sí; les dues coses es diuen al
+//     registre amb el número que s'han mogut, i no es toca res si el rellotge ja hi era a menys de dos segons (docs/30, docs/60).
+//   - **L'API de Lua** (`docs/30`): `gps.caps()`, `gps.on()`, `gps.off()`, `gps.info()` —una taula amb `fix`, `lat`, `lon` i els
+//     seus `*_e7`, `altitude`, `speed`, `course` i `course_name`, `satellites_used/seen`, les tres dilucions, `time` (UTC),
+//     `sentences`, `bad_sentences` i, quan n'hi ha, `synced_ms` i `shift_ms`— i `gps.sky()` (la llista de satèl·lits). La taula `gps`
+//     **només existeix a la placa que mira el cel**, com la del `lora` (docs/30).
+//   - **`gps [on|off]` al prompt**: sense paraula diu el mòdul, si és encès, la posició (o per què no n'hi ha), el cel, l'hora del
+//     satèl·lit i quan s'ha cregut el rellotge. **`cfg gpssync on|off`** és el mateix commutador que la casella de Settings→Clock, i
+//     `cfg.gps_sync()` la porta de Lua (docs/30).
+//   - **I la pàgina** (`apps/gps`, 0.1.0): la posició amb set decimals i a l'escala gran de la vista, l'alçada, la velocitat, el
+//     rumb, la qualitat, les dilucions i l'hora del cel —una cosa per línia, perquè a aquesta escala una fila només hi cap si diu
+//     tres o quatre coses—, i **el mapa del cel**: un cercle amb el zènit al mig i l'horitzó a la vora, els satèl·lits col·locats
+//     per azimut i elevació, el número a sobre i el to segons la força del senyal. Es repinta els números cada dos segons i el mapa
+//     cada sis, i el peu diu quan s'ha cregut el cel (docs/30, docs/45).
+//   - **I a Settings→Clock hi ha la casella "Sync with GPS"** (0.2.14, `kLayout` a `v4`), **apagada i sense dial en una placa que no
+//     mira el cel**: es pinta amb el requadre i el text apagats i diu `(none)`, i `cfg.gps_sync(true)` hi respon `E_UNSUPPORTED`
+//     (docs/30, docs/45).
+//   - **I el cel de l'emulador** (`emu/gps.cpp`): un `MIA-M10Q` de mentida que triga sis segons a tenir posició —com el de debò— i
+//     després camina per la plaça de Catalunya a metre i mig per segon, amb deu satèl·lits al seu horitzó. **És el que fa que la
+//     pàgina es pugui provar en aquest PC** (docs/85).
+//   - **I dues coses de la taula de capacitats** (`lib/hal/src/hal.cpp`): `lora` i `gps` hi entren. La del LoRa **hi era de debò i
+//     no hi era a la llista** —el nucli l'encenia i `sys.caps().lora` deia fals en una placa amb el SX1262 soldat—, i aquesta taula
+//     és la que `sys.caps()` recorre (docs/30, docs/50).
+//   - **Les versions**: `hal` 0.5.3, `hal_emulator` 0.3.3, `hal_t5s3` 0.3.2, `kernel` 0.9.75, `luabind` 0.11.5, `settings` 0.2.14,
+//     `gps` 0.1.0 i `about` 0.5.300.
+//   - **El que no s'ha pogut provar**: el fil del mòdul de debò —el sondeig de bauds i les frases del receptor de veritat—, perquè
+//     la placa d'aquesta sessió no hi és; el que sí que s'ha provat és la pàgina, el servei, la comanda i la sincronització amb el
+//     cel de l'emulador (docs/80, docs/85).
+
+// **0.192.64 — una app té un tick i no una col·lecció** (l'amo: *«L'app Lua Stats fa us de tick? on reb el callback i guarda les
+// mostres? Revisa bé el codi per assegurar-te que fa la petició correctament, que el sistema l'està cridant i que guarda les
+// mostres. També em preocupa el contrari… es repeteixen els ticks a la cua? Només un tick per app. Si una app en demana unaltre,
+// s'esborra l'anterior i es fa la que acaben de demanar»*). La revisió de l'app no ha canviat res —`arm_the_tick()` corre a
+// l'arrencada, `on_tick` arriba entre torns amb la coroutine suspesa, `remember_the_sample` desa la mostra al bloc `load` de la
+// sessió i el repintat només passa si la pestanya és al vidre—, però el que sí que ha canviat és la cua:
+//
+//   - **`alarms::remove_awake_only_of(app)`**: els ticks d'una app, tots fora, **sense moure la revisió** —un tick no s'escriu a
+//     la NVS i treure'l no n'ha de fer escriure cap clau—, i el que és d'una altra app no es toca.
+//   - **`tick.every` la crida abans d'afegir-hi el nou** (docs/30, docs/60): la cua és de vuit seients per a tot el sistema i una
+//     pàgina que passa d'un minut a deu segons no demana dos rellotges. La mateixa configuració continua tornant el mateix id i un
+//     `true` —si no fos així, una pàgina que demana el seu rellotge a cada arrencada no el veuria córrer mai—, i el relleu es diu al
+//     registre: `[I][TICK] stats asks for another tick and its 1 old one(s) go`.
+//   - **Les proves** (`test_alarms`, `test_luabind`): els ticks d'una app marxen tots i el d'una altra i una alarma de debò es
+//     queden; la mateixa configuració es torna a nomenar sense afegir res i un altre ritme deixa **una** entrada, amb el període i
+//     el payload nous. La del tick de la 0.192.60 que hi havia a `test_alarms` **no passava** —esperava que `next_due_mono_ms`
+//     saltés el tick reprès quan l'alarma de debò era abans, i comptava l'alarma com si no mogués la revisió—, i queda arreglada:
+//     és el primer cop que aquestes proves es passen des que hi són (docs/80).
+//   - **Les versions**: `alarms` 0.2.2, `luabind` 0.11.6 i `kernel` 0.9.76.
+//
+// El que no s'ha provat: el `.cpp` de la placa després d'aquest canvi sí que s'ha compilat (`lilygo-t5s3-idf`), però el tick de
+// debò amb una pàgina al davant i la placa desperta no s'ha mirat amb el maquinari.
+
+// **0.192.65 — el tick diu què n'ha fet l'app** (l'amo, amb el registre a la mà: *«Veig el tick, pero no la crida a l'app :-?
+// (versió lunokOS 0.192.63 board lilygo-t5s3-epaper-pro) [I][TICK] #3 fired for stats, 675 ms late, repeating, 2 left in the
+// queue — Com puc saber si s'estàn fent les lectures o si s'estàn guardant o que com l'app es en primer plà es descarten?»*).
+//
+//   - **La crida ja s'hi feia i no es veia**: `fired for` el que diu és que la cua l'ha donada a l'app, i el ganxo corria sense
+//     escriure res; les altres dues coses que poden passar ja tenien línia pròpia (`the app is dropped: … not in front` i
+//     `the app has no on_tick`), o sigui que el registre callava justament el cas que funciona.
+//   - **`on_tick` pot tornar `false`** per dir que no hi havia res a fer amb aquella volta —i no tornar res vol dir que sí, que és
+//     el que fan les apps escrites abans d'això—, i `luabind::call_tick` ho diu al registre a nivell de detall:
+//     `[D][TICK] #3 for stats: the app had nothing to add` o `… the app answered it` (docs/30, docs/60). El nivell de detall és
+//     el de fàbrica, o sigui que es veu sense tocar res, i qui no el vulgui té `cfg loglevel info`.
+//   - **I l'app de Stats no fa una mostra doble** (0.2.4): amb la pestanya Load al vidre el bucle ja en pren una cada deu segons
+//     (i el guard de mig període es menjava la del tick, que és el que l'amo va veure com a silenci), o sigui que el tick torna
+//     `false` i el seu motiu és el bo: el tick és per a quan la pàgina mira una altra pestanya, que és l'única estona en què el
+//     bucle no mostreja.
+//   - **La prova**: `test_luabind` comprova que un ganxo que torna `false` i un que no torna res són tots dos una crida que ha
+//     passat (docs/80).
+//   - **Les versions**: `luabind` 0.11.7, `kernel` 0.9.77 i `stats` 0.2.4.
+//
+// El que no s'ha provat: el tick de debò amb la pàgina al davant en aquesta versió —l'amo ha demanat aturar les proves llargues—;
+// el que sí que s'ha compilat és `lilygo-t5s3-idf` i l'emulador, i les proves de `test_alarms` i `test_luabind` passen.
+
+// **0.192.66 — la pàgina de Stats amb la lletra que es llegeix** (l'amo: *«A tot l'app Stats, excepte les pestanyes. Text mes gran
+// en genera, i no usis grisos clars. Fes els textos mes grans, a la pestanya "Info" no s'entén res. a més uses gris molt claret.
+// Memory igual. Time -> Text mes gran»*).
+//
+//   - **El cos de la lletra és de tres passos a tot arreu** (vint-i-set píxels) i no de dos (divuit): les files de Memory i Info
+//     (`ui.list`, que dibuixa títol, valor i detall) passen de dos passos a tres i de 58/66 de fila a 80/78, la llegenda del
+//     pastís i les barres del Cost també, i les dues lletres de la pestanya Load (docs/30, docs/92).
+//   - **I els grisos clars fora**: el detall d'una fila es pinta amb el to `dim` del control, que era el vuit —el mateix gris clar
+//     que el paper no separa—, o sigui que el valor de la dreta, que és justament el número que es busca, era el que menys es
+//     veia. Ara `text` és tinta i `dim` és el quatre (gris fosc), i el mateix amb els subtítols, els peus i les lletres de les
+//     gràfiques; el fons buit d'una barra passa del dotze al vuit, que encara es distingeix del ple (docs/30).
+//   - **Els textos s'escurcen on calia**: a tres passos mitja pàgina són trenta-quatre caràcters, i el que era una frase —`the
+//     memory in use: 138 KB of 8192 KB`, `the RAM of the board, not the extra memory`— es tallava a mig dibuixar. El que diu el
+//     número és el número (docs/45, docs/92).
+//   - **El que no s'ha tocat**: la tira de pestanyes, que l'amo ha deixat fora del canvi (docs/30).
+//   - **Les versions**: `stats` 0.2.5 i `kernel` 0.9.78.
+//
+// El que no s'ha provat: les pàgines amb el maquinari. Les quatre (Cost, Time, Load, Memory i Info) s'han mirat amb `--dump` a
+// l'emulador, al Paper i a la T5S3, i el que s'hi veu és el que s'ha demanat.
+
+// **0.192.67 — la barra de % dins d'una fila d'una llista** (l'amo: *«Al usar llistes hem perdut la barra de %? no podem
+// anidar-la?»*). Sí: `ui.list` amb `items` el que dibuixa és el títol, el número i la lletra de sota, i res més, però una fila
+// també pot ser **una entrada de l'app** (`ui.list_entry` + `:add`), i aleshores hi cap el que la pàgina vulgui —dues lletres a
+// tres passos i la **barra del sistema** (`ui.progress`) a sota (docs/30, docs/90).
+//
+//   - **Memory i Info passen a entrades** (`stats` 0.2.6): `free heap` no en té (no hi ha un total amb què comparar-lo), i sí
+//     `largest block` (el tros més gran dels lliures), `extra memory` (lliure dels usables), `lua peak` i `lua pool` (del sostre de
+//     Lua), i a Info el `Heap`, la `PSRAM` i la `Battery` (el 97% és la barra). **Una barra buida no es dibuixa**: diria un zero
+//     que no és cert.
+//   - **L'alçada de la fila es compta amb la lletra del sistema** (`fact_row_height`, tres bandes): donar-la per feta deixava la
+//     barra sota la vora de la fila i el dibuix la tallava —el primer run el va ensenyar com una línia prima— (docs/30).
+//   - **El valor de la dreta es mesura**: la columna era un 46% fix i el nom de la placa (`lilygo-t5s3-epaper-pro`) hi queia
+//     tallat; ara l'amplada és la del text (amb un mínim i un màxim), i el nom de la placa baixa a la línia de sota sencer.
+//   - **Les versions**: `stats` 0.2.6 i `kernel` 0.9.79.
+//
+// El que no s'ha provat: les pàgines amb el maquinari. Memory i Info s'han mirat amb `--dump` a l'emulador (Paper i T5S3) i el
+// que s'hi veu és el que s'ha demanat.
+
+// **0.192.68 — la finestra del Load creua els reinicis** (l'amo: *«Load bé, però perd el log entre reinicis?»* — sí que el perdia).
+//
+//   - **El bloc de la història té dues formes**: `v2` quan la placa sap l'hora —cada mostra segellada amb l'època
+//     (`time.now_ms`), o sigui que mitja hora enrere vol dir mitja hora del món i el que es va mesurar abans d'un reinici encara
+//     és dins de la finestra— i `v1` quan no la sap, que és l'uptime d'aquesta encesa i es perd en arrencar (no hi ha manera de
+//     dir quan es va prendre una mostra). Un bloc de l'altra forma es llença sencer: dues escales a la mateixa corba serien una
+//     corba que menteix (docs/30, docs/60, docs/75).
+//   - **El frec va amb el monòton i el segell amb el món**: `sys.time_ms` segueix decidint de quant van dues mostres —una
+//     sincronització el pot fer saltar endavant i un frec amb l'època es menjaria la mostra següent— i `the_stamp()` és el que
+//     s'escriu al bloc.
+//   - **I els salts es diuen**: si el rellotge del món arriba amb la pàgina oberta (una sincronització amb el GPS) o si salta més
+//     que la finestra, el bloc i les dues sèries comencen de nou, perquè el que hi havia eren segons d'una altra escala.
+//   - **Les versions**: `stats` 0.2.7 i `kernel` 0.9.80.
+//
+// Provat: un bloc `v2` amb vint mostres d'època escrites a mà es llegeix i es dibuixa (`-21 min` a l'eix, les dues corbes), amb
+// `--dump` a l'emulador. El que no s'ha provat és el reinici de debò amb la placa —cal que el nucli desi la sessió en tancar
+// l'app, que és el camí de sempre (docs/75)— ni un salt del rellotge a mitja finestra.
+
+// **0.192.69 — el tick és de la sessió i no de la pàgina** (l'amo: *«la crida "tick" desapareix quan l'app es tanca?… si es així
+// de que serveix? ja tenim la crida a cada torn. La idea del tick es que continui durant tota la sessió fins reiniciar o apagar.
+// Sense ser alarma RTC i que durant l'sleep no actua»*). Tenia raó en les dues coses: `stats` el cancel·lava a `on_close` i el
+// nucli, si l'app no era al davant, tirava la volta amb una línia. El que queda:
+//
+//   - **L'app no el cancel·la en tancar** (`stats` 0.2.8): el tick viu a la cua fins a l'apagada o el reinici —no s'escriu a la
+//     NVS i no arma el xip, o sigui que un sleep no el fa ni el desfà— i, com que la mateixa configuració torna el mateix id,
+//     obrir la pàgina una altra vegada **no reinicia la cadència** (docs/30, docs/60).
+//   - **I el nucli ja no la tira sempre**: si no hi ha cap pàgina al davant (el prompt, una placa sense vidre) el tick obre una
+//     **finestra** i la crida arriba, que és el camí d'una alarma de fons. Si n'hi ha una, la volta es perd amb una línia de
+//     **detall** (`#4 for stats is lost: the app is not the one in front`): apartar la pàgina de la persona i tornar-la a obrir
+//     costa un repintat sencer d'aquest vidre per cada mostra, i això cada minut és pitjor que el forat de la corba (docs/30).
+//   - **La finestra diu què l'ha obert**: `run_window` escrivia totes les seves línies amb l'etiqueta `[ALARM]`, i un tick que
+//     s'hi obre ara diu `[TICK]` i «the tick» (docs/30, docs/60).
+//   - **Les versions**: `stats` 0.2.8 i `kernel` 0.9.81.
+//
+// Provat amb un tick de cinc segons a l'emulador: la cua el conserva volta a volta (`3 left in the queue` amb l'app viva) i el
+// ganxo respon. El camí de la finestra sense pàgina al davant no s'ha pogut veure en aquest run —el prompt no atén cap línia
+// mentre l'app ocupa el torn i no hi ha hagut manera de tancar la pàgina des de dins—, i el que queda pendent de debò és decidir
+// si una mostra de fons ha de costar obrir una finestra (vegeu la conversa).
+
+// **0.192.70 — un tick amb la pàgina tancada es lliura com una alarma** (l'amo, amb la 0.192.69 a la mà: *«es fa una crida a
+// l'app, com es fa amb les alarmes.»*). La 0.192.69 deixava el tick a la cua però perdia la volta quan la pàgina no hi era, amb
+// l'excusa del repintat; el que vol és que la crida arribi, i el camí és el que el nucli ja té per a una alarma de fons:
+//
+//   - **La pàgina del davant s'aparta, la finestra s'obre, el ganxo corre i la pàgina torna** (`kernel.cpp`): el tick cau al
+//     mateix branc que una alarma sense `raise`, i les seves línies —l'apartada, el lliurament, la tornada— diuen `[TICK]` quan
+//     és un tick (docs/30, docs/60).
+//   - **I el que el ganxo ha escrit a la seva caché baixa al disc en tancar-se la finestra** (`shell.cpp`, `run_window`): una
+//     pàgina desa els blocs a `close_app`, i una finestra no en tenia cap moment, o sigui que la mostra es quedava a la memòria i
+//     s'esvaïa amb l'intèrpret. `session::flush(id)` ho tanca (docs/30, docs/75).
+//   - **L'app de Stats fa el mínim dins d'una finestra** (`stats` 0.2.9): `console.is_foreground()` és fals en una finestra, i
+//     la pàgina no es construeix —ni controls, ni gràfiques, ni bucle—: es carrega la forma, la història, es deixen els ganxos
+//     definits i la crida arriba darrere (docs/30, docs/60).
+//   - **Les versions**: `stats` 0.2.9 i `kernel` 0.9.82.
+//
+// Provat a l'emulador amb un tick de cinc segons, una pàgina al davant i l'app tancada: `#3 fired for stats` → `the page of
+// home_eink steps aside for the window` → `a window opens for stats` → `the app answered it` → `1 session block(s) written to
+// /session` → `the window of stats closes` → `3 delivered to stats in a window` → `the page of home_eink is back`, volta rere
+// volta. El preu, mesurat al mateix run: dos repintats de pàgina sencera (`gl16` de 286 i 299 ms) i el de la barra (`a2` de
+// 518 ms) per cada tick amb pàgina al davant.
+
+static const char kVersion[] = "0.192.70";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

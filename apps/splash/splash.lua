@@ -116,6 +116,11 @@ local kLayout = 'v1'       -- bumped when a control is renamed or the page chang
 local state_block = nil    -- the block: asked once and kept for the life of the app
 
 local function the_state()
+  -- **Un bloc que el sistema s'ha quedat no es pot fer servir** (0.192.55): the session blocks are the first thing the allocator
+  -- gives back when the memory is short, and every call on one that is gone raises `the session memory was given back`, which ends
+  -- the app. It is asked again —that is what the contract says an app must do— and if there is no room the page is built as if it
+  -- were the first time (docs/30, docs/75).
+  if state_block ~= nil and not state_block:alive() then state_block = nil end
   if state_block == nil then
     local block = sys.session('state', kStateBytes)
     if block == nil then return nil end

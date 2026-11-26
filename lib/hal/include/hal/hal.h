@@ -20,6 +20,13 @@
 #error "board/identity.h has to say LUNOK_GLASS (0 or 1): whether this board carries a glass"
 #endif
 
+// **La ràdio de LoRa, que és una interfície i prou** (0.192.49): viu en un capçol seu perquè té el seu vocabulari —una
+// configuració de recepció, un paquet amb el que el xip ha mesurat— i perquè el `IPlatform` l'ha de poder nomenar.
+#include "hal/lora.h"
+// **I el GNSS, que també té el seu vocabulari** (0.192.63): una frase del receptor, un satèl·lit, la data del cel; i el mateix
+// motiu que el LoRa, que `IPlatform` l'hagi de poder nomenar (docs/30, docs/50).
+#include "hal/gps.h"
+
 namespace hal {
 
 enum Capability : uint32_t {
@@ -52,7 +59,16 @@ enum Capability : uint32_t {
   // picture of a sleep left on it is ink nobody wrote— gets `splash::hide()` at the boot, a `gc16` of the whole glass, **whatever
   // the reason of the boot is**: a power-on, a restart, a return from a sleep or an alarm with nobody in front. It is the board
   // that says it because it is the panel's behaviour and not a preference of a run (docs/50, docs/60).
-  kCapWashAtBoot = 1u << 19
+  kCapWashAtBoot = 1u << 19,
+  // **La ràdio de LoRa** (0.192.49): a board with a SX1262 soldered to it and a driver that can put it to listen. És una
+  // capacitat i no una suposició perquè el mòdul és opcional a la placa i perquè una app que ensenya un espectre ha de
+  // poder dir «aquesta placa no escolta» en comptes de dibuixar una línia plana que sembla un aire buit (docs/30, docs/50).
+  kCapLora = 1u << 20,
+  // **El receptor GNSS** (0.192.63): una placa amb un mòdul de satèl·lits connectat a un cable sèrie i un driver que en sap treure
+  // la posició. És una capacitat i no una suposició pel mateix motiu que la ràdio —el mòdul és opcional i la mateixa placa en porta
+  // dos de possibles—, o sigui que una pàgina que ensenya el cel ha de poder dir «aquesta placa no mira el cel» en comptes de
+  // dibuixar un mapa buit que sembla una antena tancada (docs/30, docs/50).
+  kCapGps = 1u << 21
 };
 
 struct Caps {
@@ -973,6 +989,19 @@ class ISurface : public IDisplay {
   // a page nobody asked to be repainted is a page this system does not touch (docs/30, docs/50).
   virtual bool flush(UpdateMode mode) = 0;
   virtual bool idle() = 0;
+  // **Els píxels que hi ha al vidre, donats enrere** (0.192.59): a row at a time, two pixels a byte and the left one in the high nibble
+  // —the packing of every canvas of this system— **in the page's own frame**, so what a caller copies is the picture a person is
+  // looking at and not the chip's rectangle. És la porta d'una captura de pantalla i d'una prova, i **no escriu res al vidre**: el que
+  // torna és la imatge que el controlador té dibuixada. False quan aquest vidre no pot deixar els seus píxels (docs/50).
+  //
+  // El gir el desfà el vidre i no el nucli: `to_glass` és seu, i un vidre que tornés la imatge girada donaria un fitxer que a
+  // l'ordinador es mira de costat (docs/50, docs/85).
+  virtual bool read_row(uint16_t y, uint8_t* packed, uint16_t stride) const {
+    (void)y;
+    (void)packed;
+    (void)stride;
+    return false;
+  }
   // **El paper, netejat al màxim que aquest panell sap** (0.192.11, l'amo: *«ENCARA VEIG LA IMATGE D'SLEEP SOTA EL GRID DEL HOME»*): a pass
   // of the whole glass that **does not trust what the driver remembers of it**. Un panell conduit per una llibreria d'alt nivell neix «blanc»
   // a cada arrencada —`epd_hl_init` posa els dos buffers a 0xFF—, o sigui que un `clear(15)` seguit d'un `gc16` és un diff de res, no s'envia
@@ -1419,6 +1448,13 @@ class IPlatform {
   virtual IBluetooth* bluetooth() { return nullptr; }
   // **I el mesh, que és una xarxa i no un teclat** (0.190.212): null on every board whose build does not carry it.
   virtual IMesh* mesh() { return nullptr; }
+  // **I la ràdio que només escolta** (0.192.49): el SX1262 de la T5S3, que no és cap xarxa i no té cap manera de
+  // transmetre des d'aquí. Null a tot arreu on no hi ha el xip, que és el que una pàgina ha de poder saber abans de
+  // dibuixar un espectre (docs/30, docs/50).
+  virtual ILora* lora() { return nullptr; }
+  // **I el receptor del cel, quan la placa en porta un** (0.192.63): `nullptr` és el que ha de dir una placa sense mòdul, i el
+  // que fa que `kCapGps` no s'encengui (docs/50).
+  virtual IGps* gps() { return nullptr; }
   virtual IPower* power() = 0;
   virtual ISurface* display() = 0;
   virtual ILed* led() = 0;

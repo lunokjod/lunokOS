@@ -146,6 +146,31 @@ void Epd47::put(uint16_t gx, uint16_t gy, uint8_t level) {
   }
 }
 
+bool Epd47::read_row(uint16_t y, uint8_t* packed, uint16_t stride) const {
+  if (packed == nullptr || frame_ == nullptr) return false;
+  const uint16_t page_w = width();
+  const uint16_t page_h = height();
+  if (y >= page_h || page_w == 0) return false;
+  const uint16_t line = static_cast<uint16_t>((page_w + 1) / 2);
+  if (stride < line) return false;
+
+  for (uint16_t x = 0; x < page_w; ++x) {
+    uint16_t gx = 0;
+    uint16_t gy = 0;
+    to_glass(x, y, gx, gy);
+    const uint8_t level = get(gx, gy);
+    if ((x & 1u) == 0) {
+      packed[x >> 1] = static_cast<uint8_t>(level << 4);
+    } else {
+      packed[x >> 1] = static_cast<uint8_t>(packed[x >> 1] | level);
+    }
+  }
+  // **La mitja parella d'una amplada senar és paper**: the absent pixel behind the last column is not somebody else's nibble.
+  if ((page_w & 1u) != 0) packed[line - 1] = static_cast<uint8_t>(packed[line - 1] | 0x0F);
+
+  return true;
+}
+
 uint8_t Epd47::get(uint16_t gx, uint16_t gy) const {
   if (frame_ == nullptr || gx >= kGlassW || gy >= kGlassH) return 15;
   const uint8_t at = frame_[static_cast<uint32_t>(gy) * kGlassStride + (gx >> 1)];

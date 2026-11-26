@@ -23,6 +23,7 @@
 
 #include "kernel/apps.h"
 #include "kernel/bar.h"
+#include "kernel/canvas_export.h"
 #include "kernel/calendar.h"
 #include "kernel/display.h"
 #include "kernel/font.h"
@@ -1927,6 +1928,12 @@ bool caps_for_lua(luabind::UIInfo& out) {
   return true;
 }
 
+// **La porta de l'export per a Lua** (0.192.51): the pixels of a canvas written as a PNG by the kernel, o sigui que l'app dona la
+// ranura i el camí i no passa ni un byte (docs/30, docs/75).
+bool export_for_lua(int16_t slot, const char* path, const char*& code, const char*& reason) {
+  return export_a_png(slot, path, code, reason);
+}
+
 bool clear_for_lua(uint8_t level, const char* mode) {
   return clear(level, mode);
 }
@@ -2541,9 +2548,12 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      picker_draw,
                                      picker_hit,
                                      picker_pages_for_lua,
-                                     // **On cau el número d'un slider quan hi cau un dit** (0.192.34): the last field of the
-                                     // table and the last one added, so every initializer above keeps its place (docs/30, docs/90).
-                                     slider_value_at});
+                                     // **On cau el número d'un slider quan hi cau un dit** (0.192.34): the fields of this table keep
+                                     // the order of the struct, o sigui que el que s'afegeix va al final i els de dalt no es mouen
+                                     // (docs/30, docs/90).
+                                     slider_value_at,
+                                     // **I guardar un canvas com a PNG** (0.192.51): the last one, for the same reason.
+                                     export_for_lua});
   // **I les imatges dels moments del sistema** (0.183.0): one call of a page can put the picture of the boot, of the way
   // down, of the battery or of the error on the glass, which is what a page that offers them needs and what it cannot do
   // by drawing: the wash of a moment is the whole panel and the picture is a file of the disk (docs/30, docs/50).
@@ -3456,6 +3466,19 @@ bool canvas_capture(int16_t slot, uint8_t* out, size_t capacity, size_t& wrote) 
   memcpy(out, canvas.bits, bytes);
   wrote = bytes;
   return true;
+}
+
+const uint8_t* canvas_pixels(int16_t slot, uint16_t& width, uint16_t& height, uint32_t& stride) {
+  width = 0;
+  height = 0;
+  stride = 0;
+  if (!live(slot)) return nullptr;
+  const Canvas& canvas = g_canvases[slot];
+  if (canvas.bits == nullptr || canvas.width == 0 || canvas.height == 0) return nullptr;
+  width = canvas.width;
+  height = canvas.height;
+  stride = canvas.stride;
+  return canvas.bits;
 }
 
 // **A block of pixels into a canvas** (0.133.0, docs/46 D4): what a page of a book needs for the pictures of the
@@ -6218,7 +6241,8 @@ void plot_line(Canvas& canvas, int32_t x0, int32_t y0, int32_t x1, int32_t y1, u
 // two sides with a straight line would say the level went smoothly from one value to the other, which nobody measured.
 bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8_t count, uint8_t ink,
                 uint8_t background, uint8_t scale, const char* suffix, int32_t low, int32_t high,
-                uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes) {
+                uint8_t decimals, const char* axis_left, const char* axis_right, uint8_t gap_minutes,
+                int32_t span) {
   if (!live(slot) || ink > 15 || background > 15) return false;
   const Canvas& chart = g_canvases[slot];
   const int32_t width = chart.width;
@@ -6344,9 +6368,14 @@ bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8
   // **When the clock is known the window is the time's**: the first sample sits on the left edge and the last on the
   // right one, and a sample whose minute is not the one the window expects is put on the edge it belongs to and never
   // next to the numbers.
-  const int32_t t0 = times[0];
+  int32_t t0 = times[0];
   const int32_t t1 = times[count - 1];
-  const bool clock = (t0 >= 0 && t1 > t0);
+  // **Una finestra que no es mou** (0.192.50): with a span the left edge is the last sample minus it, and it does not move when a
+  // sample arrives —the new one enters on the right and the oldest leaves on the left—. Sense span, l'esquerra és la primera
+  // mostra i el que fa la corba quan n'arriba una de nova és tornar-se a escalar, que és el que una pàgina que només ensenya no
+  // vol: un monitor ha d'ensenyar la corba caminant (docs/30, docs/90).
+  if (span > 0 && t1 - span > t0) t0 = t1 - span;
+  const bool clock = (times[0] >= 0 && t1 > t0);
   const auto column_of = [&](uint8_t i) {
     int32_t px = x0;
     if (clock) {
@@ -6395,6 +6424,9 @@ bool chart_draw(int16_t slot, const int16_t* values, const int32_t* times, uint8
   // step to measure.
   const int32_t kGap = (gap_minutes == 0) ? 0 : static_cast<int32_t>(gap_minutes);
   for (uint8_t i = 0; i < count; ++i) {
+    // **El que ja és fora de la finestra no es dibuixa** (0.192.50): the pen starts where the window starts, o sigui que la
+    // corba entra per la dreta en lloc d'estirar-se des d'una mostra que ja no hi és.
+    if (clock && times[i] < t0) continue;
     if (clock && i > 0) {
       const int32_t step = times[i] - times[i - 1];
       if (step < 0 || (kGap > 0 && step > kGap)) close_the_pen();

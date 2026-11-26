@@ -678,21 +678,51 @@ end
 
 -- **The band of the middle, when the game is stopped**: with no card of the system, the page says it itself (the old app's
 -- band, painted by this file, docs/45).
+-- **Les paraules del mig, i com ha anat la partida** (0.192.58, l'amo: *«Quan el jugador-CPU perd, a l'Snake es veu "Game over" i
+-- els punts que ha fet i com tenía la partida. Però al Tetris no passa igual? vull que es faci el mateix. Així es pot veure com ha
+-- anat»*). La banda deia `GAME OVER` i prou, i els números que quedaven a la franja eren els d'abans de perdre: el que una persona
+-- vol veure quan el pou s'ha omplert és **quants punts ha fet i amb quantes línies i a quin nivell s'ha quedat**, i això és el que
+-- hi ha ara, en dues línies petites sota el títol. Una partida aturada diu `PAUSED` i no diu cap número, perquè no s'ha acabat res
+-- (docs/30, docs/45).
 local function paintBand(mode)
   if (not over) and (not paused) then return end
 
   local words = over and 'GAME OVER' or 'PAUSED'
-  local tw = ui.text_width(words, kBody)
+  local under = nil
+  if over then
+    under = { string.format('Score %d', score),
+              string.format('Lines %d   %s %d', lines, demo and 'CPU' or 'L', demo and cpuLevel or level) }
+  end
+
   local lh = ui.line_height(kBody)
+  local sh = ui.line_height(kSmall)
   local padX, padY = 16, 12
+  local tw = ui.text_width(words, kBody)
+  if under ~= nil then
+    for i = 1, #under do
+      local w = ui.text_width(under[i], kSmall)
+      if w > tw then tw = w end
+    end
+  end
+
+  -- **La banda cap dins del pou**: a box wider than the well is a box over the wall of the well, and the frame is what says
+  -- where the words are (docs/30).
   local boxW = tw + 2 * padX
+  if boxW > wellW - 8 then boxW = wellW - 8 end
   local boxH = lh + 2 * padY
+  if under ~= nil then boxH = boxH + #under * (sh + 2) end
+
   local x = wellX + math.floor((wellW - boxW) / 2)
   local y = wellY + math.floor((wellH - boxH) / 2)
 
   ui.rect(x, y, boxW, boxH, Paper, mode)
   ui.frame(x, y, boxW, boxH, Ink, mode)
   ui.text(x + padX, y + padY, words, kBody, Ink, mode)
+  if under ~= nil then
+    for i = 1, #under do
+      ui.text(x + padX, y + padY + lh + (i - 1) * (sh + 2), under[i], kSmall, Ink, mode)
+    end
+  end
 end
 
 -- **The strip: the numbers and the bar of the level**, which is what a person reads while playing. **Dues files i no una** (0.192.26):
@@ -721,9 +751,14 @@ local function paintStatus(mode)
 end
 
 -- **One thing at a time**: a game that is over is not paused, and a page nobody has touched says what a finger does.
+-- **I el final va primer** (0.192.58): a demonstration that has lost is not a demonstration that is playing, o sigui que la línia
+-- de baix diu el final i no el que el CPU està fent (docs/30, docs/45).
 local function footerText()
+  if over then
+    if demo then return 'The CPU lost. Tap the arrow.' end
+    return 'Game over. Tap the arrow.'
+  end
   if demo then return 'The CPU is playing. Tap the well to take over.' end
-  if over then return 'Full. Tap the arrow.' end
   if paused then return 'Paused. Tap the triangle.' end
   if score == 0 then return 'Tap the piece to turn it, or its side to move it.' end
 
@@ -825,6 +860,17 @@ local function lock()
     waitForTheInk()
     noteTheTrail()
     console.print(stateLine())
+    -- **I si la peça que ve no hi cap, el joc s'ha acabat i la pàgina ho diu** (0.192.58): the band with the score and the lines
+    -- and the line of the bottom, which is what the page of the snake does when the snake dies. Aquest camí —el d'una peça que
+    -- aterra i no fa cap línia— marxava sense dir res, o sigui que el final d'una partida de debò (el pou ple, que sempre arriba
+    -- per aquí) no s'ensenyava mai (docs/30, docs/45).
+    if over then
+      save()
+      paintBand(kTextMode)
+      paintFooter(kTextMode)
+      ui.present(kTextMode)
+      waitForTheInk()
+    end
     return
   end
 
@@ -1255,6 +1301,65 @@ local function tapAt(x, y)
   return false
 end
 
+-- **La peça baixa al terra d'un sol cop i aterra** (0.192.58, l'amo: *«El swipe(drop) cap avall a l'app Tetris significa baixar la
+-- peça inmediatament»*): the finger says where the piece goes and not how far it walked, o sigui que la peça es posa on cap sense
+-- recórrer les files una a una —vuit marques i no divuit passades— i es pinta allà abans de tocar el pou, perquè el `lock` d'aquest
+-- joc no torna a pintar les cel·les de la peça que aterra (són les de la pila) (docs/45).
+local function hardDrop()
+  if over or paused or piece == nil then return false end
+
+  markPiece(Paper, kStepMode)
+  while fits(piece.name, piece.rot, piece.x, piece.y + 1) do piece.y = piece.y + 1 end
+  markPiece(Ink, kStepMode)
+
+  trailOpen, trailMoves = false, 0        -- el camí el pinten les marques; la neteja periòdica no hi té res a fer
+  paintChanged()
+  lock()
+
+  return true
+end
+
+-- **El gest del dit és una altra manera de jugar, i no una manera de perdre el toc** (0.192.58, l'amo: *«El drop(swipe)
+-- esquerra-dreta … el drop/swipe en una direcció mou la peça … Que sigui detecció de les dues maneres (toc i drop) aixì l'usuari
+-- aconseguirà el moviment que busca»*): **l'esquerra i la dreta mouen la peça**, una columna per cada amplada que el dit ha
+-- caminat i com a mínim una; **avall la deixa caure** al terra del pou; i **amunt la gira**, que és el que fa un toc a sobre.
+-- Un lliscament és una ordre del joc i no un gest que es llença, que és el que passava abans: el dit caminava més de dotze
+-- píxels i la peça no es movia, amb el temps de partida que això costa (docs/30, docs/45).
+local function dragAt(x, y, dx, dy)
+  -- **Un botó es prem i no es llisca**: a gesture that begins on New, Demo or Pause is not a move of the piece (docs/30).
+  if (y >= newY) and (y < newY + BtnH) then
+    if (x >= newX) and (x < newX + newW) then return false end
+    if (x >= pauseX) and (x < pauseX + pauseW) then return false end
+    if (x >= demoX) and (x < demoX + demoW) then return false end
+  end
+
+  if (x < wellX) or (x >= wellX + wellW) or (y < wellY) or (y >= wellY + wellH) then return false end
+
+  -- **Una demostració es pren amb qualsevol gest del pou**, com amb un toc (docs/45).
+  if demo then return tapAt(x, y) end
+
+  if over or paused or piece == nil then return false end
+
+  if math.abs(dx) >= math.abs(dy) then
+    local steps = math.floor(math.abs(dx) / math.max(1, cell) + 0.5)
+    if steps < 1 then steps = 1 end
+    if steps > Cols then steps = Cols end
+
+    for _ = 1, steps do move((dx > 0) and 1 or -1) end
+  elseif dy > 0 then
+    -- **I el swipe avall pinta la seva pròpia aterrada i diu la seva línia**: a box that lands can take rows away, and `lock`
+    -- is the one that knows (docs/45).
+    return hardDrop()
+  else
+    rotate(1)
+  end
+
+  console.print(stateLine())
+  paintChanged()
+
+  return true
+end
+
 -- ---------------------------------------------------------------- the app
 
 local caps = sys.caps()
@@ -1278,7 +1383,12 @@ local shape = load_state()
 if (shape ~= nil) and (shape.paused ~= nil) then paused = (shape.paused == '1') end
 
 -- **I el joc torna on era**, i una placa sense partida desada és una partida nova —no un error— (docs/45).
-if not load() then newGame() end
+-- **I LA PEÇA QUE QUEIA TORNA A NÉIXER** (0.192.58, trobat provant els gestos a l'emulador): `load` torna el pou, els punts, el
+-- nivell i la peça que ve, però **la que estava caient no es desa** —el fitxer no té on posar-la, i una peça a mig aire que torna
+-- en un altre lloc és pitjor que una de nova—, o sigui que qui la fa néixer és aquesta ratlla. Sense ella, una placa que havia
+-- desat una partida l'obria **sense cap peça**: el pou es quedava quiet per sempre i no hi havia res a fer-hi (vist a l'emulador,
+-- amb el `game.txt` d'una partida anterior a `/data/tetris`) (docs/45).
+if not load() then newGame() else spawn() end
 
 measure(W, H)
 
@@ -1325,6 +1435,26 @@ if stack ~= nil then
   over, paused = false, false
   cpuRot, cpuX = nil, nil
   score, lines, level, levelBase = 0, 0, 0, 0
+end
+
+-- **`lose` és una partida a punt de perdre** (0.192.58): el pou és ple de la segona fila cap avall **tret de la primera columna**,
+-- o sigui que cap fila és plena i res no s'esborra, i una `O` espera a la primera. La baixada la deixa allà i **la peça que ve no
+-- pot néixer** —que és l'únic final que aquest joc té—. És la manera que una prova vegi la banda del final amb els números sense
+-- jugar deu minuts, i el camí que es prova és el de debò: el de `lock` quan no hi ha cap línia (docs/30, docs/45).
+if verb == 'lose' then
+  newGame()
+  well = {}
+
+  for r = 2, Rows do
+    for c = 2, Cols do setCell(c, r, true) end
+  end
+
+  piece = { name = 'O', rot = 1, x = 4, y = 0 }
+  nextName = 'T'
+  lastPiece = 'O'
+  over, paused = false, false
+  cpuRot, cpuX = nil, nil
+  score, lines, level, levelBase = 760, 4, 1, 0
 end
 
 -- **`full` is a page to read**: a well with a pile in it, a piece in the air and a score that is not zero, which is the only
@@ -1385,14 +1515,22 @@ while true do
     paintPage()
   end
 
-  -- **Els gestos es prenen i la cua es buida**: a gesture nobody takes is a queue that grows (docs/30).
+  -- **Els gestos es prenen i la cua es buida**: a gesture nobody takes is a queue that grows (docs/30). **I el lliscament
+  -- juga** (0.192.58): a drag shorter than half a cell is a tap that wobbled —the finger of this glass— and a longer one is a
+  -- move of the piece, o sigui que el dit rep el moviment que buscava per qualsevol dels dos camins (docs/30, docs/45).
   local gesture = touch.gesture()
   while gesture do
     if gesture.kind == 'tap' then
       tapAt(gesture.x or 0, gesture.y or 0)
     elseif gesture.kind == 'drag' then
-      if (math.abs(gesture.dx or 0) < TapSlop) and (math.abs(gesture.dy or 0) < TapSlop) then
-        tapAt(gesture.x or 0, gesture.y or 0)
+      local gx, gy = gesture.x or 0, gesture.y or 0
+      local dx, dy = gesture.dx or 0, gesture.dy or 0
+      local slop = math.max(TapSlop, math.floor(cell / 2))
+
+      if (math.abs(dx) < slop) and (math.abs(dy) < slop) then
+        tapAt(gx, gy)
+      else
+        dragAt(gx, gy, dx, dy)
       end
     end
 

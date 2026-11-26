@@ -1,7 +1,7 @@
 {
   "name": "img",
-  "version": "0.1.2",
-  "description": "The pictures a page can carry, read the way this project reads everything: the file is the caller's bytes, the rows come out four bits a pixel, and there is no allocation of its own (docs/30).",
+  "version": "0.2.1",
+  "description": "The pictures a page can carry: the reader, done the way this project reads everything —the file is the caller's bytes, the rows come out four bits a pixel, and there is no allocation of its own— and the writer of the one picture the system has to hand back, an eight-bit grey PNG with a stored zlib stream, so an app can export what it drew without owning a compressor (docs/30, docs/75).",
   "build": {
     "srcDir": "src",
     "includeDir": "include",

@@ -702,7 +702,10 @@ bool last_wake_report(char* out, size_t cap) {
 int64_t the_hour_of_a_sleep(int64_t at_epoch_ms) {
   int64_t alarm_epoch = 0;
   if (g_clock != nullptr) {
-    const int64_t next = alarms::next_due_mono_ms();
+    // **Un tick no és una hora a la qual despertar-se** (0.192.60): `next_wake_mono_ms` salta els que només volen una passa
+    // mentre la placa és desperta, o sigui que una app que demana una crida cada minut no fa que la baixada desperti la placa
+    // al cap d'un minut per a res (docs/30, docs/60).
+    const int64_t next = alarms::next_wake_mono_ms();
     // **Una alarma que ja toca no és una hora** (0.190.77): an alarm whose time has come is delivered in this same turn —`deliver_alarms`
     // runs before the policy— o sigui que la que encara és a la cua amb l'hora passada és una promesa sense amo, i prendre-la per a l'hora
     // de la baixada deixava la política mirant un instant que ja no arribarà: `hour - now <= 0`, que vol dir «l'alarma és a tocar», i la
@@ -1343,7 +1346,7 @@ bool idle_report(char* out, size_t cap) {
   // **I la propera alarma, que és l'altra meitat de la resposta** (0.190.77): a policy that says no says it because of the hour it
   // would be woken at, o sigui que una línia que només digués la quietud deixaria la meitat del cas sense dir (docs/60).
   char alarm[64] = {0};
-  const int64_t next = alarms::next_due_mono_ms();
+  const int64_t next = alarms::next_wake_mono_ms();  // a tick is not an alarm anybody is waiting for (0.192.60)
   if (next >= 0) {
     const int64_t left = next - now;
     snprintf(alarm, sizeof(alarm), ", and the next alarm is %lld s away", static_cast<long long>((left > 0) ? left / 1000 : 0));

@@ -91,6 +91,18 @@ enum Id : uint8_t {
   // `password` asks for it with a number of iterations; the row says what those iterations cost on this board, which is the
   // only way to choose the number (docs/30, docs/95).
   kCryptoKey,
+  // **La ràdio de LoRa, que només escolta** (0.192.49): posar-la a escoltar, mesurar el canal i treure'n un paquet són les
+  // tres feines que un monitor fa i cap d'elles no era mesurada enlloc. **No hi ha cap fila de transmetre** perquè aquesta
+  // ràdio no pot parlar (docs/30, docs/50).
+  kLoraListen,
+  kLoraSniff,
+  kLoraPoll,
+  // **El receptor del cel** (0.192.63): encendre'l —el rail i el cable— i llegir el que hi hagi, que és el que aquesta placa fa a
+  // cada volta perquè el mòdul no té la línia d'interrupció connectada (el pinmap de la placa ho diu i l'amo ho va assenyalar:
+  // *«veurás qué no tenim interrupcions per el GPS, així que haurem de llegir-lo manualment»*). No hi ha cap fila de «fix»: una
+  // posició no és una crida a un aparell, és el que una lectura ha dit (docs/30, docs/50).
+  kGpsOn,
+  kGpsPoll,
   kCount,
 };
 

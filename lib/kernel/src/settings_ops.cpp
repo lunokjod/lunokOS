@@ -30,7 +30,6 @@ bool read_settings(luabind::Settings& into) {
   static char hour[8] = {0};
   cfg::tz_text(hour, sizeof(hour), cfg::tz_minutes());
   into.tz = hour;
-  into.leap = cfg::leap_years();
   into.dst = cfg::dst();
   into.sort_by_usage = cfg::sort_by_usage();
   into.turn = cfg::turn_instructions();
@@ -179,6 +178,8 @@ void install_settings_ops() {
   // keeps them.
   doors.lock_app = &cfg::lock_app;
   doors.set_lock_app = &write_lock_app;
+  doors.gps_sync = &cfg::gps_sync;
+  doors.set_gps_sync = &cfg::set_gps_sync;
   doors.lock_on = &cfg::lock_on;
   doors.set_lock_on = &cfg::set_lock_on;
   doors.lock_after_minutes = &cfg::lock_after_minutes;

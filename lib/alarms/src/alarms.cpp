@@ -102,6 +102,7 @@ uint32_t find_same(const Spec& spec) {
     if (entry.repeat_ms != period) continue;
     if (entry.raise_to_front != spec.raise_to_front) continue;
     if (entry.persist != spec.persist) continue;
+    if (entry.awake_only != spec.awake_only) continue;
     if (entry.payload_kind != kind) continue;
     if (strcmp(entry.payload, text) != 0) continue;
     if (entry.repeat_ms != 0) return entry.id;
@@ -126,6 +127,7 @@ uint32_t add(const Spec& spec) {
   entry.repeat_ms = (spec.repeat_ms > 0) ? spec.repeat_ms : 0;
   entry.raise_to_front = spec.raise_to_front;
   entry.persist = spec.persist;
+  entry.awake_only = spec.awake_only;
   entry.payload_kind = (spec.payload != nullptr) ? spec.payload_kind : Payload::kNone;
   copy_text(entry.payload, sizeof(entry.payload), spec.payload);
   entry.missed = 0;
@@ -167,6 +169,20 @@ uint32_t remove_of(const char* app) {
   return gone;
 }
 
+uint32_t remove_awake_only_of(const char* app) {
+  if (app == nullptr || app[0] == '\0') return 0;
+  uint32_t gone = 0;
+  for (uint32_t i = 0; i < g_count;) {
+    if (!g_entries[i].awake_only || strcmp(g_entries[i].app, app) != 0) {
+      ++i;
+      continue;
+    }
+    remove_at(i);
+    ++gone;
+  }
+  return gone;
+}
+
 bool remove_id(uint32_t id) {
   const int32_t index = find_id(id);
   if (index < 0) return false;
@@ -178,6 +194,16 @@ bool remove_id(uint32_t id) {
 int64_t next_due_mono_ms() {
   if (g_count == 0) return -1;
   return g_entries[0].on_mono_ms;
+}
+
+// **La que pot despertar la placa i no la que toca abans** (0.192.60): la llista va ordenada per hora, o sigui que la primera
+// que no és un `tick` és la resposta. Amb la cua plena de ticks i res més, no hi ha cap hora a la qual despertar-se —el que ha
+// de fer la placa és dormir fins que la mà la toqui— i això és el que diu el -1 (docs/30, docs/60).
+int64_t next_wake_mono_ms() {
+  for (uint32_t i = 0; i < g_count; ++i) {
+    if (!g_entries[i].awake_only) return g_entries[i].on_mono_ms;
+  }
+  return -1;
 }
 
 bool take_due(int64_t now_mono_ms, Entry& out) {
@@ -196,12 +222,16 @@ bool take_due(int64_t now_mono_ms, Entry& out) {
       next += out.repeat_ms;
       ++missed;
     }
-    out.missed = missed;  // the copy that fired says how many it lost
+    // **Un tick no compta les que ha perdut** (0.192.60): si la placa ha dormit mitja hora, no ha perdut res —el tick no era
+    // per a ningú— i dir-ho a l'app la faria tornar a passar per les mostres que no va prendre mai (docs/30, docs/60).
+    out.missed = out.awake_only ? 0 : missed;
     Entry again = out;
     again.on_mono_ms = next;
     insert_at(insertion_point(again.on_mono_ms), again);
   }
-  ++g_revision;
+  // **I el que no es desa no fa escriure la flash** (0.192.60): la revisió és el que diu a `save_alarms` que la cua ha canviat,
+  // i un tick que es torna a posar cada minut no ha canviat res que s'hagi de recordar (docs/60).
+  if (!out.awake_only) ++g_revision;
   return true;
 }
 
@@ -254,6 +284,9 @@ size_t describe(uint32_t index, int64_t mono_now_ms, int64_t epoch_now_ms, int32
   if (entry.raise_to_front) {
     used += static_cast<size_t>(snprintf(extra + used, sizeof(extra) - used, ", raises the app"));
   }
+  if (entry.awake_only) {
+    used += static_cast<size_t>(snprintf(extra + used, sizeof(extra) - used, ", awake only"));
+  }
   if (entry.payload_kind != Payload::kNone) {
     snprintf(extra + used, sizeof(extra) - used, ", payload %s %u B",
              (entry.payload_kind == Payload::kNumber) ? "number" : "text",
@@ -280,6 +313,7 @@ size_t dump(int64_t mono_now_ms, int64_t epoch_now_ms, char* buf, size_t cap) {
   for (uint32_t i = 0; i < g_count; ++i) {
     const Entry& entry = g_entries[i];
     if (!entry.persist) continue;
+    if (entry.awake_only) continue;  // a tick is not written down: it is the app's, and the app asks again
 
     char payload[kPayloadBytes];
     copy_text(payload, sizeof(payload), entry.payload);

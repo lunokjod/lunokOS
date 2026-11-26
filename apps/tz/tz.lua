@@ -18,10 +18,10 @@
 --
 -- **EL QUE COMPTA ÉS L'HORARI D'ESTIU I NO EL DIA DE TRASPÀS** (0.179.50). The owner, with the page on the emulator:
 -- *«A l'app Time zone surt "Leap year" i aquesta dada no es important, l'important es el "Daylight time" (horari
--- d'estiu!)»*. The leap day is a calendar of the whole board and it has its own two homes —`cfg leap` and the automatic
--- one of a clock that came from a server—, so the box of this page is the hour a person really has in summer: **checked,
--- the offset of the map goes one hour east** (`kDaylightMinutes`), in the bands, in the label and in what the close
--- saves. It is a shift and not a second setting: the system keeps one number, and a board that reads +02:00 in July and
+-- d'estiu!)»*. The leap day is not a setting of this board at all any more (0.192.57, l'amo: *«sabem com calcular si es any
+-- de taspàs o no ho es… no cal un toggle manual»*): es compta de la data, i el que una persona tria aquí és l'hora que té
+-- de debò a l'estiu. **Checked, the offset of the map goes one hour east** (`kDaylightMinutes`), in the bands, in the label
+-- and in what the close saves. It is a shift and not a second setting: the system keeps one number, and a board that reads +02:00 in July and
 -- +01:00 in December has the same setting all year (docs/30, docs/60).
 --
 -- **THE THREE SETTINGS ARE THE SYSTEM'S CONTROLS AND THE MAP IS THE APP'S** (0.174.0): a `ui.button` with its `title`, a
@@ -141,10 +141,8 @@ local chosen_hour = 0
 -- (docs/30, docs/60).
 local opened = 0
 -- **L'horari d'estiu és una hora de més sobre el que diu el mapa** and it is the page's until the close, like the
--- offset itself. `leap` stays because a clock that comes from a server turns the leap day on (the rule of 9/11), and this
--- page is where that clock is asked for (docs/60).
+-- offset itself (docs/60).
 local dst = false
-local leap = true
 local week = 1
 local status = ''
 -- ============================================================== the shape of the view (`state`, docs/30)
@@ -158,6 +156,11 @@ local kLayout = 'v1'       -- bumped when a control is renamed or the page chang
 local state_block = nil    -- the block: asked once and kept for the life of the app
 
 local function the_state()
+  -- **Un bloc que el sistema s'ha quedat no es pot fer servir** (0.192.55): the session blocks are the first thing the allocator
+  -- gives back when the memory is short, and every call on one that is gone raises `the session memory was given back`, which ends
+  -- the app. It is asked again —that is what the contract says an app must do— and if there is no room the page is built as if it
+  -- were the first time (docs/30, docs/75).
+  if state_block ~= nil and not state_block:alive() then state_block = nil end
   if state_block == nil then
     local block = sys.session('state', kStateBytes)
     if block == nil then return nil end
@@ -470,14 +473,13 @@ chosen = chosen_hour * kMinutesPerHour
 -- ones, o sigui que el que s'ha de mirar no és `time.tz()` sinó aquest número: una pàgina que no s'ha mogut no desa res, i una
 -- que s'ha mogut desa el que el mapa diu (0.189.142, docs/30, docs/60).
 opened = chosen
-leap = time.leap()
 -- **L'hora d'estiu és la del sistema i no la d'aquesta visita** (0.182.0): the box shows what the board has kept, so a person who
 -- comes back finds it ticked and the hour they left (docs/30, docs/60).
 dst = time.dst() and true or false
 week = time.week()
--- **The controls are placed after the state is read and before the page is painted**: they show the leap day and the
+-- **The controls are placed after the state is read and before the page is painted**: they show the hour of summer and the
 -- first day of the week the board has, and the first `present` composes them over the paper, so this page is made of its
--- primitives and of three controls the system owns (0.174.0).
+-- primitives and of the controls the system owns (0.174.0).
 place_settings()
 
 -- **The places the page can be touched, said out loud when the app is asked to**: `run tz zones` prints the box of the
@@ -579,15 +581,9 @@ sync_clock = function()
   sync.disabled = false
 
   if ok then
-    -- **An hour that came from a time server turns the leap day on**: the calendar of the world has the twenty-ninth
-    -- of February, and a board that has just been told what day it is does not need to be told that too (the owner's
-    -- rule, 9/11, docs/60).
-    -- **I el dia de traspàs ja no té casella en aquesta pàgina** (0.179.50): the setting is still turned on by a clock that
-    -- came from a server —the rule of 9/11— and it is read and written with `cfg leap` and `time.leap`, but the page of the
-    -- hour is the page of the hour (docs/60).
-    if not leap then
-      leap = time.leap(true)
-    end
+    -- **Un rellotge que ve d'un servidor no mou el calendari**: the twenty-ninth of February is the Gregorian rule and it is
+    -- already there —a leap year is counted from the date—, o sigui que el que aquesta pàgina fa amb l'hora que ha rebut és
+    -- dir-la i prou (0.192.57, docs/60).
     local now = time.date()
     status = string.format('synced %04d-%02d-%02d %02d:%02d', now.year, now.month, now.day, now.hour, now.min)
     console.print('tz: ' .. status)

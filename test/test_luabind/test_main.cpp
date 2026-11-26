@@ -115,8 +115,8 @@ void test_time_now_ms_moves_with_the_seconds(void) {
 
 // **`time.epoch` és la inversa de `time.date`, i només accepta dies que existeixen** (0.189.142): the page of the settings
 // offers the thirty-first of every month, and a call that turned the thirty-first of February into the second of March would
-// set the clock to a day nobody asked for and say the one they did. The length of February follows `cfg leap`, which is the
-// calendar's own switch —the same one `time.date` counts back— (docs/30, docs/60).
+// set the clock to a day nobody asked for and say the one they did. **El febrer el compta la regla del calendari i no un
+// ajust** (0.192.57): 2028 has a twenty-ninth and 2026 does not, i no hi ha res a encendre ni a apagar (docs/30, docs/60).
 void test_time_epoch_is_the_inverse_of_date_and_refuses_a_day_that_does_not_exist(void) {
   pal::init();
   hal::IClock* clock = hal::platform().clock();
@@ -124,7 +124,6 @@ void test_time_epoch_is_the_inverse_of_date_and_refuses_a_day_that_does_not_exis
   TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));  // 2026-01-01 00:00:00 UTC
   TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
   TEST_ASSERT_TRUE(run("time.tz(0)\n"
-                       "time.leap(true)\n"
                        "assert(time.epoch(2026, 1, 1, 0, 0) == 1767225600)\n"
                        "local d = time.date()\n"
                        "assert(time.epoch(d.year, d.month, d.day, d.hour, d.min) == time.now() - time.now() % 60)\n"
@@ -136,11 +135,30 @@ void test_time_epoch_is_the_inverse_of_date_and_refuses_a_day_that_does_not_exis
                        "assert(time.epoch(2028, 2, 29, 12, 0) ~= nil)\n"
                        "local bad3, why3 = time.epoch(2026, 2, 29, 12, 0)\n"
                        "assert(bad3 == nil and why3.code == 'E_INVAL', tostring(why3 and why3.code))\n"
-                       "time.leap(false)\n"
-                       "local bad4, why4 = time.epoch(2028, 2, 29, 12, 0)\n"
-                       "assert(bad4 == nil and why4.code == 'E_INVAL', tostring(why4 and why4.code))\n"
-                       "time.leap(true)\n"
                        "assert(time.epoch(2026, 5, 1, 0, 0) == time.epoch(2026, 4, 30, 0, 0) + 86400)"));
+  luabind::stop();
+}
+
+// **`time.leap()` es calcula de la data i no s'escriu** (0.192.57, l'amo: *«sabem com calcular si es any de taspàs o no ho
+// es… no cal un toggle manual»*): the call answers whether the year of the clock has its twenty-ninth of February —2026 has
+// not— and it takes no argument, perquè un any de traspàs no és cap ajust que es giri (docs/30, docs/60).
+void test_time_leap_is_counted_from_the_date_and_cannot_be_set(void) {
+  pal::init();
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));  // 2026-01-01 00:00:00 UTC, not a leap year
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("time.tz(0)\n"
+                       "assert(time.leap() == false, '2026 is not a leap year')\n"
+                       "local no, why = time.leap(true)\n"
+                       "assert(no == nil and why.code == 'E_INVAL', tostring(why and why.code))\n"
+                       "assert(time.leap() == false, 'a refused call changed the calendar')"));
+  luabind::stop();
+
+  // 2028 has the twenty-ninth, so the same call says the other thing with no setting in between.
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(1830297600000LL));  // 2028-01-01 00:00:00 UTC, a leap year
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("assert(time.leap() == true, '2028 is a leap year')"));
   luabind::stop();
 }
 
@@ -1173,7 +1191,6 @@ bool fake_read_settings(luabind::Settings& into) {
   into.home = "home_eink";
   into.week = "sunday";
   into.tz = "+02:00";
-  into.leap = false;
   into.dst = true;
   into.sort_by_usage = true;
   into.turn = 12000;
@@ -1200,7 +1217,7 @@ void test_sys_settings_answers_what_the_prompt_prints(void) {
                        "assert(s.home == 'home_eink', tostring(s.home))\n"
                        "assert(s.week == 'sunday', tostring(s.week))\n"
                        "assert(s.tz == '+02:00', tostring(s.tz))\n"
-                       "assert(s.leap == false, tostring(s.leap))\n"
+                       "assert(s.leap == nil, 'the leap day is not a setting any more')\n"
                        "assert(s.dst == true, tostring(s.dst))\n"
                        "assert(s.sort_by_usage == true, tostring(s.sort_by_usage))\n"
                        "assert(s.turn == 12000, tostring(s.turn))"));
@@ -1373,6 +1390,50 @@ void test_an_alarm_that_is_already_there_is_named_and_not_added(void) {
   alarms::reset();
 }
 
+// **Un tick per app i no una col·lecció** (0.192.63, l'amo: *«es repeteixen els ticks a la cua? Només un tick per app. Si una app en
+// demana unaltre, s'esborra l'anterior i es fa la que acaben de demanar»*). `tick.every` amb la mateixa configuració torna el mateix
+// id i no afegeix res —una pàgina que s'obre demana el seu rellotge a cada arrencada i no n'ha de tenir dos—, i una configuració
+// diferent **substitueix** la que hi havia: la cua té vuit seients per a tot el sistema i una app que canvia el ritme no en demana dos.
+// I el que és de l'app no es toca: el tick d'una altra hi és igual abans i després (docs/30, docs/60).
+void test_a_tick_replaces_the_one_that_the_other_app_had(void) {
+  pal::init();
+  alarms::reset();
+  luabind::Boot boot = test_boot();
+  boot.app_id = "ticktest";
+  TEST_ASSERT_TRUE(luabind::start(boot, kGenerousLimit));
+  TEST_ASSERT_TRUE(run(
+      "local a, same = tick.every(60, 'mine')\n"
+      "assert(type(a) == 'number' and a > 0 and same == nil, tostring(a))\n"
+      "assert(#tick.list() == 1, tostring(#tick.list()))\n"
+      // El mateix, demanat una altra vegada: el mateix id i cap entrada nova.
+      "local b, again = tick.every(60, 'mine')\n"
+      "assert(b == a and again == true, tostring(b) .. ' ' .. tostring(again))\n"
+      "assert(#tick.list() == 1, tostring(#tick.list()))\n"
+      // Un altre ritme: se'n va el vell i en ve un de nou, i l'app en té un de sol.
+      "local c = tick.every(10, 'mine')\n"
+      "assert(type(c) == 'number' and c ~= a, tostring(c))\n"
+      "local list = tick.list()\n"
+      "assert(#list == 1, tostring(#list))\n"
+      "assert(list[1].period == 10, tostring(list[1].period))\n"
+      "assert(list[1].payload == 'mine', tostring(list[1].payload))\n"));
+  TEST_ASSERT_FALSE(luabind::failed());
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+
+  // **I el ganxo que diu que no hi havia res a fer no és una fallada** (0.192.65): `on_tick` returning `false` is an answer and
+  // not a refusal —the call went through—, i és el que distingeix l'app que ha fet la feina de la que no (docs/30, docs/60).
+  alarms::Entry entry;
+  TEST_ASSERT_EQUAL_UINT32(1, alarms::count());
+  TEST_ASSERT_TRUE(alarms::at(0) != nullptr);
+  entry = *alarms::at(0);
+  TEST_ASSERT_TRUE(run("function on_tick(payload, meta) return false end\n"));
+  TEST_ASSERT_TRUE(luabind::call_alarm(entry, 12));
+  TEST_ASSERT_TRUE(run("function on_tick(payload, meta) end\n"));
+  TEST_ASSERT_TRUE(luabind::call_alarm(entry, 12));
+  TEST_ASSERT_FALSE(luabind::failed());
+  luabind::stop();
+  alarms::reset();
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1383,6 +1444,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_time_now_is_the_platform_clock);
   RUN_TEST(test_time_now_ms_moves_with_the_seconds);
   RUN_TEST(test_time_epoch_is_the_inverse_of_date_and_refuses_a_day_that_does_not_exist);
+  RUN_TEST(test_time_leap_is_counted_from_the_date_and_cannot_be_set);
   RUN_TEST(test_time_caps_says_where_the_epoch_comes_from);
   RUN_TEST(test_qr_encodes_any_text_for_an_app);
   RUN_TEST(test_json_reads_a_field_without_building_a_tree);
@@ -1436,6 +1498,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_bt_ready_move_and_click_reach_the_radio);
   RUN_TEST(test_sys_session_destroy_says_how_much_went);
   RUN_TEST(test_an_alarm_that_is_already_there_is_named_and_not_added);
+  RUN_TEST(test_a_tick_replaces_the_one_that_the_other_app_had);
   UNITY_END();
   return 0;
 }

@@ -292,10 +292,10 @@ end
 -- amb ells; vegeu `admin.triple_tap_close`). La finestra de tres segons continua sent la de l'amo: el que separa un toc d'un
 -- altre és una persona i no el rellotge del vidre.
 -- **El tercer toc no obre res des d'aquí** (0.189.101): the click arrives inside a hook of the system —`on_click` is called from
--- the turn of the touch, in a protected call of its own— and **`app.exit()` raises the error that ends the app**, so calling it
--- here leaves the app alive: the hook catches it, the console says `on_click: app.exit` and the page stays with its lock open
--- and the app running (found on the emulator, 15/11). The wish is a flag and the page's own turn does the rest, which is the
--- road the controls of every app of this system take (docs/30, docs/90).
+-- the turn of the touch, in a protected call of its own— i el que el ganxo no pot fer és **desfer el camí sencer de la pàgina**: el
+-- desig és una bandera i el torn propi de la pàgina fa la resta. **`app.exit()` sí que travessa el ganxo des de la 0.192.49** —el
+-- comiat és una intenció i no un error, i el torn del nucli el compleix—, però aquesta pàgina ha de fer una cosa abans de marxar
+-- (obrir el `home` o netejar el pany) i per això la bandera continua essent la seva manera (docs/30, docs/90).
 count_a_tap = function(now)
   if window_gone(now) then taps = 0 end
   lastTapMs = now

@@ -89,6 +89,17 @@ bool available(uint8_t id) {
       return caps.has(hal::kCapImu);
     case kEnvRead:
       return caps.has(hal::kCapEnv);
+    // **Les tres files de l'escolta, només on hi ha el xip**: una placa sense LoRa no ha d'ensenyar `lora.listen` amb un zero,
+    // que és una pregunta que aquella placa no pot respondre (docs/50).
+    case kLoraListen:
+    case kLoraSniff:
+    case kLoraPoll:
+      return caps.has(hal::kCapLora);
+    // **El cel només hi és a la placa que el mira** (0.192.63): les dues files del receptor surten al `stats` d'una T5S3 i no a les
+    // altres, com les de la ràdio (docs/30, docs/50).
+    case kGpsOn:
+    case kGpsPoll:
+      return caps.has(hal::kCapGps);
     case kNetWifi:
     case kNetNtp:
       return caps.has(hal::kCapWifi);
@@ -156,6 +167,11 @@ const char* const kNames[kCount] = {
     "radio.tap",
     "app.start",
     "crypto.key",
+    "lora.listen",
+    "lora.sniff",
+    "lora.poll",
+    "gps.on",
+    "gps.poll",
 };
 char g_app[32] = {0};
 Entry g_app_start = {0, 0, 0, 0, 0};

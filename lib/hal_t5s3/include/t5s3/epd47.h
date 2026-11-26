@@ -37,6 +37,12 @@ class Epd47 : public ISurface {
   void pixel(uint16_t x, uint16_t y, uint8_t level) override;
   void blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* packed, uint16_t stride) override;
 
+  // **La pàgina, donada enrere** (0.192.59): el framebuffer d'epdiy és al marc del vidre —960×540, i la pàgina n'és una de girar—,
+  // o sigui que **el gir el desfà aquest fitxer** (`to_glass`) i el nucli rep la imatge en el marc de la pàgina, que és la que una
+  // persona mira i la que un fitxer ha de portar (docs/50, docs/85). Una fila de cinc-centes quaranta cel·les és cinc-centes quaranta
+  // lectures d'un nibble quan la demana una captura i no un píxel de res.
+  bool read_row(uint16_t y, uint8_t* packed, uint16_t stride) const override;
+
   // **Una pintada és una crida a epdiy**: the quality the kernel asks for is the draw mode the library takes, and the library
   // decides how many phases that is, with its own transition matrix and its own temperature (docs/50, docs/95).
   bool flush(UpdateMode mode) override;

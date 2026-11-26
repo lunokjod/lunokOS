@@ -1077,6 +1077,23 @@ bluetooth: pairing...
   contesta que no fins que quelcom s'ha lligat en aquest mateix run—. Les proves del camí del report i de la llista de l'scan són aquí;
   les del maquinari segueixen demanant un teclat a la mà.
 
+## El LoRa: un aire inventat que es declara (0.192.49)
+
+El model de la T5S3 diu que porta un SX1262 (`Model::lora`) i `lib/hal_emulator/src/emu_lora.cpp` li dona **un aire
+que aquest fitxer s'inventa i que la documentació diu**: no hi ha cap xip a l'altre costat de res, i el que hi ha és el
+que fa falta perquè una pàgina d'escombrat es pugui mirar sense una placa a la mà.
+
+- **Tres nodes de LoRa a la banda de 868**: 868,1 MHz amb SF9 i −67 dBm, 868,3 amb SF7 i −104 dBm, i 868,5 amb SF12 i
+  −88 dBm. Cada un dona un paquet cada dos, dos i mig i tres segons amb el seu text (`n1 temp 21.4 hum 48`, `n2 batt
+  87%…`, `n3 counter 4172`), i **un de cada vuit arriba amb el CRC malament**, perquè una pàgina que ensenya el CRC
+  també es pugui provar amb una pèrdua.
+- **Una portadora contínua a 433,92 MHz** que no dona cap paquet: és el que un monitor ha de saber distingir d'una
+  senyal, i el que fa que `apps/lora` no sigui un llistat de números bonics.
+- **Un terra de soroll que es mou** al voltant de −121 dBm, i **l'amplada de banda del receptor mana**: el que cau fora
+  del canal que s'escolta no compta, o sigui que un escombrat de 100 kHz de pas veu els tres pics i un de 200 no en veu cap.
+- **El que no fa**: no transmet res (la interfície no té cap porta per fer-ho), no simula el fil del SPI i el seu
+  rellotge és el del run.
+
 ## El rentat entre dues apps: el sistema mira què ha ensenyat la pàgina (1/11, 0.37.0)
 
 Quan una app marxa, la vista es posa blanca i **el vidre s'ha de quedar net**, i el que costa netejar-lo no és
@@ -1262,6 +1279,7 @@ provava cadascuna ho diuen les taules de docs/50 i docs/92.
 | Aire (`env.read`) | **De mentida i a la mà del test**: el model del Paper té sensor i els ATOM no, i les dues xifres són el que diuen `--env-celsius` i `--env-humidity`; `--env-fail` és un xip que hi és i no contesta, que és `E_IO` i no `E_UNSUPPORTED` | El SHT30 per la I2C interna: una comanda, sis bytes i dos CRCs (docs/50). **L'emulador no té bus**: no hi ha cap clock stretching que es pugui comptar, així que un sensor que l'emulador llegeix bé pot ser un sensor que la placa dona per mort (va passar l'1/11: `env yes` al PC i `env no` a la placa, docs/50) |
 | Tecles (`button.*`, `on_button`) | **De mentida i a la mà del test o del ratolí**: `emu::press_button(true/false)` prem la principal i `emu::press_key(n, true/false)` qualsevol de les tecles **del model** (fins a tres; una a l'ATOM i al Matrix, tres al Paper, cap al T-Koala), i amb `--gui` els botons de la finestra fan el mateix amb un clic. El temps que es compta és el del PC. La forma, però, encara és la de la Paper a tots els models: un dial compost a la cara **dreta** (`centre`, `up` i `down`), o sigui que una app que tria per posició es pot provar al PC. Fer que la forma segueixi el model és el que queda de M8 (docs/90) | El GPIO39 de l'ATOM i les tres de la Paper; el T-Koala només té RST, que no és una tecla, amb 10 ms de rebot |
 | Tàctil (`touch.*`) | **Un GT911 simulat** (`Model::touch`, `emu::Gt911Panel`): el marc de la pàgina, dos dits, la mida del contacte i les tres transaccions del bus a 100 kHz (**800, 1 830 i 2 550 µs** segons els dits). **Escombra sol i dona el marc una vegada**, o sigui que un lector més ràpid que el vidre llegeix «ningú» la meitat de les vegades (docs/85) | El GT911 de debò: el mateix protocol, i a sobre un bus que comparteix amb el rellotge, la FRAM i el SHT30, amb clock stretching de fins a 6 ms del sensor i NAKs possibles |
+| LoRa (`lora`, l'app `lora`) | **De mentida i només a la T5S3** (0.192.49): `Model::lora` i un espectre inventat —tres nodes de 868 i una portadora a 433,92— que es declara aquí a sobre. El que imita és el contracte del SX1262 i no el fil (docs/50, docs/85) |
 | Bluetooth (`bt`, `bt host`) | **De mentida, i només on el build del model en té** (0.190.200): `Model::bt` és cert a l'ATOM, al Matrix, a la Paper i a la T5S3 —les quatre que porten NimBLE al seu `sdkconfig`— i fals al T-Koala i al devkit. Allà on n'hi ha, l'exploració troba una taula d'aparells d'aquest binari —un teclat, un ratolí, un telèfon, una televisió i un que no diu com es diu—, amb adreces `C0:FF:EE:…` que no existeixen enlloc, i `--bt-scan <n>` en tria quants. `--bt-connected` fingeix un mòbil a l'altre cap del nostre teclat i `--bt-type <s>` fa que aquell teclat escrigui pel camí de debò quan es lliga, que és l'única manera de provar el report HID sense un teclat a la mà (docs/50, docs/85) |
 
 **I el que sobreviu d'un run a l'altre, comprovat a l'emulador el 3/11 amb la 0.59.0** i el mateix
@@ -1343,6 +1361,21 @@ es mesura a la placa (docs/95).
   (`clrcheck` en va ser una) no s'hi deixa, ni tan sols mentre dura la mesura si algú altre ho ha de
   veure. Es mesura amb una app del repositori, amb `--dump` o amb una prova escrita; si de debò cal una
   app nova, **es pregunta abans** (docs/40).
+
+## El cel de mentida (0.192.63)
+
+**El model de la T5S3 diu que porta un receptor GNSS i l'emulador en dona un** (`lib/hal_emulator/src/emu_gps.cpp`), perquè una
+pàgina del cel sense cel no es pot provar: una pantalla buida no distingeix «encara no hi ha posició» de «el driver no llegeix
+res». El que fa és el que fa un receptor de debò, amb les seves tres fases: **el primer segon no mesura res** (l'SNR és zero i
+encara no hi ha cel), **als sis segons té posició** —com un M10Q escalfat, i prou poc per no fer esperar una prova mitja hora— i
+després **camina**: un metre i mig per segon cap al nord-est des de la plaça de Catalunya (41,387 °N i 2,170 °E), amb deu
+satèl·lits al seu horitzó, els que compta per a la posició i l'hora del cel que avança amb el rellotge de la placa.
+
+**No hi ha cap UART ni cap NMEA**: el que s'imita és `hal::IGps` i no el cable, o sigui que els sis segons, el sondeig de bauds
+i el segall de les frases són del driver de la placa i no de l'emulador. El que sí que és igual és el contracte: el mòdul es diu
+`MIA-M10Q`, contesta a 38 400 bauds i `gps.poll` compta una frase per pregunta. **I com que el rellotge del cel és un altre que el
+de la placa** —el model hi posa el 26 de novembre de 2026 a les 13:30 UTC—, la sincronització de Settings→Clock es pot veure de
+debò: `cfg gpssync on` fa sortir `[I][GPS] the clock is the sky's: …` amb el número que s'ha mogut (docs/30, docs/60).
 
 ## Mirar la pàgina: `--dump`
 

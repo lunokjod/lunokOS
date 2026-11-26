@@ -15,7 +15,7 @@
 --                  `cfg.sort`, `cfg.turn`, `cfg.cursor`, `cfg.freq` (les tres velocitats que el governador pot fer servir),
 --                  `cfg.settings` (l'app que obre el botó dels ajustos del panell), `cfg.lock`/`cfg.lock_on`/`cfg.lock_after`
 --                  (la pàgina que tapa el vidre, si el bloqueig és actiu i quants minuts sense màns el disparen; 0.189.150),
---                  més `time.tz`/`dst`/`leap`/`week`/`set`, `fs.cfg`, `power.cpu` i `power.cpu_auto`. Cada porta **respon el que
+--                  més `time.tz`/`dst`/`week`/`set`, `fs.cfg`, `power.cpu` i `power.cpu_auto`. Cada porta **respon el que
 --                  queda dempeus**, i la pàgina torna a llegir el valor després d'escriure'l: el que s'ensenya és el que el
 --                  sistema ha acceptat (docs/30, docs/70).
 --   LA MESURA      la pestanya de la CPU **diu què és el número d'un torn i què val en aquesta placa**: la volta de
@@ -42,7 +42,9 @@ end
 -- person left for nothing, which is the one cosa que el bloc existeix per a recordar (docs/30, docs/45 §5 bis).
 -- **v2** (0.190.5): el commutador `sleep` va passar de la pestanya System a la de Battery, i un bloc que diu «pestanya 5 i cercle a
 -- `sleep`» és una parella que ja no existeix; el que una persona havia deixat es torna a triar una vegada i prou (docs/30).
-local kLayout = 'v2'   -- puja quan un control AMB FOCUS canvia de nom, o quan la forma del bloc canvia
+-- **v3** (0.192.57): la casella `leap` de la pestanya Clock va marxar —l'any de traspàs es compta de la data i no es tria—, o
+-- sigui que un bloc que la tenia amb el cercle és una parella que no existeix i es llença (docs/30, docs/60).
+local kLayout = 'v4'   -- puja quan un control AMB FOCUS canvia de nom, o quan la forma del bloc canvia
 local kCheapMode = 'du'
 -- **Quant s'espera una hora d'un servidor** (0.189.143): the same deadline the page of the time zone asks with, because the two
 -- buttons are the same request and a person should not wait longer on one page than on the other (docs/30, docs/60).
@@ -742,7 +744,38 @@ function build()
   end
   choice_row(1, 'week', 'First day', WEEKS, function() return (time.week() == 7) and 2 or 1 end,
              function(index) time.week((index == 2) and 7 or 1) end)
-  check_row(1, 'leap', 'Leap year', function() return time.leap() end, function(on) time.leap(on) end)
+  -- **El commutador del cel** (0.192.63, l'amo: *«Si es pot utilitzar la senyal per ajustar l'hora i la zona horària del sistema:
+  -- afegir l'opció a l'app Settings->Clock un ToggleBox "Sync with GPS" (deshabilitat en cas de no tenir gps al sistema)»*). Encès,
+  -- el rellotge de la placa i la seva RTC es posen amb la data del receptor, i la zona horària amb la longitud —l'hora del sol—,
+  -- perquè el NMEA no porta cap zona (docs/30, docs/60).
+  --
+  -- **I en una placa que no mira el cel es veu i no es pot tocar**: el dial no hi passa (no és enfocable) i el requadre es pinta
+  -- apagat, que és el que aquest sistema sap fer amb un control que no serveix en aquesta placa —el botó de la xarxa fa el mateix
+  -- quan no hi ha cap wifi guardada— (docs/30, docs/45).
+  local gps_box = check_row(1, 'gpssync', 'Sync with GPS', function()
+    local ok, on = pcall(cfg.gps_sync)
+    return ok and on == true
+  end, function(on)
+    local ok, kept = pcall(cfg.gps_sync, on)
+    if not ok then
+      say('This board does not look at the sky')
+      console.print('settings: the sky cannot set the clock here (' .. tostring(kept and kept.code or 'no door') .. ')')
+      return
+    end
+    say(on and 'The clock is set from the sky' or 'The clock is set by hand again')
+    console.print(string.format('settings: gps sync %s, the clock is %s', on and 'on' or 'off',
+                                tz_text(time.offset())))
+  end)
+  if gps_box ~= nil and not caps.gps then
+    gps_box.focusable = false
+    gps_box.border = 8
+    gps_box.mark = 8
+    local words = words_of[gps_box]
+    if words ~= nil then
+      words.text = 'Sync with GPS (none)'
+      words.color = 8
+    end
+  end
   -- **El botó de l'hora espera la resposta i diu la veritat** (0.189.143): `net.ntp` is a promise of the kernel's queue like every
   -- other request of the radio, and this button was calling it **without `await`**: `pcall` answered `true` with the promise in
   -- its hand, so the page said *«The hour comes from the network»* on a board with no network saved —the commonest board there

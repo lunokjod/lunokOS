@@ -230,9 +230,10 @@ dita al fitxer i no un oblit.
 | `banner` | `focus` (quin dels tres controls té el cercle) i `playing` (**si el rètol era al vidre**). **El nom i el ritme no hi són**: són el badge i viuen a `fs.data('banner.txt')`, que és la mateixa línia que separa una forma d'una dada (0.192.29) |
 | `appinfo`, `battery`, `clock`, `meteo` | **el que la seva pàgina és**: `appinfo` la pestanya i el detall obert (`page`, `focus`, `marked`), `battery` el cercle i prou —**la finestra del gràfic és una preferència i viu a `fs.data`**, que és la línia que separa la forma del gust—, `clock` la pestanya dels quatre fulls, el cercle i la fila triada (`tab`, `focus`, `marked`), i `meteo` el focus dels tres botons de la finestra —**la finestra triada i el registre de mostres són a `fs.data`**, i el registre no és forma sinó història— |
 | `minesweeper` | `flag` = el commutador de la franja, que és què vol dir un toc en aquesta pàgina; **el camp no hi és**, que una partida és dada i viu a `fs.data('game.txt')` (0.190.76) |
-| `stats` | `tab` (quina de les quatre vistes era al vidre) i `page` (la de la llista, quan la vista en té). **Els comptadors no hi són**: són el que el nucli ha mesurat, no una cosa que la persona va deixar, i la pàgina es torna a llegir en obrir la pestanya (0.192.36) |
+| `stats` | `tab` (quina de les cinc vistes era al vidre) i `page` (la de la llista, quan la vista en té). **Els comptadors no hi són**: són el que el nucli ha mesurat, no una cosa que la persona va deixar, i la pàgina es torna a llegir en obrir la pestanya (0.192.36). **I la finestra de la pestanya Load sí que s'ha de tornar a trobar** (0.192.60, l'amo: *«Usa session state per guardar l'historial entre sortir i tornar a l'app»*): viu en una **sessió pròpia** (`sys.session('load', 4096)`, una línia `ms pct mem` per mostra, cent vuitanta-una mostres = mitja hora) i no a `state` —una història és una caché i no la forma de la vista—, amb un `tick` d'un minut que en pren una mentres la placa és desperta i la pestanya no és al vidre |
 | `files` | `path` (la carpeta on era, amb el nom del muntatge a dins) i `page` (la pàgina d'aquella carpeta); **la tria no hi és** —una tria és una cosa que una persona està fent i la fila on era pot no existir quan la pàgina torna— i **els fitxers amagats tampoc**: són una decisió sobre mirar i viuen a `/cfg/files/settings.txt` (0.190.257) |
 | `password` | **res**: s'obre sempre tancada i la vista que hi ha darrere del pany no és una vista que es pugui tornar —la clau viu en un `local` i mor amb la màquina, i un bloc amb el camí d'una entrada oberta seria un bloc que diu què mirava qui va tenir el vault obert—. **I el vault tampoc no és forma ni dada d'aquesta app**: és un fitxer de la targeta amb el seu nom (0.190.258) |
+| `gps` | **res**: la pàgina és un instrument i ensenya el que el cel diu ara mateix, o sigui que no hi ha cap forma que una persona deixi enrere. El commutador de l'hora no és seu —viu a Settings→Clock i a `/cfg`— i el receptor només s'apaga en tancar si el sistema no el necessita (0.192.63) |
 | `2048`, `brokenapp`, `device_lock`, `luaperf`, `rainbow` | **res**: no tenen cap control amb cercle ni cap pàgina que tornar (les setze cel·les del 2048 són la partida, `rainbow` no té ni `ui`, `brokenapp` és un full de set botons que no recorda res, el pany és una pàgina que es tanca sola i `luaperf` és un instrument de mesura). Un bloc buit seria un kilobyte per no dir res |
 
 **I el que va fer possible que totes aquestes tornessin de debò** (0.189.52): el bloc es llegia amb els zeros del darrere
@@ -384,7 +385,7 @@ perquè la privacitat toca el pany de la pantalla. El que fa és tot del sistema
   preferència per a la mateixa pregunta serien dues files que poden dir coses diferents i vint bytes de DRAM que la Paper no té
   (18/11: `dram0_0_seg` overflowed by 24 bytes) (docs/70, docs/80).
 - **El que la pàgina escriu és de `cfg` i el que la persona va deixar a mitges és de `state`**: les hores i la data es
-  desen amb `time.set`, la zona amb `time.tz`, el calendari amb `time.leap`/`time.week`/`time.dst`, el disc amb `fs.cfg`,
+  desen amb `time.set`, la zona amb `time.tz`, el calendari amb `time.week`/`time.dst` (i `time.leap()` només es pregunta), el disc amb `fs.cfg`,
   el processador amb `power.cpu`, i el teclat, l'arrencada, l'inici, l'ordre, el torn, el cursor i el terra de les dades amb
   `cfg.*` (docs/30 § «`cfg`»). **La pestanya i el cercle són de la pàgina.**
 
@@ -480,7 +481,8 @@ port va ensenyar i que valen per al següent:
   `set_text()` en una tecla que ja era un botó del sistema—. I si la cara no hi és, les tecles
   diuen `Start`, `Pause`/`Resume`, `End` i `Week`/`Day`, que és el que l'original mateix feia quan li faltava la cara.
 - **L'hora d'una persona no és l'hora del xip**, i això va ser una crida nova del sistema: `time.utc()`, `time.date()`
-  i `time.tz()` amb `cfg tz +01:00`, i el calendari té els seus dos ajustos a `cfg leap` i `cfg week` (docs/30, docs/60). Una app que diu «de 7 a 19» ha de dir-ho en l'hora de qui la
+  i `time.tz()` amb `cfg tz +01:00`, i el calendari té el seu ajust a `cfg week` (docs/30, docs/60) —el dia de traspàs no és
+  cap ajust: el compta `time.leap()` de la data. Una app que diu «de 7 a 19» ha de dir-ho en l'hora de qui la
   llegeix, i el desfasament és una cosa que el sistema ha de saber, no cada app.
 
 **I el que sí que es va poder copiar sencer**: el format del fitxer d'apunts (`2026-11-01|09:00:00|S`, només creix,
@@ -548,7 +550,7 @@ Portades i viatjant avui, **divuit** (`home_eink` va a part, a sota):
 | `Meteo` | `meteo` | 0.1.1 |
 | `Agenda` | `agenda` | 0.1.2 |
 | `Snake` | `snake` | 0.1.2 |
-| `Tetris` | `tetris` | 0.1.3 |
+| `Tetris` | `tetris` | 0.1.5 |
 | `Files` | `files` | 0.1.0 |
 | `Password` | `password` | 0.1.0 |
 | `System info` (de `src/apps/info_app.cpp`, pantalla interna) | `stats` | 0.1.0 |
@@ -643,8 +645,19 @@ Usarem els dits per girar la peça (polsant a sobre) o moure-la a esquerra, dret
   **sobre la peça** (la caixa que ocupa, forats inclosos) la gira; un toc a un costat la mou una columna; un toc a sota la baixa
   una fila, i el terra és l'aterratge (el `soft drop` de l'original). **I un toc a sobre també la gira**, perquè enlaire no és un
   camí que faci una peça —de les quatre direccions de la creueta, el dit en té tres i un gir—.
+- **I el lliscament juga, perquè un gest que no fa res és un moviment perdut** (0.192.58, l'amo: *«Les gestures s'empassen els
+  events que li pertanyen i a vegades jugant es dificil de fer un toc i es fa un drop o swipe, perdent temps valuós de partida.
+  Que sigui detecció de les dues maneres (toc i drop) aixì l'usuari aconseguirà el moviment que busca»*): **l'esquerra i la dreta
+  mouen la peça una columna per cada amplada que el dit ha caminat**, **avall la deixa caure al terra d'un sol cop** (el que un
+  swipe avall vol dir, i no una fila com el toc de sota) i **amunt la gira**. El toc i el seu lloc manen com sempre, i un
+  lliscament més curt de mig quadrant és un toc que ha tremolat: les dues deteccions conviuen i el dit rep el moviment que
+  buscava per qualsevol dels dos camins.
 - **I la llei del gir es respecta**: el sistema de rotació de l'original no té *wall kick* ni *lock delay*, o sigui que un gir
   que no hi cap **no passa** i el dit no rep res. És el mateix que va ensenyar la `Snake`: la regla es tradueix, no s'adapta.
+- **I el final d'una partida es veu, amb els seus números** (0.192.58, l'amo: *«al Snake es veu "Game over" i els punts que ha
+  fet i com tenía la partida. Però al Tetris no passa igual? vull que es faci el mateix»*): la banda diu `GAME OVER` amb **els
+  punts, les línies i el nivell** a sota, i la línia de baix diu el final. El forat era que el final de debò —una peça que no pot
+  néixer després d'una aterrada que no fa cap línia— marxava sense pintar-la.
 - **El que es va poder provar sense placa, i és el que fa que el port es pugui dir acabat**: el harness de Lua del port li va
   donar **93 línies i 5 020 punts en vint minuts de joc del CPU** (l'avaluador clàssic del vell, amb el farciment de forats i el
   desnivell de la pila) sense omplir mai el pou, i els quatre estats de la puntuació de 1989 hi són exactes: **40, 100, 300 i

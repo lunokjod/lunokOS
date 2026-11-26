@@ -692,6 +692,14 @@ void It8951::pixel(uint16_t x, uint16_t y, uint8_t level) {
   mark(x, y, 1, 1);
 }
 
+bool It8951::read_row(uint16_t y, uint8_t* packed, uint16_t stride) const {
+  if (packed == nullptr || image_ == nullptr || y >= height_ || width_ == 0) return false;
+  const uint16_t line = static_cast<uint16_t>((width_ + 1) / 2);
+  if (stride < line) return false;
+  memcpy(packed, image_ + static_cast<uint32_t>(y) * (width_ / 2), line);
+  return true;
+}
+
 void It8951::blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* packed,
                   uint16_t stride) {
   if (!ready_ || packed == nullptr || image_ == nullptr || w == 0 || h == 0) return;

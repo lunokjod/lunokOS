@@ -112,6 +112,12 @@ Model model_of(const char* name) {
     out.imu = false;
     out.env = false;
     out.bt = true;  // el seu `sdkconfig` porta NimBLE des de la 0.191.4, amb els búfers del controlador reservats
+    // **I el SX1262 del rail del LoRa** (0.192.49): la placa el porta soldat i el seu HAL el sap posar a escoltar, o sigui que
+    // l'emulador d'aquesta placa l'ha d'anunciar. El que dona és un aire de mentida amb portadores i paquets (docs/50, docs/85).
+    out.lora = true;
+    // **I el receptor GNSS, al mateix rail** (0.192.63): el `LORA_EN` de l'expansor encén el LoRa i el GPS alhora, i la placa en porta
+    // un dels dos mòduls (docs/pinmap.md de la placa).
+    out.gps = true;
     out.dfs = true;
     out.glass = true;  // ED047TC1, 960x540 i quatre bits, sense controlador: la forma d'ona la paga el processador
     out.touch = true;  // el GT911 de sota, a 0x5D

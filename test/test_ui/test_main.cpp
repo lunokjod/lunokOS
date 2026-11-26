@@ -4354,7 +4354,7 @@ void test_a_chart_draws_the_scale_the_line_and_the_last_sample() {
 
   const int16_t values[3] = {90, 95, 100};
   const int32_t times[3] = {600, 630, 660};
-  TEST_ASSERT_TRUE(ui::chart_draw(chart, values, times, 3, 0, 15, 1, "%", 0, 100, 0, "", "", 60));
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, values, times, 3, 0, 15, 1, "%", 0, 100, 0, "", "", 60, 0));
 
   // The frame, and the numbers of the band on its left.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(x0 - 4, y0 - 2));
@@ -4376,7 +4376,7 @@ void test_a_chart_draws_the_scale_the_line_and_the_last_sample() {
 
   // **I la finestra buida no té línia però sí escala**: with no samples the same middle row is paper and the frame is still
   // drawn, which is what a page that has just been opened shows.
-  TEST_ASSERT_TRUE(ui::chart_draw(chart, nullptr, nullptr, 0, 0, 15, 1, "%", 0, 100, 0, "", "", 60));
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, nullptr, nullptr, 0, 0, 15, 1, "%", 0, 100, 0, "", "", 60, 0));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(static_cast<uint16_t>((x0 + x1) / 2), static_cast<uint16_t>(row_95)));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(x0 - 4, y0 - 2));
 
@@ -4384,10 +4384,10 @@ void test_a_chart_draws_the_scale_the_line_and_the_last_sample() {
   // guide is 100, not 101.
   const int16_t full[2] = {100, 100};
   const int32_t when[2] = {600, 660};
-  TEST_ASSERT_TRUE(ui::chart_draw(chart, full, when, 2, 0, 15, 1, "%", 0, 100, 0, "", "", 60));
+  TEST_ASSERT_TRUE(ui::chart_draw(chart, full, when, 2, 0, 15, 1, "%", 0, 100, 0, "", "", 60, 0));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(static_cast<uint16_t>(x0), static_cast<uint16_t>(y0 + 1)));
 
-  TEST_ASSERT_FALSE(ui::chart_draw(chart, values, times, 3, 16, 15, 1, "%", 0, 100, 0, "", "", 60));
+  TEST_ASSERT_FALSE(ui::chart_draw(chart, values, times, 3, 16, 15, 1, "%", 0, 100, 0, "", "", 60, 0));
   ui::release(chart);
 }
 

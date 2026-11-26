@@ -52,9 +52,10 @@ const size_t kTzCap = 8;  // "+01:00" and the null
 // ahead is a typo and not a place.
 const int32_t kTzMaxMinutes = 14 * 60;
 
-// **The calendar a person wants** (0.170.0): the leap day and the first day of the week, kept as the words a person
-// reads with `nvs` —`leap on`/`leap off` and `week monday`/`week sunday`— and not as numbers nobody can look up
-// (docs/60, docs/70).
+// **El dia de traspàs ja no és un ajust** (0.192.57, l'amo: *«sabem com calcular si es any de taspàs o no ho es… no cal un
+// toggle manual»*): a leap year is a fact of the Gregorian calendar, so `cfg/leap` is not read by anything any more and the
+// key only exists here **to be erased from a store an older build wrote** (docs/60, docs/70). The first day of the week is
+// the setting that is left, kept as the word a person reads with `nvs` —`week monday`/`week sunday`— (docs/60, docs/70).
 const char kLeapKey[] = "leap";
 // **The hour of summer, as the two words a person reads in the store** (0.182.0, docs/30, docs/70).
 const char kDstKey[] = "dst";
@@ -86,6 +87,10 @@ const size_t kFreqCap = 12;  // "80,160,240" and the null
 // docs/70).
 const char kLockKey[] = "lock";
 const char kLockOnKey[] = "lockon";
+// **El commutador de la pàgina de Settings→Clock** (0.192.63, l'amo: *«afegir l'opció a l'app Settings->Clock un ToggleBox "Sync with
+// GPS" … En cas d'activa el GPS, es sincronitzarà el rellotge, tant intern com l'RTC»*): el que la placa recorda és si ha de creure
+// l'hora del cel quan en tingui (docs/30, docs/60).
+const char kGpsSyncKey[] = "gpssync";
 const char kSleepKey[] = "sleep";
 const char kTouchWakeKey[] = "touchwake";
 // **La becaina** (0.190.63): the switch of the Battery tab that turns the light sleep of the waits on and off.
@@ -183,6 +188,10 @@ char g_settings[kNameCap] = "settings";
 // this system carries for exactly this—, the switch off, and ten minutes, which is the middle of the three a person can pick.
 char g_lock[kLockCap] = "device_lock";
 bool g_lock_on = false;
+// **I l'hora del cel, apagada de sèrie** (0.192.63): creure el GPS vol dir que el rellotge de la placa salta quan el cel ho diu, i això
+// és una decisió de la persona —una placa que canvia d'hora tota sola quan el GPS té un mal dia és pitjor que una que va dos segons
+// tard— (docs/30, docs/60).
+bool g_gps_sync = false;
 // **El son sol de la placa** (0.190.5): on by default, which is the rule of law 9; the page of the settings turns it off and this is what
 // remembers the answer (docs/60).
 bool g_sleep_on = true;
@@ -234,8 +243,6 @@ uint8_t g_lock_after = kLockAfterDefault;
 uint16_t g_idle_seconds = kIdleDefault;
 // The minutes the local hour is ahead of UTC, which is zero until somebody says otherwise (0.125.0).
 int16_t g_tz_minutes = 0;
-// What the store said, which is also what the calendar is using: the two are written together.
-bool g_leap_years = true;
 // **The hour of summer is off until somebody says otherwise**: a clock that adds an hour on its own is a clock that lies in
 // the winter (0.182.0, docs/60).
 bool g_dst = false;
@@ -290,14 +297,6 @@ bool remember_home() {
   if (g_nvs == nullptr) return false;
   const char* value = (g_home[0] != '\0') ? g_home : "none";
   return keep(kHomeKey, value);
-}
-
-// The offset is written as the text the person typed, and never as a binary number: the store is a place people read
-// with the `nvs` command, and a setting that reads as four unreadable bytes is a setting that hides itself (docs/70).
-bool remember_leap() {
-  if (g_nvs == nullptr) return false;
-  const char* word = g_leap_years ? kOn : kOff;
-  return keep(kLeapKey, word);
 }
 
 bool remember_dst() {
@@ -448,6 +447,11 @@ bool remember_idle() {
   return keep(kIdleKey, text);
 }
 
+bool remember_gps_sync() {
+  if (g_nvs == nullptr) return false;
+  return keep(kGpsSyncKey, g_gps_sync ? kOn : kOff);
+}
+
 bool remember_lock_on() {
   if (g_nvs == nullptr) return false;
   const char* word = g_lock_on ? kOn : kOff;
@@ -540,13 +544,10 @@ void boot(hal::IPlatform& platform) {
   // The hour starts at UTC for the same reason: an emulator that boots twice must not inherit the offset of the run before.
   g_tz_minutes = 0;
   g_idle_seconds = kIdleDefault;
-  // **And the calendar starts as this system was born**: the leap day on and the week from Monday, put in the calendar
-  // before the store is read so that a second boot of the same object —the tests— does not inherit the run before
-  // (docs/60).
-  g_leap_years = true;
+  // **And the calendar starts as this system was born**: the week from Monday, put in the calendar before the store is
+  // read so that a second boot of the same object —the tests— does not inherit the run before (docs/60).
   g_dst = false;
   g_week_start = 1;
-  calendar::set_leap_years(true);
   calendar::set_week_start(1);
 
   char raw[kNameCap] = {0};
@@ -628,21 +629,14 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
-  // **The calendar, if the store says one** (0.170.0): a word this build does not know —a value left by an older
-  // build, a typo in the store— falls back to the calendar of the board and says so, because a calendar that silently
-  // hides a day is worse than one that never moved (docs/60).
-  char raw_leap[kNameCap] = {0};
-  size_t leap_len = 0;
+  // **La clau del dia de traspàs d'una placa vella s'esborra** (0.192.57): a key nobody reads is a key a person sees with
+  // `nvs` and cannot explain, i el que aquest build ha de deixar és un magatzem sense l'opció que ja no existeix. L'esborrar
+  // d'una clau que no hi és no escriu res, o sigui que el preu d'això és una crida per arrencada —i es compta com el que és,
+  // una escriptura, perquè un esborrar desgasta la flash com qualsevol altra (docs/60, docs/70, docs/75).
   if (g_nvs != nullptr) {
-    meter::Scope scope(meter::kKvGet);
-    if (g_nvs->get(kNamespace, kLeapKey, raw_leap, sizeof(raw_leap) - 1, leap_len) && leap_len > 0 &&
-        leap_len < sizeof(raw_leap)) {
-      raw_leap[leap_len] = '\0';
-      if (same(raw_leap, kOn) || same(raw_leap, kOff)) {
-        g_leap_years = same(raw_leap, kOn);
-      } else {
-        log_printf(pal::kLogWarn, "CFG", "leap '%s' is not on or off; the leap day stays", raw_leap);
-      }
+    meter::Scope scope(meter::kKvSet);
+    if (g_nvs->erase(kNamespace, kLeapKey)) {
+      log_printf(pal::kLogInfo, "CFG", "cfg/%s is gone: the leap day is counted from the date and not set", kLeapKey);
     }
   }
   char raw_dst[kNameCap] = {0};
@@ -673,7 +667,6 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
-  calendar::set_leap_years(g_leap_years);
   calendar::set_week_start(g_week_start);
   // **The slice of a turn, if the store says one** (0.174.7): a number that a slice cannot be —an older build's, a
   // typo, a zero— falls back to the one this build ships and says so, because an app that is never cut is a board that
@@ -968,6 +961,17 @@ void boot(hal::IPlatform& platform) {
           log_printf(pal::kLogWarn, "CFG", "touchwake '%s' is not on or off; the glass is not a door", raw_touch);
         }
       }
+      char raw_gps[8] = {0};
+      size_t gps_len = 0;
+      if (g_nvs->get(kNamespace, kGpsSyncKey, raw_gps, sizeof(raw_gps) - 1, gps_len) && gps_len > 0 &&
+          gps_len < sizeof(raw_gps)) {
+        raw_gps[gps_len] = '\0';
+        if (same(raw_gps, kOn) || same(raw_gps, kOff)) {
+          g_gps_sync = same(raw_gps, kOn);
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "gpssync '%s' is not on or off; the sky does not set the clock", raw_gps);
+        }
+      }
       char raw_on[8] = {0};
       size_t on_len = 0;
       if (g_nvs->get(kNamespace, kLockOnKey, raw_on, sizeof(raw_on) - 1, on_len) && on_len > 0 &&
@@ -1060,9 +1064,9 @@ void boot(hal::IPlatform& platform) {
   // `cpu allows 80,16…` al log del 19/11 (docs/30, docs/45).
   // **I el llindar del registre, que decideix quantes d'aquestes línies es veuen** (0.190.89): a line that says the level is written
   // after the filter is already set, or the summary of the boot would be the first thing the filter hides (docs/30, docs/50).
-  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, log %s, boot %s, tz %+03d:%02d, leap %s, dst %s, week %s",
+  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, log %s, boot %s, tz %+03d:%02d, dst %s, week %s",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_log_level, g_boot, g_tz_minutes / 60,
-             (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60, g_leap_years ? kOn : kOff, g_dst ? kOn : kOff,
+             (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60, g_dst ? kOn : kOff,
              (g_week_start == 7) ? kSunday : kMonday);
   // **I la velocitat de la CPU, que es deia a mitges** (0.190.86): the line said which steps are allowed and nothing about
   // the two things that decide what the board actually does —whether the scaling is on, and which step a person chose—, o sigui
@@ -1088,6 +1092,9 @@ void boot(hal::IPlatform& platform) {
   // lightSleep, si no no es pot usar la shell per serial (es menja caràcters) pero no de DeepSleep»*): the switch is said with the two
   // halves of its meaning in one line, perquè una persona ha de veure d'un cop que el son profund no en depèn pas (docs/30, docs/50).
   log_printf(pal::kLogInfo, "CFG", "the console wakes a nap and never a deep sleep: %s", g_uart_wake ? kOn : kOff);
+  // **I si l'hora del cel mana** (0.192.63): una línia i prou, perquè és una decisió que es pren una vegada i que després ningú no
+  // recorda haver pres (docs/30, docs/60).
+  log_printf(pal::kLogInfo, "CFG", "the clock is set from the sky: %s", g_gps_sync ? kOn : kOff);
   log_printf(pal::kLogInfo, "CFG", "the apps a person chose: home %s, settings %s, lock %s; the lock is %s and waits %u min",
              (g_home[0] != '\0') ? g_home : "none", (g_settings[0] != '\0') ? g_settings : "none",
              (g_lock[0] != '\0') ? g_lock : "none", g_lock_on ? kOn : kOff, static_cast<unsigned>(g_lock_after));
@@ -1415,6 +1422,13 @@ bool set_lock_app(const char* id) {
 
 bool lock_on() { return g_lock_on; }
 
+bool gps_sync() { return g_gps_sync; }
+
+bool set_gps_sync(bool on) {
+  g_gps_sync = on;
+  return remember_gps_sync();
+}
+
 bool set_lock_on(bool on) {
   g_lock_on = on;
   return remember_lock_on();
@@ -1631,16 +1645,8 @@ bool set_tz_minutes(int32_t minutes) {
   return remember_tz();
 }
 
-// **The leap day and the first day of the week** (0.170.0): the same shape as the offset —the number in this file,
-// the word in the store, and the calendar told every time so that the page and the call cannot disagree (docs/60).
-bool leap_years() { return g_leap_years; }
-
-bool set_leap_years(bool on) {
-  g_leap_years = on;
-  calendar::set_leap_years(on);
-  return remember_leap();
-}
-
+// **The first day of the week** (0.170.0): the same shape as the offset —the number in this file, the word in the store,
+// and the calendar told every time so that the page and the call cannot disagree (docs/60).
 bool dst() { return g_dst; }
 
 bool set_dst(bool on) {

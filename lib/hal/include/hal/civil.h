@@ -51,6 +51,14 @@ inline void civil_from_days(int64_t z, int& y, int& m, int& d) {
   d = static_cast<int>(day);
 }
 
+// **A year is a leap year when four divides it, except the centuries, except every four hundred**: 2000 was and 1900 was
+// not, and 2100 will not be. It lives here because the civil calendar lives here and because **there is to be one copy of
+// the rule in the system**: `kernel::calendar` counts the days of a month with it and a page counts February with
+// `time.leap()`, so the two cannot disagree (docs/50, docs/60).
+inline bool is_leap_year(int64_t year) {
+  return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
 // The six fields a clock chip holds, in UTC, and back. UTC on purpose: the chip has no idea
 // of a time zone and this project shows local time by adding an offset where it shows it,
 // never by storing a shifted hour (docs/30, docs/60).

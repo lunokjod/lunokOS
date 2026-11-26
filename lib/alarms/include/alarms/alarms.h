@@ -33,6 +33,12 @@ struct Spec {
   int32_t repeat_ms = 0;        // 0 = once, kDailyMs = every day at that time
   bool raise_to_front = false;  // the app goes to the front when it fires
   bool persist = false;         // it has to survive a reboot (M3, NVS)
+  // **Un `tick` i no una alarma** (0.192.60, l'amo: *«M'agradaría que l'app Stats rebés una crida cada minut, però només si
+  // la placa està desperta. No vull que vaigi a l'RTC i desperti la placa. Una crida periódica, demanada per l'app i que el
+  // sistema cridi sempre que estigui despert (deixant-ho de fer si cau en sleeep, i tornant quan es desperta)»*): **no arma mai
+  // el despertar de la placa**, o sigui que la seva hora només la mira el torn del bucle, i si la placa dorm aquell tick es
+  // perd —no es compta com una repetició perduda ni es recupera en despertar— (docs/30, docs/60).
+  bool awake_only = false;
   Payload payload_kind = Payload::kNone;
   const char* payload = nullptr;
 };
@@ -44,6 +50,8 @@ struct Entry {
   int32_t repeat_ms = 0;
   bool raise_to_front = false;
   bool persist = false;
+  // **Un tick no es desa i no arma res**: viu el que viu la placa encesa, i l'app el torna a demanar quan s'obre (docs/60).
+  bool awake_only = false;
   Payload payload_kind = Payload::kNone;
   char payload[kPayloadBytes] = {0};
   // Repetitions that were missed while the system was off. The alarm fires
@@ -88,9 +96,21 @@ uint32_t find_same(const Spec& spec);
 // Only the owner of an alarm may cancel it: an app cannot reach into another.
 bool cancel(const char* app, uint32_t id);
 
-// The deadline of the first alarm, or -1 when the list is empty. This is what
-// the kernel arms on the hardware, and the only thing it arms.
+// The deadline of the first alarm, or -1 when the list is empty.
 int64_t next_due_mono_ms();
+
+// **Els ticks d'una app, tots fora** (0.192.63, l'amo: *«es repeteixen els ticks a la cua? Només un tick per app. Si una app en
+// demana unaltre, s'esborra l'anterior i es fa la que acaben de demanar»*): the queue of this system is one per app —a page has one
+// clock and not a collection of them— and the door of `tick.every` calls this before it adds the new one, so asking twice for a
+// minute and then for ten seconds leaves one tick and not two. Answers how many went, and **does not move the revision**: a tick is
+// not written anywhere, o sigui que treure'l no ha de fer escriure la NVS (docs/30, docs/60).
+uint32_t remove_awake_only_of(const char* app);
+
+// **La propera que pot despertar la placa** (0.192.60): the deadline of the first alarm that is **not** a `tick`, or -1 when
+// there is none. It is what the kernel arms on the hardware —a tick never does, o sigui que una app que demana una crida cada
+// minut no encén el rellotge del xip ni un cop— i és la raó per la qual `next_due_mono_ms` no és prou per a `arm_nearest_alarm`
+// (docs/30, docs/60).
+int64_t next_wake_mono_ms();
 
 // Takes the first alarm when its time has come. A repeating one goes back into
 // the list at its next occurrence, and the copy in `out` says which occurrence

@@ -12,6 +12,8 @@
 #include "kernel/crypto.h"
 #include "kernel/fs_ops.h"
 #include "kernel/env.h"
+#include "kernel/gps.h"
+#include "kernel/lora.h"
 #include "kernel/imu.h"
 #include "kernel/led.h"
 #include "kernel/lock.h"
@@ -306,13 +308,23 @@ void arm_nearest_alarm() {
   hal::IClock* clock = g_platform->clock();
   if (clock == nullptr) return;
 
-  const int64_t next_mono = alarms::next_due_mono_ms();
+  // **La que pot despertar la placa i no la que toca abans** (0.192.60): a `tick` is the app's own clock and it never arms the
+  // wake —that is the whole point of it, l'amo: *«No vull que vaigi a l'RTC i desperti la placa»*—, o sigui que la cua pot tenir
+  // hora i no haver-hi res a armar. El que sí que fa el tick és escurçar la volta del bucle (docs/30, docs/50, docs/60).
+  const int64_t next_mono = alarms::next_wake_mono_ms();
   if (next_mono == g_armed_at) return;
   // **Arming a wake is a write to the RTC**, the chip that has to keep counting with the board asleep
   // (docs/30, docs/50).
   meter::Scope scope(meter::kClockWake);
   g_armed_at = next_mono;
-  const uint32_t id = (alarms::count() > 0 && alarms::at(0) != nullptr) ? alarms::at(0)->id : 0;
+  uint32_t id = 0;
+  for (uint32_t i = 0; i < alarms::count(); ++i) {
+    const alarms::Entry* entry = alarms::at(i);
+    if (entry != nullptr && !entry->awake_only) {
+      id = entry->id;
+      break;
+    }
+  }
   if (!clock->can_wake()) {
     // No timer and no chip that can bring the board back: the deadline is only seen between turns.
     if (next_mono < 0) return;
@@ -399,11 +411,16 @@ void deliver_alarms() {
   // que caigui entremig es queda amb el vidre i la pàgina apartada no torna, que és el que ha demanat (docs/60).
   char parked[40];
   parked[0] = '\0';
+  // **Qui la va apartar**: la pàgina torna igual, però la línia del registre ha de dir si ho va fer un tick o una alarma (docs/30).
+  const char* parked_tag = "ALARM";
   while (alarms::take_due(now, entry)) {
+    // **Un tick i una alarma no són la mateixa cosa al registre** (0.192.60): the same queue carries both, o sigui que la línia
+    // ha de dir quina de les dues ha tocat (docs/30, docs/60).
+    const char* tag = entry.awake_only ? "TICK" : "ALARM";
     // A light says an alarm went off even when the app's answer is a line on a console
     // nobody is looking at. It runs for its own cycles and then the light goes back to
-    // what it was saying (docs/30).
-    led::note(led::Trigger::kAlarm);
+    // what it was saying (docs/30). **Un tick no encén res**: no és un avís per a ningú.
+    if (!entry.awake_only) led::note(led::Trigger::kAlarm);
     const int64_t late = now - entry.on_mono_ms;
     const bool owner_running =
         luabind::running() && (strcmp(luabind::app_id(), entry.app) == 0);
@@ -411,13 +428,13 @@ void deliver_alarms() {
     // and had its hook —the commonest case—, o sigui que el registre callava justament el cas que funciona i només parlava
     // dels tres que fallen. La línia diu de qui és, quant tard arriba, si es repeteix i quantes voltes s'ha perdut, i amb
     // quanta cua es queda el sistema després (docs/30, docs/60).
-    log_printf(pal::kLogInfo, "ALARM", "#%u fired for %s, %lld ms late%s%s, %u left in the queue",
+    log_printf(pal::kLogInfo, tag, "#%u fired for %s, %lld ms late%s%s, %u left in the queue",
                static_cast<unsigned>(entry.id), entry.app, static_cast<long long>(late),
                (entry.repeat_ms > 0) ? ", repeating" : "", (entry.missed > 0) ? " (missed)" : "",
                static_cast<unsigned>(alarms::count()));
     if (owner_running && !luabind::call_alarm(entry, late)) {
-      log_printf(pal::kLogWarn, "ALARM", "%u for %s: the app has no on_alarm",
-                 static_cast<unsigned>(entry.id), entry.app);
+      log_printf(pal::kLogWarn, tag, "%u for %s: the app has no %s",
+                 static_cast<unsigned>(entry.id), entry.app, entry.awake_only ? "on_tick" : "on_alarm");
     } else if (!owner_running && entry.raise_to_front) {
       // raise: the app of the alarm takes the foreground, and whatever was in
       // front of it is closed first (docs/60). **I se li diu què ha sonat**: the entry goes with the start, so the app's
@@ -472,15 +489,18 @@ void deliver_alarms() {
                  "#%u for %s was missed %u time(s) while the board was down: it is re-armed and no page is opened",
                  static_cast<unsigned>(entry.id), entry.app, static_cast<unsigned>(entry.missed));
     } else if (!owner_running) {
-      // Nobody has the app loaded: it gets a window, and the page in front steps
-      // aside for it and comes back when the windows are done (docs/30, docs/60).
+      // **Ningú té l'app carregada: se li obre una finestra, i la pàgina del davant s'aparta i torna** (0.192.70, l'amo, quan el
+      // tick es perdia amb la pàgina tancada: *«es fa una crida a l'app, com es fa amb les alarmes.»*). It is the same road an
+      // alarm without `raise` takes —the page steps aside, the app is loaded, the hook runs and the page comes back as the person
+      // left it—, i per això el tick i l'alarma es diuen amb la seva etiqueta i no amb una de sola (docs/30, docs/60).
       if (parked[0] == '\0' && shell::app_running()) {
         snprintf(parked, sizeof(parked), "%s", shell::app_id());
+        parked_tag = tag;
         shell::close_app(/*say=*/false);
-        log_printf(pal::kLogInfo, "ALARM", "the page of %s steps aside for the window", parked);
+        log_printf(pal::kLogInfo, tag, "the page of %s steps aside for the window", parked);
       }
       if (shell::run_window(entry.app, entry, late)) {
-        log_printf(pal::kLogInfo, "ALARM", "%u delivered to %s in a window (%lld ms late)",
+        log_printf(pal::kLogInfo, tag, "%u delivered to %s in a window (%lld ms late)",
                    static_cast<unsigned>(entry.id), entry.app,
                    static_cast<long long>(late));
       }
@@ -494,9 +514,9 @@ void deliver_alarms() {
     back.id = parked;
     back.come_back = true;
     if (shell::start_a_page(back)) {
-      log_printf(pal::kLogInfo, "ALARM", "the page of %s is back", parked);
+      log_printf(pal::kLogInfo, parked_tag, "the page of %s is back", parked);
     } else {
-      log_printf(pal::kLogWarn, "ALARM", "the page of %s did not come back", parked);
+      log_printf(pal::kLogWarn, parked_tag, "the page of %s did not come back", parked);
     }
   }
 }
@@ -902,6 +922,13 @@ void boot(hal::IPlatform& platform) {
   // The air, the same way: the Paper has an SHT30 and the ATOMs have nothing, and env.read() answers
   // which of the two this is (docs/30, docs/50).
   env::boot(platform);
+  // **I la ràdio que només escolta** (0.192.49): el SX1262 de la placa, que una app fa servir de monitor. Sense el xip no hi ha
+  // cap taula `lora` a Lua, i el servei no fa res (docs/30, docs/50).
+  lora::boot(platform);
+  // **I el receptor del cel** (0.192.63): el mòdul GNSS de la placa, que no té la línia d'interrupció connectada —el pinmap de la placa
+  // només hi porta la UART— o sigui que algú l'ha de llegir a cada volta. Sense el mòdul no hi ha cap taula `gps` a Lua i el servei no
+  // fa res (docs/30, docs/50).
+  gps::boot(platform);
   // The glass, when the board has one: its frames become taps, long presses and drags in the turns
   // of this loop (docs/50).
   // **And the page, which a board without a glass does not have** (0.179.9): the finger, the bar, the canvas of the app,
@@ -1312,6 +1339,12 @@ void poll() {
   // What the light has to say is painted at the end of the turn, once, and only if
   // it changed: a frame is a write on the wire (docs/75).
   led::poll();
+  // **I una ràdio que algú va deixar escoltant** (0.192.49): el xip en recepció gasta mil·liampers i l'única cosa que pot
+  // preguntar per un paquet és l'intèrpret, o sigui que si no n'hi ha el torn el posa en repòs i ho diu una vegada.
+  lora::poll();
+  // **I el cel, a cada volta** (0.192.63): llegir el que el receptor tingui no espera ningú —el que hi hagi a la UART és el que es llegeix—,
+  // i és l'única manera de saber que ha arribat una frase en una placa on el mòdul no avisa (docs/30, docs/50).
+  gps::poll();
 
   // **I el torn del vidre** (0.190.140): un panell que ha de baixar les seves tensions quan ningú no hi pinta. És una línia per volta i el que
   // fa és mirar el rellotge (docs/50).

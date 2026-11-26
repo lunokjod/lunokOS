@@ -169,7 +169,7 @@ funció.
 | `sys.shell()` | objecte de sessió o `nil, error` | **Una sessió del shell del sistema** (0.159.0): el mateix shell que atén el prompt, amb **tres canonades** en comptes d'un terminal. Vegeu «Una sessió del shell» més avall |
 | `sys.commands()` | **una taula de paraules** | **Les comandes que respon el prompt** (0.189.9, i `55` des de la 0.190.281 amb `rotate`), les mateixes que el nucli llegeix a `help` i a la línia de text, perquè una pàgina que les llista i el prompt no es poden contradir. És el que fa servir el selector de comandes de l'app `shell`, que hi posa una fila per paraula i deixa la triada a la línia del prompt **sense enviar-la** |
 | `sys.stats([<paraula>])` | **una taula de paraules** o **cinc números**, o `nil, error` | **Els comptadors del sistema, per a una pàgina** (0.189.108, l'amo: *«si pot ser agafa de les estadístiques els tempos de les apps lua, així es pot valorar quin es el numero mágic i quins valors son segurs per ambdos sistemes»*): sense arguments, **les paraules dels comptadors que aquest build té** (`kernel.loop`, `lua.run`, `lua.own`, `lua.call`, `glass.flush`, `sd.read`…), o sigui que una pàgina llista el que hi ha i no se'n copia la llista; amb una paraula, **les crides i els microsegons** d'aquell comptador (dos enters), i `nil` per a una paraula que no és cap comptador. **I des de la 0.192.36, darrere seu, la més curta, la més llarga i quan va ser l'última** (tres enters més: microsegons, microsegons i mil·lisegons des de l'últim `stats reset`), que són les tres columnes de la taula que no hi eren: un qui pren dos valors segueix igual, perquè Lua llença el que ningú no recull. **El que una pàgina vol és la mitjana i no el total**: `us / calls` és el que costa una volta del sistema, un `lua.run` entre els torns del nucli és el que hi ha de Lua a dins, i `lua.call` és el preu d'una crida d'una app al sistema (docs/30, docs/75, docs/95) |
-| `sys.settings()` | **una taula de dotze camps** o `nil, error` | **Els ajustos del sistema, llegits per una app** (0.189.13): el mateix que `cfg` imprimeix al prompt, perquè una pàgina que ha d'obeir un interruptor no el pot inventar. Els camps són `unit` (la unitat on viuen les apps: `sd`, `littlefs` o buit), `keyboard`, `boot` (la imatge de l'arrencada), `home` (l'app que surt amb la placa, o buit), **`settings_app`** (l'app que obre el botó dels ajustos del panell, o buit; 0.189.109), `week` (`monday`/`sunday`), `tz` (l'offset escrit com el prompt, `+01:00`), `leap`, `dst` i **`sort_by_usage`** (booleans), `turn` (les instruccions de Lua que val un torn) i **`cursor`** (el parpalleig del cursor, en mil·lisegons; 0.189.106). **És només de lectura**: qui escriu un ajust és `cfg`, i les preferències són de la persona —una app que necessiti un commutador propi el guarda a la seva sessió (docs/30, docs/75)—. Un sistema que no en sàpiga (o que no tingui el magatzem) respon `nil, E_UNSUPPORTED` o `nil, E_UNAVAIL`, i una pàgina que ho toleri es queda amb l'ordre i els valors que tenia. El primer lector és `home_eink`, que dibuixa el grid de més usada a menys quan `sort_by_usage` és cert (docs/40) |
+| `sys.settings()` | **una taula de dotze camps** o `nil, error` | **Els ajustos del sistema, llegits per una app** (0.189.13): el mateix que `cfg` imprimeix al prompt, perquè una pàgina que ha d'obeir un interruptor no el pot inventar. Els camps són `unit` (la unitat on viuen les apps: `sd`, `littlefs` o buit), `keyboard`, `boot` (la imatge de l'arrencada), `home` (l'app que surt amb la placa, o buit), **`settings_app`** (l'app que obre el botó dels ajustos del panell, o buit; 0.189.109), `week` (`monday`/`sunday`), `tz` (l'offset escrit com el prompt, `+01:00`), `dst` i **`sort_by_usage`** (booleans), `turn` (les instruccions de Lua que val un torn) i **`cursor`** (el parpalleig del cursor, en mil·lisegons; 0.189.106). **És només de lectura**: qui escriu un ajust és `cfg`, i les preferències són de la persona —una app que necessiti un commutador propi el guarda a la seva sessió (docs/30, docs/75)—. Un sistema que no en sàpiga (o que no tingui el magatzem) respon `nil, E_UNSUPPORTED` o `nil, E_UNAVAIL`, i una pàgina que ho toleri es queda amb l'ordre i els valors que tenia. El primer lector és `home_eink`, que dibuixa el grid de més usada a menys quan `sort_by_usage` és cert (docs/40) |
 
 ## La sessió `state`: la vista com la va deixar la persona (0.189.12)
 
@@ -207,6 +207,19 @@ de la calculadora només pot tenir xifres, els quatre signes, un punt, un espai,
 
 **El codi que desa i recupera és el mateix a totes les apps** i es copia sencer: no és una cosa que cada app pugui
 inventar-se, perquè una app que ho fa a la seva manera és una app on el format canvia sense que ningú ho vegi.
+
+**I el nom del document que l'app té obert no és forma** (0.192.56, l'amo: *«Paint ha de recordar l'imatge que està pintant
+amb session status»*): el `state` s'esborra a cada arrencada de debò, o sigui que una pàgina que hi llegís el camí del seu
+document tornaria sempre al que té per defecte —el Paint desava el dibuix al seu fitxer i en tornar obria l'esborrany d'un
+altre dibuix, que és el que es va veure—. El que es vol recordar d'un document va en **una sessió pròpia**, amb la seva
+clau i els seus bytes (`sys.session('status', 256)` i el camí a dins), que és el que el nucli desa a la targeta abans
+d'apagar i torna a llegir quan l'app arrenca. **I el que és un esborrany no s'hi desa com si fos un nom**: `''` vol dir que
+la persona encara no l'ha batejat, i és el que fa que el `Save` de després torni a preguntar on va.
+
+**Un pas enrere també és una sessió i no una pila** (0.192.56): el Paint desa **una captura del paper** abans de pintar un
+traç en un bloc de la mida del paper (`sys.session('undo', …)`) i el torna amb un `blit`. Dues captures serien cent
+vuitanta kilobytes més per a un dibuix, o sigui que el que hi ha és **un sol pas**, i el bloc es llença amb
+`sys.session_destroy('undo')` quan la pàgina marxa —un bloc que viu s'escriu a la targeta a cada pausa— (docs/75).
 
 ```lua
 -- The state of this page, and the pair that writes it and reads it. **Copy this block into the app** and change
@@ -668,7 +681,7 @@ pàgina** i no una taula del nucli:
 | `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run editor /data/editor/notes.txt` i una fila de `Files` que la triï són el mateix per a l'app —**i `open` no és cap comanda d'aquest sistema**, encara que aquesta fila la nomenés: el que obre un fitxer és `apps.opener`, i qui la fa servir és el `Files` (0.192.28)—. **Des de la 0.120.0 hi ha també `flags`** quan el manifest declara `opensArgs`: la línia de commutadors de l'app (`-ro`), tal com està escrita i sense que el sistema en llegeixi res |
 | `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer. **`opens` és la llista sencera** que el manifest declara, amb els noms separats per espais —`"txt md lua"`—; una app que no n'obre cap rep `""` (0.120.0) |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
-| `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
+| `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero. **Es pot cridar des de qualsevol lloc**, també des del ganxo d'un control: el comiat és una intenció i no un error, i el torn del nucli el compleix quan el ganxo ha tornat (0.192.49; abans, dins d'un `on_click`, l'error se'l menjava el ganxo i l'app no s'acabava) |
 | `app.run(id[, back[, flags[, path]]])` | `true`, o `nil, error` | **Arrenca una altra app** (0.153.0): l'app que hi ha davant es tanca amb els seus comiats i la del `id` ocupa el seu lloc. És **un desig i no un canvi immediat** —qui pregunta és la mateixa app que el intèrpret té a sota, i tancar-la dins la crida destruiria l'estat on la crida corre—: el nucli el porta a terme al final del torn, i fins aleshores `app.run` ha contestat `true` i no ha passat res. **`back` és la tornada i val `true` si no es diu**: quan l'app que s'ha obert s'acaba —o tres tecles la tanquen— la que va preguntar torna a la pantalla, que és el que vol un llançador i l'única manera de tornar en una placa de tres tecles. `app.run(id, false)` és un traspàs sense tornada. **El motiu del no és del sistema**: l'app que es demana a si mateixa, un `id` que no és al disc i una app d'una altra placa es diuen amb el seu `message` (`E_INVAL`), i no passa res més. **`flags` són els commutadors de l'app que s'arrenca** (0.189.161) i li arriben com `app.args.flags`, la mateixa porta que els `opensArgs` d'un manifest; `app.run('appinfo', '-d battery')` és una segona cadena i vol dir els commutadors amb la tornada de sèrie, i `app.args` hi és encara que l'app no rebi cap fitxer. **I el quart argument és el fitxer** (0.190.257): `app.run('editor', true, nil, '/sd/notes.txt')` dona a l'app el camí com el `run` del prompt, i el llegeix a `app.args.path`; és la segona meitat de `apps.opener`, perquè un navegador que ja sap qui obre un fitxer no tindria cap manera de donar-l'hi sense això. Un camí que no hi cap es refusa amb el motiu i no es talla (docs/45, docs/70). **I la consola viatja amb l'app** (0.190.278): una app arrencada des d'una que té el cable se'l queda, i una que ve d'una que era al fons hi deixa la persona, sigui quina sigui —la pàgina de casa inclosa— (docs/30) |
 | `app.view()` | enter | **La vista d'una app, per què és el nombre de pàgines que té a sobre de la primera** (0.163.0): `0` és una app que només té una pàgina, i és el que el sistema llegeix quan un pessic demana tornar (vegeu `app.view_push`) |
 | `app.view_push()` | enter | **Una pàgina a sobre de la que hi havia** (0.163.0): una app que obre un detall sobre la llista ho diu amb aquesta crida, i torna el nombre nou. És el número el que fa que un pessic doni el detall en lloc de tancar l'app |
@@ -799,10 +812,10 @@ del prompt neteja fent pujar el paper (vint-i-quatre línies buides), que és el
 | `time.utc([t])` | taula `{year, month, day, hour, min, sec, wday, yday}` | El moment tal com el compta el xip, o l'`t` que se li dona |
 | `time.date([t])` | taula | El mateix moment **en l'hora de la persona**: `time.utc(t)` més `time.offset()`. És el que han de llegir totes les pàgines que ensenyen una hora |
 | `time.offset()` | enter | **L'offset efectiu en minuts** (0.189.130): el del mapa més seixanta si l'hora d'estiu és on. Per ensenyar-lo, i **mai** per compondre una hora a mà |
-| `time.epoch(year, month, day, hour, minute)` | enter o `nil, error` | **La inversa de `time.date()`** (0.189.130): l'època d'una hora del rellotge de paret, amb l'offset efectiu restat. És la porta per posar una hora des d'una pàgina (i és el mateix que es passa a `time.set`). **Un dia que no existeix es refusa amb `E_INVAL`** (0.189.142) i no s'arrodoneix al del mes següent: el trenta-u de febrer no és el dos de març, i el febrer té vint-i-nou quan `cfg leap` és on |
+| `time.epoch(year, month, day, hour, minute)` | enter o `nil, error` | **La inversa de `time.date()`** (0.189.130): l'època d'una hora del rellotge de paret, amb l'offset efectiu restat. És la porta per posar una hora des d'una pàgina (i és el mateix que es passa a `time.set`). **Un dia que no existeix es refusa amb `E_INVAL`** (0.189.142) i no s'arrodoneix al del mes següent: el trenta-u de febrer no és el dos de març, i el febrer té vint-i-nou quan l'any és de traspàs, que es compta de la data |
 | `time.tz([offset])` | enter | El desfasament **del mapa** en minuts: es llegeix sol i s'escriu amb un argument. És l'ajust, i no l'hora de ningú —per a això hi ha `time.offset()`— |
-| `time.leap([on])` | booleà | **Si el febrer té el vint-i-nou** (0.170.0): es llegeix sol i s'escriu amb `true`/`false` o les paraules `on`/`off`, que són les del prompt (`cfg leap on`) |
-| `time.dst([on])` | booleà | **L'hora d'estiu** (0.182.0): es llegeix sola i s'escriu amb `true`/`false` o `on`/`off`, com `time.leap`. És una opció del sistema i es desa, o sigui que `time.date()` dona **el fus del mapa més seixanta minuts** quan és certa, i una rellotgeria que la canvia la fa canviar a l'instant; `time.tz()` continua dient el que diu el mapa |
+| `time.leap()` | booleà | **Si el febrer de l'any que és al rellotge té el vint-i-nou** (0.170.0, i només es pregunta des de la 0.192.57): es compta de la data amb la regla del calendari i **no s'escriu** —un any de traspàs no és un ajust—, o sigui que `time.leap(true)` és `E_INVAL` (docs/60) |
+| `time.dst([on])` | booleà | **L'hora d'estiu** (0.182.0): es llegeix sola i s'escriu amb `true`/`false` o `on`/`off`. És una opció del sistema i es desa, o sigui que `time.date()` dona **el fus del mapa més seixanta minuts** quan és certa, i una rellotgeria que la canvia la fa canviar a l'instant; `time.tz()` continua dient el que diu el mapa |
 | `time.week([dia])` | enter | **Quin dia comença la setmana** (0.170.0): `1` dilluns —el valor del sistema— o `7` diumenge, en el mateix compte que `wday`, i les paraules `monday`/`sunday`. `ui.month` gira les seves set columnes amb això |
 | `time.format(t, fmt)` | cadena | `%Y-%m-%d %H:%M:%S` — **encara no hi és** |
 | `time.parse(s, fmt)` | enter o `nil, error` | **Encara no hi és** |
@@ -872,25 +885,27 @@ time.tz(90)        -- noranta minuts, o sigui +01:30
   desfer-ho, o sigui que una app que vulgui desar la tria **en tancar** ha de tenir-la a la memòria i fer la crida a
   `on_close`, no en tocar el mapa. És el que demana l'app de la zona horària (docs/90).
 
-### `time.leap` i `time.week`: el calendari que una persona vol (0.170.0)
+### `time.week`, `time.dst` i `time.leap`: el calendari d'una persona (0.170.0)
 
-Les dues decisions d'un calendari que **no** són una regla de la natura: si el febrer té el vint-i-nou i quin dia
-comença la setmana. Són ajustos del sistema i no d'una app —`ui.month`, `time.utc`/`date` i qualsevol pàgina que
-compti els dies d'un mes pregunten el mateix— i es desen a l'cfg com el desfasament, o sigui que sobreviuen a un
-reinici (docs/60, docs/70).
+**La decisió d'un calendari que una persona tria és el primer dia de la setmana**, i l'hora d'estiu és la de l'hora.
+**El dia de traspàs no es tria** (0.192.57, l'amo: *«sabem com calcular si es any de taspàs o no ho es… no cal un toggle
+manual. Treu tota referencia al sistema d'aquest opció»*): a leap year is a fact of the Gregorian calendar, so `time.leap()`
+**es compta de la data** i no té escriptura. Tot el que pregunta quants dies té el febrer —`ui.month`, `time.epoch` i
+qualsevol pàgina— creua la mateixa regla, que viu una sola vegada a `hal::is_leap_year` (docs/50, docs/60).
 
 ```lua
-time.leap()          -- cert: el febrer té vint-i-nou quan toca
-time.leap(false)     -- el calendari sense el dia de traspàs; torna el valor nou
+time.leap()          -- cert si l'any del rellotge és de traspàs; 2026 no, 2028 sí
 time.dst(true)       -- l'hora d'estiu: `time.date()` passa a ser el fus del mapa + 01:00
 time.dst('off')      -- i es desa, o sigui que el proper arrencament la troba igual
 time.week()          -- 1, la setmana comença en dilluns
 time.week('sunday')  -- 7, i torna 7
 ```
 
-- **El dia de la setmana d'una data no es mou**: el 29 de febrer de 2024 cau en dijous amb el traspàs encès i amb
-  ell apagat, perquè el cel no és una preferència. El que canvia és **quants dies té el febrer**, que és el que una
-  pàgina compta.
+- **`time.leap` no pren cap argument**: `time.leap(true)` és `E_INVAL` amb el motiu escrit, perquè el que abans era un
+  ajust ara és un fet del calendari i una pàgina que el vulgui girar ha de saber que no es pot.
+- **El dia de la setmana d'una data no es mou**: el 29 de febrer de 2024 cau en dijous, i el 2100 no serà de traspàs
+  perquè la regla dels segles és la que és. El que una pàgina compta és **quants dies té el febrer**, i això ho diu el
+  sistema.
 - **`time.week` pren dilluns o diumenge i res més** (1 o 7, o les dues paraules): una setmana que comença en dimecres
   no és un calendari que una persona demani, i el que no es pot llegir del disc no s'hi escriu. Un número o una
   paraula que no siguin aquests donen `E_INVAL`.
@@ -947,7 +962,7 @@ consola no acceptaria (docs/30, docs/70).
 
 - **Les de lectura i escriptura són la mateixa crida i el valor és la resposta**: `cfg.cursor()` diu el que hi ha i
   `cfg.cursor(600)` escriu i torna el que ha quedat, o sigui que una pàgina que ensenya el que ha demanat **no pot mentir**
-  ni tan sols quan el sistema refusa. És la regla de `time.tz`, `time.leap` i `time.dst`, i la que fa que una fila d'un
+  ni tan sols quan el sistema refusa. És la regla de `time.tz` i `time.dst`, i la que fa que una fila d'un
   panell d'ajustos es pugui tornar a llegir després d'escriure-la (docs/45).
 - **Escriure-hi desa a l'acte** al magatzem de preferències (`/cfg`), com `time.tz`: no hi ha cap «desa-ho ara».
 - **El que és de l'app no hi és**: `cfg` no té ni el tema d'una pàgina ni la pestanya on era una persona. Això és la sessió
@@ -967,7 +982,7 @@ consola no acceptaria (docs/30, docs/70).
 
 ```
 lunok> cfg
-[I][CFG] /cfg on sd (asked for auto), keyboard qwerty, boot boot, tz +00:00, leap on, dst off, week monday,
+[I][CFG] /cfg on sd (asked for auto), keyboard qwerty, boot boot, tz +00:00, dst off, week monday,
          turn 20000, sort apps by usage off, cursor delay 850 ms, cpu allows 80,160,240
 [I][CFG] the apps a person chose: home home_eink, settings settings, lock device_lock; the lock is off and waits 10 min
 ```
@@ -1068,8 +1083,8 @@ ui.clear(15)
 while true do
   if unlock_wanted then           -- el compte el porta `on_click`, i la porta es creua des d'aquí
     admin.LockScreen(false)       -- la barra torna, i el sistema la torna a deixar treure a qui la demani
-    app.exit()                    -- **des del torn de la pàgina i no des del ganxo del control**: dins d'un `on_click`
-                                  -- `app.exit()` és un error que el ganxo es menja i l'app no s'acaba (docs/30, docs/90)
+    app.exit()                    -- es pot fer des d'aquí o des del ganxo del control: el tancament el compleix el
+                                  -- nucli quan el ganxo ha tornat (0.192.49, docs/30, docs/90)
   end
   local gesture = touch.gesture()
   while gesture do gesture = touch.gesture() end
@@ -1336,6 +1351,112 @@ if id == nil then console.print('no alarm: ' .. why) end
 
 I **una alarma només la pot treure qui l'ha posada** (`alarm.cancel(id)` respon `false` per a les de les altres apps), perquè
 la cua és de tot el sistema i no d'una app (docs/60).
+
+## `tick`
+
+**El rellotge d'una app mentres la placa és desperta** (0.192.60, l'amo: *«M'agradaría que l'app Stats rebés una crida cada minut,
+però només si la placa està desperta. No vull que vaigi a l'RTC i desperti la placa. Una crida periódica, demanada per l'app i que
+el sistema cridi sempre que estigui despert (deixant-ho de fer si cau en sleeep, i tornant quan es desperta) No li diguem alarm
+(pero funciona igual, fent una crida a l'app lua)»*). **No és una alarma** encara que comparteixi la cua amb elles: una alarma és
+una promesa que el sistema guarda per a una app que no hi és —la desa a la NVS, arma el rellotge del xip i obre la pàgina o una
+finestra quan toca—, i un tick és **una passa de l'app mentres algú té la placa encesa**. Les tres diferències són les tres coses que
+un tick no fa: **no arma mai el despertar** (una app que en demana un cada minut no fa sonar el xip del rellotge ni un cop), **no es
+desa** (la NVS no s'escriu a cada volta, i el tick viu el que viu la placa encesa) i **no compta les voltes perdudes** (una placa que
+ha dormit mitja hora no ha perdut cap tick, perquè no era per a ningú).
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `tick.every(segons, payload[, opcions])` | enter (id) i, **si ja hi era, `true`** | El període **mínim és de cinc segons**; `payload` és opcional (una cadena o un número, com a les alarmes); `opcions` = `{raise = true}` |
+| `tick.cancel(id)` | booleà | Només els de la pròpia app, com `alarm.cancel` |
+| `tick.list()` | taula | `{id, period, payload, raise}` dels ticks **d'aquesta app** — la cua sencera és `alarm.list()` |
+| `tick.caps()` | `{max, min_period_ms, wake}` | `max` és el mateix sostre que el de les alarmes (comparteixen cua); **`wake` és sempre `false`**, i és l'única promesa de l'API |
+
+**I una app té un tick, no una col·lecció** (0.192.63, l'amo: *«També em preocupa el contrari… es repeteixen els ticks a la cua?
+Només un tick per app. Si una app en demana unaltre, s'esborra l'anterior i es fa la que acaben de demanar»*). La cua és de vuit
+entrades per a tot el sistema i una pàgina que canvia el ritme no demana dos rellotges: `tick.every` **esborra els ticks de la
+pròpia app abans d'afegir-hi el nou** i ho diu al registre (`stats asks for another tick and its 1 old one(s) go`). L'única
+excepció és la mateixa configuració, que torna el mateix `id` i un `true` i no toca res —si no fos així, una pàgina que demana el
+seu rellotge a cada arrencada no el veuria córrer mai—. **El que és d'una altra app no es toca mai**: els ticks dels altres hi
+són igual abans i després.
+
+**El ganxo és `on_tick(payload, meta)`** i no `on_alarm`: una pàgina que rep les dues coses les ha de poder distingir pel nom del
+ganxo i no per un camp. `meta` porta `id` (el que va tornar `tick.every`), `period_ms` i `late_ms`; **no hi ha `missed`**, per la
+raó de dalt. Com tots els ganxos, corre entre dos torns amb la coroutine de l'app suspesa, o sigui que **no pot esperar**.
+
+**I el ganxo pot dir què n'ha fet** (0.192.65, l'amo: *«Veig el tick, pero no la crida a l'app :-? … Com puc saber si s'estàn fent
+les lectures o si s'estàn guardant o que»*): tornar `false` vol dir «no hi havia res a fer amb aquesta», i qualsevol altra cosa
+—inclòs no tornar res, que és el que fan les apps escrites abans d'això— vol dir que sí. La resposta es diu al registre, a nivell
+de detall, just després de la línia del tick: `[D][TICK] #4 for stats: the app had nothing to add` o `… the app answered it`. És
+l'única manera que té una persona des de fora de saber què ha fet l'app amb la crida: la línia `fired for` només diu que la cua l'hi
+ha donat, i quan el ganxo no hi és o l'app no és al davant el registre ja té una línia pròpia.
+
+**I per defecte un tick no obre res** (l'amo: *«Però només si l'app demana primer plà. Per defecte no obre finestra.»*): si l'app
+no és al davant, la volta es descarta amb una línia al registre (`#4 for stats is dropped: the app is not in front, and a tick does
+not open a window`) i prou —obrir una finestra cada minut seria apartar la pàgina de la persona per tornar-la a posar—. L'única
+manera que un tick toqui la pàgina d'una altra app és demanar-ho amb `raise`, i aleshores va pel mateix camí que el `raise` d'una
+alarma.
+
+```lua
+-- **Una mostra cada minut mentres la placa és encesa** (el que fa `apps/stats` amb la pestanya Load): el tick no desperta
+-- la placa i, si la pàgina no és al davant, la volta es perd i no passa res.
+local tick_id = nil
+
+local function arm_the_tick()
+  local ok, id = pcall(tick.every, 60, 'sample')
+  if ok and type(id) == 'number' then tick_id = id end
+end
+
+function on_tick(payload, meta)
+  -- Amb la pestanya de les gràfiques al vidre el bucle ja en pren una cada deu segons: el tick és per a quan la pàgina mira una
+  -- altra cosa.
+  if load_chart ~= nil then return false end
+  return take_a_sample()
+end
+
+arm_the_tick()
+```
+
+**I el rellotge no marxa amb la pàgina** (0.192.69, l'amo: *«la crida "tick" desapareix quan l'app es tanca?… si es així de que
+serveix?… La idea del tick es que continui durant tota la sessió fins reiniciar o apagar»*). El tick és de l'app i de la sessió:
+si una app el cancel·la a `on_close`, el que té és un rellotge que només val mentre la pàgina és al vidre —i allà el bucle de la
+pàgina ja gira molt més de pressa—, o sigui que **no es cancel·la en tancar**. Es queda a la cua fins que la placa s'apaga o es
+reinicia (no s'escriu enlloc i no arma el xip del rellotge), i quan la pàgina torna a obrir-se la mateixa configuració li torna
+**el mateix id**: la cadència no es reinicia mai.
+
+**I amb la pàgina tancada la crida es fa igual** (0.192.70, l'amo: *«es fa una crida a l'app, com es fa amb les alarmes.»*): si
+l'app no té l'intèrpret, la pàgina que hi ha al vidre **s'aparta**, l'app s'obre en una **finestra**, el ganxo corre i la pàgina
+torna com la va deixar la persona —el camí d'una alarma de fons, amb les seves línies dites amb l'etiqueta `[TICK]`—. El que el
+ganxo escrigui a la seva caché de sessió **baixa al disc en tancar-se la finestra**, o sigui que una mostra presa en una finestra
+és una mostra que hi és quan la pàgina torna. El preu és el d'una finestra: en aquest vidre, un repintat de la pàgina que s'havia
+apartat (una desena de centenars de mil·lisegons de tinta), i per això un període de deu segons no és el que vol ningú.
+
+Les línies del registre porten **`[TICK]`** i no `[ALARM]`, perquè la cua és una i el que hi ha dins no és el mateix:
+`[I][TICK] stats ticks every 60 s as #4, only while it is in front`, `[I][TICK] #4 fired for stats, 1 ms late, repeating, 3 left in
+the queue` i `[I][TICK] stats cancels #4`. **`alarm` al prompt i la campana de la barra no hi compten**: la campana és per a les
+alarmes que vindran al vidre (`raise`), i un tick no hi ve.
+
+## `gps`: el cel que la placa mira (0.192.63)
+
+**El receptor GNSS de la placa** —una T5S3 en porta un de soldat, un `MIA-M10Q` o un `L76K` segons la tirada— i el que en diu, amb les
+dues portes que el governen: engegar-lo i apagar-lo, i **si el rellotge se'l creu**. La taula `gps` **només existeix a la placa que mira
+el cel**, com la del `lora`, o sigui que una app ho pregunta a `sys.caps().gps` abans de dibuixar res (docs/30, docs/50).
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `gps.caps()` | taula o `nil, error` | `{chip, baud, powered, last_error}`: el nom del mòdul (`"MIA-M10Q"`, `"L76K"` o `"unknown"` mentres no hagi contestat), els bauds als quals ha contestat i si el rail és encès |
+| `gps.on()` / `gps.off()` | `true` o `nil, error` | El rail i el cable. **`off()` no apaga el rail**: és el mateix de la ràdio de LoRa (`LORA_EN` de l'expansor) i apagar-lo callaria la ràdio també (docs/50) |
+| `gps.info()` | taula | **Tot el que el receptor diu**: `fix` (si hi ha posició), `quality` (0 cap, 1 GPS, 2 DGPS, 4 RTK fix, 5 RTK flotant, 6 estimada), `lat`/`lon` en graus i `lat_e7`/`lon_e7` com els dona el receptor, `altitude` i `geoid` en metres, `speed` en m/s, `course` en graus i `course_name` (`N`, `NE`…), `satellites_used`/`satellites_seen`, `hdop`/`vdop`/`pdop`, `time` (`{valid, year…hundredths}`, **UTC**), `sentences`, `bad_sentences`, `powered` i —quan el sistema se l'ha cregut— `synced_ms` (quants mil·lisegons fa) i `shift_ms` (quant es va moure el rellotge) |
+| `gps.sky()` | taula | Els satèl·lits de l'últim GSV: `{id, elevation, azimuth, snr, used}` de cada un, que és el que es dibuixa en un mapa del cel |
+
+- **Per què es llegeix a cada volta**: aquesta placa **no té la línia d'interrupció del mòdul connectada** —el pinmap del fabricant
+  només hi porta la UART— o sigui que el nucli fa `gps::poll()` a cada torn i la pàgina només decideix quan dibuixa (docs/50).
+- **Qui creu l'hora**: `cfg.gps_sync()` (el commutador de Settings→Clock i `cfg gpssync on|off` al prompt). Encès, una data bona posa
+  **l'època del rellotge —que el HAL desa també a la RTC del xip— i la zona horària amb la longitud**, perquè el NMEA no porta cap zona
+  i el sol sí: la longitud arrodonida a l'hora és el que es desa, i el registre ho diu (`[I][GPS] the clock is the sky's: …` i
+  `and the hour of the person is the sun's: longitude …`). **No es toca res si el rellotge ja hi era a menys de dos segons** ni més
+  d'un cop per minut (docs/30, docs/60).
+- **I al prompt**: `gps` diu el mòdul, si és encès, la posició o per què no n'hi ha, el cel, l'hora del satèl·lit i quan s'ha cregut el
+  rellotge; `gps on` i `gps off` són les dues portes (docs/30).
 
 ## `epub`
 
@@ -1686,9 +1807,18 @@ un fil que una app pot necessitar **sencer**. Aquest mòdul és l'interruptor, i
   hi és; el que afegeix la cessió és **el silenci de tornada**.
 - **Qui dona el port**: `serial.release()`, i **el nucli quan l'app s'acaba** —la mateixa regla que el llum del M5Atom: un port
   cedit a una app que ja no hi és és un port que una persona no pot recuperar—. El de la persona no es toca.
-- **I des del prompt** hi ha la comanda `serial` (sense res diu de qui és), `serial claim` i `serial release`. Una persona que
-  cedeix el port es queda **un teclat que no fa eco** per poder escriure `serial release` a cegues: és l'única manera de tornar
-  sense desendollar la placa (docs/50).
+- **I des del prompt** hi ha la comanda `serial` (sense res diu de qui és), `serial claim`, `serial release` i **`serial send
+  <path>`** (0.192.61, l'amo: *«Crea una subcomanda a serial anomenada "send" "serial [send] [/path/filename]" que permeti enviar
+  un arxiu per port serie, usant el bloqueig de serial per evitar soroll.»*). Una persona que cedeix el port es queda **un
+  teclat que no fa eco** per poder escriure `serial release` a cegues: és l'única manera de tornar sense desendollar la placa
+  (docs/50).
+- **`serial send` és un fitxer i prou pel cable**: agafa el bloqueig ell mateix (si el té la persona l'aprofita i no el torna,
+  perquè no era seu), escriu el fitxer **byte a byte i sense el filtre dels codis** —un `0x1b` a dins hi arriba, que un `cat`
+  no faria— i el deixa anar en acabar, amb un `flush` abans perquè la cua de la UART no es barregi amb el que vingui després.
+  Si el port és d'una app **no hi envia res** i diu de qui és: dues coses al mateix cable és el que el bloqueig existeix per
+  evitar. **Control+C l'atura** (la mateixa tecla que atura `log follow`), i com que mentres el port és cedit no hi ha consola,
+  el que ha passat s'escriu **després** de tornar-lo —i si era de la persona, només al registre, que es llegeix amb `serial
+  release` i un `log` al darrere—. La línia és `[I][SERIAL] sent 33 B of /sd/x.bin to the wire in 4 ms` (docs/30, docs/50, docs/70).
 
 ## `crypto`: l'aritmètica que un secret necessita (0.190.258)
 
@@ -1894,6 +2024,41 @@ rellotge i la FRAM (docs/50). Una sola crida perquè la mateixa lectura dona les
   que no ha passat i torna `E_IO`, perquè cap número és millor que un número fals.
 - Una app que la llegeixi cada dos segons en té prou amb `env.read()` dins del seu bucle.
 
+## `lora`: l'aire, i només mirar-lo (0.192.49)
+
+La ràdio de LoRa del SX1262 de la T5 E-Paper S3 Pro: **un receptor i res més**. No hi ha cap porta de
+transmetre en aquesta taula ni n'hi haurà —una ràdio que només escolta es pot deixar encesa sense permís de
+ningú i no pot tapar la veu de ningú altre—, i per això el que una pàgina en pot fer és **buscar senyals**:
+mesurar quanta energia hi ha a cada canal i, quan n'hi ha, provar de treure'n un paquet.
+
+**En una placa sense el xip, la taula `lora` no hi és** (no és una taula amb totes les crides que tornen
+`E_UNSUPPORTED`: la pàgina ho pot preguntar amb `lora == nil` abans de dibuixar un espectre).
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `lora.caps()` | `{present, min_hz, max_hz, min_sf, max_sf, chip}` | El rang del **xip** (150 a 960 MHz, SF5 a SF12) i el seu nom (`SX1262`). El que és legal en cada país no ho diu el driver: ho decideix qui la fa anar |
+| `lora.begin()` | `true` o `nil, error` | Engega el xip —el rail, el reset, el repòs, la calibració de la imatge— i es pot cridar dues vegades. `E_IO` si el xip no contesta |
+| `lora.frequency([hz])` | hertz | **On s'escolta**: sense argument contesta on és; amb un, hi va i torna el que el xip ha acceptat. Fora del rang del xip és `E_INVAL` i **no s'aproxima** |
+| `lora.reception{...}` | `true` o `nil, error` | **Amb què s'escolta**: `sf` (5 a 12), `bw` (el codi del xip: **7 és 125 kHz**, 8 és 250 i 9 és 500), `cr` (1 a 4, o sigui 4/5 a 4/8), `sync` (**`0x34` és la paraula pública de LoRaWAN** i `0x12` la privada), `preamble`, `crc` i `invert`. Els camps que no es diuen es queden com estaven |
+| `lora.listen([ms])` | `true` o `nil, error` | **Escoltar**: la ràdio es queda en recepció fins que arriba un paquet o passa el termini (`0` o res és per sempre). **No bloqueja**: qui mira és `lora.poll()` |
+| `lora.sniff()` | `true` o `nil, error` | **Mirar quanta energia hi ha**, sense esperar cap paquet: recepció contínua i el nivell instantani del canal. És el que fa un escombrat |
+| `lora.rssi()` | **dècimes de dB** | El nivell del canal que s'està escoltant: `-1043` és −104,3 dBm. És una lectura i no una mitjana |
+| `lora.poll()` | taula del paquet o `nil` | **`nil` vol dir «encara no»** i no un error. El paquet porta `data` (la cadena dels bytes), `length`, `rssi` (dècimes de dB), `snr` (**quarts de dB**), `offset_hz` (el desplaçament del senyal), `hz`, `ms` i `crc`. **Un paquet amb el CRC malament també arriba** amb `crc = false`: una senyal que hi és i que no s'ha pogut llegir és informació i no un silenci |
+| `lora.idle()` · `lora.sleep()` | booleà | El xip deixa d'escoltar, i el segon el posa a dormir. **No és el son de la placa**: calla la ràdio i el processador segueix |
+
+- **Els números són els del xip i no una traducció**: l'RSSI arriba en dècimes de dB i l'SNR en quarts, i qui
+  els ensenya els divideix. Una pàgina que arrodonís a l'entrada perdria el mig dB que separa dos nodes.
+- **La finestra és del nucli**: `set_frequency` no recalibra la imatge si no es canvia de banda (el xip en té
+  cinc de declarades), o sigui que un escombrat de setanta canals no en paga setanta.
+- **Una ràdio òrfena es tanca sola**: si el xip està en recepció i l'intèrpret ja no hi és —una app que ha
+  petat—, el torn del nucli el posa en repòs i ho diu una vegada al registre. Una pàgina que marxa també ho fa
+  a `on_close`, però el sistema no hi confia.
+- **Tres comptadors nous**: `lora.listen`, `lora.sniff` i `lora.poll` a `sys.stats()`, i només en una placa
+  que tingui el xip.
+- **L'emulador té un aire inventat i ho diu** (`docs/85`): tres nodes a 868,1, 868,3 i 868,5 amb SF9, SF7 i
+  SF12, i una portadora contínua a 433,92 que no dona cap paquet, perquè una pàgina d'escombrat es pugui provar
+  sense una placa a la mà.
+
 ## `ui`
 
 La vista de l'app: **el seu propi canvas**, i el moment en què demana al sistema de posar-lo al vidre.
@@ -1939,7 +2104,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mouen el dial i el dit**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)`. **Des de la 0.117.0 cal entrar-hi amb el botó central** (`editing`): fora, les fletxes segueixen caminant el dial; dins, són el número, i el centre les torna al sistema (3/11, 0.69.0, 0.117.0). **I des de la 0.192.34 un dit al tub hi posa el número on ha caigut**, que és l'única manera de moure un slider en una placa amb vidre i sense dial —l'app ho sent igualment per `on_change` i el control **no** entra en `editing`— (docs/90) |
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
 | `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El VBox o l'HBox de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)`, i cada cel·la diu **el seu percentatge del box amb `child.share`** (0.103.0) o la seva part del lloc lliure amb `child.weight` (3/11, 0.70.0). **`panel.background` no el pinta** —un panel és el lloc que col·loca, no una caixa opaca—: el paper d'una vista és un `ui.label` amb `background` (0.192.40) |
-| `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable, amb una parada per pestanya**: les fletxes van d'una pestanya a la següent, el centre tria la del cercle i `on_change(self, index)` avisa; `focus_index` diu quina té el cercle (3/11, 0.70.0 i 0.99.0). **I una tira que es pot tancar** (0.161.0): amb `closeable = true` cada pestanya porta una **`X` a la dreta, centrada verticalment**, i `tabs:tap(x, y)` diu què ha fet el dit —si era una creu crida **`on_close(self, index)`** i és l'app qui allibera el que hi havia darrere— i `on_change` si era el mot d'una pestanya |
+| `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable, amb una parada per pestanya**: les fletxes van d'una pestanya a la següent, el centre tria la del cercle i `on_change(self, index)` avisa; `focus_index` diu quina té el cercle (3/11, 0.70.0 i 0.99.0). **I el cercle segueix la pestanya triada** (0.192.49): quan una app posa el focus a la tira (`ui.focus(tabs)`), la inversió va a la pestanya que `index` diu i no a la primera parada del dial, que és el que feia que una pàgina digués una cosa i n'ensenyés una altra (trobat a l'app `lora`). `focus_index` també s'escriu, per a una app que vulgui el cercle en una altra pestanya que la triada. **I una tira que es pot tancar** (0.161.0): amb `closeable = true` cada pestanya porta una **`X` a la dreta, centrada verticalment**, i `tabs:tap(x, y)` diu què ha fet el dit —si era una creu crida **`on_close(self, index)`** i és l'app qui allibera el que hi havia darrere— i `on_change` si era el mot d'una pestanya |
 | `ui.focus(control)` | **res** | **On és el dial**: l'app el posa en un control seu quan la seva pàgina s'ha tornat a construir i el que hi havia ja no hi és. Sense això la volta comença al primer control de l'arbre —la tira de pestanyes— i les fletxes canvien la pestanya per sempre (7/11, 0.97.4). Un control que no es pot enfocar no fa res |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **El paginador del sistema**: `pages`, `current`, `level` (la tinta, 0 per defecte) i `background`, amb la bola de la pàgina on ets plena i més gran (25) i les altres d'anella (19), unides per un pal de 3 (0.94.1); si les pàgines no hi caben, la finestra de les que hi caben i **tres boles més petites a cada cap** que no arriba (0.139.0). **No és enfocable**, i amb una sola pàgina dibuixa el seu paper i cap bola (0.176.0). **La caixa del disseny és de 37** (la bola de 25 i dotze d'aire a sota) i una caixa més baixa encongeix tota la tira amb el mateix factor: **el peu d'una llista i el d'una graella li demanen sempre aquesta caixa**, o sigui que el paginador és el mateix a tot arreu (0.176.0, docs/92 §27). **Accepta fins a 512 pàgines** (0.138.0): abans eren un byte amb un topall de 32, i un capítol d'un llibre en té més |
 | `ui.list_entry(w, h)` | **un objecte** o `nil, error` | **Una fila d'una llista que l'app construeix** (0.104.0): paper, tinta, separador, `marked` i focus, i el contingut és un fill |
@@ -1949,9 +2114,9 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 656 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (una que no sigui `readonly`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0). **Des de 0.107.0 les tecles fan 64 píxels d'alt** i la lletra ocupa l'alçada de la tecla, i el backspace té la icona del seu símbol |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
-| `ui.chart(w, h)` | **un objecte** o `nil, error` | **Una sèrie en el temps, amb escala i hores** (0.189.144): `values` (els números, el més vell primer), `times` (el minut del dia de cada un, **negatiu quan la placa no té rellotge**), `suffix` (el que s'escriu després dels tres números, `'%'`), `scale` (el pas dels números), `min`/`max` (el **rang físic** de la sèrie, zero i cent per defecte), **`decimals`** (0, 1 o 2: el valor arriba multiplicat per la potència de deu que diu aquest camp, 0.189.169), **`left`/`right`** (els dos textos de l'eix, que són de l'app perquè una hora no és una data) i **`gap`** (els minuts de forat, `60` per defecte —sis mostres d'un registre de deu minuts— i **`0` = no n'hi ha cap**, que és el que demana una sèrie ja aprimada), i els dos tons. Dibuixa el marc, tres guies amb el seu número a l'esquerra, la línia pels punts, el quadrat de l'última mostra i les dues puntes de l'eix; **quaranta-vuit mostres com a molt** i la línia es talla on el registre té un forat. **No és enfocable** |
+| `ui.chart(w, h)` | **un objecte** o `nil, error` | **Una sèrie en el temps, amb escala i hores** (0.189.144): `values` (els números, el més vell primer), `times` (el minut del dia de cada un, **negatiu quan la placa no té rellotge**), `suffix` (el que s'escriu després dels tres números, `'%'`), `scale` (el pas dels números), `min`/`max` (el **rang físic** de la sèrie, zero i cent per defecte), **`decimals`** (0, 1 o 2: el valor arriba multiplicat per la potència de deu que diu aquest camp, 0.189.169), **`left`/`right`** (els dos textos de l'eix, que són de l'app perquè una hora no és una data), **`gap`** (els minuts de forat, `60` per defecte —sis mostres d'un registre de deu minuts— i **`0` = no n'hi ha cap**, que és el que demana una sèrie ja aprimada) i **`span`** (0.192.50: la finestra que no es mou, en les mateixes unitats que `times`; `0` és la de les mostres i un número fa que la corba camini), i els dos tons. Dibuixa el marc, tres guies amb el seu número a l'esquerra, la línia pels punts, el quadrat de l'última mostra i les dues puntes de l'eix; **cent noranta-dues mostres com a molt** (0.192.60, que són mitja hora a deu segons i no els quaranta-vuit de la 0.189.144) i la línia es talla on el registre té un forat. **No és enfocable** |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
-| `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app **i van de dilluns a diumenge**), **`marks`** (la llista dels dies que porten un punt, 0.189.171), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix **mentre les tecles s'usen** (és el cursor) i el d'avui porta una anella arrodonida. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0). **Des de la 0.170.0 la primera columna i els noms giren amb `time.week`** i el febrer té els dies que digui `time.leap` |
+| `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app **i van de dilluns a diumenge**), **`marks`** (la llista dels dies que porten un punt, 0.189.171), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix **mentre les tecles s'usen** (és el cursor) i el d'avui porta una anella arrodonida. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0). **Des de la 0.170.0 la primera columna i els noms giren amb `time.week`** i el febrer té els dies que digui el calendari |
 | `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` porta **un filet d'un píxel** i la del dial és una **banda de tinta d'extrem a extrem** (0.177.0: era una tecla amb relleu i la primària s'invertia). Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0). **És una targeta** (0.192.39): la pàgina del darrere no rep el dit i un toc fora el tanca per `on_cancel` |
 | `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc, que neix apagat com el de la caixa d'una línia), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |
@@ -2405,6 +2570,7 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
 | `cv:fill(x, y, level, [mode])` | `true` o `nil, error` | **El cubell** (0.192.47): la regió del to que hi ha a `x, y` es torna `level`, i el to que es llegeix és **el de la tinta del canvas** i no el que l'app creu que ha dibuixat —un traç gruixut deixa escletxes, i un cubell que llegís un model del dibuix les deixaria blanques—. És una primitiva del nucli (`canvas_flood`) i no un bucle de Lua: la pàgina d'un dibuix és de centenars de kilobytes de quatre bits i l'intèrpret els pagaria en torns. La pila de trossos és de la memòria extra i el que no hi cap deixa la regió a mitges pintada i prou (docs/30, docs/50) |
 | `cv:capture(session, [offset])` | enter o `nil, error` | **Els píxels del canvas a la memòria de sessió** (0.179.0): quatre bits per píxel i l'amplada del canvas, o sigui el que `cv:blit` torna a pintar; torna quants bytes hi ha escrits i `E_NOMEM` si el bloc és més petit que el canvas. És com una app guarda una imatge que ja ha descodificat (docs/75). **I el bloc no sap quina amplada té**: el desa qui el fa, i l'amplada que es dona a `cv:blit` ha de ser **exactament la del canvas que es va capturar**. Un canvas té un nombre sencer de bytes per fila i `ui.canvas` **retalla una amplada senar** (315 demanats són 314), o sigui que una app que desa el 315 que va demanar escriu les files amb 157 bytes i les torna a llegir amb 158: la imatge surt **esbiaixada dos píxels per fila**, i la pàgina sembla unes ratlles diagonals i no una còpia (trobat a l'app `fonts`, 15/11). L'amplada d'una mostra es demana parell (`w + w % 2` quan encara cap a la caixa) i el cap del bloc i el `blit` diuen el mateix número |
 | `cv:blit(session, offset, x, y, w, h, [mode])` | `true` o `nil, error` | **Un bloc de píxels al canvas** (0.179.0): una còpia i no una descodificació —ni fitxer ni escala—, que és el que fa que el llançador pinti la icona d'una cel·la sense llegir res del disc. És la mateixa primitiva que fa servir una pàgina de llibre per a les seves làmines (docs/46) |
+| `cv:export(path[, code])` | enter o `nil, error` | **El canvas, escrit com una imatge d'un fitxer** (0.192.51, l'amo: *«Si exportar la imatge a png es massa feixuc per l'app lua, que ho faci el sistema (li passes el canvas i ell guarda)»*): l'app dona la **ruta** i el sistema hi escriu un **PNG de vuit bits de gris** amb els seus píxels; torna quants bytes té el fitxer, o `nil, ENOENT` si el camí no es pot resoldre i `nil, EIO` si l'escriptura falla. **L'app no passa ni un byte**: els píxels ja són dins el nucli i el que viatja és la ranura del canvas, o sigui que això no té el cost d'un `cv:capture` seguit d'un `files.write` —i és el que fa que l'`Export` del Paint deixi de penjar el torn, perquè abans eren cinc-centes quaranta files llegides des de Lua i tornades a escriure. El `code` és la llicència del fitxer, com a `files.write` (per defecte `EACCES`). El PNG és **gris de vuit bits** i no d'un bit: el paper del Paint és antialiàtic i un bit se'n queda només la vora; el zlib va **stored**, que és tan vàlid com qualsevol i més gran, perquè aquest projecte sap descomprimir i no comprimir (`png_bytes`, `lib/img`). El que es desa és **el canvas sencer i cru**, sense l'escala ni el retall que fa `ui.image` en llegir-lo: l'exportació és el dibuix i no la seva vista |
 | `cv:clear([level], [mode])` | `true` o `nil, error` | Tot el canvas |
 | `cv:place(x, y)` | `true` o `nil, error` | On seu dins del pare, en píxels del pare |
 | `cv:resize(w, h)` | `true` o `nil, error` | **Una altra mida** per a un control que no té píxels propis (un panel, una etiqueta, una caixa de text): la mesura del grup; el que la necessita és un `on_resize` que torna a col·locar la pàgina (0.84.0). Un canvas **amb buffer** la refusa: els seus píxels són un bloc demanat amb una mida, i una altra mida és un altre canvas |
@@ -3670,6 +3836,14 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
   i això no ho ha mesurat ningú.
 - **Les tres són de només mirar**: no són enfocables i no tenen estat. Una gràfica no es prem, i el que canvia són les
   dades, que les posa l'app.
+- **I la finestra es pot quedar quieta** (0.192.50, l'amo: *«si s'omple la gráfica es va desplaçant cap a la dreta (scroll)»*): amb
+  `span`, l'esquerra del gràfic és **l'última mostra menys aquest span** i no es mou quan n'arriba una de nova —la nova entra per la
+  dreta i la més vella surt per l'esquerra—, i les que ja són fora de la finestra no es dibuixen. Sense `span` el que fa la corba és
+  tornar-se a escalar a cada mostra, que és el dibuix de sempre i el que vol una pàgina que només ensenya un registre. Una pàgina que
+  mostreja, en canvi, vol veure el moviment: `apps/stats` hi posa **mitja hora** (cent vuitanta-una mostres de deu segons, amb la
+  història a la seva sessió i un `tick` que en pren una quan la pestanya no és al vidre, 0.192.60) i **ja no li cal el `span`**: la
+  finestra la talla la història que té, o sigui que el que es veu és sempre la darrera mitja hora de debò i la corba camina sola
+  quan s'omple (docs/30, docs/90).
 - **I quatre camps més, que la `Meteo` va demanar** (0.189.169): `decimals` (0, 1 o 2; **el valor arriba multiplicat** per la
   potència de deu, o sigui que un termòmetre dona centèsims amb `decimals = 1` i el número de la banda surt `22.5`), `left` i
   `right` (**els dos textos de l'eix són de l'app**, perquè una finestra d'un dia diu una hora i la d'un trimestre una data, i
@@ -3710,9 +3884,9 @@ ui.present()
   març i desapareix a l'abril mou tot el que hi ha sota el calendari.
 - **Els noms dels dies els posa l'app** (`weekdays`, set cadenes): com es diu un dimarts és una llengua, i la llengua
   no és del nucli. La setmana comença en **dilluns**.
-- **Quin dia de la setmana cau el dia 1 i quants dies té el mes els sap el nucli** (`kernel/calendar.h`): és l'única
-  còpia de la regla dels anys de traspàs de tot el sistema, i el dial s'atura a l'últim dia del mes perquè pregunta a
-  la mateixa funció (docs/60).
+- **Quin dia de la setmana cau el dia 1 i quants dies té el mes els sap el nucli** (`kernel/calendar.h`, i la regla del
+  traspàs una sola vegada a `hal::is_leap_year`): el dial s'atura a l'últim dia del mes perquè pregunta a la mateixa
+  funció (docs/50, docs/60).
 - **Dos senyals, i el de dalt segueix el teclat**: el dia on ets s'**inverteix** i el d'avui porta **una anella**; en aquest
   vidre no hi ha color per a dues coses. **I la inversió és el cursor i només es dibuixa mentre les tecles s'usen** (0.190.275,
   l'amo: *«El recuadre negre usa'l per el focus de teclat (aquest model T5S3 no en té)»*): la regla és la dels altres controls

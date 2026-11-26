@@ -76,6 +76,10 @@ bool set_lock_app(const char* id);
 // **The switch of the Privacy tab**: on, the lock app is run at the start of the board and when it comes back from a sleep,
 // and the idle counter of `lock after` is armed. Off, none of it happens and the page under the finger stays where it is.
 bool lock_on();
+// **Si el rellotge es creu el cel** (0.192.63): el commutador de Settings→Clock i el que llegeix `gps::poll` quan té una data bona
+// (docs/30, docs/60).
+bool gps_sync();
+bool set_gps_sync(bool on);
 bool set_lock_on(bool on);
 
 // **Els minuts sense tocar res** abans que la pàgina de bloqueig surti: five, ten or fifteen and nothing else, perquè és una
@@ -237,13 +241,11 @@ bool tz_text(char* out, size_t cap, int32_t minutes);
 // own (`60`, `-90`). True when `text` is one of them, and then `minutes` holds it.
 bool parse_tz(const char* text, int32_t& minutes);
 
-// **The calendar a person wants** (0.170.0, docs/60, docs/90): whether February has its twenty-ninth day and which
-// weekday a week begins on. Both are settings of the system and not of an app —`ui.month`, `time.utc`/`date` and any
-// page that draws a month ask the same rule— and both survive a reboot like the offset of the hour does. The rule
-// itself is `kernel/calendar.h`; this door keeps the choice, puts it in the calendar at boot, and answers the same
-// value the calendar is using.
-bool leap_years();
-bool set_leap_years(bool on);
+// **El calendari de la persona** (0.170.0, docs/60, docs/90): which weekday a week begins on. It is a setting of the
+// system and not of an app —`ui.month`, `time.utc`/`date` and any page that draws a month ask the same rule— and it
+// survives a reboot like the offset of the hour does. The rule itself is `kernel/calendar.h`; this door keeps the choice,
+// puts it in the calendar at boot, and answers the same value the calendar is using. **El dia de traspàs no hi és**
+// (0.192.57): a leap year is counted from the date and never kept (docs/50, docs/60).
 
 // **L'hora d'estiu** (0.182.0): the box of the Time zone page that the owner ticked and that was kept nowhere. It is a setting of
 // the system and not a shift of a page, because the hour a person reads is the system's: the offset of the map plus, when this is

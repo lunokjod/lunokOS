@@ -41,10 +41,12 @@ Per ordre de preferència:
 Una sola llista a la RAM, **ordenada de la més propera a la més llunyana**. Hi conviuen:
 
 - alarmes d'apps (`alarm.at`, `alarm.after`),
+- **ticks d'apps** (`tick.every`, 0.192.60: la crida periòdica que només vol la placa desperta),
 - temporitzadors del nucli (esperes internes, reintents),
 - i el pròxim despertar del son.
 
-De la llista, **només la primera** és la que es programa al maquinari:
+De la llista, **només la primera que pot despertar la placa** és la que es programa al maquinari
+(`alarms::next_wake_mono_ms()`, 0.192.60), i un tick no la pot despertar mai:
 
 ```
   ara ──────────────────────────────────────────────────────────────▶
@@ -53,7 +55,9 @@ De la llista, **només la primera** és la que es programa al maquinari:
        └── això és l'únic que es demana a IClock::arm_wake()
 ```
 
-Quan A passa, es programa B. Des del 31/10 el rellotge de les dues bandes **sap armar-se**:
+Quan A passa, es programa B. **Un tick no hi és a la figura perquè no s'hi arma**: la seva hora només la mira el torn del bucle
+—que escurça la seva espera fins a la del tick més proper— i, si la placa s'adorm, el tick s'hi queda sense fer res i sense comptar
+cap repetició perduda. Des del 31/10 el rellotge de les dues bandes **sap armar-se**:
 `alarm.caps().wake` val `"yes"` o `"no"` (si aquesta placa pot armar un despert), l'ATOM programa el
 temporitzador del RTC i l'emulador mou el seu rellotge. El que el sistema encara **no** fa és dormir-se
 sol: el despert serveix quan algú ha demanat `power.sleep`, que és el que M6 hi ha posat (docs/90).
@@ -907,8 +911,9 @@ pogués avisar seria pitjor que un vidre tapat (docs/30).
 |---|---|
 | Rellotge amb època | El que compta és sempre el **del xip**: `gettimeofday` per a l'època i `esp_timer_get_time` per al monòton, amb la marca a la memòria del RTC perquè un son profund no la perdi. Mentre ningú no l'ha posada, `source` és `"none"` i l'època val 0 (el `gettimeofday` de l'ESP32 compta des de l'arrencada i fer-lo passar per època seria mentir). **Al Paper hi ha a sobre la BM8563 amb pila de botó** (`RtcClock`): es llegeix a l'arrencada i **després de cada son que torna**, s'hi escriu a cada `set_epoch` i a cada armat del despert, i mentre ella és la que recorda `source` diu `"rtc"` i l'hora sobreviu a treure el cable. L'emulador: `--now` posa l'època, i des de la 0.59.0 l'hora que el xip recorda **sobreviu entre execucions** —`<state>/clock.bin`, amb el temps que la placa ha estat desendollada comptat— al Paper (`"rtc"`) i als ATOM només amb `--persist` (`"soc"`, que és un reinici i no una placa desendollada); sense cap de les dues, val 0 i diu `"none"` |
 | `time.*` | `now`, `now_ms`, `utc`, `date`, `tz`, `leap`, `week` i `caps`. Formats, noms de zona i `set` no hi són (docs/30) |
-| Calendari | La regla dels traspàs i el dia de la setmana viuen a `lib/kernel/src/calendar.cpp`; **el traspàs i el primer dia de la setmana són ajustos** des de la 0.170.0 (`cfg leap`, `cfg week`, `time.leap`, `time.week`) i `ui.month` gira amb ells (docs/30) |
-| Cua única ordenada | `lib/alarms`, 8 entrades de 112 B (896 B). Només la primera s'arma, i `arm_wake` es crida quan canvia la més propera |
+| Calendari | La regla del traspàs viu una sola vegada a `hal::is_leap_year` i el dia de la setmana a `lib/kernel/src/calendar.cpp`; **el primer dia de la setmana és un ajust** des de la 0.170.0 (`cfg week`, `time.week`) i `ui.month` gira amb ell, mentre que **el dia de traspàs es compta de la data** des de la 0.192.57 (`time.leap()` només pregunta) (docs/30, docs/50) |
+| Cua única ordenada | `lib/alarms`, 8 entrades de 112 B (896 B). Només la primera **que pot despertar** s'arma (`next_wake_mono_ms`), i `arm_wake` es crida quan canvia la més propera |
+| `tick.every`/`cancel`/`list`/`caps` | Hi són (0.192.60): la crida periòdica d'una app **mentres la placa és desperta**. Comparteix la cua amb les alarmes i no comparteix cap de les seves tres promeses —no arma el despertar, no es desa a la NVS i no compta les voltes perdudes—, i **per defecte no obre finestra**: si l'app no és al davant, la volta es descarta amb una línia al registre (`[I][TICK] … is dropped: the app is not in front`). **Un tick per app** (0.192.63): demanar-ne un altre amb una configuració diferent esborra el de la pròpia app abans d'afegir-hi el nou —vuit seients per a tot el sistema—, i la mateixa configuració torna el mateix id sense tocar-hi res. **I viu la sessió** (0.192.69): no es cancel·la en tancar la pàgina, no s'escriu enlloc i no arma el xip, o sigui que dura fins a l'apagada o el reinici; i **amb la pàgina tancada la crida es fa igual, en una finestra** —la pàgina del davant s'aparta i torna, com amb una alarma de fons, i el que el ganxo escrigui a la sessió baixa al disc en tancar-se la finestra (0.192.70)— (docs/30) |
 | `alarm.at`/`after`/`cancel`/`list`/`caps` | Hi són. Una app només cancel·la les seves, i el payload és cadena o número fins que hi hagi un codificador JSON |
 | Entrega | `on_alarm(id, payload, {late_ms, missed})` entre dos torns, amb la coroutine suspesa |
 | Finestra | VM pròpia, un torn, la crida i la VM fora. `console.is_foreground()` hi és `false` i **l'entry s'hi executa igualment**: una app que arma alarmes al seu chunk ha de mirar el flag, o el sistema es crida a si mateix per sempre. El que ha de fer la feina és el ganxo, no el bucle, i el ganxo llegeix el que desarà abans d'escriure-hi (0.189.145) |
@@ -932,9 +937,9 @@ qualsevol altre ajust: `cfg tz +01:00` des de la consola, `time.tz('+01:00')` de
   rellotge dotze hores desviat en silenci és pitjor que un que no s'ha mogut mai.
 - **No hi ha taula de zones i no se'n inventa cap**: el mapa del món és un megabyte i això dos bytes. Una placa on
   l'hora canvia dues vegades l'any s'ha de dir el número nou dues vegades l'any, i `cfg tz` ho fa en un segon.
-- **`wday` continua sent 1 per a dilluns a 7 per a diumenge** i la regla dels traspàs continua vivint una sola vegada:
-  `time.utc`/`time.date` demanen el dia de la setmana a `kernel::calendar` i el dia de l'any a `hal::days_from_civil`
-  (docs/30).
+- **`wday` continua sent 1 per a dilluns a 7 per a diumenge** i la regla del traspàs continua vivint una sola vegada:
+  `time.utc`/`time.date` demanen el dia de la setmana a `kernel::calendar` i el dia de l'any a `hal::days_from_civil`,
+  i `hal::is_leap_year` és l'única línia que diu si un any té el vint-i-nou de febrer (docs/30, docs/50).
 
 ### Una sola hora a tot arreu (0.189.130)
 
@@ -972,7 +977,7 @@ obrir-se** i no amb `time.tz()`: una pàgina que es tanca sense moure el mapa no
 mapa diu. La llista del panell d'ajustos és d'hora en hora (l'amo: *«no he vist mai que fos +X.5, sempre hores +1, -3, +3…»*) i
 una placa posada a mà a una mitja hora ensenya la fila buida en lloc d'un número que el desplegable no podria tornar a escriure.
 
-**El que es desa i on**: la zona, l'estiu, el traspàs i el primer dia de la setmana són preferències de la placa i van a la
+**El que es desa i on**: la zona, l'estiu i el primer dia de la setmana són preferències de la placa i van a la
 memòria de claus (`kernel::cfg`, la NVS, amb la paraula que va teclejar la persona). **El RTC només rep l'època** —
 `clock->set_epoch_ms`, i ni `cfg tz` ni `cfg dst` hi escriuen mai—, perquè un xip amb l'hora local obligaria a reescriure'l cada
 cop que es canvia de zona i dues apps podrien deixar el rellotge desfasat.
@@ -1030,18 +1035,29 @@ còpies de la regla dels traspasos es donen respostes diferents** i un calendari
 vegades l'any. `ui.month` i el dial del calendari pregunten aquestes mateixes funcions (docs/30, docs/90). Les proves
 són a `test/test_calendar`: el febrer de 2024, 1900, 2000 i 2100, i sis dates que un calendari ja ha imprès.
 
-**I les dues coses que sí que són una opció** (0.170.0): el primer dia de la setmana i el dia de traspàs són
-**ajustos del sistema**, i no una taula de cada app, perquè `ui.month`, `time.utc`/`date` i qualsevol pàgina que compti
-dies d'un mes han de dir el mateix (l'app de la zona horària mou el primer dia amb `time.week`; el traspàs es mou amb
-`cfg leap` i `time.leap`, i des de 0.179.50 **no té casella en aquella pàgina** —el que hi ha és l'horari d'estiu, que és
-una hora de més sobre la zona— docs/30):
+**I la cosa que sí que és una opció** (0.170.0): el primer dia de la setmana és **un ajust del sistema**, i no una taula
+de cada app, perquè `ui.month`, `time.utc`/`date` i qualsevol pàgina que compti dies d'un mes han de dir el mateix (l'app
+de la zona horària el mou amb `time.week`, i la pestanya Clock del panell d'ajustos també) (docs/30):
 
-- **`cfg leap on|off`** (o `time.leap`): amb el traspàs apagat, `days_in_month` diu que el febrer té vint-i-vuit dies
-  **cada any**, i la pàgina d'un calendari ensenya vint-i-vuit. **El dia de la setmana d'una data no es mou**: el 29 de
-  febrer segueix caient on cau, perquè això és el cel i no una preferència.
 - **`cfg week monday|sunday`** (o `time.week`): `weekday_of` continua tornant 1 = dilluns i 7 = diumenge —el compte no
   canvia— i el que gira és **la columna**: `ui.month` posa el primer dia del mes on li toca segons aquest ajust
   (`cells_of`, a `lib/kernel/src/ui.cpp`) i gira els set noms de la setmana amb ell. Dilluns és el valor amb què aquest
   sistema va néixer i diumenge és l'altre; una setmana que comenci en dimecres no s'accepta.
-- **Les dues es desen a l'acte i sobreviuen a un reinici**, com el desfasament de l'hora: són claus de l'cfg (`leap`,
-  `week`) escrites amb les paraules que una persona llegeix amb `nvs` (`on`/`off`, `monday`/`sunday`).
+- **Es desa a l'acte i sobreviu a un reinici**, com el desfasament de l'hora: és la clau `week` de l'cfg, escrita amb la
+  paraula que una persona llegeix amb `nvs` (`monday`/`sunday`).
+
+**I el dia de traspàs no és cap opció, i no ho ha estat mai de bo** (0.192.57, l'amo: *«Treu el toggle de Leap year de
+l'app Settings->Clock, sabem com calcular si es any de taspàs o no ho es… no cal un toggle manual. Treu tota referencia al
+sistema d'aquest opció»*). Un any de traspàs és un fet del calendari gregorià i cap placa no el pot apagar; el que hi havia
+fins ara era una clau de l'cfg (`leap`), una comanda del prompt (`cfg leap on|off`), un camp de `time.leap`, una casella a
+la pestanya Clock del panell d'ajustos i un racó de la pàgina de la zona horària que la posava sola quan l'hora venia d'un
+servidor. **Tot això s'ha tret**, i el que queda és una sola regla a `hal::is_leap_year` que `days_in_month`, `time.epoch`
+i `time.leap()` demanen:
+
+- **`days_in_month` diu el que diu el calendari**: vint-i-nou al febrer d'un any de traspàs i vint-i-vuit a qualsevol
+  altre, sense cap ajust entremig. El 2000 va ser de traspàs i el 2100 no ho serà.
+- **`time.leap()` només pregunta**: diu si **l'any del rellotge** té el vint-i-nou de febrer, es compta de la data, i
+  `time.leap(true)` és `E_INVAL` perquè no hi ha res a escriure.
+- **Una placa que ve d'una build anterior deixa anar la clau**: `cfg::boot` esborra `cfg/leap` del magatzem si hi és, i ho
+  diu al registre, perquè una clau que ningú llegeix és una clau que una persona veu amb `nvs` i no pot explicar. I un
+  `cfg leap` escrit al prompt contesta que el dia es compta de la data en lloc de caure a la porta de la unitat del disc.

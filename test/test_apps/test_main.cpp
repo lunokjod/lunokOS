@@ -38,6 +38,7 @@
 #include "kernel/lock.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
+#include "kernel/screenshot.h"
 #include "kernel/orders.h"
 #include "kernel/panel.h"
 #include "kernel/serial.h"
@@ -1234,6 +1235,48 @@ void test_the_tetris_turns_with_the_finger_and_clears_the_rows(void) {
   TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(down, "[tetris] x=%*d y=%d", &down_y), down);
   TEST_ASSERT_EQUAL_INT_MESSAGE(start_y + 1, down_y, down);
 
+  // **I el lliscament també juga** (0.192.58, l'amo: *«El drop(swipe) esquerra-dreta al joc Tetris … el drop/swipe en una
+  // direcció mou la peça … Que sigui detecció de les dues maneres (toc i drop) aixì l'usuari aconseguirà el moviment que
+  // busca»*): a finger that walks sideways is a move of the piece —one column per cell it crossed— and not a gesture that
+  // the queue eats, que és el que passava abans: the drag went nowhere and the game lost the time it took (docs/30, docs/45).
+  auto drag = [&](int from_x, int from_y, int to_x, int to_y) -> bool {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + from_x), static_cast<uint16_t>(view.y + from_y))) return false;
+    pump_turns(4);
+    for (int step = 1; step <= 4; ++step) {
+      const int px = from_x + (to_x - from_x) * step / 4;
+      const int py = from_y + (to_y - from_y) * step / 4;
+      if (!panel->finger_move(0, static_cast<uint16_t>(view.x + px), static_cast<uint16_t>(view.y + py))) return false;
+      pump_turns(4);
+    }
+    if (!panel->finger_up(0)) return false;
+    pump_turns(30);
+    return true;
+  };
+
+  // Two cells to the left: the middle of the piece is where the finger lands, and the travel is two cells.
+  capture_begin();
+  TEST_ASSERT_TRUE(drag(cx, cy, cx - 2 * cell, cy));
+  capture_end(g_out, sizeof(g_out));
+  const char* slid = strstr(g_out, "[tetris] x=");
+  TEST_ASSERT_NOT_NULL_MESSAGE(slid, g_out);
+  int slid_x = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(slid, "[tetris] x=%d y=%*d", &slid_x), slid);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(start_x - 2, slid_x, slid);
+
+  // **I avall és deixar-la caure al terra del pou** (l'amo: *«El swipe(drop) cap avall a l'app Tetris significa baixar la peça
+  // inmediatament»*): the piece lands and the one that comes enters at the top with its highest block on the first row, which
+  // is what a hard drop is and what a soft drop (the tap below) is not (docs/45).
+  capture_begin();
+  TEST_ASSERT_TRUE(drag(cx - 2 * cell, cy, cx - 2 * cell, wy + wh - cell / 2));
+  pump_turns(300);
+  capture_end(g_out, sizeof(g_out));
+  const char* dropped = nullptr;
+  for (const char* at = g_out; (at = strstr(at, "[tetris] x=")) != nullptr; ++at) dropped = at;
+  TEST_ASSERT_NOT_NULL_MESSAGE(dropped, g_out);
+  int drop_y = 99;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(dropped, "[tetris] x=%*d y=%d", &drop_y), dropped);
+  TEST_ASSERT_TRUE_MESSAGE(drop_y <= 1, dropped);   // the next piece is the one at the top: the other one has landed
+
   // **I els tres tocs són del joc mentre el joc és al vidre** (0.190.254): the app asks for them with
   // `touch.triple_tap_close(false)` and the system stops taking the gesture; a game that reads every tap cannot be closed by the
   // third one. **I quan l'app s'acaba els torna**, que és la mà del sistema i no una promesa de la pàgina (docs/30, docs/46).
@@ -1268,6 +1311,40 @@ void test_the_tetris_turns_with_the_finger_and_clears_the_rows(void) {
   TEST_ASSERT_EQUAL_INT_MESSAGE(4, cleared, landed);
   TEST_ASSERT_EQUAL_INT_MESSAGE(1200, points, landed);
   TEST_ASSERT_EQUAL_INT_MESSAGE(1, at_level, landed);   // 1 200 points are the 500 of the first level and a bit of the second
+
+  // **I el final d'una partida es veu, amb els seus números** (0.192.58, l'amo: *«Quan el jugador-CPU perd, a l'Snake es veu
+  // "Game over" i els punts que ha fet i com tenía la partida. Però al Tetris no passa igual? vull que es faci el mateix»*):
+  // `lose` és un pou ple tret d'una columna i una `O` a la primera fila, o sigui que la baixada la deixa allà i la peça que ve
+  // no neix —el camí de `lock` que no fa cap línia, que és el que no pintava la banda—. El que es mira és el **paper** de la
+  // banda al mig del pou: amb el pou ple aquella columna és tinta de dalt a baix, i una banda pintada hi deixa més de quaranta
+  // píxels de paper (docs/30, docs/45).
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/data/tetris/game.txt");
+  capture_begin();
+  pump_captured(40, g_out, sizeof(g_out), "run tetris lose");
+  pump_turns(4000);
+  capture_end(g_out, sizeof(g_out));
+  const char* finished = nullptr;
+  for (const char* at = g_out; (at = strstr(at, "[tetris] x=")) != nullptr; ++at) finished = at;
+  TEST_ASSERT_NOT_NULL_MESSAGE(finished, g_out);
+  int finished_x = 0;
+  int finished_over = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(finished, "[tetris] x=%d y=%*d rot=%*d piece=%*s lines=%*d score=%*d level=%*d over=%d",
+                                        &finished_x, &finished_over),
+                                finished);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(-1, finished_x, finished);   // no piece: the one that came could not be born
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, finished_over, finished);
+  const kernel::ui::Canvas& ended = kernel::ui::canvas();
+  int middle_paper = 0;
+  for (int py = wy; py < wy + wh; ++py) {
+    const int px = wx + ww / 2;
+    if (px < 0 || py < 0 || px >= ended.width || py >= ended.height || ended.bits == nullptr) continue;
+    const uint8_t byte = ended.bits[py * ended.stride + px / 2];
+    const int tone = (px % 2 == 0) ? (byte >> 4) : (byte & 0x0F);
+    if (tone == 15) ++middle_paper;
+  }
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(40, middle_paper, "the band of the end is not painted on the well");
 
   kernel::shell::close_app();
   pump_captured(5, nullptr, 0);
@@ -12053,6 +12130,82 @@ void test_a_page_the_panel_refused_is_painted_when_it_can(void) {
   TEST_ASSERT_TRUE(emu::memory_surface()->set_ink(false));
 }
 
+// **La captura de pantalla, en els dos formats que aquest sistema escriu** (0.192.59, l'amo: *«Una comanda per fer captura de la
+// pantalla i escollir format de sortida (per defecte ics) "screenshoot /sd/capture.ics"»*): el vidre deixa els seus propis píxels
+// una fila a la vegada (`hal::ISurface::read_row`), o sigui que el que s'escriu és el que hi ha pintat —no una còpia que el nucli
+// hagués de recordar— i el format el diu l'extensió: `ICS1` quan no en diu cap, perquè és el fitxer més barat d'aquesta casa i el
+// que ella mateixa llegeix com qualsevol foto, i `PNG` quan ho diu, perquè és el que obre qualsevol programa (docs/30, docs/46).
+void test_the_screenshot_writes_the_glass_as_ics_and_as_png(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::ISurface* surface = hal::platform().display();
+  TEST_ASSERT_NOT_NULL(surface);
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // **Una pàgina pintada a mà**: two rows with known levels, o sigui que una fila del fitxer es pot comparar amb el vidre píxel a
+  // píxel en lloc d'endevinar-se d'una imatge.
+  const uint16_t w = surface->width();
+  const uint16_t h = surface->height();
+  for (uint16_t x = 0; x < w; ++x) {
+    surface->pixel(x, 0, static_cast<uint8_t>(x % 16));
+    surface->pixel(x, 3, 0);
+  }
+
+  char written[160];
+  const char* code = "";
+  const char* reason = "";
+  // **Un camí sense extensió és un `ICS1` i l'extensió s'hi posa**: the answer says the file that is there and not the one that was
+  // asked for, que és el que una persona ha de poder obrir.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::screenshot::capture("/littlefs/shot", written, sizeof(written), code, reason), reason);
+  TEST_ASSERT_EQUAL_STRING("/littlefs/shot.ics", written);
+
+  hal::Stat info = {};
+  TEST_ASSERT_TRUE(storage->stat("shot.ics", info));
+  TEST_ASSERT_EQUAL_UINT32(img::ics_bytes(w, h), info.size);
+
+  hal::FileSlot slot;
+  uint8_t head[8] = {0};
+  TEST_ASSERT_TRUE(storage->open("shot.ics", hal::OpenMode::kRead, slot));
+  TEST_ASSERT_EQUAL_INT32(8, storage->read(slot, head, sizeof(head)));
+  TEST_ASSERT_EQUAL_STRING_LEN("ICS1", head, 4);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(w & 0xFF), head[4]);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(h & 0xFF), head[6]);
+  // The first row of the page, which is the one that was painted with the sixteen levels: two pixels a byte, the left one first.
+  uint8_t row[8] = {0};
+  TEST_ASSERT_EQUAL_INT32(static_cast<int32_t>(sizeof(row)), storage->read(slot, row, sizeof(row)));
+  TEST_ASSERT_EQUAL_UINT8(0x01, row[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x23, row[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x45, row[2]);
+  storage->close(slot);
+
+  // **I un `.png`**: the signature, the header of the image and the size the writer promises, que és el que fa que qualsevol
+  // programa l'obri.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::screenshot::capture("/littlefs/shot.png", written, sizeof(written), code, reason), reason);
+  TEST_ASSERT_EQUAL_STRING("/littlefs/shot.png", written);
+  TEST_ASSERT_TRUE(storage->stat("shot.png", info));
+  TEST_ASSERT_EQUAL_UINT32(img::png_bytes(w, h), info.size);
+  uint8_t start[24] = {0};
+  TEST_ASSERT_TRUE(storage->open("shot.png", hal::OpenMode::kRead, slot));
+  TEST_ASSERT_EQUAL_INT32(static_cast<int32_t>(sizeof(start)), storage->read(slot, start, sizeof(start)));
+  storage->close(slot);
+  TEST_ASSERT_EQUAL_UINT8(0x89, start[0]);
+  TEST_ASSERT_EQUAL_STRING_LEN("PNG", start + 1, 3);
+  TEST_ASSERT_EQUAL_STRING_LEN("IHDR", start + 12, 4);
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(w >> 8), start[16]);
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(w & 0xFF), start[19]);
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(h >> 8), start[20]);
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(h & 0xFF), start[23]);
+
+  // **I el que no és cap dels dos formats es diu i no s'escriu**: a file with the name of one format and the bytes of another is
+  // worse than no file at all.
+  TEST_ASSERT_FALSE(kernel::screenshot::capture("/littlefs/shot.bmp", written, sizeof(written), code, reason));
+  TEST_ASSERT_EQUAL_STRING("E_INVAL", code);
+
+  storage->remove("shot.ics");
+  storage->remove("shot.png");
+}
+
 // **The glass is one surface however many times it is asked** (0.118.9): `platform().display()` is the one
 // door to the panel, and a board that built a new one per ask would power the rail and shake hands with the
 // controller again in the middle of a page. On the Paper that same mistake has a second face, and it is the
@@ -15429,6 +15582,14 @@ void test_the_civil_calendar_round_trips(void) {
   TEST_ASSERT_EQUAL_INT(2026, y);
   TEST_ASSERT_EQUAL_INT(10, mo);
   TEST_ASSERT_EQUAL_INT(31, d);
+
+  // **The leap year, in the one place the whole system asks** (0.192.57): four divides it, except the centuries, except
+  // every four hundred —i és una regla de la data i no un ajust, per això no hi ha res a apagar— (docs/50, docs/60).
+  TEST_ASSERT_TRUE(hal::is_leap_year(2024));
+  TEST_ASSERT_TRUE(hal::is_leap_year(2000));
+  TEST_ASSERT_FALSE(hal::is_leap_year(2026));
+  TEST_ASSERT_FALSE(hal::is_leap_year(1900));
+  TEST_ASSERT_FALSE(hal::is_leap_year(2100));
 
   // The 29th of February exists on a leap year and not on the one after a century that is
   // not a multiple of four: 2000 yes, 2100 no.
@@ -19190,10 +19351,10 @@ static void back_to_nothing() {
     }                                                               \
   } while (0)
 
-// **The hour of the person, with a finger on a map of the world** (0.170.0): the app of the time zone reads the offset,
-// the leap day and the first day of the week from the system, a finger on the map picks a band of fifteen degrees, and
-// the offset is written **when the app closes and not while it is used** —which is the owner's rule— because `time.tz`
-// writes the setting at once (docs/30, docs/60, docs/90).
+// **The hour of the person, with a finger on a map of the world** (0.170.0): the app of the time zone reads the offset and
+// the first day of the week from the system, a finger on the map picks a band of fifteen degrees, and the offset is written
+// **when the app closes and not while it is used** —which is the owner's rule— because `time.tz` writes the setting at once
+// (docs/30, docs/60, docs/90). El dia de traspàs no hi és des de la 0.192.57: es compta de la data (docs/60).
 void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -19254,7 +19415,7 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
       one.y = one.w;
       one.w = 0;
       one.h = 0;
-    } else if (read == 4 && (strcmp(one.what, "dst") == 0 || strcmp(one.what, "leap") == 0)) {
+    } else if (read == 4 && strcmp(one.what, "dst") == 0) {
       // `what`, the place and one side of it: the checkbox is a square and the app says one side.
       one.h = one.w;
     } else if (read != 5) {
@@ -19282,8 +19443,8 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
     if (++seen == 16) hour_three = &places[i];
   }
   TEST_ASSERT_NOT_NULL_MESSAGE(place("sync"), g_out);
-  // **I la casella és la de l'hora d'estiu** (0.179.50): the page of the hour shows what makes the hour of summer and not
-  // the leap day, which is a calendar of the board and lives with `cfg leap` (docs/30, docs/60).
+  // **I la casella és la de l'hora d'estiu** (0.179.50): the page of the hour shows what makes the hour of summer, and the
+  // leap day has no box anywhere since 0.192.57 —it is counted from the date, not chosen— (docs/30, docs/60).
   TEST_ASSERT_NOT_NULL_MESSAGE(place("dst"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(place("week"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(place("list"), g_out);
@@ -19299,10 +19460,7 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
     return true;
   };
 
-  // **Nothing has touched a setting yet**: the page is only holding the hour it read, and the leap day of the board is not
-  // hers to turn any more (0.179.50).
-  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the leap day went off with no finger on it");
-
+  // **Nothing has touched a setting yet**: the page is only holding the hour it read (0.179.50).
   // **The dial is the system's again** (0.174.0): the page reads no key any more, and the ring is on the first control
   // of the page —the page handed the focus to the button of the time server— so one step of the right key takes it to the
   // checkbox and the centre is Enter on it: the app hears `on_change` and not a key (docs/30). It comes before the finger
@@ -19319,7 +19477,6 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   pump_turns(60);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: dst on +01:00"), g_out);
-  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the box of the hour turned the leap day of the board");
 
   // **A finger on the band of +3** picks it and says so, and nothing is written yet: the page is holding it.
   TEST_ASSERT_NOT_NULL(hour_three);
@@ -19329,7 +19486,6 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: picked +03:00"), g_out);
   TEST_ASSERT_EQUAL_INT_MESSAGE(before, kernel::cfg::tz_minutes(), "the page saved the hour before the close");
-  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the map turned the leap day, and that is not its setting");
 
   // **The button of the time server is a `ui.button` of the system and it hears the finger** (0.174.0, the owner: *«el
   // botó de sync NTP tampoc sembla un botó de sistema»*): the click is a hook and a hook cannot wait, so the button leaves
@@ -19348,7 +19504,6 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   TEST_ASSERT_TRUE(tap(dst->x, dst->y));
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: dst off +03:00"), g_out);
-  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the finger on the box turned the leap day of the board");
 
   const Place* week = place("week");
   capture_begin();
@@ -19398,8 +19553,12 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: dst on"), g_out);
   pump_captured(20, g_out, sizeof(g_out), "cfg week");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: week sunday"), g_out);
+  // **I el dia de traspàs ja no és cap ajust** (0.192.57): the prompt does not print it among the settings and a person who
+  // still types it is told why, instead of being answered about a unit of the disk (docs/30, docs/60).
+  pump_captured(20, g_out, sizeof(g_out), "cfg");
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "leap"), g_out);
   pump_captured(20, g_out, sizeof(g_out), "cfg leap");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: leap on"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the leap day is not a setting"), g_out);
 
   // ---- **una placa amb mitja hora no la perd per obrir i tancar aquesta pàgina** (0.189.142): the map is whole hours and the
   // system takes any minute (`cfg tz 90` is an hour and a half), so the close compares against what the map showed when it
@@ -19417,7 +19576,6 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "tz: saved"), g_out);
 
   // The board goes back to the calendar it was born with, or the cases after this one read a Sunday.
-  kernel::cfg::set_leap_years(true);
   kernel::cfg::set_week_start(1);
   kernel::cfg::set_tz_minutes(0);
 
@@ -22077,6 +22235,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_splash_waits_for_the_ink_of_the_page_before);
   RUN_TEST(test_a_page_the_panel_refused_is_painted_when_it_can);
   RUN_TEST(test_the_glass_is_one_surface_however_often_it_is_asked);
+  RUN_TEST(test_the_screenshot_writes_the_glass_as_ics_and_as_png);
   RUN_TEST(test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given);
   RUN_TEST(test_the_keyboard_follows_the_box_that_takes_the_focus);
   RUN_TEST(test_a_drag_that_crosses_the_keyboard_types_nothing);

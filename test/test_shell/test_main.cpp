@@ -1267,6 +1267,54 @@ void test_cat_prints_the_whole_file_and_not_its_first_screen(void) {
   storage->remove("/nonl.txt");
 }
 
+// **`serial send` posa el fitxer al cable i res més** (0.192.61, l'amo: *«Crea una subcomanda a serial anomenada "send"
+// "serial [send] [/path/filename]" que permeti enviar un arxiu per port serie, usant el bloqueig de serial per evitar
+// soroll.»*): el port es cedeix mentres el fitxer passa, o sigui que el que arriba a l'altre cap és el fitxer sencer i cap
+// línia del sistema pel mig, **byte a byte i sense el filtre dels codis** —un `0x1b` a dins hi arriba, que és el que separa
+// enviar un fitxer de pintar una pàgina—, i el port torna al sistema tot sol quan s'ha acabat (docs/30, docs/50).
+void test_serial_send_puts_the_file_on_the_wire_raw(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // La consola d'aquesta banda no parla codis (`speaks_ansi` és fals), o sigui que un `0x1b` que arribi a la captura és un
+  // `0x1b` que ningú no ha filtrat.
+  const char kBytes[] = "hello\033[1mRAW\033[0m end\nsecond line\n";
+  TEST_ASSERT_TRUE(write_text(storage, "/send-me.txt", kBytes));
+
+  static char said[4096];
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("serial send /littlefs/send-me.txt"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, kBytes), said);
+  // **I el bloqueig era d'aquesta comanda i no es queda posat**.
+  TEST_ASSERT_FALSE(kernel::serial::claimed());
+  TEST_ASSERT_EQUAL_STRING("", kernel::serial::owner());
+
+  storage->remove("/send-me.txt");
+}
+
+// **I si el port és d'una app, el fitxer no hi passa** (0.192.61): dues coses al mateix cable és exactament el que el
+// bloqueig existeix per evitar, o sigui que `serial send` no envia res, no es queda el port i no li pren a qui el té: el
+// cable no rep ni un byte del fitxer i l'amo és qui era (docs/30, docs/50).
+void test_serial_send_refuses_a_port_that_is_not_the_prompts(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(write_text(storage, "/send-me.txt", "hello there\n"));
+
+  TEST_ASSERT_TRUE(kernel::serial::claim("anapp", "a test says so"));
+  static char said[1024];
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("serial send /littlefs/send-me.txt"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "hello there"), said);
+  TEST_ASSERT_TRUE(kernel::serial::claimed());
+  TEST_ASSERT_EQUAL_STRING("anapp", kernel::serial::owner());
+
+  kernel::serial::release("the test is done");
+  storage->remove("/send-me.txt");
+}
+
 // **A path that is not there says why and where the one that is there lives** (0.86.1): `ls /sd/app/timers` with an
 // `apps` next to it is what finds the letter that is missing, and a path that is a file is listed with its name and its
 // size instead of saying it is not a folder. It is the same for `cat`, which already said "no such file" and now also
@@ -2110,6 +2158,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_listing_deeper_than_a_signed_byte_does_not_invent_an_entry);
   RUN_TEST(test_a_key_longer_than_the_buffer_is_dropped_and_does_not_match);
   RUN_TEST(test_cat_prints_the_whole_file_and_not_its_first_screen);
+  RUN_TEST(test_serial_send_puts_the_file_on_the_wire_raw);
+  RUN_TEST(test_serial_send_refuses_a_port_that_is_not_the_prompts);
   RUN_TEST(test_cat_of_a_missing_file_fails);
   RUN_TEST(test_hexdump_of_a_missing_file_fails);
   RUN_TEST(test_hexdump_with_no_path_says_what_it_wants);
