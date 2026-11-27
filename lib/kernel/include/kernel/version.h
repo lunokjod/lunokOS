@@ -15378,7 +15378,1018 @@ namespace kernel {
 //     en un label (docs/30).
 //   - **Les versions**: `handwrite` 0.1.7.
 
-static const char kVersion[] = "0.192.78";
+// **0.192.79 — el caràcter gran no desapareixia pel refresc sinó perquè no hi cabia** (l'amo, amb la 0.192.78 a la placa: *«La paraula
+// amb "p" o "q" o "g" o "j" surten tallades perqué les dibuixes massa a la vora del panell on s'escriu. Fes les vores lleugerament
+// arrodonides del panell. I el panell petit li sobra molt espai sota. En qualsevol cas, la lletra gran continua desapareixent, m'es
+// ben igual si es layout o que la pintes massa aviat. SOLUCIONA-HO JA.»*).
+//
+//   - **La causa, trobada mesurant i no suposant**: una cara d'outlines rasteritza cada glif dins d'un bloc de **64x64 píxels**
+//     (`kOutlineMaxWidth`/`kOutlineMaxHeight`, `font.cpp`) i el glif que no hi cap **no es pinta i no diu res**. `kOutlineBody` és
+//     nou, o sigui que a `scale` deu el cos fa noranta píxels i la lletra no arribava mai al vidre; les curtes (`a`, `c`, `o`, `+`)
+//     sí que hi cabien, i per això el forat es veia en unes lletres i no en unes altres. El caràcter gran passa a `scale` set (cos de
+//     seixanta-tres) i les **34 lletres i els 23 símbols** s'han comptat un per un amb `--dump` a l'emulador (docs/30, docs/85).
+//   - **Les caixes dels textos es compten amb `ui.line_height`** i no amb números fixos: la caixa de trenta-quatre píxels d'un text de
+//     quatre passos era el que tallava les cames de `p`, `q`, `g` i `j` de la paraula del record (docs/30).
+//   - **Els panells amb la cantonada rodona i el marc de sis píxels**, i la quadrícula **exactament de set cel·les** del costat que es
+//     calcula, o sigui sense l'espai mort de sota (l'amo: *«Fes les vores lleugerament arrodonides del panell… el panell petit li
+//     sobra molt espai sota»*) (docs/30, docs/85).
+//   - **El que demana un botó es pinta al torn de l'app** (`needs_a_paint`): un hook corre entre dos torns i el dibuix que s'hi fa no
+//     arriba al vidre, o sigui que `Retry`, `Skip`, `123`/`abc` i `Save` només apunten la feina (docs/30, docs/50).
+//   - **Un forat que no és d'aquesta pàgina i que es diu aquí**: les vuit lletres amb accent (`à è é í ò ó ú ç`) no es pinten amb la
+//     cara del disc, ni grans ni petites: la cara no en troba el glif pel codi d'un byte (docs/30).
+//   - **Les versions**: `handwrite` 0.1.8.
+
+// **0.192.80 — els accents es pinten, i la pausa compta des de l'últim dit aixecat** (l'amo: *«Les lletres accentuades (à è é í ò ó ú
+// ç) no es pinten … Usa un tipus de lletra que ho suporti. Buscala!»* i *«si l'usuari torna a baixar el dit abans d'1,2 t'esperes
+// fins que l'alliberi 1,2 segons sencers des de l'últim cop que va aixecar l'últim dit (no el primer) … Si no esperes tindràs una
+// mostra tallada»*).
+//
+//   - **Els vuit accents, amb una cara que els té**: the system face is `dejavusans-bold.ttf`, retallada a l'ASCII imprimible, i el
+//     seu mapa respon **zero** per als codis 0xE0 a 0xFC —comprovat llegint el `cmap` dels setze fitxers del disc—; la mateixa
+//     família amb el joc Latin-1 ja hi és (`dejavusans-bold-latin1.ttf`, la que la `Meteo` fa servir per al grau), i el caràcter i la
+//     paraula del record la demanen amb `label:font`. Les vuit es veuen, comptades amb `--dump` a l'emulador (docs/30, docs/70).
+//   - **La pausa de 1,2 segons compta des de l'últim aixecament i qualsevol dit la cancel·la**: the countdown ran from the last point
+//     **on the paper**, o sigui que un dit que tornava a baixar fora del paper —per canviar d'angle, que és el que l'amo fa— no
+//     aturava res i la mostra es tancava tallada a mig traç. Ara `finger_is_down` i `rest_from` diuen el que passa: cap contacte, cap
+//     rellotge (docs/30).
+//   - **Un traç que es perdia per un `stroke` de menys**: la variable del traç que s'està omplint s'havia quedat sense la seva línia i
+//     el primer dit acabava l'app amb `attempt to get length of a nil value`; reparat i provat amb el ratolí de la finestra.
+//   - **Les versions**: `handwrite` 0.1.9.
+//
+// Provat amb el ratolí de la finestra de l'emulador damunt d'un Xvfb propi: un traç de debò, una pulsació de 2,6 segons fora del
+// paper —**cap mostra apresa**—, i la mostra apresa (`'a' learned in letters: 1 example(s) of it, 1 in all`) en deixar anar el dit
+// i esperar els 1,2 segons.
+
+// **0.192.81 — la banda del teclat handwrite es veu** (l'amo: *«El teclat handwrite no fa res? no surt el panell per escriure!?»*).
+//
+//   - **Els dos panells amb un marc de quatre píxels i en negre**: the band drew them with one pixel of level four, que en un panell
+//     d'aquesta casa és una vora que s'ha de buscar —el mateix que l'amo va dir del paper de l'entrenament—, o sigui que el que
+//     havia de dir «aquí es dibuixa» no deia res. El filet de la línia de dalt i el del peu passen de tres i dos píxels de tinta, i
+//     la tecla d'espai tambe té el seu marc (docs/30, docs/92).
+//   - **Els noms, més grans i en negre**: `letters` i `numbers` (que era `123`) a tres passos i nivell zero (docs/30).
+//   - **La banda sí que surt**: comprovada amb una pàgina de prova a l'emulador amb `cfg keyboard handwrite` —la línia amb el cursor,
+//     els dos panells i el peu amb `space`, el retorn i el retrocés— i el cas de la suite (`test_the_hand_band_takes_a_stroke_and…`)
+//     segueix verd (docs/30, docs/90).
+//
+// Provat amb `--dump` a l'emulador: la banda amb els marcs gruixuts.
+
+// **0.192.82 — `Retry` i `Save` s'apaguen junts** (l'amo: *«El botó Retry no hauría d'estar actiu si Save acava de guardar i està
+// deshabilitat. no trobes?»*).
+//
+//   - **Un sol criteri per als dos botons**: `Retry` llença l'intent que hi ha al paper, i un intent que ja és al disc no és cap
+//     intent. La condició és la mateixa que la de `Save` —hi ha feina quan s'està dibuixant (`#strokes > 0`) o quan hi ha una mostra
+//     que encara no és al disc (`dirty`)—, o sigui que després de desar els dos diuen «ara no» i la pàgina no demana res (docs/30).
+//   - **Provat amb el ratolí de la finestra de l'emulador**: un traç de debò, el botó `Save` premut (`the letters model saved: 1
+//     example(s), 24 B`), i el `Retry` que queda amb la tinta del `dim` i no respon (docs/30, docs/85).
+//   - **Les versions**: `handwrite` 0.1.10.
+
+// **0.192.83 — els accents a tot el sistema, i el teclat que aprèn de debò** (l'amo: *«i el teclat d'usuari? està fet? i els
+// accents? i lo de deixar el dit i tornar-lo a posar?»*).
+//
+//   - **La cara del sistema passa al joc Latin-1** (`/fonts/dejavusans-bold-latin1.ttf`, la mateixa família i el mateix pes, vint
+//     kilobytes en lloc de vuit i mig) amb la d'abans de recanvi si una targeta és vella: el mapa de la cara d'ASCII respon **zero**
+//     per als codis 0xE0 a 0xFC —llegit dels setze fitxers del disc—, o sigui que una lletra accentuada era un forat a qualsevol
+//     caixa de text, a qualsevol etiqueta i a la línia de la banda. La línia de la banda de la lletra escrita a mà es pinta amb
+//     aquesta cara, i la pàgina d'entrenament ja no es carrega la seva (vint kilobytes que no es gasten) (docs/30, docs/70).
+//   - **El que el teclat aprèn d'una correcció es desa** (docs/30, docs/70): the tap of a candidate added an example to the model in
+//     memory and nothing wrote it, o sigui que el teclat d'usuari s'esvaïa al primer reinici; ara `hand::save` va darrere del `add`
+//     i el log diu si el model s'ha pogut desar.
+//   - **Els traços d'una lletra es queden tots** (docs/30, docs/90): the glyph was cleaned at every new contact on the surfaces, o
+//     sigui que la segona ratlla d'una `t`, d'una `i` o d'una `à` esborrava la primera; ara es neteja quan la lletra es tanca.
+//   - **I un dit que torna abans dels 1,2 segons atura el rellotge** (l'amo: *«i lo de deixar el dit i tornar-lo a posar?»*): the rest
+//     counted from the last frame of the stroke, o sigui que tornar a baixar el dit —per canviar d'angle o per fer el segon traç— es
+//     trobava la lletra tancada a mig fer. Un contacte a les dues superfícies cancel·la la pausa; les tecles del peu no compten.
+//   - **Les versions**: `handwrite` 0.1.11.
+//
+// Provat amb l'emulador: `[I][UI] face /fonts/dejavusans-bold-latin1.ttf`, una caixa de text amb `àèéíòóúç` que es llegeix sencera,
+// la banda amb els marcs gruixuts, i la suite (`test_ui` 119 de 123, amb els tres casos que ja fallaven abans).
+
+// **0.192.84 — `File → New` a l'editor** (l'amo: *«L'editor no té File -> New ????»*).
+//
+//   - **El primer full del menú `File` és `New`**, com a tot arreu: buida la pàgina, li treu el nom (`(no file)` a l'estat) i
+//     apaga el commutador de només lectura, perquè una pàgina que s'obre per escriure no és una pàgina per llegir. El primer `Save`
+//     demana on va en lloc d'inventar-se un fitxer (docs/30, docs/45).
+//   - **Les entrades del menú es mouen de lloc** i el `on_choice` amb elles: `Open` 3, `Save` 5, `Save as` 6, `Close` 8 —the dashes
+//     are entries of the list and count, que és el que ja feia aquest menú (docs/30).
+//   - **Provat amb el ratolí de la finestra de l'emulador**: el menú desplegat amb `New` a dalt de tot, el toc, la pàgina buida amb
+//     el cursor, l'estat `(no file)  0 B  row 1/1` i la nota `a new page: Save asks where it goes` (docs/85).
+//   - **Les versions**: `editor` 0.1.3.
+
+// **0.192.85 — el teclat de la lletra escrita a mà, provat de punta a punta** (l'amo: *«activó el teclat a settings, vaig a l'editor
+// i … NO SURT CAP TECLAT, NI AMB BOTONS, NI PANELLS NI RES. Revisa el codi.»* i *«Perqué quan acabo de dibuixar un caràcter CANVIA EL
+// PUTO CARACTER en quant llevo el dit??»*).
+//
+//   - **L'editor s'obria de només lectura i per això no hi havia cap teclat**: `opensArgs` (`-ro` a l'editor) s'aplicava a **tots** els
+//     arrencaments i no només als que porten un fitxer, o sigui que la pàgina d'inici de l'editor era una pàgina per llegir i el
+//     teclat no hi pujava mai. Ara el manifest només mana quan l'arrencament porta un camí (docs/30, docs/40).
+//   - **La banda que es repinta per ella mateixa no arribava al vidre**: the damage marked was the one somebody else had noted
+//     (`dw_`/`dh_`), i una banda que es repinta des de `own_turn` —qui tanca la lletra quan el dit s'atura i qui escriu la línia amb
+//     el caràcter llegit— no n'apuntava cap, o sigui que el que es pintava al llenç no es veia. Una banda que es pinta sencera es
+//     marca sencera (docs/50, docs/90).
+//   - **I la banda diu per què no ha escrit res**: `no letters yet: run Handwrite` o `nothing read: try again`, a la línia i a tres
+//     passos, esborrades al contacte següent. Abans, un model buit era una banda que no feia res i callava (docs/30).
+//   - **El caràcter de l'entrenament no canvia sol**: the page jumped to the next character when the third example went in —i amb un
+//     caràcter que ja en tenia tres, **cada** dibuix saltava—, i qui aixecava el dit es trobava una altra lletra sense saber on havia
+//     anat la mostra. Ara es queda fins a `Skip` (el següent) o `Save` (desa i, si aquesta ja les té totes, passa a la primera que en
+//     falta, o comença la prova) (docs/30).
+//   - **L'app torna a saber on era**: `save_work` escrivia la línia amb un `\n` i `load_work` demanava el final just després de
+//     l'últim número, o sigui que **cap reinici llegia el fitxer** i la pàgina tornava sempre a la `a` (docs/30, docs/70).
+//   - **Les versions**: `handwrite` 0.1.12.
+//
+// Provat de punta a punta amb el ratolí de la finestra de l'emulador damunt d'un Xvfb propi: un traç a l'entrenament (`'a' learned in
+// letters: 1 example(s) of it`), `Save` (`the letters model saved: 1 example(s), 24 B`), i el mateix traç damunt la banda d'una caixa
+// de text (`the hand band reads 'a' (0, next '-' at 0)` → `the hand band types 'a'`), amb la `a` a la caixa i a la línia de la banda.
+// I la suite: `test_ui` 119 de 123, amb els tres casos que ja fallaven abans.
+
+// **0.192.86 — la pàgina del model: una llista, i esborrar** (l'amo: *«Afegeix un botó a l'app d'entrenament. En una vista separada,
+// estil "Settings" (usa una icona de roda dentada per anar a la vista on està el botó d'esborrar)»*, *«una llista per déu!»*, *«Res de
+// modals demanant dades, fas una vista i ho poses tot allà»*, *«"Forget [symbol]" i assota un "Forget all"»*, *«No cal botò "back"»*,
+// *«perquè surt la roda dentada a dalt a la vista de settings?»*).
+//
+//   - **Una segona vista, no un modal**: the gear in the corner of the training page opens it and the **arrow in the same corner**
+//     closes it —the gear belongs to the page that opens it, i la fletxa és el que torna, sense cap botó de més— (docs/30).
+//   - **La llista, amb files que són controls**: a `ui.list` of data draws and pages and hands nothing to the app when a row is
+//     tapped —no branch of the activation for it—, o sigui que la fila és un `ui.list_entry` amb la lletra a l'esquerra i les seves
+//     mostres a la dreta, la triada invertida i el toc de l'app. El fantasma no hi és: la fila que es deixa de ser la triada torna
+//     al paper perquè el sistema li dona la tinta de sempre (docs/30, docs/90).
+//   - **`Forget <caràcter>` i, a sota, `Forget all`**: the first one takes away the examples of the chosen character and the second
+//     the whole zone —a person who wants to start again—, i el segon demana **dos tocs** (`Press again`) perquè no s'ha de poder
+//     esborrar mitja hora de feina amb un dit que passa (docs/30, docs/70).
+//   - **`hand.forget(zone, 'a')` a la porta, `Model::remove_of` a `lib/ink` i `hand.caps().capacity`**: three things the page had no
+//     way of asking for, i el log diu quants se n'han anat: `2 example(s) of 'a' forgotten in letters` (docs/30).
+//   - **I quan el model és ple, la pàgina ho diu**: `hand.caps().capacity` és el sostre (192) i surt al subtítol de la vista (docs/30, docs/75).
+//   - **Les versions**: `handwrite` 0.1.13.
+//
+// Provat amb el ratolí de la finestra de l'emulador: la roda obre la vista, un toc a la fila de la `d` la deixa invertida i la `a`
+// torna al paper (cap màscara acumulada), la fletxa torna a la pàgina de dibuixar, i `test_luabind` 62 de 62 amb la porta nova.
+
+// **0.192.87 — el tàctil mana, i el log no el destorba** (l'amo, amb el log a la mà: *«Fes el favor de no relentir les lectures del
+// panell tàctil embrutant el log i el serial amb una estupidesa. El mes important en aquell moment es llegir el mes acurat possible i
+// el major número de mostres possibles. Aixo serveix tant en l'entrenament com en el teclat.»*).
+//
+//   - **Fora la línia de diagnòstic per contacte de la banda**: `the band asked at x,y: shown 1, top 520, key 64` es va veure tres
+//     vegades seguides perquè una banda que es pinta a si mateixa torna **abans** de marcar-se com a premuda, o sigui que la línia es
+//     pintava **a cada marc** —cent vegades per segon d'escriptura al port sèrie enmig del camí del tàctil— (docs/30, docs/50).
+//   - **I l'avís d'un dit en un marge, una vegada per contacte** i no per marc (`noted_a_miss_`) (docs/50, docs/90).
+//   - **El bucle de l'entrenament llegeix el panell tan de pressa com pot** mentre hi ha un dit: the chip hands a frame over every
+//     ten milliseconds and the loop asked once every forty —three of four frames of the path were never read—, i ara són dos
+//     mil·lisegons amb el dit i els quaranta de sempre quan no n'hi ha (docs/30, docs/50).
+//   - **I una lectura repetida no és una mostra**: a repeated point is dropped in the band and in the page of the training, perquè el
+//     que compta és el nombre de mostres **del panell** i no el de lectures (docs/30, docs/50).
+//   - **Les versions**: `handwrite` 0.1.14.
+//
+// Provat: `test_ui` 119 de 123 (els tres casos que ja fallaven abans) i `test_ink` 10 de 10; el log del tàctil durant un traç ja no
+// té cap línia per marc.
+
+// **0.192.88 — els gestos d'un tros del vidre, convertits en línies** (l'amo: *«Captura tots els gestos al panell d'entrenament i
+// converteix-lo en línia. El teclat també haurà de fer el mateix: convertir els gestos que li succeeixin a la seva àrea convertits en
+// events de dits (per no perdre línies, per exemple, sense això els accents semblen un punt sobre el símbol)»*).
+//
+//   - **`kernel::touch::capture`**: who draws with the finger gives a box **in the frame of the view** —`touch.capture(x, y, w, h)`
+//     from Lua, `touch::capture(kTheKeyboard, …)` from the band— and the kernel turns **every frame that lands inside it** into a
+//     point of a line, o sigui que un marc que el nucli ha vist ja no és un tros de línia que es perd entre dos torns, i un accent
+//     —dos o tres marcs— no queda en un punt sol (docs/30, docs/50, docs/90).
+//   - **I el nucli diu on comença i on acaba cada línia**: `line` puja d'u a cada contacte del quadre, i `lines_ended` compta les
+//     que s'han tancat. La pàgina no ho podia saber: el marc que llegeix és sempre l'últim, i un dit que s'aixeca entre dos torns no
+//     s'hi veu (docs/30).
+//   - **La captura té amo**: `kThePage` i `kTheKeyboard`, i un `uncapture` que no és de l'amo no la lleva —the band goes down and
+//     the page's paper is still its own—, i la pàgina que se'n va deixa la seva (`forget_the_page_before`) (docs/30, docs/50).
+//   - **L'entrenament dibuixa amb la captura**: `touch.captured()` torna els punts des de l'últim torn, les línies tancades, si hi
+//     ha un dit al paper i quants punts no hi cabien; el paper s'ha armat amb la seva caixa i la pausa de 1,2 s compta des de
+//     l'últim dit que se n'ha anat (docs/30, docs/50).
+//   - **I la banda també**: `own_turn` buida la captura dins del glif del sistema —una línia més d'una lletra a mitges és un `lift`
+//     i no una lletra nova—, i `own_touch` només diu que el dit és de la banda i porta les tecles del peu (docs/30, docs/90).
+//   - **I el que matava el mostreig**: la banda demanava un pintat **a cada marc** del camí (el `changed` del meu primer intent), o
+//     sigui que es repintava sencera —tres-cents mil·lisegons cada cop— mentre la persona dibuixava, i el vidre només es llegia tres
+//     o quatre vegades per lletra. Ara els punts no fan pintar res i la lletra es pinta quan es tanca: **setanta-un marcs en 967 ms**
+//     en comptes de quatre, i la banda llegeix l'`a` amb distància 6 (mesurat a l'emulador, docs/30, docs/50).
+//   - **Les versions**: `handwrite` 0.1.17.
+//
+// Provat: `test_touch` 32 de 33 amb quatre casos nous —una línia per contacte amb els seus punts, dues línies per dos contactes,
+// res fora del quadre, i la banda dibuixant i tancant la lletra amb el xip del vidre—, `test_ui` 119 de 123 amb els tres que ja
+// fallaven, `test_luabind` 62 de 62, i l'emulador amb el ratolí: el paper de l'entrenament pinta el traç gruixut i la quadrícula, la
+// banda de l'editor llegeix una `a` i l'escriu (docs/30, docs/85).
+
+// **0.192.89 — els candidats de la banda són botons que es poden polsar** (l'amo: *«Al teclat real de handwrite, quan dubta posa les
+// opcions sassota del camp on puc dibuixar, però no semblen botons que es puguin polsar. Fes que siguin botons, i si pico un s'envii»*).
+//
+//   - **El peu de la banda no trepitja la franja del sistema**: `boxes` deixava el peu a les últimes seixanta-quatre files del vidre,
+//     i les últimes vint són la franja de baix —`bar::strip_rows()`—, que és del sistema: un dit que hi cau és el gest de la targeta de
+//     baix i **no arriba mai a la banda**, o sigui que els candidats no responien. El peu sencer queda ara per sobre d'aquestes files
+//     i les dues superfícies són vint files més curtes (docs/30, docs/50, docs/90).
+//   - **I són botons**: a filled level-four square with the letter inside was a mark, no una tecla. Ara és el botó de la casa —el
+//     paper de dins, el marc de tres píxels i la lletra a sobre—, que és el que diu que es pot polsar (docs/30, docs/92).
+//   - **Un toc és una lletra i no una per marc**: the glass hands a frame over once per scan while the finger is there, i el peu no
+//     tenia cap marca de «ja està premut»: un toc de dos-cents mil·lisegons escrivia la mateixa lletra vint vegades (`foot_held_`)
+//     (docs/50, docs/90).
+//   - **I el que el peu canvia es pinta en aquell torn**: a candidate chosen writes the letter and takes the three boxes away, i
+//     sense això es quedaven a la pell fins al pintat de la lletra següent (`owes_a_paint_`) (docs/30, docs/90).
+//   - **Les versions**: `handwrite` 0.1.18.
+//
+// Provat: `test_touch` 33 de 34 amb el cas nou —dues lletres amb el mateix dibuix, la banda dubta, un toc a la primera caixa del peu
+// i el model guanya la mostra (3 exemples) amb el glif donat—, `test_ui` 119 de 123 amb els tres de sempre, i l'emulador: el dubte
+// ensenya `a` i `b` com a botons, el toc a `b` diu `learns 'b' from a choice` i `types 'b'`, i la línia de la banda passa a `ba`
+// amb les caixes esborrades (docs/30, docs/85).
+
+// **0.192.90 — el cel: qui escolta, qui torna a lligar el cable, i què s'hi llegeix** (l'amo: *«L'app de GPS fa alguna cosa quan no
+// troba senyal? per exemple, reintentar-ho a cada pas amb una alarma o el torn? o el sistema ja s'en ocupa d'anar escoltant? Pots
+// assegurar que estem llegint correctament? Revisa els exemples de lilygo.»*).
+//
+//   - **El parser surt del driver**: `hal::nmea` (`lib/hal/src/nmea.{h,cpp}`) llegeix les frases i el que volen dir, i
+//     `gps_m10q.cpp` només porta el cable. El parser no sap què és una UART, o sigui que **es prova al PC** amb frases de debò
+//     (`test_nmea`, sis casos) en comptes de confiar que el cable faci el que ha de fer (docs/50, docs/85).
+//   - **El sondeig vol una frase i no un byte**: a un ritme equivocat la UART dona bytes d'un marc trencat, i el driver es podia
+//     quedar enganxat al ritme dolent per sempre; ara **obre el de la Quectel (9 600) primer** —l'ordre de l'exemple del fabricant—
+//     i només canvia al de la u-blox (38 400) si en 1,2 s no ha entès cap frase amb el segell bé (docs/50).
+//   - **El vigilant del cable**: el sistema ja escoltava a cada torn, i el que no feia era tornar a lligar el cable. Si el mòdul és
+//     volgut i fa vuit segons que calla, es tanca la UART i es torna a sondar; si no hi és, es reintenta amb una espera que dobla
+//     fins a vuit minuts. `turn_off` (Lua i el commutador) diu que no es vol, i el vigilant no el torna a encendre (docs/30, docs/50).
+//   - **Una posició de dues dimensions és una posició**: el GSA de tipus 2 i 3 es descartava, o sigui que amb tres satèl·lits la
+//     pàgina deia «no position yet» amb la posició a la mà, i com que el GSA arriba després del RMC dins del cicle, el que es veia
+//     depenia del moment de la lectura (docs/50).
+//   - **Les marques del GSA sobreviuen al GSV**: el GSV escombrava el cel i s'enduia els «aquest compta», o sigui que el mapa del cel
+//     no ho ensenyava mai; `satellites_seen` passa a ser el que diu el GSV (baixa quan el cel minva) i no un màxim que no baixava
+//     (docs/50).
+//   - **El segle d'una data de dos dígits**: la convenció de tothom —de vuitanta en amunt és el segle passat— perquè una data de
+//     1994 no es llegeixi com a 2094; i l'hora del RMC és vàlida si la frase la porta, que el «i és d'aquest segle» ja ho mira
+//     `believe_the_sky` (docs/50, docs/60).
+//   - **La pàgina que ensenya el que ha llegit**: el separador del mig de cada línia era un `·` en UTF-8 i la cara del sistema és
+//     Latin-1, o sigui que sortia `Â·` a totes les frases; i una línia de trenta caràcters a la mida fixa tallava l'últim número de la
+//     fila (el `pdop`, l'última xifra de la data). Ara el separador és ASCII, **la mida de cada bloc és la que hi cap** (`a_scale_that_fits`
+//     mira la línia més llarga) i les tres dilucions van al subtítol, que és ample. I quan no ha arribat cap frase la pàgina diu el
+//     que el driver sap (`caps().last_error`) i no només «espera» (0.1.2, docs/30, docs/90).
+//   - **Les versions**: `hal` 0.5.4 i l'app `gps` 0.1.2.
+//
+// Provat: `test_nmea` 6 de 6, `test_luabind` 62 de 62, `test_shell` 56 de 60 amb els quatre que ja fallaven a HEAD (comprovat amb un
+// worktree net), `lilygo-t5s3-idf` i `emulator` compilats. El vigilant i el sondeig de bauds **no s'han pogut provar en maquinari**
+// (el port sèrie i la placa són de l'amo): el que hi ha és el raonament, l'exemple del fabricant i les proves del parser (docs/50).
+
+// **0.192.91 — `mem` compta la màquina virtual, i el prompt diu què sap fer** (l'amo: *«la comanda mem ha d'incloure el cost de la
+// màquina virtual lua en aquell moment (si està activa) … i mem lua (aquest vull que el facis ara). Falta informació en aquesta
+// ajuda… repasa totes les comandes per si t'has deixat alguna cosa mes.»*).
+//
+//   - **`mem lua`**, el cost de l'intèrpret desglossat: el que té demanat, el que compta el recol·lector (que hi porta la capçalera de
+//     cada valor), el pitjor moment i el sostre que se li va donar amb el tros que ja és ple, i les memòries de sessió que viuen fora
+//     del seu assignador. I una fila `lua` a `mem` quan hi ha una màquina virtual en aquell moment: el que una app té demanat és el bloc
+//     més gran del sistema, i una taula de memòria que no el compta diu quin heap queda sense dir qui se l'ha menjat (docs/30, docs/75).
+//   - **L'ajuda, repassada sencera**: `mem [blocks|himem|lua]` en dues línies, i les de `bt` (dispositiu i host, amb la tecla i el
+//     ratolí), `load`, `heapguard` i `?`, que hi eren com a ordres i no hi eren com a línies (docs/30).
+//   - **La taula de la tabulació tenia divuit comandes que no existeixen** —apps preses per comandes del prompt— i li'n faltaven nou de
+//     debò; ara és la llista de `help`, amb les **quaranta-vuit** ordres de debò i en el mateix ordre, i els temes del menú de l'app
+//     `shell` es van refer per quadrar-hi una a una (0.192.91, docs/30, docs/40).
+//
+// Provat a l'emulador amb `--script`: `mem` amb l'intèrpret a dins i sense (la fila hi és i no hi és), `mem lua` amb el desglossament i
+// amb el «no interpreter is up», i `help mem` amb les dues línies.
+
+// **0.192.92 — l'ocupació de debò de la RAM, i la columna que la pinta** (l'amo: *«L'app lua Stats reinicia la vista per complet i tot
+// torna a 0?¿? al cap d'una estona... no usa un log circlar?»* i *«Estem segurs que estem obtenint la memoria ocupada real? segons (es
+// pensa) l'app tenim 170kb de 8192Kb (jajajaja) Busca millor el conteig de la ram ocupada i tingues en compte que tenim mapes de quasi
+// tot l'ocupat. Podriem afegir una barra vertical a una de les cantonades? … Pintar els pixels ocupats i deixar blancs els lliures.
+// Evidentment, fet a escala.»*).
+//
+//   - **La finestra de l'`Stats` és un registre circular i no s'esborra mai**. El «tot torna a 0» tenia tres causes: una finestra que
+//     es llençava quan el rellotge canviava d'escala (l'hora del món arribant amb una sincronització del GPS amb la pàgina oberta),
+//     un bloc escrit per dos escriptors amb el seu propi compte de bytes (el bucle de la pàgina i la finestra del `tick`), i el compte
+//     desat quan el nucli havia de donar el bloc i l'app el tornava a demanar. El bloc desat es va trobar amb les últimes mostres
+//     **més antigues que les primeres**. Ara les sèries es reconstrueixen del bloc a cada escriptura, la línia s'afegeix al final de
+//     debò del text i un bloc d'una altra escala **es rellisca** (conserva l'espaiat i acaba a l'hora d'ara) en lloc de llençar-se
+//     (app `stats` 0.2.10, docs/30, docs/60, docs/75).
+//   - **La RAM, contra el que pot donar**: `pal::HeapInfo` guanya `total_bytes` (`heap_caps_get_total_size` a la placa, la regió del
+//     model a l'emulador) i `mem` guanya la fila `ram in use`, que és el pres contra el total —una placa amb 158 KB lliures està sana si
+//     el heap en té 380 i ofegada si en té 160, i cap número deia de què eren lliures— (docs/75).
+//   - **`sys.heap()` diu on és cada cosa**: `ram_total`, `ram_used`, `ram_booked` (els bytes que els llibres saben de qui són),
+//     `ram_blocks`, `extra_booked` i `books_lost`; i la casa d'un bloc la diu el punter (`IExtraMemory::in_the_extra`, que és
+//     `esp_ptr_external_ram` a la placa i la capçalera del tros a l'emulador) i no una bandera de la fila, perquè un `resize` pot
+//     moure un bloc d'una casa a l'altra (docs/30, docs/75).
+//   - **La columna de la memòria** a la cantonada de la pestanya Load i de la de Memory: el marc és el heap sencer, negre el que els
+//     llibres tenen, gris el que està pres i no té fila —les estàtiques i les peticions que la taula no va poder escriure— i paper el
+//     que és lliure, tot a escala de l'alt de la columna (docs/30, docs/45).
+//   - **I la gràfica de la memòria ja no és el sostre de l'intèrpret**: la corba de la pestanya Load es llegeix contra el total del heap
+//     i no contra els vuit megabytes de la PSRAM, i la pestanya Memory separa el que té nom del que no (`ram in use`, `written down`,
+//     `no name`, `dropped`) (docs/75).
+//
+// Provat a l'emulador amb `--no-gui --dump` (la pàgina mirada, no suposada): la pestanya Load amb la corba contra 158.9 KB i la columna,
+// i la de Memory amb `96.0 of 158.9 KB`, `19.2 KB` amb nom i `76.8 KB` sense.
+
+// **0.192.93 — d'on surt la memòria de l'intèrpret i a quina casa viu** (l'amo: *«De quin tipus de memoria parla? 384.1Kb es molta...
+// d'on la treu? quina part es dram quina psram quina altres tipus? I que vol dir "in the collector"? Explica'm en detall com
+// s'inicialitza lua i en quina memoria i com s'utilitza.»*).
+//
+//   - **`mem lua` diu a quina casa va cada tros**: `in the board's RAM` i `in the PSRAM`, amb els blocs de cadascuna, i les dues files
+//     sumen exactament el `asked for`. Es compta a l'assignador de l'intèrpret i no als llibres perquè aquí el punter és a la mà a cada
+//     petició: la màquina demana **un bloc del PAL per cada valor de Lua** i la taula dels llibres, de dues-centes cinquanta-quatre
+//     files, es queda curta amb els milers de blocs petits (docs/20, docs/75).
+//   - **Fora la fila del recol·lector**: `lua_gc(LUA_GCCOUNT)` en aquest Lua torna la mateixa suma que l'assignador (`totalbytes +
+//     GCdebt`), o sigui que era el mateix número dues vegades amb dos noms, i el comentari que la defensava deia una cosa que no és
+//     certa —que el recol·lector hi compta les capçaleres de cada valor—. `luabind::gc_bytes()` marxa amb ella (docs/20).
+//   - **El que la mesura diu** (emulador, el llançador al davant): `asked for 381.8 KB` = **74.4 KB a la RAM del xip en 1 022 blocs** +
+//     **307.4 KB a la PSRAM en 2 166 blocs**. La part de la RAM es queda clavada vora els setanta-cinc kilobytes perquè el que la
+//     subjecta és el terra de 64 KB de `pal::kHomeReserveBytes` i no el que l'app demana: una màquina de Lua petita acaba vivint a la
+//     PSRAM encara que demani blocs petits (docs/20, docs/75).
+//   - **I un `SIGSEGV` que això va destapar**: el bloc de la pàgina de l'error sobrevivia a `stop()` i `forget_the_error` el tornava a
+//     donar a unes cases que l'emulador havia tornat a fer entre dues proves (el cas del `test_luabind` que posa sostres). Es dona a
+//     `stop()`, que és l'últim moment en què el bloc és viu i de qui el va demanar (docs/75, docs/85).
+//
+// Provat a l'emulador amb `--script`: `mem lua` dues vegades amb el llançador a dins, les dues files sumant el `asked for`, i les
+// suites `test_luabind` i `test_pal` senceres en verd.
+
+// **0.192.94 — l'intèrpret de Lua viu a la PSRAM i enlloc més, i el seu sostre és la meitat** (l'amo: *«Canviem totalment aquesta
+// política... a partir d'ara tota memoria que demani lua ha de ser PSRAM exclusivament»*, i després, triant com es decideix el número:
+// *«un ajust `cfg mem <kb>` amb la meitat per defecte»*).
+//
+//   - **La política, canviada sencera**: fora el llindar de quatre kilobytes. `IExtraMemory::allocate_in_the_extra` i `resize_in_the_extra`
+//     són la porta que **no accepta l'altra casa** —amb els mateixos canaris, els mateixos llibres i el mateix alleujament—, i
+//     l'assignador de l'intèrpret l'agafa sempre que la placa tingui memòria extra (`has_the_extra()`). **Una placa sense PSRAM segueix
+//     corrent una app**: si no en té, va per la porta de sempre, que allà és la RAM del xip (docs/20, docs/50, docs/75).
+//   - **Mesurat a l'emulador**: `asked for 210.3 KB` = **0 B a la RAM del xip en 0 blocs** + 210.3 KB a la PSRAM en 2 432 blocs, i `mem`
+//     diu `ram in use 352 B of 158.9 KB` amb el llançador i la seva pàgina corrent, on abans deia 96.0 KB. El preu, dit: la PSRAM és més
+//     lenta que la RAM interna (docs/20, docs/75).
+//   - **El sostre, que ja no és decoratiu**: `the_ceiling_of_the_interpreter()` és el que separa una app que creix del sistema que ha de
+//     continuar pintant, perquè la casa gran la comparteixen els llenços de la pàgina (523 616 B la vista i el llenç), les miniatures, les
+//     fotos i les memòries de sessió. **La meitat del que la placa dona per defecte** (4 MB al T5S3, 2 al Paper), i `cfg mem <kb>`
+//     el canvia, `cfg mem auto` el torna, i mai no passa del que el xip té (docs/20, docs/75).
+//   - **`cfg mem` i `cfg.mem`**: la comanda del prompt i la porta de Lua, amb les mateixes regles (seixanta-quatre kilobytes de terra, el
+//     que la placa dona de sostre, `auto` = zero), desades a `/cfg` com la resta de preferències (docs/30, docs/70).
+//
+// Provat a l'emulador amb `--script`: `cfg mem` (4096, auto), `cfg mem 2048` i el sostre que l'app veu (`worst 219.1 KB of 2.0 MB
+// allowed`), `cfg mem auto` (torna a 4096), `help cfg` amb la línia nova i `cfg.mem()`/`cfg.mem(2048)`/`cfg.mem(1)`/`cfg.mem(0)` des del
+// prompt de Lua amb la negativa del terra. `test_luabind` 63/63, `test_pal` 9/9, `emulator`, `lilygo-t5s3-idf` i `m5-atom-idf` (la placa
+// sense PSRAM) compilats.
+
+// **0.192.95 — el log a 4 KB, sense reserva estàtica a les plaques que tenen PSRAM, i les piles de tasca a fora de la RAM del xip**
+// (l'amo: *«Amplia el log a 4Kb … que es g_fallback? es nostre? reserva de que? Si es estatic no vull que es compili en les plaques amb
+// PSRAM. Demana'l amnbn marca. … a pal_line l'editor de linenoise no es pot asignar a unaltra ram?»*).
+//
+//   - **L'anella del log, de 2 KB a 4 KB**, i es demana **amb marca** (`pal::kMemoryKernel`): a `mem blocks` la fila deia `nobody` i ara diu
+//     `kernel` (docs/30, docs/75).
+//   - **La reserva estàtica de 512 B del `.bss` només es compila on no hi ha memòria extra** (`LUNOK_EXTRA_MEMORY`, definit a l'entorn de
+//     les tres plaques amb PSRAM). En una placa amb casa gran, si el bloc de 4 KB no es pot tenir, el registre **no té anella** i ho diu
+//     («no log ring: there was no room for it») en comptes de mentir amb una de petita (docs/30, docs/75, docs/80).
+//   - **Les piles de les tasques, a la memòria extra** (`xTaskCreateWithCaps` amb `MALLOC_CAP_SPIRAM`, i la TCB on el port la demana, que és
+//     interna): `pal_line` (l'editor de `linenoise`, 8 KB), `lunok_shell` (6 KB) i les dues del cable (`pal_tx` 3 KB i `pal_rx` 2 KB) deixen
+//     de pagar-se amb la RAM del xip —dinou kilobytes que ara són a la PSRAM— i si la casa gran no en té, es fan de la de sempre, perquè una
+//     tasca no pot deixar d'existir perquè la PSRAM era plena (docs/50, docs/75).
+//   - **Els 16 KB de `app_main` es queden** (l'amo: *«Ok, no trec els 16k de app_main»*): és la pila del torn sencer —els llenços, les fonts
+//     d'outlines, el parser de Lua, el `printf` de newlib— i el marge es llegeix al registre (`[STACK] the kernel starts: N B`) i a `mem`
+//     (`stack left`), que és el que cal abans de tocar-lo (docs/75).
+//
+// Provat a l'emulador: `mem` amb `log ring` (ara 4 KB de sostre) i `mem blocks` amb `kernel 1 block 4096 B`; `emulator` i
+// `lilygo-t5s3-idf` compilats (aquest últim després de buidar un `CMakeCache.txt` que s'havia quedat sense el component del LittleFS: el
+// canvi de `build_flags` el va fer refer i el cau era de la configuració, no del codi).
+
+// **0.192.96 — el torn del nucli és una tasca nostra i la tasca de la IDF es queda amb la pila mínima** (l'amo: *«Fes-ho, passa-ho a psram
+// fent una tasca nova al app_main. i Fes que l'app_main tingui la mínima ram necessaria»*).
+//
+//   - **`app_main` ja no és el torn**: crea `lunok_turn` —la mateixa prioritat 1 i el mateix nucli que tenia la tasca de la IDF—, el nucli
+//     arrenca allà (`kernel::boot` i el `poll()` de sempre) i **aquesta funció torna**. Quan `app_main` torna, `main_task` fa
+//     `vTaskDelete(NULL)` i els seus kilobytes tornen al heap intern (docs/50, docs/75).
+//   - **I la pila d'`app_main` baixa de 16 384 a 3 584 B** (el valor de sèrie de la IDF, 4 096 amb els 512 de `TASK_EXTRA_STACK_SIZE` que la
+//     IDF hi afegeix): el que queda en aquesta tasca és el corrent de la placa, la PAL i fer néixer el torn. **El marge es diu a cada
+//     arrencada** (`the boot needed N B of the main task's stack, of 3584`) i a la placa va dir **1 952 B dels 3 584**: hi sobra, i amb el
+//     número a la mà es pot baixar més (docs/50, docs/75).
+//   - **La pila del torn es va provar a la PSRAM i no pot ser** (0.192.97 ho va ensenyar a la primera arrencada): escriure o esborrar la
+//     flaix apaga la cau i la IDF **afirma** que el punter de pila del corrent és a la DRAM (`cache_utils.c:154`,
+//     `esp_task_stack_is_sane_cache_disabled`), i el torn és exactament la tasca que toca la flaix —les sessions, `/cfg`, els fitxers de
+//     les apps, una captura—. O sigui que els 16 KB del torn **es queden a la RAM del xip**, i el que es guanya és una altra cosa: que la
+//     tasca de la IDF pugui tornar i deixar anar la seva pila (docs/50, docs/75).
+//
+// Provat: `lilygo-t5s3-idf` amb `CONFIG_ESP_MAIN_TASK_STACK_SIZE=3584` al `sdkconfig` generat, `emulator` (que no compila aquest fitxer: no
+// té `ESP_PLATFORM`), i a la placa la línia `the boot needed 1952 B of the main task's stack, of 3584` i `Returned from app_main()`.
+
+// **0.192.97 — el torn no pot tenir la pila a la PSRAM, i dos avisos de menys** (la placa, a la primera arrencada de la 0.192.96:
+// *«assert failed: spi_flash_disable_interrupts_caches_and_other_cpu cache_utils.c:154 (esp_task_stack_is_sane_cache_disabled())»*, i la
+// compilació: *«format '%u' expects argument of type 'unsigned int', but argument 4 has type 'uint32_t' {aka 'long unsigned int'}»* i
+// *«'g_uart_events' defined but not used»*).
+//
+//   - **El torn, amb la pila a la DRAM i amb el motiu escrit**: `spi_flash_disable_interrupts_caches_and_other_cpu` afirma que el punter de
+//     pila del corrent és a la DRAM, perquè escriure la flaix apaga la cau i una pila a la PSRAM seria una pàgina il·legible enmig de
+//     l'operació. No és una precaució: la placa va reiniciar a la primera arrencada, després del banner i en el primer `nvs`/`vfs` del
+//     boot (docs/50, docs/75).
+//   - **I la tasca de la shell tampoc**: `feed` liquida promeses i pot fer córrer el `then` d'una app (`run_jobs` → `lua_pcall`), i una app
+//     pot escriure un fitxer; o sigui que la seva pila torna a la RAM del xip. **Les que sí que hi van** —i hi són des de la 0.192.95— són
+//     les que no executen res de ningú: l'editor de línia (8 KB), `pal_tx` (3 KB) i `pal_rx` (2 KB), tretze kilobytes que no toquen la
+//     flaix mai (docs/50).
+//   - **`serial <fitxer>` i els dos `%u`**: `total` i `took` són `uint32_t` (que en aquesta eina és `unsigned long`) i el format demanava
+//     `unsigned int`; ara hi ha el `static_cast<unsigned>` que fa la resta del fitxer (docs/80, docs/95).
+//   - **I `g_uart_events`** només es compila a les bandes que parlen per la UART: el T5S3 parla per l'USB del xip i es quedava un punter a
+//     res amb el seu avís a cada build (docs/50).
+//
+// Provat: `lilygo-t5s3-idf` i `emulator` compilats sense cap avís nostre, les suites `test_shell` + `test_pal` + `test_luabind` amb les tres
+// fallades de sempre, i el reinici de la placa explicat pel camí del codi.
+
+// **0.192.98 — la pila del torn es demana abans que res, i les piles de la PSRAM deixen de poder-se amagar** (l'amo, amb la placa a la mà:
+// *«perqué no veig millora de ram?»* i *«wifi: the board did not get on the network, the radio did not come up (ESP_ERR_NO_MEM; 53623 B
+// free, largest 26612 B) … Abans he pogut»*).
+//
+//   - **El que no es guanyava i el que sí**: les piles que es podien moure ja s'havien mogut (13 KB: l'editor de línia, `pal_tx` i
+//     `pal_rx`), però els setze kilobytes del torn s'havien de quedar a la DRAM (0.192.97) i la tasca de la IDF només en deixava anar
+//     tres i mig. O sigui que el canvi sencer eren **tretze kilobytes de dos-cents setanta**, un cinc per cent, i `free heap` no ho podia
+//     ensenyar.
+//   - **I el que es va perdre pel camí**: la 0.192.96 demanava aquells setze kilobytes **al final d'`app_main`**, quan el munt ja estava
+//     poblat, i el que fa un `malloc` de setze kilobytes allà és partir pel mig el forat més gran que hi havia. El número que havia de
+//     sortir no era «menys memòria» sinó **menys forat més gran**, i és el que va sortir: `largest block 31.0 KB` amb la ràdio havent
+//     funcionat abans del canvi, i `wifi connect` contestant `ESP_ERR_NO_MEM; 53623 B free, largest 26612 B` — lliures de sobres i cap
+//     tros de trenta kilobytes per encendre-la (docs/50, docs/75).
+//   - **La tasca es crea ara la primera de totes**, abans de la PAL i d'abans de qualsevol altra cosa d'aquest fitxer, que és el punt on
+//     la IDF la creava quan el torn era la tasca de la IDF; i neix aturada en una senyal que `app_main` dona quan la consola ja hi és, o
+//     sigui que l'ordre d'execució és el mateix d'abans i només canvia **on es demana la pila**. La senyal va per paràmetre i no per una
+//     variable compartida, perquè no hi hagi cap moment en què una tasca la llegeixi mentre l'altra l'esborra.
+//   - **I el preu del silenci**: el `fallback` de la PSRAM quan no n'hi havia era mut, o sigui que una placa on les tres piles s'havien
+//     quedat a la RAM del xip era una placa que tenia l'aspecte d'haver-les mogut. Ara cada una diu on ha anat a parar, amb `info` quan és
+//     a la memòria extra i amb `warn` quan l'extra li ha dit que no (docs/50, docs/75).
+//
+// Provat: `lilygo-t5s3-idf` i `emulator` compilats sense cap avís nostre, i el camí del codi de l'arrencada llegit punt per punt (la placa
+// ho ha de confirmar: `largest block` abans i després de `wifi connect`, i les tres línies noves de les piles).
+
+// **0.192.99 — els llibres diuen de quin costat és cada bloc, i la ràdio demana els coixins a la casa gran** (l'amo, amb `mem` i
+// `mem blocks` a la mà, tornant a preguntar *«perqué no veig millora de ram?»*).
+//
+//   - **El que la taula va ensenyar quan es va poder llegir sencera**: tots els blocs de `mem blocks` eren a `0x3c37…`, `0x3c3f…`,
+//     `0x3c43…` — la PSRAM d'aquest xip— i el més gran de tots, `ui` amb 512 KB. O sigui que els llibres són un llibre **de la PSRAM** i no
+//     de la memòria: només compten el que passa per la porta d'aquesta casa (`pal::extra_memory()`), i les piles que fa FreeRTOS, el que
+//     demana la IDF, el controlador de la ràdio i el LittleFS van per `pvPortMalloc` i no hi passen. Els 192.2 KB de `ram in use` del seu
+//     `mem` no podien sortir d'aquí ni que la taula fos buida, i 39 715 peticions més no hi cabien (docs/50, docs/75).
+//   - **Cada bloc diu on viu**: `psram` o `ram` a la seva fila, i una línia sota el capítol que diu que els llibres només veuen la porta
+//     d'aquesta casa. És el que faltava per no confondre «no hi ha res» amb «no ho mirem» (docs/30, docs/75).
+//   - **I la ràdio** (l'amo: *«wifi: … ESP_ERR_NO_MEM; 53623 B free, largest 26612 B … Abans he pogut»*): `esp_wifi_init` demana els seus
+//     coixins estàtics en un tros seguit —setze de mil sis-cents bytes per transmetre, deu per rebre—, no pas en set trossos, i amb
+//     l'aplicació a dalt de tot la RAM del xip ja no en té cap de trenta kilobytes. `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y` els deixa
+//     anar a la PSRAM i, si no n'hi ha, tornar a la interna com sempre: el pitjor que pot passar és el que ja passava (docs/50, docs/75).
+//
+// Provat: `lilygo-t5s3-idf` i `emulator` compilats sense cap avís nostre, el `sdkconfig` generat amb `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`,
+// i les suites de sempre. A la placa s'ha de veure `largest block` abans i després de `wifi connect`, i `mem blocks` amb la columna nova.
+
+// **0.193.0 — la taula de canvas neix petita, creix quan una pàgina l'omple i torna a baixar quan la pàgina se'n va** (l'amo, triant
+// entre les quatre sortides que li vaig posar damunt la taula: *«ControlsUI ? no vull límit, que tot sigui dinàmic»*).
+//
+//   - **El que costava**: fins a la 0.192.99 la taula era **512 KB demanats de cop al primer pintat i no tornats mai** —2 849 ranures
+//     de 184 bytes—, i la pàgina més gran que s'ha mesurat mai, el home, en fa **256**: l'1 de cada 11. Mig megabyte de la PSRAM, que
+//     era gairebé una quarta part del que la PSRAM tenia demanat en aquell moment (8.0 − 5.7 = 2.3 MB).
+//   - **Ara neix amb `kFirstSlots` = 256** —47 KB, i és el home sencer, o sigui que una pàgina corrent no paga ni un canvi de mida—,
+//     **dobla quan una pàgina l'omple** i **torna a 256 quan `attach` ha donat de tornada tot el que no és la vista**. El sostre de debò
+//     passa a ser la memòria: 32 767 ranures (el que cap en un `int16_t`), que són sis megabytes de PSRAM (docs/75, docs/90).
+//   - **El creixement no surt mai de la casa gran**: `resize_in_the_extra`, o sigui que una taula de sis megabytes no pot aterrar a la
+//     RAM del xip; si el `resize` no pot, **el bloc d'abans no es toca** i la pàgina es queda amb el que tenia. I mentre es pinta no
+//     es creix (`g_painting`): qui pinta té un `Canvas&` a la mà i la taula pot moure's.
+//   - **I el número de la documentació era fals**: deia 176 B i 2 978 ranures; el `Canvas` fa 184 des que li va créixer la llista de
+//     danys, o sigui que la taula era de 524 216 B i no de 524 128 (docs/75).
+//
+// Provat: `test_ui` amb un cas nou que omple la taula (creix, i cap control dels d'abans es perd) i que la torna a veure baixar quan la
+// pàgina marxa —124 casos, 3 fallades que ja hi eren amb la taula de 2 849 (el botó sense marc i els dos del calendari: comprovat posant
+// `kFirstSlots` a 2 849 i veient les mateixes tres)—, `emulator` i `lilygo-t5s3-idf` compilats, i a l'emulador la línia
+// `[I][UI] the table of canvases: 256 slots of 184 bytes` on abans hi havia `2849`.
+
+// **0.193.1 — fora els canaris del build de cada dia, i `heapguard` només on pot fer res** (l'amo, mirant la llista de comandes:
+// *«això fa falta?»*, i després triant: *«Deixa el maxim de ram per les radios»*).
+//
+//   - **Els canaris marxen de la banda que es grava**: `-DLUNOK_MEMORY_GUARDS=1` era a `[env:lilygo-t5s3-idf]` des de la 0.190.101
+//     —trenta-dos bytes per bloc, una còpia a cada `resize` i una crida de més a cada petició— i el forat que caçaven està tancat. La
+//     línia es queda escrita, comentada, amb el perquè i amb la manera de tornar-los a encendre (docs/50, docs/95).
+//   - **`heapguard` ja no existeix on no hi ha canaris**: the command, its two help lines and its word in `kCommandNames` are inside
+//     `#if LUNOK_MEMORY_GUARDS`, o sigui que a l'emulador i a les altres bandes `help heapguard` diu el que ha de dir —que no hi és— i el
+//     tabulador no l'ofereix. Una ordre que només sap contestar «this build has no guards» no és una eina (docs/30, docs/95).
+//   - **I el que sí que és útil de la comanda es queda, a `mem`**: `mem check` camina els dos munts amb `heap_caps_check_integrity` i diu
+//     quin és trencat, amb `free heap` i `largest block` al costat. El `check` no era dels canaris —un munt trencat es mira igual amb
+//     canaris que sense— i per això viu ara amb els altres números de la memòria (docs/30, docs/75).
+//   - **El camí dels canaris es continua compilant** a cada canvi, perquè no es podreixi: `PLATFORMIO_BUILD_FLAGS="-DLUNOK_MEMORY_GUARDS=1"
+//     pio run -e lilygo-t5s3-idf` (docs/80, docs/95).
+//
+// Provat: `lilygo-t5s3-idf` **amb** els canaris (per veure que el camí compila) i **sense** (el build de debò), `emulator`, i a l'emulador
+// `mem check` contestant `heap integrity both are whole` i `help heapguard` contestant `no such command`.
+
+// **0.194.0 — l'iBeacon, que és el mateix anunci amb un altre contingut** (l'amo: *«pots integrar això (iBeacon) al ble dev?
+// `ble dev beacon on`»*, amb el tutorial de Mynewt a la mà).
+//
+//   - **`bt dev beacon on|off`**, i la placa deixa de ser un teclat mentre dura. El payload és el de Apple i el fa la pila:
+//     `ble_ibeacon_set_adv_data(uuid, major, minor, measured_power)` de NimBLE —el mateix que fa servir el tutorial—, que escriu els
+//     vint-i-cinc bytes de dades de fabricant (`4C 00 02 15` + UUID + major i minor en big-endian + la potència) i les banderes. Trenta
+//     bytes dels trenta-u d'una advertise de llegat: per això un iBeacon no porta nom (docs/50).
+//   - **Una advertise de llegat és un sol contingut**: el beacon pren el torn del teclat i `off` el torna a posar si era engegut. `bt dev
+//     on` amb el beacon a l'aire es **refusa i ho diu**; `bt dev off` i `bt off` s'emporten les dues coses (docs/30, docs/50).
+//   - **No és connectable i no té resposta d'exploració**: un iBeacon que accepta un enllaç no és un iBeacon, i un que contesta al
+//     `SCAN_REQ` és un aparell que una persona pot confondre amb el teclat (docs/50).
+//   - **La identitat es pot canviar sense reiniciar**: `bt dev beacon <uuid> [<major> [<minor>]]` i `bt dev beacon power <dbm>`; el UUID
+//     s'accepta amb o sense guions, i el que no ho és deixa el beacon com estava. De sèrie: `6c756e6f-6b4f-5321-0000-000000000001`
+//     —`lunokOS!` i zeros—, major 1, minor 1, `-59 dBm` a un metre (docs/30, docs/50).
+//   - **`bt` i `bt status` diuen què hi ha a l'aire**, amb els números, i la ràdio no deixa que el xip s'adormi mentre el beacon dura
+//     (docs/50, docs/60). **No hi ha persistència** i no s'hi ha posat Eddystone: són altres decisions.
+//
+// Provat: `test_shell` amb un cas nou que fa anar i tornar l'UUID (i que refusa el curt, la lletra que no és hexadecimal i el byte de més
+// sense tocar el buffer de qui pregunta) —127 casos amb les tres fallades de sempre—; `lilygo-t5s3-idf` (la banda amb ràdio),
+// `m5-paper-idf` (la meitat de la ràdio que diu que no) i `emulator` compilats. **A la placa falta veure-ho**: un telèfon ha de veure el
+// beacon amb l'UUID i el `major`/`minor` del prompt, i `bt dev beacon off` ha de tornar a oferir el teclat.
+
+// **0.195.0 — el teclat a mà alçada aprèn on cau la tinta i quant n'ocupa, i un toc és un punt** (l'amo: *«no detecta bé els símbols,
+// potser massa petita la graella?»* i, decidint: *«me la pela reenterenar. VUll que m'entengui»*).
+//
+//   - **El que s'ha mesurat abans de tocar res**, amb un programa al PC contra `lib/ink`: `ink::raster` trobava la caixa **del dibuix**,
+//     l'escalava pel costat més llarg i la centrava, o sigui que llençava **on** havia caigut la tinta i **quant** n'hi havia. Un `-` i un
+//     `_` eren **el mateix dibuix** (distància 0), un `.` de quatre píxels era **una ratlla sencera** (distància 0 a `-`), un `'` i una
+//     `,` el mateix, i `0` i `o` a 6. Una graella més gran no ho hauria arreglat: amb el dibuix centrat, dues ratlles a alçades diferents
+//     són la mateixa ratlla a qualsevol mida (docs/90).
+//   - **`Grid` porta tres números més** —`at_x`, `at_y` i `size`, en vuitens del camp on s'ha dibuixat— i `distance` els compta amb pesos
+//     diferents: 12 per vuitè de `at_y` (la línia d'escriptura), 10 de `size` (un punt contra una ratlla) i **2** de `at_x`, perquè el
+//     paper és ample i on dibuixa d'ample una persona és soroll. Amb això: `-`/`_` 0 → **36**, `.`/`-` 0 → **48**, `'`/`,` 0 → **60**,
+//     `:`/`;` 6 → **28**, i una `-` dibuixada un pèl més amunt continua essent la mateixa (12) (docs/30, docs/90).
+//   - **`ink::Field`**, el rectangle on s'ha dibuixat, en les coordenades dels punts: l'app d'entrenament hi passa el seu paper
+//     (`hand.grid(strokes, w, h)` i els mateixos dos números a `hand.add`/`hand.guess`, o quatre amb l'origen) i la banda del nucli hi
+//     passa **la zona** —la meitat de les lletres o la dels símbols— i no la banda sencera. Un camp que no es diu deixa la quadrícula com
+//     era (docs/30, docs/90).
+//   - **Un toc és un punt i no una negativa**: un dibuix amb tots els punts al mateix lloc es refusava —«a press is not a letter»— i el
+//     `.` no es podia escriure; ara és un glif d'una cel·la i la seva `size` zero el separa d'una ratlla (docs/30).
+//   - **El preu**: el model passa de 16 a **19 bytes per mostra** i la marca `INK1` → **`INK2`**, o sigui que els models desats abans es
+//     refusen i s'han de tornar a entrenar. Els llindars (`kFar`, `kNear`, `kMargin`) no es toquen: la part de la distància que ve de les
+//     cel·les no ha canviat (docs/70, docs/90).
+//
+// Provat: `test_ink` amb quatre casos nous —una `-` i una `_` amb el mateix dibuix i cel·les i llocs diferents, un toc que és un punt i no
+// una ratlla, el mateix traç una mica més amunt que segueix essent el mateix, i el model llegint les dues ratlles per separat amb el seu
+// paper— **14 de 14**; `lilygo-t5s3-idf`, `m5-paper-idf` i `emulator` compilats. **A la placa falta el que només es veu dibuixant**: que
+// els símbols surtin a la primera, i per a això s'ha de tornar a entrenar la zona dels símbols (i la de les lletres, si es vol la
+// precisió nova a tot arreu).
+
+// **0.196.0 — el nivell de la bateria i la shell del sistema, a l'aire** (l'amo: *«Afegeix al bt dev battery on/off per notificar la
+// batería»* i *«Afegeix bt dev console on/off per exposar la shell de sistema (el mateix que es veu via serial, però per ble)»*).
+//
+//   - **Dos serveis de GATT més**, i els dos es poden obrir i tancar: el **Battery Service** del Bluetooth (`0x180F`, nivell a `0x2A19`,
+//     llegible i notificat) i el **Nordic UART Service** (`6E400001-…`, amb `…0002` per escriure-hi i `…0003` per rebre'n), que és el que
+//     parlen les apps de terminal de BLE que hi ha per telèfon (docs/50).
+//   - **Tancats no contesten**: NimBLE no deixa afegir un servei després d'arrencar l'amfitrió (`ble_gatts_mutable` és fals), o sigui que
+//     el que es tria no és que hi siguin sinó què fan —el nivell es llegeix **zero** i una escriptura al port de la consola es refusa amb
+//     `WRITE_NOT_PERMITTED`—, que és el que fa que la shell no quedi exposada quan ningú l'ha oberta (docs/30, docs/50).
+//   - **La consola és «el mateix que el sèrie», i es fa amb un mirall nou al PAL** (`IConsole::mirror`): el que surt pel filferro —el
+//     prompt, la resposta d'una ordre i el registre quan `verbose` el posa aquí— surt també cap a la ràdio. **No bloqueja la consola** i
+//     **no es pot alimentar de si mateix** (`in_the_mirror`), que és el que impedeix que una línia escrita pel camí de la notificació
+//     torni a entrar-hi (docs/30, docs/50).
+//   - **El nivell el llegeix el nucli i no la ràdio**: un indicador és un xip en un bus. El torn mira si el servei és obert i, cada deu
+//     segons, llegeix `power::battery` i només diu el número quan ha canviat (docs/30, docs/50).
+//   - **I els dos encenen el costat dispositiu si cal**, perquè un servei que ningú no pot veure és un commutador que no fa res; `bt status`
+//     afegeix una línia `services: battery on, console off` només quan un dels dos ho és (docs/30).
+//
+// Provat: `test_shell` amb un cas nou que obre i tanca els dos commutadors i llegeix la línia de `bt status` —64 casos amb les tres
+// fallades de sempre—; `lilygo-t5s3-idf` (la banda amb ràdio), `m5-paper-idf` (la meitat que diu que no) i `emulator` compilats; i a
+// l'emulador, amb `--bt-connected`, `bt dev console on` fa veure que **tot el que escriu la consola surt pel camí de la notificació**
+// (les respostes de les ordres i les línies del registre) i `bt status` diu els dos serveis. **Falta la prova amb un telèfon**: que
+// l'app de terminal vegi el servei, escrigui una ordre i en llegeixi la resposta.
+
+// **0.196.1 — el que aquesta ràdio sap fer, dit sencer** (l'amo, amb la placa a la mà: *«el help està sense actualitzar sobre els bt dev i el
+// propi bt també»*).
+//
+//   - **`bt dev` sense paraula** deia dues línies que només nomenaven el punter, o sigui que el beacon, la bateria i la consola existien i no
+//     sortien enlloc. Ara és la llista sencera, una línia per paraula (docs/30, docs/50).
+//   - **I la línia d'ús del `bt`** encara oferia `keyboard on|off` i `mouse on|off`, que són dues ordres que no existeixen des de la 0.191.0
+//     —la placa publica sempre els dos reports—: ara diu les paraules que hi ha (docs/30).
+//   - **I `help bt`** deia `bt mouse move <dx> <dy>|click`, que és una ordre que no hi és (és `bt dev move`/`bt dev click`), i no deia ni el
+//     beacon ni els dos serveis. Les set línies són ara les que `bt dev` llista (docs/30).
+//
+// Provat: `lilygo-t5s3-idf` i `emulator` compilats, i a l'emulador `help bt` i `bt dev` llegits amb la llista nova. A la placa, el que la
+// 0.196.0 va deixar vist: `bt status` amb `services: battery on, console on` i les dues portes contestant.
+
+// **0.197.0 — la ràdio espera els tres segons que el disseny sempre va dir, reintenta l'associació, i respecta el commutador** (l'amo,
+// després de veure que `wifi connect` queia tot sol: *«Espera uns 3 de marge, si no reb mes tasques, tanca la wifi»*, *«Si l'ultima va
+// fallat no es cancela, es reintenta 3 cops i si no llavors es tira enrere»*, *«si la wifi està ON perquè l'han activat manualment, fas la
+// tasca i pares, sense tancar la wifi»* i *«que la cua sigui dinàmica a PSRAM»*).
+//
+//   - **Els tres segons hi tornen** (0.197.0): la tercera regla del disseny original —la ràdio es tanca quan fa tres segons que no hi ha
+//     feina— no era al codi des de feia molt: es tancava **al primer torn buit**, que és el que feia que `wifi connect` es desconnectés
+//     «quasi inmediatament». Ara la finestra s'obre quan s'ha contestat l'última feina i es cancel·la si n'arriba una altra, o sigui que
+//     dues feines seguides paguen **una** associació (docs/30, docs/75).
+//   - **El commutador de la persona mana**: si la ràdio és encesa amb `cfg wifi on`, la finestra no s'obre ni es tanca res; una feina fa
+//     la seva i prou (docs/30, docs/50).
+//   - **L'associació es reintenta tres cops** abans de dir que no hi ha xarxa, dins del termini de la feina; **una contrasenya dolenta no
+//     es reintenta** (`AUTH_FAIL` 15 i el handshake 204 són la mateixa resposta tres vegades), i la porta nova del HAL
+//     `wifi_last_reason()` és la que ho diu (docs/30, docs/50).
+//   - **La cua és una llista a la memòria extra** i no vuit llocs fixos de mig quilobyte: cada feina demana el seu bloc quan arriba i el
+//     torna quan s'ha contestat, amb un sostre de setze per seguretat. El bloc de quatre kilobytes que es demanava a l'arrencada per a
+//     una cua que en la pràctica en porta una, fora (docs/30, docs/75).
+//
+// Provat: `test_apps` amb un cas nou —el marge, el commutador, i el tancament quan el marge passa— i el cas vell
+// `test_the_wifi_command_adds_and_forgets_a_network` posat al dia (deia `state: off` just després de la feina, que era la regla vella):
+// **126 de 319** (les 193 fallades són les que hi havia), `lilygo-t5s3-idf`, `m5-paper-idf` i `emulator` compilats.
+
+// **0.197.1 — l'app del temps de fora** (l'amo: *«Doncs anem a fer una app nova, es de previsió meteorològica, li caldrà una
+// icona. L'app connect amb OpenWeatherMap»*).
+//
+//   - **`weather`** (`apps/weather/`, 0.1.0), amb la icona d'un sol darrere un núvol: la pàgina del davant amb el número gran, el
+//     dibuix de la condició, el que se sent, el mínim i el màxim d'avui, el vent i d'on bufa, la humitat, la pressió, el núvol, la
+//     visibilitat, l'UV i les dues hores del sol; **els deu dies** amb el mínim i el màxim sobre la mateixa barra; i **les vint
+//     hores** en una corba amb la probabilitat de pluja a sota. Tres crides de l'One Call API 4.0 per refresc (`current`,
+//     `timeline/1day` i `timeline/1h`, que són les tres que donen una pàgina sencera amb una crida), un refresc cada mitja hora
+//     mentre la pàgina és oberta, i **el botó de refrescar només quan l'última petició ha fallat** (docs/40).
+//   - **La clau i el lloc són de la persona**: `appid`, `lat`, `lon` (i `name`, `units`, `lang` si vol) a
+//     `/data/weather/openweather.txt`, que l'app s'escriu buit el primer cop i que **no es versiona** —`openweather.txt` és al
+//     `.gitignore` i el que el repositori porta és la mostra de `data/openweather.sample.txt`— (docs/70).
+//   - **L'última resposta es recorda** en un bloc de sessió propi (`forecast`), o sigui que obrir la pàgina ensenya el cel de fa
+//     una estona abans que la ràdio s'aixequi, i la línia de sota el títol diu de quan és (docs/30, docs/75).
+//   - **I un límit del sistema, trobat mesurant**: el dibuix d'una cara d'outlines es fa en un esborrany de 64 × 64 píxels i un
+//     glif que no hi cap **es descarta en silenci** —el número gran d'aquesta pàgina sortia només amb el `°`—, o sigui que
+//     `scale` 9 és el sostre d'un text gran fins que aquest esborrany creixi (docs/30, docs/90).
+
+// **0.197.2 — el cel es desa al disc i val vuit hores** (l'amo: *«l'app ha de guardar el resultat al disc per poder-lo consultar
+// durant les properes 8h (l'app revisa el ctime del arxiu descarregat, si han passat > 8h el demana de nou)»*).
+//
+//   - **El resultat és un fitxer i no una caché de memòria**: `weather` desa el que el servei ha contestat a
+//     `/data/weather/forecast.txt` i el torna a llegir cada cop que la pàgina s'obre (docs/30, docs/70).
+//   - **L'edat que compta és la del fitxer** (`fs.stat`, que és el que aquest sistema té del *ctime*): el que el fitxer diu de
+//     si mateix només serveix per al registre, perquè un fitxer copiat o restaurat d'una còpia té l'edat que té. Passades vuit
+//     hores es torna a demanar, i una pàgina que es queda oberta mira el rellotge cada cinc minuts i es refresca tota sola quan
+//     el termini venç (docs/30).
+//   - **Tres crides cada vuit hores i no cent quaranta-quatre al dia**: el refresc de cada mitja hora no hi és més, i una
+//     petició que ha fallat tampoc no es repeteix a cada volta (docs/75).
+//   - **El fitxer de la clau es pot posar en dos llocs**: el racó de l'app (`/data/weather/openweather.txt`, el que ella mateixa
+//     crea buit) o el `res/` de l'app (`/apps/weather/res/openweather.txt`, el que viatja amb ella), i el primer que hi sigui
+//     mana (docs/40, docs/70).
+
+// **0.197.3 — `mkdir`, `cp` i `mv` al prompt** (l'amo: *«implementa "mv" i "cp" a la shell per poder traginar arxius»* i tot
+// seguit *«i el mkdir»*).
+//
+//   - **Les tres paraules que faltaven**: `mkdir <camí>` (i les carpetes del camí), `cp [-r] <origen> <destí>` i `mv <origen>
+//     <destí>`. Fins avui el prompt llegia i no movia res, o sigui que canviar un fitxer de carpeta demanava una app o el cable
+//     (docs/30, docs/70).
+//   - **Els permisos són els de sempre**: es llegeix d'on es pot llegir i s'escriu només on el disc és escrivible, que és el que
+//     `vfs::is_writable` diu del camí de debò. Un destí que és una carpeta vol dir «a dins», una carpeta demana `-r` i la negativa
+//     diu la paraula que la faria, i **el que no es pot esborrar no es mou** (docs/70).
+//   - **Un moviment és un renombrat dins del mateix disc** —amb el destí esborrat abans, que és el que POSIX fa sol i FatFs no
+//     (0.190.25)— i una còpia amb l'origen esborrat al final entre dues unitats. Una còpia va per finestres de 512 B i no deixa
+//     mitja còpia (docs/75).
+//   - Provat amb un cas de `test_shell` (`test_mkdir_cp_and_mv_take_a_file_and_a_folder_where_they_are_asked`): **62 de 65** (les
+//     tres fallades són les de sempre), i a l'emulador amb fitxers de debò (`cp: 891 B to /littlefs/t1/a/b/ow.txt`).
+
+// **0.197.4 — el temps cau al pla gratuït quan la clau no és de l'One Call, i `rm` i `rmdir` al prompt**.
+//
+//   - **Una clau que no és de l'One Call no és una clau que no serveixi**: el servei contesta `401` a les tres crides del 4.0 i
+//     la mateixa clau porta anys funcionant amb les **dues crides gratuïtes** de la 2.5, o sigui que `weather` les demana quan el
+//     4.0 es nega: `data/2.5/weather` (el moment, amb la sortida i la posta a `sys` i el mínim i el màxim del dia a `main`) i
+//     `data/2.5/forecast` (**quaranta trossos de tres hores**, cinc dies, a `list`). La pàgina no canvia de forma —cinc dies en
+//     lloc de deu, trenta-sis hores en trossos de tres, i els dies comptats perquè la 2.5 dona trossos de dia i no dies— i el
+//     registre ho diu un cop (docs/40, docs/50).
+//   - **El que el pla no porta no s'escriu**: una línia amb `dew --` i `uv --` diu que aquesta casa no sap mirar el cel quan el
+//     que passa és que la clau no ho paga, o sigui que la línia no hi és i prou. I el vent no és una temperatura: porta la seva
+//     unitat i no el signe del grau (docs/30).
+//   - **El nom del lloc, en tres graons**: el `name=` del fitxer de la persona, el `city.name` que la 2.5 porta a la resposta, i
+//     els números de les coordenades mentrestant (docs/30).
+//   - **`rm [-r]` i `rmdir` al prompt**, amb la família de la 0.197.3: un fitxer s'esborra amb `rm`, una carpeta amb `rm -r` i
+//     una carpeta buida amb `rmdir`, i les dues negatives diuen la paraula que faria l'altra cosa (docs/30, docs/70).
+//   - Provat amb el cas de `test_shell` ampliat (`test_mkdir_cp_and_mv_take_a_file_and_a_folder_where_they_are_asked`, que ara
+//     també passa per `rm` i per `rmdir`): **62 de 65**, les tres de sempre. I les tres pàgines, mirades a l'emulador amb una
+//     resposta de la 2.5 al disc i **sense cap xarxa**.
+
+// **0.197.5 — la clau del temps viatja a la imatge, a `/data` i no dins de l'app** (l'amo: *«Fes que el script que munta la
+// imatge del T5S3 i del M5Paper tinguin una copia de l'arxiu a /data/weather/openweather.txt i el .gitignore per si de cas»*).
+//
+//   - **`tools/make_disk.py` copia `apps/weather/res/openweather.txt` a `data/weather/openweather.txt` del disc que munta**, o
+//     sigui que a la placa és `/data/weather/openweather.txt` quan `/data` és el flaix. Es **copia i no s'enllaça** —una imatge
+//     amb un enllaç al repositori no és una imatge— i **només va al disc que porta l'app**: una clau no viatja a una placa on no
+//     hi ha res que la llegeixi. La línia del build ho diu sense dir-ne res del contingut (docs/70, docs/80).
+//   - **I el `.gitignore` agafa també la carpeta** (`data/weather/`), a més del nom del fitxer, perquè una còpia amb un altre
+//     nom tampoc no es pugui pujar (docs/70).
+
+// **0.197.6 — l'app del temps deixa de callar** (l'amo: *«I ni un puto log ehh??»*, després d'obrir-la a la placa i veure que no
+// demanava res i que el `log` no en deia ni una paraula).
+//
+//   - **Una sola porta de registre** (`say()`, prefix `weather:`) i una línia a cada decisió: quin fitxer de configuració s'ha
+//     trobat i amb quines unitats, si el fitxer del disc encara val o no, quina crida es fa i amb quin nom (`current`, `1day`,
+//     `1h`, `2.5 weather`, `2.5 forecast`), què ha contestat (codi i kilobytes) o amb quin motiu ha fallat, quants dies i hores
+//     s'han llegit, quants bytes s'han desat i on (docs/30, docs/70).
+//   - **Ni la clau ni l'adreça surten mai al registre**: `appid=` viatja dins de cada URL i una línia de `log` amb la clau a
+//     dins és una clau escrita per a qui llegeixi el registre després (docs/50).
+//   - **I el camí que calla ja no calla**: quan no hi ha configuració, el `log` diu els dos camins que s'han mirat i, si s'hi ha
+//     creat el fitxer buit, també (docs/70).
+
+// **0.197.7 — el nucli explica la ràdio** (l'amo: *«Vull logs quan la wifi o el ble s'activen o s'apaguen. Vull Saber quina app ha
+// ficat que a la cua de peticions. VUll saber quan es resol la petició»*).
+//
+//   - **La cua diu qui i què**: `[I][NET] weather asks for http: 1 in the queue` — el nom de l'app que hi ha al davant (o
+//     `the prompt`) i el nom de la feina (`connect`, `scan`, `ntp`, `http`, `add a network`…) (docs/30, docs/75).
+//   - **I quan es resol**: `[I][NET] http answered yes in 1 842 ms (0 left)`, o `no: E_TIMEOUT` — la feina, el sí o el no, el codi
+//     i el que va trigar, que és el que distingeix una línia lenta d'una negativa (docs/30).
+//   - **La ràdio, encesa i apagada, amb el motiu**: `the radio goes up for http (weather)` quan una feina l'aixeca,
+//     `the radio goes down: the queue has been empty for 3 090 ms` quan la finestra dels tres segons passa, i el commutador de la
+//     persona amb el número del driver quan no puja (docs/50).
+//   - **I el Bluetooth, les dues bandes**: `the keyboard and the mouse are on as 'lunokOS-0AFE'`, `the device is off: nothing of
+//     this board is on the air`, `the host side is on` i les dues negatives amb el motiu — que abans eren un `false` i prou
+//     (docs/30, docs/50).
+//   - **Cap línia porta una adreça**: `kReqHttp` viatja amb `appid=` a dins quan la petició és d'una app que parla amb un servei
+//     amb clau, i el registre el llegeix algú després (docs/50, docs/70).
+
+// **0.197.8 — la ràdio que sí que s'apaga i el mig cel que no es desa** (l'amo, amb el log a la mà: *«I la wifi no s'apaga!!!»*).
+//
+//   - **La finestra dels tres segons podia vèncer**: la branca d'oci de la cua preguntava `radio_is_on()`, que és el HAL dient «la
+//     ràdio és encesa?» — i ho era perquè l'havíem aixecada nosaltres per fer la feina, o sigui que la resposta era sempre sí, el
+//     comptador es reiniciava a cada torn i la ràdio no es tancava mai. La pregunta bona és el commutador de la persona,
+//     `cfg::wifi_on()`, que és la paraula desada a la targeta (docs/30, docs/50).
+//   - **I el mig cel no es desa**: `weather` no escriu el fitxer si no hi ha dies ni hores —abans un error de mig segon deixava un
+//     fitxer «fresc» vuit hores amb la previsió buida— i un fitxer així, si és al disc, no compta com a bo (docs/30, docs/70).
+//   - **I una transferència trencada no és un servei que diu que no**: el `-1` de la capa TLS deia «the service said no», que envia
+//     una persona a mirar la clau quan el que falta és RAM (docs/30, docs/50).
+
+// **0.197.9 — el TLS, prim** (l'amo: *«Treu els protocols antics i llegeix la pàgina per estalviar algo de pila i heap»*, amb la
+// pàgina de mbedTLS de la IDF 5.2.1 al davant).
+//
+//   - **Els números de la documentació, no meus**: de sèrie 42 196 B de heap, buffers de mida variable 42 120, sense desar el
+//     certificat de l'altre cap 38 533, i **amb buffers dinàmics 22 013**. Vint kilobytes, que és la mena de forat que fa que
+//     `esp-aes` no trobi un tros contigu de RAM interna per desencriptar un registre (el `Failed to allocate memory` de la 0.197.8).
+//   - **El que s'ha encès**: `CONFIG_MBEDTLS_DYNAMIC_BUFFER`, `DYNAMIC_FREE_CONFIG_DATA`, `DYNAMIC_FREE_CA_CERT` i
+//     `SSL_VARIABLE_BUFFER_LENGTH` (docs/50, docs/75).
+//   - **I el que s'ha apagat**: el certificat de l'altre cap no es desa; i fora el TLS 1.3 (experimental, només de client i
+//     incompatible amb els buffers dinàmics), el DTLS, els tiquets de sessió del client, i les corbes de Brainpool i les de 192 i
+//     224 bits. La 5.x ja no porta SSL 3.0 ni TLS 1.0 ni 1.1, o sigui que no hi havia res més a treure d'aquell costat (docs/50).
+//   - **Els `sdkconfig.<entorn>` generats s'han esborrat**, perquè el `kconfgen` ancorava els valors vells i el que es desa són els
+//     `sdkconfig.defaults` (docs/80, docs/85).
+
+// **0.197.10 — els buffers de la ràdio, comptats per a aquesta casa** (l'amo, amb el log de la placa: *«Com pot ser si abans ha
+// funcionat?»*, i el log deia `esf_buf_setup_static: alloc eb fail(1)` amb 49 799 B lliures i el tros més gran de 22 516).
+//
+//   - **El driver demana els seus buffers d'un sol tros** —setze de 1 600 B per al camí de sortida, deu per al d'entrada— i
+//     `esp_wifi_init` cau la primera vegada que una feina necessita la ràdio. Amb l'app del temps oberta, aquell moment arriba amb la
+//     casa a mig endreçar i el tros més gran ja no és de vint-i-cinc kilobytes: **no s'havia trencat res, és que la inicialització
+//     arribava tard** (docs/50, docs/75).
+//   - **I la meitat n'hi ha d'haver**: `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6`, `DYNAMIC_RX_BUFFER_NUM=16`,
+//     `STATIC_TX_BUFFER_NUM=8` i `DYNAMIC_TX_BUFFER_NUM=16`, que són els números d'un punt d'accés domèstic i no els d'un mirall de
+//     vídeo. Una pàgina de deu kilobytes cada vuit hores no demana més (docs/50).
+//   - **El TLS prim de la 0.197.9 també hi compta**: vint kilobytes de heap que el handshake torna abans que arribi la petició
+//     següent, i per tant el forat on ara hi cap l'`init` de la ràdio (docs/50, docs/75).
+
+// **0.197.11 — fora IPv6, i el mbedTLS que aquesta placa no és** (l'amo: *«Fora ipv6»*, amb la guia de mida de la IDF 5.2.1:
+// *«Setting `CONFIG_LWIP_IPV6` to `false` will reduce the size of the lwIP TCP/IP stack, at the cost of only supporting IPv4»*).
+//
+//   - **IPv6 fora** (`CONFIG_LWIP_IPV6`): mitja pila de lwIP que no es demana mai. El que es perd és arribar a un lloc que només
+//     existeixi en IPv6, i els dos serveis d'aquesta casa en tenen d'IPv4 (docs/50).
+//   - **I el mbedTLS que aquesta placa no és**, § *Minimizing binary mbedtls* de la mateixa guia: **no és cap servidor TLS**
+//     (`MBEDTLS_TLS_CLIENT_ONLY`), no desa tiquets de sessió de servidor, no renegocia, no negocia per ALPN, no serialitza el context,
+//     no escriu PEM, no llegeix CRL ni CSR, no firma (l'ECDSA determinista no cal a qui només verifica) i no fa servir el bescanvi de
+//     claus RSA pur. **El que no s'ha tocat**: l'AES-GCM, l'ECP, el SHA-512 (P-384 en depèn), el paquet de certificats i el SNI —
+//     apagar el GCM deixaria la placa sense cap servidor amb qui parlar (docs/50, docs/75).
+
+// **0.197.12 i 0.197.13 — el registre de la petició, i la clau tapada**.
+//
+//   - **0.197.12**: `RX_BA_WIN` a vuit, sis buffers d'entrada estàtics i vuit de dinàmics — els dos `#error` de
+//     `esp_wifi/src/wifi_init.c` exigeixen que la finestra no passi ni dels dinàmics ni del doble dels estàtics, o sigui que els
+//     números només quadren junts: **8 ≤ 8 i 8 ≤ 2 × 6**. I el `sdkconfig.<entorn>` generat s'ha d'esborrar a cada canvi dels
+//     `defaults`, perquè el `kconfgen` ancora el que ja hi troba i el vell mana (docs/80).
+//   - **0.197.13** (l'amo: *«pode veure la petició HTTP d'una forma clara siusplau?»*): cada crida deixa una línia amb el mètode,
+//     l'adreça sencera, el sostre de bytes i el termini — `2.5 forecast: GET https://api.openweathermap.org/data/2.5/forecast?lat=…
+//     &appid=*** (up to 24576 B, 22000 ms)` — i **la clau va tapada**: una adreça al registre és una adreça que algú llegeix després
+//     (docs/30, docs/50, docs/70).
+
+// **0.197.14 — fora l'API de pagament** (l'amo: *«a aquestes altures no has vist que onecall es una API de pagament?»*, i té raó:
+// el `401` del servei ja ho deia amb totes les paraules i jo vaig deixar el camí de pagament dins com a temptativa).
+//
+//   - **El One Call 4.0 ja no hi és**: fora les tres adreces, els tres lectors del seu format, el fitxer del pla (`plan.txt`) i la
+//     tria entre dos camins. Queden **dues crides** i prou, les de la 2.5, que és la que la clau sí que paga: `data/2.5/weather` i
+//     `data/2.5/forecast` (docs/30, docs/50).
+//   - **I per tant no hi ha cap `401` de prova** ni cap fitxer de memòria del pla: dues crides per refresc, sempre les mateixes.
+
+// **0.198.0 — `weather` refet senzill: dos fitxers, vint-i-quatre hores i prou** (l'amo: *«CODI SENZILL: 1- Verifico fitxers, tenen
+// més de 24h? → DESCARREGO; no tenen més de 24h? → HO MOSTRO»*, i *«Si mentre descarrega, o manipules les dades tens un problema de
+// memoria AVISA HO AMB TOTA CLAREDAT EN UN MISSATGE DE LOG QUE NO ES PUGA CONFONDRE»*).
+//
+//   - **1 292 línies → 373**, i el que queda fa el que es va demanar i res més: es llegeix `/data/weather/openweather.txt`, es mira
+//     l'edat de les dues respostes, i o es baixen o es mostren. Fora les pestanyes, la corba de les hores, els dibuixos vectorials de
+//     les vuit condicions i el format propi: la pàgina és ara un número gran, la frase del servei, cinc línies de dades i cinc dies.
+//   - **El JSON es baixa a un fitxer i es llegeix d'allà** (`http.download`): el cos no passa pel heap de la pàgina, i el que hi ha al
+//     disc és el que el servei va dir, tal com va arribar —`now.json` i `forecast.json`— (docs/30, docs/70).
+//   - **L'edat és d'una marca i no del fitxer** (trobat mesurant): littlefs no desa cap hora i `lib/hal_esp32/src/storage.cpp`
+//     respon `mtime = 0`, o sigui que preguntar-li l'edat a la flash no dona mai res i l'app hauria baixat a cada arrencada.
+//     `stamp.txt` porta l'època de quan les dues respostes van arribar senceres, i és el que decideix les vint-i-quatre hores
+//     (docs/70).
+//   - **I la falta de memòria crida**: `*** OUT OF MEMORY *** the board had no RAM <on>. Close another app and open this one again.`
+//     —una línia en majúscules al registre i el mateix text a la pàgina—, tant si passa baixant com si passa llegint o tallant les
+//     dades. Un codi `E_NOSPC` o un error de Lua que digui `memory` es diuen així i no com un servei que ha dit que no (docs/30, docs/75).
+//   - Provat a l'emulador amb un cos fals de setze trossos: en fred baixa les dues respostes, desa 5 706 B a cada fitxer i la marca, i
+//     diu `showing: now, 3 day(s)`; en calent diu `the files are young: showing them` i **no fa cap crida**.
+
+// **0.198.1 — una clau buida no atura la petició** (l'amo: *«NO TE CLAU I LA TEVA APP NO S'EMPANA DE RES»*, provant a l'emulador).
+//
+//   - La clau buida és un avís al registre (`no appid= in …: asking anyway, the service will refuse it`) i la petició surt igual: a
+//     l'emulador el servidor de mentida contesta `200` i la pàgina es pot provar, i a la placa el servei contesta `401` i el registre
+//     diu on s'ha d'escriure. Refusar abans de demanar deixava una pàgina que no es podia provar enlloc (docs/30, docs/85).
+//   - **El lloc sí que és obligatori**: sense `lat` i `lon` no hi ha cap adreça que demanar.
+//   - Provat amb l'emulador sense cap clau: les dues respostes baixen, es desen les dues i la marca, i la pàgina diu
+//     `showing: now, 5 day(s)`.
+
+// **0.198.2 — els buffers dinàmics de mbedTLS, fora, i el registre a quatre kilobytes** (la placa, amb un log a la mà:
+// `E esp-tls-mbedtls: read error :-0x7100` a mig llegir la previsió).
+//
+//   - **`-0x7100` és `MBEDTLS_ERR_SSL_BAD_INPUT_DATA`** i va començar a sortir quan vaig encendre els buffers dinàmics per estalviar
+//     vint kilobytes. S'apaguen (`MBEDTLS_DYNAMIC_BUFFER` i les dues `DYNAMIC_FREE_*` i `SSL_VARIABLE_BUFFER_LENGTH`): una lectura
+//     que falla no val l'estalvi (docs/50, docs/75).
+//   - **I el forat es tapa per l'altra banda**: `MBEDTLS_SSL_IN_CONTENT_LEN=4096` i `OUT_CONTENT_LEN=4096`, o sigui un registre de
+//     quatre kilobytes en lloc de setze. És el que la desencriptació ha de tenir **seguit** en RAM interna, i amb 11 764 B en un
+//     tros hi cap (docs/50).
+//   - **Els `sdkconfig.<entorn>` generats, esborrats**: el `kconfgen` ancora el que hi troba i el vell mana (docs/80).
+
+// **0.198.2 — la roda dentada, la vista d'ajustos i la clau buida** (l'amo: *«Posa un botó de roda dentada a dalt a la dreta que va a
+// una vista nova (Settings de Weather). Alla espero trobar 3 camps de text: lat, lon, Api key, i un botó Save»*, i *«l'app NO AVISA A
+// l'USUARI DE QUE LI FALTEN LES DADES»*).
+//
+//   - **La roda dentada a dalt a la dreta** obre **Weather settings**, amb tres camps —`lat`, `lon` i `Api key` (aquest amb punts en
+//     lloc de lletres)— i un botó **Save** que escriu `/data/weather/openweather.txt` (docs/30, docs/70).
+//   - **La pàgina avisa**: si no hi ha clau o no hi ha dades, la primera línia del full ho diu, i no només el registre (docs/30).
+//   - **I el Save no baixa dins del clic** (trobat en proves): un ganxo d'un control **no pot esperar** i `await` respon `E_NOTASK`;
+//     el botó deixa el desig i el bucle, que sí que espera, és qui baixa (docs/30, la lliçó del `tz`).
+//   - **La vista triada es recorda** al bloc `state` (`v1`), com mana la casa per a tota app amb pàgina (docs/30, docs/45).
+//   - I les variables mortes fora: `warning` no existia i `save_button` viu dins de la seva funció (l'amo: *«UN BOTO QUE CREES PERO
+//     NO USES PER RES?»*).
+
+// **0.198.4 — la pàgina diu per què no hi ha temps** (trobat provant la roda dentada i el Save a l'emulador).
+//
+//   - **Una resposta buida no és una resposta**: quan el moment arriba sense ni un número, la pàgina era un `--` gran i cinc línies de
+//     guions sense cap motiu. Ara el que compta és que hi hagi temperatura o dies, i si no n'hi ha surt l'avís (docs/30).
+//   - **I l'avís hi cap sencer**: `no key: open the gear` i `no data: check the gear`, i si algun dia n'hi ha un de llarg, baixa de
+//     mida en lloc de sortir tallat a mig mot (docs/30, docs/90).
+//   - Provat a l'emulador: la roda dentada obre **Weather settings** amb `lat`, `lon` i `Api key` (amb punts), el **Save** escriu
+//     `/data/weather/openweather.txt` (`settings written to …`), i el bucle fa la descàrrega que el clic no pot esperar (docs/30).
+
+// **0.198.5 — el registre diu on es busca la configuració** (l'amo: *«podries fer el favor d'indicar al log ON COLLONS BUSQUE EL
+// openweather.txt?»*): `weather: the config is looked for at /data/weather/openweather.txt` surt **abans** d'obrir-lo, i si no hi és,
+// la línia següent diu que se n'ha fet un de buit i què s'hi ha d'escriure (docs/30, docs/70).
+
+// **0.198.6 — l'app no mira el disc cada segon** (la pregunta de l'amo: *«l'app està constantment verificant els arxius?»*): sí que ho
+// feia —`fs.stat` dels dos JSON i `fs.read` de la marca, tres operacions per segon i per sempre—. Ara el rellotge mira els fitxers
+// **un cop per minut** (`kCheckS`), i el que demana el botó de `Save` es fa al següent segon sense esperar el minut (docs/30, docs/70).
+
+// **0.199.0 — l'hora d'un fitxer, de debò** (l'amo: *«Obtenir el seu CTIME per saber si són més antics de 24h»*, i, de les
+// credencials del temps, *«SI NO LES TE S'HAN ACABAT»*).
+//
+//   - **`fs.stat` ja no diu zero**: the binding pushed a fixed 0 (*«mtime: no backend gives one yet»*) and the backend of the
+//     flash threw its own hour away, o sigui que cap app no podia preguntar l'edat d'un fitxer que havia baixat i la marca a
+//     part (`stamp.txt`) era l'única manera de saber-ho. Ara l'hora passa sencera: `FileOps::mtime` la porta, littlefs la desa
+//     —el component porta `LITTLEFS_USE_MTIME` encès i el VFS la torna a `st_mtime`— i `fs.list` la dona de la mateixa manera
+//     (docs/30, docs/70).
+//   - **Un zero és «no ho sé»** i no «molt vell»: la RTC RAM i el `/nvs` no tenen rellotge, i qui decideix amb l'edat ha de
+//     llegir-lo així (docs/30).
+//   - **I el `weather` queda en dues coses**: les credencials de `/data/weather/openweather.txt` —sense elles, l'app s'ha
+//     acabat— i els dos JSON de la 2.5, que es baixen només quan l'hora del fitxer diu que són més vells de vint-i-quatre
+//     hores. Fora la pàgina, la roda dentada, els camps d'ajustos, el lector de JSON i la marca `stamp.txt`: l'app no dibuixa
+//     res i no té sessió `state` (docs/30, docs/45, docs/40).
+//   - **I la pàgina ensenya el que hi ha als fitxers** (l'amo: *«OBRE L'APP I MOSTRA LES DADES DELS FITXERS. Avisant de que son de
+//     fa X hores»*): the temperature now with what it feels like, today's low and high, the wind, the humidity, the pressure, the two
+//     hours of the sun and a row a day, read from `now.json` and `forecast.json` with the reader of six numbers that the 0.198.0
+//     already had —the same page, without tabs, without the curve of the hours and without drawings—. **I el títol és el lloc** (l'amo:
+//     *«I perquè el títol no és la localització?»*), o sigui el `name` de la resposta d'ara, amb l'hora del fitxer més vell dels dos
+//     just a sota en gris: `Data from 3 h ago` o `Data from just now`. **Mai un mot d'estat fent de títol** (l'amo: *«que collons és
+//     això de "JUST DOWNLOADED"? ES UNA APP DEL TEMPS»*): una dada vella dita com a vella serveix, i el motiu de no haver baixat només
+//     surt quan hi ha un motiu (docs/30, docs/70).
+//   - **Provat a la placa** (el registre de l'amo): `weather: the two answers are younger than 24 h: nothing is downloaded`, o sigui
+//     que l'hora del fitxer de la littlefs arriba sencera i la segona obertura no demana res a la ràdio.
+
+// **0.199.1 — el `Jellyfin` del paper, portat** (l'amo: *«a OLD/apps/Jellyfin tens una app del sistema antic PaperOS, has de
+// portar-lo a lunokOS… Fes l'app EXACTAMENT IGUAL. Usa els controls de PaperOS per els nous de lunokOS»*).
+//
+//   - **`apps/jellyfin` és el comandament del servidor**: quatre pestanyes —`Server`, `Sessions`, `Continue` i `Control`—, la
+//     roda dentada que obre els ajustos des de qualsevol pàgina i torna a la que era, i les mateixes set tecles del comandament
+//     del paper amb les mides que l'amo va triar el 24/10 (docs/30, docs/45 § 3 i 4).
+//   - **Els dos mòduls de l'original viatgen com a mòduls**: `require('api')` i `require('json')` són `api.lua` i `json.lua` de
+//     la carpeta de l'app, o sigui les mateixes adreces de Jellyfin i el mateix lector de JSON, amb `http.get` i `http.download`
+//     al lloc de la cua del paper (docs/30, docs/46 D6).
+//   - **Els `.cache.ics` no viatgen**: aquí la cara d'una imatge és `ui.image`/`cv:image` llegint el PNG que el servidor dona ja
+//     retallat a la caixa `fillWidth`/`fillHeight`, i el cau del sistema (`fs.thumbnail`) té un sostre de 256 px que no arriba a
+//     la banda del control (docs/30, docs/70).
+//   - **El forat que es diu i no s'amaga**: les ordres d'un comandament Jellyfin són `POST` i `http` d'aquest sistema només té
+//     `get` i `download`, o sigui que surten com a `GET` a la mateixa adreça i un servidor de debò contesta **405** —la línia de
+//     l'estat ho diu amb aquestes paraules—. És una porta que falta al sistema i no un defecte de l'app.
+//   - **I una errada de l'original, tapada**: `json.lua` no es menjava el blanc que ve després d'una coma dins d'un objecte, o
+//     sigui que una resposta escrita amb un salt de línia entre dos membres era `a key was expected`; Jellyfin contesta compacte i
+//     no es va veure mai. El port ho arregla (`skip()` a la branca de l'objecte).
+//   - **El paper es neteja a cada canvi de pàgina** (l'amo: *«Les pestanyes "Server" i "Session" estan barrejades o enen algun
+//     problema»*): `release()` torna els controls al sistema al proper `present` i el que hi havia pintat es queda al vidre on la
+//     pàgina nova no hi pinta, o sigui que la pàgina que se'n va es llegia sota la que arriba. Ara `show()` fa un `ui.clear(15)`
+//     abans de construir (el trap 5 de docs/45) i **cada text que canvia acaba en un `ui.present`**, que és l'única porta al
+//     vidre: abans una resposta podia canviar la línia d'estat o el títol i no arribar-hi mai.
+//   - **Els ganxos no poden esperar** (el registre de l'amo: `jellyfin: the long way gave nothing (E_NOTASK): asking with a GET`):
+//     `:await()` dins d'un `on_click`, d'un `on_change` o d'un `on_page` respon **`E_NOTASK`** —la coroutine de l'app és aturada—,
+//     o sigui que el que fa un ganxo és deixar un `want(...)` i **el bucle, que sí que espera, és qui el fa**: la pregunta de la
+//     llista, la de la biblioteca, la caràtula, la de cada pàgina del Continue, la barra i les set tecles (docs/30, la lliçó del
+//     `Save` del temps, 0.198.2).
+//   - Provat amb un banc al PC que engega l'app contra una placa de mentida: les quatre pàgines es construeixen i es tornen a fer
+//     en girar el vidre, una fila obre el control, una caràtula mana el títol a la sessió triada, la roda dentada obre i desa els
+//     ajustos, i el bloc `state` porta `page`, `rpage` i `chosen` amb l'id de la sessió.
+
+// **0.199.2 — el teclat del cable torna a escriure** (l'amo: *«Soluciona el teclat Serie que no va bé... no puc escriure tranquil.
+// Quan el teclat Serial s'activa, envia per el port serie Serial.claim() i al tancar-se Serial.release()»*).
+//
+//   - **El claim hi era i el lector no**: `Keyboard::show()` del teclat del cable ja reclamava el port i `hide()` ja el tornava,
+//     però `serve_once()` demanava el port a `serial::console()` per **llegir** —i aquesta porta és la que calla quan el port és
+//     cedit—, o sigui que amb una caixa amb el focus ningú no llegia el cable i no hi havia cap tecla. Solució: `serial::port()`
+//     és la porta del lector (el port, sigui de qui sigui), i els escriptors del sistema segueixen preguntant `serial::console()`
+//     (docs/30, docs/50).
+//   - **I el que arriba mentre el teclat del cable és aixecat no passa per l'editor de línia del terminal**: la lletra anava a la
+//     línia del prompt, que no és on la persona escriu. Ara és el camí dels bytes i prou, i `feed` la dona a la caixa amb el focus
+//     pel mateix `keyboard_type_the_wire` que la banda (docs/30, docs/90).
+//   - **El nom amb què es va prendre el port es desa** (`wire_owner_`): `hide()` preguntava qui és al davant **en el moment de
+//     tancar**, i si la caixa era d'una app que ja no hi era el nom no coincidia i el port es quedava cedit per sempre (docs/30).
+//   - El lector nou es pregunta amb el pany del torn a la mà (`take_the_turn`/`give_the_turn`), que és el que la casa mana per a
+//     qualsevol cosa que miri el que és del torn (docs/50).
+
+// **0.199.3 — `http.post`, perquè un comandament pugui manar** (el registre de l'amo, amb el Jellyfin portat a la placa:
+// `[I][APP] jellyfin: This system cannot POST: the command did not go.`).
+//
+//   - **`http.post(url[, ms])` és una porta nova**, i és el que faltava: les ordres d'un servidor de mitjans són `POST` amb el
+//     cos buit —`PlayPause`, `Seek`, `ToggleMute`— i `http` només tenia `get` i `download`, o sigui que la mateixa adreça com a
+//     `GET` contesta **405** i el comandament no manava res (docs/30).
+//   - **El mètode baixa fins al client del xip**: `hal::HttpOpts` porta `post`, el job de la flash el desa i el client l'aplica
+//     amb `esp_http_client_set_method` abans d'obrir; **a l'emulador és `curl -d ""`**, que és el mateix `POST` amb
+//     `Content-Length: 0` (docs/30, docs/50, docs/85).
+//   - **I el camí és el d'una pàgina**: la cua, la xarxa que s'encén i es deixa anar i el termini, amb 512 B de cos per rebre el
+//     codi. Una ordre no necessita una segona màquina d'estats (docs/30, docs/75).
+//   - **El Jellyfin en fa servir per a les cinc ordres de la pàgina de control i per al `PlayNow` del Continue**, i si la porta no
+//     hi fos (un nucli més vell) l'app ho diu en lloc d'enviar un `GET` que se sab que no va (apps/jellyfin 0.1.3).
+
+// **0.199.4 — l'app del temps té la seva pàgina d'ajustos** (l'amo, amb el registre de la placa dues vegades `E_HTTP` i la
+// pàgina del temps a sota: *«Quan l'app falla no deixa accedir a Settings de l'app»*).
+//
+//   - **El forat era que no hi havia porta**: la pàgina del temps es pintava amb `ui.text` i no tenia ni un control, o sigui que
+//     una placa sense credencials —o amb una clau que el servei refusa— es quedava dient «escriu-ho a openweather.txt» i no
+//     deixava escriure'l enlloc. Ara hi ha **l'engranatge del sistema a dalt a la dreta** i una pàgina de `appid`, `lat` i `lon`
+//     que desa **el mateix fitxer que l'app llegeix** (apps/weather 1.4.0, docs/40).
+//   - **Amb `state`, perquè ara hi ha forma**: dues pàgines i tres caixes de text són una vista que ha de tornar com la persona
+//     la va deixar, i **el text escrit i encara no desat també hi és** —la banda del teclat canvia l'alçada de la vista i la
+//     pàgina es refà, i el que s'ha escrit ha de venir de l'app i no del control que se n'ha anat— (docs/30 § «La sessió
+//     `state`»).
+//   - **El que ha demanat un ganxo el fa la coroutine**: el clic de l'engranatge i el del `Save` només deixen un mot, perquè
+//     alliberar el control que el sistema té a la mà i refer la pàgina dins del seu propi clic és desfer-la sota els peus.
+//   - **I el registre de la placa deia que la descripció del cel no s'escrivia mai**: `weather` és un array i el lector de la
+//     pàgina només sabia entrar en un objecte (`"weather":[{…}]`), o sigui que mitja línia del capdamunt era buida sempre.
+//   - **El Jellyfin hi va darrere**: el clic de l'engranatge era l'únic de l'app que no passava per `want()` i feia `show()` dins
+//     del propi clic —alliberant el botó que el sistema tenia a la mà—, i ara deixa el `wish` com tots els altres (apps/jellyfin
+//     0.1.4).
+
+// **0.199.5 — el certificat del servidor no cabia en quatre kilobytes** (la placa, amb l'app del temps a la mà:
+// `esp-tls-mbedtls: mbedtls_ssl_handshake returned -0x7100` a cada petició, i *«si navego amb el navegador funciona»*).
+//
+//   - **No era l'URL, ni la clau, ni el DNS**: la mateixa URL respon al navegador del PC i la placa falla en 60-90 ms, o sigui en
+//     un sol viatge d'anada i tornada. `MBEDTLS_ERR_SSL_BAD_INPUT_DATA` amb TLS 1.3 apagat surt d'`mbedtls_ssl_fetch_input`
+//     («requesting more data than fits»): **el `Certificate` del servidor és un missatge d'handshake i ha de cap sencer al buffer
+//     del registre**, i el d'`api.openweathermap.org` fa **6 690 B** (quatre certificats, mesurats amb `openssl s_client`).
+//   - **La 0.198.2 l'havia deixat a 4 096 B** perquè la desencriptació tingués un tros de RAM interna, i aquest motiu no valia:
+//     `esp-aes` parteix l'entrada externa en trossos de 1 600 B, el GCM cau a programari i el SHA de la S3 fa DMA sobre la PSRAM,
+//     i amb `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` els buffers de mbedTLS ja són a la PSRAM. **`IN_CONTENT_LEN` torna a 16 384** (el
+//     màxim del protocol, que és el que la IDF dona de sèrie) i `OUT_CONTENT_LEN` es queda a 4 096, que és tot el que s'envia
+//     (docs/50, docs/75).
+//   - **El `sdkconfig.lilygo-t5s3-idf` generat també s'ha tocat**: el `kconfgen` ancora el que hi troba i el vell mana (la mateixa
+//     trampa de la 0.198.2, docs/80).
+
+// **0.199.6 — l'app del temps, tinta i el control de llista** (l'amo, amb la pàgina al davant: *«1- NO USIS COLOR GRIS CLAR.
+// 2- Si fas una llista, que sigui amb un control UI de llista»*).
+//
+//   - **Fora el gris**: la pàgina tenia mitja dotzena de línies a nivell 8 i aquí la jerarquia la fa **la mida**, com a `meteo` i
+//     a `agenda` —dues tintes i prou, i un gris clar en aquest vidre no és un to més fluix sinó una lletra que es llegeix
+//     pitjor— (apps/weather 1.5.0, docs/30, docs/40).
+//   - **Els dies són un `ui.list`**: les files es dibuixaven a mà amb `ui.text` i una alçada comptada, o sigui que no hi havia
+//     paginador, ni el dit, ni les fletxes del dial, i la darrera fila es tallava pel píxel. Ara són `items` del control —títol i
+//     detall— i el peu és el del sistema (docs/30 § `ui.list`).
+//   - I la llista va a la colla de controls que la pàgina torna (`give_back`), perquè es refà a cada `paint` (docs/45).
+
+// **0.199.7 — l'app del temps, tres pàgines i tot el que el servei diu** (l'amo, amb l'app al davant: *«now.json no te gaire
+// chicha... pero forecast.json te varis dies d'informació, no em crec que només es diguin els dies i la temperatura. Usa tota la
+// informació i mostra'n interficie mes complet amb TOTES les dades»*).
+//
+//   - **Tres pàgines amb la tira de pestanyes del sistema** —`Now`, `Days` i `Hours`— i l'engranatge a dalt a la dreta, amb les
+//     mateixes mides que el Jellyfin (docs/30, docs/45). La forma de la vista passa a `state` `v2`: la pàgina on era la persona i
+//     el cercle, i el text de les caixes.
+//   - **`Now` és tota la resposta d'ara**: el lloc, de quan és, el grau gran i **tretze files de la llista** amb el nom de cada
+//     número que el servei envia —el que sent, la mínima i la màxima, el cel, la humitat, la pressió amb el nivell del mar i el
+//     del terra, el vent amb la seva direcció i les ratxes, els núvols, la visibilitat, la pluja i la neu de l'hora i de les tres
+//     hores, el sol, les coordenades, el país i l'hora de la resposta— (apps/weather 1.6.0).
+//   - **`Days` suma cada dia de les seves peces i no inventa res**: la mínima i la màxima de les peces, la pluja i la neu
+//     sumades, la humitat i la pressió mitjanes, els núvols i la visibilitat mitjans, la ratxa més forta i **el cel que més s'ha
+//     dit** (una mitjana de paraules no vol dir res).
+//   - **`Hours` és cada peça de tres hores amb tot el que porta**, repartit en quatre files perquè una fila de tres llocs no és
+//     capaç de dir setze números, i `joined()` deixa caure les parts del final —mai un número a mitges— quan la lletra de la
+//     placa és ampla.
+//   - **Una passada neta només quan canvia la pàgina**: `gld16` per a una pàgina que només canvia de dades i `gc16` en canviar de
+//     pestanya, que és quan queden píxels de l'altra a sota (docs/30, docs/50).
+
+// **0.199.8 — els codis del cel, desats** (l'amo: *«https://openweathermap.org/api/weather-conditions — Guarda la llista de
+// codis... vaig a buscar-te icones»*).
+//
+//   - **`apps/weather/conditions.lua` és la taula del servei sencera**: quaranta-set codis amb el grup, les paraules que el
+//     servei mateix fa servir i la icona a què pertany, els divuit dibuixos amb el seu nom, i `of()`/`icon_of()` per dir què és un
+//     número i quin dibuix li toca de dia o de nit. Un codi que la taula no porta es respon pel seu grup, i si no és ni un número,
+//     `nil`.
+//   - **I encara no dibuixa res**: diu què vol dir un codi i on és el dibuix; el mòdul no es `require` enlloc perquè la taula,
+//     en aquesta placa, és memòria que encara no fa falta.
+//   - **Les divuit icones són a `res/` de l'app** (l'amo: *«baixa totes les icones … i les deixes a res/»*): `01d.png` … `50n.png`,
+//     les del servei, de cent per cent i amb alfa (les de `@2x` no existeixen per a aquestes: el servidor respon **404** i s'han
+//     demanat les normals), i `conditions.file()` en dóna el camí per a `ui.image` amb `mask` (apps/weather 1.7.0, docs/40,
+//     docs/70).
+
+// **0.199.9 — el cel, dibuixat** (l'amo: *«doncs integra-les»*).
+//
+//   - **La icona de la resposta es pinta a `Now`**, al costat del grau gran i tan alta com la línia del grau, amb `ui.image` i
+//     `mask` perquè les cantonades transparents del PNG deixin el paper en lloc de pintar-hi blanc. El nom del fitxer és el camp
+//     `icon` que el servei ja envia (`02d`, `10n`…), o sigui que **per dibuixar no cal cap taula**: la dels codis és per dir el cel
+//     amb paraules quan el servei no les diu (apps/weather 1.8.0).
+//   - **I els dies són files fetes per l'app** —una entrada de la llista amb un canvas a l'esquerra i quatre línies de text— perquè
+//     una fila que el sistema dibuixa a partir de tres textos no pot portar cap imatge. La icona del dia és la del cel que més
+//     s'ha dit, que és el mateix que diu la paraula al costat del nom.
+//   - **Quatre línies i la icona de seixanta-quatre píxels** deixen els cinc dies en una pàgina (4 × 36 + 4 = 148 i la pàgina en té
+//     741) i trenta-tres caràcters per línia al costat del dibuix. El que no hi cap ho deixa caure `joined()`, i la visibilitat hi
+//     és expressament fora: és un número que no canvia i la pàgina de les hores el té a cada peça.
+//   - **`Hours` es queda sense dibuixos a posta**: quaranta peces amb un canvas cadascuna són quaranta controls i aquesta placa no
+//     els té; la llista les dibuixa el sistema, i el que la pàgina diu de cada peça són els números (docs/30, docs/75).
+
+static const char kVersion[] = "0.199.9";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

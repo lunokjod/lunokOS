@@ -67,6 +67,10 @@ const char kWeekKey[] = "week";
 // `luabind`, which is the module that counts it: this door keeps the choice and puts it there at boot (docs/20, docs/75).
 const char kTurnKey[] = "turn";
 const size_t kTurnCap = 8;  // "200000" and the null
+// **El sostre de memòria de l'intèrpret** (0.192.94): the key of the store and the room the number has, which is kilobytes —`auto` is the
+// word of the value of sèrie i el número és el que un llegeix amb `nvs`— (docs/20, docs/30, docs/70).
+const char kMemKey[] = "mem";
+const size_t kMemCap = 12;  // "auto" or "65535" and the null, with room for what a snprintf may write
 // **El parpalleig del cursor** (0.189.34): the key of the store and the room the number has in it, which is a number of
 // milliseconds and nothing else —the option is called `cursor delay` at the prompt, and the store keeps the one word of the
 // key, because a key of a key-value store is one word (docs/30, docs/70).
@@ -184,6 +188,9 @@ char g_home[kHomeCap] = LUNOK_HOME_APP;
 // **L'app que obre el botó dels ajustos** (0.189.109): `settings` unless the store says another name, and empty when a person said
 // `none` —a gear that does nothing is a choice and the panel says so before it asks for anything— (docs/30, docs/40).
 char g_settings[kNameCap] = "settings";
+// **El sostre de memòria que una persona ha triat** (0.192.94): zero és `auto`, o sigui la meitat del que la placa dona. És un número de
+// kilobytes i no un punter: el que mana es decideix a l'arrencada de cada app, amb el que la placa diu en aquell moment (docs/20, docs/75).
+uint32_t g_interpreter_mem_kb = 0;
 // **El bloqueig de la pantalla** (0.189.150): the page, the switch and the minutes. The page starts as `device_lock` —the one
 // this system carries for exactly this—, the switch off, and ten minutes, which is the middle of the three a person can pick.
 char g_lock[kLockCap] = "device_lock";
@@ -316,6 +323,17 @@ bool remember_turn() {
   char text[kTurnCap] = {0};
   snprintf(text, sizeof(text), "%u", static_cast<unsigned>(luabind::turn_budget()));
   return keep(kTurnKey, text);
+}
+
+bool remember_interpreter_mem() {
+  if (g_nvs == nullptr) return false;
+  char text[kMemCap] = {0};
+  if (g_interpreter_mem_kb == 0) {
+    snprintf(text, sizeof(text), "%s", "auto");
+  } else {
+    snprintf(text, sizeof(text), "%u", static_cast<unsigned>(g_interpreter_mem_kb));
+  }
+  return keep(kMemKey, text);
 }
 
 bool remember_cursor() {
@@ -689,6 +707,26 @@ void boot(hal::IPlatform& platform) {
         log_printf(pal::kLogWarn, "CFG", "cursor delay '%s' is not a blink of %d to %d ms; the cursor blinks at %d",
                    raw_cursor, static_cast<int>(luabind::caret_blink_min_ms()),
                    static_cast<int>(luabind::caret_blink_max_ms()), static_cast<int>(luabind::caret_blink_ms()));
+      }
+    }
+  }
+  // **I el sostre de memòria de l'intèrpret** (0.192.94): `auto` i una paraula que no és un número tornen al valor de sèrie, i el número es
+  // queda com a número de kilobytes fins que algú el torni a mirar —és l'arrencada de cada app qui el compara amb el que la placa dona, i
+  // allà es queda dins del que hi cap— (docs/20, docs/75).
+  {
+    char raw_mem[kMemCap] = {0};
+    size_t mem_len = 0;
+    if (g_nvs != nullptr) {
+      meter::Scope scope(meter::kKvGet);
+      if (g_nvs->get(kNamespace, kMemKey, raw_mem, sizeof(raw_mem) - 1, mem_len) && mem_len > 0 &&
+          mem_len < sizeof(raw_mem)) {
+        raw_mem[mem_len] = '\0';
+        uint32_t kb = 0;
+        if (parse_interpreter_mem(raw_mem, kb, 0)) {
+          g_interpreter_mem_kb = kb;
+        } else {
+          log_printf(pal::kLogWarn, "CFG", "mem '%s' is not a number of kilobytes; the interpreter keeps the half of the board", raw_mem);
+        }
       }
     }
   }
@@ -1149,6 +1187,13 @@ const char* unit() { return g_unit; }
 // compares with (docs/20, docs/75).
 uint32_t turn_instructions() { return luabind::turn_budget(); }
 
+// **El sostre de l'intèrpret, i el que mana quan ningú no n'ha dit res** (0.192.94): the share is the half of what the board answers, i el
+// número que una persona ha triat no pot ser més que el que el xip té —un sostre per sobre del que hi ha no és un sostre, és una promesa—.
+// Una placa que no en diu cap (l'ATOM, sense PSRAM) no té meitat i el que mana és el de sèrie de l'intèrpret, que és cosa de `shell`.
+uint32_t interpreter_mem_kb() { return g_interpreter_mem_kb; }
+
+uint32_t interpreter_mem_default_kb(uint32_t board_kb) { return board_kb / 2; }
+
 // **The launcher's switch** (0.189.13): off until the store says `on`, and it is a word and not a bit for the same reason
 // the calendar's is —a person reads the store with `nvs` (docs/30, docs/70).
 bool sort_by_usage() { return g_sort_by_usage; }
@@ -1390,6 +1435,32 @@ bool parse_turn(const char* text, uint32_t& instructions) {
 bool set_turn_instructions(uint32_t instructions) {
   if (!luabind::set_turn_budget(instructions)) return false;
   return remember_turn();
+}
+
+// **`cfg mem [<kb>|auto]`, i el número s'ha de poder complir** (0.192.94): `auto` —o `0`— és la meitat del que la placa dona, un número són
+// kilobytes i ha de cabre en el que la placa té, i per sota de seixanta-quatre kilobytes no hi cap ni l'intèrpret amb les seves llibreries, o
+// sigui que no és un sostre sinó una manera de no poder arrencar cap app (docs/20, docs/75).
+const uint32_t kInterpreterMemMinKb = 64;
+
+bool parse_interpreter_mem(const char* text, uint32_t& kb, uint32_t board_kb) {
+  kb = 0;
+  if (text == nullptr || text[0] == '\0') return false;
+  if (same(text, "auto") || same(text, "0")) return true;
+  uint32_t value = 0;
+  for (const char* c = text; *c != '\0'; ++c) {
+    if (*c < '0' || *c > '9') return false;
+    value = value * 10u + static_cast<uint32_t>(*c - '0');
+    if (value > 65535u) return false;
+  }
+  if (value < kInterpreterMemMinKb) return false;
+  if (board_kb > 0 && value > board_kb) return false;
+  kb = value;
+  return true;
+}
+
+bool set_interpreter_mem(uint32_t kb) {
+  g_interpreter_mem_kb = kb;
+  return remember_interpreter_mem();
 }
 
 const char* settings_app() { return g_settings; }

@@ -16,6 +16,7 @@
 #include "emu/surface.h"
 #include "hal/hal.h"
 #include "kernel/bar.h"
+#include "kernel/hand.h"
 #include "kernel/display.h"
 #include "kernel/panel.h"
 #include "kernel/panel_low.h"
@@ -1165,6 +1166,229 @@ static void test_a_glass_that_says_zero_by_zero_still_has_a_bar() {
   TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "the card did not go away on the page below it");
 }
 
+// **LA CAPTURA: ELS GESTOS D'UN QUADRE, CONVERTITS EN LÍNIES** (0.192.88, l'amo: *«Captura tots els gestos al panell
+// d'entrenament i converteix-lo en línia … per no perdre línies, per exemple, sense això els accents semblen un punt sobre el
+// símbol»*). A page that draws a letter is given the path of the finger frame by frame, and the kernel says where a line starts
+// and where it ends —el que una pàgina no pot saber, perquè el marc que llegeix és sempre l'últim— (docs/30, docs/50).
+static void capture_the_whole_view() {
+  kernel::touch::capture(kernel::touch::CaptureOwner::kThePage, 0, 0, ui::width(), ui::height());
+}
+
+static void test_a_finger_on_the_paper_becomes_one_line_of_its_frames() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  ui::clear(3, nullptr);
+  ui::present();
+  capture_the_whole_view();
+
+  // A finger lands on the page and walks: every frame the kernel reads is a point of the same line (docs/50).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 200, 348));
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_move(0, 220, 368));
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_move(0, 240, 388));
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(20);
+  turn(20);
+
+  kernel::touch::CapturedPoint points[16] = {};
+  uint16_t ended = 0;
+  bool finger = true;
+  uint32_t lost = 0;
+  const uint16_t count = kernel::touch::take_captured(points, 16, ended, finger, lost);
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(3, count, "the three frames of the gesture did not become three points");
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(1, ended, "the lift of the finger did not close the line");
+  TEST_ASSERT_FALSE_MESSAGE(finger, "the capture still has a finger after the lift");
+  TEST_ASSERT_EQUAL_UINT32(0, lost);
+  for (uint16_t i = 0; i < count; ++i) {
+    TEST_ASSERT_EQUAL_UINT16_MESSAGE(1, points[i].line, "one contact was not one line");
+  }
+  // The points are the view's, which is the frame a page draws in: the chip's row 348 is the page's 300 (docs/30).
+  TEST_ASSERT_EQUAL_UINT16(200, points[0].x);
+  TEST_ASSERT_EQUAL_UINT16(300, points[0].y);
+  TEST_ASSERT_EQUAL_UINT16(240, points[2].x);
+  TEST_ASSERT_EQUAL_UINT16(340, points[2].y);
+
+  // **El que ja s'ha pres no es torna a prendre**: a page that reads in every turn of a loop would draw the same point twice.
+  TEST_ASSERT_EQUAL_UINT16(0, kernel::touch::take_captured(points, 16, ended, finger, lost));
+}
+
+static void test_two_contacts_of_the_paper_are_two_lines() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  ui::clear(3, nullptr);
+  ui::present();
+  capture_the_whole_view();
+
+  // The mark over an `a` and then the `a`: two contacts, two lines, and the second is not the first one carried on (docs/30).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 200, 148));
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(20);
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_down(0, 200, 248));
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_move(0, 210, 268));
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(20);
+  turn(20);
+
+  kernel::touch::CapturedPoint points[16] = {};
+  uint16_t ended = 0;
+  bool finger = true;
+  uint32_t lost = 0;
+  const uint16_t count = kernel::touch::take_captured(points, 16, ended, finger, lost);
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(3, count, "the two gestures did not leave three points");
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(2, ended, "the two contacts were not two lines");
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(1, points[0].line, "the first point is not of the first line");
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(2, points[1].line, "the second contact carried on the first line");
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(2, points[2].line, "the second contact carried on the first line");
+  TEST_ASSERT_FALSE(finger);
+}
+
+static void test_a_finger_outside_the_box_writes_nothing() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  ui::clear(3, nullptr);
+  ui::present();
+  // The box of a letter, high on the page: a finger below it is the page's and not the drawing's (docs/30).
+  kernel::touch::capture(kernel::touch::CaptureOwner::kThePage, 40, 40, 200, 200);
+
+  TEST_ASSERT_TRUE(chip().finger_down(0, 100, 848));
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_move(0, 120, 838));
+  turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(20);
+  turn(20);
+
+  kernel::touch::CapturedPoint points[8] = {};
+  uint16_t ended = 0;
+  bool finger = true;
+  uint32_t lost = 0;
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(0, kernel::touch::take_captured(points, 8, ended, finger, lost),
+                                   "a finger outside the box was captured");
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(0, ended, "a line was opened out of the box");
+}
+
+static void test_the_capture_of_a_page_is_not_the_band_s_to_take_away() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  capture_the_whole_view();
+  TEST_ASSERT_TRUE(kernel::touch::capturing(kernel::touch::CaptureOwner::kThePage));
+
+  // The band stops its own capture when it goes, and the page's is not its to stop (docs/30, docs/90).
+  kernel::touch::uncapture(kernel::touch::CaptureOwner::kTheKeyboard);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::touch::capturing(kernel::touch::CaptureOwner::kThePage),
+                           "the band took the page's capture away");
+  kernel::touch::uncapture(kernel::touch::CaptureOwner::kThePage);
+  TEST_ASSERT_FALSE(kernel::touch::capturing(kernel::touch::CaptureOwner::kThePage));
+}
+
+// **LA BANDA DE LA LLETRA A MÀ, AMB EL XIP DEL VIDRE** (0.192.88, l'amo: *«El teclat també haurà de fer el mateix: convertir els
+// gestos que li succeeixin a la seva àrea convertits en events de dits (per no perdre línies, per exemple, sense això els accents
+// semblen un punt sobre el símbol)»*): the band draws from the capture of the glass and not from a read of its own turn, o sigui que
+// aquest cas posa el dit al xip i mira el glif que en surt —els marcs del camí, el traç, i la pausa que tanca la lletra— (docs/30,
+// docs/50, docs/90).
+static void test_the_hand_band_draws_from_the_capture_of_the_glass() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  TEST_ASSERT_TRUE(ui::keyboard_select("handwrite"));
+  TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardAlpha));
+  TEST_ASSERT_TRUE(ui::keyboard_visible());
+  const uint16_t top = static_cast<uint16_t>(ui::canvas().height - ui::keyboard_height());
+  // The chip's rows are the view's plus the bar's, which is what `turn_frame` takes out (docs/30, docs/50).
+  const uint16_t bar = kernel::bar::height();
+  kernel::hand::glyph().clear();
+
+  // **Tres marcs del camí pel panell de les lletres**: the first frame opens the stroke and every frame after is a point of it.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 100, static_cast<uint16_t>(top + 100 + bar)));
+  turn(20);
+  ui::keyboard_owes_paint();
+  TEST_ASSERT_TRUE(chip().finger_move(0, 120, static_cast<uint16_t>(top + 120 + bar)));
+  turn(20);
+  ui::keyboard_owes_paint();
+  TEST_ASSERT_TRUE(chip().finger_move(0, 140, static_cast<uint16_t>(top + 140 + bar)));
+  turn(20);
+  ui::keyboard_owes_paint();
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(3, kernel::hand::glyph().count, "the frames of the stroke did not become points");
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::hand::glyph().strokes);
+
+  // **I la pausa de 1,2 segons tanca la lletra**: the glyph is given to the model and the band asks for its turn, o sigui que el que
+  // hi havia dibuixat ja no hi és perquè s'ha llegit (docs/30, docs/90).
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(20);
+  ui::keyboard_owes_paint();
+  wait_ms(1300);
+  turn(20);
+  TEST_ASSERT_TRUE_MESSAGE(ui::keyboard_owes_paint(), "the band did not ask for its turn after the rest");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::hand::glyph().empty(), "the letter was not closed after the rest");
+
+  TEST_ASSERT_TRUE(ui::keyboard_hide());
+  TEST_ASSERT_TRUE(ui::keyboard_select("qwerty"));
+}
+
+// **Un toc a un candidat del peu és una lletra** (0.192.89, l'amo: *«quan dubta posa les opcions sota del camp on puc dibuixar, però no
+// semblen botons que es puguin polsar. Fes que siguin botons, i si pico un s'envii»*): the candidates used to be painted in the last rows
+// of the glass, which are the strip of the system —`bar::strip_rows()`—, i un dit que hi cau és el gest de la targeta de baix i no
+// arriba mai a la banda: el toc no feia res. El peu sencer queda ara per sobre d'aquestes files, i aquest cas ho mesura amb el xip del
+// vidre i amb el model de debò (docs/30, docs/50, docs/90).
+static void test_a_tap_on_a_candidate_of_the_foot_types_it() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  // **Dos caràcters amb el mateix dibuix**: the model cannot tell them apart, o sigui que la banda dubta i ensenya els candidats
+  // —tres caixes que són botons de debò— (docs/30, docs/90).
+  kernel::hand::forget(kernel::hand::kLetters);
+  const int16_t the_shape[][2] = {{100, 600}, {140, 590}, {170, 610}, {140, 640}, {100, 600}};
+  for (uint8_t which = 0; which < 2; ++which) {
+    kernel::hand::glyph().clear();
+    for (const auto& point : the_shape) kernel::hand::glyph().add(point[0], point[1]);
+    TEST_ASSERT_TRUE(kernel::hand::add(kernel::hand::kLetters, (which == 0) ? 'a' : 'b'));
+  }
+  TEST_ASSERT_EQUAL_UINT16(2, kernel::hand::examples(kernel::hand::kLetters));
+
+  TEST_ASSERT_TRUE(ui::keyboard_select("handwrite"));
+  TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardAlpha));
+  const uint16_t top = static_cast<uint16_t>(ui::canvas().height - ui::keyboard_height());
+  const uint16_t bar = kernel::bar::height();
+
+  // **El mateix dibuix, amb el dit**: the band reads it, is not sure, and keeps the glyph for the tap of the person (docs/30).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 100, static_cast<uint16_t>(top + 100 + bar)));
+  turn(20);
+  ui::keyboard_owes_paint();
+  TEST_ASSERT_TRUE(chip().finger_move(0, 140, static_cast<uint16_t>(top + 130 + bar)));
+  turn(20);
+  ui::keyboard_owes_paint();
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(20);
+  ui::keyboard_owes_paint();
+  wait_ms(1300);
+  turn(20);
+  TEST_ASSERT_TRUE(ui::keyboard_owes_paint());
+
+  // **El peu, per sobre de la franja**: the first candidate is the box of eight pixels from the left, and it must be a row a finger
+  // can reach —the last rows of the glass are the system's— (docs/30, docs/50).
+  const uint16_t foot_top = static_cast<uint16_t>(top + 372 - 64 - kernel::bar::strip_rows());
+  // **I la caixa del candidat, per sobre de la franja del sistema**: the last `bar::strip_rows()` rows of the view are the strip,
+  // o sigui que una caixa que hi cau no es pot polsar (taules: el peu acaba just on comença la franja i la caixa del candidat, que
+  // és el que s'ha de poder tocar, queda sencera a dalt) (docs/30, docs/50).
+  const uint16_t strip_row = static_cast<uint16_t>(ui::canvas().height - kernel::bar::strip_rows());
+  TEST_ASSERT_LESS_THAN_MESSAGE(strip_row, static_cast<uint16_t>(foot_top + 4 + 56),
+                                "the box of a candidate of the foot is inside the strip of the system");
+  TEST_ASSERT_TRUE(ui::keyboard_touch(20, static_cast<uint16_t>(foot_top + 30), true));
+  ui::keyboard_touch(0, 0, false);
+  // **I la tria és una mostra nova i etiquetada**, que és el que diu que el toc ha arribat: the glyph goes to the model with the
+  // letter of the person and the three boxes go away (docs/30, docs/90).
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(3, kernel::hand::examples(kernel::hand::kLetters),
+                                   "the tap on a candidate did not reach the band");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::hand::glyph().empty(), "the glyph of the choice was not given back");
+
+  TEST_ASSERT_TRUE(ui::keyboard_hide());
+  TEST_ASSERT_TRUE(ui::keyboard_select("qwerty"));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1196,6 +1420,12 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_pull_of_the_bar_after_a_sleep_still_pulls_the_card_out);
   RUN_TEST(test_a_pull_from_the_top_of_a_whole_glass_gives_the_bar_back);
   RUN_TEST(test_a_glass_that_says_zero_by_zero_still_has_a_bar);
+  RUN_TEST(test_a_finger_on_the_paper_becomes_one_line_of_its_frames);
+  RUN_TEST(test_two_contacts_of_the_paper_are_two_lines);
+  RUN_TEST(test_a_finger_outside_the_box_writes_nothing);
+  RUN_TEST(test_the_capture_of_a_page_is_not_the_band_s_to_take_away);
+  RUN_TEST(test_the_hand_band_draws_from_the_capture_of_the_glass);
+  RUN_TEST(test_a_tap_on_a_candidate_of_the_foot_types_it);
   RUN_TEST(test_a_push_up_from_the_bottom_of_a_whole_glass_gives_the_bar_back);
   return UNITY_END();
 }

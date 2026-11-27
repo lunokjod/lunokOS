@@ -531,7 +531,7 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **divuit** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **dinou** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
@@ -552,6 +552,7 @@ Portades i viatjant avui, **divuit** (`home_eink` va a part, a sota):
 | `Snake` | `snake` | 0.1.2 |
 | `Tetris` | `tetris` | 0.1.5 |
 | `Files` | `files` | 0.1.0 |
+| `Jellyfin` | `jellyfin` | 0.1.0 |
 | `Password` | `password` | 0.1.0 |
 | `System info` (de `src/apps/info_app.cpp`, pantalla interna) | `stats` | 0.1.0 |
 

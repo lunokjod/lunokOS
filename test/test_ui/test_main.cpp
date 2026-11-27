@@ -2367,6 +2367,33 @@ void test_the_table_of_canvases_is_what_the_memory_holds(void) {
   for (int i = 0; i < 150; ++i) ui::release(made[i]);
 }
 
+// **I creix quan s'omple, i torna a baixar quan la pàgina se'n va** (0.193.0, l'amo: *«ControlsUI ? no vull límit, que tot sigui
+// dinàmic»*): la taula neix amb `kFirstSlots` ranures i el que li demana una pàgina més gran el paga ella i no totes les altres; quan
+// l'app marxa, la taula torna al que va néixer. **El que no pot passar és que créixer perdi un control**: el bloc es mou, i els
+// canvas d'abans han de seguir essent els mateixos (docs/75, docs/90).
+void test_the_table_of_canvases_grows_and_comes_back_down(void) {
+  fresh_view();
+  const uint16_t born = kernel::ui::canvas_count();
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(256, born, "the table is born with the page of the home, not with half a megabyte");
+  // A page with one control more than the table holds: the table has to grow under it.
+  const uint16_t wanted = born + 1;
+  int16_t made[257];
+  TEST_ASSERT_TRUE(wanted <= 257);
+  for (uint16_t i = 1; i < wanted; ++i) {
+    TEST_ASSERT_TRUE(ui::create(4, 4, 0, false, made[i]));
+    TEST_ASSERT_EQUAL_UINT16(i, made[i]);
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(born, kernel::ui::canvas_count(), "the table grew instead of refusing the last control");
+  // **I el que hi havia abans del canvi de mida segueix essent el que era**: the table moved, the slots did not.
+  for (uint16_t i = 1; i < wanted; ++i) {
+    TEST_ASSERT_NOT_NULL(ui::at(made[i]));
+    TEST_ASSERT_EQUAL_INT(0, ui::parent_of(made[i]));
+  }
+  // The page goes and the view is made again: the table is back to what it was born with.
+  fresh_view();
+  TEST_ASSERT_EQUAL_UINT16_MESSAGE(born, kernel::ui::canvas_count(), "a page that is gone does not keep the slots it asked for");
+}
+
 // **A strip of tabs says "you are here" by taking the line away**: on two tones there is no bold and no colour,
 // so the chosen tab is the one with nothing under it (docs/30, docs/90).
 void test_a_strip_of_tabs_has_no_line_under_the_chosen_one() {
@@ -4627,10 +4654,10 @@ static bool runs_now(const char* name) {
 
 // **La banda de la lletra escrita a mà** (0.192.71, l'amo: *«Has de crear un nou teclat per software: "Handwrite". El teclat te dos
 // panells a tota la seva superfície, una banda per números i simbols, l'altre per lletres … L'usuari fa el traç lletra a lletra»*):
-// la banda no és una graella de tecles sinó dues superfícies on un dit dibuixa, o sigui que el que aquí es mira és el que fa el
-// dit —cada marc del camí és un punt del glif del sistema—, que el peu és de tecles i no de dibuix, i que la pausa de 1,2 segons
-// és la que tanca la lletra i demana el torn (docs/30, docs/90).
-static void test_the_hand_band_takes_a_stroke_and_closes_it_when_the_finger_rests() {
+// la banda no és una graella de tecles sinó dues superfícies on un dit dibuixa: el que aquí es mira és que el contacte de les dues
+// superfícies és de la banda i no de la pàgina, i que el peu és de tecles i no de dibuix. El camí d'un traç —els marcs del xip i el
+// glif que en surt, amb la pausa de 1,2 segons que el tanca— es prova a `test_touch`, que té el panell de debò (0.192.88, docs/30).
+static void test_the_hand_band_keeps_the_finger_of_its_surfaces_and_the_foot_is_keys() {
   fresh_view();
   TEST_ASSERT_TRUE(ui::keyboard_select("handwrite"));
   TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardAlpha));
@@ -4646,28 +4673,20 @@ static void test_the_hand_band_takes_a_stroke_and_closes_it_when_the_finger_rest
   // **Un dit a la pàgina de sobre no és de la banda**.
   TEST_ASSERT_FALSE(ui::keyboard_touch(100, static_cast<uint16_t>(top - 2), true));
 
-  // **Un traç sencer pel panell de les lletres**: the first frame opens the stroke an every frame after is a point of it. The
-  // left two thirds are letters and the right third is numbers, o sigui que aquest traç és del model de les lletres.
-  kernel::hand::glyph().clear();
+  // **Un dit a les dues superfícies és de la banda i no de la pàgina** (0.192.88): the surfaces are the capture's —the kernel keeps
+  // the frames of the path and the band draws them in its turn—, i el que aquesta prova mira aquí és que el contacte es queda a la
+  // banda: la pàgina de sota no el veu. El camí sencer, amb el xip del vidre i el glif que en surt, es prova a `test_touch`, que és
+  // on hi ha un panell de debò (docs/30, docs/50, docs/90).
   TEST_ASSERT_TRUE(ui::keyboard_touch(100, static_cast<uint16_t>(top + 100), true));
   TEST_ASSERT_TRUE(ui::keyboard_touch(120, static_cast<uint16_t>(top + 120), true));
   TEST_ASSERT_TRUE(ui::keyboard_touch(140, static_cast<uint16_t>(top + 140), true));
-  TEST_ASSERT_EQUAL_UINT16(3, kernel::hand::glyph().count);
-  TEST_ASSERT_EQUAL_UINT8(1, kernel::hand::glyph().strokes);
   ui::keyboard_touch(0, 0, false);
-  TEST_ASSERT_EQUAL_UINT8(1, kernel::hand::glyph().strokes);
 
   // **I el peu és de tecles i no de dibuix**: a finger on the space bar types and does not add a point of a letter.
+  kernel::hand::glyph().clear();
   TEST_ASSERT_TRUE(ui::keyboard_touch(300, static_cast<uint16_t>(top + 340), true));
-  TEST_ASSERT_EQUAL_UINT16(3, kernel::hand::glyph().count);
+  TEST_ASSERT_EQUAL_UINT16(0, kernel::hand::glyph().count);
   ui::keyboard_touch(0, 0, false);
-
-  // **La pausa de 1,2 segons és el que tanca la lletra** (l'amo: *«Esperar 1.2 segon per assegurar que ha acabat»*): nothing is
-  // owed while the finger has just left, i la banda demana el seu torn quan la pausa passa.
-  TEST_ASSERT_FALSE(ui::keyboard_owes_paint());
-  pal::delay_ms(1300);
-  TEST_ASSERT_TRUE(ui::keyboard_owes_paint());
-  TEST_ASSERT_TRUE(ui::present());
 
   // **I el teclat torna a ser el de la resta de la casa** per a les proves que vénen: la banda baixa primer, perquè un teclat
   // que es canvia sense baixar deixa el de després amb la seva altura i la pàgina de les proves que vénen no hi cabria.
@@ -4751,6 +4770,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_panel_stacks_its_children_in_a_column);
   RUN_TEST(test_a_row_panel_splits_the_width_and_stretches_the_height);
   RUN_TEST(test_the_table_of_canvases_is_what_the_memory_holds);
+  RUN_TEST(test_the_table_of_canvases_grows_and_comes_back_down);
   RUN_TEST(test_a_strip_of_tabs_has_no_line_under_the_chosen_one);
   RUN_TEST(test_a_button_is_the_drawing_of_the_paper_project);
   RUN_TEST(test_the_dots_of_a_page_draw_nothing_when_there_is_one_page);
@@ -4800,7 +4820,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_lights_of_the_board_have_their_face_in_the_window);
   RUN_TEST(test_a_click_of_the_mouse_lasts_at_least_one_turn);
   RUN_TEST(test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on);
-  RUN_TEST(test_the_hand_band_takes_a_stroke_and_closes_it_when_the_finger_rests);
+  RUN_TEST(test_the_hand_band_keeps_the_finger_of_its_surfaces_and_the_foot_is_keys);
   RUN_TEST(test_the_two_symbols_of_the_band_are_one_piece_each);
   RUN_TEST(test_the_cleaner_between_apps_follows_the_page);
   return UNITY_END();

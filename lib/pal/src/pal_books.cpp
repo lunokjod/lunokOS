@@ -29,6 +29,10 @@ struct Head {
   uint32_t magic;
   uint32_t slots;
   uint32_t lost;
+  // **Les que no hi van cabre, per casa** (0.192.92): the two homes have two totals and a bar of the memory paints them apart, so a
+  // row that was lost has to be counted where it was asked for. Zero and one are the RAM and the extra memory, as everywhere else
+  // in this layer (docs/75).
+  uint32_t lost_in[2];
   uint8_t owner;
   char app[16];
 };
@@ -169,6 +173,8 @@ void memory_books_begin(void* table, size_t bytes) {
   Head* head = static_cast<Head*>(table);
   head->slots = static_cast<uint32_t>((bytes - sizeof(Head)) / sizeof(Row));
   head->lost = 0;
+  head->lost_in[0] = 0;
+  head->lost_in[1] = 0;
   head->owner = kMemoryNobody;
   head->app[0] = '\0';
   Row* rows = rows_of(head);
@@ -190,6 +196,9 @@ void memory_book_taken(void* block, size_t bytes) {
   Row* row = a_free_row(head, is_big(static_cast<uint32_t>(bytes)));
   if (row == nullptr) {
     ++head->lost;
+    // **I en quina casa** (0.192.92): the pointer is the one thing that says where the bytes are, so the count of what the books
+    // could not write down is kept apart for the two homes (docs/75).
+    ++head->lost_in[extra_memory().in_the_extra(block) ? 1 : 0];
     return;
   }
   row->block = block;
@@ -239,6 +248,28 @@ uint32_t memory_slots() {
 uint32_t memory_lost() {
   Head* head = the_books();
   return (head == nullptr) ? 0 : head->lost;
+}
+
+uint32_t memory_lost_in(uint8_t home) {
+  Head* head = the_books();
+  if (head == nullptr || home > 1) return 0;
+  return head->lost_in[home];
+}
+
+MemoryHeld memory_held(uint8_t home) {
+  MemoryHeld held;
+  Head* head = the_books();
+  if (head == nullptr || home > 1) return held;
+  const Row* rows = rows_of(head);
+  for (uint32_t i = 0; i < head->slots; ++i) {
+    if (rows[i].block == nullptr) continue;
+    // **La casa es pregunta al punter i no es desa**: a block may move from one home to the other with a `resize`, and a row that
+    // kept the home it was born in would paint the PSRAM's bytes in the bar of the RAM (docs/75).
+    if (extra_memory().in_the_extra(rows[i].block) != (home == 1)) continue;
+    held.blocks += 1;
+    held.bytes += rows[i].bytes;
+  }
+  return held;
 }
 
 uint32_t memory_live() {

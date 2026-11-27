@@ -15,13 +15,18 @@
 // **El que aquest fitxer no fa**: no configura el receptor. Un M10Q surt de fàbrica amb les frases NMEA que aquest driver llegeix
 // (RMC, GGA, GSA, GSV, VTG), o sigui que no cal cap missatge binari de configuració —UBX— i no se n'hi envia cap: escriure al mòdul
 // amb una trama que no s'ha pogut provar a la placa és la mena de cosa que deixa un receptor en un estat que ningú sap desfer
-// (docs/50, docs/95).
+// (docs/50, docs/95). **El que sí que fa el fabricant** (`examples/GPS/main/main.ino` del repositori de la placa) és parlar-hi: al
+// L76K li envia `$PCAS03`/`$PCAS04`/`$PCAS11` i al M10Q trames UBX de recuperació. O sigui que la comunicació **és de dues
+// direccions** i un receptor de fàbrica no la necessita (docs/50).
+//
+// **I el que entén les frases no és aquí**: `hal::nmea` les llegeix, i aquest fitxer només porta el cable (docs/50, docs/85).
 #ifndef LUNOK_T5S3_GPS_M10Q_H
 #define LUNOK_T5S3_GPS_M10Q_H
 
 #include <stdint.h>
 
 #include "hal/hal.h"
+#include "hal/nmea.h"
 #include "t5s3/expander.h"
 
 namespace hal {
@@ -48,30 +53,14 @@ class GpsM10Q : public IGps {
  private:
   bool open_the_wire(uint32_t baud);
   void close_the_wire();
-  // **Un tros del cable, una frase sencera** (docs/50): el que arriba es queda en un bufet fins que hi ha un salt de línia, i aleshores
-  // es mira si la frase és una de les cinc que aquest driver entén.
-  void take_a_line(char* line, size_t length);
-  bool parse_rmc(const char* body);
-  bool parse_gga(const char* body);
-  bool parse_gsa(const char* body);
-  bool parse_gsv(const char* body);
-  bool parse_vtg(const char* body);
+  // **Una frase sencera del cable, i qui la mira és `hal::nmea`** (0.192.90): the driver reads bytes and hands them over; the
+  // sentences, the checksum and the fix are in a file that knows nothing about a UART and can be tested on the PC (docs/50, docs/85).
+  bool hear_a_sentence(uint32_t ms);
 
   Pca9535* rail_;
-  // El bufet de la frase, que ha de cabre la més llarga de les NMEA (82 caràcters pel que diu l'estàndard, i les de u-blox en són 80).
-  char line_[112];
-  size_t used_ = 0;
-  bool dropped_ = false;
+  nmea::State nmea_;
   uint32_t baud_ = 0;
   bool open_ = false;
-  // **El cel de l'últim GSV**, per satèl·lit: el número, on és i amb quanta força. Un receptor en pot veure fins a trenta-dos i aquest
-  // emulador en dibuixa dotze; el que no hi cap es queda fora de la llista i es compta (docs/30, docs/50).
-  GpsSatellite sky_[32];
-  uint8_t sky_count_ = 0;
-  uint8_t gsv_next_ = 0;
-  GpsFix fix_;
-  uint32_t sentences_ = 0;
-  uint32_t bad_ = 0;
   const char* error_ = "";
 };
 

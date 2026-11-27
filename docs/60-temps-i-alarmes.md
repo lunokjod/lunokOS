@@ -24,7 +24,8 @@ Per ordre de preferència:
    que ningú ha mesurat. Corregeix el desfasament i, si el desfasament és gran, salta.
    **Des del 31/10 hi és de debò**: `net.ntp([servidor[, ms]])` des de Lua i `ntp [servidor]` des de la
    shell. Passa per la **cua de peticions** com la resta (una cosa alhora) i **no deixa la ràdio
-   encesa** quan acaba. **Necessita xarxa**: si la placa no hi és, es refusa a l'acte
+   encesa** quan acaba —la tanca tres segons després de l'última feina, i no la toca gens si la persona
+   l'ha encesa amb `cfg wifi on` (0.197.0, docs/75)—. **Necessita xarxa**: si la placa no hi és, es refusa a l'acte
    (`ntp: the board is not on a network`) en comptes d'esperar un termini que ningú no pot complir. A la placa el client és el `esp_sntp` de lwip, que posa el rellotge del
    sistema ell mateix i avisa per una crida de notificació; el nucli només diu al rellotge quina hora
    és, perquè les dues bandes ho facin igual (l'emulador té un servidor de mentida que contesta al cap

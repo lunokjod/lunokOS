@@ -92,6 +92,13 @@ class IConsole {
   // after write() returns, so the last thing a person reads before the board stops has to
   // be pushed out first or it is a word cut in half (docs/50).
   virtual void flush() = 0;
+  // **Una segona boca per al mateix que surt pel filferro** (0.196.0, l'amo: *«bt dev console on/off per exposar la shell de sistema (el
+  // mateix que es veu via serial, però per ble)»*): the mirror is called with every piece that goes to the console —the prompt, the
+  // answer of a command and the log when `verbose` puts it there—, o sigui que qui el rep veu exactament el que veu el sèrie. **No
+  // s'espera i no s'atura**: a mirror that blocks the console would make the console the second thing the board has to wait for, i el
+  // mirall d'aquesta casa (la ràdio) és el que ha de poder perdre's una línia (docs/30, docs/50).
+  typedef void (*Mirror)(const uint8_t* data, size_t len);
+  virtual void mirror(Mirror sink) { (void)sink; }
 
   // ---- el terminal que edita la línia (0.190.222) ----
   //
@@ -162,6 +169,10 @@ struct HeapInfo {
   bool valid;             // false on platforms without a heap to report
   uint32_t free_bytes;
   uint32_t min_free_bytes;
+  // **The room of the heap itself** (0.192.92): what this home can give when nothing is taken, which is the number a person needs to
+  // read `free` against. It is not the chip's RAM —the code, the statics and the ROM take their share before the heap exists— and
+  // saying `170 KB of 8192 KB` was comparing this heap with the PSRAM (docs/75).
+  uint32_t total_bytes;
   // **The biggest block that would fit right now**, which is not `free_bytes`: a heap with 200 KB free
   // in a thousand pieces cannot give a page of 100 KB, and the board says so with
   // `heap_caps_get_largest_free_block` (docs/75). Zero on a build that cannot ask.
@@ -369,6 +380,28 @@ class IExtraMemory {
   // the first hundreds of blocks of the run —the VM of the launcher, which is the first thing that asks— would have no owner at all.
   // El constructor de `MemoryTag` crida aquesta porta i la taula hi és abans que la primera petició (docs/75).
   virtual void open_the_books() {}
+  // **De quina casa és un bloc** (0.192.92): the books write down the pointer, the bytes and who asked, and a map of the memory needs
+  // one more thing —whether those bytes are the board's own RAM or its extra memory—. The platform is the one that can tell, and it
+  // tells it **from the pointer** and not from a flag kept per block, so a block that moved between the two homes is never counted
+  // in the wrong one (docs/75).
+  virtual bool in_the_extra(const void* block) const {
+    (void)block;
+    return false;
+  }
+
+  // **Un bloc que només pot viure a la memòria extra** (0.192.94, l'amo: *«a partir d'ara tota memoria que demani lua ha de ser PSRAM
+  // exclusivament»*). El que demana per aquesta porta no accepta la RAM del xip com a segona opció: o hi ha el bloc a la casa gran, o
+  // la petició falla. És el que fa l'intèrpret de Lua, perquè **una màquina de Lua és la cosa més gran que aquest sistema demana** i la
+  // RAM interna és la que es discuteixen els drivers, la pila i el sistema de fitxers (docs/20, docs/50, docs/75).
+  //
+  // **I la placa sense memòria extra segueix corrent una app**: `has_the_extra()` és la pregunta que es fa abans de triar la porta, i en
+  // una placa que no en té es va per la de sempre —l'única que hi ha—, perquè el que no pot ser és que la mateixa app no arrenqui en una
+  // placa només per no tenir PSRAM (docs/50, docs/75).
+  virtual bool has_the_extra() const { return false; }
+  // Les dues portes de només-extra: el que no hi cap **no** cau a l'altra casa (el que sí que fa `prefer_extra`). La implementació de
+  // sèrie és la de sempre, perquè una plataforma que no en digui res no ha de deixar de funcionar (docs/75, docs/85).
+  virtual void* allocate_in_the_extra(size_t bytes) { return allocate(bytes, true); }
+  virtual void* resize_in_the_extra(void* block, size_t bytes) { return resize(block, bytes, true); }
 };
 
 // **Despertar el nucli des d'una interrupció, i res més** (0.190.206). El que hi ha a sota d'aquesta crida és **tot a la IRAM**: la
@@ -481,6 +514,19 @@ uint32_t memory_bills(MemoryBill* out, uint32_t cap);
 uint32_t memory_lost();
 uint32_t memory_slots();
 uint32_t memory_live();
+
+// **El que els llibres tenen en una casa** (0.192.92, l'amo: *«Estem segurs que estem obtenint la memoria ocupada real?»*): the two
+// homes are two heaps with two totals —the board's RAM and its extra memory—, and a bar that paints the occupied bytes needs the
+// books split the same way. `home` is 0 for the RAM and 1 for the extra memory; the blocks are counted by the pointer, which is
+// the only thing that says where a block really lives (docs/75).
+struct MemoryHeld {
+  uint32_t blocks = 0;
+  uint32_t bytes = 0;
+};
+MemoryHeld memory_held(uint8_t home);
+// **I les peticions que no hi van cabre, per casa**: a table that lost rows lost them in one home or the other, and a bar that says
+// «and this much is unknown» has to know which part of the picture it is not painting (docs/75).
+uint32_t memory_lost_in(uint8_t home);
 
 // **The doors of the books, for a PAL**: `allocate`/`resize`/`release` of `IExtraMemory` call them, and nothing else does —the
 // books cannot see the heap and the heap cannot book itself—. `memory_books_begin` is the table, which the PAL gives from the

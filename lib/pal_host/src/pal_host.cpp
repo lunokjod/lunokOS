@@ -52,7 +52,11 @@ void on_the_way_out(int number) {
 uint32_t g_baud = 0;
 // **Whether the console of this run can be hung up** (0.158.0): off is a serial port —the board— and it is the
 // default, because a console that is a file or a pipe is nobody's session (docs/30, docs/85).
-bool g_virtual_terminal = false;int64_t g_wire_free_ns = 0;  // when the last byte handed over would finish leaving the UART
+bool g_virtual_terminal = false;
+int64_t g_wire_free_ns = 0;  // when the last byte handed over would finish leaving the UART
+// **La segona boca de la consola de l'emulador** (0.196.0): the mirror and whether it is already inside, com al filferro de la placa.
+pal::IConsole::Mirror g_console_mirror = nullptr;
+bool g_in_the_mirror = false;
 // **What the heap costs and what the extra memory moves**, in nanoseconds a node of the allocator's
 // walk and bytes a microsecond (docs/85). Zero is the PC's heap: it answers at once, which is what every
 // test wants, and the emulator sets the numbers of the board's allocator and its PSRAM.
@@ -309,6 +313,9 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     info.free_bytes = static_cast<uint32_t>(home_free(kHome));
     info.min_free_bytes = static_cast<uint32_t>(home_lowest(kHome));
     info.largest_free_bytes = static_cast<uint32_t>(home_largest(kHome));
+    // **I la regió sencera del model** (0.192.92): the bytes the run gave this home, which is what `free` is read against. A home with
+    // no ceiling has no total to tell, and zero is that answer (docs/75, docs/85).
+    info.total_bytes = static_cast<uint32_t>(g_home[kHome].size);
     return info;
   }
 
@@ -346,7 +353,16 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
 
   // IConsole ----------------------------------------------------------------
 
+  // **I el mirall, com al filferro de la placa** (0.196.0): what a second reader gets is what the console gets, i l'emulador també el
+  // té perquè una prova pugui veure el que la ràdio veuria (docs/85).
+  void mirror(pal::IConsole::Mirror sink) override { g_console_mirror = sink; }
+
   size_t write(const void* data, size_t len) override {
+    if (g_console_mirror != nullptr && len > 0 && !g_in_the_mirror) {
+      g_in_the_mirror = true;
+      g_console_mirror(static_cast<const uint8_t*>(data), len);
+      g_in_the_mirror = false;
+    }
     // **One wire, and in the order it was written.** On the board the kernel's own lines (`printf`) and
     // the console go out of the same UART, so the order of the two is the order they were produced
     // here a `printf` sits in a buffer of its own while the console writes with `::write`, and the boot
@@ -576,26 +592,34 @@ class HostExtraMemory : public IExtraMemory {
 
   void open_the_books() override { begin_the_books_once(); }
 
+  // **La casa d'un bloc, per la capçalera que el camí de tornada ja llegeix** (0.192.92): the emulator's two homes are two regions and
+  // every chunk says which one it belongs to, so the map of the memory splits them the same way the board does with its pointers
+  // (docs/75, docs/85). A block of a run with no ceilings is in neither of the two and it is not the extra memory.
+  bool in_the_extra(const void* block) const override {
+    if (block == nullptr) return false;
+    const Chunk* chunk = head_of(const_cast<void*>(block));
+    return chunk->home == kExtra;
+  }
+
   // **Les mides han canviat i la taula era d'aquestes** (0.190.0): `set_memory_bytes` gives the two homes back and makes them again with
   // the new ceilings, so the books of the old ones are books of nothing —and a table that is still pointed at is a table that is read
   // after it was freed (found by the suite, 18/11: a SIGSEGV on the second case of this file)— (docs/75, docs/85).
   void forget_the_books() { books_ = nullptr; }
 
-  void* allocate(size_t bytes, bool prefer_extra) override {
-    void* block = allocate_raw(bytes, prefer_extra);
-    if (block != nullptr) pal::memory_book_taken(block, bytes);
-    return block;
-  }
+  // **Aquest run té la casa gran?** (0.192.94): the extra memory exists when the model of the board gave it a region, o sigui que un
+  // run sense sostres —i tota la suite abans de `set_memory_bytes`— no en té i l'intèrpret va per la porta de sempre (docs/75, docs/85).
+  bool has_the_extra() const override { return g_home[kExtra].base != nullptr; }
+
+  void* allocate(size_t bytes, bool prefer_extra) override { return take_and_book(bytes, prefer_extra, false); }
+
+  // **Només la memòria extra** (0.192.94): no fallback to the board's RAM, que és tot el que aquesta porta vol dir (docs/75).
+  void* allocate_in_the_extra(size_t bytes) override { return take_and_book(bytes, true, true); }
 
   void* resize(void* block, size_t bytes, bool prefer_extra) override {
-    void* moved = resize_raw(block, bytes, prefer_extra);
-    if (moved != nullptr) {
-      pal::memory_book_moved(block, moved, bytes);
-    } else if (block != nullptr && bytes == 0) {
-      pal::memory_book_released(block);
-    }
-    return moved;
+    return resize_and_book(block, bytes, prefer_extra, false);
   }
+
+  void* resize_in_the_extra(void* block, size_t bytes) override { return resize_and_book(block, bytes, true, true); }
 
   void release(void* block) override {
     if (block == nullptr) return;
@@ -604,12 +628,38 @@ class HostExtraMemory : public IExtraMemory {
   }
 
  private:
+  // **Una petició i la seva fila, d'una manera o de l'altra** (0.192.94): the four doors are two wishes —where a block may live and
+  // whether the other home is allowed— and the books are written here so that no door can forget them (docs/75).
+  void* take_and_book(size_t bytes, bool prefer_extra, bool only_extra) {
+    void* block = allocate_raw(bytes, prefer_extra, only_extra);
+    if (block != nullptr) pal::memory_book_taken(block, bytes);
+    return block;
+  }
+
+  void* resize_and_book(void* block, size_t bytes, bool prefer_extra, bool only_extra) {
+    void* moved = resize_raw(block, bytes, prefer_extra, only_extra);
+    if (moved != nullptr) {
+      pal::memory_book_moved(block, moved, bytes);
+    } else if (block != nullptr && bytes == 0) {
+      pal::memory_book_released(block);
+    }
+    return moved;
+  }
+
+ private:
   // **La taula dels llibres es demana una vegada i no es torna** (0.190.0): it is the list of every block of the run, so it lives as
   // long as the run does and it is never given back (docs/85).
   void* books_ = nullptr;
 
-  void* allocate_raw(size_t bytes, bool prefer_extra) {
+  void* allocate_raw(size_t bytes, bool prefer_extra, bool only_extra) {
     if (bytes == 0) return nullptr;
+    // **Només la casa gran** (0.192.94): a door that cannot fall back. What it does when the extra memory is full is what any other door
+    // does when there is no room —the session memories of the apps are given back once and it is asked again— and nothing else (docs/75).
+    if (only_extra) {
+      if (void* block = take(kExtra, bytes)) return block;
+      relieve(nullptr, bytes);
+      return take(kExtra, bytes);
+    }
     // **The same rule as the board** (0.151.20, `pal::take_from_the_extra`): a small block goes home while the
     // home keeps its floor and to the extra memory when it would lose it. An emulator that did otherwise would let a
     // test pass on a board that fails —which is exactly what this cost to find (docs/75, docs/85).
@@ -627,14 +677,30 @@ class HostExtraMemory : public IExtraMemory {
     return take((first == kExtra) ? kHome : kExtra, bytes);
   }
 
-  void* resize_raw(void* block, size_t bytes, bool prefer_extra) {
-    if (block == nullptr) return allocate_raw(bytes, prefer_extra);
+  void* resize_raw(void* block, size_t bytes, bool prefer_extra, bool only_extra) {
+    if (block == nullptr) return allocate_raw(bytes, prefer_extra, only_extra);
     if (bytes == 0) {
       release_raw(block);
       return nullptr;
     }
     Chunk* chunk = head_of(block);
     if (chunk->home == kPlain) return plain_resize(block, bytes);
+    // **I créixer sense canviar de casa** (0.192.94): a block of the extra memory that changes size stays there, and one that cannot is a
+    // refusal that leaves the block as it was (docs/75).
+    if (only_extra) {
+      if (chunk->home == kExtra) {
+        if (void* same = grow(block, bytes)) return same;
+        if (void* moved = move_into(block, bytes, kExtra)) return moved;
+      } else if (void* moved = move_to(block, bytes, kExtra)) {
+        return moved;
+      }
+      relieve(block, bytes);
+      if (chunk->home == kExtra) {
+        if (void* same = grow(block, bytes)) return same;
+        return move_into(block, bytes, kExtra);
+      }
+      return move_to(block, bytes, kExtra);
+    }
     const uint8_t want = take_from_the_extra(home_free(kHome), bytes, prefer_extra) ? kExtra : kHome;
     if (chunk->home == want) {
       if (void* same = grow(block, bytes)) return same;

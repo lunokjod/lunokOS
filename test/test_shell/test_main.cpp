@@ -20,6 +20,7 @@
 #include "hal/hal.h"
 #include "hal/log.h"
 #include "kernel/apps.h"
+#include "kernel/bluetooth.h"
 #include "kernel/cfg.h"
 #include "kernel/display.h"
 #include "kernel/kernel.h"
@@ -28,6 +29,7 @@
 #include "kernel/repository.h"
 #include "kernel/serial.h"
 #include "kernel/session.h"
+#include "kernel/version.h"
 #include "kernel/orders.h"
 #include "kernel/shell.h"
 #include "kernel/usage.h"
@@ -269,6 +271,81 @@ void test_mem_command_is_known(void) {  ensure_booted();
   TEST_ASSERT_TRUE(kernel::execute("mem"));
 }
 
+// **`mem` diu de què són lliures els lliures** (0.192.92, l'amo: *«Estem segurs que estem obtenint la memoria ocupada real?»*): un
+// `free heap` sol no diu si la placa està sana o ofegada —158 KB lliures són molt en un heap de 380 i no són res en un de 8 000—, i la
+// fila que ho diu és el pres contra el total del heap d'aquella casa (docs/30, docs/75).
+// **L'UUID d'un iBeacon, d'anada i de tornada** (0.194.0): the identity of a beacon is thirty-two hexadecimal digits that a person
+// types at the prompt, i un parser que accepta de més o de menys el que fa és anunciar una altra cosa que la que s'ha demanat —i això no
+// es veu enlloc fins que un telèfon es queixa—. Les dues portes són del nucli i no de la ràdio, o sigui que es poden provar aquí (docs/30,
+// docs/50).
+void test_a_beacon_uuid_goes_in_and_comes_back(void) {
+  uint8_t uuid[16] = {};
+  TEST_ASSERT_TRUE(kernel::bt::beacon_uuid_from_text(kernel::bt::kBeaconUuid, uuid));
+  TEST_ASSERT_EQUAL_HEX8(0x6c, uuid[0]);   // 'l'
+  TEST_ASSERT_EQUAL_HEX8(0x75, uuid[1]);   // 'u'
+  TEST_ASSERT_EQUAL_HEX8(0x21, uuid[7]);   // '!'
+  TEST_ASSERT_EQUAL_HEX8(0x01, uuid[15]);
+  // **I el text que torna és el mateix que hi va entrar**: the dashes come back where a person expects them, which is what makes the
+  // line of `bt dev beacon` a thing a person can copy and paste into the next command.
+  TEST_ASSERT_EQUAL_STRING(kernel::bt::kBeaconUuid, kernel::bt::beacon_uuid_text(uuid));
+  // **Els trenta-dos dígits seguits són el mateix UUID**: the dashes are free, and a value pasted out of a scanner arrives without them.
+  uint8_t plain[16] = {};
+  TEST_ASSERT_TRUE(kernel::bt::beacon_uuid_from_text("6c756e6f6b4f53210000000000000001", plain));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(uuid, plain, 16);
+  // **I el que no és un UUID es diu que no**: a short one, a letter past `f` and a byte too many are the three ways a person gets it
+  // wrong, and none of them may reach the radio.
+  uint8_t kept[16] = {};
+  TEST_ASSERT_FALSE(kernel::bt::beacon_uuid_from_text("6c756e6f", kept));
+  TEST_ASSERT_FALSE(kernel::bt::beacon_uuid_from_text("6c756e6f-6b4f-5321-0000-00000000000g", kept));
+  TEST_ASSERT_FALSE(kernel::bt::beacon_uuid_from_text("6c756e6f-6b4f-5321-0000-00000000000101", kept));
+  // **I que la memòria del que s'ha provat no s'ha tocat** quan la resposta és que no: the refusals leave the caller's buffer as it was,
+  // or a typo would be an announced UUID nobody chose.
+  TEST_ASSERT_EQUAL_HEX8(0x00, kept[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x00, kept[15]);
+}
+
+// **Els dos serveis que es poden obrir amb una paraula** (0.196.0, l'amo: *«Afegeix al bt dev battery on/off per notificar la batería»* i
+// *«bt dev console on/off per exposar la shell de sistema»*): the emulator's radio keeps the two switches —que és el que la placa fa amb
+// `ble_gatts`— o sigui que aquí es prova el camí sencer de la comanda, i el que no es pot provar sense una placa és que un telèfon ho
+// vegi (docs/30, docs/50).
+void test_the_battery_and_the_console_open_and_close(void) {
+  ensure_booted();
+  TEST_ASSERT_TRUE(kernel::execute("bt dev battery on"));
+  TEST_ASSERT_TRUE(kernel::bt::battery_on_now());
+  // **I la línia de l'estat les diu**, que és com una persona sap què està oferint aquesta placa (docs/30).
+  static char said[2048];
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("bt status"));
+  capture_end(said, sizeof said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "services: battery on, console off"), said);
+  TEST_ASSERT_TRUE(kernel::execute("bt dev battery off"));
+  TEST_ASSERT_FALSE(kernel::bt::battery_on_now());
+  // **La consola és el mateix dibuix**: obrir-la és el que fa que el mirall del sèrie existeixi, i tancar-la el treu (docs/50).
+  TEST_ASSERT_TRUE(kernel::execute("bt dev console on"));
+  TEST_ASSERT_TRUE(kernel::bt::console_on_now());
+  TEST_ASSERT_TRUE(kernel::execute("bt dev console off"));
+  TEST_ASSERT_FALSE(kernel::bt::console_on_now());
+}
+
+void test_mem_says_how_big_the_heap_is(void) {
+  ensure_booted();
+  // **Un heap amb un sostre i una cosa a dins**: the emulator is given a home of its own for this case, and a block is taken from it, so
+  // the row has a total to be read against and something taken from it (docs/85).
+  pal::set_memory_bytes(65536, 65536);
+  void* block = pal::extra_memory().allocate(4096, false);
+  TEST_ASSERT_NOT_NULL(block);
+  static char said[2048];
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("mem"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "ram in use"), said);
+  // **I el total i el tant per cent, al costat del pres**: `4.0 KB of 64.0 KB (6 %)`.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, " of 64.0 KB ("), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, " %)"), said);
+  pal::extra_memory().release(block);
+  pal::set_memory_bytes(0, 0);
+}
+
 // **The ceilings of the two homes are the board's and the books are exact** (docs/75, docs/85): the
 // emulator hands out the board's own RAM and its extra memory from the machine's heap, and a block that
 // does not fit either home is refused here, before the board would have refused it. The bytes that come
@@ -417,6 +494,44 @@ void test_cfg_command_says_the_unit_and_refuses_a_missing_card(void) {
   TEST_ASSERT_FALSE(kernel::execute("cfg sd"));
   TEST_ASSERT_TRUE(kernel::execute("cfg littlefs"));
   TEST_ASSERT_FALSE(kernel::execute("cfg diskette"));
+}
+
+// **El sostre de memòria de l'intèrpret** (0.192.94): l'intèrpret de Lua viu només a la memòria extra, i aquell sostre és el que separa una
+// app que creix del sistema que ha de continuar pintant —els llenços de la pàgina són a la mateixa casa—. El que aquest cas defensa és que
+// el número que mana és el que la comanda deixa, que `auto` el torna a la meitat del que la placa dona, i que **una cosa que no és un
+// sostre no es desa**: per sota de seixanta-quatre kilobytes no hi cap ni l'intèrpret, i per sobre del que el xip té no és un sostre sinó una
+// promesa (docs/20, docs/30, docs/75).
+void test_cfg_mem_sets_the_ceiling_of_the_interpreter(void) {
+  ensure_booted();
+  const uint32_t board_kb = hal::platform().heap_limit_kb();
+  // **De sèrie, `auto`**, que és zero i vol dir la meitat del que la placa dona.
+  TEST_ASSERT_TRUE(kernel::execute("cfg mem auto"));
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::cfg::interpreter_mem_kb());
+  // **I el número que s'escriu és el que mana**, fins i tot quan no hi ha botiga on desar-lo (aquesta placa de prova no en té, i la comanda
+  // ho diu i el valor es queda igualment per a aquest run) (docs/70).
+  TEST_ASSERT_TRUE(kernel::execute("cfg mem 2048"));
+  TEST_ASSERT_EQUAL_UINT32(2048, kernel::cfg::interpreter_mem_kb());
+  TEST_ASSERT_TRUE(kernel::execute("cfg mem"));
+  // **Una cosa que no és un sostre no es desa**: trenta-dos kilobytes no hi caben, i el número que hi havia no es mou.
+  TEST_ASSERT_FALSE(kernel::execute("cfg mem 32"));
+  TEST_ASSERT_EQUAL_UINT32(2048, kernel::cfg::interpreter_mem_kb());
+  TEST_ASSERT_FALSE(kernel::execute("cfg mem quaranta"));
+  TEST_ASSERT_EQUAL_UINT32(2048, kernel::cfg::interpreter_mem_kb());
+  // **I res per sobre del que el xip té**: with a board that says how much it has, one kilobyte more is not a ceiling.
+  if (board_kb > 0) {
+    char above[32];
+    snprintf(above, sizeof above, "cfg mem %u", static_cast<unsigned>(board_kb + 1));
+    TEST_ASSERT_FALSE(kernel::execute(above));
+    TEST_ASSERT_EQUAL_UINT32(2048, kernel::cfg::interpreter_mem_kb());
+    // **I el que sí que hi cap, hi cap**: the board's own number is a ceiling like any other.
+    char fits[32];
+    snprintf(fits, sizeof fits, "cfg mem %u", static_cast<unsigned>(board_kb));
+    TEST_ASSERT_TRUE(kernel::execute(fits));
+    TEST_ASSERT_EQUAL_UINT32(board_kb, kernel::cfg::interpreter_mem_kb());
+  }
+  // **I es torna a `auto`**, que és el que aquest cas ha trobat i el que ha de deixar per als casos de després.
+  TEST_ASSERT_TRUE(kernel::execute("cfg mem auto"));
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::cfg::interpreter_mem_kb());
 }
 
 void test_unknown_command_fails(void) {
@@ -902,13 +1017,17 @@ void test_an_order_of_the_system_runs_with_the_session_closed(void) {
   capture_end(said, sizeof(said));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "press Enter to open a new one"), said);
 
-  // **La línia d'una persona tanca la sessió oberta i prou**: no s'executa.
+  // **La línia d'una persona tanca la sessió oberta i prou**: no s'executa. **I la versió es llegeix del nucli i no s'escriu a mà**
+  // (0.192.92): the case had `lunokOS 0.190` written in it, o sigui que va començar a fallar el dia que el nucli va pujar de versió i
+  // el que deia no era que `version` no s'hagués executat sinó que el número havia canviat (docs/85).
+  char the_version[32];
+  snprintf(the_version, sizeof the_version, "lunokOS %s", kernel::kVersion);
   TEST_ASSERT_TRUE(kernel::orders::post_a_line("version"));
   capture_begin();
   kernel::shell::carry_out_the_orders();
   capture_end(said, sizeof(said));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "login: a new session"), said);
-  TEST_ASSERT_NULL_MESSAGE(strstr(said, "lunokOS 0.190"), said);  // `version` did not run
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, the_version), said);  // `version` did not run
 
   // **I la del sistema sí que corre, amb la sessió com estigui**: aquesta és la que arrenca la pàgina de casa.
   capture_begin();
@@ -918,7 +1037,7 @@ void test_an_order_of_the_system_runs_with_the_session_closed(void) {
   capture_begin();
   kernel::shell::carry_out_the_orders();
   capture_end(said, sizeof(said));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "lunokOS 0.190"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, the_version), said);
   TEST_ASSERT_NULL_MESSAGE(strstr(said, "login: a new session"), said);
 
   // **And the console comes back the way it was**, or the cases after this one would be on a closed wire (docs/85).
@@ -1226,6 +1345,112 @@ void test_the_extension_finder_counts_every_app_that_opens_it(void) {
   storage->remove("/apps/lunok-two/app.lua");
   storage->remove("/apps/lunok-two/manifest.json");
   storage->remove("/apps/lunok-two");
+}
+
+// **`mkdir`, `cp` i `mv`** (0.197.3, l'amo: *«implementa "mv" i "cp" a la shell per poder traginar arxius»* i tot seguit *«i el
+// mkdir»*): the three words a person needs to put a file where they want it, and the case walks what they are for —a folder and
+// the folders on the way to it, a copy of a file, a copy of a folder with `-r`, a rename, and the two refusals that matter (a
+// disk of only reading and a source that cannot be taken away)— i mira **el que queda al disc** i no només el que la línia diu
+// (docs/30, docs/70).
+void test_mkdir_cp_and_mv_take_a_file_and_a_folder_where_they_are_asked(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  kernel::vfs::Dropped gone;
+  kernel::vfs::drop_tree("/littlefs/tragina", gone);
+  kernel::vfs::drop_tree("/littlefs/tragina2", gone);
+
+  static char said[4096];
+  capture_begin();
+  const bool made = kernel::execute("mkdir /littlefs/tragina/una/dins");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_TRUE_MESSAGE(made, said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "mkdir: /littlefs/tragina/una/dins"), said);
+  hal::Stat about;
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/littlefs/tragina/una/dins", about));
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(hal::NodeType::kDir), static_cast<uint8_t>(about.type));
+
+  // **Una carpeta que ja hi és és una negativa i no una carpeta buida**: making it twice says so instead of pretending.
+  TEST_ASSERT_FALSE(kernel::execute("mkdir /littlefs/tragina/una/dins"));
+
+  TEST_ASSERT_TRUE(write_text(storage, "/tragina/una/dins/nota.txt", "the note that travels"));
+  capture_begin();
+  const bool copied = kernel::execute("cp /littlefs/tragina/una/dins/nota.txt /littlefs/tragina/una/copia.txt");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_TRUE_MESSAGE(copied, said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, " to /littlefs/tragina/una/copia.txt"), said);
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/littlefs/tragina/una/copia.txt", about));
+  TEST_ASSERT_EQUAL_UINT32(21, about.size);
+
+  // **Una carpeta demana `-r`**, and the refusal says the word that would do it.
+  capture_begin();
+  const bool refused = kernel::execute("cp /littlefs/tragina /littlefs/tragina2");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_FALSE(refused);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "cp -r"), said);
+
+  capture_begin();
+  const bool walked = kernel::execute("cp -r /littlefs/tragina /littlefs/tragina2");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_TRUE_MESSAGE(walked, said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "folder(s) and"), said);
+  // **The tree, a whole one**: the folder of the way and the file at the bottom of it.
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/littlefs/tragina2/una/dins/nota.txt", about));
+  TEST_ASSERT_EQUAL_UINT32(21, about.size);
+
+  // **Un moviment dins del mateix disc és un renombrat** and the old name is gone.
+  capture_begin();
+  const bool moved = kernel::execute("mv /littlefs/tragina2/una/dins/nota.txt /littlefs/tragina2/una/moguda.txt");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_TRUE_MESSAGE(moved, said);
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/littlefs/tragina2/una/moguda.txt", about));
+  TEST_ASSERT_FALSE(kernel::vfs::stat("/littlefs/tragina2/una/dins/nota.txt", about));
+
+  // **I el que no es pot escriure ho diu**: `/apps` is a mount of only reading.
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("mkdir /apps/una-carpeta"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "read only"), said);
+
+  // **I un destí que no s'escriu es refusa abans de copiar res**: the file stays where it was, which is the half of a move
+  // that a person can check by looking at the disk.
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("mv /littlefs/tragina2/una/moguda.txt /apps/moguda.txt"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "read only"), said);
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/littlefs/tragina2/una/moguda.txt", about));
+  TEST_ASSERT_FALSE(kernel::vfs::stat("/apps/moguda.txt", about));
+
+  // **`rmdir` demana una carpeta buida i una carpeta demana `-r`**: the two refusals that keep a person from emptying the
+  // wrong thing, and then the two words that do it.
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("rmdir /littlefs/tragina"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "not empty"), said);
+
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("rm /littlefs/tragina"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "rm -r"), said);
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/littlefs/tragina/una", about));
+
+  TEST_ASSERT_TRUE(kernel::execute("rmdir /littlefs/tragina2/una/dins"));
+  TEST_ASSERT_FALSE(kernel::vfs::stat("/littlefs/tragina2/una/dins", about));
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("rm -r /littlefs/tragina"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "file(s) and"), said);
+  TEST_ASSERT_FALSE(kernel::vfs::stat("/littlefs/tragina", about));
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("rm /littlefs/tragina2/una/moguda.txt"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "rm: /littlefs/tragina2/una/moguda.txt"), said);
+  TEST_ASSERT_FALSE(kernel::vfs::stat("/littlefs/tragina2/una/moguda.txt", about));
+
+  kernel::vfs::drop_tree("/littlefs/tragina", gone);
+  kernel::vfs::drop_tree("/littlefs/tragina2", gone);
 }
 
 // **`cat` prints the whole file and not its first screen** (0.82.2): it read one window of 1 024 B with
@@ -2137,11 +2362,15 @@ int main(int argc, char** argv) {
   RUN_TEST(test_caps_command_is_known);
   RUN_TEST(test_mem_blocks_lists_the_pointers_the_sizes_and_the_owners);
   RUN_TEST(test_mem_command_is_known);
+  RUN_TEST(test_mem_says_how_big_the_heap_is);
+  RUN_TEST(test_the_battery_and_the_console_open_and_close);
+  RUN_TEST(test_a_beacon_uuid_goes_in_and_comes_back);
   RUN_TEST(test_a_block_that_does_not_fit_the_ceilings_is_refused);
   RUN_TEST(test_the_heap_gives_every_byte_back_when_the_blocks_go);
   RUN_TEST(test_a_page_does_not_fit_a_home_that_has_it_in_pieces);
   RUN_TEST(test_mounts_command_lists_the_mounts);
   RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
+  RUN_TEST(test_cfg_mem_sets_the_ceiling_of_the_interpreter);
   RUN_TEST(test_cfg_sort_takes_the_six_words_of_a_switch);
   RUN_TEST(test_cfg_cursor_delay_is_one_blink_for_every_cursor);
   RUN_TEST(test_the_count_of_the_uses_comes_back_in_the_order_of_the_page);
@@ -2157,6 +2386,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_listing_is_walked_once_and_not_once_per_entry);
   RUN_TEST(test_a_listing_deeper_than_a_signed_byte_does_not_invent_an_entry);
   RUN_TEST(test_a_key_longer_than_the_buffer_is_dropped_and_does_not_match);
+  RUN_TEST(test_mkdir_cp_and_mv_take_a_file_and_a_folder_where_they_are_asked);
   RUN_TEST(test_cat_prints_the_whole_file_and_not_its_first_screen);
   RUN_TEST(test_serial_send_puts_the_file_on_the_wire_raw);
   RUN_TEST(test_serial_send_refuses_a_port_that_is_not_the_prompts);

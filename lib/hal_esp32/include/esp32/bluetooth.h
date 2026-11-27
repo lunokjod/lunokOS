@@ -23,6 +23,20 @@ class Esp32Bluetooth : public IBluetooth {
   bool can_bluetooth() const override;
   bool keyboard_start(const char* name) override;
   void keyboard_stop() override;
+  // **I l'anunci que no vol enllaç** (0.194.0): the beacon is the other payload this radio can put in the air (docs/50).
+  bool beacon_start(const Beacon& beacon) override;
+  void beacon_stop() override;
+  bool beacon_on() const override;
+  // **La bateria i la consola per BLE** (0.196.0): the two services that answer only while their switch is on (docs/50).
+  bool battery_on() override;
+  void battery_off() override;
+  bool battery_is_on() const override;
+  bool battery_level(uint8_t percent) override;
+  void console_sink(ConsoleSink sink) override;
+  bool console_on() override;
+  void console_off() override;
+  bool console_is_on() const override;
+  bool console_send(const uint8_t* data, uint16_t len) override;
   bool keyboard_connected() const override;
   bool keyboard_tap(uint8_t mods, uint8_t usage) override;
   const char* device_name() const override;

@@ -66,6 +66,25 @@ const uint8_t kQuiet = 0;
 const uint8_t kThrough = 1;
 const uint8_t kTwice = 2;
 
+// **El lloc del dibuix dins del camp no hi és, i és mitja lletra** (0.195.0, l'amo: *«no detecta bé els símbols… VUll que
+// m'entengui»*). The box is found in the glyph itself, o sigui que un `-` i un `_` són **literalment la mateixa quadrícula**
+// —distància 0, mesurada— i un `.` d'un dit que tremola dos píxels es converteix en una ratlla de set cel·les. `at_x`, `at_y` i
+// `size` són el que la caixa centrada llença: on cau el dibuix dins del camp on s'ha fet, i quant n'ocupa. Es guarden en **bandes
+// grolleres** i no en precisió, perquè el mateix traç dibuixat un pèl més amunt o una mica més gran ha de seguir essent el mateix
+// (docs/30, docs/90).
+const uint8_t kWhereUnknown = 0xFF;  // a grid made without a field: no place and no size to count
+
+// **El camp on s'ha dibuixat**: the rectangle the page gave the finger —the paper of the trainer, or the zone of the band— in the
+// same coordinates as the points of the glyph. An unknown field (a width or a height of zero) is the old behaviour: the grid is made
+// and nothing about the place or the size travels with it (docs/30, docs/90).
+struct Field {
+  int32_t x = 0;
+  int32_t y = 0;
+  uint16_t w = 0;
+  uint16_t h = 0;
+  bool known() const { return w > 0 && h > 0; }
+};
+
 struct Grid {
   uint8_t cell[kCells] = {0};
   // **El que la quadrícula no pot dir i sí que és la lletra**: the number of strokes (`l` and `i` are one line and one line
@@ -73,6 +92,11 @@ struct Grid {
   // and the distance counts them, perquè una `l` i una `i` no es poden separar amb quaranta-nou cel·les.
   uint8_t strokes = 0;
   uint8_t aspect = 0;  // the width over the longest side, in eighths: 8 is square or wider, 1 is a hair
+  // Where the ink sits in the field it was drawn in, in eighths of it (0 is the left or the top edge, 8 the right or the
+  // bottom), and how much of the field it takes (0 is a jot, 8 fills it). `kWhereUnknown` when the caller has no field.
+  uint8_t at_x = kWhereUnknown;
+  uint8_t at_y = kWhereUnknown;
+  uint8_t size = kWhereUnknown;
   uint8_t inked() const;
 };
 
@@ -81,11 +105,20 @@ struct Grid {
 // a cell's steps, counting how many times the path enters each cell. Speed does not count: the steps are geometric and not the
 // samples of the finger, o sigui que el mateix traç dibuixat de pressa i a poc a poc dona la mateixa quadrícula.
 //
-// Answers false when there is nothing to put on the grid or when every point is in the same place.
+// Answers false when there is nothing to put on the grid.
 bool raster(const Glyph& g, Grid& out);
+
+// **Amb el camp on s'ha dibuixat** (0.195.0): the same, and the three numbers of where and how big are filled from the box of the
+// field. It is what separates a `-` from a `_` and a `.` from a `-`, i el camp és el requadre on la persona dibuixa —el paper del
+// teclat, o la zona de la banda— i no la pàgina sencera (docs/30, docs/90).
+bool raster(const Glyph& g, const Field& where, Grid& out);
 
 // The same, from an array of points of one stroke: what a page that has its own path (the trainer) hands over.
 bool raster(const Point* points, uint16_t count, Grid& out);
+bool raster(const Point* points, uint16_t count, const Field& where, Grid& out);
+
+// **Un toc és un punt** (0.195.0): a glyph made of a single press is a `.` and not a refusal —abans es refusava i el punt no es podia
+// escriure—; el que el separa d'una ratlla és la seva `size`, que amb un camp és zero bandes (docs/30).
 
 // ------------------------------------------------------------------ el model
 
@@ -118,8 +151,10 @@ struct Answer {
   Guess top[kCandidates];
 };
 
-// **La distància de dues quadrícules**: the cells first —a level of difference is a level of ink— and then the two things the
-// cells cannot say: the number of strokes, which weighs the most because it is structure, and the shape of the box.
+// **La distància de dues quadrícules**: the cells first —a level of difference is a level of ink— and then the things the
+// cells cannot say: the number of strokes, which weighs the most because it is structure, the shape of the box, i el lloc i la
+// mida dins del camp quan les dues quadrícules en tenen (una que no en té no compta en aquests tres, o sigui que un model antic i
+// un dibuix sense camp es comparen com sempre) (docs/30, docs/90).
 uint16_t distance(const Grid& a, const Grid& b);
 
 // **Els exemples d'una persona, i prou**. The model is a view of a block the caller owns (`examples`, `capacity`) and the
@@ -135,6 +170,10 @@ struct Model {
   Answer guess(const Grid& grid) const;
   // How many examples each character has; the trainer counts with this and the band says which letters it knows.
   uint16_t examples_of(char text) const;
+  // **Esborrar les d'un caràcter** (0.192.86): a wrong example is the one thing a person cannot take back any other way, i el
+  // model no té identificadors —les mostres d'una lletra són totes les que porten la seva etiqueta i prou—, o sigui que el que
+  // es fa és treure-les totes i tornar a escriure les altres a sobre. Torna quantes se n'han anat (docs/30, docs/90).
+  uint16_t remove_of(char text);
   void clear() { count = 0; }
 };
 
@@ -144,13 +183,17 @@ struct Model {
 // dues-centes cinquanta-sis mostres. The magic says it is a model of this system, the side and the levels say which grid it
 // was drawn on —a model of another grid is refused and not read as rubbish— and the count says how much to read.
 //
-//   `I` `N` `K` `1` · side · levels · count (little endian, two bytes)
+//   `I` `N` `K` `2` · side · levels · count (little endian, two bytes)
 //
-// and then, per example, thirteen bytes of two-bit cells (four to a byte, the last one with three spare) and three of the
-// label, the strokes and the aspect.
-const uint8_t kMagic[4] = {'I', 'N', 'K', '1'};
+// and then, per example, thirteen bytes of two-bit cells (four to a byte, the last one with three spare), three of the label,
+// the strokes and the aspect, and three more of the place and the size in the field.
+//
+// **`INK2` i no `INK1`** (0.195.0): a file of sixteen bytes per example read as nineteen is rubbish with a shape, o sigui que el
+// nom canvia i els models vells es refusen amb el mateix missatge de sempre —«is not a model of this grid»— en lloc de fer-se servir
+// amb números que no hi són (docs/70).
+const uint8_t kMagic[4] = {'I', 'N', 'K', '2'};
 const size_t kHeaderBytes = 8;
-const size_t kExampleBytes = 16;
+const size_t kExampleBytes = 19;
 
 // What `save` needs, and what a caller budgets before it writes: the header and the examples that are there.
 size_t blob_bytes(const Model& model);

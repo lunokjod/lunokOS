@@ -34,6 +34,7 @@
 #include "kernel/calendar.h"
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
+#include "kernel/net.h"
 #include "kernel/led.h"
 #include "kernel/lock.h"
 #include "kernel/log.h"
@@ -186,6 +187,17 @@ namespace {
 
 const char kRoot[] = "/tmp/lunok-app-tests";
 const int kTurnBudget = 2000;  // turns of 1 ms an app may take in a test
+
+// **El que l'app `words` ha de dir, preguntat a la taula** (0.193.1): the count of the commands is what `kCommandNames` holds, and that
+// table has a word more or a word less depending on the build —`heapguard` only exists where the canaris do—; o sigui que un número
+// escrit aquí seria un cas que cau el dia que canvia una bandera de compilació sense que res estigui trencat (docs/30, docs/40).
+const char* words_said() {
+  static char said[24];
+  uint8_t count = 0;
+  (void)kernel::shell::command_names(count);
+  snprintf(said, sizeof(said), "words %u", static_cast<unsigned>(count));
+  return said;
+}
 
 // A disk of this run and no other: a leftover from the run before would add apps
 // that the tests did not write, and they would be testing nothing.
@@ -1405,7 +1417,7 @@ void test_the_queue_of_commands_holds_four_and_the_turn_runs_them(void) {
   // seria buida (docs/30, docs/40).
   TEST_ASSERT_TRUE(kernel::orders::post_a_line("run words"));
   pump_captured(3, g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 54"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, words_said()), g_out);
   TEST_ASSERT_EQUAL_UINT32(0u, static_cast<uint32_t>(kernel::orders::waiting()));
 }
 
@@ -1416,15 +1428,48 @@ void test_the_queue_of_commands_holds_four_and_the_turn_runs_them(void) {
 //
 // The app is on the disk of this run and it is started like any other, so what is measured is the road a person
 // takes: the shell starts an app, the app asks, the answer is printed.
+// **La ràdio espera el marge i el commutador de la persona mana** (0.197.0, l'amo: *«Espera uns 3 de marge, si no reb mes tasques, tanca
+// la wifi»* i *«si la wifi està ON perquè l'han activat manualment, fas la tasca i pares, sense tancar la wifi»*): with a short margin
+// —the door `net::set_the_quiet_ms` exists for this— the board connects, stays while the window is open, lets go when it closes, i amb
+// el commutador obert no deixa anar res (docs/30, docs/75, docs/85).
+void test_the_radio_waits_the_margin_and_the_switch_keeps_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.wifi_absent = false;
+  opts.wifi_ms = 20;
+  emu::set_options(opts);
+  kernel::net::set_the_quiet_ms(300);
+  pump_captured(40, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(60, g_out, sizeof(g_out), "wifi add casa secret");
+  // **Connectat, i es queda mentre la finestra és oberta**: the association takes twenty milliseconds and the margin is three hundred, o
+  // sigui que als seixanta encara hi és.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::net::is_up(), "the board is on the network the add gave it");
+  // **Passat el marge es deixa anar**: a radio that nobody asked for and a queue that is empty.
+  pump_captured(500, g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::net::is_up(), "the radio is closed once the margin has passed");
+  // **I amb el commutador obert no es tanca**: `cfg wifi on` is the person saying they want it, o sigui que una feina que s'hi recolza
+  // no l'apaga en acabar (docs/30, docs/50).
+  TEST_ASSERT_TRUE(kernel::net::radio_on());
+  pump_captured(60, g_out, sizeof(g_out), "wifi connect");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::net::is_up(), "the switch is on, so the connection is the person's");
+  pump_captured(500, g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::net::is_up(), "a job that ends does not close a radio the person asked for");
+  TEST_ASSERT_TRUE(kernel::net::radio_off());
+  kernel::net::set_the_quiet_ms(3000);
+  pump_captured(40, g_out, sizeof(g_out), "wifi forget");
+}
+
 void test_the_commands_of_the_prompt_reach_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
   TEST_ASSERT_TRUE(run_captured("run words", g_out, sizeof(g_out)));
-  // **Cinquanta-quatre** (0.190.244 hi va posar `kill`, i la 0.190.238 n'havia tret `free` i `history`, que no tenien mà que els
-  // contestés): the number is the one `kCommandNames` holds —the same table the prompt reads— i el que aquest cas defensa és que la
-  // llista de l'app i la del prompt són la mateixa, no el número en si (docs/30, docs/40).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "words 54"), g_out);
+  // **Quaranta-set o quaranta-vuit, i dona igual** (0.192.91, i 0.193.1): the table had fifty-four words and eighteen of them were apps
+  // that no hand of the shell answers —`battery`, `touch`, `imu`, `cd`, `rm`, `date`, `fonts`…—, o sigui que el tabulador oferia el que
+  // no existeix; ara és **cada paraula que `execute` contesta** i cap que no. **El número no s'escriu aquí**: `heapguard` hi és només a
+  // les bandes amb canaris, i un cas que defensa la llista no pot dependre d'una bandera de compilació —es pregunta a la taula— (docs/30,
+  // docs/40).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, words_said()), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first help"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last terminal"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last ?"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sessions true"), g_out);
   TEST_ASSERT_FALSE(kernel::app_running());
 }
@@ -3175,7 +3220,9 @@ void test_the_extra_memory_is_there_for_any_app(void) {
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "big 60000"), g_out);
 
   // The Paper: the chip carries 8 MB and the CPU addresses 4, the ceiling is that memory, and the
-  // same app runs.
+  // same app runs. **What an app may take is half of it** (0.192.94): the big house is shared by the
+  // system and the page —the canvas of a page is five hundred kilobytes—, and an app that grows to the
+  // last byte of the PSRAM leaves the system without a page (docs/75).
   use_board("m5stack-paper");
   extra = hal::platform().extra_memory();
   TEST_ASSERT_EQUAL_UINT32(8192u * 1024u, extra.chip_bytes);
@@ -3183,7 +3230,7 @@ void test_the_extra_memory_is_there_for_any_app(void) {
   TEST_ASSERT_EQUAL_UINT32(4096, hal::platform().heap_limit_kb());
   TEST_ASSERT_TRUE(run_captured("run big", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "extra 4194304"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "limit 4194304"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "limit 2097152"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "big 60000"), g_out);
 
   storage->remove("/apps/big/app.lua");
@@ -3721,9 +3768,16 @@ void test_the_wifi_command_adds_and_forgets_a_network(void) {
 
   pump_captured(20, g_out, sizeof(g_out), "wifi");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "network: casa"), g_out);
-  // The network is stored; the radio is not kept on for it. Being on a network is
-  // something a task does for a moment, not a state the board sits in (docs/75).
+  // **I la ràdio encara hi és, que és el marge dels tres segons** (0.197.0, l'amo: *«Espera uns 3 de marge, si no reb mes tasques, tanca
+  // la wifi»*): with no margin the radio was closed on the first empty turn, and that is what made a second job pay a second
+  // association —and `wifi connect` look like it dropped at once— (docs/30, docs/75).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "state: up"), g_out);
+  // **I el marge passa i es tanca**, amb la finestra escurçada per a la prova, que és el que la porta `net::set_the_quiet_ms` hi és.
+  kernel::net::set_the_quiet_ms(100);
+  pump_captured(250, g_out, sizeof(g_out));
+  pump_captured(20, g_out, sizeof(g_out), "wifi");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "state: off"), g_out);
+  kernel::net::set_the_quiet_ms(3000);
 
   pump_captured(20, g_out, sizeof(g_out), "wifi forget");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "network: none"), g_out);
@@ -22022,6 +22076,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_runs_and_writes);
   RUN_TEST(test_the_queue_of_commands_holds_four_and_the_turn_runs_them);
   RUN_TEST(test_the_commands_of_the_prompt_reach_an_app);
+  RUN_TEST(test_the_radio_waits_the_margin_and_the_switch_keeps_it);
   RUN_TEST(test_a_failing_app_says_why_and_the_shell_survives);
   RUN_TEST(test_the_exit_code_reaches_the_shell);
   RUN_TEST(test_open_hands_the_file_to_the_app);

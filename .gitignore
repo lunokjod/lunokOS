@@ -41,3 +41,14 @@ managed_components/
 sdkconfig.*
 !sdkconfig.defaults
 !sdkconfig.defaults.*
+
+# **El secret de l'app del temps** (0.197.1): la clau d'OpenWeatherMap viu a `/data/weather/openweather.txt` de la placa i
+# no al repositori. El que sí que es versiona és la mostra, que no porta cap clau (`data/openweather.sample.txt`). El patró
+# és sense barra i agafa el nom a qualsevol fondària, que és el que cal: el fitxer d'una placa, el de l'emulador i el que
+# una persona deixi en una carpeta mentre prova.
+openweather.txt
+# **I la carpeta on el build el copia** (0.197.5): `tools/make_disk.py` porta el fitxer a `data/weather/` del disc que es
+# munta, o sigui que un `data/weather/` que aparegui a l'arrel del repositori —perquè una eina l'ha deixat allà, o perquè
+# una persona l'ha posat a mà— tampoc no es puja. La línia de dalt ja agafa el nom del fitxer; aquesta agafa la carpeta,
+# que és el que una còpia amb un altre nom deixaria escapar.
+data/weather/

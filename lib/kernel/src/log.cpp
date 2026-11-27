@@ -12,10 +12,19 @@
 
 #include "pal/pal.h"
 
+// **Si aquesta banda té memòria extra** (0.192.95): the board's build says so (the three boards with PSRAM), and on a board that has none the
+// reserve ring of the `.bss` is the only one there will be. `LUNOK_EXTRA_MEMORY` is 1 in the builds of a board with PSRAM and 0 here
+// (docs/50, docs/75, docs/80).
+#ifndef LUNOK_EXTRA_MEMORY
+#define LUNOK_EXTRA_MEMORY 0
+#endif
+
 namespace kernel {
 namespace {
 
-const size_t kRingBytes = 2048;
+// **Quatre kilobytes des de la 0.192.95** (l'amo: *«Amplia el log a 4Kb»*): el doble de línies al mateix bloc, que en una PSRAM de set
+// megabytes no és res i en un diagnòstic és mitja tarda (docs/30, docs/75).
+const size_t kRingBytes = 4096;
 // **The line of the ring is the line of the formatter** (0.189.139): a hundred and ninety-two, the one `hal::logf` writes, or a line
 // that fits there would be cut here a second time (docs/30).
 const size_t kLineBytes = 192;
@@ -25,10 +34,20 @@ const size_t kLineBytes = 192;
 // es demana al mateix `pal::extra_memory()` que les cares i les imatges —PSRAM a les plaques que en tenen— i el que queda aquí és un anella de
 // reserva per a una placa sense memòria extra. El que la placa guanya és **1536 bytes de DRAM** i el que no perd és cap línia: on hi ha PSRAM
 // l'anella és la de sempre (docs/30, docs/75).
+// **La reserva estàtica només hi és a les bandes que no tenen memòria extra** (0.192.95, l'amo: *«que es g_fallback? es nostre? reserva de
+// que? Si es estatic no vull que es compili en les plaques amb PSRAM»*). Sí que és nostre: és l'anella de 512 bytes del `.bss` que es fa
+// servir quan el bloc gran no es pot tenir. En una placa amb PSRAM aquests cinc-cents bytes són un bloc que ningú no vol i **no es
+// compilen** (`LUNOK_EXTRA_MEMORY`); en una placa sense (els ATOM), són l'única anella que hi haurà, perquè allà la RAM és el que és
+// (docs/30, docs/75, docs/80).
+#if !LUNOK_EXTRA_MEMORY
 const size_t kRingFallbackBytes = 512;
 char g_fallback[kRingFallbackBytes];
-char* g_ring = g_fallback;
-size_t g_ring_bytes = sizeof(g_fallback);
+#endif
+// **L'anella pot no existir** (0.192.95): en una placa amb memòria extra el bloc es demana i, si no es pot tenir, el registre **no té
+// anella** —les línies van al mirall i prou— en comptes de tenir-ne una de petita que mentiria sobre quantes línies hi ha. `mem` ho diu
+// amb un zero (docs/30, docs/75).
+char* g_ring = nullptr;
+size_t g_ring_bytes = 0;
 size_t g_head = 0;   // next byte to write
 size_t g_count = 0;  // bytes currently stored
 bool g_echo = false;
@@ -76,6 +95,7 @@ void write_line(pal::IConsole* console, const char* line, size_t len) {
 }
 
 void append(const char* data, size_t len) {
+  if (g_ring == nullptr || g_ring_bytes == 0) return;
   for (size_t i = 0; i < len; ++i) {
     g_ring[g_head] = data[i];
     g_head = (g_head + 1) % g_ring_bytes;
@@ -137,11 +157,23 @@ void sink(const char* line, size_t len) { emit(line, len); }
 void log_init() {
   // **I l'anella gran, si la placa en té** (0.190.166): the block is asked once, o sigui que una placa sense PSRAM es queda amb la de reserva i
   // no ho diu dues vegades; la que en té, la de sempre (docs/30, docs/75).
-  if (g_ring == g_fallback) {
+  //
+  // **I es demana amb marca** (0.192.95, l'amo: *«Demana'l amb marca»*): the ring is the system's and the books have to say so —fins ara la
+  // fila deia `nobody`— (docs/30, docs/75).
+  if (g_ring == nullptr) {
+    pal::MemoryTag who_asks(pal::kMemoryKernel);
     if (void* block = pal::extra_memory().allocate(kRingBytes, true)) {
       g_ring = static_cast<char*>(block);
       g_ring_bytes = kRingBytes;
     }
+#if !LUNOK_EXTRA_MEMORY
+    else {
+      // **La reserva, on no hi ha casa gran**: a board with no extra memory has no big block to ask for, i el que queda és l'anella del
+      // `.bss` (docs/30, docs/75).
+      g_ring = g_fallback;
+      g_ring_bytes = sizeof(g_fallback);
+    }
+#endif
   }
   g_head = 0;
   g_count = 0;
@@ -257,6 +289,13 @@ void log_dump() {
   pal::IConsole* console = serial::console();
   if (console == nullptr) return;
 
+  if (g_ring == nullptr || g_ring_bytes == 0) {
+    // **Un registre sense anella ho diu**: on no hi ha hagut lloc per a ella, el que una persona llegeix és això i no un `(empty log)` que
+    // semblaria un registre buit de debò (docs/30, docs/75).
+    static const char kNone[] = "(no log ring: there was no room for it)\r\n";
+    console->write(kNone, sizeof(kNone) - 1);
+    return;
+  }
   if (g_count == 0) {
     static const char kEmpty[] = "(empty log)\r\n";
     console->write(kEmpty, sizeof(kEmpty) - 1);

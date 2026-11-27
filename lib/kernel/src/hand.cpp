@@ -81,7 +81,7 @@ ink::Glyph& glyph() { return g_glyph; }
 // **El punter de la porta**: the interpreter wants a pointer and the service a reference, and the block is one and not two.
 ink::Glyph* the_glyph() { return &g_glyph; }
 
-bool add(uint8_t zone, char text) {
+bool add(uint8_t zone, char text, const ink::Field& where) {
   if (zone >= kZones || text == '\0') return false;
   if (!the_block(zone)) return false;
   // **El que hi ha al disc i el que hi ha a la memòria són el mateix model** (0.192.71): an `add` that did not read the file first
@@ -89,7 +89,7 @@ bool add(uint8_t zone, char text) {
   // esborraria les altres. Es llegeix una vegada i prou.
   if (!g_zone[zone].loaded) (void)load(zone);
   ink::Grid grid;
-  if (!ink::raster(g_glyph, grid)) {
+  if (!ink::raster(g_glyph, where, grid)) {
     hal::logf(pal::kLogInfo, "HAND", "'%c' was not learned: the drawing has no shape", text);
     return false;
   }
@@ -109,14 +109,14 @@ bool add(uint8_t zone, char text) {
   return true;
 }
 
-ink::Answer guess(uint8_t zone) {
+ink::Answer guess(uint8_t zone, const ink::Field& where) {
   ink::Answer none;
   if (zone >= kZones) return none;
   // **El model es llegeix la primera vegada que es pregunta** (docs/30): the band asks when it has to write, and what the app of
   // the training has just saved is what it reads.
   if (!g_zone[zone].loaded) (void)load(zone);
   ink::Grid grid;
-  if (!ink::raster(g_glyph, grid)) return none;
+  if (!ink::raster(g_glyph, where, grid)) return none;
   return g_zone[zone].model.guess(grid);
 }
 
@@ -198,6 +198,23 @@ bool save(uint8_t zone) {
   return true;
 }
 
+uint16_t the_capacity() { return kCapacity; }
+
+// **Esborrar les mostres d'un caràcter** (0.192.86): the only way a person has of taking back a sample that is wrong —and it has
+// to be written, or el fitxer el tornaria a portar al proper arrencament— (docs/30, docs/70).
+uint16_t forget_of(uint8_t zone, char text) {
+  if (zone >= kZones || text == '\0') return 0;
+  if (!the_block(zone)) return 0;
+  if (!g_zone[zone].loaded) (void)load(zone);
+  const uint16_t removed = g_zone[zone].model.remove_of(text);
+  if (removed > 0) {
+    (void)save(zone);
+    hal::logf(pal::kLogInfo, "HAND", "%u example(s) of '%c' forgotten in %s", static_cast<unsigned>(removed), text,
+              zone_name(zone));
+  }
+  return removed;
+}
+
 void forget(uint8_t zone) {
   if (zone >= kZones) return;
   g_zone[zone].model.count = 0;
@@ -222,6 +239,8 @@ void install() {
   ops.examples = &examples;
   ops.examples_of = &examples_of;
   ops.forget = &forget;
+  ops.forget_of = &forget_of;
+  ops.capacity = &the_capacity;
   luabind::set_hand_ops(ops);
 }
 

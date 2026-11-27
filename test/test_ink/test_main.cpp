@@ -79,6 +79,14 @@ void a_zigzag(ink::Grid& out) {
   TEST_ASSERT_TRUE(ink::raster(g, out));
 }
 
+// **El paper on es dibuixa**: four hundred by three hundred pixels, que és el que una pàgina li dona a un dit (docs/30).
+ink::Field a_paper() {
+  ink::Field paper;
+  paper.w = 400;
+  paper.h = 300;
+  return paper;
+}
+
 // A block the model looks at, like the one the kernel owns.
 ink::Example g_block[64];
 ink::Model a_model() {
@@ -89,6 +97,98 @@ ink::Model a_model() {
 }
 
 }  // namespace
+
+// **On cau la tinta dins del paper és mitja lletra** (0.195.0, l'amo: *«no detecta bé els símbols… VUll que m'entengui»*): un `-` al
+// mig del paper i un `_` al peu són el mateix dibuix —les mateixes cel·les, la mateixa proporció, un traç— o sigui que l'única cosa que
+// els pot separar és on han caigut. Sense camp les dues distàncies són zero, que és el que hi havia i el que aquest canvi arregla
+// (docs/30, docs/90).
+void test_a_dash_and_an_underline_are_two_drawings_when_the_field_is_known(void) {
+  const ink::Field paper = a_paper();
+  ink::Glyph dash;
+  a_line(dash, 110, 150, 190, 150);
+  ink::Glyph under;
+  a_line(under, 110, 260, 190, 260);
+  ink::Grid on_the_middle;
+  ink::Grid at_the_bottom;
+  TEST_ASSERT_TRUE(ink::raster(dash, paper, on_the_middle));
+  TEST_ASSERT_TRUE(ink::raster(under, paper, at_the_bottom));
+  // **El dibuix és el mateix**: the difference is not the shape, and that is the whole point.
+  for (uint8_t i = 0; i < ink::kCells; ++i) {
+    TEST_ASSERT_EQUAL_UINT8(on_the_middle.cell[i], at_the_bottom.cell[i]);
+  }
+  TEST_ASSERT_EQUAL_UINT8(8, on_the_middle.aspect);
+  TEST_ASSERT_EQUAL_UINT8(8, at_the_bottom.aspect);
+  // **I el lloc, no**: low in the paper against the middle of it, and far enough that no model confuses them.
+  TEST_ASSERT_TRUE(on_the_middle.at_y < at_the_bottom.at_y);
+  TEST_ASSERT_GREATER_THAN(ink::kNear, ink::distance(on_the_middle, at_the_bottom));
+  // **Sense camp no hi ha res a dir**, que és el comportament de sempre i el que un caller que no el passa encara veu.
+  ink::Grid plain_one;
+  ink::Grid plain_two;
+  TEST_ASSERT_TRUE(ink::raster(dash, plain_one));
+  TEST_ASSERT_TRUE(ink::raster(under, plain_two));
+  TEST_ASSERT_EQUAL_UINT16(0, ink::distance(plain_one, plain_two));
+  TEST_ASSERT_EQUAL_UINT8(ink::kWhereUnknown, plain_one.at_y);
+}
+
+// **Un toc és un punt i no una negativa** (0.195.0): a finger that pressed and nothing else used to be refused —«a press is not a
+// letter»— i el `.` no es podia escriure. Ara és un glif d'una cel·la, i el que el separa d'una ratlla és quant n'ocupa del paper
+// (docs/30, docs/90).
+void test_a_tap_is_a_dot_and_not_a_dash(void) {
+  const ink::Field paper = a_paper();
+  ink::Glyph tap;
+  TEST_ASSERT_TRUE(tap.add(150, 150));
+  TEST_ASSERT_TRUE(tap.lift());
+  ink::Grid dot;
+  TEST_ASSERT_TRUE_MESSAGE(ink::raster(tap, paper, dot), "a tap is a dot");
+  TEST_ASSERT_EQUAL_UINT8(1, dot.inked());
+  ink::Glyph dash;
+  a_line(dash, 110, 150, 190, 150);
+  ink::Grid line;
+  TEST_ASSERT_TRUE(ink::raster(dash, paper, line));
+  TEST_ASSERT_TRUE(dot.size < line.size);
+  TEST_ASSERT_GREATER_THAN(ink::kNear, ink::distance(dot, line));
+}
+
+// **I el mateix traç una mica més amunt és el mateix traç**: the place has to separate a `-` from a `_` and not a stroke from itself
+// drawn a little higher, or the model would ask a second time for every stroke the person draws (docs/90).
+void test_a_stroke_drawn_a_little_higher_is_the_same_stroke(void) {
+  const ink::Field paper = a_paper();
+  ink::Glyph here;
+  a_line(here, 110, 150, 190, 150);
+  ink::Glyph a_bit_higher;
+  a_line(a_bit_higher, 110, 162, 190, 162);  // twelve pixels of three hundred: less than an eighth of the paper
+  ink::Grid one;
+  ink::Grid two;
+  TEST_ASSERT_TRUE(ink::raster(here, paper, one));
+  TEST_ASSERT_TRUE(ink::raster(a_bit_higher, paper, two));
+  TEST_ASSERT_EQUAL_UINT8(one.at_y, two.at_y);
+  TEST_ASSERT_EQUAL_UINT16(0, ink::distance(one, two));
+}
+
+// **I el model les llegeix per separat** (0.195.0): les dues ratlles del primer cas, ensenyades com dos caràcters i llegides amb el
+// paper que tenen, que és el que la banda i l'app fan de debò (docs/30, docs/90).
+void test_the_model_reads_a_dash_and_an_underline_apart(void) {
+  ink::Model model = a_model();
+  const ink::Field paper = a_paper();
+  ink::Glyph dash;
+  a_line(dash, 110, 150, 190, 150);
+  ink::Glyph under;
+  a_line(under, 110, 260, 190, 260);
+  ink::Grid on_the_middle;
+  ink::Grid at_the_bottom;
+  TEST_ASSERT_TRUE(ink::raster(dash, paper, on_the_middle));
+  TEST_ASSERT_TRUE(ink::raster(under, paper, at_the_bottom));
+  TEST_ASSERT_TRUE(model.add(on_the_middle, '-'));
+  TEST_ASSERT_TRUE(model.add(at_the_bottom, '_'));
+  const ink::Answer read_a_dash = model.guess(on_the_middle);
+  TEST_ASSERT_TRUE(read_a_dash.any);
+  TEST_ASSERT_EQUAL_CHAR('-', read_a_dash.top[0].text);
+  TEST_ASSERT_TRUE(read_a_dash.confident);
+  const ink::Answer read_an_underline = model.guess(at_the_bottom);
+  TEST_ASSERT_TRUE(read_an_underline.any);
+  TEST_ASSERT_EQUAL_CHAR('_', read_an_underline.top[0].text);
+  TEST_ASSERT_TRUE(read_an_underline.confident);
+}
 
 // **La quadrícula diu on és la tinta**: a circle inks a ring and the middle stays quiet, o sigui que el que el model mira és el
 // dibuix i no un graó de grisos.
@@ -294,6 +394,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_model_answers_the_letter_it_was_taught);
   RUN_TEST(test_a_glyph_nobody_taught_has_no_candidate);
   RUN_TEST(test_the_dot_is_what_tells_an_i_from_an_l);
+  RUN_TEST(test_a_dash_and_an_underline_are_two_drawings_when_the_field_is_known);
+  RUN_TEST(test_a_tap_is_a_dot_and_not_a_dash);
+  RUN_TEST(test_a_stroke_drawn_a_little_higher_is_the_same_stroke);
+  RUN_TEST(test_the_model_reads_a_dash_and_an_underline_apart);
   RUN_TEST(test_the_model_saves_and_comes_back);
   RUN_TEST(test_a_blob_of_another_grid_is_refused);
   RUN_TEST(test_the_same_drawing_twice_is_one_example);

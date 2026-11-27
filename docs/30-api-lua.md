@@ -154,7 +154,7 @@ funció.
 | `sys.emulator` | booleà | Cert només al PC: diu que la placa de `sys.board` és de mentida |
 | `sys.lua` | cadena | La versió de Lua que porta el sistema |
 | `sys.caps()` | taula de capacitats | Vegeu a dalt |
-| `sys.heap()` | `{free, used, limit, peak, extra_total, extra_free, ram_free, ram_largest}` | Bytes del pressupost de l'app i, al darrere, la **memòria extra** de la placa (la PSRAM del Paper): `extra_total` és el que la CPU **pot adreçar** (4 MB, no els 8 del full de dades) i `extra_free` el que en queda; tots dos són **zero** en una placa que no en té, que és la veritat i no un error. **`ram_free` i `ram_largest` són la RAM de la placa** (l'altra casa, la que necessiten els drivers i el sistema de fitxers) i no la suma amb la PSRAM: és el número que va explicar un `ENOMEM` de `fopen` amb 1,7 MB de PSRAM lliures, i el terra `pal::kHomeReserveBytes` és el que el manté (0.151.20, docs/75) |
+| `sys.heap()` | `{free, used, limit, peak, extra_total, extra_free, ram_free, ram_largest, ram_total, ram_used, ram_booked, ram_blocks, extra_booked, books_lost}` | Bytes del pressupost de l'app i, al darrere, la **memòria extra** de la placa (la PSRAM del Paper): `extra_total` és el que la CPU **pot adreçar** (4 MB, no els 8 del full de dades) i `extra_free` el que en queda; tots dos són **zero** en una placa que no en té, que és la veritat i no un error. **`ram_free` i `ram_largest` són la RAM de la placa** (l'altra casa, la que necessiten els drivers i el sistema de fitxers) i no la suma amb la PSRAM: és el número que va explicar un `ENOMEM` de `fopen` amb 1,7 MB de PSRAM lliures, i el terra `pal::kHomeReserveBytes` és el que el manté (0.151.20, docs/75). **`ram_total` és el que el heap d'aquella casa pot donar i `ram_used` el que hi ha pres** (el total menys el lliure): és contra aquest total que es llegeix `ram_free`, i sense ell una pàgina comparava 170 KB amb els 8 MB de la PSRAM. `ram_booked` són els bytes d'aquella casa que els llibres de la memòria saben de qui són i `ram_blocks` quants blocs hi ha escrits; `books_lost` diu quantes peticions no hi van cabre, o sigui quant del que està pres no té nom (0.192.92, docs/75) |
 | `sys.gc("step")` | — | Fa un pas de col·lector |
 | `sys.gc("full")` | — | Col·lecció completa (cara; no es fa servir enmig d'un dibuix) |
 | `sys.gc("count")` | enter | KB en ús |
@@ -933,6 +933,7 @@ consola no acceptaria (docs/30, docs/70).
 | `cfg.sort([on])` | booleà | **Ordenar les apps per nombre d'usos** (`cfg sort`), que és el que `home_eink` llegeix per al seu grid |
 | `cfg.turn([n])` | enter | **Les instruccions de Lua que val un torn** (`cfg turn`): el número que compara el comptador de l'intèrpret, o sigui l'ajust de velocitat que mesura `luaperf` |
 | `cfg.cursor([ms])` | enter | **El parpelleig del cursor** en mil·lisegons (`cfg cursor delay <ms>`) |
+| `cfg.mem([kb])` | enter | **Què pot prendre l'intèrpret de la memòria extra** (0.192.94): zero —el valor de sèrie, que és `auto`— vol dir **la meitat del que la placa dona** (4 096 KB al T5S3, 2 048 al Paper) i un número són kilobytes, mai per sobre del que el xip té. Des de la 0.192.94 l'intèrpret de Lua viu **només** a la memòria extra, i aquell sostre és el que separa una app que creix del sistema que ha de continuar pintant, perquè els llenços de la pàgina són a la mateixa casa (docs/20, docs/75) |
 | `cfg.freq([mhz, on])` | taula de números | **El terra i el sostre de la velocitat** (0.189.107, i dos des de la 0.190.175): sense arguments, la llista dels passos permesos en ordre (`{80, 240}`); amb un pas i un booleà, el gira i torna la llista que queda. **Els que compten són 80 i 240** —el xip es mou entre aquests dos i decideix ell les freqüències d'entremig—, o sigui que `160` és `E_INVAL` (no es pot permetre ni prohibir), igual que un gir que deixaria la placa sense cap (`cfg freq 240 off`) |
 | `cfg.settings([id])` | cadena | **L'app que obre el botó dels ajustos del panell** (0.189.109): es llegeix sola i s'escriu amb un id, o amb `none` (que torna com la cadena buida). El nom el comprova el nucli: una app que aquesta placa no té no es pot desar aquí, i el panell la mira abans de demanar-la (docs/30, docs/40) |
 | `cfg.lock([id])` | cadena o `nil, error` | **L'app que tapa el vidre quan el sistema es bloqueja** (0.189.150): `device_lock` de sèrie, amb `none` per no tenir-ne cap (que torna com la cadena buida). Si la tria no és l'app que ha de venir, és `E_INVAL` i el valor no es toca: **una app que no hi és seria un vidre que no es tapa mai** |
@@ -971,7 +972,9 @@ consola no acceptaria (docs/30, docs/70).
 - **L'amfitrió de Bluetooth no té API de Lua, i és a propòsit** (0.190.188): les comandes del prompt són l'única porta, perquè el
   que fan és **lligar-se a un aparell que hi ha a l'aire** —una acció d'una persona en un moment, com endollar un teclat— i una app
   que s'hi lligués sola seria una app decidint per qui té la placa a la mà. Des de la 0.190.192 els dos costats de la ràdio es diuen
-  per seu: **`bt dev ...`** és el que la placa **és** (`on|off`, i el punter per provar-lo: `move <dx> <dy>|click`) i **`bt host ...`** el que **escolta**
+  per seu: **`bt dev ...`** és el que la placa **és** (`on|off`, el punter per provar-lo: `move <dx> <dy>|click`, `beacon` per anunciar-se
+  com un iBeacon en lloc d'un teclat, i `battery`/`console` per obrir el nivell de la bateria i la shell per BLE) i **`bt host ...`** el
+  que **escolta**
   (`on|off|scan [segons]|pair <n>|reconnect|forget`). **El que el teclat escriu arriba a la consola com si vingués del cable** (docs/50).
   **El mesh tampoc no té API de Lua, i pel mateix motiu** (0.190.218): `mesh [on|off|key|find|prov|nodes]` és la porta —posar-li la xarxa a
   la placa, donar-li una adreça a un node, veure qui hi ha—, i això és una decisió d'una persona amb el cable posat i no una cosa que una
@@ -1446,9 +1449,9 @@ reiniciar res (docs/90).
 | Crida | Torna | Notes |
 |---|---|---|
 | `hand.caps()` | taula | `{grid = 7, cells = 49, levels = 3, far, near, margin, candidates = 3, zones = {'letters', 'symbols'}}` |
-| `hand.grid(strokes)` | taula o `nil, error` | El dibuix posat a la quadrícula: `{cells = '012…', strokes, aspect, inked}`, amb quaranta-nou xifres de 0 a 2 |
-| `hand.add(zona, caràcter, strokes)` | booleà | Una mostra nova amb la seva etiqueta. Fals vol dir que ja hi era o que el bloc és ple |
-| `hand.guess(zona, strokes)` | taula o `nil, error` | `{text, distance, confident, count, candidates = {{text, distance}, …}}`; `E_NOTFOUND` quan cap caràcter és a prop |
+| `hand.grid(strokes [, w, h] \| [, x, y, w, h])` | taula o `nil, error` | El dibuix posat a la quadrícula: `{cells = '012…', strokes, aspect, inked}`, amb quaranta-nou xifres de 0 a 2, i —quan es diu el camp on s'ha dibuixat— també `{at_x, at_y, size}` en vuitens del camp |
+| `hand.add(zona, caràcter, strokes [, camp])` | booleà | Una mostra nova amb la seva etiqueta. Fals vol dir que ja hi era o que el bloc és ple |
+| `hand.guess(zona, strokes [, camp])` | taula o `nil, error` | `{text, distance, confident, count, candidates = {{text, distance}, …}}`; `E_NOTFOUND` quan cap caràcter és a prop |
 | `hand.count(zona, caràcter)` | enter | Quantes mostres té aquell caràcter —el que fa que una pàgina digui «`e`: 2 de 5»— |
 | `hand.save(zona)` / `hand.load(zona)` / `hand.forget(zona)` | — / enter / — | El fitxer de `/data/handwrite` i la memòria del model; `load` torna quantes mostres ha trobat |
 
@@ -1474,10 +1477,10 @@ que hi hagi centenars d'exemples el que caldrà afegir és el cap lineal, no can
 
 ```lua
 -- **El que fa l'app d'entrenament després dels 1,2 segons** (docs/45): el dibuix es converteix en quadrícula, es veu i s'aprèn.
-local grid = hand.grid(strokes)              -- el que el model veu, per ensenyar-lo
+local grid = hand.grid(strokes, 420, 280)    -- el que el model veu, per ensenyar-lo: el paper és 420x280
 if grid ~= nil then
-  hand.add('letters', 'a', strokes)          -- la lletra que la persona ha dit
-  local answer = hand.guess('letters', strokes)
+  hand.add('letters', 'a', strokes, 420, 280)      -- la lletra que la persona ha dit
+  local answer = hand.guess('letters', strokes, 420, 280)
   if answer ~= nil and not answer.confident then
     show_the_candidates(answer.candidates)   -- i el toc d'un d'ells és una mostra nova
   end
@@ -1683,9 +1686,14 @@ Una pàgina, i prou: una crida, una promesa, i la resposta és el codi d'estat i
 |---|---|---|
 | `http.get(url[, max_bytes[, ms]])` | **promesa** | Es resol amb `{status, body, bytes}`; **16 384 B** de cos i **20 000 ms** de termini per defecte |
 | `http.download(url, path[, ms])` | **promesa** | Es resol amb `{status, path, bytes}`; **la pàgina sencera va al fitxer** i no passa pel heap, per llarga que sigui |
+| `http.post(url[, ms])` | **promesa** | **Una ordre** (0.199.3): `POST` amb el cos buit, i es resol amb `{status, body, bytes}` com una pàgina. És el que un servidor de mitjans demana per a `PlayPause`, `Seek` o `ToggleMute` |
 
 - **Va per la cua com la resta.** No cal `net.connect` abans: la petició es porta la xarxa ella
   mateixa (amb el que la placa té desat) i la deixa anar en acabar (docs/75).
+- **`http.post` és per a les ordres i prou** (0.199.3, i va néixer del `405` de Jellyfin: *«This system cannot POST: the
+  command did not go»*): canvia el verb i **el cos és buit** —una ordre amb cos no l'ha demanada ningú i no hi és—, i la resta
+  del camí és el d'una pàgina: la cua, la xarxa que s'encén i es deixa anar, el termini i el codi. Una ordre que contesta
+  `204` és una ordre que ha anat bé.
 - **`status` és el codi HTTP i no és un error**: un `404` és una resposta i arriba amb el seu cos.
   Els errors són els de la llista de baix.
 - **El cos és una cadena de bytes** (`body`, i `bytes` en diu la llargada): pot no ser text i pot
@@ -1804,7 +1812,10 @@ El que una app ha de saber:
   tota lliure, perquè no s'hi assigna res (docs/50, docs/70).
 - **No hi ha quota**: el que doni el disc. Quan s'ha acabat, l'escriptura respon `E_NOSPC` i el fitxer
   vell queda sencer, perquè `fs.write` és atòmica.
-- `fs.stat` torna `{type = "file"|"dir", size, mtime}`; `mtime` és 0 perquè cap backend el dona.
+- `fs.stat` torna `{type = "file"|"dir", size, mtime}`; `mtime` és **l'hora de modificació en segons de l'època** tal com
+  la guarda el disc —la de littlefs, que la desa (`LITTLEFS_USE_MTIME`), i la de la targeta—, i **0 quan aquell backend no
+  en té** (una memòria no té rellotge, i un `/nvs` guarda entrades i no fitxers). Un zero no vol dir «molt vell»: vol dir
+  «ningú no ho sap», i una app que decideix amb l'edat d'un fitxer baixa quan el llegeix així (0.199.0, docs/70).
 - `fs.list` torna una taula de `{name, type, size, mtime}` en l'ordre que dona el directori.
 - **`/cfg/` és el lloc dels ajustos de l'app i no cal saber on és**: `fs.write('/cfg/s.json', s)`
   acaba a `cfg/<id>/s.json` de la unitat que el sistema hagi triat —la targeta si n'hi ha, la flash
@@ -3653,6 +3664,15 @@ mateixa porta que les tecles de la banda (o sigui que `on_change` el veu i el pr
 sota de 127). Quan la caixa perd el focus —`kb:hide()`, o un dit fora— el port **torna al sistema** i el teclat només dóna
 el que ell va prendre: una app que havia reclamat el port per a ella el conserva. Si el port ja era d'algú altre, `show`
 falla i la banda no hi és (docs/30, docs/50, docs/90).
+
+**I qui llegeix el cable no és qui hi escriu** (0.199.2, l'amo: *«Soluciona el teclat Serie que no va bé... no puc escriure
+tranquil»*): la cessió calla els **escriptors** del sistema i prou —`serial::console()` és `nullptr` mentre el port és cedit—,
+i el lector del torn demana el port amb **`serial::port()`**, que el dona sigui de qui sigui. Amb la consola per a les dues
+coses, la caixa amb el focus es quedava sense cap tecla: el port era cedit, `console()` responia `nullptr`, `serve_once`
+sortia i **ningú no llegia el cable**. I mentre el teclat del cable és aixecat el que arriba **no passa per l'editor de línia
+del terminal** —la lletra aniria a la línia del prompt, que no és on la persona escriu—: els bytes van drets a `feed`, que és
+qui els dona a la caixa amb el focus. I el nom amb què el port es va prendre **es desa** perquè el torni ell i no el qui
+sigui al davant quan la caixa es tanca (docs/30, docs/50).
 
 | Crida | Què fa |
 |---|---|

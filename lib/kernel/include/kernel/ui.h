@@ -49,11 +49,12 @@ struct Damage {
 // that cannot look wrong (`gc16`), and `damage_count()` is how an app sees it happening (docs/30).
 const uint8_t kMaxDamage = 8;
 
-// **The number of controls is what the memory holds, and not a number in this file** (0.102.0). The table of
-// canvases is taken from the board's extra memory at boot —the PSRAM of the Paper, which has three and a half
-// megabytes idle— and `canvas_count()` says how many slots there are; a hundred and seventy-six bytes each, so
-// thousands. The buffers are the ones that cost: a view is four bits per pixel, a quarter of a megabyte for a
-// page of this size, and **that** is the ceiling that a page meets first (docs/75, docs/90).
+// **The number of controls is what the memory holds, and not a number in this file** (0.102.0, i des de la 0.193.0 sense pagar les
+// ranures buides): the table of canvases is taken from the board's extra memory —the PSRAM of the Paper— and `canvas_count()` says
+// how many slots there are; a hundred and eighty-four bytes each. **It is born with two hundred and fifty-six and doubles when a page
+// fills it**, and it goes back down when the page is gone, so a page with two thousand controls pays for two thousand and the one after
+// it does not. The buffers are the ones that cost: a view is four bits per pixel, a quarter of a megabyte for a page of this size, and
+// **that** is the ceiling that a page meets first (docs/75, docs/90).
 //
 // **And a view is the same ceiling** (0.174.5): until this version there were **eight** views at once —the root
 // included— written here as `kMaxCanvases`, and it was the one number of this file that the memory could not say.

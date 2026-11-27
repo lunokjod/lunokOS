@@ -67,6 +67,56 @@ bool run(const char* source) {
 
 }  // namespace
 
+// **On viu l'intèrpret** (0.192.93, l'amo: *«De quin tipus de memoria parla? ... quina part es dram quina psram quina altres tipus?»*, i
+// 0.192.94: *«a partir d'ara tota memoria que demani lua ha de ser PSRAM exclusivament»*): **cada bloc de l'intèrpret surt de la memòria
+// extra** i la suma de les dues cases és exactament el que l'assignador diu que ha donat; i en una placa que no en té, la RAM del xip i
+// prou, perquè una app ha de poder córrer-hi igualment (docs/20, docs/75).
+void test_the_homes_of_the_interpreter_add_up_to_what_it_asked_for(void) {
+  pal::init();
+  pal::set_memory_bytes(160 * 1024, 1024 * 1024);
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  // **Mil cinc-centes taules i prou**: the ceiling of this case is 256 KB and the interpreter alone is half of it on the emulator, so a
+  // table that does not fit would end the chunk with `not enough memory` —and `run` answers that the app is over, which is not the same
+  // as the app having done it— (docs/20, docs/85).
+  TEST_ASSERT_TRUE(run("local t = {}\n"
+                       "for i = 1, 1500 do t[i] = { n = i, s = ('x'):rep(8) } end\n"
+                       "collectgarbage('collect')\n"
+                       "assert(#t == 1500)"));
+  TEST_ASSERT_FALSE_MESSAGE(luabind::failed(), "the chunk did not reach its last line");
+  const luabind::Homes homes = luabind::homes();
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(static_cast<uint32_t>(luabind::used_bytes()),
+                                   static_cast<uint32_t>(homes.ram_bytes + homes.extra_bytes),
+                                   "the two homes do not add up to what the allocator gave");
+  // **Tots els blocs a la casa gran, i cap a la RAM del xip**: the interpreter asks for the extra memory and for nothing else, per petit
+  // que sigui el bloc (docs/20, docs/75).
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, static_cast<uint32_t>(homes.ram_bytes),
+                                   "the interpreter took a block from the board's RAM");
+  TEST_ASSERT_EQUAL_UINT32(0, homes.ram_blocks);
+  TEST_ASSERT_GREATER_THAN_UINT32(0, static_cast<uint32_t>(homes.extra_bytes));
+  TEST_ASSERT_GREATER_THAN_UINT32(0, homes.extra_blocks);
+  // **I tancar-ho ho torna tot**: `lua_close` dona cada bloc per la porta per la qual va venir, i el compte torna a zero (docs/75).
+  luabind::stop();
+  TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(luabind::used_bytes()));
+  TEST_ASSERT_EQUAL_UINT32(0, static_cast<uint32_t>(luabind::homes().ram_bytes + luabind::homes().extra_bytes));
+
+  // **I una placa sense memòria extra no es queda sense intèrpret**: no PSRAM and no ceiling on the extra home, o sigui que la porta de
+  // només-extra no té on donar i el que mana és la de sempre —la RAM del xip—, que és el que fa que la mateixa app arrenqui en un ATOM
+  // (docs/50, docs/75).
+  pal::set_memory_bytes(160 * 1024, 0);
+  TEST_ASSERT_FALSE_MESSAGE(pal::extra_memory().has_the_extra(), "a run with no extra home says it has one");
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("local t = {}\n"
+                       "for i = 1, 200 do t[i] = ('y'):rep(16) .. i end\n"
+                       "assert(#t == 200)"));
+  TEST_ASSERT_FALSE_MESSAGE(luabind::failed(), "the chunk did not run on a board with no extra memory");
+  const luabind::Homes on_a_small_board = luabind::homes();
+  TEST_ASSERT_GREATER_THAN_UINT32(0, static_cast<uint32_t>(on_a_small_board.ram_bytes));
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, static_cast<uint32_t>(on_a_small_board.extra_bytes),
+                                   "a board with no extra memory reported blocks in it");
+  luabind::stop();
+  pal::set_memory_bytes(0, 0);
+}
+
 // A clock that nobody has set has no epoch: the answer is 0 and the source says
 // "none", which is what the board showed when it said "17" (docs/60). This one
 // has to run before any test that sets the epoch, because the clock lives for
@@ -1482,6 +1532,8 @@ bool fake_hand_load(uint8_t zone) { (void)zone; return true; }
 uint16_t fake_hand_examples(uint8_t zone) { (void)zone; return 7; }
 uint16_t fake_hand_examples_of(uint8_t zone, char text) { (void)zone; (void)text; return 3; }
 void fake_hand_forget(uint8_t zone) { (void)zone; }
+uint16_t fake_hand_forget_of(uint8_t zone, char text) { (void)zone; (void)text; return 2; }
+uint16_t fake_hand_capacity() { return 192; }
 
 luabind::HandOps the_hand_door() {
   luabind::HandOps ops = {};
@@ -1497,6 +1549,8 @@ luabind::HandOps the_hand_door() {
   ops.examples = &fake_hand_examples;
   ops.examples_of = &fake_hand_examples_of;
   ops.forget = &fake_hand_forget;
+  ops.forget_of = &fake_hand_forget_of;
+  ops.capacity = &fake_hand_capacity;
   return ops;
 }
 
@@ -1543,7 +1597,7 @@ void test_the_hand_door_takes_a_drawing_and_answers_with_candidates(void) {
   // **El fitxer i la memòria del model**.
   TEST_ASSERT_TRUE(run("assert(hand.save('letters') == true)\n"
                        "assert(hand.load('letters') == 7, tostring(hand.load('letters')))\n"
-                       "assert(hand.forget('letters') == true)"));
+                       "assert(hand.forget('letters') == 0)"));
 
   // **Una zona que no és cap de les dues es refusa amb el seu codi**, i un caràcter de dos bytes també.
   TEST_ASSERT_TRUE(run(
@@ -1564,6 +1618,7 @@ int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_a_chunk_that_prints_runs);
   RUN_TEST(test_the_state_knows_its_board);
+  RUN_TEST(test_the_homes_of_the_interpreter_add_up_to_what_it_asked_for);
   RUN_TEST(test_time_without_an_epoch_says_none);
   RUN_TEST(test_time_now_is_the_platform_clock);
   RUN_TEST(test_time_now_ms_moves_with_the_seconds);

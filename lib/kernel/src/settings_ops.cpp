@@ -5,6 +5,8 @@
 // every other page, and the settings are the person's —`cfg` is the door that writes them, and an app that needs a switch
 // of its own keeps it in its own session (docs/30, docs/75). What the launcher asked for is the first reader: whether it
 // sorts the apps by how many times they have been opened (docs/40).
+#include "hal/hal.h"
+
 #include "kernel/apps.h"
 #include "kernel/bluetooth.h"
 #include "kernel/cfg.h"
@@ -91,6 +93,16 @@ bool write_home(const char* id) {
 
 bool write_sort(bool on) { return cfg::set_sort_by_usage(on); }
 bool write_turn(uint32_t instructions) { return cfg::set_turn_instructions(instructions); }
+// **`cfg.mem` des de Lua passa per les mateixes regles que el prompt** (0.192.94): `auto` és zero i un número ha de cabre en el que la placa
+// dona, o sigui que la comprovació és la del nucli i no una segona còpia (docs/30, docs/75).
+bool write_interpreter_mem(uint32_t kb) {
+  if (kb == 0) return cfg::set_interpreter_mem(0);
+  uint32_t checked = 0;
+  char text[16];
+  snprintf(text, sizeof(text), "%u", static_cast<unsigned>(kb));
+  if (!cfg::parse_interpreter_mem(text, checked, hal::platform().heap_limit_kb())) return false;
+  return cfg::set_interpreter_mem(checked);
+}
 bool write_cursor(int32_t ms) { return cfg::set_cursor_delay(ms); }
 
 // **Les llistes d'una tria**: the keyboards the UI carries and the boot words the disk has, which is what a page needs to
@@ -164,6 +176,8 @@ void install_settings_ops() {
   doors.set_sort_by_usage = &write_sort;
   doors.turn = &cfg::turn_instructions;
   doors.set_turn = &write_turn;
+  doors.memory = &cfg::interpreter_mem_kb;
+  doors.set_memory = &write_interpreter_mem;
   doors.cursor_delay = &cfg::cursor_delay;
   doors.set_cursor_delay = &write_cursor;
   doors.keyboards = &list_keyboards;

@@ -37,9 +37,11 @@ const char* zone_name(uint8_t zone);
 ink::Glyph& glyph();
 
 // **El que el servei fa amb el glif**: apuntar-lo com a mostra d'un caràcter, preguntar quin caràcter és, i les dues portes del
-// fitxer. `add` refusa el que ja hi és i el que no cap; `guess` torna els tres candidats i si el primer és prou segur.
-bool add(uint8_t zone, char text);
-ink::Answer guess(uint8_t zone);
+// fitxer. `add` refusa el que ja hi és i el que no cap; `guess` torna els tres candidats i si el primer és prou segur. **I el camp
+// on s'ha dibuixat** (0.195.0) hi entra: és el paper de l'app d'entrenament o la zona de la banda, i el que diu on cau la tinta i
+// quant n'ocupa —un camp desconegut deixa la quadrícula com era— (docs/30, docs/90).
+bool add(uint8_t zone, char text, const ink::Field& where);
+ink::Answer guess(uint8_t zone, const ink::Field& where);
 uint16_t examples(uint8_t zone);
 uint16_t examples_of(uint8_t zone, char text);
 
@@ -49,18 +51,24 @@ uint16_t examples_of(uint8_t zone, char text);
 bool save(uint8_t zone);
 bool load(uint8_t zone);
 void forget(uint8_t zone);
+// The examples of one character, and how many went (0.192.86).
+uint16_t forget_of(uint8_t zone, char text);
 
 // **Les portes del servei per a l'intèrpret**: same shape as the other services of the system (docs/30).
 struct HandOps {
   bool (*available)();
   ink::Glyph* (*glyph)();
-  bool (*add)(uint8_t zone, char text);
-  ink::Answer (*guess)(uint8_t zone);
+  // **El camp on s'ha dibuixat, si l'app el sap** (0.195.0): an unknown field —a width or a height of zero— vol dir «no ho sé» i la
+  // quadrícula es fa com sempre (docs/30, docs/90).
+  bool (*add)(uint8_t zone, char text, const ink::Field& where);
+  ink::Answer (*guess)(uint8_t zone, const ink::Field& where);
   bool (*save)(uint8_t zone);
   bool (*load)(uint8_t zone);
   uint16_t (*examples)(uint8_t zone);
   uint16_t (*examples_of)(uint8_t zone, char text);
   void (*forget)(uint8_t zone);
+  uint16_t (*forget_of)(uint8_t zone, char text);
+  uint16_t (*capacity)();
 };
 
 void install();

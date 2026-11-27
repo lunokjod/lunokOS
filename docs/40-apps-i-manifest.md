@@ -772,6 +772,102 @@ hora: la lectura és barata i la pantalla es mira, la mostra és història i nor
 `dejavusans-bold-latin1.ttf` és la mateixa família del sistema amb el joc Latin-1 a dins, i la pàgina la demana per a si mateixa
 (docs/30, docs/45, docs/75).
 
+**`weather`** —*Weather*— (0.197.1, l'amo: *«Doncs anem a fer una app nova, es de previsió meteorològica, li caldrà una icona.
+L'app connect amb OpenWeatherMap»*) és **el cel que ve**, que és el contrari de la `meteo`: aquella llegeix un sensor de la casa i
+aquesta demana el pronòstic. Tres pàgines —**Now** amb el número gran, el dibuix de la condició, el que se sent, el mínim i el
+màxim d'avui, el vent i d'on bufa, la humitat, la pressió, els núvols, la visibilitat, l'UV i les dues hores del sol; **Days**
+amb els deu dies, un per fila, el mínim i el màxim **sobre la mateixa barra** perquè una setmana es llegeixi mirant-la; i
+**Hours** amb la vintena d'hores en una corba i la probabilitat de pluja en barres a sota— i les tres surten de **tres crides de
+l'One Call API 4.0**: `current`, `timeline/1day` (deu dies en una sola resposta) i `timeline/1h` (vint hores en una altra). El
+minut a minut i el quart d'hora són per a un telèfon sempre encès; les alertes només arriben com a identificadors i llegir-ne el
+text costa una crida per alerta.
+
+**El pla de la clau mana quin camí es demana** (0.197.4): l'One Call 4.0 és una subscripció a part i una clau que no la té
+contesta `401` a les tres crides; la mateixa clau, però, porta anys funcionant amb les **dues crides gratuïtes** —`data/2.5/weather`
+amb el moment, la sortida i la posta a `sys` i el mínim i el màxim del dia a `main`, i `data/2.5/forecast` amb **quaranta trossos
+de tres hores** (cinc dies) a `list`—, o sigui que l'app **cau al pla gratuït** i ho diu un cop al registre. La pàgina no canvia
+de forma: canvien els dies (cinc en lloc de deu), les hores (els primers trenta-sis, en trossos de tres) i el fet que els dies
+s'han de comptar, perquè la 2.5 dona trossos de dia i no dies; el que la clau no paga no s'escriu com una línia amb dos guions a
+sota (`dew --`), sinó que la línia no hi és, i el nom del lloc surt del `city.name` de la resposta quan el fitxer de la persona no
+en diu cap.
+
+La clau i el lloc són de la persona i viuen a **`/data/weather/openweather.txt`** (`appid`, `lat`, `lon` i, si vol, `name`,
+`units` i `lang`): el fitxer el crea l'app buit el primer cop, es pot deixar en **dos llocs** —el racó de l'app, que és el que
+sobreviu a reinstal·lar-la, o el seu `res/`, que és el que viatja amb ella— i mana el primer que hi sigui. `openweather.txt` és
+al **`.gitignore`** i el repositori només porta la mostra de **`data/openweather.sample.txt`**. **`units=metric` és el de sèrie** —i `imperial` o `standard` es trien al
+fitxer—, i `lang=ca` dona la descripció en català. **Cap certificat ni cap clau no s'escriuen al codi**: la petició passa pel
+client del sistema amb el paquet d'autoritats de l'IDF (docs/50).
+
+L'última resposta **va al disc i val vuit hores** (0.197.2, l'amo: *«l'app ha de guardar el resultat al disc per poder-lo
+consultar durant les properes 8h (l'app revisa el ctime del arxiu descarregat, si han passat > 8h el demana de nou)»*): el que
+el servei ha contestat es desa a **`/data/weather/forecast.txt`** i la pàgina el llegeix sense demanar res mentre el fitxer
+tingui menys de vuit hores, que és el que fa que tres crides costin nou al dia en lloc de cent quaranta-quatre. L'edat que
+compta és **la del fitxer** (`fs.stat`), no la que el fitxer diu de si mateix; una pàgina que es queda oberta mira el rellotge
+cada cinc minuts i es refresca tota sola quan el termini venç, i la línia de sota el títol diu de quan és el cel que es mira.
+**El botó de refrescar només hi és quan l'última petició ha fallat** (l'amo: *«El botó de refresh només si la petició ha
+fallat»*). El que el servei diu quan diu que no es llegeix i es tradueix —`Invalid API key (401)`,
+`too many calls today (429)`— perquè un número sol no diu a una persona què li passa. I els dibuixos de les condicions són
+**formes del sistema** —el sol amb vuit raigs, la lluna amb la mossegada, el núvol de tres dents i el que cau de sota—, no
+imatges: trenta-dues icones de l'API són trenta-dues imatges que la placa hauria de desar i escalar (docs/30, docs/45, docs/75).
+
+**I la clau i el lloc s'escriuen a la pàgina** (0.199.4, l'amo: *«Quan l'app falla no deixa accedir a Settings de l'app»*):
+l'**engranatge del sistema** a dalt a la dreta obre una pàgina de tres caixes —`appid`, `lat` i `lon`— i un `Save` que desa
+**`/data/weather/openweather.txt`, el mateix fitxer que l'app llegeix**. El fitxer continua sent la font de la veritat —una clau
+que viatja amb la targeta o una que es copia amb el cable no es perden—, però una placa sense credencials **no necessita un
+editor de text**: el que el servei no pot fer, es diu, i el que la persona pot arreglar, s'arregla allà mateix. La pàgina de
+sota diu el motiu de la fallada i prou —`E_HTTP`, el número que el servei ha dit—, i la d'ajustos és l'única que en pot dir més.
+
+**La forma de la vista va a `state`** (0.199.4): la pàgina on era la persona, el control que tenia el cercle i **el que hi ha a
+les tres caixes** —també el text escrit i encara no desat, perquè la banda del teclat canvia l'alçada de la vista i la pàgina es
+torna a fer, i el que s'ha escrit ha de venir de l'app i no del control que se n'ha anat— (docs/30 § «La sessió `state`», i la
+norma de `.github/instructions/apps-state-session.instructions.md`).
+
+**Dues tintes i un control de llista** (0.199.6, l'amo: *«1- NO USIS COLOR GRIS CLAR. 2- Si fas una llista, que sigui amb un
+control UI de llista»*):
+
+- **La jerarquia la fa la mida i no el to**: `INK` (0) i `PAPER` (15) i prou, com `meteo` i `agenda`. El nivell 8 que hi havia a
+  la línia de l'edat, a les dades d'ara i a les llegendes de la pàgina d'ajustos era un gris clar, i en aquest vidre un gris clar
+  no és un to més fluix —és una lletra que es llegeix pitjor— (docs/30).
+- **Els dies són un `ui.list` del sistema**: `items` amb `title` (el dia) i `detail` (la mínima i la màxima), `row_height` i
+  `separator`, i el peu del paginador ve amb el control. El dit passa la pàgina, les fletxes del dial també, i l'app no compta
+  files ni talla la darrera pel píxel com feia amb les línies de `ui.text` (docs/30 § `ui.list`). La llista es torna amb la
+  resta de controls a cada `paint` (docs/45).
+
+**Tres pàgines i tot el que el servei diu** (0.199.7, l'amo: *«forecast.json te varis dies d'informació, no em crec que només es
+diguin els dies i la temperatura. Usa tota la informació i mostra'n interficie mes complet amb TOTES les dades»*):
+
+- **`Now`, `Days` i `Hours` amb la tira del sistema** i l'engranatge a la dreta, amb les mides del Jellyfin. `Now` és la resposta
+  d'ara amb **el nom de cada número** (tretze files: el que sent, la mínima i la màxima, el cel, la humitat, la pressió amb el
+  nivell del mar i el del terra, el vent amb la direcció i les ratxes, els núvols, la visibilitat, la pluja i la neu de l'hora i de
+  les tres hores, el sol, les coordenades, el país i l'hora de la resposta).
+- **`Days` suma cada dia de les seves peces** —la mínima i la màxima de les peces, la pluja i la neu sumades, la humitat, la
+  pressió, els núvols i la visibilitat mitjanes, la ratxa més forta i el cel que més s'ha dit— i **no inventa res**: una mitjana de
+  paraules no vol dir res, i per això el cel del dia és el que més ha sortit.
+- **`Hours` és cada peça de tres hores amb tot el que porta**, en **quatre files de la llista** perquè una fila té tres llocs
+  d'una línia i setze números no hi caben. `joined()` hi afegeix parts mentre hi caben i **no deixa mai un número a mitges**: quan
+  la lletra de la placa és ampla cauen les de més al final, que són la visibilitat i la neu.
+- **Una passada neta només quan canvia la pàgina** (`gc16`): la mateixa pàgina que només canvia de dades va amb `gld16`, i així
+  una descàrrega que arriba no costa una passada de tres-cents mil·lisegons.
+
+**Els codis del cel i les divuit icones** (0.199.8, l'amo: *«Guarda la llista de codis... vaig a buscar-te icones»* i *«baixa
+totes les icones … i les deixes a res/»*):
+
+- **`apps/weather/conditions.lua`** porta la taula que el servei publica
+  ([weather-conditions](https://openweathermap.org/api/weather-conditions#Weather-Condition-Codes-2)): quaranta-set codis amb el
+  grup, les paraules del servei i la icona, els divuit dibuixos amb el seu nom, i `of()`, `icon_of()` i `file()`. Un codi que la
+  taula no porta es respon pel seu grup (`8xx` és núvol) i un que no és número és `nil`.
+- **Les divuit icones són a `res/` de l'app** —`01d.png` … `50n.png`, cent per cent i amb alfa, de `openweathermap.org`— perquè
+  una app porta el seu `res/` amb ella; **les de `@2x` no existeixen** (el servidor respon `404`) i s'han demanat les normals.
+  `file()` dóna el camí, i la pàgina el construeix igual amb el camp `icon` de la resposta (0.199.9).
+- **I el cel s'hi dibuixa** (0.199.9, l'amo: *«doncs integra-les»*): la icona de la resposta es pinta **al costat del grau gran del
+  `Now`** —`ui.image` amb `mask`, que deixa el paper a les cantonades transparents— i **a l'esquerra de cada dia de `Days`**, que
+  per això són **files fetes per l'app** (una entrada de la llista amb un canvas i quatre línies) i no files del sistema: una fila
+  de tres textos no pot portar cap imatge. La icona del dia és la del cel que més s'ha dit, que és la mateixa paraula que hi ha al
+  costat del nom. **`Hours` no en porta a posta**: quaranta peces amb un canvas cadascuna són quaranta controls que aquesta placa
+  no té (docs/75), i allà el que es llegeixen són els números.
+- I el fitxer de la clau, `res/openweather.txt`, segueix sent el que el repositori no guarda: el seu `res/.gitignore` el té, i
+  `tools/make_disk.py` el copia a `data/weather/` quan munta la imatge (docs/70).
+
 **`brokenapp`** —*Broken App Test*— (0.189.162) és una app que existeix per **trencar-se**: set botons, set maneres de petar (un
 `nil` indexat, un global que no és funció, un `error` amb missatge, un `error` amb taula, dues taules comparades, una recursió sense
 fi i una cadena que no cap a la memòria). És la manera de veure la pàgina d'error del sistema sense haver d'espatllar una app de
@@ -785,7 +881,8 @@ pàgina de l'error no arribava mai. Ara compara dues taules, que sí que és un 
 passar desapercebuda (docs/30, docs/80).
 
 Les altres apps —`about`, **`agenda` (0.189.171)**, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
-**`gradient` (0.190.86)**, `home_eink`, `life`, **`meteo` (0.189.169)**, **`minesweeper` (0.190.76)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`, `wipe`, `2048` i
+**`gradient` (0.190.86)**, `home_eink`, `life`, **`meteo` (0.189.169)**, **`minesweeper` (0.190.76)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`,
+**`weather` (0.197.1)**, `wipe`, `2048` i
 `rainbow` i **`stats`**, amb **`brokenapp`**— segueixen la
 mateixa convenció,
 amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0

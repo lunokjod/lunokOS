@@ -388,7 +388,7 @@ respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és s
 
 | Camí | Llegir | Escriure |
 |---|---|---|
-| `/data/<id>/` | sí | **sí**, i el límit és el disc. **És on viuen els models del teclat de la lletra escrita a mà** (0.192.71): `/data/handwrite/letters` i `/data/handwrite/symbols`, que escriu l'app d'entrenament —el seu racó— i llegeix la banda del nucli com a sistema, amb el format de `lib/ink` al capdavant de tot (`INK1`, la mida de la quadrícula i la de cada mostra) |
+| `/data/<id>/` | sí | **sí**, i el límit és el disc. **És on viuen els models del teclat de la lletra escrita a mà** (0.192.71): `/data/handwrite/letters` i `/data/handwrite/symbols`, que escriu l'app d'entrenament —el seu racó— i llegeix la banda del nucli com a sistema, amb el format de `lib/ink` al capdavant de tot (`INK2` des de la 0.195.0, amb la mida de la quadrícula i la de cada mostra) |
 | `/cfg/` | sí, el seu `cfg/<id>/` | **sí**, el seu `cfg/<id>/` |
 | `/rtc` | sí | **sí**: és memòria crua i **qui hi escriu decideix el format** |
 | `/fram` | sí | **sí**, pel mateix motiu: memòria crua i el format el decideix l'app |
@@ -400,6 +400,29 @@ respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és s
 | `/data/<altra>/` | no | no |
 | **el camí que el prompt li ha nomenat** (0.65.0) | **sí** | **sí** |
 | **tot el disc, per a una app d'administrador** (0.190.257) | **sí**, cada muntatge | **sí**, on el muntatge és escrivible |
+
+**La imatge porta el fitxer de l'app del temps a `/data`** (0.197.5, l'amo: *«Fes que el script que munta la imatge del T5S3 i
+del M5Paper tinguin una copia de l'arxiu a /data/weather/openweather.txt i el .gitignore per si de cas»*):
+`tools/make_disk.py` copia `apps/weather/res/openweather.txt` —el que una persona escriu i el repositori no guarda— a
+`data/weather/openweather.txt` del disc que munta, o sigui que a la placa és **`/data/weather/openweather.txt`** quan `/data` és
+el flaix. **Es copia i no s'enllaça** (una imatge amb un enllaç al repositori no és una imatge) i **només va al disc que porta
+l'app** (una clau no viatja a una placa on no hi ha res que la llegeixi). La línia del build ho diu sense dir-ne el contingut:
+`the weather config at data/weather/openweather.txt`. Amb targeta, `/data` és la targeta i el fitxer és cosa de qui la té a la
+mà; i el fitxer també viatja dins de l'app, a `/apps/weather/res/openweather.txt`, que és el segon lloc on l'app el busca
+(docs/30, docs/40, docs/80).
+
+**Traginar fitxers des del prompt** (0.197.3, l'amo: *«implementa "mv" i "cp" a la shell per poder traginar arxius»* i tot seguit
+*«i el mkdir»*): fins avui el prompt llegia —`cat`, `hexdump`, `ls`— i no movia res, o sigui que canviar un fitxer de carpeta
+demanava una app o el cable. Ara hi ha **`mkdir <camí>`** (i les carpetes del camí, com fa una escriptura), **`cp [-r] <origen>
+<destí>`** i **`mv <origen> <destí>`**, i els permisos són exactament els de la taula de dalt i no uns altres: es llegeix d'on es
+pot llegir —el racó d'una altra app no— i s'escriu només on `vfs::is_writable` diu que sí, o sigui que `/apps`, `/res` i `/fonts`
+es poden copiar **cap enfora** i no s'hi pot escriure a dins. Un destí que és una carpeta vol dir «a dins, amb el nom que
+portava», una carpeta demana **`-r`** i la negativa diu la paraula que la faria, i **el que no es pot esborrar no es mou**: un
+`mv` des d'un disc de només lectura es refusa i diu que el que es pot fer és `cp`, perquè una còpia que deixa dues coses iguals
+en dos discs és pitjor que una negativa. Dins del mateix disc un moviment és **un renombrat** —i el destí de la targeta
+s'esborra abans, que és el que POSIX fa sol i FatFs no (0.190.25)—, i entre dues unitats és una còpia amb l'origen esborrat al
+final. Una còpia va per finestres de 512 B i **no deixa mitja còpia**: el destí s'esborra si la lectura o l'escriptura fallen
+(docs/30, docs/75).
 
 **I `/data/<id>/` és el que fa que un secret es pugui desar sense cap porta nova** (0.190.258): la fila segueix el disc
 preferit, o sigui que **el terra d'una app és a la targeta quan n'hi ha** i al flaix quan no, i una app que ha de viure en un
@@ -651,6 +674,21 @@ L'única cosa d'aquest canvi que no es pot veure en una prova nativa és el **so
 de la placa: es comprova amb la traça del port sèrie. **Comprovat a la placa el 30/10**: `cat` d'un
 fitxer que hi és (una app del disc) i d'un que no hi és (`no-hi-es.txt` → `no such file: no-hi-es.txt`)
 surten **sense cap línia `[E]` de l'IDF**.
+
+## L'hora d'un fitxer (0.199.0)
+
+`fs.stat` i `fs.list` porten `mtime` des del primer dia, i fins a la 0.199.0 el binding hi posava un zero fix —*«mtime: no
+backend gives one yet»*— i el backend de la flash també: cap app no podia saber si una resposta que tenia al disc era d'ahir.
+Ara l'hora que es dona és la del disc, i prou:
+
+- **La flash la desa**: el component que la munta (`joltwallet/littlefs`) porta `LITTLEFS_USE_MTIME` encès i el VFS la torna
+  a `st_mtime`, o sigui que `lib/hal_esp32/src/storage.cpp` la passa tal com arriba; la targeta ja la donava i el seu FAT
+  també.
+- **Qui no en té diu zero**, i un zero vol dir «ningú no ho sap» i no «molt vell»: la RTC RAM i el `/nvs` no tenen rellotge
+  de fitxers, i una app que decideix amb l'edat ha de llegir el zero com el cas de no saber res (docs/30).
+- **L'hora és la del rellotge de la placa quan es va escriure**: una placa sense hora sincronitzada escriu el fitxer amb
+  l'hora que tingui, i el que fa que un refresc diari torni és que aquesta hora sigui la bona (docs/60).
+- **No costa cap operació nova**: és el que el `stat` del disc ja contestava i el que es llençava.
 
 ## `fs.mounts` i `fs.space` (30/10)
 

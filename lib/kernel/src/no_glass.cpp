@@ -112,6 +112,19 @@ bool available() { return false; }
 // cap panell no en pot tenir; aquesta porta és la que ho diu en lloc de deixar la pregunta sense resposta (docs/30, docs/50).
 bool a_finger_on_the_button(uint16_t, uint16_t) { return false; }
 
+// **I la captura d'un tros del vidre, que aquí no hi és** (0.192.88): the band and the training page ask for the box of the paper
+// on every board —`ui.cpp` sencer viu dins `#if LUNOK_GLASS`— i una placa sense panell no té cap dit que capturar; la resposta és
+// que no es captura res i que no hi ha cap línia, que és exactament el que hi ha (docs/30, docs/50, docs/75).
+void capture(CaptureOwner, uint16_t, uint16_t, uint16_t, uint16_t) {}
+void uncapture(CaptureOwner) {}
+bool capturing(CaptureOwner) { return false; }
+uint16_t take_captured(CapturedPoint*, uint16_t, uint16_t& lines_ended, bool& finger, uint32_t& lost) {
+  lines_ended = 0;
+  finger = false;
+  lost = 0;
+  return 0;
+}
+
 }  // namespace touch
 
 namespace ui {

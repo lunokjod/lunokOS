@@ -199,6 +199,10 @@ end
 -- tick of View is written here because the state of the document is the app's (docs/30, docs/90).
 local menus = {
   {title = 'File', items = {
+    -- **`New` és el primer, com a tot arreu** (0.192.84, l'amo: *«L'editor no té File -> New ????»*): a page with nothing in it
+    -- and no name, i el primer `Save` demana on va (`ask_path('save as')`) en lloc d'inventar-se un fitxer (docs/30, docs/45).
+    {label = 'New'},
+    '-',
     {label = 'Open'},
     '-',
     {label = 'Save'},
@@ -562,17 +566,30 @@ end
 local function on_choice(title, entry)
   if title == 1 then
     if entry == 1 then
-      ask_path('open')
+      -- **Una pàgina nova**: the text goes, the name goes with it, i la pàgina es torna a escriure amb el teclat demunt. Una
+      -- pàgina que es obre per escriure no és de només lectura, o sigui que el commutador de `View` també es torna a apagar i el
+      -- seu tic es diu (docs/30, docs/45).
+      doc.path, doc.text, doc.cursor = nil, '', 0
+      doc.dirty, doc.pending, doc.keys = false, true, 0
+      doc.readonly = false
+      menus[2].items[1].checked = false
+      bar.items = menus
+      doc.note = 'a new page: Save asks where it goes'
+      console.print('editor: a new page')
+      resume()
+      return
     elseif entry == 3 then
+      ask_path('open')
+    elseif entry == 5 then
       if doc.path == nil then
         ask_path('save as')
       else
         save(doc.path)
         redraw()
       end
-    elseif entry == 4 then
-      ask_path('save as')
     elseif entry == 6 then
+      ask_path('save as')
+    elseif entry == 8 then
       quits = true
     end
   elseif title == 2 then

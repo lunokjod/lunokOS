@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "hal/hal.h"
+#include "hal/log.h"
 
 #include "board/identity.h"
 #include <stdio.h>
@@ -1033,6 +1034,9 @@ class HostNet : public INet {
   }
 
   bool wifi_radio_is_on() const override { return radio_on_; }
+  // **El model no té un número de desconnexió**: a failure here is `--wifi-fail` i prou, o sigui que la resposta és zero, que és «la ràdio
+  // no en sap res» i fa que la feina no es reintenti (docs/85).
+  int32_t wifi_last_reason() const override { return 0; }
 
   bool wifi_disconnect() override {
     state_ = NetState::kOff;
@@ -1396,9 +1400,33 @@ class HostNet : public INet {
       close(null_fd);
       // **The address goes in through `--url`**, so a string that begins with a dash is a page and
       // not an option of the tool (docs/85).
-      execlp("curl", "curl", "-q", "-sS", "-L", "--globoff", "--max-redirs", "10", "--max-time",
-             seconds, "--max-filesize", ceiling, "-o", http_body_path_, "-w", "%{http_code}",
-             "--url", url, static_cast<char*>(nullptr));
+      // **I el mètode és una opció i no un altre camí** (0.199.3): `-d ""` is a POST with `Content-Length: 0`, which is
+      // exactly what the board's client does with `esp_http_client_set_method` and no body (docs/30, docs/85).
+      char* argv[24];
+      int n = 0;
+      argv[n++] = const_cast<char*>("curl");
+      argv[n++] = const_cast<char*>("-q");
+      argv[n++] = const_cast<char*>("-sS");
+      argv[n++] = const_cast<char*>("-L");
+      argv[n++] = const_cast<char*>("--globoff");
+      argv[n++] = const_cast<char*>("--max-redirs");
+      argv[n++] = const_cast<char*>("10");
+      argv[n++] = const_cast<char*>("--max-time");
+      argv[n++] = seconds;
+      argv[n++] = const_cast<char*>("--max-filesize");
+      argv[n++] = ceiling;
+      if (opts.post) {
+        argv[n++] = const_cast<char*>("-d");
+        argv[n++] = const_cast<char*>("");
+      }
+      argv[n++] = const_cast<char*>("-o");
+      argv[n++] = http_body_path_;
+      argv[n++] = const_cast<char*>("-w");
+      argv[n++] = const_cast<char*>("%{http_code}");
+      argv[n++] = const_cast<char*>("--url");
+      argv[n++] = const_cast<char*>(url);
+      argv[n] = nullptr;
+      execvp("curl", argv);
       _exit(kCurlMissing);
     }
     close(meta_fd);
@@ -1729,7 +1757,49 @@ class FakeBluetooth : public IBluetooth {
   }
   // **El pany del son, com el de la placa**: el ràdio vol el xip despert mentre el teclat és engegat o mentre hi ha algú lligat a
   // l'altre costat (docs/50, docs/60).
-  bool wants_the_chip_awake() const override { return device_on_ || paired_ >= 0; }
+  bool wants_the_chip_awake() const override { return device_on_ || beacon_on_ || battery_on_ || console_on_ || paired_ >= 0; }
+
+  // **El beacon, com el de la placa** (0.194.0): the model keeps the four numbers and says it is on, o sigui que el prompt i les proves
+  // poden veure el que la placa veurà sense una ràdio de debò —que aquí no n'hi ha— (docs/50, docs/85).
+  bool beacon_start(const Beacon& beacon) override {
+    if (emu::options().bt_fail) return false;
+    beacon_ = beacon;
+    beacon_on_ = true;
+    return true;
+  }
+  void beacon_stop() override { beacon_on_ = false; }
+  bool beacon_on() const override { return beacon_on_; }
+
+  // **La bateria i la consola del model** (0.196.0): the emulator keeps the two switches and says so, i el que surt per la consola es
+  // **escriu al registre** —és el que una app de telèfon rebria, i així una prova pot veure que el mirall funciona— (docs/50, docs/85).
+  bool battery_on() override {
+    if (emu::options().bt_fail) return false;
+    battery_on_ = true;
+    return true;
+  }
+  void battery_off() override { battery_on_ = false; }
+  bool battery_is_on() const override { return battery_on_; }
+  bool battery_level(uint8_t percent) override {
+    level_ = percent;
+    ++levels_seen_;
+    return battery_on_ && emu::options().bt_connected;
+  }
+  void console_sink(ConsoleSink sink) override { console_sink_ = sink; }
+  bool console_on() override {
+    if (emu::options().bt_fail) return false;
+    console_on_ = true;
+    return true;
+  }
+  void console_off() override { console_on_ = false; }
+  bool console_is_on() const override { return console_on_; }
+  bool console_send(const uint8_t* data, uint16_t len) override {
+    if (!console_on_ || !emu::options().bt_connected) return false;
+    // **El que l'altre costat rebria, al registre del run**: the bytes of the console as a notification would carry them, que és el que fa
+    // que una prova pugui dir «la consola ha contestat» (docs/85).
+    hal::logf(pal::kLogDebug, "BT", "console out (%u B): %.*s", static_cast<unsigned>(len), static_cast<int>(len),
+              reinterpret_cast<const char*>(data));
+    return true;
+  }
 
   bool host_on() override {
     if (emu::options().bt_fail) return false;
@@ -1836,6 +1906,15 @@ class FakeBluetooth : public IBluetooth {
   char name_[32] = "lunokOS";
   bool device_on_ = false;
   bool host_on_ = false;
+  // **El beacon del model** (0.194.0): els quatre números a l'aire i si hi és.
+  bool beacon_on_ = false;
+  Beacon beacon_ = {};
+  // **I els dos serveis de la 0.196.0**: the switches, the level that was sent and how many times.
+  bool battery_on_ = false;
+  bool console_on_ = false;
+  uint8_t level_ = 0;
+  uint32_t levels_seen_ = 0;
+  ConsoleSink console_sink_ = nullptr;
   int8_t paired_ = -1;
   uint8_t leds_ = 0;
   uint8_t buttons_ = 0;

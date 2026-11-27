@@ -69,5 +69,10 @@ pal::IConsole* console() {
   return pal::system().console();
 }
 
+// **El port, cedit o no** (0.199.2): the reader of the system needs it even when it is somebody's —the bytes of a person who
+// is typing into a box (the keyboard of the wire) arrive here, and the console the system writes with is a different
+// question— (docs/30, docs/50).
+pal::IConsole* port() { return pal::system().console(); }
+
 }  // namespace serial
 }  // namespace kernel

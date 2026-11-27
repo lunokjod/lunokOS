@@ -21,7 +21,7 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 | **Sostre del codi d'una app** | `kSourceCap` a `lib/kernel/src/shell.cpp` | **98 304 B** des de la 0.149.0, i era **65 536 B** des de la 0.143.0. És el sostre d'**un fitxer**: una app pot ser més d'un amb `require` (0.148.0) i cada mòdul té el seu bloc |
 | **Terra de l'intèrpret** | Mesurat a l'ATOM de l'emulador, 4/11, amb `sys.heap()` en arrencar una app | **29 842 B** abans que l'app corri una línia: 13 021 de Lua i les seves llibreries, 13 200 de la llibreria d'UI (canvas, teclat, cares) i 3 600 dels altres globals. És el que una app **no** pot fer servir del seu sostre |
 | **Memòria extra (PSRAM)** | `IPlatform::extra_memory()` (torna `{chip_bytes, total_bytes, free_bytes}`) i `pal::IExtraMemory` | **4 096 KB al Paper** (el xip en té 8 MB i l'ESP32 en mapeja la meitat) i res als ATOM. És el sostre d'una app en aquesta placa (docs/50) |
-| Bloc «gran» que va a la memòria extra | `kExtraThreshold` a `lib/luabind/src/luabind.cpp` | **4 096 B**: d'aquí cap amunt el bloc viu a la PSRAM, i per sota a la RAM del xip |
+| On viuen els blocs de l'intèrpret | `IExtraMemory::allocate_in_the_extra` a `lib/pal` i `counting_alloc` a `lib/luabind/src/luabind.cpp` | **Tots a la memòria extra** des de la 0.192.94 (l'amo: *«a partir d'ara tota memoria que demani lua ha de ser PSRAM exclusivament»*); abans era una mida —4 096 B, `kExtraThreshold`— i per sota anaven a la RAM del xip. En una placa sense PSRAM, la RAM del xip i prou (docs/20) |
 | Pressupost d'instruccions | **20 000 per torn** de sèrie des de la 0.174.7 (eren 100 000, 0.90.0) i **ajustable** amb `cfg turn <n>`, de 2 000 a 200 000 | En esgotar-se, l'app fa `lua_yield` i el nucli recupera el torn; **no es mata**. És la latència del sistema, no el seu rendiment: un torn més curt és un dit que espera menys (docs/20, docs/30) |
 | Sostre vist al **Paper** | **Mesurat a la placa, 31/10**, amb cent promeses seguides i `mem` | `heap used 37 883 B, peak 37 883 B`: la mesura és d'abans de la 0.7.0, quan la placa encara contestava el sostre per defecte. **Avui** `IPlatform::heap_limit_kb()` hi diu **4 096 KB** (la PSRAM mapejada) i la mateixa mesura dona `limit 4 194 304 B` |
 
@@ -518,10 +518,12 @@ l'enllaçador (`pio run -e m5-atom -t size`), i s'apunta el número i el dia.
 El Paper porta **8 MB de PSRAM** i la resta de plaques cap, i el que fa el sistema és el que faria
 qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del xip**.
 
-- **Qui decideix on viu un bloc és l'intèrpret i no l'app**: `kExtraThreshold` (4 096 B) a
-  `lib/luabind/src/luabind.cpp`. D'aquí cap amunt, `pal::extra_memory()` dona el bloc de la PSRAM; per
-  sota, de la RAM interna, que és més ràpida i on mil objectes petit fragmenten mil vegades menys.
-  Una app no sap res de tot això: demana memòria i prou.
+- **Qui decideix on viu un bloc és l'intèrpret i no l'app**: `pal::extra_memory()`, i des de la 0.192.94 **l'intèrpret de Lua va
+  sencer a la memòria extra** (`allocate_in_the_extra`: cada bloc, per petit que sigui, o cap). Fins a la 0.192.93 hi havia una mida
+  —`kExtraThreshold`, 4 096 B— i per sota els blocs anaven a la RAM interna, que és més ràpida i on mil objectes petits fragmenten mil
+  vegades menys; la política es va canviar perquè la RAM del xip és la que es discuteixen els drivers i el sistema de fitxers, i una
+  màquina de Lua és el que més demana d'aquest sistema (docs/20). **El preu, dit**: la PSRAM és més lenta. Una app no sap res de tot
+  això: demana memòria i prou.
 - **I la RAM del xip té un terra des de la 0.151.19** (`pal::kHomeReserveBytes`, **64 KB**, i la regla
   `pal::take_from_the_extra()` a `lib/pal/include/pal/pal.h`, des de la 0.151.20): un bloc petit hi va
   **només mentre el que en queda després de donar-lo es quedi per sobre del terra**, i si no, va a la
@@ -900,47 +902,39 @@ síncron?»*). Sí, i cada cosa ho és per una raó que es pot dir:
 | **El vidre** (la imatge del moment) | **sí, amb `splash::wait`** | A present is a queue: the ink is waited on before anything else happens, so what a person reads and what the panel has are the same thing (docs/50) |
 | **El port sèrie** | **sí, amb `console->flush()`** | A UART keeps bytes in flight after a write returns, so the line is emptied twice: before the picture and in `settle_before_leaving` (docs/50) |
 
-## La taula de canvas i la RAM interna (pendent, i és un risc)
+## La taula de canvas: neix petita i creix (0.193.0)
 
-**La taula de canvas no és una constant de codi: és mig megabyte demanat a la memòria extra** (0.102.0). A
-`lib/kernel/src/ui.cpp`, `kSlotTableBytes` són **512 KB**, i `ui::boot()` en fa
-`pal::extra_memory().allocate(kSlotTableBytes, true)` —una ranura per canvas, `sizeof(Canvas)` = **176 B** avui,
-que són **2 978 ranures**— abans de fer la vista i abans que cap app corri. El log ho diu un cop:
-`[I][UI] the table of canvases: 2978 slots of 176 bytes`.
+**La taula de canvas no és una constant de codi: és memòria demanada a la casa gran** (0.102.0). A `lib/kernel/src/ui.cpp`,
+`kFirstSlots` són **256 ranures**, i `sizeof(Canvas)` és **184 B** avui —80 de la llista de danys (`Damage[8]`), 48 dels tres
+rectangles (`redraw`, `clip`, `caret`), 36 dels camps de debò i 20 d'encoixinat—, o sigui que la taula neix amb **47 104 B**. El log ho
+diu un cop: `[I][UI] the table of canvases: 256 slots of 184 bytes`.
 
-**El parany és el `true` de la crida.** A `lib/pal/include/pal/pal.h`, `allocate(bytes, prefer_extra)` **prefereix
-la PSRAM i, si no hi cap o no n'hi ha, prova la RAM del xip abans de dir que no**: «a block is a block and an app
-does not have to know where it lives». O sigui que **en una placa sense PSRAM la taula sencera cau a la RAM
-interna**, i la meitat gran del risc és que 2 978 × 176 B són **524 128 B**, més que els **338 864 B** que
-l'ATOM diu que té lliures amb el prompt sol.
+**El que hi havia abans i per què es va canviar** (l'amo: *«ControlsUI ? no vull límit, que tot sigui dinàmic»*): fins a la 0.192.99 la
+taula era `kSlotTableBytes = 512 KB` **demanats de cop al primer pintat i no tornats mai** —2 849 ranures—, i la pàgina més gran
+mesurada mai, el home, en fa **256**. Mig megabyte per a l'1 de cada 11 ranures; a la placa, amb 2.3 MB de PSRAM en ús, la taula era
+gairebé una quarta part de tot el que hi havia demanat.
 
-**El que passa llavors és la meitat bona**: el bloc es parteix per dos fins que l'assignador diu que sí, o sigui
-que la placa no es queda sense pantalla i es queda amb la taula que hi cap. Les mides que prova són, dividint
-per dos, **2 978, 1 489, 744, 372, 186, 93 i 46** ranures —**524 128, 262 064, 130 944, 65 472, 32 736, 16 368 i
-8 096 B**—; el terra del bucle és `kMinSlots = 32` (5 632 B, que és una pàgina de trenta-un controls) i el bucle
-s'atura abans, quan la meitat ja no hi arriba.
+**Com creix**: `create()` busca una ranura lliure (`a_free_slot()`); si no n'hi ha, `make_room()` dobla la taula amb `resize_in_the_extra`
+i torna a buscar. **Mai no surt de la casa gran** —una taula de sis megabytes a la RAM del xip seria el heap sencer del xip— i **si el
+`resize` no pot, el bloc d'abans no es toca** i el control que es demanava es queda sense fer, que és el que ja passava amb la taula
+plena. Mentre es pinta no es creix: `g_painting` és la bandera que diu que algú té un `Canvas&` a la mà i que la taula no es pot moure
+sota seu.
 
-**I la meitat dolenta és que aquests bytes es paguen abans que res més** i surten del mateix lloc on aniran la
-vista de l'app (a la Paper, 540 × 892 = **241 KB**) i el seu sostre. En una placa sense memòria extra, un
-`130 944 B` de taula sobre 338 864 B és **el 39 % del que hi ha**, i el que queda ha de passar pel terra de
-`kHomeReserveBytes` (64 KB) que protegeix els buffers del sistema (aquesta mateixa secció, més amunt).
+**Com torna a baixar**: quan `attach()` ha donat de tornada tot el que no és la vista —l'app que marxa—, `shrink_the_table()` la deixa
+com va néixer. Així una pàgina de dos mil controls no els deixa demanats a la que ve darrere.
 
-**El que està mesurat i el que no:**
+**I el sostre**: la memòria. L'únic número que queda és el de la ranura, que és un `int16_t`: **32 767 ranures de 184 B són sis
+megabytes de PSRAM**. Un `resize` que no hi cap és una negativa i no una pèrdua.
+
+**Mesurat:**
 
 | Què | Número | Com |
 |---|---|---|
-| `sizeof(Canvas)` i les ranures | **176 B, 2 978 ranures** | `[I][UI] the table of canvases: 2978 slots of 176 bytes` a l'emulador, amb `--board m5stack-atom` i amb `--board m5stack-paper` (els dos donen el mateix, perquè la taula no depèn de la placa) |
-| Quantes en rep una placa **sense** PSRAM | **no mesurat** | la línia de l'arrencada de l'ATOM és la que ho dirà, i `mem` després; cap build no ho ha llegit encara |
-| Quantes en rep la Paper | **2 978** | cap dels 524 128 B no és a la RAM interna: la PSRAM els té de sobres |
-
-**Des de la 0.179.9 això només és cert a les plaques amb vidre**: l'ATOM, el Matrix, l'ESP32 de DevKit i el T-Koala no
-compilen `ui.cpp` i per tant no demanen cap taula (vegeu el capítol de sota, «La pàgina que una placa sense vidre no
-compila»). El que queda pendent és la Paper, que sí que la demana i on el número és **2 978 ranures**.
-
-**Què s'hi farà quan es mesuri** (i no abans, perquè el número ha de sortir de la placa): si l'ATOM es queda
-amb 744 ranures o menys, la taula s'ha de dimensionar pel que la placa té i no per una constant —per exemple
-`extra_memory()` quan el xip és zero, i `kSlotTableBytes` quan no ho és—, o baixar `kSlotTableBytes` a la meitat.
-El que **no** s'ha de fer és llevar el `true`: sense ell, la Paper deixaria de tenir la taula a la PSRAM.
+| `sizeof(Canvas)` | **184 B** | `[I][UI] the table of canvases: 256 slots of 184 bytes` a la placa i a l'emulador |
+| La taula en néixer | **47 104 B** | 256 × 184, i `mem blocks` la llista a `psram` |
+| La pàgina més gran coneguda | **256 controls** (el home) | `[I][UI] the list of stops: 256 of 256 slots, 8192 B` |
+| Que creix i torna | **sí** | `test_ui::test_the_table_of_canvases_grows_and_comes_back_down`, amb 257 controls i una vista nova al darrere |
+| La vista d'una app | **240 840 B** | 540 × 892 a quatre bits per píxel, i es torna quan l'app marxa |
 
 ## La pàgina que una placa sense vidre no compila (0.179.9)
 
@@ -1093,8 +1087,32 @@ time: 1793407338 (epoch seconds, from soc)
 ```
 
 Si la placa no té cap xarxa desada, `ntp` no pot ni connectar-se i ho diu:
-`ntp: the board has no network to use, try `wifi add``. L'apagada es fa al torn següent al buidar-se la
-cua, perquè la contestació de la petició encara s'ha de poder llegir.
+`ntp: the board has no network to use, try `wifi add``.
+
+### El marge de tres segons i el commutador de la persona (0.197.0)
+
+La regla original tenia tres parts i el codi només n'havia guardat dues. La tercera —*«Espera uns 3 de
+marge, si no reb mes tasques, tanca la wifi»*— va desaparèixer quan es va treure la finestra per
+inútil, i el que quedava tancava la ràdio **al primer torn sense res a la cua**: per això `wifi connect`
+s'assemblava a una connexió que cau tota sola, i dues feines seguides pagaven dues associacions.
+
+Ara:
+
+- **La finestra s'obre quan s'ha contestat l'última feina** (`g_quiet_ms`, tres segons de sèrie) i
+  qualsevol petició que hi entri la cancel·la. Dues feines seguides paguen **una** associació.
+- **El commutador de la persona mana.** Si la ràdio és encesa amb `cfg wifi on` (o `wifi start`), la
+  finestra no s'obre ni es tanca res: la feina es fa i la ràdio es queda com estava. La ràdio no és del
+  nucli quan algú l'ha encès.
+- **L'associació es reintenta tres cops** abans de dir que no hi ha xarxa, dins del termini de la
+  feina. **Una contrasenya dolenta no es reintenta**: `AUTH_FAIL` (15) i el handshake (204) tornarien
+  la mateixa resposta tres vegades, i la porta nova `wifi_last_reason()` del HAL és la que ho diu.
+- **La cua és una llista a la memòria extra**, no vuit llocs fixos de mig quilobyte: cada feina demana
+  el seu bloc quan arriba i el torna quan s'ha contestat, amb un sostre de setze per seguretat. El bloc
+  de 4 064 B que es demanava a l'arrencada —per a una cua que en la pràctica en porta una— ja no hi és.
+
+El marge es pot tocar des del nucli (`net::set_the_quiet_ms`, 0 de sèrie no: zero vol dir tancar de
+seguida) i el que veu una app no canvia gens: la petició es contesta igual i la ràdio que hi hagi és un
+detall de la casa.
 
 ## Què compta i què no
 
@@ -1274,6 +1292,39 @@ repo: the answer is in /sd/http/apps
 
 O sigui: **amb els mateixos 28 944 B de RAM interna** que abans fallaven, ara el handshake passa, perquè els seus
 blocs grans ja no surten d'aquí.
+
+### El certificat del servidor també és un registre (0.199.5)
+
+**`-0x7100` al handshake no és ni el DNS, ni la clau, ni la mida de l'URL.** La placa el tornava a cada petició de l'app del
+temps —`esp-tls-mbedtls: mbedtls_ssl_handshake returned -0x7100`— mentre **la mateixa URL responia bé al navegador del PC**, i
+això és el que diu on és el forat: el navegador no té cap límit de registre, i aquesta placa sí.
+
+`MBEDTLS_ERR_SSL_BAD_INPUT_DATA` a l'handshake, amb TLS 1.3 apagat, surt d'una sola banda: **`mbedtls_ssl_fetch_input`** quan
+demana més bytes dels que caben al buffer de registre («requesting more data than fits»). I el que no hi cabia era **el
+certificat del servidor**, que arriba en **un sol missatge d'handshake** i que mbedTLS ha de saber sencer dins d'aquest buffer.
+Mesurat des d'aquest PC, que és la mesura que val:
+
+```
+$ openssl s_client -connect api.openweathermap.org:443 -servername api.openweathermap.org -showcerts
+4 certificats: 1 860 + 1 616 + 1 689 + 1 506 = 6 671 B de DER
+missatge Certificate (handshake + llista): 6 690 B   ->   registre de 6 695 B amb la capçalera
+```
+
+Amb `MBEDTLS_SSL_IN_CONTENT_LEN=4096` —la mida que la 0.198.2 va triar perquè la desencriptació tingués un tros seguit de RAM
+interna— **6 695 B no hi caben**, i per això falla *sempre*, a la mateixa alçada i en 60-90 ms (un sol viatge d'anada i tornada:
+el `ClientHello` i el `ServerHello`, i el `Certificate` que ja no cap).
+
+**I el motiu pel qual 4 KB era la mida era fals.** El que demana RAM interna no és el buffer —amb
+`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` **totes** les assignacions de mbedTLS surten de la PSRAM (`esp_mem.c`:
+`heap_caps_calloc(..., MALLOC_CAP_SPIRAM)`)— sinó el xifrat, i el port ja ho té resolt: `esp-aes` **parteix l'entrada externa en
+trossos de 1 600 B** (`AES_MAX_CHUNK_WRITE_SIZE`, `port/aes/dma/esp_aes.c`), el GCM cau al camí de programari quan el buffer no
+és de RAM interna (`esp_aes_gcm_input_support_hw_accel`), i el SHA de la S3 fa DMA sobre la PSRAM (`SOC_PSRAM_DMA_CAPABLE`,
+`Cache_WriteBack_Addr`). O sigui que el que es demana de RAM interna **no creix amb la mida del registre** i el registre pot
+tornar a ser el que el protocol permet: **16 384 B de lectura** (i 4 096 d'escriptura, que és el que aquesta casa envia).
+
+**La lliçó per a la propera vegada**: la mida del registre d'entrada no és una decisió de memòria, és **el que el servidor té
+permís d'enviar**. Si un dia una altra cadena de certificats no hi cap, el número que cal mirar és
+`openssl s_client -showcerts` i no el `largest_free_bytes` del log.
 
 ## La pila dels descodificadors d'imatge, i la pàgina que va petar (0.118.0)
 
@@ -1506,7 +1557,7 @@ bytes** de la Paper:
 
 | Què | Bytes | Quan es fa servir | Què se n'ha fet |
 |---|---|---|---|
-| La cua de peticions de la xarxa | **4 064** | vuit peticions de mig kilobyte que una placa sense ràdio no omple mai | `the_queue()` les pren de `extra_memory()` la primera vegada que una petició hi entra, i les vuit entrades es construeixen al bloc |
+| La cua de peticions de la xarxa | **4 064 → un node per feina** | vuit peticions de mig kilobyte que una placa sense ràdio no omple mai | **Fora de la 0.197.0**: la cua és una llista a la memòria extra, un node per petició, fet quan la petició arriba i tornat quan s'ha contestat |
 | El manifest d'una app | **1 024** | cada vegada que el sistema llegeix una app | `pal::Scratch` a `apps::load`: es demana en entrar i es torna en sortir, per qualsevol de les nou sortides |
 | El manifest d'`apps info` | **1 024** | quan una persona escriu la comanda | el mateix, amb `pal::kMemoryShell` |
 | El valor d'un fitxer de la NVS | **1 024** | quan una app navega el `/nvs` com a fitxers | un bloc que es pren un cop i es queda, perquè el `read` el camina amb `g_pos` entre crides |
@@ -1616,3 +1667,50 @@ Es queda a tres. I `BT_NIMBLE_MAX_CONNECTIONS` baixa de tres a **un**: l'estat d
 
 El que compta **no és el total sinó el bloc més gran**, i encara més el més gran que és DMA: cent kilobytes lliures en cinquanta trossos no
 fan un paquet de dos-cents seixanta bytes, i això és el que aquesta línia ha de dir la pròxima vegada que alguna cosa no hi càpiga.
+
+## Les piles de les tasques: el que es va poder moure i el que no (0.192.95–0.193.0)
+
+Aquesta secció es va perdre amb una edició meva mal feta el 27/11 i s'ha tornat a escriure amb el que està mesurat; si algú troba a
+faltar una línia que hi era, és això (docs/80).
+
+| Tasca | Pila | Què fa amb ella | On és |
+|---|---|---|---|
+| `main` (la de la IDF, `app_main`) | **3 584 B** (+512 de la IDF) | el corrent de la placa i la PAL; **torna**, i la seva pila va al heap | **RAM del xip** |
+| `lunok_turn` | **16 384 B** | el torn del nucli: els llenços, les fonts d'outlines, el parser de Lua, el `printf` de newlib, i **la flaix** | **RAM del xip**, i demanada **la primera** |
+| `lunok_shell` | **6 144 B** | el teclat de comandes; `feed` liquida promeses i pot fer córrer el `then` d'una app, que pot escriure un fitxer | **RAM del xip** |
+| `pal_line` (l'editor de línia) | **8 192 B** | `linenoise`: edició, historial, completat | **memòria extra** |
+| `pal_tx` (el filferro) | **3 072 B** | buidar la cua de bytes cap al port | **memòria extra** |
+| `pal_rx` (el lector) | **2 048 B** | mirar quants bytes esperen i posar un esdeveniment a la cua | **memòria extra** |
+
+**El que s'hi va guanyar, i és tot el que s'hi podia guanyar**: **13 312 B** de la RAM del xip —l'editor de línia, les dues tasques del
+cable, 8 192 + 3 072 + 2 048— més l'anella del log, que viu a la memòria extra i que a les bandes amb PSRAM ja no compila cap reserva estàtica
+(`-DLUNOK_EXTRA_MEMORY=1`, `lib/kernel/src/log.cpp`). Sobre un heap intern de **271.5 KB** són **un cinc per cent**: és el que es veu a
+`free heap`, i per això no s'hi veu res.
+
+**La pila del torn no pot anar a la PSRAM, i això es va aprendre reiniciant** (0.192.96 → 0.192.97): `spi_flash_disable_interrupts_caches_and_other_cpu`
+**afirma** que el punter de pila del corrent és a la DRAM (`cache_utils.c:154`, `esp_task_stack_is_sane_cache_disabled`), perquè
+escriure o esborrar la flaix apaga la cau i una pila a la PSRAM seria una pàgina il·legible enmig de l'operació. Amb la pila a la PSRAM la
+placa contestava, just després del banner:
+
+```
+assert failed: spi_flash_disable_interrupts_caches_and_other_cpu cache_utils.c:154 (esp_task_stack_is_sane_cache_disabled())
+```
+
+**I `xTaskCreate` no pot donar-li la PSRAM ni que es volgués**: a la IDF 5.1 el `pvPortMalloc` de FreeRTOS és
+`heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)` (`freertos/heap_idf.c:71`), o sigui que la pila de qualsevol tasca que no
+es creï amb la porta de les capacitats surt de la RAM del xip, sempre.
+
+**El que sí que es tria és QUAN es demanen aquests setze kilobytes** (0.192.98). La 0.192.96 els demanava al final d'`app_main`, amb el
+munt ja poblat, i un `malloc` de setze kilobytes allà **parteix pel mig el forat més gran que hi havia**. El que va sortir no va ser
+«menys memòria» sinó **menys forat més gran**, i la ràdio necessita un de sol de trenta kilobytes:
+
+```
+free heap 79.3 KB · largest block 31.0 KB
+wifi: the radio did not come up (ESP_ERR_NO_MEM; 53623 B free, largest 26612 B)
+```
+
+Des de la 0.192.98 la tasca del nucli neix **la primera de totes**, al punt on la IDF la creava quan el torn era la tasca de la IDF, i
+espera una senyal fins que la consola existeix. **I el número on es mira el resultat és `largest block` i no `free heap`.**
+
+**Mesurat a la placa**: `[I][STACK] the kernel starts: 15236 B of the task's stack left` (o sigui que el boot del nucli en gasta poc més
+d'un kilobyte) i `[LUNOK] the boot needed 1952 B of the main task's stack, of 3584` — tots dos llegits al registre de la primera arrencada de la 0.192.96.

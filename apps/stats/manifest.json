@@ -1,9 +1,9 @@
 {
   "title": "Stats",
   "author": "@lunokjod",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "entry": "stats.lua",
   "icon": "res/icon.png",
   "boards": ["esp32"],
-  "description": "What the machine costs and where the time went: the bars of the meters the kernel keeps, ordered by what they cost, the pie of the four families with its legend, a Load tab that samples the load of the system and the memory in use every ten seconds and draws them over half an hour of history, kept in a session that comes back when the page does and fed by a minute tick of the system while the board is awake, the memory and what this board is. The look of the LogApp of the paper project (dark bars, a pie, ordered numbers) on the controls this system already has."
+  "description": "What the machine costs and where the time went: the bars of the meters the kernel keeps, ordered by what they cost, the pie of the four families with its legend, a Load tab that samples the load of the system and the RAM the heap has taken every ten seconds and draws them over half an hour of history, a window that rolls and never starts again from zero, kept in a session that comes back when the page does and fed by a minute tick of the system while the board is awake, a Memory tab with a column that paints the occupied bytes of the board RAM and leaves the free ones white, and what this board is. The look of the LogApp of the paper project (dark bars, a pie, ordered numbers) on the controls this system already has."
 }

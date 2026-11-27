@@ -34,6 +34,7 @@
 #include "kernel/led.h"
 #include "kernel/line_editor.h"
 #include "kernel/log.h"
+#include "kernel/fs_ops.h"
 #include "kernel/mesh.h"
 #include "kernel/meter.h"
 #include "kernel/lock.h"
@@ -115,6 +116,22 @@ const size_t kSourceCap = 98304;
 // still 39 % of it and the system keeps 208 KB. The Paper is untouched: it says its own ceiling (4 MB of
 // PSRAM) and never reaches this line (docs/75, docs/85).
 const size_t kDefaultHeapBytes = 128 * 1024;  // used until the board ceiling is measured
+
+// **El sostre que se li dona a l'intèrpret, que és el que una app pot prendre** (0.192.94): the board says how much it has —the PSRAM of
+// this chip— and the half of that is what an app may take, perquè **la casa gran la comparteixen el sistema i l'app**: els llenços de la
+// pàgina (523 616 B la vista i el llenç, mesurats), les miniatures, les fotos i les memòries de sessió són allà mateix, i una app que
+// creixi fins a l'últim byte deixa el sistema sense pàgina. `cfg mem <kb>` ho canvia i `cfg mem auto` ho torna a la meitat. **Una placa que
+// no diu quant en té** —l'ATOM, sense PSRAM— no té meitat i el que mana és el de sèrie d'aquesta línia (docs/20, docs/75).
+size_t the_ceiling_of_the_interpreter() {
+  const uint32_t board_kb = platform().heap_limit_kb();
+  uint32_t kb = cfg::interpreter_mem_kb();
+  if (kb == 0) {
+    kb = cfg::interpreter_mem_default_kb(board_kb);
+  } else if (board_kb > 0 && kb > board_kb) {
+    kb = board_kb;
+  }
+  return (kb > 0) ? (static_cast<size_t>(kb) * 1024) : kDefaultHeapBytes;
+}
 // **Els torns que es donen a una pàgina pujada per una alarma abans de dir-li què ha sonat** (0.190.7): they are turns
 // until the app waits on a timer —one or two for every page of this tree— and the ceiling is for a page that never
 // settles, which must not stop a start (docs/30, docs/60).
@@ -764,10 +781,12 @@ void print_help(const char* only) {
   // **I un títol quan el que s'ha demanat és la llista sencera**: una persona que ha escrit `help` vol saber què hi ha, i el que hi ha és
   // una taula de comandes amb el nom a l'esquerra i el que fa a la dreta (0.190.238, docs/30).
   if (only == nullptr) title("the commands of this shell");
-  help_line("  help [command]    this list, or the lines of one command", only);
+  help_line("  help [command]    this list, or the lines of one command (`?` is the same word)", only);
   help_line("  version           version and board", only);
   help_line("  caps              what this board has", only);
-  help_line("  mem               free memory and buffers", only);
+  help_line("  mem [blocks|himem|lua|check]  free memory and buffers, the block of each owner, the memory behind", only);
+  help_continuation("                    the chip's bank switcher, what the Lua interpreter costs at this moment, or a walk of", only);
+  help_continuation("                    both heaps to see whether one of them is broken", only);
   help_line("  sessions          the memory of a session each app is holding, and where it is", only);
   help_line("  sessions destroy [<id> [<key>]]  forget every session, all of one app, or one of them, in the memory", only);
   help_continuation("                    and on the disk", only);
@@ -798,6 +817,7 @@ void print_help(const char* only) {
   help_continuation("                    and `cfg cursor delay [<ms>]`, how long the block of ink lasts before it turns", only);
   help_continuation(
       "                    and `cfg freq [<mhz> on|off|all]`, the floor and the ceiling of the processor", only);
+  help_continuation("                    and `cfg mem [<kb>|auto]`, what the interpreter may take of the extra memory", only);
   help_continuation("                    and `cfg settings [<id>|none]`, the app the gear of the panel opens", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  kill              close the app that is in front of the glass", only);
@@ -810,6 +830,13 @@ void print_help(const char* only) {
   help_line("  wifi stop         drop whatever the radio is doing", only);
   help_line("  provision [pop]   the QR and the Espressif app, over Bluetooth", only);
   help_line("  provision softap [pop]  the same over the board's own access point", only);
+  help_line("  bt                the radio: `bt dev on [name]|off` offers this board as a keyboard and a mouse,", only);
+  help_continuation("                    `bt dev move <dx> <dy>|click [button]` tries its pointer and `bt dev forget`", only);
+  help_continuation("                    forgets the other side; `bt host on|off|scan|pair|reconnect|forget` uses", only);
+  help_continuation("                    somebody else's keyboard and `bt type <text>` writes into it", only);
+  help_continuation("                    `bt dev beacon on|off|<uuid> [<major> [<minor>]]` is an iBeacon instead of a keyboard,", only);
+  help_continuation("                    `bt dev battery on|off` opens the battery level and `bt dev console on|off` the shell", only);
+  help_continuation("                    of this system over BLE, which is what the serial shows", only);
   help_line("  ntp [server]      set the clock from a time server", only);
   help_line("  http <url> [path]  fetch a page, and save it when it is too big", only);
   help_line("  repo [owner/repo] [dir]  the folders of a directory of the repository, from GitHub", only);
@@ -830,6 +857,11 @@ void print_help(const char* only) {
   help_line("  cfg wifi on|off   the wifi radio, on or off: it is the switch of the card of the bar,", only);
   help_line("                    and turning it on starts the radio if it was off", only);
   help_line("                    kept: a mouse makes the glass the pointer of the other one", only);
+  help_line("  load              how busy the processor is, in a word and a percentage", only);
+#if LUNOK_MEMORY_GUARDS
+  help_line("  heapguard [<bytes>|off]  the guards of the heap, which only a build of diagnosis has: watch the", only);
+  help_continuation("                    tail of the next block of that size, or forget the watch", only);
+#endif
   help_line("  power [cpu [mhz]]  what this board can do about energy", only);
   help_line("  power last        how far the last sleep was from the hour it was given", only);
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
@@ -846,6 +878,11 @@ void print_help(const char* only) {
   help_line("  ls [path]         list a directory or one file (default /)", only);
   help_line("  cat <path>        print a file", only);
   help_line("  hexdump <path>    the bytes of a file in hex and in visible letters", only);
+  help_line("  mkdir <path>      make a folder, and the folders on the way to it", only);
+  help_line("  cp [-r] <from> <to>  copy a file, or a folder with -r, to a path or into a folder", only);
+  help_line("  mv <from> <to>    move or rename a file or a folder; two disks copy and take the old one away", only);
+  help_line("  rm [-r] <path>    take a file away, or a folder and everything inside it with -r", only);
+  help_line("  rmdir <path>      take an empty folder away; one with something inside is `rm -r`", only);
   help_line("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)", only);
   help_line("  log               last lines of the log ring", only);
   help_line("  log follow        the log as it is written; a line stops it (Control+C or Escape on a wire", only);
@@ -1002,6 +1039,18 @@ void print_mem() {
     // (docs/75, docs/85).
     human_bytes(heap.largest_free_bytes, value, sizeof value);
     row("largest block", value);
+    // **I el que la casa té per donar, amb el que se n'ha menjat algú** (0.192.92, l'amo: *«Estem segurs que estem obtenint la memoria
+    // ocupada real?»*): the three lines above are what is left; this one is what is left **against what there was**, which is the
+    // question —a board with 158 KB free of 380 is a healthy board and one with 158 KB free of 8 000 was comparing the RAM with the
+    // PSRAM (docs/75).
+    if (heap.total_bytes > 0) {
+      const uint32_t used = (heap.total_bytes > heap.free_bytes) ? (heap.total_bytes - heap.free_bytes) : 0;
+      human_bytes(used, value, sizeof value);
+      human_bytes(heap.total_bytes, other, sizeof other);
+      snprintf(value + strlen(value), sizeof value - strlen(value), " of %s (%u %%)", other,
+               static_cast<unsigned>((used * 100u) / heap.total_bytes));
+      row("ram in use", value);
+    }
   } else {
     row("heap", "not available on this build");
   }
@@ -1041,6 +1090,17 @@ void print_mem() {
     human_bytes(extra.himem_window_bytes, other, sizeof other);
     snprintf(value, sizeof value, "%s of window (bank switching)", other);
     row("", value);
+  }
+  // **La màquina virtual, si n'hi ha una en aquest moment** (0.192.91, l'amo: *«la comanda mem ha d'incloure el cost de la màquina
+  // virtual lua en aquell moment (si està activa)»*): the interpreter of an app is the biggest single thing this system asks for and
+  // it lives between two turns, o sigui que una taula de memòria que no el compta està dient quin heap queda **sense dir qui se
+  // l'ha menjat**. El número és el del seu assignador, que és el que té el sostre, i `mem lua` el desglossa per casa —RAM del xip i
+  // PSRAM— perquè aquestes dues no són el mateix (0.192.93, docs/20, docs/75).
+  if (luabind::running()) {
+    human_bytes(static_cast<uint64_t>(luabind::used_bytes()), value, sizeof value);
+    human_bytes(static_cast<uint64_t>(luabind::limit_bytes()), other, sizeof other);
+    snprintf(value + strlen(value), sizeof value - strlen(value), " now of %s allowed", other);
+    row("lua", value);
   }
   // The last app, if one has run: what it asked for and what it was allowed.
   if (luabind::limit_bytes() > 0) {
@@ -1094,6 +1154,72 @@ void print_mem_himem() {
   out(platform().extra_memory_round_trip(hal::kExtraMemoryBlockBytes) ? "yes\r\n" : "no\r\n");
 }
 
+// **`mem lua`: el cost de la màquina virtual, desglossat** (0.192.91, l'amo: *«i mem lua (aquest vull que el facis ara)»*), i **on
+// viu** (0.192.93, l'amo: *«De quin tipus de memoria parla? 384.1Kb es molta... d'on la treu? quina part es dram quina psram quina
+// altres tipus?»*). Cada fila respon una pregunta diferent i cap no és la suma d'una altra:
+//
+//   · **asked for** és el que el seu assignador ha demanat: la suma dels bytes de cada valor de Lua viu (una cadena, una taula, una
+//     closura, l'estat), que és el número que ha de quadrar amb el sostre;
+//   · **in the board's RAM** i **in the PSRAM** són els mateixos bytes repartits per les dues cases de la placa, amb els trossos de
+//     cadascuna: una màquina de Lua demana **un bloc al PAL per cada valor**, i el PAL en dona de la RAM del xip als petits i de la PSRAM
+//     als grans —i als petits també quan la RAM baixa del seu terra—, o sigui que el repartiment no es pot deduir de la mida;
+//   · **worst** és el pitjor moment (el número que diu si l'app va estar a punt de no cabre) i **how full** el tros del sostre que és ple;
+//   · **outside it** són les memòries de sessió, que viuen fora de l'assignador de l'intèrpret (docs/30, docs/20, docs/75).
+//
+// **No hi ha cap fila del recol·lector** i és a propòsit: `lua_gc(LUA_GCCOUNT)` en aquest Lua torna exactament la mateixa suma
+// (`totalbytes + GCdebt`, que és el que l'assignador ha donat i llevat), o sigui que una fila que la copiï és el mateix número dues
+// vegades amb dos noms. El que no se sabia era a quina casa anava cada tros, i això és el que hi ha ara (0.192.93).
+//
+// Sense intèrpret la comanda ho diu en comptes d'escriure zeros, perquè zero bytes i «no hi és» no són el mateix (docs/30).
+void print_mem_lua() {
+  if (!luabind::running()) {
+    out("  ");
+    out(kStyleQuiet);
+    out("no interpreter is up: start an app, or `lua` for the prompt");
+    out(kStyleOn);
+    newline();
+    return;
+  }
+  title("the interpreter");
+  char value[64];
+  char other[24];
+  const size_t now = luabind::used_bytes();
+  const size_t peak = luabind::peak_bytes();
+  const size_t limit = luabind::limit_bytes();
+  const luabind::Homes homes = luabind::homes();
+  const char* who = luabind::app_id();
+  row("running", (who != nullptr && who[0] != '\0') ? who : "the prompt's own");
+  human_bytes(static_cast<uint64_t>(now), value, sizeof value);
+  row("asked for", value);
+  human_bytes(static_cast<uint64_t>(homes.ram_bytes), value, sizeof value);
+  snprintf(value + strlen(value), sizeof value - strlen(value), " in %u block(s)",
+           static_cast<unsigned>(homes.ram_blocks));
+  row("in the board's RAM", value);
+  human_bytes(static_cast<uint64_t>(homes.extra_bytes), value, sizeof value);
+  snprintf(value + strlen(value), sizeof value - strlen(value), " in %u block(s)",
+           static_cast<unsigned>(homes.extra_blocks));
+  row("in the PSRAM", value);
+  human_bytes(static_cast<uint64_t>(peak), value, sizeof value);
+  if (limit > 0) {
+    human_bytes(static_cast<uint64_t>(limit), other, sizeof other);
+    snprintf(value + strlen(value), sizeof value - strlen(value), " of %s allowed (peak)", other);
+  }
+  row("worst", value);
+  if (limit > 0) {
+    const unsigned used = static_cast<unsigned>((now * 100u) / limit);
+    snprintf(value, sizeof value, "%u%% of the ceiling", used);
+    row("how full", value);
+  }
+  // **I el que l'intèrpret no compta**: les memòries de sessió que l'app té demanades al nucli, que viuen fora del seu assignador i
+  // són les primeres que es donen quan un bloc no hi cap (docs/30, docs/75).
+  if (session::count() > 0) {
+    human_bytes(static_cast<uint64_t>(session::bytes_held()), value, sizeof value);
+    snprintf(value + strlen(value), sizeof value - strlen(value), " in %u block(s) of session memory",
+             static_cast<unsigned>(session::count()));
+    row("outside it", value);
+  }
+}
+
 // **Què és un aparell de Bluetooth, pel que ell mateix declara** (0.190.196, l'amo: *«No em crec que no pesqui ni un sol nom! ni identificar
 // el tipus, ni cap info adicional (senyal batería… no sé alguna dada mes)»*). L'anunci porta l'**aparença** —una paraula de setze bits del
 // registre del Bluetooth— i els **serveis** que ofereix, i són la resposta a «què és això» quan l'aparell no diu com es diu. Les taules són
@@ -1101,7 +1227,22 @@ void print_mem_himem() {
 // **Què és aquesta placa, en una frase** (0.190.204, i la mateixa des de la 0.191.0): era la paraula del mode escrita en una frase perquè
 // «on, a both» no ho és; ara el mode no existeix i la frase tampoc no canvia —el que una persona llegeix al prompt és el que la placa és
 // per a l'altre cap, i és sempre el mateix— (docs/30, docs/50).
-const char* device_phrase() { return "a keyboard and a mouse"; }
+// **Els dos serveis que es poden obrir** (0.196.0): a line of their own, i només quan un dels dos ho és, perquè una placa que no ha obert
+// res no ha de dir dues vegades «off» (docs/30, docs/50).
+void say_the_bt_services() {
+  if (!bt::battery_on_now() && !bt::console_on_now()) return;
+  out("  services: ");
+  out(bt::battery_on_now() ? "battery on" : "battery off");
+  out(", ");
+  out(bt::console_on_now() ? "console on" : "console off");
+  out("\r\n");
+}
+
+const char* device_phrase() {
+  // **La paraula del que la placa és diu el que està dient a l'aire** (0.194.0): with the beacon on the device end is not offering a
+  // keyboard, i una línia que digués «a keyboard and a mouse» seria mitja veritat a la inversa de la de la 0.191.0 (docs/30, docs/50).
+  return bt::beacon_on() ? "a beacon" : "a keyboard and a mouse";
+}
 
 const char* appearance_name(uint16_t appearance) {
   switch (appearance) {
@@ -1185,6 +1326,15 @@ void print_mem_blocks() {
   out(kStyleOn);
   out(" ask(s) did not fit");
   newline();
+  // **I de què són els llibres** (0.192.99, l'amo: *«perqué no veig millora de ram?»* mirant aquesta mateixa taula): un llibre només pot
+  // comptar el que passa per la porta d'aquesta casa (`pal::extra_memory()`); les piles que fa FreeRTOS, el que demana la IDF, el
+  // controlador de la ràdio i el LittleFS van per `pvPortMalloc` i **no hi són**, o sigui que una taula plena de blocs de la PSRAM no diu
+  // res dels kilobytes de la RAM del xip que `mem` compte a `ram in use` (docs/50, docs/75).
+  out("  ");
+  out(kStyleQuiet);
+  out("this house's door only: the stacks FreeRTOS makes, the IDF and the radio do not pass through it");
+  out(kStyleOn);
+  newline();
   pal::MemoryBill bills[kShownOwners] = {};
   const uint32_t owners = pal::memory_bills(bills, kShownOwners);
   if (owners > 0) {
@@ -1238,10 +1388,18 @@ void print_mem_blocks() {
     out(kStyleQuiet);
     out("B");
     out(kStyleOn);
+    // **I de quina memòria és** (0.192.99): the pointer alone does not say it to a person —`0x3c37…` is the extra memory on this chip and
+    // nothing on another—, and it is the first thing a person reading the table wants to know when the question is where the memory
+    // went (docs/50, docs/75).
+    const bool in_the_extra = pal::extra_memory().in_the_extra(rows[i].block);
     out("  ");
     out(kStyleQuiet);
     snprintf(number, sizeof(number), "%p", static_cast<const void*>(rows[i].block));
     out(number);
+    out(kStyleOn);
+    out("  ");
+    out(kStyleQuiet);
+    out(in_the_extra ? "psram" : "ram  ");
     out(kStyleOn);
     out("  ");
     out(kStyleKey);
@@ -2167,7 +2325,11 @@ bool send_file_to_the_wire(const char* path) {
   // **I el que ha passat s'escriu quan el port ja no és cedit**: mentres ho era, `out` no tenia on escriure. Si el port era de la
   // persona i encara és seu, la resposta no arriba al cable —el silenci és el contracte de `serial claim`— i la línia del
   // registre és l'única que ho diu, i es llegeix amb `serial release` i un `log` al darrere (docs/30, docs/50).
-  log_printf(aborted ? pal::kLogWarn : pal::kLogInfo, "SERIAL", "sent %u B of %s to the wire in %u ms%s", total, path, took,
+  // **Els dos números, amb el tipus que el `printf` demana** (0.192.97): en aquesta eina `uint32_t` és `unsigned long`, i un `%u` amb un
+  // `unsigned long` és un avís que la placa escup a cada compilació; el que mana el tipus de debò és el `static_cast`, i és el que fa la
+  // resta del fitxer (docs/80, docs/95).
+  log_printf(aborted ? pal::kLogWarn : pal::kLogInfo, "SERIAL", "sent %u B of %s to the wire in %u ms%s",
+             static_cast<unsigned>(total), path, static_cast<unsigned>(took),
              aborted ? " (stopped with Control+C)" : (stuck ? " (the port took nothing more)" : ""));
   if (!serial::claimed()) {
     (aborted ? error_out : good_out)(aborted ? "serial: stopped after " : "serial: ");
@@ -2339,6 +2501,466 @@ bool hexdump_file(const char* path) {
   }
   return true;
 }
+
+
+// ---------------------------------------------------------------- mkdir, cp, mv: traginar fitxers (0.197.3)
+
+// **Tres comandes i una sola mena de feina** (l'amo: *«implementa "mv" i "cp" a la shell per poder traginar arxius»*, i tot
+// seguit *«i el mkdir»*): fins avui el prompt sabia llegir —`cat`, `hexdump`, `ls`— i no sabia moure res, o sigui que canviar un
+// fitxer de carpeta demanava una app o el cable. **Els permisos són els de sempre i no uns altres** (docs/70): es llegeix d'on
+// es pot llegir —el racó d'una altra app no— i s'escriu només on el disc és escrivible, que és el que `vfs::is_writable`
+// pregunta amb el camí de debò i no amb l'àlies.
+
+namespace {
+
+// Una finestra i prou: un fitxer d'aquest sistema pot ser un epub de dos megabytes, i una còpia que els demanés tots seria una
+// còpia que falla a la placa que els ha de desar.
+const size_t kCopyWindow = 512;
+
+struct Copied {
+  uint32_t files = 0;
+  uint32_t folders = 0;
+  uint32_t bytes = 0;
+};
+
+// **Una peça més a un camí**, i sense doble barra quan el camí ja en porta una.
+bool join_a_name(const char* dir, const char* name, char* out, size_t cap) {
+  const size_t used = strlen(dir);
+  const bool slash = (used > 0 && dir[used - 1] == '/');
+  const int written = snprintf(out, cap, "%s%s%s", dir, slash ? "" : "/", name);
+  return written > 0 && static_cast<size_t>(written) < cap;
+}
+
+// L'última peça d'un camí: el nom que una còpia s'emporta quan el destí és una carpeta.
+const char* the_last_name(const char* path) {
+  const char* base = path;
+  for (const char* at = path; *at != '\0'; ++at) {
+    if (*at == '/') base = at + 1;
+  }
+  return base;
+}
+
+// **Una còpia és una lectura i una escriptura**, i mitja còpia no es queda: el destí s'esborra quan la lectura o l'escriptura
+// fallen. La carpeta del destí es fa com la fa una escriptura, o sigui que `cp /sd/x /sd/a/b/c` és una comanda i no tres
+// (docs/70).
+bool copy_a_file(const char* from, const char* to, uint32_t& bytes) {
+  bytes = 0;
+  hal::Stat about;
+  if (!vfs::stat(from, about) || about.type != hal::NodeType::kFile) return false;
+  if (!vfs::is_writable(to)) return false;
+  hal::IStorage* source_storage = nullptr;
+  char source_rel[128];
+  hal::IStorage* target_storage = nullptr;
+  char target_rel[128];
+  if (!vfs::resolve(from, source_storage, source_rel, sizeof(source_rel)) || source_storage == nullptr) return false;
+  if (!vfs::resolve(to, target_storage, target_rel, sizeof(target_rel)) || target_storage == nullptr) return false;
+  app_make_way(to);
+
+  hal::FileSlot in;
+  if (!source_storage->open(source_rel, hal::OpenMode::kRead, in)) return false;
+  hal::FileSlot out;
+  if (!target_storage->open(target_rel, hal::OpenMode::kWrite, out)) {
+    source_storage->close(in);
+    return false;
+  }
+  uint8_t window[kCopyWindow];
+  bool ok = true;
+  for (;;) {
+    const int32_t got = source_storage->read(in, window, sizeof(window));
+    if (got < 0) {
+      ok = false;
+      break;
+    }
+    if (got == 0) break;
+    if (target_storage->write(out, window, static_cast<uint32_t>(got)) != got) {
+      ok = false;
+      break;
+    }
+    bytes += static_cast<uint32_t>(got);
+  }
+  source_storage->close(in);
+  target_storage->close(out);
+  if (!ok) target_storage->remove(target_rel);
+  return ok;
+}
+
+bool copy_a_tree(const char* from, const char* to, Copied& done);
+
+// **Una carpeta és la mateixa còpia, camí a dins**: les carpetes es fan abans que els fitxers que hi van i un nom que no hi cap
+// atura el camí sencer en lloc de deixar mitja carpeta feta, que és el que una persona no pot desfer mirant el disc.
+class CopySink : public hal::ListSink {
+ public:
+  CopySink(const char* from, const char* to, Copied& done) : from_(from), to_(to), done_(done) {}
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.name == nullptr) return true;
+    char source[128];
+    char target[128];
+    if (!join_a_name(from_, entry.name, source, sizeof(source)) ||
+        !join_a_name(to_, entry.name, target, sizeof(target))) {
+      too_long_ = true;
+      return false;
+    }
+    if (entry.type == hal::NodeType::kDir) return copy_a_tree(source, target, done_);
+    if (!copy_a_file(source, target, done_.bytes)) return false;
+    ++done_.files;
+    return true;
+  }
+
+  bool too_long() const { return too_long_; }
+
+ private:
+  const char* from_;
+  const char* to_;
+  Copied& done_;
+  bool too_long_ = false;
+};
+
+bool copy_a_tree(const char* from, const char* to, Copied& done) {
+  if (!vfs::is_writable(to)) return false;
+  hal::Stat about;
+  if (!vfs::stat(to, about)) {
+    hal::IStorage* storage = nullptr;
+    char rel[128];
+    if (!vfs::resolve(to, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+    app_make_way(to);
+    if (!storage->mkdir(rel)) return false;
+    ++done.folders;
+  } else if (about.type != hal::NodeType::kDir) {
+    return false;
+  }
+  CopySink sink(from, to, done);
+  if (!vfs::list(from, sink)) return false;
+  return !sink.too_long();
+}
+
+// **El destí d'una còpia o d'un moviment**: una carpeta vol dir «a dins, amb el nom que portava» i qualsevol altra cosa és el
+// camí que s'ha escrit, que és la regla de tota la vida (docs/30).
+bool the_target_of(const char* from, const char* to, char* out, size_t cap) {
+  hal::Stat about;
+  if (vfs::stat(to, about) && about.type == hal::NodeType::kDir) {
+    const char* name = the_last_name(from);
+    if (name[0] == '\0') return false;
+    return join_a_name(to, name, out, cap);
+  }
+  const int written = snprintf(out, cap, "%s", to);
+  return written > 0 && static_cast<size_t>(written) < cap;
+}
+
+bool make_a_folder(const char* path) {
+  if (!vfs::is_writable(path)) {
+    error_out("mkdir: that disk is read only: ");
+    out(path);
+    newline();
+    return false;
+  }
+  hal::Stat about;
+  if (vfs::stat(path, about)) {
+    error_out("mkdir: there is something there already: ");
+    out(path);
+    newline();
+    return false;
+  }
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) {
+    error_out("mkdir: that is not a path: ");
+    out(path);
+    newline();
+    return false;
+  }
+  // **El camí sencer i no la fulla**: `mkdir /sd/a/b` fa `a` i `b`, que és el que fa una escriptura amb les carpetes de dalt.
+  app_make_way(path);
+  if (!storage->mkdir(rel)) {
+    error_out("mkdir: the disk did not take it: ");
+    out(path);
+    newline();
+    return false;
+  }
+  out("mkdir: ");
+  out(path);
+  newline();
+  return true;
+}
+
+bool copy_it(const char* from, const char* to, bool recursive) {
+  hal::Stat about;
+  if (!vfs::stat(from, about)) {
+    error_out("cp: no such file: ");
+    out(from);
+    newline();
+    say_where_it_is(from);
+    return false;
+  }
+  char target[128];
+  if (!the_target_of(from, to, target, sizeof(target))) {
+    error_out("cp: that is not a destination: ");
+    out(to);
+    newline();
+    return false;
+  }
+  if (strcmp(from, target) == 0) {
+    error_out("cp: that is the same file\r\n");
+    return false;
+  }
+  if (about.type == hal::NodeType::kDir) {
+    // **Una carpeta demana `-r`** i ho diu: una còpia que s'endugués una carpeta sencera sense preguntar seria una còpia que
+    // una persona no ha demanat, i la paraula és la de tota la vida (docs/30).
+    if (!recursive) {
+      error_out("cp: that is a folder, and a folder is `cp -r`: ");
+      out(from);
+      newline();
+      return false;
+    }
+    Copied done;
+    if (!copy_a_tree(from, target, done)) {
+      error_out("cp: could not copy the folder: ");
+      out(target);
+      newline();
+      return false;
+    }
+    out("cp: ");
+    out_num(done.folders);
+    out(" folder(s) and ");
+    out_num(done.files);
+    out(" file(s), ");
+    out_num(done.bytes);
+    out(" B, to ");
+    out(target);
+    newline();
+    return true;
+  }
+  uint32_t bytes = 0;
+  if (!copy_a_file(from, target, bytes)) {
+    error_out("cp: could not write: ");
+    out(target);
+    newline();
+    return false;
+  }
+  out("cp: ");
+  out_num(bytes);
+  out(" B to ");
+  out(target);
+  newline();
+  return true;
+}
+
+bool move_it(const char* from, const char* to) {
+  hal::Stat about;
+  if (!vfs::stat(from, about)) {
+    error_out("mv: no such file: ");
+    out(from);
+    newline();
+    say_where_it_is(from);
+    return false;
+  }
+  char target[128];
+  if (!the_target_of(from, to, target, sizeof(target))) {
+    error_out("mv: that is not a destination: ");
+    out(to);
+    newline();
+    return false;
+  }
+  if (strcmp(from, target) == 0) {
+    error_out("mv: that is the same path\r\n");
+    return false;
+  }
+  if (!vfs::is_writable(from)) {
+    // **Una cosa que no es pot esborrar no es mou**: el disc de l'origen és de només lectura, i dir-ho estalvia una còpia que
+    // deixa dues coses iguals en dos discs i una persona que no sap quina és quina (docs/70).
+    error_out("mv: that disk is read only, so the source cannot be taken away; `cp` copies it: ");
+    out(from);
+    newline();
+    return false;
+  }
+  if (!vfs::is_writable(target)) {
+    error_out("mv: that disk is read only: ");
+    out(target);
+    newline();
+    return false;
+  }
+  hal::IStorage* source_storage = nullptr;
+  char source_rel[128];
+  hal::IStorage* target_storage = nullptr;
+  char target_rel[128];
+  if (!vfs::resolve(from, source_storage, source_rel, sizeof(source_rel)) || source_storage == nullptr ||
+      !vfs::resolve(target, target_storage, target_rel, sizeof(target_rel)) || target_storage == nullptr) {
+    error_out("mv: that is not a path: ");
+    out(from);
+    newline();
+    return false;
+  }
+  app_make_way(target);
+  if (source_storage == target_storage) {
+    if (!target_storage->rename(source_rel, target_rel)) {
+      // **El renombrat d'aquesta targeta no reemplaça** (0.190.25): POSIX's `rename` overwrites the destination and FatFs
+      // answers `FR_EXIST` when the name is taken, o sigui que el destí s'esborra abans —que és el que POSIX fa tot sol— i el
+      // moviment es torna a provar una vegada.
+      const char* name = the_last_name(target);
+      if (name[0] != '\0') target_storage->remove(target_rel);
+      if (!target_storage->rename(source_rel, target_rel)) {
+        error_out("mv: the disk did not take the name: ");
+        out(target);
+        newline();
+        return false;
+      }
+    }
+    out("mv: ");
+    out(from);
+    out(" -> ");
+    out(target);
+    newline();
+    return true;
+  }
+
+  // **Dues unitats diferents no es renombren**: es copia i s'esborra l'origen, i si l'esborrada no va el que queda és una còpia
+  // feta i un original, que és el que la línia diu en lloc de dir que el moviment va bé (docs/70).
+  if (about.type == hal::NodeType::kDir) {
+    Copied done;
+    if (!copy_a_tree(from, target, done)) {
+      error_out("mv: could not copy the folder: ");
+      out(target);
+      newline();
+      return false;
+    }
+  } else {
+    uint32_t bytes = 0;
+    if (!copy_a_file(from, target, bytes)) {
+      error_out("mv: could not write: ");
+      out(target);
+      newline();
+      return false;
+    }
+  }
+  vfs::Dropped gone;
+  if (!vfs::drop_tree(from, gone)) {
+    error_out("mv: copied to ");
+    out(target);
+    out(", but the source could not be taken away: ");
+    out(from);
+    newline();
+    return false;
+  }
+  out("mv: ");
+  out(from);
+  out(" -> ");
+  out(target);
+  newline();
+  return true;
+}
+
+// **Un comptador de carpetes per a `rmdir`** (0.197.3): an empty folder is a folder whose listing has no entry, and the walk
+// stops at the first one because a folder with something in it is not empty however many things it has.
+struct IsThereAnything : public hal::ListSink {
+  bool on_entry(const hal::ListEntry& entry) override {
+    (void)entry;
+    anything = true;
+    return false;
+  }
+  bool anything = false;
+};
+
+bool remove_it(const char* path, bool recursive) {
+  hal::Stat about;
+  if (!vfs::stat(path, about)) {
+    error_out("rm: no such file: ");
+    out(path);
+    newline();
+    say_where_it_is(path);
+    return false;
+  }
+  if (!vfs::is_writable(path)) {
+    error_out("rm: that disk is read only: ");
+    out(path);
+    newline();
+    return false;
+  }
+  if (about.type == hal::NodeType::kDir) {
+    // **Una carpeta demana `-r` i la negativa diu què fer**: `rm /sd/fotos` that emptied a folder of somebody's photographs
+    // without asking is the one mistake this prompt must not make easy (docs/30, docs/70).
+    if (!recursive) {
+      error_out("rm: that is a folder, and a folder is `rm -r` (or `rmdir` if it is empty): ");
+      out(path);
+      newline();
+      return false;
+    }
+    vfs::Dropped gone;
+    if (!vfs::drop_tree(path, gone)) {
+      error_out("rm: the disk did not take it away: ");
+      out(path);
+      newline();
+      return false;
+    }
+    out("rm: ");
+    out_num(gone.folders);
+    out(" folder(s), ");
+    out_num(gone.files);
+    out(" file(s) and ");
+    out_num(gone.bytes);
+    out(" B gone: ");
+    out(path);
+    newline();
+    return true;
+  }
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr || !storage->remove(rel)) {
+    error_out("rm: the disk did not take it away: ");
+    out(path);
+    newline();
+    return false;
+  }
+  out("rm: ");
+  out(path);
+  newline();
+  return true;
+}
+
+bool remove_a_folder(const char* path) {
+  hal::Stat about;
+  if (!vfs::stat(path, about)) {
+    error_out("rmdir: no such folder: ");
+    out(path);
+    newline();
+    say_where_it_is(path);
+    return false;
+  }
+  if (about.type != hal::NodeType::kDir) {
+    error_out("rmdir: that is not a folder, and a file is `rm`: ");
+    out(path);
+    newline();
+    return false;
+  }
+  if (!vfs::is_writable(path)) {
+    error_out("rmdir: that disk is read only: ");
+    out(path);
+    newline();
+    return false;
+  }
+  IsThereAnything anything;
+  if (vfs::list(path, anything) && anything.anything) {
+    // **Una carpeta amb coses a dins no es buida per accident**: the word that does it is `rm -r`, and a person who typed
+    // `rmdir` meant the empty one (docs/30, docs/70).
+    error_out("rmdir: the folder is not empty, and `rm -r` is the word that takes it with what is inside: ");
+    out(path);
+    newline();
+    return false;
+  }
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr || !storage->remove(rel)) {
+    error_out("rmdir: the disk did not take it away: ");
+    out(path);
+    newline();
+    return false;
+  }
+  out("rmdir: ");
+  out(path);
+  newline();
+  return true;
+}
+
+}  // namespace
 
 // The entry chunk is handed to the interpreter whole, because Lua compiles a script from its source and cannot
 // be fed a line at a time. **It is taken from the heap and given back as soon as it has been compiled**, and
@@ -2528,8 +3150,14 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
   // **Els commutadors es prenen aquí i es gasten amb l'arrencada**: the wish's own string, or the manifest's `opensArgs`
   // when there is none; a switch of a wish is not a switch of the app, and the next start of it —from the launcher, from the
   // prompt— is a start without them (docs/30, docs/40).
+  //
+  // **I els del manifest només quan se li dona un fitxer** (0.192.85, l'amo: *«activo el teclat a settings, vaig a l'editor i …
+  // NO SURT CAP TECLAT»*): `opensArgs` és `-ro` a l'editor —un commutador per a **una pàgina que el sistema obre per algú**— i
+  // s'aplicava a tots els arrencaments, també al de la pàgina d'inici, o sigui que l'editor s'obria **de només lectura** sempre i
+  // sense teclat, i el que semblava un teclat trencat era una pàgina que no s'havia d'escriure. Ara el manifest només mana quan
+  // l'arrencament porta un camí (`open_path`), que és el cas per al qual el camp existeix (docs/30, docs/40).
   snprintf(g_switches_of_this_start, sizeof(g_switches_of_this_start), "%s",
-           (g_start_flags[0] != '\0') ? g_start_flags : target.opens_arg);
+           (g_start_flags[0] != '\0') ? g_start_flags : ((open_path != nullptr) ? target.opens_arg : ""));
   g_start_flags[0] = '\0';
 
   // **Una app que arrenca demana el topall una estona** (0.179.38): reading its source, building an interpreter and laying
@@ -2691,8 +3319,7 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
     boot.args_source = restore ? "sleep" : "open";
   }
 
-  const uint32_t limit_kb = platform().heap_limit_kb();
-  const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
+  const size_t limit = the_ceiling_of_the_interpreter();
   // **A breadcrumb before the interpreter takes over the task**: a page of controls, a font of outlines and
   // Lua share one stack, and when that stack dies the only thing left is what was said before it did
   // (measured on the Paper with `run buttons`, 2/11, docs/75).
@@ -4950,24 +5577,52 @@ bool command_led(const char* argument) {
   return true;
 }
 
+// **`mem check`, la salut dels dos munts** (0.193.1, l'amo preguntant si `heapguard` feia falta): the walking of both heaps with
+// `heap_caps_check_integrity` was inside the command of the guards, i no hi té res a veure —un munt trencat es mira igual amb canaris
+// que sense—, o sigui que ara viu a `mem`, al costat de `ram in use` i de `largest block`. El que diu és quin dels dos munts és trencat
+// i no pas qui l'ha trencat: per a això hi ha els canaris, que no són a totes les bandes (docs/30, docs/75, docs/95).
+void print_mem_check() {
+  title("the two heaps, walked");
+  const bool whole = pal::debug_heap_check();
+  char value[64];
+  snprintf(value, sizeof(value), "%s", whole ? "both are whole" : "a heap is broken, see the log");
+  row("heap integrity", value);
+  if (!whole) {
+    out("  ");
+    out(kStyleQuiet);
+    out("the walk is done with `heap_caps_check_integrity`; who wrote past a block is what the guards of the extra memory say, "
+        "and those are a build of their own (docs/95)");
+    out(kStyleOn);
+    newline();
+  }
+  // **I el que el munt té per donar en aquest moment**, perquè una comprovació sense els números al costat no diu si el forat és de
+  // memòria o de trossos (docs/75).
+  const pal::HeapInfo heap = pal::system().heap();
+  if (heap.valid) {
+    human_bytes(heap.free_bytes, value, sizeof value);
+    row("free heap", value);
+    human_bytes(heap.largest_free_bytes, value, sizeof value);
+    row("largest block", value);
+  }
+}
+
+#if LUNOK_MEMORY_GUARDS
 // **heapguard [bytes|off]**: els canaris de la memòria, dits al prompt (0.190.101, l'amo: *«millor fem les proves que volies fer amb els
 // canaris i tota la pesca»*). This is the tool of a build that fell inside the `tlsf` with a `StoreProhibited` and no name: the guards
 // of the extra memory say **which block and how big** the moment it is given back, and the watchpoint says **who** wrote past it, with
-// its own `PC` and stack. `heapguard check` camina els dos munts i diu on és el forat (docs/75, docs/95).
+// its own `PC` and stack (docs/75, docs/95).
+//
+// **I la comanda només existeix on els canaris existeixen** (0.193.1): the guards left the board's build —the RAM is for the radios— and
+// a command that could only answer "this build has no guards" is gone with them: not in `help`, not in the tabulador (docs/30).
 bool command_heapguard(const char* argument) {
   char words[1][kWordCap];
   size_t count = 0;
   if (!read_words(argument, words, 1, count)) return false;
-  const uint32_t guards = pal::debug_guards_on();
   if (count == 0) {
-    if (guards == 0) {
-      out("heapguard: this build has no guards (rebuild with LUNOK_MEMORY_GUARDS)\r\n");
-      return true;
-    }
     out("heapguard: guards on, nothing broken yet or something was (see the log)\r\n");
     out("  heapguard <bytes>   watch the tail of the next block of that size\r\n");
     out("  heapguard off       forget the watch\r\n");
-    out("  heapguard check     walk both heaps and say where the hole is\r\n");
+    out("  and `mem check`     walk both heaps and say where the hole is\r\n");
     return true;
   }
   if (strcmp(words[0], "off") == 0) {
@@ -4975,14 +5630,9 @@ bool command_heapguard(const char* argument) {
     out("heapguard: the watch is off\r\n");
     return true;
   }
-  if (strcmp(words[0], "check") == 0) {
-    const bool whole = pal::debug_heap_check();
-    out(whole ? "heapguard: both heaps are whole\r\n" : "heapguard: a heap is broken, see the log\r\n");
-    return true;
-  }
   const long asked = strtol(words[0], nullptr, 10);
   if (asked <= 0) {
-    usage_out("usage: heapguard [bytes|off|check]\r\n");
+    usage_out("usage: heapguard [bytes|off]\r\n");
     return false;
   }
   pal::debug_watch_a_block_of(static_cast<size_t>(asked));
@@ -4991,6 +5641,7 @@ bool command_heapguard(const char* argument) {
   out(" B will be watched\r\n");
   return true;
 }
+#endif  // LUNOK_MEMORY_GUARDS
 
 // button: what the finger is doing right now, and the gesture the system keeps for
 // itself. It is how a person sees the board feel the press before blaming the app
@@ -5523,8 +6174,7 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   // the window is for, and a manifest that says `"admin": true` says it in a window too (docs/30, docs/40, docs/60).
   boot.admin = target.admin;
 
-  const uint32_t limit_kb = platform().heap_limit_kb();
-  const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
+  const size_t limit = the_ceiling_of_the_interpreter();
   // **I la finestra diu que s'obre** (0.190.65, l'amo: *«Perqué no es veu l'app? l'app no hauría de dir alguna cosa? (lua
   // carregant-lo, la crida, el tancament…) No veig que l'app sigui avisada de res!»*). A window ran a whole app —loaded the text,
   // built the machine, called the hook and destroyed it— and the log only said `1 delivered to battery in a window`: el que la
@@ -6733,6 +7383,33 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
+    // **El sostre de memòria de l'intèrpret** (0.192.94): the number an app may take of the extra memory, which from the 0.192.94 is the only
+    // house the interpreter uses —the pages, the sessions and the pictures are there too—. `cfg mem` sense res llegeix, `cfg mem auto` torna
+    // a la meitat del que la placa dona i `cfg mem 3072` en posa tres megabytes; el valor nou mana a la propera app que arrenqui, perquè el
+    // sostre es decideix en arrencar-la (docs/20, docs/30, docs/75).
+    if (strcmp(words[0], "mem") == 0) {
+      const uint32_t board_kb = platform().heap_limit_kb();
+      uint32_t kb = 0;
+      if (!cfg::parse_interpreter_mem(words[1], kb, board_kb)) {
+        out("cfg: the interpreter may take ");
+        out_num(cfg::interpreter_mem_default_kb(board_kb));
+        out(" KB (the half of what this board gives");
+        if (board_kb > 0) {
+          out(", ");
+          out_num(board_kb);
+        }
+        out("), and `cfg mem <kb>` puts another, never above that\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_interpreter_mem(kb);
+      out("settings: the interpreter may take ");
+      out_num((kb > 0) ? kb : cfg::interpreter_mem_default_kb(board_kb));
+      out(" KB of the extra memory");
+      if (kb == 0) out(" (auto)");
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     // **Els tres temps, en minuts i sense traducció** (0.190.186, l'amo: el help deia *«in seconds: five minutes»*, o sigui que la porta demanava
     // una cosa i el text n'explicava una altra): the three are the five, ten and fifteen of the row of Battery and the same three of `cfg
     // lockafter`, and a person says them in minutes. **Els segons encara s'hi accepten** perquè són el que escriu `cfg.idle` des de Lua i
@@ -6877,6 +7554,18 @@ bool command_cfg(const char* argument) {
       say_keyboards();
       return true;
     }
+    // **El sostre de l'intèrpret, i el que mana si no s'hi ha dit res** (0.192.94): the number an app may take and the half that this board
+    // gives by itself, which is the two a person wants to tell apart —like the app of the start and its default— (docs/20, docs/75).
+    if (strcmp(words[0], "mem") == 0) {
+      const uint32_t board_kb = platform().heap_limit_kb();
+      const uint32_t chosen = cfg::interpreter_mem_kb();
+      out("settings: the interpreter may take ");
+      out_num((chosen > 0) ? chosen : cfg::interpreter_mem_default_kb(board_kb));
+      out(" KB of the extra memory");
+      if (chosen == 0) out(" (auto: the half of what the board gives)");
+      newline();
+      return true;
+    }
     // **The slice of a turn, and the default of this build** (0.174.7): the two numbers a person wants to tell apart,
     // like the home app and its default (docs/20, docs/75).
     if (strcmp(words[0], "turn") == 0) {
@@ -7006,8 +7695,7 @@ bool command_lua() {
   boot.app_id = "lua";
   boot.app_title = "lua";
   boot.app_version = kVersion;
-  const uint32_t limit_kb = platform().heap_limit_kb();
-  const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
+  const size_t limit = the_ceiling_of_the_interpreter();
   // **Obrir una app, mesurada**: the interpreter comes up and the chunk is compiled here, o sigui que el que una persona espera
   // després de prémer una cel·la és aquesta fila i no el metre de l'app, que encara no corre (docs/30, docs/75).
   bool the_interpreter;
@@ -7398,6 +8086,24 @@ bool execute(char* line) {
       out(device || host ? "bluetooth: on\r\n" : "bluetooth: off\r\n");
       out("  device: ");
       out(device ? "on" : "off");
+      // **Un beacon no s'ofereix a ningú: es diu** (0.194.0): the lines of a link —connected, asked for the reports— do not apply to a
+      // device that does not accept one, i el que una persona vol saber és amb quins números està a l'aire (docs/30, docs/50).
+      if (bt::beacon_on()) {
+        snprintf(buf, sizeof(buf), ", a beacon: major %u, minor %u, %d dBm at one metre\r\n",
+                 static_cast<unsigned>(bt::beacon_major()), static_cast<unsigned>(bt::beacon_minor()),
+                 static_cast<int>(bt::beacon_power()));
+        out(buf);
+        out("  host: ");
+        out(host ? "on" : "off");
+        if (!bt::can_host()) {
+          out(" (this build has no host side)");
+        } else if (host) {
+          out(bt::host_connected() ? ", a keyboard is writing into this console" : ", free (bt host scan)");
+        }
+        newline();
+        say_the_bt_services();
+        return true;
+      }
       if (device) {
         out(", ");
         out(device_phrase());
@@ -7445,6 +8151,7 @@ bool execute(char* line) {
           newline();
         }
       }
+      say_the_bt_services();
       return true;
     }
 
@@ -7478,15 +8185,29 @@ bool execute(char* line) {
         if (bt::is_on()) {
           snprintf(buf, sizeof(buf), "bluetooth: this board offers %s as \"%s\"\r\n", device_phrase(), bt::name());
           out(buf);
-          out("  bt dev off takes it away; bt dev move <dx> <dy> and bt dev click try the pointer\r\n");
         } else {
-          out("bluetooth: this board offers nothing (bt dev on offers it as a keyboard and a mouse)\r\n");
+          out("bluetooth: this board offers nothing\r\n");
         }
+        // **El que aquest costat pot ser, sencer** (0.196.1, l'amo: *«el help està sense actualitzar sobre els bt dev i el propi bt també»*):
+        // the list was two lines that named the pointer and nothing else, o sigui que el beacon, la bateria i la consola existien i no
+        // sortien enlloc. It is the same list `help bt` gives, in one line each (docs/30, docs/50).
+        out("  bt dev on|off                 offer this board (a keyboard and a mouse), or take it away\r\n");
+        out("  bt dev move <dx> <dy>|click   try the pointer on the other side\r\n");
+        out("  bt dev beacon on|off|<uuid>   be an iBeacon instead: four numbers in the air and no link\r\n");
+        out("  bt dev battery on|off         the battery level, readable and notified (0x180F, 0x2A19)\r\n");
+        out("  bt dev console on|off         the shell of this system over BLE, the same the serial shows\r\n");
+        out("  bt dev forget                 forget the other side (and remove it from its list too)\r\n");
         return true;
       }
       if (strcmp(which, "on") == 0) {
         if (!bt::available()) {
           out("bluetooth: this board has no radio\r\n");
+          return true;
+        }
+        // **Una advertise de llegat és un sol contingut** (0.194.0): the beacon and the keyboard cannot be in the air at once, i el que
+        // no es fa és treure el beacon sense dir-ho (docs/30, docs/50).
+        if (bt::beacon_on()) {
+          out("bluetooth: the beacon holds the air (bt dev beacon off puts the keyboard back)\r\n");
           return true;
         }
         if (!bt::start(nullptr)) {
@@ -7514,6 +8235,162 @@ bool execute(char* line) {
         bt::forget_the_device();
         out("bluetooth: this board forgot the other side and is offering itself again\r\n");
         out("  remove it from the other side's list too, or it keeps the map it read when it paired\r\n");
+        return true;
+      }
+      // ---- la bateria i la consola, per BLE (0.196.0) ----
+      //
+      // **Dos serveis de la ràdio que es poden obrir i tancar** (l'amo: *«Afegeix al bt dev battery on/off per notificar la batería»* i
+      // *«bt dev console on/off per exposar la shell de sistema (el mateix que es veu via serial, però per ble)»*). El de la bateria és
+      // el Battery Service del Bluetooth i el de la consola el Nordic UART Service, que és el que parlen les apps de terminal de BLE per
+      // telèfon. **Els dos necessiten que aquesta placa es pugui aparellar**, o sigui que si el dispositiu és apagat s'encén i es diu
+      // (docs/30, docs/50).
+      //
+      //   bt dev battery [on|off]    el nivell, llegible i notificat
+      //   bt dev console [on|off]    la shell del sistema per BLE: hi escrius i contesta
+      if (strcmp(which, "battery") == 0) {
+        if (!bt::available()) {
+          out("bluetooth: this board has no radio\r\n");
+          return true;
+        }
+        if (count == 2) {
+          out(bt::battery_on_now() ? "bluetooth: the battery service is on\r\n" : "bluetooth: the battery service is off\r\n");
+          out("  bt dev battery on|off  makes the level readable and notified (Battery Service, 0x180F)\r\n");
+          return true;
+        }
+        if (strcmp(words[2], "on") == 0) {
+          // **Sense dispositiu no hi ha res a què connectar-se**: a service that nobody can reach is a switch that does nothing, o sigui
+          // que s'encén el costat dispositiu com fa `bt dev on` (docs/30, docs/50).
+          if (!bt::is_on() && !bt::beacon_on()) {
+            if (!bt::start(nullptr)) {
+              out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
+              return true;
+            }
+            snprintf(buf, sizeof(buf), "bluetooth: this board offers %s as \"%s\" (the service needs it)\r\n", device_phrase(),
+                     bt::name());
+            out(buf);
+          }
+          if (!bt::battery_on()) {
+            out("bluetooth: the battery service did not come up, and the reason is in the log\r\n");
+            return true;
+          }
+          out("bluetooth: the battery service is on: the level is readable and it is notified when it changes\r\n");
+          return true;
+        }
+        if (strcmp(words[2], "off") == 0) {
+          bt::battery_off();
+          out("bluetooth: the battery service is off: the level reads zero\r\n");
+          return true;
+        }
+        usage_out("usage: bt dev battery [on|off]\r\n");
+        return false;
+      }
+      if (strcmp(which, "console") == 0) {
+        if (!bt::available()) {
+          out("bluetooth: this board has no radio\r\n");
+          return true;
+        }
+        if (count == 2) {
+          out(bt::console_on_now() ? "bluetooth: the console is on the air\r\n" : "bluetooth: the console is off the air\r\n");
+          out("  bt dev console on|off  the shell of this system over BLE: you write into it and it answers\r\n");
+          return true;
+        }
+        if (strcmp(words[2], "on") == 0) {
+          if (!bt::is_on() && !bt::beacon_on()) {
+            if (!bt::start(nullptr)) {
+              out("bluetooth: the radio did not come up, and the reason is in the log\r\n");
+              return true;
+            }
+            snprintf(buf, sizeof(buf), "bluetooth: this board offers %s as \"%s\" (the console needs it)\r\n", device_phrase(),
+                     bt::name());
+            out(buf);
+          }
+          if (!bt::console_on()) {
+            out("bluetooth: the console did not come up, and the reason is in the log\r\n");
+            return true;
+          }
+          out("bluetooth: the console is on the air: pair it and write into it (Nordic UART Service)\r\n");
+          out("  what you see on the serial port is what comes back, and what you write is a line of this prompt\r\n");
+          return true;
+        }
+        if (strcmp(words[2], "off") == 0) {
+          bt::console_off();
+          out("bluetooth: the console is off the air\r\n");
+          return true;
+        }
+        usage_out("usage: bt dev console [on|off]\r\n");
+        return false;
+      }
+      // ---- l'iBeacon (0.194.0) ----
+      //
+      // **Un altre contingut per al mateix anunci** (l'amo: *«pots integrar això (iBeacon) al ble dev? `ble dev beacon on`»*): el que
+      // el telèfon busca per situar la placa a l'espai. Els quatre números són els de sempre —UUID de proximitat, `major`, `minor` i el
+      // senyal calibrat a un metre— i el format és el de Apple, que és el que fa `ble_ibeacon_set_adv_data` a la banda del xip
+      // (docs/50).
+      //
+      //   bt dev beacon                       what is in the air right now, and with which numbers
+      //   bt dev beacon on                    put it in the air (the keyboard steps aside while it lasts)
+      //   bt dev beacon off                   take it away, and the keyboard comes back if it was on
+      //   bt dev beacon <uuid> [<major> [<minor>]]  change the identity, and restart it if it was on
+      //   bt dev beacon power <dbm>           the RSSI it is expected to give at one metre
+      if (strcmp(which, "beacon") == 0) {
+        if (!bt::available()) {
+          out("bluetooth: this board has no radio\r\n");
+          return true;
+        }
+        char said[96];
+        if (count == 2) {
+          snprintf(said, sizeof(said), "bluetooth: the beacon is %s\r\n", bt::beacon_on() ? "in the air" : "off");
+          out(said);
+          snprintf(said, sizeof(said), "  uuid %s, major %u, minor %u, %d dBm at one metre\r\n",
+                   bt::beacon_uuid_text(bt::beacon_uuid()), static_cast<unsigned>(bt::beacon_major()),
+                   static_cast<unsigned>(bt::beacon_minor()), static_cast<int>(bt::beacon_power()));
+          out(said);
+          out("  bt dev beacon on|off|<uuid> [<major> [<minor>]]|power <dbm>\r\n");
+          return true;
+        }
+        if (strcmp(words[2], "off") == 0) {
+          bt::beacon_stop();
+          out("bluetooth: the beacon is gone from the air");
+          out(bt::is_on() ? ", and the keyboard and the mouse are back\r\n" : "\r\n");
+          return true;
+        }
+        // **La identitat nova es prova abans de tocar res**: a UUID that is not one leaves the beacon as it was, veí de la lliçó de la
+        // 0.193.1 —una comanda que diu que sí i no fa res és pitjor que una que diu que no (docs/30).
+        uint8_t uuid[16];
+        memcpy(uuid, bt::beacon_uuid(), sizeof uuid);
+        uint16_t major = bt::beacon_major();
+        uint16_t minor = bt::beacon_minor();
+        int8_t power = bt::beacon_power();
+        // **`on` no canvia cap número: engega els que ja hi ha** (0.194.0).
+        if (strcmp(words[2], "power") == 0) {
+          if (count < 4) {
+            usage_out("usage: bt dev beacon power <dbm>\r\n");
+            return false;
+          }
+          const int dbm = atoi(words[3]);
+          if (dbm < -126 || dbm > 20) {
+            out("bluetooth: the calibrated power of a beacon is -126 to 20 dBm\r\n");
+            return true;
+          }
+          power = static_cast<int8_t>(dbm);
+        } else if (strcmp(words[2], "on") != 0) {
+          if (!bt::beacon_uuid_from_text(words[2], uuid)) {
+            out("bluetooth: that is not a UUID (32 hexadecimal digits, the dashes are free)\r\n");
+            return true;
+          }
+          if (count > 3) major = static_cast<uint16_t>(atoi(words[3]));
+          if (count > 4) minor = static_cast<uint16_t>(atoi(words[4]));
+        }
+        if (!bt::beacon_start(uuid, major, minor, power)) {
+          out("bluetooth: the beacon did not come up, and the reason is in the log\r\n");
+          return true;
+        }
+        snprintf(said, sizeof(said), "bluetooth: a beacon in the air: major %u, minor %u\r\n",
+                 static_cast<unsigned>(major), static_cast<unsigned>(minor));
+        out(said);
+        out("  uuid ");
+        out(bt::beacon_uuid_text(uuid));
+        out(" (a phone reads it as a place, and nothing connects to it)\r\n");
         return true;
       }
       // **El punter, provat des del prompt**: un moviment i un clic són les dues coses que una persona pot veure a l'altre aparell, o sigui
@@ -7699,7 +8576,8 @@ bool execute(char* line) {
       newline();
       return true;
     }
-    out("bluetooth: bt [dev [on|off|keyboard on|off|mouse on|off]|host [on|off|scan [seconds]|pair <n>|reconnect|forget]|type <text>]\r\n");
+    out("bluetooth: bt [dev [on|off|move <dx> <dy>|click [button]|beacon [on|off]|battery [on|off]|console [on|off]|forget]\r\n");
+    out("           | host [on|off|scan [seconds]|pair <n>|reconnect|forget] | type <text>]\r\n");
     return true;
   }
   // **I els blocs, un a un** (0.190.0): `mem` diu els totals de cada casa i qui té quant; `mem blocks` baixa a la llista de
@@ -7711,8 +8589,21 @@ bool execute(char* line) {
   // **`mem himem`, la prova del banc de commutació** (0.190.173, l'amo: *«Anem a activar el himem»*): the IDF's own
   // `system/himem` example writes and reads back the memory that the chip keeps behind its bank switcher, and this is the
   // same question asked from the prompt (docs/30, docs/50).
+  // **`mem lua`, el cost de la màquina virtual** (0.192.91): el que l'intèrpret d'una app té demanat en aquest moment, el pitjor que ha
+  // estat i el sostre que se li va donar, perquè la línia de `mem` diu el número i el desglossament és una altra pregunta (docs/30,
+  // docs/75).
+  if (strncmp(line, "mem lua", 7) == 0 && (line[7] == '\0' || line[7] == ' ')) {
+    print_mem_lua();
+    return true;
+  }
   if (strncmp(line, "mem himem", 9) == 0 && (line[9] == '\0' || line[9] == ' ')) {
     print_mem_himem();
+    return true;
+  }
+  // **`mem check`, els dos munts caminats** (0.193.1): the walk was in `heapguard check`, and it is not the guards' business —a broken
+  // heap is looked at the same with canaris and without them— (docs/30, docs/75, docs/95).
+  if (strncmp(line, "mem check", 9) == 0 && (line[9] == '\0' || line[9] == ' ')) {
+    print_mem_check();
     return true;
   }
   if (strncmp(line, "sessions", 8) == 0 && (line[8] == '\0' || line[8] == ' ')) {
@@ -7988,6 +8879,76 @@ bool execute(char* line) {
     }
     return hexdump_file(words[0]);
   }
+  // **`mkdir`, `cp` i `mv`** (0.197.3): the three words a person needs to put a file where they want it. `-r` is the
+  // only flag and only `cp` takes it, because a folder that moves is a folder that moves.
+  if (strcmp(line, "mkdir") == 0 || strncmp(line, "mkdir ", 6) == 0) {
+    char words[4][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 5, words, 4, count)) return false;
+    if (count == 0) {
+      usage_out("usage: mkdir <path> [<path> ...]\r\n");
+      return false;
+    }
+    bool all = true;
+    for (size_t i = 0; i < count; ++i) all = make_a_folder(words[i]) && all;
+    return all;
+  }
+  if (strcmp(line, "cp") == 0 || strncmp(line, "cp ", 3) == 0) {
+    char words[3][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 2, words, 3, count)) return false;
+    size_t first = 0;
+    bool recursive = false;
+    if (count > 0 && strcmp(words[0], "-r") == 0) {
+      recursive = true;
+      first = 1;
+    }
+    if (count < first + 2 || count > first + 2) {
+      usage_out("usage: cp [-r] <from> <to>\r\n");
+      return false;
+    }
+    return copy_it(words[first], words[first + 1], recursive);
+  }
+  if (strcmp(line, "mv") == 0 || strncmp(line, "mv ", 3) == 0) {
+    char words[2][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 2, words, 2, count)) return false;
+    if (count != 2) {
+      usage_out("usage: mv <from> <to>\r\n");
+      return false;
+    }
+    return move_it(words[0], words[1]);
+  }
+  if (strcmp(line, "rm") == 0 || strncmp(line, "rm ", 3) == 0) {
+    char words[5][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 2, words, 5, count)) return false;
+    size_t first = 0;
+    bool recursive = false;
+    if (count > 0 && strcmp(words[0], "-r") == 0) {
+      recursive = true;
+      first = 1;
+    }
+    if (count <= first) {
+      usage_out("usage: rm [-r] <path> [<path> ...]\r\n");
+      return false;
+    }
+    bool all = true;
+    for (size_t i = first; i < count; ++i) all = remove_it(words[i], recursive) && all;
+    return all;
+  }
+  if (strcmp(line, "rmdir") == 0 || strncmp(line, "rmdir ", 6) == 0) {
+    char words[4][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 5, words, 4, count)) return false;
+    if (count == 0) {
+      usage_out("usage: rmdir <path> [<path> ...]\r\n");
+      return false;
+    }
+    bool all = true;
+    for (size_t i = 0; i < count; ++i) all = remove_a_folder(words[i]) && all;
+    return all;
+  }
   if (strcmp(line, "log") == 0) {
     log_dump();
     return true;
@@ -8228,9 +9189,11 @@ bool execute(char* line) {
   if (strncmp(line, "led", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
     return command_led(line + 3);
   }
+#if LUNOK_MEMORY_GUARDS
   if (strncmp(line, "heapguard", 9) == 0 && (line[9] == '\0' || line[9] == ' ')) {
     return command_heapguard(line + 9);
   }
+#endif
   // **`serial`**: el port sèrie cedit a una app —o a una persona— i el silenci del sistema mentre ho és (0.189.20). With no word
   // it says who has the port, `claim` takes it and `release` gives it back, and the one who took it is the one who can give it
   // back. **I `send` hi entra amb un camí** (0.192.61, l'amo: *«Crea una subcomanda a serial anomenada "send" "serial [send]
@@ -8425,23 +9388,47 @@ void hand_the_line_over(const char* text) {
 // editor, bytes if it does not— and execute what came. `wait_ms` is how long the wait for a line may last, and zero is the turn asking
 // whether there is one and going on with its work, which is the PC and the emulator (docs/30, docs/50, docs/85).
 void serve_once(int32_t wait_ms) {
-  pal::IConsole* console = serial::console();
-  if (console == nullptr) return;
+  // **El port es demana a `serial::port()` i no a `serial::console()`** (0.199.2): la cessió calla el que el sistema **escriu**,
+  // i el lector no és un escriptor. Amb `console()` per a les dues coses, una caixa amb el focus que aixecava el teclat del
+  // cable es quedava sense cap tecla —el port era cedit, `console()` deia `nullptr` i ningú no llegia el cable— (docs/30, docs/50).
+  pal::IConsole* port = serial::port();
+  if (port == nullptr) return;
+
+  // **Amb el teclat del cable aixecat, el que arriba és de la caixa i no del prompt** (0.189.21): l'editor de línia del
+  // terminal se'l menjaria —la lletra aniria a la línia del prompt, que no és on la persona escriu—, o sigui que el camí és el
+  // dels bytes i prou: `feed` és qui els dona a la caixa amb el focus, i és el mateix camí que la banda del teclat (docs/30).
+  take_the_turn();
+  const bool wire_keyboard = ui::keyboard_is_the_wire();
+  give_the_turn();
+
+  if (wire_keyboard) {
+    char raw[64];
+    size_t got = port->read(raw, sizeof(raw));
+    while (got > 0) {
+      lock::note_activity(power::Hand::kConsole);
+      take_the_turn();
+      feed(raw, got);
+      give_the_turn();
+      got = port->read(raw, sizeof(raw));
+    }
+    return;
+  }
+
   // **Dues maneres d'arribar una línia i un sol shell** (0.190.222): amb el terminal del cable, el que arriba és la línia que l'editor ha
   // acabat —amb els colors i el cursor ja dibuixats— i el que se'n fa és el mateix; sense terminal (l'emulador, la consola del vidre,
   // una placa on el controlador no arrenca) arriben bytes i el shell té el seu editor. **Un sol camí per volta** i mai tots dos, o la
   // meitat de les tecles anirien a un editor i l'altra meitat a l'altre (docs/30, docs/50).
-  if (console->has_a_line_editor()) {
+  if (port->has_a_line_editor()) {
     char line[orders::kLineBytes];
     if (wait_ms > 0) {
-      if (console->wait_for_a_line(line, sizeof(line), wait_ms)) hand_the_line_over(line);
+      if (port->wait_for_a_line(line, sizeof(line), wait_ms)) hand_the_line_over(line);
       return;
     }
-    while (console->take_a_line(line, sizeof(line))) hand_the_line_over(line);
+    while (port->take_a_line(line, sizeof(line))) hand_the_line_over(line);
     return;
   }
   char buf[64];
-  size_t n = console->read(buf, sizeof(buf));
+  size_t n = port->read(buf, sizeof(buf));
   while (n > 0) {
     // A person is at the keyboard: the board is being used and does not put itself to sleep until the prompt has been quiet for a while
     // (docs/60). **Un comptador i prou**: `lock::note_activity` mou el de `power` des de la 0.190.9 (docs/30, docs/60).
@@ -8452,7 +9439,7 @@ void serve_once(int32_t wait_ms) {
     take_the_turn();
     feed(buf, n);
     give_the_turn();
-    n = console->read(buf, sizeof(buf));
+    n = port->read(buf, sizeof(buf));
   }
 }
 
@@ -8463,8 +9450,10 @@ void serve() {
   // aleshores la volta és la de sempre, deu mil·lisegons, que és el que el torn feia amb la consola abans de la 0.190.244 i el que deixa
   // que la placa segueixi fent becaines (docs/30, docs/50, docs/60, docs/95).
   for (;;) {
-    pal::IConsole* console = serial::console();
-    const bool editor = console != nullptr && console->has_a_line_editor();
+    // **I la pregunta és la del port i no la del sistema** (0.199.2): amb el teclat del cable aixecat el port és cedit i la
+    // consola del sistema no hi és, però el que espera el cable és una tecla d'una caixa i el camí és el dels bytes (docs/30).
+    pal::IConsole* port = serial::port();
+    const bool editor = port != nullptr && port->has_a_line_editor() && !ui::keyboard_is_the_wire();
     serve_once(editor ? 20 : 0);
     if (!editor) pal::delay_ms(10);
   }
@@ -8877,20 +9866,25 @@ uint32_t session_dropped(uint8_t id) {
 // it, and it is the same list `help` walks for its lines —one list and not two, because two lists of the same commands is
 // one list that will disagree with itself (docs/30).
 const char* const kCommandNames[] = {
-    "help",     "version",  "caps",     "mem",      "sessions", "apps",     "mounts",   "splash",
-    "screenshot", "panel",    "rotate",   "cfg",      "run",      "kill",     "stop",     "home",     "repo",     "lua",      "keys",
-    "fonts",    "wifi",     "provision", "ntp",     "tz",       "date",     "alarm",    "sleep",
-    "bt",
-    "load",
-    "poweroff", "deepsleep", "reboot",   "battery",  "led",      "serial",   "imu",      "touch",    "buttons",  "log",
-    "gps",
-    // **I el que no hi és, no s'ofereix** (0.190.238): `free` i `history` eren en aquesta taula i no tenen cap mà que els contesti —el
-    // tabulador els oferia i la línia queia a `unknown command`—, o sigui que surten. La taula del tabulador i la llista de `help` han de
-    // dir el que aquesta casa sap fer de debò (docs/30, docs/45).
-    "panic",    "stats",    "echo",     "cat",      "ls",       "cd",       "pwd",
+    // **En l'ordre de `help`, i amb el que hi ha de debò** (0.192.91): the list had eighteen words that no hand of this shell
+    // answered —`battery`, `touch`, `imu`, `cd`, `rm`, `date`, `tz`, `fonts`…, que són **apps** i no comandes— i li'n faltaven nou de
+    // les que sí (`bt`, `power`, `mesh`, `open`, `http`, `verbose`, `button`, `exit`, `logout`): el tabulador oferia el que no existeix
+    // i amagava el que existeix. Ara la llista és la de `help`, en el seu ordre, i la prova és que les dues es poden comparar
+    // (docs/30, docs/45).
+    "help",     "version",  "caps",     "mem",      "sessions",
+    "apps",     "mounts",   "cfg",      "splash",   "screenshot",
+    "panel",    "rotate",   "run",      "kill",     "home",
+    "wifi",     "provision", "bt",       "ntp",      "http",
+    "repo",     "alarm",    "mesh",     "load",
+#if LUNOK_MEMORY_GUARDS
     "heapguard",
-    "mkdir",    "rm",       "mv",       "cp",       "hexdump",  "fs",       "clear",
-    "ansi",    "terminal",
+#endif
+    "power",    "led",      "serial",   "gps",      "button",
+    "sleep",    "open",     "ls",       "cat",      "hexdump",
+    "mkdir",    "rmdir",    "cp",       "mv",       "rm",
+    "lua",      "log",      "stats",    "verbose",  "clear",
+    "terminal", "ansi",     "reboot",   "poweroff", "deepsleep",
+    "exit",     "logout",   "?",
 };
 
 // **Els noms de les comandes per al tabulador del terminal** (0.190.222): la taula de dalt és la de sempre i no se'n fa una còpia, perquè el

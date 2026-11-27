@@ -63,11 +63,21 @@ bool space_of_an_app(const char* id, const char* ground, luabind::AdminSpace& ou
 namespace {
 
 // **The canvases the system holds**, slot 0 is the view of the app and the rest are the controls an app makes
-// inside it. **The table is the extra memory's and the memory is the ceiling** (0.102.0): half a megabyte of the
-// PSRAM of the Paper holds twenty-seven hundred and thirty controls —a hundred and ninety-two bytes each— and the
-// rest of the extra memory is left for the buffers, which are the ones that cost a quarter of a megabyte. The
-// number of slots is asked with `canvas_count()` and not written here (docs/75, docs/90).
-const size_t kSlotTableBytes = 512u * 1024u;
+// inside it. **The table is the extra memory's and the memory is the ceiling**, and it is the ceiling **without paying for the empty
+// slots** (0.193.0, l'amo: *«ControlsUI ? no vull límit, que tot sigui dinàmic»*). Fins a la 0.192.99 demanava mig megabyte de cop al
+// primer pintat i no el tornava mai —2 849 ranures de 184 bytes per a una pàgina que en fa dues-centes cinquanta-sis, que és l'1 de cada
+// 11—, i ara neix amb `kFirstSlots` i dobla quan una pàgina l'omple, i torna a baixar quan la pàgina se'n va. El nombre de ranures es
+// pregunta amb `canvas_count()` i no s'escriu aquí (docs/75, docs/90).
+//
+// **Per què dues-centes cinquanta-sis i no seixanta-quatre**: that is the biggest page measured so far —the home, 256 controls—, o sigui
+// que una pàgina corrent no paga ni un sol `resize`, i a partir d'aquí tot és memòria. Per sota, cada arrencada d'un app faria dos o tres
+// canvis de mida al primer pintat, que és exactament la latència que aquest sistema no vol pagar per res (docs/75).
+const uint16_t kFirstSlots = 256;
+// **El sostre de debò és la memòria**, i l'únic número que queda és el de la ranura: un `int16_t` no compta més enllà de 32 767, i 32 767
+// ranures de 184 bytes són sis megabytes de PSRAM (docs/75, docs/90).
+const uint16_t kSlotsMost = 32767;
+// **El terra quan la primera taula no hi cap**: a board with almost no extra memory gets fewer slots instead of no display, and the
+// halving stops here, at a page of thirty-one controls (docs/75).
 const uint16_t kMinSlots = 32;
 Canvas* g_canvases = nullptr;
 uint16_t g_canvas_count = 0;
@@ -85,8 +95,7 @@ bool boot_table() {
   // (0.190.0, docs/75).
   pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
   if (g_canvases != nullptr) return true;
-  size_t count = kSlotTableBytes / sizeof(Canvas);
-  if (count > 32767u) count = 32767u;  // a slot is an `int16_t`
+  size_t count = kFirstSlots;
   while (count >= kMinSlots) {
     void* block = pal::extra_memory().allocate(count * sizeof(Canvas), true);
     if (block != nullptr) {
@@ -149,7 +158,14 @@ const font::Face& face_of(int8_t handle);
 // **The face the whole glass is drawn with** (0.96.0): the bold face of the disk —the same subset the paper project
 // settled on— at `/fonts`, which is the alias of the disk's `res/fonts` and the only copy the board carries. A board
 // without it keeps the five by seven of the flash and says so once in the log (docs/30, docs/70).
-const char kSystemFace[] = "/fonts/dejavusans-bold.ttf";
+// **La cara del sistema porta el joc Latin-1** (0.192.83, l'amo: *«i els accents?»*): `dejavusans-bold.ttf` és la mateixa família
+// retallada a l'ASCII imprimible i el seu mapa respon **zero** per als codis 0xE0 a 0xFC —comprovat llegint el `cmap` dels setze
+// fitxers del disc—, o sigui que una lletra accentuada que una app escriu era un forat al vidre, a la caixa de text, a
+// l'entrenament i a la línia de la banda. `dejavusans-bold-latin1.ttf` és **la mateixa família i el mateix pes** amb dues-centes
+// una entrades (vint kilobytes en lloc de vuit i mig) i és al disc de totes les plaques; si no hi és es queda la d'abans, i si no
+// n'hi ha cap, la taula del flaix (docs/30, docs/70).
+const char kSystemFace[] = "/fonts/dejavusans-bold-latin1.ttf";
+const char kSystemFaceBare[] = "/fonts/dejavusans-bold.ttf";
 void load_system_face();
 
 // **What the page has shown since it was last cleaned**: which of the sixteen levels were painted, and how
@@ -956,6 +972,60 @@ bool g_page_held = false;
 // —`wait_and_pump`, docs/85— and the turn asks whether something is owed, so without this flag a refused page would be
 // asked for again in the middle of the paint that is asking for it.
 bool g_painting = false;
+
+// **La primera ranura que es pot fer servir** (0.193.0): the scan `create` did inline, and it is a function now because a table that is
+// full is a table that is asked twice —once before it grows and once after— (docs/75, docs/90).
+int16_t a_free_slot() {
+  for (uint16_t i = 1; i < g_canvas_count; ++i) {
+    if (!g_canvases[i].in_use) return static_cast<int16_t>(i);
+  }
+  return kNoSlot;
+}
+
+// **I si no n'hi ha cap, la taula creix** (0.193.0): doubles, in the extra memory and never anywhere else —a table of six megabytes that
+// landed in the board's own RAM would be the whole heap of the chip—, i el bloc d'abans no es toca si el nou no hi cap, o sigui que una
+// pàgina que no pot créixer es queda amb el que tenia i no perd res.
+//
+// **Ningú no pot tenir una referència a una ranura mentre això passa**: the table may move, i per això a `g_painting` la resposta és que
+// no —qui està pintant té un `Canvas&` a la mà i no pot saber que ha canviat de casa—; el control que es demanava aquell moment es queda
+// sense fer, que és el que ja passava amb la taula plena (docs/75, docs/90).
+bool make_room() {
+  if (g_painting || g_canvases == nullptr) return false;
+  size_t count = static_cast<size_t>(g_canvas_count) * 2;
+  if (count > kSlotsMost) count = kSlotsMost;
+  if (count <= g_canvas_count) return false;
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
+  const size_t bytes = count * sizeof(Canvas);
+  void* block = pal::extra_memory().in_the_extra(g_canvases)
+                    ? pal::extra_memory().resize_in_the_extra(g_canvases, bytes)
+                    : pal::extra_memory().resize(g_canvases, bytes, false);
+  if (block == nullptr) return false;
+  Canvas* table = static_cast<Canvas*>(block);
+  for (size_t i = g_canvas_count; i < count; ++i) new (&table[i]) Canvas();
+  g_canvases = table;
+  g_canvas_count = static_cast<uint16_t>(count);
+  log_printf(pal::kLogInfo, "UI", "the table of canvases grows: %u slots of %u bytes",
+             static_cast<unsigned>(g_canvas_count), static_cast<unsigned>(sizeof(Canvas)));
+  return true;
+}
+
+// **I torna a baixar quan la pàgina se'n va** (0.193.0): a page that asked for two thousand controls is not a reason for the next one to
+// keep two thousand slots for ever. It only goes down when nothing but the view is left —which is what `attach` has just done— and a
+// `resize` that cannot is not an error: the table stays as it was (docs/75, docs/90).
+void shrink_the_table() {
+  if (g_painting || g_canvases == nullptr || g_canvas_count <= kFirstSlots) return;
+  for (uint16_t i = 1; i < g_canvas_count; ++i) {
+    if (g_canvases[i].in_use) return;  // the page in front still has controls: this is not the moment
+  }
+  pal::MemoryTag who_asks(pal::kMemoryUi, shell::app_id());
+  void* block = pal::extra_memory().in_the_extra(g_canvases)
+                    ? pal::extra_memory().resize_in_the_extra(g_canvases, static_cast<size_t>(kFirstSlots) * sizeof(Canvas))
+                    : pal::extra_memory().resize(g_canvases, static_cast<size_t>(kFirstSlots) * sizeof(Canvas), false);
+  if (block == nullptr) return;
+  g_canvases = static_cast<Canvas*>(block);
+  g_canvas_count = kFirstSlots;
+  log_printf(pal::kLogInfo, "UI", "the table of canvases is back to %u slots", static_cast<unsigned>(g_canvas_count));
+}
 
 // **The sentence of a refused page is said once while it does not change** (0.151.5): a glass that is gone refuses every
 // paint, and one warning per turn is a console nobody can read —the board of 8/11 filled a screen with the same line
@@ -2620,6 +2690,9 @@ void attach_the_view(bool wash) {
   // **And the faces it loaded go back too**: the block of an app is the app's, and an app that ends with a
   // font loaded would leave a kilobyte of the extra memory spoken for by nobody (docs/30, docs/75).
   release_faces();
+  // **I la taula, si havia crescut per aquesta pàgina, torna a baixar abans que la que ve comenci** (0.193.0): nothing but the view is
+  // left, which is the only moment the shrinking is safe and the only moment it is owed (docs/75, docs/90).
+  shrink_the_table();
   memset(root().bits, 0xFF, root().bytes);
   root().damage_count = 0;
   // **And the paper of the page is white again** (0.173.2): what an app cleared its view with is the app's, and a hole that a
@@ -2784,16 +2857,10 @@ bool create(uint16_t width, uint16_t height, int16_t parent, bool with_view, int
   // pixel of one line and the first of the next (docs/50).
   width = static_cast<uint16_t>(width & ~1u);
   if (width == 0 || height == 0) return false;
-  // **The first free slot of the table, and the table is as long as the memory made it**: a page that fills it is
-  // a page with more than two thousand controls on it, and the refusal is the memory's and not a number of this
-  // file (docs/75, docs/90).
-  int16_t free_slot = kNoSlot;
-  for (uint16_t i = 1; i < g_canvas_count; ++i) {
-    if (!g_canvases[i].in_use) {
-      free_slot = static_cast<int16_t>(i);
-      break;
-    }
-  }
+  // **The first free slot of the table, and a table with none grows** (0.193.0): a page that fills it is a page with more controls than
+  // the memory holds, and the refusal is the memory's and not a number of this file (docs/75, docs/90).
+  int16_t free_slot = a_free_slot();
+  if (free_slot < 0 && make_room()) free_slot = a_free_slot();
   if (free_slot < 0) return false;
   Canvas& made = g_canvases[free_slot];
   made = Canvas{};
@@ -8270,6 +8337,10 @@ class Keyboard {
   // **El port només es dóna si l'ha pres el teclat** (0.189.21): an app that claimed the wire for itself and then opens a box
   // keeps its claim when the box loses the focus —the keyboard gives back what it took and not what was already taken—.
   bool wire_claimed_ = false;
+  // **I el nom amb què es va prendre es recorda** (0.199.2): `hide()` preguntava qui és al davant **en el moment de tancar**, i
+  // si la caixa que tenia el focus era d'una app que ja no hi era, el nom no era el mateix i el port es quedava cedit per
+  // sempre —un cable que ningú no pot recuperar—. Es desa el nom del qui el va prendre i és aquest el que el torna (docs/30, docs/50).
+  char wire_owner_[24] = {};
   uint8_t kind_ = kKeyboardAlpha;
   // **The capitals are a lock** (0.84.4): the key turns them on and the key turns it off, and a letter does not put
   // them back (docs/90).
@@ -8280,6 +8351,9 @@ class Keyboard {
   // to the page under it —the caret left and right in a box of one line, a row up and down in a box of several lines, with
   // the column it came from (docs/30, docs/90).
   bool held_ = false;
+  // **Un avís per contacte i no per marc** (0.192.87): the finger of a band of keys stays inside a margin for a hundred frames
+  // and each of them would print the same line (docs/50).
+  bool noted_a_miss_ = false;
   uint16_t key_h_ = 0;
   bool needs_paint_ = true;
   // **La primera pintada de la banda neteja i les altres no** (0.179.82): the band comes up **over the page**, and the ink under it is
@@ -8361,6 +8435,9 @@ class HandwriteKeyboard final : public Keyboard {
   static const uint16_t kBandH = 372;
   static const uint16_t kLineH = 44;
   static const uint16_t kFootH = 64;
+  // **El gruix del marc dels dos panells**: four pixels of ink, which is a frame this panel shows and a one-pixel line is not
+  // (0.192.81, docs/30).
+  static const uint16_t kSurfaceFrame = 4;
   // The rest that says the letter is finished (l'amo: *«Esperar 1.2 segon»*).
   static const uint32_t kRestMs = 1200;
 
@@ -8370,8 +8447,29 @@ class HandwriteKeyboard final : public Keyboard {
   void forget_the_candidates();
   // The boxes of the band, in view coordinates: the whole band at `top`, the line, the two surfaces and the foot.
   void boxes(int32_t top, int32_t& surface_top, int32_t& surface_h, int32_t& split, int32_t& foot_top) const;
+  // **El requadre de la zona que s'està dibuixant** (0.195.0): the field the model needs to know where the ink fell and how much of it
+  // it takes, que és el que separa un `-` d'una `_` i un `.` d'una ratlla (docs/30, docs/90).
+  ink::Field the_zone_field(int32_t surface_top, int32_t surface_h, int32_t split) const;
+  ink::Field the_zone_field_of_the_band() const;
 
-  bool drawing_ = false;
+  // **Si hi ha una lletra a mitges**, que és el que diu si el glif s'ha de netejar en un contacte nou (0.192.83).
+  bool letter_open_ = false;
+  // **La línia de la captura que s'està dibuixant** (0.192.88): the kernel numbers the lines of the box and a point with another
+  // number is another stroke —la segona ratlla d'una `t` és un traç més de la mateixa lletra i no una lletra nova— (docs/30).
+  uint16_t line_ = 0;
+  // **Un toc al peu és un toc** (0.192.89): the foot is buttons, and a finger held on one is not one press per scan (docs/90).
+  bool foot_held_ = false;
+  // **I el peu que ha fet el que diu es pinta** (0.192.89): a candidate that is chosen writes a letter and clears the three, i el
+  // que ha canviat és la banda —la línia i el peu—; sense això es quedaven a la pell fins al proper pintat d'una lletra
+  // (docs/30, docs/90).
+  bool owes_a_paint_ = false;
+  // **El darrer dit que la captura va dir**, per saber quan se n'ha anat i començar a comptar la pausa (docs/30).
+  bool finger_was_there_ = false;
+  // **El quadre que es va armar**, per tornar-lo a armar si la banda es mou o canvia de mida (docs/30, docs/50).
+  int32_t armed_x_ = -1;
+  int32_t armed_y_ = -1;
+  int32_t armed_w_ = -1;
+  int32_t armed_h_ = -1;
   uint8_t zone_ = 0;          // which of the two models the stroke belongs to (0 letters, 1 symbols)
   int64_t last_ms_ = 0;       // when the finger last moved
   bool owes_the_rest_ = false;
@@ -8379,12 +8477,36 @@ class HandwriteKeyboard final : public Keyboard {
   uint8_t typed_len_ = 0;
   char candidate_[3] = {};
   uint8_t candidates_ = 0;
+  // **El que la banda diu quan no ha pogut escriure res** (0.192.85): a model with no examples —or a drawing nobody knows— used to
+  // leave the line exactly as it was, o sigui que la persona dibuixava i no passava res, que és el pitjor que pot fer un teclat.
+  // La nota surt a la línia fins al proper contacte (docs/30, docs/90).
+  char note_[48] = {};
 };
+
+namespace {
+
+// **Un marc que es veu en aquest vidre** (0.192.81, l'amo: *«El teclat handwrite no fa res? no surt el panell per escriure!?»*): a
+// one-pixel frame at level four is a frame a person has to look for on a panel, i el que la banda ha d'ensenyar és **on es dibuixa**;
+// quatre píxels de tinta i prou (docs/30, docs/92).
+void thick_frame(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, int32_t thickness, uint8_t level) {
+  if (w <= 0 || h <= 0 || thickness <= 0) return;
+  put_rect(view, x, y, w, thickness, level);
+  put_rect(view, x, y + h - thickness, w, thickness, level);
+  put_rect(view, x, y + thickness, thickness, h - 2 * thickness, level);
+  put_rect(view, x + w - thickness, y + thickness, thickness, h - 2 * thickness, level);
+}
+
+}  // namespace
 
 void HandwriteKeyboard::boxes(int32_t top, int32_t& surface_top, int32_t& surface_h, int32_t& split,
                               int32_t& foot_top) const {
+  // **El peu no trepitja la franja del sistema** (0.192.89, l'amo: *«quan dubta posa les opcions sota del camp on puc dibuixar, però
+  // no semblen botons que es puguin polsar»*): the last rows of the glass are the strip of the system —`bar::strip_rows()`—, i un dit
+  // que hi cau és el gest de la targeta de baix i **no arriba mai a la banda**: els candidats eren a la franja i el toc no feia res.
+  // El peu sencer queda per sobre d'aquestes files (docs/30, docs/50, docs/90).
+  const int32_t strip = static_cast<int32_t>(bar::strip_rows());
   surface_top = top + kLineH;
-  foot_top = top + static_cast<int32_t>(kBandH) - kFootH;
+  foot_top = top + static_cast<int32_t>(kBandH) - kFootH - strip;
   surface_h = foot_top - surface_top;
   // **La lletra té dos terços i els números un**: a letter is the common thing and a digit is a corner of the band, i el que
   // decideix la zona és on cau el dit i no cap tecla de mode (docs/90).
@@ -8395,7 +8517,9 @@ void HandwriteKeyboard::boxes(int32_t top, int32_t& surface_top, int32_t& surfac
 // are what this band typed and not what the box has —the app may empty its box, and the line is the keyboard's own memory of the
 // last few letters— (docs/30, docs/90).
 void HandwriteKeyboard::paint_own(Canvas& view, int32_t top, hal::UpdateMode mode) {
-  const font::Face& face = keyboard_face();
+  // **Amb la cara del sistema**: és la que porta el joc Latin-1, i la línia d'aquesta banda escriu les lletres que el model ha
+  // llegit, accents inclosos (0.192.83, docs/30).
+  const font::Face& face = font::system_face();
   int32_t surface_top = 0;
   int32_t surface_h = 0;
   int32_t split = 0;
@@ -8405,42 +8529,55 @@ void HandwriteKeyboard::paint_own(Canvas& view, int32_t top, hal::UpdateMode mod
 
   // **La línia**: a rule under the characters and the characters over it, centred, with a caret where the next one goes.
   const uint8_t line_scale = 4;
-  char shown[sizeof(typed_) + 2];
-  snprintf(shown, sizeof(shown), "%s|", typed_);
-  const int32_t line_w = static_cast<int32_t>(font::width(face, shown, line_scale));
+  // **El bloc és el de la nota i no el de la línia**: the note can be longer than the line window, i un text que no hi cap és una
+  // nota tallada (docs/30).
+  char shown[sizeof(note_) + 2];
+  // **La nota és un avís i no una línia d'escriptura**: three steps instead of four, perquè una frase curta hi càpiga sencera en
+  // aquesta amplada (docs/30).
+  uint8_t text_scale = line_scale;
+  if (note_[0] != '\0') {
+    snprintf(shown, sizeof(shown), "%s", note_);
+    text_scale = 3;
+  } else {
+    snprintf(shown, sizeof(shown), "%s|", typed_);
+  }
+  const int32_t line_w = static_cast<int32_t>(font::width(face, shown, text_scale));
   const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * line_scale;
-  draw_text(view, face, (width - line_w) / 2, top + (static_cast<int32_t>(kLineH) - line_h) / 2, shown, line_scale, 0, mode);
-  put_rect(view, 8, static_cast<int32_t>(kLineH) + top - 1, width - 16, 1, 4);
+  draw_text(view, face, (width - line_w) / 2, top + (static_cast<int32_t>(kLineH) - line_h) / 2, shown, text_scale, 0, mode);
+  put_rect(view, 8, static_cast<int32_t>(kLineH) + top - 3, width - 16, 3, 0);
 
   // **Les dues superfícies**, amb el seu marc d'un píxel i el seu nom a la cantonada: a person has to see where a letter goes and
   // where a number goes, i un rectangle ple de gris fosc no és un marc (docs/92).
+  // **Els dos panells, amb el marc de quatre píxels i el seu nom a dalt** (0.192.81, l'amo: *«no surt el panell per escriure»*):
+  // dues caixes que es veuen de lluny, que és el que diu on ha d'anar el dit (docs/30).
+  const int32_t edge = static_cast<int32_t>(kSurfaceFrame);
   const int32_t letters_left = 8;
   const int32_t letters_right = split - 9;
   const int32_t numbers_left = split + 1;
   const int32_t numbers_right = width - 9;
-  put_rect(view, letters_left, surface_top, letters_right - letters_left + 1, 1, 4);
-  put_rect(view, letters_left, surface_top + surface_h - 1, letters_right - letters_left + 1, 1, 4);
-  put_rect(view, letters_left, surface_top, 1, surface_h, 4);
-  put_rect(view, letters_right, surface_top, 1, surface_h, 4);
-  put_rect(view, numbers_left, surface_top, numbers_right - numbers_left + 1, 1, 4);
-  put_rect(view, numbers_left, surface_top + surface_h - 1, numbers_right - numbers_left + 1, 1, 4);
-  put_rect(view, numbers_left, surface_top, 1, surface_h, 4);
-  put_rect(view, numbers_right, surface_top, 1, surface_h, 4);
-  const uint8_t word_scale = 2;
-  draw_text(view, face, letters_left + 6, surface_top + 6, "letters", word_scale, 4, mode);
-  draw_text(view, face, numbers_left + 6, surface_top + 6, "123", word_scale, 4, mode);
+  thick_frame(view, letters_left, surface_top, letters_right - letters_left + 1, surface_h, edge, 0);
+  thick_frame(view, numbers_left, surface_top, numbers_right - numbers_left + 1, surface_h, edge, 0);
+  const uint8_t word_scale = 3;
+  draw_text(view, face, letters_left + edge + 6, surface_top + edge + 4, "letters", word_scale, 0, mode);
+  draw_text(view, face, numbers_left + edge + 6, surface_top + edge + 4, "numbers", word_scale, 0, mode);
 
   // **El peu**: tres candidats a l'esquerra —el que el model dubta— i les tres tecles que no es dibuixen a la dreta.
-  put_rect(view, 8, foot_top, width - 16, 1, 4);
+  // **Els candidats són botons** (0.192.89, l'amo: *«Fes que siguin botons, i si pico un s'envii»*): a filled grey square with a dark
+  // letter on it was a mark and not a key —nothing said it could be pressed, and the ink of the letter was almost the ink of its
+  // box—. El que es dibuixa ara és el mateix botó que la resta de la casa: el paper de dins, el marc gruixut i la lletra a sobre,
+  // amb la paraula que diu què és a la seva esquerra (docs/30, docs/90, docs/92).
+  put_rect(view, 8, foot_top, width - 16, 3, 0);
   const int32_t cell = 64;
+  const int32_t box_top = foot_top + 4;
+  const int32_t box_h = static_cast<int32_t>(kFootH) - 8;
   for (uint8_t i = 0; i < candidates_; ++i) {
     const int32_t x = 8 + static_cast<int32_t>(i) * (cell + 4);
-    put_rect(view, x, foot_top + 1, cell, static_cast<int32_t>(kFootH) - 1, 4);
+    put_rect(view, x, box_top, cell, box_h, 15);
+    thick_frame(view, x, box_top, cell, box_h, 3, 0);
     char one[2] = {candidate_[i], 0};
     const uint8_t scale = 5;
     const int32_t taken = static_cast<int32_t>(font::width(face, one, scale));
-    draw_text(view, face, x + (cell - taken) / 2, foot_top + (static_cast<int32_t>(kFootH) - line_h * scale / line_scale) / 2,
-              one, scale, 0, mode);
+    draw_text(view, face, x + (cell - taken) / 2, box_top + (box_h - line_h * scale / line_scale) / 2, one, scale, 0, mode);
   }
   // **Les tres tecles que no es dibuixen**: the return and the backspace are shapes the other bands already draw, i l'espai és una
   // barra amb la seva paraula, que és el que una persona busca amb el polze (docs/90).
@@ -8450,10 +8587,7 @@ void HandwriteKeyboard::paint_own(Canvas& view, int32_t top, hal::UpdateMode mod
   draw_icon(view, KeyAction::kBack, right - 2 * key - 6, foot_top + 4, key, key, 0);
   const int32_t space_w = key + key / 2;
   const int32_t space_x = right - 3 * key - 12 - space_w;
-  put_rect(view, space_x, foot_top + 4, space_w, 1, 4);
-  put_rect(view, space_x, foot_top + 4 + key - 1, space_w, 1, 4);
-  put_rect(view, space_x, foot_top + 4, 1, key, 4);
-  put_rect(view, space_x + space_w - 1, foot_top + 4, 1, key, 4);
+  thick_frame(view, space_x, foot_top + 4, space_w, key, 3, 0);
   {
     const int32_t taken = static_cast<int32_t>(font::width(face, "space", word_scale));
     draw_text(view, face, space_x + (space_w - taken) / 2, foot_top + 4 + (key - line_h * word_scale / line_scale) / 2,
@@ -8464,6 +8598,7 @@ void HandwriteKeyboard::paint_own(Canvas& view, int32_t top, hal::UpdateMode mod
 // **Un caràcter a la línia i al camp**, pel camí de sempre: the band types with the same door as a key of the grid, o sigui que
 // una app no ha de saber que el que l'ha escrit és un dit i no una tecla (docs/30, docs/90).
 void HandwriteKeyboard::type(char c) {
+  note_[0] = '\0';
   if (c == '\0') return;
   if (!luabind::ui_keyboard_has_target()) {
     log_printf(pal::kLogWarn, "UI", "the hand band typed '%c' with no object to type into", c);
@@ -8478,6 +8613,32 @@ void HandwriteKeyboard::type(char c) {
   log_printf(pal::kLogInfo, "UI", "the hand band types '%c'", c);
 }
 
+// **El requadre d'una de les dues zones de la banda** (0.195.0): the letters on the left of the split, the symbols on the right, i les
+// dues comencen a la fila on comença la banda i tenen la seva alçada (docs/30, docs/90).
+ink::Field HandwriteKeyboard::the_zone_field(int32_t surface_top, int32_t surface_h, int32_t split) const {
+  ink::Field where;
+  where.y = surface_top;
+  where.h = static_cast<uint16_t>(surface_h > 0 ? surface_h : 0);
+  if (zone_ == hand::kSymbols) {
+    const int32_t width = static_cast<int32_t>(root().width);
+    where.x = split;
+    where.w = static_cast<uint16_t>((width > split) ? (width - split) : 0);
+  } else {
+    where.x = 0;
+    where.w = static_cast<uint16_t>(split > 0 ? split : 0);
+  }
+  return where;
+}
+
+ink::Field HandwriteKeyboard::the_zone_field_of_the_band() const {
+  int32_t surface_top = 0;
+  int32_t surface_h = 0;
+  int32_t split = 0;
+  int32_t foot_top = 0;
+  boxes(static_cast<int32_t>(root().height) - static_cast<int32_t>(kBandH), surface_top, surface_h, split, foot_top);
+  return the_zone_field(surface_top, surface_h, split);
+}
+
 void HandwriteKeyboard::forget_the_candidates() {
   candidates_ = 0;
   candidate_[0] = candidate_[1] = candidate_[2] = '\0';
@@ -8487,11 +8648,33 @@ void HandwriteKeyboard::forget_the_candidates() {
 // perceptron i el caràcter»*): the glyph goes to the model of its zone; si el primer candidat és prou segur s'escriu, i si no ho és
 // la banda ensenya els tres i espera un dit (docs/30, docs/90).
 void HandwriteKeyboard::close_the_glyph() {
-  if (hand::glyph().empty()) return;
-  const ink::Answer answer = hand::guess(zone_);
+  // **La lletra s'ha tancat**: the glyph is given back as soon as the band has said what it read, and it is kept only when the three
+  // candidates are asked for, perquè el toc d'un candidat és una mostra nova d'aquest mateix dibuix (docs/30).
+  if (hand::glyph().empty()) {
+    letter_open_ = false;
+    return;
+  }
+  // **El camp de la lletra és la zona on s'ha dibuixat i no la banda sencera** (0.195.0, l'amo: *«no detecta bé els símbols… VUll que
+  // m'entengui»*): the band is two panels side by side and the model has to know **where inside its own panel** the ink fell and how
+  // much of it it takes, o sigui que un `-` al mig del paper i una `_` al peu deixen de ser el mateix dibuix (docs/30, docs/90).
+  int32_t surface_top = 0;
+  int32_t surface_h = 0;
+  int32_t split = 0;
+  int32_t foot_top = 0;
+  boxes(static_cast<int32_t>(root().height) - static_cast<int32_t>(kBandH), surface_top, surface_h, split, foot_top);
+  const ink::Answer answer = hand::guess(zone_, the_zone_field(surface_top, surface_h, split));
   forget_the_candidates();
   if (!answer.any) {
-    log_printf(pal::kLogInfo, "UI", "the hand band drew nothing the %s model knows", hand::zone_name(zone_));
+    // **I ho diu** (0.192.85): el log no el veu ningú que dibuixa, o sigui que la línia de la banda és on ha de sortir per què no
+    // ha escrit res: un model que encara no té cap mostra, o un dibuix que no s'assembla a res del que té (docs/30, docs/90).
+    if (hand::examples(zone_) == 0) {
+      snprintf(note_, sizeof(note_), "no %s yet: run Handwrite", hand::zone_name(zone_));
+    } else {
+      snprintf(note_, sizeof(note_), "nothing read: try again");
+    }
+    log_printf(pal::kLogInfo, "UI", "the hand band drew nothing the %s model knows (%s)", hand::zone_name(zone_), note_);
+    hand::glyph().clear();
+    letter_open_ = false;
     return;
   }
   if (answer.confident || answer.count == 1) {
@@ -8502,8 +8685,13 @@ void HandwriteKeyboard::close_the_glyph() {
                (answer.count > 1) ? answer.top[1].text : '-',
                (answer.count > 1) ? static_cast<unsigned>(answer.top[1].distance) : 0);
     type(answer.top[0].text);
+    hand::glyph().clear();
+    letter_open_ = false;
     return;
   }
+  // **Es pregunta, i el dibuix espera el dit**: it stays in the glyph so the tap can be a new labelled example, i `letter_open_` es
+  // tanca perquè un dit nou vol dir una lletra nova (docs/30, docs/90).
+  letter_open_ = false;
   candidates_ = answer.count;
   for (uint8_t i = 0; i < answer.count && i < 3; ++i) candidate_[i] = answer.top[i].text;
   log_printf(pal::kLogInfo, "UI", "the hand band is not sure (%c %u, %c %u): it asks", answer.top[0].text,
@@ -8512,64 +8700,135 @@ void HandwriteKeyboard::close_the_glyph() {
              (answer.count > 1) ? static_cast<unsigned>(answer.top[1].distance) : 0);
 }
 
-// **El torn de la banda**: the pause is counted here, which is the question the kernel already asks every turn for the band that
-// owes a paint (docs/30, docs/60).
+// **El torn de la banda**: aquí arriba el que el vidre ha vist des de l'últim torn, i aquí es compta la pausa —és la pregunta que
+// el nucli ja fa cada torn per a la banda que deu un pintat— (docs/30, docs/50, docs/60).
+//
+// **Els dits vénen de la captura i no d'una fotografia** (0.192.88, l'amo: *«El teclat també haurà de fer el mateix: convertir els
+// gestos que li succeeixin a la seva àrea convertits en events de dits (per no perdre línies, per exemple, sense això els accents
+// semblen un punt sobre el símbol)»*): the kernel has kept every frame that landed on the two surfaces, in order and with the line
+// it belongs to, o sigui que una lletra curta —el accent d'una `à`— ja no és un punt sol: no hi ha cap marc que es perdi entre dos
+// torns (docs/30, docs/50, docs/90).
 bool HandwriteKeyboard::own_turn() {
-  if (!owes_the_rest_) return false;
-  if (pal::system().millis() - last_ms_ < static_cast<int64_t>(kRestMs)) return false;
-  owes_the_rest_ = false;
-  close_the_glyph();
-  return true;
+  // **El que el peu ha canviat es pinta en aquest torn** (0.192.89): a candidate chosen or a key of the foot pressed is a line and
+  // three boxes that are not what they were (docs/30, docs/90).
+  bool the_foot_changed = owes_a_paint_;
+  owes_a_paint_ = false;
+  int32_t surface_top = 0;
+  int32_t surface_h = 0;
+  int32_t split = 0;
+  int32_t foot_top = 0;
+  boxes(static_cast<int32_t>(root().height) - static_cast<int32_t>(kBandH), surface_top, surface_h, split, foot_top);
+  const int32_t width = static_cast<int32_t>(root().width);
+  if (armed_x_ != 0 || armed_y_ != surface_top || armed_w_ != width || armed_h_ != surface_h ||
+      !touch::capturing(touch::CaptureOwner::kTheKeyboard)) {
+    touch::capture(touch::CaptureOwner::kTheKeyboard, 0, static_cast<uint16_t>(surface_top),
+                   static_cast<uint16_t>(width), static_cast<uint16_t>(surface_h));
+    armed_x_ = 0;
+    armed_y_ = surface_top;
+    armed_w_ = width;
+    armed_h_ = surface_h;
+    line_ = 0;
+  }
+  touch::CapturedPoint points[32];
+  uint16_t ended = 0;
+  bool finger = false;
+  uint32_t lost = 0;
+  uint16_t got = 0;
+  while ((got = touch::take_captured(points, 32, ended, finger, lost)) > 0) {
+    for (uint16_t i = 0; i < got; ++i) {
+      const touch::CapturedPoint& point = points[i];
+      if (point.line != line_) {
+        line_ = point.line;
+        if (letter_open_) {
+          // **Una línia més de la mateixa lletra** (0.192.83): the second stroke of a `t` is a stroke of the letter and not
+          // another letter, i el glif les guarda totes (docs/30, docs/90).
+          hand::glyph().lift();
+        } else {
+          hand::glyph().clear();
+          letter_open_ = true;
+          note_[0] = '\0';
+          // **Quina de les dues zones**: the panel the stroke landed on decides which model is asked, o sigui que el dit ho diu
+          // i no una tecla que no existeix (docs/90).
+          zone_ = (point.x < split) ? static_cast<uint8_t>(hand::kLetters) : static_cast<uint8_t>(hand::kSymbols);
+        }
+        forget_the_candidates();
+      }
+      if (!hand::glyph().add(static_cast<int16_t>(point.x), static_cast<int16_t>(point.y))) {
+        // **Un traç que no cap és un traç que s'acaba**: the glyph's ceiling is the block's, and a drawing that fills it is a
+        // drawing nobody made; it is closed where it is (docs/75).
+        hand::glyph().lift();
+        letter_open_ = false;
+        line_ = 0;
+        continue;
+      }
+    }
+  }
+  const int64_t now = pal::system().millis();
+  if (finger) {
+    finger_was_there_ = true;
+    owes_the_rest_ = false;
+    last_ms_ = now;
+  } else if (finger_was_there_) {
+    finger_was_there_ = false;
+    last_ms_ = now;
+    owes_the_rest_ = true;
+  }
+  if (owes_the_rest_ && (now - last_ms_ >= static_cast<int64_t>(kRestMs))) {
+    owes_the_rest_ = false;
+    close_the_glyph();
+    return true;
+  }
+  if (the_foot_changed) return true;
+  // **Els punts del camí no es pinten i no fan pintar** (0.192.88): a band that asked for a paint on every frame of a stroke was
+  // painting the whole band —three hundred milliseconds each— while the person was drawing, i el mostreig del vidre es quedava en
+  // tres o quatre marcs per lletra: la lletra existeix quan es tanca i el que cal pintar és el que en surt (docs/30, docs/50).
+  return false;
 }
 
-// **El dit damunt la banda** (l'amo: *«l'usuari dibuixa una lletra al panell del teclat»*): el dit que baixa en una superfície obre
-// un traç, cada marc afegeix un punt, i el que aixeca el tanca i comença a comptar la pausa. El peu és de les tecles: un candidat
-// s'escriu i s'aprèn, i les altres tres són el que són (docs/30, docs/90).
+// **El dit damunt la banda** (l'amo: *«l'usuari dibuixa una lletra al panell del teclat»*): the two surfaces are the capture's
+// and the foot is the keys'. A finger on a surface is only claimed here —so the page under the band never sees it—, perquè el que
+// dibuixa el porta el nucli amb tots els marcs del camí i aquí no se n'ha de perdre cap (0.192.88, docs/30, docs/50, docs/90).
 bool HandwriteKeyboard::own_touch(uint16_t x, uint16_t y, bool down) {
   int32_t surface_top = 0;
   int32_t surface_h = 0;
   int32_t split = 0;
   int32_t foot_top = 0;
   boxes(static_cast<int32_t>(root().height) - static_cast<int32_t>(kBandH), surface_top, surface_h, split, foot_top);
-  const int64_t now = pal::system().millis();
   if (!down) {
-    if (drawing_) {
-      hand::glyph().lift();
-      drawing_ = false;
-      last_ms_ = now;
-      owes_the_rest_ = true;
-    }
+    foot_held_ = false;
     return true;
   }
-  if (drawing_) {
-    // **Els marcs del camí**: every frame of a finger that began on the band comes here, i el que fa és afegir el punt.
-    if (!hand::glyph().add(static_cast<int16_t>(x), static_cast<int16_t>(y))) {
-      // **Un traç que no cap és un traç que s'acaba**: the glyph's ceiling is the block's, and a drawing that fills it is a
-      // drawing nobody made; it is closed where it is (docs/75).
-      hand::glyph().lift();
-      drawing_ = false;
-      last_ms_ = now;
-      owes_the_rest_ = true;
-    } else {
-      last_ms_ = now;
-    }
-    return true;
-  }
-  // **Un contacte nou**: el peu primer, que són tecles, i després les dues superfícies.
+  // **El peu són tecles** (0.192.71): un candidat s'escriu i s'aprèn, i les altres tres són el que són (docs/30, docs/90).
   if (y >= foot_top) {
+    // **Un toc és una lletra i no una per marc** (0.192.89): the glass hands a frame over once per scan while the finger is there, i
+    // sense aquesta marca un toc de dos-cents mil·lisegons escrivia la mateixa lletra vint vegades (docs/50, docs/90).
+    if (foot_held_) return true;
+    foot_held_ = true;
     const int32_t width = static_cast<int32_t>(root().width);
     const int32_t cell = 64;
+    const int32_t box_top = foot_top + 4;
+    const int32_t box_h = static_cast<int32_t>(kFootH) - 8;
     for (uint8_t i = 0; i < candidates_; ++i) {
       const int32_t at = 8 + static_cast<int32_t>(i) * (cell + 4);
       if (x < at || x >= at + cell) continue;
+      if (y < box_top || y >= box_top + box_h) continue;
       // **El toc d'un candidat és una mostra nova i etiquetada** (0.192.71): the person has just said which letter it was, and the
       // glyph is still in the system's block, o sigui que el model millora amb l'ús sense cap pàgina d'entrenament (docs/30, docs/90).
       const char chosen = candidate_[i];
-      if (hand::add(zone_, chosen)) {
-        log_printf(pal::kLogInfo, "UI", "the hand band learns '%c' from a choice", chosen);
+      if (hand::add(zone_, chosen, the_zone_field_of_the_band())) {  // the same zone the letter was drawn in
+        // **I es desa, o el que el teclat aprèn es perd en reiniciar** (0.192.83): the model of the band is the file the training
+        // page fills, i una mostra apresa aquí vivia només a la memòria fins al proper reinici —que és just el que no ha de fer un
+        // teclat d'usuari— (docs/30, docs/70).
+        const bool kept = hand::save(zone_);
+        log_printf(pal::kLogInfo, "UI", "the hand band learns '%c' from a choice%s", chosen,
+                   kept ? "" : " (and the model would not be saved)");
       }
       type(chosen);
       forget_the_candidates();
+      hand::glyph().clear();
+      letter_open_ = false;
+      line_ = 0;
+      owes_a_paint_ = true;
       return true;
     }
     const int32_t key = static_cast<int32_t>(kFootH) - 8;
@@ -8581,20 +8840,21 @@ bool HandwriteKeyboard::own_touch(uint16_t x, uint16_t y, bool down) {
       if (typed_len_ > 0) typed_[--typed_len_] = '\0';
     } else if (x >= right - 3 * key - 12 - key - key / 2) {
       type(' ');
+    } else {
+      return true;
     }
+    owes_a_paint_ = true;
     return true;
   }
+  // **Les dues superfícies són de la captura**: a finger here is the band's and not the page's, i el que dibuixa el porta el nucli
+  // amb tots els marcs del camí (0.192.88). **I un contacte nou atura el rellotge de la pausa**: a finger that comes back before
+  // the 1,2 seconds is a letter that is not finished —the second stroke of a `t`— i el comptador torna a començar quan se'n va
+  // (docs/30, docs/50, docs/90).
   if (y < surface_top || y >= surface_top + surface_h) return false;
-  // **Quina de les dues zones**: the finger says it, the same way a person's hand does (docs/90).
-  zone_ = (x < split) ? static_cast<uint8_t>(hand::kLetters) : static_cast<uint8_t>(hand::kSymbols);
-  hand::glyph().clear();
-  hand::glyph().add(static_cast<int16_t>(x), static_cast<int16_t>(y));
-  forget_the_candidates();
-  drawing_ = true;
-  last_ms_ = now;
+  owes_the_rest_ = false;
+  note_[0] = '\0';
   return true;
 }
-
 QwertyKeyboard g_qwerty;
 AzertyKeyboard g_azerty;
 SerialKeyboard g_serial;
@@ -8639,6 +8899,10 @@ void cell_row(const KeyArea& area, uint8_t rows, uint8_t row, int32_t& y, int32_
 // five by seven table of the bar when that file is not there: a table that is right for an hour and a load is not right
 // for a letter a person looks at while typing. The file is nine kilobytes of the extra memory and it is kept while the
 // band is on the glass, the same trade a page makes when it loads a face (docs/30, docs/75).
+// **La de les tecles segueix sent la de l'ASCII** (0.192.83): les tecles d'un QWERTY són vint-i-sis lletres i uns símbols, i la
+// mètrica d'aquesta cara és la que fa l'altura de les files; la **línia** de la banda de la lletra escrita a mà, en canvi, escriu
+// els caràcters que el model ha llegit i porta accents, o sigui que es pinta amb la cara del sistema (`font::system_face`), que des
+// de la 0.192.83 té el joc Latin-1 (docs/30, docs/90).
 const char* const kKeyboardFont = "/fonts/dejavusans-bold.ttf";
 const uint32_t kKeyboardFontBytes = 65536;
 char* g_kbd_font_file = nullptr;
@@ -9112,13 +9376,19 @@ bool Keyboard::show(uint8_t kind) {
     clean_ = false;
     dx_ = dy_ = dw_ = dh_ = 0;
     const bool was_taken = serial::claimed();
-    if (!serial::claim(the_one_in_front(), "the serial keyboard is up")) {
-      // **Un port que ja és d'algú altre no es pren**: the box stays focused and the wire stays where it is; the log says who
+    const char* mine = the_one_in_front();
+    if (!serial::claim(mine, "the serial keyboard is up")) {
+      // **Un port que ja és d'altre no es pren**: the box stays focused and the wire stays where it is; the log says who
       // has it, and the person typing gets nothing because a wire with two owners is not a wire (docs/30).
       shown_ = false;
       return false;
     }
     wire_claimed_ = !was_taken;
+    // **El nom amb què s'ha pres, desat aquí** (0.199.2): és aquest el que el torna, i no el qui sigui al davant quan la caixa
+    // es tanca (docs/30, docs/50).
+    size_t at = 0;
+    for (; mine != nullptr && mine[at] != '\0' && at + 1 < sizeof(wire_owner_); ++at) wire_owner_[at] = mine[at];
+    wire_owner_[at] = '\0';
     return true;
   }
   if (!g_attached || root().bits == nullptr) return false;
@@ -9149,14 +9419,18 @@ bool Keyboard::hide() {
     const bool was_the_wire = shown_;
     shown_ = false;
     held_ = false;
-    if (was_the_wire && wire_claimed_) (void)serial::release_owner(the_one_in_front(), "the box let the wire go");
+    if (was_the_wire && wire_claimed_) (void)serial::release_owner(wire_owner_, "the box let the wire go");
     wire_claimed_ = false;
+    wire_owner_[0] = '\0';
     return true;
   }
   const uint16_t before = height();
   const bool was = shown_;
   shown_ = false;
   held_ = false;
+  // **I la captura de la banda se'n va amb la banda** (0.192.88): a box that nobody drains is a ring that fills up with the points
+  // of a page that is not drawing, i el dibuix de la pàgina que vingui després ha de començar en un buffer net (docs/30, docs/50).
+  if (paints_itself()) touch::uncapture(touch::CaptureOwner::kTheKeyboard);
   release_keyboard_face();
   if (was) {
     needs_paint_ = true;
@@ -9217,14 +9491,15 @@ void Keyboard::paint() {
     put_rect(view, 0, top, view.width, 2, 0);
     paint_own(view, top, mode);
     keep.give_back(view);
-    // **I la caixa de la banda és el que va al vidre** (0.192.71): the wash of the page is the page's damage and this is the
-    // band's own, o sigui que una banda que es pinta i no es marca **no arriba mai al panell** —el que s'ha vist a l'emulador el
-    // primer cop: la banda blanca a sobre d'una pàgina blanca— (docs/50, docs/90).
-    if (dw_ > 0 && dh_ > 0) {
-      mark_box(view, dx_, dy_, dw_, dh_, mode);
-      dw_ = 0;
-      dh_ = 0;
-    }
+    // **I la caixa de la banda és el que va al vidre** (0.192.71, i sencera des de la 0.192.85): the wash of the page is the
+    // page's damage and this is the band's own, o sigui que una banda que es pinta i no es marca **no arriba mai al panell**. La
+    // marca era la del `dw_`/`dh_` que algú altre havia apuntat, i una banda que es repinta per ella mateixa —`own_turn`, que és qui
+    // tanca la lletra quan el dit s'atura, i qui escriu la línia amb el caràcter que ha llegit— no n'apunta cap: el que s'havia
+    // pintat al llenç no arribava al vidre i la línia es quedava amb el caràcter d'abans. Una banda que es pinta sencera es marca
+    // sencera, que és exactament el que s'ha dibuixat (docs/50, docs/90).
+    mark_box(view, 0, top, view.width, own_height(), mode);
+    dw_ = 0;
+    dh_ = 0;
     return;
   }
   const font::Face& face = keyboard_face();
@@ -9336,14 +9611,11 @@ void Keyboard::paint() {
 bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
   // **No hi ha res a tocar**: the band of the wire is the other end of a cable (0.189.21).
   if (is_the_wire()) return false;
-  // **On cau cada contacte** (0.179.46): the band is asked once per contact and its answer is the one that decides who
-  // owns it, so a finger that types nothing has to be readable from the log: where it landed, whether the band was on the
-  // glass, the top row of it and how deep a key is. A line per press and not per frame.
-  if (down && !held_) {
-    log_printf(pal::kLogDebug, "UI", "the band asked at %u,%u: shown %d, top %d, key %u", static_cast<unsigned>(x),
-               static_cast<unsigned>(y), shown_ ? 1 : 0, static_cast<int>(band_top()),
-               static_cast<unsigned>(key_h_));
-  }
+  // **Aquí no s'escriu res al log per cada marc** (0.192.87, l'amo, amb el log a la mà: *«Fes el favor de no relentir les lectures del
+  // panell tàctil embrutant el log i el serial amb una estupidesa. El més important en aquell moment és llegir el més acurat possible
+  // i el major nombre de mostres possibles»*). Hi havia una línia de diagnòstic per contacte que deia on havia caigut el dit, i amb una
+  // banda que es pinta a si mateixa —que torna abans de marcar-se com a premuda— sortia **a cada marc**, o sigui cent vegades per segon
+  // d'escriptura al port sèrie enmig del camí del tàctil. El que mana en aquell moment és la mostra (docs/30, docs/50, docs/90).
   if (!shown_) return false;
   // **Una banda que es dibuixa a si mateixa rep el dit sencer, marcs i tot** (0.192.71): a strip of keys is asked once, where the
   // finger landed, because one press is one key; a surface a letter is drawn on needs **every frame of the path**, and the band
@@ -9352,6 +9624,7 @@ bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
   if (!down) {
     const bool was = held_;
     held_ = false;
+    noted_a_miss_ = false;
     return was;
   }
   // **One press is one key**: the glass hands a frame over once per scan while the finger is there, and a
@@ -9371,7 +9644,10 @@ bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
     // first is a page that works, and the second is a band that eats a finger and types nothing. It was asked with the
     // band up and the fingers doing nothing —*«no deixa teclejar amb els dits»*— and one line here says which of the two
     // it is (docs/50, docs/90).
-    if (inside) {
+    // **I tampoc quan un dit cau en un marge**, que també és un marc rere un altre mentre el dit hi és: el que es diu, es diu una
+    // vegada per contacte i no per marc (docs/50, docs/90).
+    if (inside && !noted_a_miss_) {
+      noted_a_miss_ = true;
       log_printf(pal::kLogDebug, "UI", "a finger at %u,%u is inside the band and on no key (band from %d, %u rows of %d)",
                  static_cast<unsigned>(x), static_cast<unsigned>(y), static_cast<int>(top),
                  static_cast<unsigned>(current_layout().count), static_cast<int>(key_h_));
@@ -10459,7 +10735,10 @@ namespace {
 
 void load_system_face() {
   const char* reason = nullptr;
-  const int16_t handle = font_load(kSystemFace, reason);
+  // **I si el joc Latin-1 no hi és, la d'abans**: a board whose disk is an older one keeps the face it had instead of the table of
+  // the flash (docs/30, docs/70).
+  int16_t handle = font_load(kSystemFace, reason);
+  if (handle < 0) handle = font_load(kSystemFaceBare, reason);
   if (handle < 0) {
     // **A glass with no face on its disk is a glass with the table of the flash**, and the log says which of the two it
     // is: a page of five by seven that nobody expected is a font that was not read (docs/30, docs/70).

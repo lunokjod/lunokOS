@@ -1251,6 +1251,26 @@ void poll() {
   // The button is asked in every turn, and its press is turned into an event right
   // here: same place as the alarms, same reason (docs/30).
   button::poll();
+
+  // **El nivell de la bateria, cap a qui l'escolti per BLE** (0.196.0): the radio cannot read a gauge —que és del nucli— i el servei de la
+  // bateria vol un número que canvia poc: es llegeix cada deu segons i només es diu quan ha canviat, o sigui que el que costa en un torn
+  // és un rellotge i una comparació (docs/30, docs/50). Una lectura d'un indicador és una conversa amb un xip, i per això no va a cada
+  // torn.
+  if (bt::battery_on_now()) {
+    static int64_t last_battery_said = 0;
+    static int last_battery_level = -1;
+    const int64_t now_ms = pal::system().millis();
+    if (last_battery_said == 0 || now_ms - last_battery_said >= 10000) {
+      last_battery_said = now_ms;
+      int mv = 0;
+      int pct = -1;
+      bool charging = false;
+      if (power::battery(mv, pct, charging) && pct >= 0 && pct != last_battery_level) {
+        last_battery_level = pct;
+        (void)bt::battery_notify(pct);
+      }
+    }
+  }
   // The glass, in the same turn: a frame becomes a tap, a long press, a drag or two fingers here,
   // and not in the app, so every board makes the same gestures out of the same points (docs/50).
 #if LUNOK_GLASS

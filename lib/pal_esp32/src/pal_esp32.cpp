@@ -25,6 +25,9 @@
 #include <esp_idf_version.h>
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
+// **`esp_ptr_external_ram` és el que diu si un punter és a la PSRAM** (0.192.92): the map of the memory separates the two homes by the
+// address and not by a flag, and the chip is the one that knows where its RAM ends (docs/50, docs/75).
+#include <esp_memory_utils.h>
 #include <esp_wifi.h>
 #include <esp_log.h>
 #include <stdarg.h>
@@ -33,6 +36,9 @@
 #include <esp_system.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
+// **`xTaskCreateWithCaps` és el que sap fer una tasca amb la pila a la PSRAM** (0.192.95): the TCB stays internal —the port demands it— and
+// the stack goes where the caller says (docs/50, docs/75).
+#include <freertos/idf_additions.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
@@ -73,8 +79,13 @@
 // l'espera és el fil, o sigui que ha de viure entre tots dos (docs/50).
 // **Quants events del UART es poden acumular**: the reader empties it as fast as it can and the bytes stay in the driver's ring either
 // way, o sigui que vuit és molt més del que cal i prou perquè una ràfega no en perdi cap (docs/50).
+//
+// **I en una placa que parla per l'USB del xip no hi ha cua de la UART**: the two names were compiled everywhere and this board kept a
+// pointer to nothing, que és un avís de compilació a cada build (0.192.97). Ara són al ramal que els fa servir (docs/50).
+#if !LUNOK_HAVE_USB_CONSOLE
 const int kUartEvents = 8;
 static QueueHandle_t g_uart_events = nullptr;
+#endif
 
 // **Els dos rellotges d'aquest fitxer, abans de qui els fa servir** (0.190.243): the queue of the wire waits with a ceiling and needs the
 // millisecond clock and a delay, i una funció que es declara després del seu lector no existeix per a ell (docs/45).
@@ -168,17 +179,39 @@ class LunokSerial {
       hal::logf(pal::kLogWarn, "CONSOLE", "no memory for the queue of the wire: the console writes from the caller as it always did");
       return false;
     }
-    if (xTaskCreate(&LunokSerial::wire_trampoline, "pal_tx", kWireStack, this, kWirePriority, nullptr) != pdPASS) {
+    // **I les dues tasques del cable, també** (0.192.95): three and two kilobytes que la RAM del xip no ha de pagar, perquè no són codi ni
+    // res que un DMA hagi de llegir; si la PSRAM no en té, es fan de la de sempre (docs/50, docs/75).
+    bool wired = xTaskCreateWithCaps(&LunokSerial::wire_trampoline, "pal_tx", kWireStack, this, kWirePriority, nullptr,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+    const bool in_the_extra = wired;
+    if (!wired) {
+      wired = xTaskCreate(&LunokSerial::wire_trampoline, "pal_tx", kWireStack, this, kWirePriority, nullptr) == pdPASS;
+    }
+    if (!wired) {
       hal::logf(pal::kLogWarn, "CONSOLE", "the task of the wire did not start: the console writes from the caller as it always did");
       return false;
     }
     wire_on_ = true;
     hal::logf(pal::kLogInfo, "CONSOLE", "the wire is its own task (%u bytes of queue)", static_cast<unsigned>(kWireBytes));
+    // **I on viu la seva pila, dit sempre** (0.192.98): the same reason as the line editor's — a silent fallback is a save that never
+    // happened and nobody knows (docs/50, docs/75).
+    hal::logf(in_the_extra ? pal::kLogInfo : pal::kLogWarn, "CONSOLE", "the wire's %u B of stack are %s",
+              static_cast<unsigned>(kWireStack), in_the_extra ? "in the extra memory" : "in the board's RAM (the extra memory said no)");
     return true;
   }
 
+  // **El mirall, a la porta i abans de la cua** (0.196.0): the bytes a person reads on the wire are the bytes a second reader gets, i
+  // el que no es fa és esperar-lo —un mirall que bloquegés la consola seria una segona cosa per la qual la placa ha d'esperar— ni
+  // cridar-lo amb la ploma a la mà, perquè el mirall pot escriure al registre i el registre escriu aquí (docs/50).
+  void mirror(pal::IConsole::Mirror sink) { mirror_ = sink; }
+
   size_t write(const uint8_t* data, size_t len) {
     if (data == nullptr || len == 0) return 0;
+    if (mirror_ != nullptr && !in_the_mirror_) {
+      in_the_mirror_ = true;
+      mirror_(data, len);
+      in_the_mirror_ = false;
+    }
     if (!wire_on_) return put_on_the_wire(data, len);
 
     // **El torn deixa els bytes i se'n va**: what makes this a queue and not a wait is that only a full queue makes the caller wait,
@@ -388,6 +421,10 @@ class LunokSerial {
   SemaphoreHandle_t wire_lock_ = nullptr;
   SemaphoreHandle_t wire_wake_ = nullptr;
   volatile bool wire_on_ = false;
+  // **La segona boca** (0.196.0): the mirror of the console and whether it is already inside, que és el que impedeix que una línia del
+  // registre escrita pel mirall torni al mirall (docs/50).
+  pal::IConsole::Mirror mirror_ = nullptr;
+  bool in_the_mirror_ = false;
 
 #if LUNOK_HAVE_USB_CONSOLE
   // **El que el perifèric té, cap a l'anell** (0.190.91): la FIFO és de seixanta-quatre bytes i l'anell de dos-cents cinquanta-sis, o
@@ -537,7 +574,17 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     if (q_ == nullptr) return false;
     // The reader only looks at how many bytes are waiting and posts an event.
     // It never reads them: only the kernel reads the console.
-    if (xTaskCreate(&EspSystem::reader_trampoline, "pal_rx", 2048, this, 1, nullptr) != pdPASS) {
+    bool reading = xTaskCreateWithCaps(&EspSystem::reader_trampoline, "pal_rx", 2048, this, 1, nullptr,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+    const bool in_the_extra = reading;
+    if (!reading) {
+      reading = xTaskCreate(&EspSystem::reader_trampoline, "pal_rx", 2048, this, 1, nullptr) == pdPASS;
+    }
+    if (reading) {
+      hal::logf(in_the_extra ? pal::kLogInfo : pal::kLogWarn, "CONSOLE", "the reader's %u B of stack are %s",
+                static_cast<unsigned>(2048), in_the_extra ? "in the extra memory" : "in the board's RAM (the extra memory said no)");
+    }
+    if (!reading) {
       return false;
     }
     return true;
@@ -601,6 +648,10 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     // biggest one (docs/75).
     info.largest_free_bytes =
         static_cast<uint32_t>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    // **I el que aquesta casa pot donar quan no té res a dins** (0.192.92): the total of the same capability the two numbers above
+    // are read from, so `free` has something to be read against —a block of 160 KB is a lot of a heap of 380 and half of one of
+    // 320, and the board is the only one that knows which of the two it has— (docs/75).
+    info.total_bytes = static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     return info;
   }
 
@@ -665,6 +716,10 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   size_t write(const void* data, size_t len) override {
     return LUNOK_SERIAL.write(static_cast<const uint8_t*>(data), len);
   }
+
+  // **La segona boca del filferro** (0.196.0): the console of the board is the wire and its mirror is what the radio sends, o sigui que
+  // la porta és aquí i el mirall viu on viu l'escriptura (docs/50).
+  void mirror(Mirror sink) override { LUNOK_SERIAL.mirror(sink); }
 
   // The UART keeps a FIFO and a shift register after write() returns, and both stop when
   // the chip sleeps: without this wait the last line before a sleep arrives cut in half
@@ -991,23 +1046,29 @@ class EspExtraMemory : public IExtraMemory {
 
   void* books() const override { return books_; }
 
+  // **La casa d'un bloc, pel seu punter** (0.192.92): `esp_ptr_external_ram` answers whether the address is in the PSRAM this chip
+  // maps, so a block that a `resize` moved to the other home is counted where it is now and not where it was born (docs/50, docs/75).
+  bool in_the_extra(const void* block) const override {
+    return block != nullptr && esp_ptr_external_ram(block);
+  }
+
   void open_the_books() override { begin_the_books_once(); }
 
-  void* allocate(size_t bytes, bool prefer_extra) override {
-    void* block = take_guarded(bytes, prefer_extra);
-    if (block != nullptr) pal::memory_book_taken(block, bytes);
-    return block;
-  }
+  // **Aquesta placa té la casa gran?** (0.192.94): the question the interpreter asks before choosing the door, i la resposta és la del
+  // xip —si la PSRAM existeix i quant en té— i no la d'un ajust que algú pugui deixar mal posat (docs/50, docs/75).
+  bool has_the_extra() const override { return heap_caps_get_total_size(kExtraCaps) > 0; }
+
+  void* allocate(size_t bytes, bool prefer_extra) override { return take_and_book(bytes, prefer_extra, false); }
+
+  // **Només la memòria extra** (0.192.94): same guards, same books, and no fallback to the board's RAM —a block that does not fit there
+  // is a refusal, which is what the interpreter asked for (docs/75).
+  void* allocate_in_the_extra(size_t bytes) override { return take_and_book(bytes, true, true); }
 
   void* resize(void* block, size_t bytes, bool prefer_extra) override {
-    void* moved = resize_guarded(block, bytes, prefer_extra);
-    if (moved != nullptr) {
-      pal::memory_book_moved(block, moved, bytes);
-    } else if (block != nullptr && bytes == 0) {
-      pal::memory_book_released(block);
-    }
-    return moved;
+    return resize_and_book(block, bytes, prefer_extra, false);
   }
+
+  void* resize_in_the_extra(void* block, size_t bytes) override { return resize_and_book(block, bytes, true, true); }
 
   void release(void* block) override {
     if (block == nullptr) return;
@@ -1016,25 +1077,43 @@ class EspExtraMemory : public IExtraMemory {
   }
 
  private:
+  // **Una petició i la seva fila als llibres, d'una manera o de l'altra** (0.192.94): the four doors above are two wishes —where the block
+  // may live and whether the other home is allowed— and the books are written in one place so that no door can forget them (docs/75).
+  void* take_and_book(size_t bytes, bool prefer_extra, bool only_extra) {
+    void* block = take_guarded(bytes, prefer_extra, only_extra);
+    if (block != nullptr) pal::memory_book_taken(block, bytes);
+    return block;
+  }
+
+  void* resize_and_book(void* block, size_t bytes, bool prefer_extra, bool only_extra) {
+    void* moved = resize_guarded(block, bytes, prefer_extra, only_extra);
+    if (moved != nullptr) {
+      pal::memory_book_moved(block, moved, bytes);
+    } else if (block != nullptr && bytes == 0) {
+      pal::memory_book_released(block);
+    }
+    return moved;
+  }
+
   // **Les tres portes amb canaris** (0.190.101): a build without `LUNOK_MEMORY_GUARDS` les tres són les de sempre, sense ni una crida
   // de més (docs/75, docs/95).
-  void* take_guarded(size_t bytes, bool prefer_extra) {
+  void* take_guarded(size_t bytes, bool prefer_extra, bool only_extra) {
 #if LUNOK_MEMORY_GUARDS
     if (bytes == 0) return nullptr;
-    char* raw = static_cast<char*>(allocate_raw(kGuardHead + padded(bytes) + kGuardTail, prefer_extra));
+    char* raw = static_cast<char*>(allocate_raw(kGuardHead + padded(bytes) + kGuardTail, prefer_extra, only_extra));
     if (raw == nullptr) return nullptr;
     write_guards(raw, bytes);
     void* block = user_of(raw);
     arm_the_watchpoint(block, bytes);
     return block;
 #else
-    return allocate_raw(bytes, prefer_extra);
+    return allocate_raw(bytes, prefer_extra, only_extra);
 #endif
   }
 
-  void* resize_guarded(void* block, size_t bytes, bool prefer_extra) {
+  void* resize_guarded(void* block, size_t bytes, bool prefer_extra, bool only_extra) {
 #if LUNOK_MEMORY_GUARDS
-    if (block == nullptr) return take_guarded(bytes, prefer_extra);
+    if (block == nullptr) return take_guarded(bytes, prefer_extra, only_extra);
     if (bytes == 0) {
       give_guarded(block);
       return nullptr;
@@ -1044,13 +1123,13 @@ class EspExtraMemory : public IExtraMemory {
     // quina mida i on, que és el que es venia a saber (docs/95).
     if (!the_tail_is_whole(block, "a resize")) return nullptr;
     const uint32_t was = reinterpret_cast<GuardHead*>(raw_of(block))->bytes;
-    void* moved = take_guarded(bytes, prefer_extra);
+    void* moved = take_guarded(bytes, prefer_extra, only_extra);
     if (moved == nullptr) return nullptr;  // the old block is untouched and still the caller's
     memcpy(moved, block, (was < bytes) ? was : bytes);
     give_guarded(block);
     return moved;
 #else
-    return resize_raw(block, bytes, prefer_extra);
+    return resize_raw(block, bytes, prefer_extra, only_extra);
 #endif
   }
 
@@ -1065,8 +1144,15 @@ class EspExtraMemory : public IExtraMemory {
 #endif
   }
 
-  void* allocate_raw(size_t bytes, bool prefer_extra) {
+  void* allocate_raw(size_t bytes, bool prefer_extra, bool only_extra) {
     if (bytes == 0) return nullptr;
+    // **Només la casa gran** (0.192.94): a door that cannot fall back, i el que fa quan la PSRAM és plena és el mateix que fa qualsevol
+    // altra porta quan no hi ha lloc —les memòries de sessió de les apps es donen una vegada i s'hi torna a provar— i res més (docs/75).
+    if (only_extra) {
+      if (void* block = heap_caps_malloc(bytes, kExtraCaps)) return block;
+      relieve(nullptr, bytes);
+      return heap_caps_malloc(bytes, kExtraCaps);
+    }
     // A block that asked for the extra memory goes there first and the board's RAM is the fallback; a
     // small one goes home only while the home keeps its floor, and to the PSRAM when it would lose it.
     if (take_from_the_extra(room_at_home(), bytes, prefer_extra)) {
@@ -1086,11 +1172,18 @@ class EspExtraMemory : public IExtraMemory {
     return heap_caps_malloc(bytes, kExtraCaps);
   }
 
-  void* resize_raw(void* block, size_t bytes, bool prefer_extra) {
-    if (block == nullptr) return allocate_raw(bytes, prefer_extra);
+  void* resize_raw(void* block, size_t bytes, bool prefer_extra, bool only_extra) {
+    if (block == nullptr) return allocate_raw(bytes, prefer_extra, only_extra);
     if (bytes == 0) {
       release_raw(block);
       return nullptr;
+    }
+    // **I créixer sense canviar de casa** (0.192.94): a block of the extra memory that grows stays there, i el que no hi cap és una
+    // negativa que deixa el bloc com era (docs/75).
+    if (only_extra) {
+      if (void* moved = heap_caps_realloc(block, bytes, kExtraCaps)) return moved;
+      relieve(block, bytes);
+      return heap_caps_realloc(block, bytes, kExtraCaps);
     }
     const bool to_extra = take_from_the_extra(room_at_home(), bytes, prefer_extra);
     const uint32_t home = to_extra ? kExtraCaps : kHomeCaps;
@@ -1340,6 +1433,11 @@ bool start_a_task(const char* name, uint32_t stack_bytes, uint8_t priority, void
   // **I la pila va en bytes i no en paraules** (0.190.244): aquesta IDF compta la profunditat de la pila en bytes (`StackType_t` és un
   // `uint8_t`), al revés que el FreeRTOS de sempre, o sigui que el número que demana el nucli és el que arriba tal qual (docs/50).
   static_assert(sizeof(StackType_t) == 1, "aquesta IDF compta la pila en bytes");
+  // **I la pila, a la RAM del xip** (0.192.97): aquesta porta la fa servir la tasca de la shell, que **pot acabar corrent codi d'una app**
+  // (`feed` → `luabind::feed_console` → una promesa que es liquida → el `then` de l'app), i una app pot escriure un fitxer. Escriure la
+  // flaix apaga la cau i la IDF **afirma** que la pila del corrent és a la DRAM (`cache_utils.c:154`), o sigui que una pila a la PSRAM aquí
+  // és un `assert failed` el dia que una tecla acaba en un `fs.write`. Les piles que sí que poden viure a la casa gran són les que no
+  // executen res de ningú: l'editor de línia (`console_line.cpp`), `pal_tx` i `pal_rx` (docs/50, docs/75).
   const BaseType_t made = xTaskCreate(&run_a_start, (name == nullptr) ? "lunok" : name, bytes, parcel, priority, nullptr);
   if (made != pdPASS) {
     vPortFree(parcel);

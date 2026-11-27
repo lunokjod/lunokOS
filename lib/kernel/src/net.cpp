@@ -13,6 +13,7 @@
 #include "kernel/led.h"
 #include "kernel/log.h"
 #include "kernel/serial.h"
+#include "kernel/shell.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
@@ -72,6 +73,44 @@ enum RequestKind : uint8_t {
   kReqHttp,
 };
 
+// **El registre de la cua** (0.197.7, l'amo: *«Vull logs quan la wifi o el ble s'activen o s'apaguen. Vull Saber quina app ha
+// ficat que a la cua de peticions. VUll saber quan es resol la petició»*): three preguntes i tres línies, totes amb el mateix
+// prefix i amb el nom de la feina, perquè un `log` expliqui sol qui ha encès la ràdio, qui ha demanat què i com ha acabat
+// (docs/30, docs/50, docs/75).
+//
+// **I el que mai no s'hi escriu és l'adreça**: `kReqHttp` porta `appid=` a `url` quan la petició és d'una app que parla amb un
+// servei amb clau, i una línia de registre és una línia que algú llegeix després (docs/50, docs/70).
+const char* kind_name(RequestKind kind) {
+  switch (kind) {
+    case kReqConnect:
+      return "connect";
+    case kReqConnectStored:
+      return "connect to the stored network";
+    case kReqProvision:
+      return "provisioning";
+    case kReqScan:
+      return "scan";
+    case kReqAdd:
+      return "add a network";
+    case kReqForget:
+      return "forget the network";
+    case kReqNtp:
+      return "ntp";
+    case kReqHttp:
+      return "http";
+    default:
+      return "nothing";
+  }
+}
+
+// **Qui demana**: l'app que hi ha al davant, o el prompt. Una feina del sistema que no ve de cap app —l'NTP de l'arrencada, per
+// posar un cas— diu «the system».
+const char* who_is_asking() {
+  const char* id = shell::app_id();
+  if (id != nullptr && id[0] != '\0') return id;
+  return "the prompt";
+}
+
 // The longest address a request can carry. The board refuses anything longer, so
 // the two are the same number and a page is never asked for with half an address
 // (docs/30).
@@ -98,6 +137,9 @@ struct Request {
   char sink_rel[kSinkPathCap] = {0};
   hal::ProvTransport transport = hal::ProvTransport::kBle;
   uint32_t timeout_ms = 0;
+  // **Un POST i no un GET** (0.199.3): the orders of a media server are a verb with no body, and this is the flag that
+  // carries it down to the client of the board (docs/30).
+  bool post = false;
   // Who is waiting for the answer: the shell's callback, or `nullptr` when it is
   // an app and the answer is a promise. They cannot both be waiting, because a
   // command does not run on top of an app (docs/30).
@@ -111,30 +153,34 @@ struct Request {
   bool on_the_network = false;
 };
 
-const uint8_t kQueueLen = 8;
+// **La cua és una llista de blocs i no vuit llocs fixos** (0.197.0, l'amo: *«que la cua sigui dinàmica a PSRAM»*): vuit llocs de mig
+// quilobyte demanats a l'arrencada per a una cua que en la pràctica en porta una —`push` refusa mentre una altra corre, perquè una promesa
+// de Lua només té un lloc on arribar—, o sigui que el que es pagava era un bloc de quatre kilobytes per a una feina. Ara cada feina
+// demana el seu tros quan arriba i el torna quan s'ha contestat, i el sostre és la memòria (amb un número de seguretat, perquè una app
+// no pugui omplir la PSRAM de peticions) (docs/30, docs/75).
+const uint8_t kQueueMost = 16;
 
-// **Els 4 064 bytes de la cua es demanen quan la primera petició hi entra** (0.190.206, l'amo: *«si veus que és perquè falta memòria,
-// rebusquem al codi… aprofitar al màxim la PSRAM i fer tot lo raonablement més dinàmic possible»*). Eight requests of half a kilobyte
-// each were a `.bss` of the board's own RAM for a queue that a board with no radio never fills and a board with one fills with at most
-// two things at a time —and the block is *cold*: only the shell and the loop of the kernel touch it, never an interrupt, never a DMA—,
-// o sigui que és exactament el que la memòria extra existeix per a. `extra_memory()` dona PSRAM quan la placa en té i la memòria de
-// casa quan no, i el que torna no és la PSRAM d'un `malloc` qualsevol: és el comptable d'aquesta casa, amb el bloc apuntat a `mem blocks`.
-//
-// **Un bloc d'aquesta porta no arriba a zero** i la `.bss` sí, o sigui que les vuit entrades es construeixen al bloc: `page_pending`
-// llegeix el `kind` d'una entrada que ningú ha escrit encara i el que hi hauria seria l'escombraria de l'última cosa que hi va viure.
-// Placement new i no `memset`, perquè `Request` té valors de sèrie i el compilador té raó a refusar l'escombrat (docs/30, docs/75).
-Request* g_queue = nullptr;
+struct Queued {
+  Queued* next = nullptr;
+  Request request;
+};
 
-Request* the_queue() {
-  if (g_queue != nullptr) return g_queue;
-  pal::MemoryTag who_asks(pal::kMemoryNet);
-  void* block = pal::extra_memory().allocate(sizeof(Request) * kQueueLen, true);
-  if (block == nullptr) return nullptr;
-  g_queue = new (block) Request[kQueueLen]();
-  return g_queue;
-}
-uint8_t g_head = 0;
+// **Un bloc d'aquesta porta no arriba a zero** i la `.bss` sí, o sigui que cada node es construeix al seu bloc amb placement new i no
+// amb un `memset`: `Request` té valors de sèrie i el compilador té raó a refusar l'escombrat (docs/30, docs/75).
+Queued* g_front = nullptr;
+Queued* g_back = nullptr;
 uint8_t g_count = 0;
+
+// **Els tres segons de marge** (0.197.0, l'amo: *«Espera uns 3 de marge, si no reb mes tasques, tanca la wifi»*): la finestra era al
+// disseny del primer dia i el codi tancava la ràdio **al primer torn buit**, que és el que li va fer veure que `wifi connect` es
+// desconnectava «quasi inmediatament». Ara es tanca quan fa tres segons que no hi ha feina, i no abans (docs/30, docs/75).
+int64_t g_quiet_ms = 3000;
+// When the last job was answered, or -1 while there is work (or the radio is somebody else's).
+int64_t g_empty_at_ms = -1;
+// **Els intents d'associació** (0.197.0, l'amo: *«Si l'ultima va fallat no es cancela, es reintenta 3 cops i si no llavors es tira
+// enrere»*): three tries before the answer is that there is no network, dins del termini de la feina —no tres terminis—, i prou.
+const uint8_t kAttempts = 3;
+uint8_t g_attempts = 0;
 Request g_current;               // the one that is running
 // **Aquest és el flag de les feines i no el commutador** (0.190.221): diu que aquest nucli va encendre la ràdio per fer una cosa i que encara
 // no l'ha deixada anar, i `poll` la tanca quan la cua és buida. El commutador de la persona és una altra cosa i viu a `kernel::net::radio_on/
@@ -167,6 +213,9 @@ const char* g_refuse = "E_BUSY";
 // enough that a person is not left looking at a prompt that never comes back.
 const int64_t kProvConnectMs = 20000;
 
+// When the request that is running began, for the line that says how long it took.
+int64_t g_started_ms = 0;
+
 void finish(bool up, const char* code, int32_t count = -1) {
   // A request that needs the network has two steps: get on it, then do the work.
   // This is the end of the first one, so the second begins here and the answer is
@@ -188,6 +237,14 @@ void finish(bool up, const char* code, int32_t count = -1) {
 
   const Done waiter = g_current.done;
   const RequestKind kind = g_current.kind;
+  // **I quan es resol** (0.197.7): the answer, its code and how long it took —the three numbers that tell a slow line from a
+  // refusal without reading anything else— (docs/30, docs/75).
+  log_printf(pal::kLogInfo, "NET", "%s answered %s%s%s in %d ms (%d left)", kind_name(kind), up ? "yes" : "no",
+             (code != nullptr) ? ": " : "", (code != nullptr) ? code : "",
+             static_cast<int>((g_started_ms > 0) ? (now_ms() - g_started_ms) : 0), static_cast<int>(g_count));
+  // **I si no queda res a la cua, la finestra dels tres segons comença aquí** (0.197.0): what closes the radio is not the end of a job but
+  // three seconds without another one, o sigui que dues feines seguides paguen una sola associació (docs/30, docs/75).
+  if (g_count == 0) g_empty_at_ms = now_ms();
   g_phase = kIdle;
   // Done with the radio: the light goes back to what it was saying before
   // (docs/30).
@@ -388,10 +445,17 @@ void stop_all() {
   const Phase was = g_phase;
   g_phase = kIdle;
   g_deadline_ms = 0;
+  // **I el que esperava, tornat** (0.197.0): a queue that is dropped is every block of the list given back to the extra memory.
+  while (g_front != nullptr) {
+    Queued* node = g_front;
+    g_front = node->next;
+    pal::extra_memory().release(node);
+  }
+  g_back = nullptr;
   g_count = 0;
-  g_head = 0;
   g_pending_done = nullptr;
   g_radio_on = false;
+  g_empty_at_ms = -1;
   g_current.kind = kReqNone;
   g_current.done = nullptr;
   if (was == kProvisioning) g_net->prov_stop();
@@ -414,6 +478,7 @@ bool drop() {
   if (g_net == nullptr) return false;
   g_phase = kIdle;
   g_deadline_ms = 0;
+  g_empty_at_ms = -1;
   if (g_net->prov_state() == hal::ProvState::kRunning) g_net->prov_stop();
   return g_net->wifi_disconnect();
 }
@@ -434,11 +499,24 @@ bool push(const Request& request) {
   // second ask is refused with E_BUSY instead of being queued into a promise that
   // would never be settled (docs/30). The FIFO is here so the system can chain its
   // own work and so the radio knows when there is nothing left to do.
-  if (g_net == nullptr || g_phase != kIdle || g_count >= kQueueLen) return false;
-  Request* queue = the_queue();
-  if (queue == nullptr) return false;  // no memory for the queue is «later», not «no» (docs/30, docs/75)
-  queue[(g_head + g_count) % kQueueLen] = request;
+  if (g_net == nullptr || g_phase != kIdle || g_count >= kQueueMost) return false;
+  pal::MemoryTag who_asks(pal::kMemoryNet);
+  void* block = pal::extra_memory().allocate(sizeof(Queued), true);
+  if (block == nullptr) return false;  // no memory for the queue is «later», not «no» (docs/30, docs/75)
+  Queued* node = new (block) Queued();
+  node->request = request;
+  if (g_back != nullptr) {
+    g_back->next = node;
+  } else {
+    g_front = node;
+  }
+  g_back = node;
   ++g_count;
+  log_printf(pal::kLogInfo, "NET", "%s asks for %s: %d in the queue", who_is_asking(), kind_name(request.kind),
+             static_cast<int>(g_count));
+  // **La finestra es cancel·la quan arriba feina** (0.197.0): a job that lands inside the three seconds is a radio that does not have to
+  // be closed and opened again (docs/75).
+  g_empty_at_ms = -1;
   // It begins now and not in the next turn: a caller that asks how the radio is
   // right after asking has to hear the truth (measured in an app: `status off`
   // when a connection had just been asked, 31/10).
@@ -482,6 +560,11 @@ uint8_t request_meter(uint8_t kind) {
 
 bool begin(Request& request) {
   meter::Scope scope(request_meter(request.kind));
+  // **La ràdio s'aixeca i es diu per qui** (0.197.7): the first line a person needs when the board "does nothing" is whether the
+  // radio was brought up at all and on whose behalf (docs/30, docs/50).
+  if (!g_radio_on) {
+    log_printf(pal::kLogInfo, "NET", "the radio goes up for %s (%s)", kind_name(request.kind), who_is_asking());
+  }
   g_radio_on = true;
   // The light says the radio is working: on a board with no screen, "is it doing
   // something?" is the first question a person asks (docs/30, docs/50).
@@ -534,6 +617,7 @@ bool begin(Request& request) {
       hal::HttpOpts opts;
       opts.timeout_ms = request.timeout_ms;
       opts.max_bytes = request.max_bytes;
+      opts.post = request.post;
       opts.sink = request.sink;
       opts.sink_path = (request.sink != nullptr) ? request.sink_rel : nullptr;
       g_http_op = g_net->http_get_start(request.url, opts);
@@ -548,12 +632,22 @@ bool begin(Request& request) {
 
 void start_next() {
   while (g_phase == kIdle && g_count > 0) {
-    Request* queue = the_queue();
-    if (queue == nullptr) return;  // a queue that is not there holds nothing (docs/75)
-    g_current = queue[g_head];
-    g_head = static_cast<uint8_t>((g_head + 1) % kQueueLen);
+    Queued* node = g_front;
+    if (node == nullptr) {
+      g_count = 0;
+      return;  // a queue that is not there holds nothing (docs/75)
+    }
+    g_current = node->request;
+    g_front = node->next;
+    if (g_front == nullptr) g_back = nullptr;
     --g_count;
-    g_deadline_ms = (g_current.timeout_ms > 0) ? now_ms() + g_current.timeout_ms : 0;
+    // **El bloc de la feina es torna de seguida**: el que corre és la còpia de `g_current`, o sigui que la cua només té viu el que encara no
+    // ha començat (docs/75).
+    pal::extra_memory().release(node);
+    g_attempts = 0;
+    g_empty_at_ms = -1;
+    g_started_ms = now_ms();
+    g_deadline_ms = (g_current.timeout_ms > 0) ? g_started_ms + g_current.timeout_ms : 0;
     // **What a radio that is really working on something else says**, and the answer when nobody knows better
     // (0.152.4): the line below could only make it worse, and it did.
     g_refuse = "E_BUSY";
@@ -630,11 +724,9 @@ bool ntp(const char* server, uint32_t timeout_ms) {
 // (docs/30, docs/75).
 bool page_pending() {
   if (g_phase != kIdle && g_current.kind == kReqHttp) return true;
-  Request* queue = the_queue();
-  if (queue == nullptr) return g_phase != kIdle && g_current.kind == kReqHttp;
-  for (uint8_t i = 0; i < g_count; ++i) {
-    const uint8_t at = static_cast<uint8_t>((g_head + i) % kQueueLen);
-    if (queue[at].kind == kReqHttp) return true;
+  // **I les que esperen a la llista** (0.197.0): the queue is a list of blocks now, so the walk is the list and not eight indices.
+  for (const Queued* node = g_front; node != nullptr; node = node->next) {
+    if (node->request.kind == kReqHttp) return true;
   }
   return false;
 }
@@ -651,7 +743,7 @@ bool resolve_sink(const char* path, hal::IStorage*& storage, char* rel, size_t c
 // it does not fit, or straight to the file with `max_bytes` at zero. `person` says who is asking, because
 // a page is a write and a write has a policy (docs/70).
 luabind::NetRefuse http_request(const char* url, uint32_t max_bytes, const char* spill_path,
-                                uint32_t timeout_ms, bool person) {
+                                uint32_t timeout_ms, bool person, bool post) {
   if (g_net == nullptr) return luabind::NetRefuse::kNoRadio;
   if (url == nullptr || url[0] == '\0') return luabind::NetRefuse::kInval;
   if (max_bytes == 0 && spill_path == nullptr) return luabind::NetRefuse::kInval;
@@ -676,6 +768,7 @@ luabind::NetRefuse http_request(const char* url, uint32_t max_bytes, const char*
   Request request = make(kReqHttp, timeout_ms, true);
   snprintf(request.url, sizeof(request.url), "%s", url);
   request.max_bytes = max_bytes;
+  request.post = post;
   request.sink = storage;
   if (storage != nullptr) snprintf(request.sink_rel, sizeof(request.sink_rel), "%s", rel);
   if (!push(request)) return luabind::NetRefuse::kBusy;
@@ -687,22 +780,35 @@ luabind::NetRefuse http_request(const char* url, uint32_t max_bytes, const char*
 }
 
 luabind::NetRefuse http_get(const char* url, uint32_t max_bytes, uint32_t timeout_ms) {
-  return http_request(url, max_bytes, nullptr, timeout_ms, true);
+  return http_request(url, max_bytes, nullptr, timeout_ms, true, false);
 }
 
 luabind::NetRefuse http_get_spill(const char* url, uint32_t max_bytes, const char* spill_path,
                                   uint32_t timeout_ms) {
-  return http_request(url, max_bytes, spill_path, timeout_ms, true);
+  return http_request(url, max_bytes, spill_path, timeout_ms, true, false);
 }
 
 luabind::NetRefuse http_download(const char* url, const char* path, uint32_t timeout_ms) {
-  return http_request(url, 0, path, timeout_ms, true);
+  return http_request(url, 0, path, timeout_ms, true, false);
+}
+
+// **Una ordre, que és un POST sense cos** (0.199.3, l'amo, amb el `405` de Jellyfin al registre: *«This system cannot POST:
+// the command did not go»*): el mateix camí que una pàgina, amb el verb canviat i una mica de cos per rebre el codi —una
+// ordre contesta `204` i el que importa és el número— (docs/30).
+luabind::NetRefuse http_post(const char* url, uint32_t timeout_ms, bool person) {
+  return http_request(url, 512, nullptr, timeout_ms, person, true);
 }
 
 // The same for an app, which writes where `fs.write` lets it and nowhere else (docs/70). It is not in the
 // header because the only caller is the interpreter, through the operations installed below.
 luabind::NetRefuse download_from_app(const char* url, const char* path, uint32_t timeout_ms) {
-  return http_request(url, 0, path, timeout_ms, false);
+  return http_request(url, 0, path, timeout_ms, false, false);
+}
+
+// **I l'ordre d'una app** (0.199.3): the same POST, asked by the interpreter, o sigui que el que hi respon és la promesa de
+// l'app i no la consola de ningú (docs/30).
+luabind::NetRefuse http_post_app(const char* url, uint32_t timeout_ms) {
+  return http_post(url, timeout_ms, false);
 }
 
 bool http_saved() { return g_http_saved; }
@@ -759,6 +865,7 @@ void boot(hal::IPlatform& platform) {
   ops.forget = &forget;
   ops.ntp_start = &ntp;
   ops.http_get = &http_get;
+  ops.http_post = &http_post_app;
   ops.download = &download_from_app;
   ops.cancel = &cancel;
   ops.disconnect = &drop;
@@ -802,13 +909,25 @@ void stop() { stop_all(); }
 // que es quedaria esperant una resposta que no arribarà (docs/30, docs/50).
 bool radio_on() {
   if (g_net == nullptr) return false;
-  return g_net->wifi_radio_on();
+  const bool up = g_net->wifi_radio_on();
+  if (up) {
+    log_printf(pal::kLogInfo, "NET", "the switch: the radio is on");
+  } else {
+    // **I el perquè, en el número del driver quan en té un** (0.197.0): the same reason that decides the three retries.
+    const int32_t why = g_net->wifi_last_reason();
+    log_printf(pal::kLogWarn, "NET", "the switch: the radio did not come up%s (%s)",
+               (why != 0) ? " because the driver said" : "", (why != 0) ? g_net->last_error() : "no reason given");
+    if (why != 0) log_printf(pal::kLogWarn, "NET", "the driver's number is %d", static_cast<int>(why));
+  }
+  return up;
 }
 
 bool radio_off() {
   if (g_net == nullptr) return false;
   stop_all();
-  return g_net->wifi_radio_off();
+  const bool down = g_net->wifi_radio_off();
+  log_printf(pal::kLogInfo, "NET", "the switch: the radio %s", down ? "is off" : "would not go off");
+  return down;
 }
 
 bool radio_is_on() { return g_net != nullptr && g_net->wifi_radio_is_on(); }
@@ -816,6 +935,9 @@ bool radio_is_on() { return g_net != nullptr && g_net->wifi_radio_is_on(); }
 void set_done(Done done) { g_pending_done = done; }
 
 bool busy() { return g_phase != kIdle || g_count > 0; }
+
+void set_the_quiet_ms(uint32_t ms) { g_quiet_ms = static_cast<int64_t>(ms); }
+uint32_t the_quiet_ms() { return static_cast<uint32_t>(g_quiet_ms); }
 
 // **Les dues preguntes de la barra** (0.189.56): the hourglass is lit while the clock is being set from the network and the
 // Bluetooth rune while a provisioning is running over that radio. They are asked of the phase that is already there and not
@@ -856,13 +978,35 @@ void poll() {
     return;
   }
   if (g_phase == kIdle) {
-    // Nothing left to do: the radio goes off. There is no request that keeps it on,
-    // because the network is a thing a task uses and then lets go of, not a state
-    // the board sits in (docs/75).
-    if (g_count == 0 && g_radio_on) {
-      g_net->wifi_disconnect();
-      g_radio_on = false;
+    // **La ràdio es tanca tres segons després de l'última feina, i no al primer torn buit** (0.197.0, l'amo: *«Espera uns 3 de marge, si no
+    // reb mes tasques, tanca la wifi»*): the margin was in the design from the first day; el codi que hi havia tancava de seguida, i això
+    // és el que feia que `wifi connect` es desconnectés «quasi inmediatament».
+    if (!g_radio_on || g_count > 0) {
+      g_empty_at_ms = -1;
+      return;
     }
+    // **I el commutador de la persona mana** (l'amo: *«si la wifi està ON perquè l'han activat manualment, fas la tasca i pares, sense
+    // tancar la wifi»*): a board that was asked to be on the network with `cfg wifi on` is not closed by a job ending —ni per la finestra,
+    // ni mai—, i el que fa el comando és la feina i prou (docs/30, docs/50).
+    //
+    // **I la pregunta és el commutador i no el maquinari** (0.197.8, l'amo: *«I la wifi no s'apaga!!!»*): això deia `radio_is_on()`,
+    // que és el HAL responent «la ràdio és encesa?» — i la ràdio és encesa precisament perquè l'hem aixecada nosaltres per fer la feina.
+    // O sigui que la resposta era sempre sí, el comptador es reiniciava a cada torn i **la ràdio no es tancava mai**. El que vol dir
+    // «l'ha encesa la persona» és la paraula que es desa a la targeta, no un estat que el nucli mateix ha provocat (docs/30, docs/50).
+    if (cfg::wifi_on()) {
+      g_empty_at_ms = -1;
+      return;
+    }
+    if (g_empty_at_ms < 0) {
+      g_empty_at_ms = now_ms();
+      return;
+    }
+    if (now_ms() - g_empty_at_ms < g_quiet_ms) return;
+    log_printf(pal::kLogInfo, "NET", "the radio goes down: the queue has been empty for %d ms",
+               static_cast<int>(now_ms() - g_empty_at_ms));
+    g_net->wifi_disconnect();
+    g_radio_on = false;
+    g_empty_at_ms = -1;
     return;
   }
 
@@ -978,6 +1122,23 @@ void poll() {
     return;
   }
   if (state == hal::NetState::kFailed) {
+    // **Un intent que falla es reintenta, i tres cops** (0.197.0, l'amo: *«Si l'ultima va fallat no es cancela, es reintenta 3 cops i si no
+    // llavors es tira enrere»*): a radio that did not associate is worth another try —l'AP pot haver trigat, o el canal pot haver
+    // canviat—, i `wifi_start_stored` torna a començar perquè la banda del xip ja ha marcat l'intent com a acabat.
+    //
+    // **El que no es reintenta és una contrasenya dolenta**: `15` és `AUTH_FAIL` i `204` un handshake que no acaba, i tres cops el mateix
+    // número són quaranta segons d'espera per a una resposta que ja se sap. El que sí: `201` (`NO_AP_FOUND`) pot ser un encaminador que
+    // tot just s'encén, i per això es prova (docs/30, docs/50).
+    const int32_t why_dropped = g_net->wifi_last_reason();
+    const bool worth_a_retry = (why_dropped != 15) && (why_dropped != 204);
+    if (worth_a_retry && g_attempts + 1 < kAttempts) {
+      ++g_attempts;
+      if (g_net->wifi_start_stored()) {
+        log_printf(pal::kLogWarn, "WIFI", "the association failed (%d): attempt %u of %u", static_cast<int>(why_dropped),
+                   static_cast<unsigned>(g_attempts + 1), static_cast<unsigned>(kAttempts));
+        return;
+      }
+    }
     finish(false, "E_NONET");
     return;
   }

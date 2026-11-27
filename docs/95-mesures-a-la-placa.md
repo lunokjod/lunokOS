@@ -1270,13 +1270,22 @@ que es dona té la capçalera trencada**. No és el compilador de Lua: és algú
   el mateix moment en què abans es moria sense dir res.
 - **el verí del `multi_heap`** (`CONFIG_HEAP_POISONING_COMPREHENSIVE`) i **el protector de la pila** (`CONFIG_COMPILER_STACK_CHECK_MODE_STRONG`),
   per a un forat que no vingui de la porta de la memòria extra.
-- **dues ordres al prompt**: `heapguard <bytes>` arma un **watchpoint de maquinari** (`esp_cpu_set_watchpoint`) damunt de la cua del
-  següent bloc d'aquella mida, i llavors el xoc **no és a la víctima sinó a l'assassí** —el `PC` i la pila de qui hi escriu—; i
-  `heapguard check` camina els dos munts amb `heap_caps_check_integrity` i diu quin dels dos és trencat.
+- **una ordre al prompt, i només en aquest build**: `heapguard <bytes>` arma un **watchpoint de maquinari** (`esp_cpu_set_watchpoint`)
+  damunt de la cua del següent bloc d'aquella mida, i llavors el xoc **no és a la víctima sinó a l'assassí** —el `PC` i la pila de qui hi
+  escriu—; `heapguard off` el desarma. **La comanda no existeix a les bandes sense canaris** (0.193.1): no surt a `help` ni al tabulador,
+  perquè una ordre que només sap dir «aquest build no en té» no és una eina.
+- **i `mem check`**, que camina els dos munts amb `heap_caps_check_integrity` i diu quin dels dos és trencat. **Aquesta no és dels canaris
+  i és a totes les bandes** (0.193.1): un munt trencat es mira igual amb canaris que sense, i per això viu a `mem`, al costat de
+  `ram in use` i `largest block`.
 
 **El que s'ha de veure a la placa**: una línia `[MEMORY] guard: the tail of a N B block at 0x… is broken at byte +M …`. Amb aquesta `N` es
-torna a arrencar amb `heapguard N` i el xoc següent dona l'escriptor. **El preu d'aquest build**: trenta-dos bytes per bloc, una còpia a
-cada `resize` i el verí a cada `malloc`; `mem` ensenyarà una mica més de memòria per bloc i el disc no canvia.
+torna a arrencar amb `heapguard N` i el xoc següent dona l'escriptor. **El preu d'aquest build**: trenta-dos bytes per bloc i una còpia a
+cada `resize`; `mem` ensenyarà una mica més de memòria per bloc i el disc no canvia.
+
+**I per això no és el build de cada dia** (0.193.1, l'amo: *«Deixa el maxim de ram per les radios»*): el forat que aquests canaris van
+caçar està tancat i la RAM d'aquesta placa és per a les ràdios. `-DLUNOK_MEMORY_GUARDS=1` torna a encendre'ls —i torna a fer existir
+`heapguard`— el dia que calgui, i mentrestant el camí dels canaris es continua compilant a cada canvi amb
+`PLATFORMIO_BUILD_FLAGS="-DLUNOK_MEMORY_GUARDS=1" pio run -e lilygo-t5s3-idf`, que és com es va comprovar la 0.193.1.
 
 ## Què **no** cal mesurar encara
 

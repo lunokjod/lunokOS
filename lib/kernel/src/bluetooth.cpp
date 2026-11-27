@@ -22,6 +22,18 @@ hal::IBluetooth* the_radio() { return hal::platform().bluetooth(); }
 // **Quan es va encendre**, perquè el llum de la ràdio respira i un respir té un començament (0.190.182) (docs/30, docs/50).
 int64_t g_on_since_ms = 0;
 
+// **La identitat del beacon, que és del nucli i no de la ràdio** (0.194.0): the radio copies it when it advertises —it has to, because it
+// keeps announcing by itself— but the numbers a person reads at the prompt are these, i el que es pot canviar sense reiniciar res és
+// aquestes (docs/30, docs/50).
+struct BeaconProfile {
+  uint8_t uuid[16];
+  uint16_t major;
+  uint16_t minor;
+  int8_t power;
+};
+BeaconProfile g_beacon = {{0x6c, 0x75, 0x6e, 0x6f, 0x6b, 0x4f, 0x53, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+                          kBeaconMajor, kBeaconMinor, kBeaconPower};
+
 // **Un caràcter d'aquest teclat, en el codi que entén un altre aparell** (docs/50): the HID usage page for keyboards numbers the keys
 // from `0x04` (the `a`) to `0x65`, the digits are `0x1E` to `0x27`, and everything a keyboard types with the other hand needs the
 // Shift bit —`0x02` in the first byte of the report—. A character this table does not know sends nothing, which is the honest answer
@@ -102,6 +114,11 @@ bool start(const char* name) {
   // abans d'encendre la ràdio —que el que la pila servís fos el de la botiga i no un teclat de sèrie— ja no existeix, i amb ell se'n va
   // la parella de perills que hi havia al darrere: esborrar un vincle viu o néixer amb el mapa d'una altra arrencada (docs/30, docs/50).
   const bool ok = radio->keyboard_start(name);
+  // **Quan el Bluetooth s'encén i quan no** (0.197.7, l'amo: *«Vull logs quan la wifi o el ble s'activen o s'apaguen»*): the failure
+  // used to be a `false` and nothing else, i una placa que no publica res no deixava cap rastre de per què (docs/30, docs/50).
+  if (!ok) {
+    log_printf(pal::kLogWarn, "BT", "the device did not start: the stack of this board said no");
+  }
   if (ok) {
     // **El començament és el de la ràdio i no el d'un costat** (0.190.195): the breath of the light starts when the radio starts doing
     // something, o sigui que encendre el dispositiu quan l'amfitrió ja escoltava no reinicia el dibuix (docs/30, docs/50).
@@ -110,7 +127,8 @@ bool start(const char* name) {
     // resposta de `wants_the_chip_awake` i no obre el pany mentre això és engegat (docs/50, docs/60).
     // **El registre diu el que la placa és i no el nom de la porta** (0.191.0): la placa publica el teclat i el ratolí, o sigui que la línia
     // que deia «the keyboard is on» deixava mitja veritat a fora (docs/50).
-    log_printf(pal::kLogInfo, "BT", "the keyboard and the mouse are on: the waits of this board are spent awake while it lasts");
+    log_printf(pal::kLogInfo, "BT", "the keyboard and the mouse are on as '%s': the waits of this board are spent awake while it lasts",
+               (name != nullptr) ? name : "");
   }
   return ok;
 }
@@ -118,13 +136,103 @@ bool start(const char* name) {
 void stop() {
   hal::IBluetooth* radio = the_radio();
   if (radio == nullptr) return;
+  // **El beacon és l'altra cosa que aquest costat pot ser** (0.194.0): `bt dev off` vol dir que aquesta placa no diu res a l'aire, i un
+  // beacon que sobreviu a l'ordre és exactament el contrari (docs/30, docs/50).
+  radio->beacon_stop();
   radio->keyboard_stop();
+  log_printf(pal::kLogInfo, "BT", "the device is off: nothing of this board is on the air");
 }
 
 bool is_on() {
   hal::IBluetooth* radio = the_radio();
   return radio != nullptr && radio->wants_the_chip_awake();
 }
+
+// ------------------------------------------------------------------ l'iBeacon (0.194.0)
+
+const char kBeaconUuid[] = "6c756e6f-6b4f-5321-0000-000000000001";
+
+namespace {
+
+int hex_of(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+}  // namespace
+
+// **Un UUID de text a setze bytes**: els guions es salten on siguin —un UUID s'escriu amb quatre, i el que importa són els trenta-dos
+// dígits— i el que no és un dígit hexadecimal és el que fa que això digui que no (docs/30, docs/50).
+bool beacon_uuid_from_text(const char* text, uint8_t out[16]) {
+  if (text == nullptr || out == nullptr) return false;
+  uint8_t made[16] = {};
+  size_t at = 0;
+  for (const char* p = text; *p != '\0'; ++p) {
+    if (*p == '-' || *p == ':' || *p == ' ') continue;
+    const int high = hex_of(*p);
+    if (high < 0) return false;
+    ++p;
+    const int low = hex_of(*p);
+    if (low < 0) return false;
+    if (at >= sizeof made) return false;
+    made[at++] = static_cast<uint8_t>((high << 4) | low);
+  }
+  if (at != sizeof made) return false;
+  memcpy(out, made, sizeof made);
+  return true;
+}
+
+const char* beacon_uuid_text(const uint8_t uuid[16]) {
+  static char text[48];
+  const uint8_t* u = (uuid != nullptr) ? uuid : g_beacon.uuid;
+  snprintf(text, sizeof(text), "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", u[0], u[1], u[2],
+           u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]);
+  return text;
+}
+
+const uint8_t* beacon_uuid() { return g_beacon.uuid; }
+
+bool beacon_start(const uint8_t uuid[16], uint16_t major, uint16_t minor, int8_t power) {
+  hal::IBluetooth* radio = the_radio();
+  if (radio == nullptr || !radio->can_bluetooth() || uuid == nullptr) return false;
+  hal::IBluetooth::Beacon beacon;
+  memcpy(beacon.uuid, uuid, sizeof beacon.uuid);
+  beacon.major = major;
+  beacon.minor = minor;
+  beacon.power = power;
+  // **El que costa encendre-la**: la pila de NimBLE i els seus trenta kilobytes, igual que el teclat (docs/50, docs/75).
+  meter::Scope metering(meter::kRadioUp);
+  const bool was_working = radio_is_working();
+  if (!radio->beacon_start(beacon)) {
+    // **I el motiu, al registre**: the shell says «the reason is in the log», and a radio that says no without a word is a command that
+    // lies about where the answer is (docs/30, docs/50).
+    log_printf(pal::kLogWarn, "BT", "this radio did not put the beacon in the air");
+    return false;
+  }
+  memcpy(g_beacon.uuid, uuid, sizeof g_beacon.uuid);
+  g_beacon.major = major;
+  g_beacon.minor = minor;
+  g_beacon.power = power;
+  if (!was_working) g_on_since_ms = pal::system().millis();
+  return true;
+}
+
+void beacon_stop() {
+  hal::IBluetooth* radio = the_radio();
+  if (radio == nullptr) return;
+  radio->beacon_stop();
+}
+
+bool beacon_on() {
+  hal::IBluetooth* radio = the_radio();
+  return radio != nullptr && radio->beacon_on();
+}
+
+uint16_t beacon_major() { return g_beacon.major; }
+uint16_t beacon_minor() { return g_beacon.minor; }
+int8_t beacon_power() { return g_beacon.power; }
 
 bool connected() {
   hal::IBluetooth* radio = the_radio();
@@ -159,6 +267,7 @@ int64_t on_since_ms() { return g_on_since_ms; }
 // o sigui que una placa que ofereix un teclat i ningú el veu no és el mateix que una que té algú escrivint-hi (docs/30, docs/50).
 const char* state_word() {
   if (!available()) return "this board has no radio";
+  if (beacon_on()) return host_is_up() ? "on, a beacon and a host" : "on, a beacon";
   const bool device = is_on();
   const bool host = host_is_up();
   if (!device && !host) return "off";
@@ -351,6 +460,13 @@ bool host_on() {
   meter::Scope metering(meter::kRadioUp);
   const bool up = radio->host_on();
   if (up && !was_working) g_on_since_ms = pal::system().millis();
+  // **Les dues bandes de la ràdio es diuen igual** (0.197.7): encendre l'amfitrió és encendre el Bluetooth, i el registre no ho ha de
+  // fer endevinar (docs/30, docs/50).
+  if (up) {
+    log_printf(pal::kLogInfo, "BT", "the host side is on: this board listens to the other end");
+  } else {
+    log_printf(pal::kLogWarn, "BT", "the host side did not come up: the stack of this board said no");
+  }
   return up;
 }
 
@@ -372,7 +488,10 @@ bool host_is_up() {
 
 void host_off() {
   hal::IBluetooth* radio = the_radio();
-  if (radio != nullptr) radio->host_off();
+  if (radio != nullptr) {
+    radio->host_off();
+    log_printf(pal::kLogInfo, "BT", "the host side is off");
+  }
 }
 
 // **Ja no hi ha mode a triar** (0.191.0, l'amo: *«i no podem anunciar els dos dispositius sempre? després que hi hagi una app de teclat
@@ -449,6 +568,83 @@ void host_forget() {
 void set_the_host_sink() {
   hal::IBluetooth* radio = the_radio();
   if (radio != nullptr) radio->host_sink(&keys_arrived);
+}
+
+// ------------------------------------------------------------------ la bateria i la consola per BLE (0.196.0)
+
+namespace {
+
+// **El que arriba per la consola de BLE és el que arriba pel cable**: the bytes are given to `shell::feed`, que és la mateixa porta que
+// el teclat de l'amfitrió i el filferro, o sigui que el prompt, les fletxes, `Ctrl+D` i els retorns de carro es comporten igual
+// (docs/30, docs/50).
+void console_arrived(const uint8_t* data, uint16_t len) {
+  if (data == nullptr || len == 0) return;
+  shell::feed(reinterpret_cast<const char*>(data), len);
+}
+
+// **I el que la consola escriu cap a l'altre costat**: el mirall del PAL rep cada tros que surt pel sèrie —el prompt, la resposta d'una
+// ordre i el registre quan `verbose` el posa aquí—, i el que es fa és donar-lo a la ràdio; si no hi ha ningú escoltant es perd, que és
+// el que aquest camí ha de fer (docs/30, docs/50).
+void console_out(const uint8_t* data, size_t len) {
+  hal::IBluetooth* radio = the_radio();
+  if (radio == nullptr || data == nullptr || len == 0) return;
+  size_t done = 0;
+  while (done < len) {
+    const size_t left = len - done;
+    const uint16_t piece = static_cast<uint16_t>((left > 512) ? 512 : left);
+    if (!radio->console_send(data + done, piece)) return;
+    done += piece;
+  }
+}
+
+}  // namespace
+
+bool battery_on() {
+  hal::IBluetooth* radio = the_radio();
+  if (radio == nullptr || !radio->can_bluetooth()) return false;
+  return radio->battery_on();
+}
+
+void battery_off() {
+  hal::IBluetooth* radio = the_radio();
+  if (radio != nullptr) radio->battery_off();
+}
+
+bool battery_on_now() {
+  hal::IBluetooth* radio = the_radio();
+  return radio != nullptr && radio->battery_is_on();
+}
+
+bool battery_notify(int percent) {
+  hal::IBluetooth* radio = the_radio();
+  if (radio == nullptr || percent < 0) return false;
+  const uint8_t level = static_cast<uint8_t>((percent > 100) ? 100 : percent);
+  return radio->battery_level(level);
+}
+
+bool console_on() {
+  hal::IBluetooth* radio = the_radio();
+  if (radio == nullptr || !radio->can_bluetooth()) return false;
+  if (!radio->console_on()) return false;
+  radio->console_sink(&console_arrived);
+  // **I el mirall del sèrie, que és el que fa que sigui «el mateix»** (l'amo: *«el mateix que es veu via serial, però per ble»*): without
+  // it the other side would type into a console that never answers (docs/30, docs/50).
+  pal::IConsole* console = pal::system().console();
+  if (console != nullptr) console->mirror(&console_out);
+  return true;
+}
+
+void console_off() {
+  hal::IBluetooth* radio = the_radio();
+  if (radio == nullptr) return;
+  pal::IConsole* console = pal::system().console();
+  if (console != nullptr) console->mirror(nullptr);
+  radio->console_off();
+}
+
+bool console_on_now() {
+  hal::IBluetooth* radio = the_radio();
+  return radio != nullptr && radio->console_is_on();
 }
 
 }  // namespace bt

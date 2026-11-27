@@ -29,7 +29,11 @@ void poll();
 
 // The switches: power the module, or leave it dark. `on` is remembered for the run, not across a reboot.
 bool turn_on();
+// **Apagar-ho és d'una persona**: `turn_off` diu que el mòdul no es vol, i el vigilant no el torna a encendre (0.192.90).
 bool turn_off();
+// **I tancar el cable sense dir-ho**, que és el que fa el vigilant quan el mòdul calla: el fil es deixa anar i el proper intent el
+// torna a sondar, però el mòdul segueix volgut (docs/30, docs/50).
+bool the_wire_gone();
 bool powered();
 
 // **El que se sap**: the last fix, the sky of satellites and the name of the module (docs/30).

@@ -46,16 +46,28 @@ struct Allocator {
   size_t used;
   size_t peak;
   size_t limit;
+  // **A quina casa va anar cada tros** (0.192.93, l'amo: *«De quin tipus de memoria parla? 384.1Kb es molta... d'on la treu? quina
+  // part es dram quina psram quina altres tipus?»*): `used` és una suma i no diu on viu, i les dues cases d'aquesta placa no són el
+  // mateix ni de bon tros —la RAM del xip és la que es discuteixen els drivers i la PSRAM és on cap una pàgina sencera—. Es compta
+  // **aquí** i no als llibres perquè aquí el punter és a la mà a cada petició, i la taula dels llibres (dues-centes cinquanta-quatre
+  // files) es queda curta amb els milers de blocs petits d'una màquina de Lua (docs/20, docs/75).
+  size_t in_ram;
+  size_t in_extra;
+  uint32_t blocks_in_ram;
+  uint32_t blocks_in_extra;
 };
 
-Allocator g_alloc = {0, 0, 0};
+Allocator g_alloc = {0, 0, 0, 0, 0, 0, 0};
 lua_State* g_state = nullptr;  // the state; alive from start() to stop()
 
-// From this size up a block goes to the **extra** memory of the board (the PSRAM of the M5Paper) when
-// it has one. Small blocks stay in the board's own RAM, which is faster and where a thousand little
-// objects fragment a thousand times less; a table of a few thousand entries gets the extra memory and
-// the app never knows —it asks for memory and the interpreter decides where it lives— (docs/75).
-const size_t kExtraThreshold = 4096;
+// **L'intèrpret viu a la memòria extra i enlloc més** (0.192.94, l'amo: *«Canviem totalment aquesta política... a partir d'ara tota memoria
+// que demani lua ha de ser PSRAM exclusivament»*). Fins ara un bloc de quatre kilobytes o més anava a la PSRAM i els petits es quedaven a la
+// RAM del xip mentre en quedés; el que hi ha ara és una sola regla i no té mida: **cada bloc que demana Lua surt de la casa gran o la
+// petició falla**, perquè una màquina de Lua és la cosa més gran que aquest sistema demana i la RAM interna és la que es discuteixen els
+// drivers, la pila i el sistema de fitxers (docs/20, docs/50, docs/75).
+//
+// **I una placa que no té PSRAM segueix corrent una app**: `has_the_extra()` és la pregunta que es fa abans de triar la porta, i si la
+// resposta és no es va per la de sempre. El que no pot ser és que la mateixa app no arrenqui en una placa per no tenir memòria extra.
 lua_State* g_task = nullptr;   // the app's coroutine, null when it has none
 Boot g_boot;  // the default Boot says "?" and nothing else
 // A copy of the app id. g_boot.app_id points at the caller's text, which may be
@@ -227,17 +239,43 @@ int64_t now_ms() { return static_cast<int64_t>(pal::system().millis()); }
 // **The room a memory error is written in**, which is kept out of what an app may take (0.156.0).
 constexpr size_t kErrorReserve = 256;
 
+// **Un tros que arriba o que se'n va, comptat a la seva casa** (0.192.93): the home is asked of the pointer and it is not kept
+// anywhere else, perquè un `resize` pot moure el tros de la RAM a la PSRAM (o al revés) i el que mana és on és ara (docs/75).
+void forget_a_home(Allocator* alloc, bool extra, size_t bytes) {
+  if (extra) {
+    alloc->in_extra = (alloc->in_extra > bytes) ? (alloc->in_extra - bytes) : 0;
+    if (alloc->blocks_in_extra > 0) --alloc->blocks_in_extra;
+    return;
+  }
+  alloc->in_ram = (alloc->in_ram > bytes) ? (alloc->in_ram - bytes) : 0;
+  if (alloc->blocks_in_ram > 0) --alloc->blocks_in_ram;
+}
+
+void enter_a_home(Allocator* alloc, bool extra, size_t bytes) {
+  if (extra) {
+    alloc->in_extra += bytes;
+    ++alloc->blocks_in_extra;
+    return;
+  }
+  alloc->in_ram += bytes;
+  ++alloc->blocks_in_ram;
+}
+
 void* counting_alloc(void* ud, void* ptr, size_t osize, size_t nsize) {
   // **Qui demana, per als llibres de la memòria**: every block of the interpreter is filed under `lua` and under the app in front
   // (0.190.0, docs/75).
   pal::MemoryTag who_asks(pal::kMemoryLua, app_id());
   Allocator* alloc = static_cast<Allocator*>(ud);
   pal::IExtraMemory& memory = pal::extra_memory();
+  // **La casa vella es pregunta abans de tocar el tros**: a pointer that is about to be given back or moved is the only thing that
+  // says where its bytes were, and after the release it is not ours to ask (docs/75).
+  const bool was_extra = (ptr != nullptr) && memory.in_the_extra(ptr);
 
   if (nsize == 0) {
     if (ptr != nullptr) {
       memory.release(ptr);
       alloc->used -= osize;
+      forget_a_home(alloc, was_extra, osize);
     }
     return nullptr;
   }
@@ -252,9 +290,15 @@ void* counting_alloc(void* ud, void* ptr, size_t osize, size_t nsize) {
   // in, and an app never sees it as its own (docs/20, docs/75).
   if (alloc->limit > 0 && next + kErrorReserve > alloc->limit) return nullptr;
 
-  void* block = memory.resize(ptr, nsize, nsize >= kExtraThreshold);
+  // **La casa, triada una vegada i no per bloc**: the extra memory only when this board has one, and otherwise the ordinary door —which on a
+  // board with no PSRAM is the same thing as the board's own RAM (docs/20, docs/75).
+  void* block = memory.has_the_extra() ? memory.resize_in_the_extra(ptr, nsize) : memory.resize(ptr, nsize, false);
   if (block == nullptr) return nullptr;
 
+  // **I el tros canvia de casa quan el PAL el mou**: the old bytes leave the home they were in and the new ones enter the one the
+  // pointer is in now, o sigui que les dues sumes diuen sempre el que hi ha i no el que hi havia (docs/75).
+  if (ptr != nullptr) forget_a_home(alloc, was_extra, osize);
+  enter_a_home(alloc, memory.in_the_extra(block), nsize);
   alloc->used = next;
   if (alloc->used > alloc->peak) alloc->peak = alloc->used;
   return block;
@@ -937,7 +981,7 @@ void finish_console_line() {
 
 int l_sys_heap(lua_State* L) {
   const size_t free_bytes = (g_alloc.limit > g_alloc.used) ? (g_alloc.limit - g_alloc.used) : 0;
-  lua_createtable(L, 0, 8);
+  lua_createtable(L, 0, 14);
   lua_pushinteger(L, static_cast<lua_Integer>(free_bytes));
   lua_setfield(L, -2, "free");
   lua_pushinteger(L, static_cast<lua_Integer>(g_alloc.used));
@@ -963,6 +1007,29 @@ int l_sys_heap(lua_State* L) {
   lua_setfield(L, -2, "ram_free");
   lua_pushinteger(L, static_cast<lua_Integer>(board.largest_free_bytes));
   lua_setfield(L, -2, "ram_largest");
+  // **I el que la RAM té per donar, i el que se n'ha pres** (0.192.92, l'amo: *«Estem segurs que estem obtenint la memoria ocupada
+  // real?»*): `used` arriba de `limit`, que és el sostre de l'intèrpret i no la memòria de la placa —una pàgina que llegia `170 KB of
+  // 8192 KB` estava comparant la RAM amb la PSRAM—. Aquests dos són el heap de debò: el total de la casa i el que hi ha pres, que és
+  // el total menys el lliure (docs/75).
+  const uint32_t ram_total = board.total_bytes;
+  const uint32_t ram_used = (ram_total > board.free_bytes) ? (ram_total - board.free_bytes) : 0;
+  lua_pushinteger(L, static_cast<lua_Integer>(ram_total));
+  lua_setfield(L, -2, "ram_total");
+  lua_pushinteger(L, static_cast<lua_Integer>(ram_used));
+  lua_setfield(L, -2, "ram_used");
+  // **I quant d'això té nom** (0.192.92): els llibres desen qui ha demanat cada bloc, o sigui que la barra de la memòria pot pintar el
+  // que se sap i dir a part el que el heap té pres i cap fila no explica —les estàtiques del binari, i les peticions que la taula dels
+  // llibres no va poder escriure— (docs/75).
+  const pal::MemoryHeld ram_held = pal::memory_held(0);
+  const pal::MemoryHeld extra_held = pal::memory_held(1);
+  lua_pushinteger(L, static_cast<lua_Integer>(ram_held.bytes));
+  lua_setfield(L, -2, "ram_booked");
+  lua_pushinteger(L, static_cast<lua_Integer>(ram_held.blocks));
+  lua_setfield(L, -2, "ram_blocks");
+  lua_pushinteger(L, static_cast<lua_Integer>(extra_held.bytes));
+  lua_setfield(L, -2, "extra_booked");
+  lua_pushinteger(L, static_cast<lua_Integer>(pal::memory_lost()));
+  lua_setfield(L, -2, "books_lost");
   return 1;
 }
 
@@ -1689,7 +1756,7 @@ int l_tick_list(lua_State* L) {
     const alarms::Entry* entry = alarms::at(i);
     if (entry == nullptr || !entry->awake_only) continue;
     if (strcmp(entry->app, alarm_owner()) != 0) continue;
-    lua_createtable(L, 0, 4);
+    lua_createtable(L, 0, 3);
     lua_pushinteger(L, static_cast<lua_Integer>(entry->id));
     lua_setfield(L, -2, "id");
     lua_pushinteger(L, static_cast<lua_Integer>(entry->repeat_ms / 1000));
@@ -2119,7 +2186,11 @@ int l_fs_stat(lua_State* L) {
   lua_setfield(L, -2, "type");
   lua_pushinteger(L, static_cast<lua_Integer>(size));
   lua_setfield(L, -2, "size");
-  lua_pushinteger(L, 0);  // mtime: no backend gives one yet
+  // **L'hora que diu el disc** (0.199.0): the modification time of the file as its backend keeps it, and 0 when the
+  // backend has none —a memory that has no clock of its own says 0, and an app reads that as "nobody knows".
+  FsError when_err = FsError::kOk;
+  const int64_t when = (g_file_ops.mtime != nullptr) ? g_file_ops.mtime(path, when_err) : 0;
+  lua_pushinteger(L, static_cast<lua_Integer>(when_err == FsError::kOk ? when : 0));
   lua_setfield(L, -2, "mtime");
   return 1;
 }
@@ -3242,6 +3313,32 @@ int l_http_download(lua_State* L) {
   return 1;
 }
 
+// http.post(url[, ms]): **una promesa de `{status, body, bytes}` per a una ordre** (0.199.3, demanat pel `405` de Jellyfin:
+// *«This system cannot POST: the command did not go»*). The verb is POST and the body is empty —a media server's commands
+// are exactly that—, and the answer comes back by the same door a page does (docs/30).
+int l_http_post(lua_State* L) {
+  const char* url = luaL_checkstring(L, 1);
+  lua_Integer timeout = luaL_optinteger(L, 2, kNetTimeoutDefaultMs);
+  if (timeout < 0) timeout = 0;
+
+  const int p = push_promise(L, 0);
+  NetRefuse refused = NetRefuse::kNoRadio;
+  if (g_net_ops.http_post != nullptr) {
+    refused = g_net_ops.http_post(url, static_cast<uint32_t>(timeout));
+  }
+  if (refused != NetRefuse::kOk) {
+    refuse_page(L, refused, p, "there is no address to send to");
+    lua_pushvalue(L, p);
+    return 1;
+  }
+
+  pending_add(L, p);
+  lua_pushvalue(L, p);
+  lua_setfield(L, LUA_REGISTRYINDEX, kHttpKey);
+  lua_pushvalue(L, p);
+  return 1;
+}
+
 // net.provisioned(): true when the board already knows a network. An app that is
 // about to ask a person for their password can ask this first (docs/50).
 int l_net_provisioned(lua_State* L) {
@@ -4023,7 +4120,7 @@ int l_led_system(lua_State* L) {
   // No name: the four, in one table, so an app can look before it changes anything. The
   // list of names is the kernel's: this loop ends when the kernel runs out of them.
   if (lua_gettop(L) == 0) {
-    lua_createtable(L, 0, 4);
+    lua_createtable(L, 0, 3);
     for (uint32_t i = 0;; ++i) {
       const uint8_t index = static_cast<uint8_t>(i);
       const char* name = g_led_ops.trigger_name(index);
@@ -4819,7 +4916,7 @@ int l_touch_read(lua_State* L) {
   const uint8_t count = g_touch_ops.points(points, kTouchPointsInFrame);
   lua_createtable(L, count, 0);
   for (uint8_t i = 0; i < count; ++i) {
-    lua_createtable(L, 0, 4);
+    lua_createtable(L, 0, 3);
     lua_pushinteger(L, points[i].id);
     lua_setfield(L, -2, "id");
     lua_pushinteger(L, points[i].x);
@@ -4868,6 +4965,72 @@ int l_touch_gesture(lua_State* L) {
   lua_pushinteger(L, fingers);
   lua_setfield(L, -2, "fingers");
   return 1;
+}
+
+// **`touch.capture(x, y, w, h)` i `touch.capture()`** (0.192.88, l'amo: *«Captura tots els gestos al panell d'entrenament i
+// converteix-lo en línia … El teclat també haurà de fer el mateix: convertir els gestos que li succeeixin a la seva àrea
+// convertits en events de dits (per no perdre línies, per exemple, sense això els accents semblen un punt sobre el símbol)»*):
+// the page asks for a box **in its own frame** and stops asking with the same call and no numbers. It is the box of the paper a
+// letter is drawn on, i el que torna és si la captura és seva (docs/30, docs/50, docs/90).
+int l_touch_capture(lua_State* L) {
+  if (g_touch_ops.capture == nullptr || g_touch_ops.uncapture == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no touch");
+  }
+  if (lua_isnoneornil(L, 1)) {
+    g_touch_ops.uncapture();
+    lua_pushboolean(L, 1);
+    return 1;
+  }
+  const lua_Integer x = luaL_checkinteger(L, 1);
+  const lua_Integer y = luaL_checkinteger(L, 2);
+  const lua_Integer w = luaL_optinteger(L, 3, 0);
+  const lua_Integer h = luaL_optinteger(L, 4, 0);
+  if (w <= 0 || h <= 0) {
+    g_touch_ops.uncapture();
+    lua_pushboolean(L, 1);
+    return 1;
+  }
+  const auto clamp16 = [](lua_Integer v) -> uint16_t {
+    if (v < 0) return 0;
+    return (v > 65535) ? static_cast<uint16_t>(65535) : static_cast<uint16_t>(v);
+  };
+  if (!g_touch_ops.capture(clamp16(x), clamp16(y), clamp16(w), clamp16(h))) {
+    return push_nil_error(L, "E_INVAL", "that box is not on this glass");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **`touch.captured()`**: the points of the lines since the last call —taken, o sigui que llegir dues vegades no dibuixa el
+// mateix punt dues vegades—, quantes línies s'han acabat, si hi ha un dit al quadre ara mateix i quants punts no hi cabien.
+// Una llista buida i no `nil` quan no hi ha res, perquè un bucle la pugui recórrer sense preguntar abans (docs/30, docs/50).
+int l_touch_captured(lua_State* L) {
+  if (g_touch_ops.take_captured == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no touch");
+  }
+  // The ceiling of one drain: a turn that reads this many points is a page that has been busy, i el que en queda es queda al
+  // buffer per al torn següent (docs/30).
+  const uint16_t kMost = 192;
+  luabind::CapturedPointInfo points[kMost] = {};
+  uint16_t lines_ended = 0;
+  bool finger = false;
+  uint32_t lost = 0;
+  const uint16_t count = g_touch_ops.take_captured(points, kMost, lines_ended, finger, lost);
+  lua_createtable(L, count, 0);
+  for (uint16_t i = 0; i < count; ++i) {
+    lua_createtable(L, 0, 3);
+    lua_pushinteger(L, points[i].x);
+    lua_setfield(L, -2, "x");
+    lua_pushinteger(L, points[i].y);
+    lua_setfield(L, -2, "y");
+    lua_pushinteger(L, points[i].line);
+    lua_setfield(L, -2, "line");
+    lua_rawseti(L, -2, static_cast<lua_Integer>(i) + 1);
+  }
+  lua_pushinteger(L, lines_ended);
+  lua_pushboolean(L, finger);
+  lua_pushinteger(L, static_cast<lua_Integer>(lost));
+  return 4;
 }
 
 // **El número del parpelleig és un ajust i no un cursor** (0.189.34, i el forat de la 0.189.112): vuit-cents cinquanta
@@ -13662,6 +13825,24 @@ int l_cfg_turn(lua_State* L) {
   return 1;
 }
 
+// **`cfg.mem([kb])`** (0.192.94): el sostre de l'intèrpret, que des de la 0.192.94 és el que separa una app que creix del sistema que ha de
+// continuar pintant, perquè la memòria extra és l'única casa on viu Lua i els llenços de la pàgina hi són també. **Zero vol dir automàtic**
+// (la meitat del que la placa dona) i un número són kilobytes; el número que ha de cabre ho mira la porta del nucli i una negativa és
+// `E_INVAL`, que és el que una pàgina ha de poder ensenyar (docs/20, docs/30, docs/75).
+int l_cfg_mem(lua_State* L) {
+  if (g_cfg_ops.memory == nullptr || g_cfg_ops.set_memory == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no ceiling for the interpreter");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const lua_Integer asked = luaL_checkinteger(L, 1);
+    if (asked < 0 || asked > 65535 || !g_cfg_ops.set_memory(static_cast<uint32_t>(asked))) {
+      return push_nil_error(L, "E_INVAL", "a ceiling is kilobytes that fit in what this board has, or zero for the half of it");
+    }
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_cfg_ops.memory()));
+  return 1;
+}
+
 int l_cfg_cursor(lua_State* L) {
   if (g_cfg_ops.cursor_delay == nullptr || g_cfg_ops.set_cursor_delay == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this build keeps no caret");
@@ -14254,6 +14435,10 @@ int l_hand_caps(lua_State* L) {
   lua_setfield(L, -2, "margin");
   lua_pushinteger(L, static_cast<lua_Integer>(ink::kCandidates));
   lua_setfield(L, -2, "candidates");
+  // **Quantes mostres hi caben** (0.192.86): a full model answers "no" to every new drawing, i una pàgina que no ho pot dir no
+  // pot avisar ningú de res (docs/30, docs/75).
+  lua_pushinteger(L, static_cast<lua_Integer>((g_hand_ops.capacity != nullptr) ? g_hand_ops.capacity() : 0));
+  lua_setfield(L, -2, "capacity");
   const uint8_t zones = (g_hand_ops.zones != nullptr) ? g_hand_ops.zones() : 0;
   lua_createtable(L, static_cast<int>(zones), 0);
   for (uint8_t i = 0; i < zones; ++i) {
@@ -14264,19 +14449,44 @@ int l_hand_caps(lua_State* L) {
   return 1;
 }
 
-// **`hand.grid(strokes)`**: el dibuix posat a la quadrícula, dit com una cadena de quaranta-nou xifres (0, 1 o 2) i els dos
-// números que la quadrícula no pot dir. És el que l'app d'entrenament ensenya a la persona: el que el model veu i no el que ella
-// creu que ha dibuixat (docs/30, docs/90).
+// **El camp on la persona dibuixa, si l'app el diu** (0.195.0): dos números opcionals al final de `hand.grid`, `hand.add` i
+// `hand.guess` —l'amplada i l'alçada del paper—, i el que fan és que la quadrícula sàpiga **on** cau el dibuix i **quant n'ocupa**.
+// Sense ells tot segueix com abans: no hi ha lloc ni mida a comparar (docs/30, docs/90).
+void read_the_field(lua_State* L, int first, ink::Field& where) {
+  // **Dos números són el camp des de zero, i quatre són el camp amb el seu origen**: the page of the trainer draws at the corner of
+  // its paper and the band draws its zones somewhere else on the glass, o sigui que les dues formes existeixen i la curta és la que
+  // una app escriu normalment (docs/30, docs/90).
+  const bool with_origin = lua_isnumber(L, first + 2) && lua_isnumber(L, first + 3);
+  const int offset = with_origin ? 2 : 0;
+  if (with_origin) {
+    if (lua_isnumber(L, first)) where.x = static_cast<int32_t>(lua_tointeger(L, first));
+    if (lua_isnumber(L, first + 1)) where.y = static_cast<int32_t>(lua_tointeger(L, first + 1));
+  }
+  if (lua_isnumber(L, first + offset)) {
+    const lua_Integer value = lua_tointeger(L, first + offset);
+    if (value > 0 && value <= 65535) where.w = static_cast<uint16_t>(value);
+  }
+  if (lua_isnumber(L, first + offset + 1)) {
+    const lua_Integer value = lua_tointeger(L, first + offset + 1);
+    if (value > 0 && value <= 65535) where.h = static_cast<uint16_t>(value);
+  }
+}
+
+// **`hand.grid(strokes [, w, h])`**: el dibuix posat a la quadrícula, dit com una cadena de quaranta-nou xifres (0, 1 o 2) i els
+// números que la quadrícula no pot dir de les cel·les. És el que l'app d'entrenament ensenya a la persona: el que el model veu i no
+// el que ella creu que ha dibuixat (docs/30, docs/90).
 int l_hand_grid(lua_State* L) {
   if (g_hand_ops.glyph == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
   ink::Glyph* glyph = g_hand_ops.glyph();
   if (read_the_strokes(L, 1, *glyph) == 0) return push_nil_error(L, "E_INVAL", "that is not a drawing");
+  ink::Field where;
+  read_the_field(L, 2, where);
   ink::Grid grid;
-  if (!ink::raster(*glyph, grid)) return push_nil_error(L, "E_INVAL", "a press is not a letter");
+  if (!ink::raster(*glyph, where, grid)) return push_nil_error(L, "E_INVAL", "nothing was drawn");
   char cells[ink::kCells + 1];
   for (uint8_t i = 0; i < ink::kCells; ++i) cells[i] = static_cast<char>('0' + grid.cell[i]);
   cells[ink::kCells] = '\0';
-  lua_createtable(L, 0, 4);
+  lua_createtable(L, 0, 7);
   lua_pushstring(L, cells);
   lua_setfield(L, -2, "cells");
   lua_pushinteger(L, static_cast<lua_Integer>(grid.strokes));
@@ -14285,6 +14495,15 @@ int l_hand_grid(lua_State* L) {
   lua_setfield(L, -2, "aspect");
   lua_pushinteger(L, static_cast<lua_Integer>(grid.inked()));
   lua_setfield(L, -2, "inked");
+  // **On i quant, quan hi ha camp**: el que l'app pot ensenyar a la persona perquè vegi per què el model dubta (0.195.0).
+  if (grid.size != ink::kWhereUnknown) {
+    lua_pushinteger(L, static_cast<lua_Integer>(grid.at_x));
+    lua_setfield(L, -2, "at_x");
+    lua_pushinteger(L, static_cast<lua_Integer>(grid.at_y));
+    lua_setfield(L, -2, "at_y");
+    lua_pushinteger(L, static_cast<lua_Integer>(grid.size));
+    lua_setfield(L, -2, "size");
+  }
   return 1;
 }
 
@@ -14303,7 +14522,9 @@ int l_hand_add(lua_State* L) {
   const char* text = lua_tolstring(L, 2, &len);
   if (text == nullptr || len != 1) return push_nil_error(L, "E_INVAL", "the character to teach is one byte");
   if (read_the_strokes(L, 3, *g_hand_ops.glyph()) == 0) return push_nil_error(L, "E_INVAL", "that is not a drawing");
-  lua_pushboolean(L, g_hand_ops.add(zone, text[0]) ? 1 : 0);
+  ink::Field where;
+  read_the_field(L, 4, where);
+  lua_pushboolean(L, g_hand_ops.add(zone, text[0], where) ? 1 : 0);
   return 1;
 }
 
@@ -14318,7 +14539,9 @@ int l_hand_guess(lua_State* L) {
   const char* why = "";
   if (!read_the_zone(L, 1, zone, &why)) return push_nil_error(L, "E_INVAL", why);
   if (read_the_strokes(L, 2, *g_hand_ops.glyph()) == 0) return push_nil_error(L, "E_INVAL", "that is not a drawing");
-  const ink::Answer answer = g_hand_ops.guess(zone);
+  ink::Field where;
+  read_the_field(L, 3, where);
+  const ink::Answer answer = g_hand_ops.guess(zone, where);
   if (!answer.any) return push_nil_error(L, "E_NOTFOUND", "no character of this model is near that drawing");
   lua_createtable(L, 0, 5);
   char top[2] = {answer.top[0].text, 0};
@@ -14383,13 +14606,24 @@ int l_hand_load(lua_State* L) {
   return 1;
 }
 
+// **`hand.forget(zone)` buida la zona, i `hand.forget(zone, 'a')` les d'un caràcter** (0.192.86): the page that trains a hand
+// needs the second one —a sample drawn wrong is the only thing a person cannot take back—, i la primera ja hi era (docs/30).
 int l_hand_forget(lua_State* L) {
   if (g_hand_ops.forget == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build has no hand model");
   uint8_t zone = 0;
   const char* why = "";
   if (!read_the_zone(L, 1, zone, &why)) return push_nil_error(L, "E_INVAL", why);
-  g_hand_ops.forget(zone);
-  lua_pushboolean(L, 1);
+  if (lua_isnoneornil(L, 2)) {
+    g_hand_ops.forget(zone);
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  const char* text = luaL_checkstring(L, 2);
+  if (text[0] == '\0' || text[1] != '\0') {
+    return push_nil_error(L, "E_INVAL", "a character is one byte");
+  }
+  if (g_hand_ops.forget_of == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build forgets no character");
+  lua_pushinteger(L, static_cast<lua_Integer>(g_hand_ops.forget_of(zone, text[0])));
   return 1;
 }
 
@@ -14608,6 +14842,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "home", l_cfg_home);
   set_function(L, "sort", l_cfg_sort);
   set_function(L, "turn", l_cfg_turn);
+  set_function(L, "mem", l_cfg_mem);
   set_function(L, "cursor", l_cfg_cursor);
   set_function(L, "freq", l_cfg_freq);
   set_function(L, "settings", l_cfg_settings_app);
@@ -14743,9 +14978,10 @@ void seal_globals(lua_State* L) {
 
   // http: a page. One call, a promise, and the answer is the status and the body —or the file it went
   // to when it was too big for the heap (docs/30).
-  lua_createtable(L, 0, 2);
+  lua_createtable(L, 0, 3);
   set_function(L, "get", l_http_get);
   set_function(L, "download", l_http_download);
+  set_function(L, "post", l_http_post);
   lua_setglobal(L, "http");
 
   // led: the light, while the app is in front. button: the one thing a person can
@@ -14854,6 +15090,8 @@ void seal_globals(lua_State* L) {
   lua_createtable(L, 0, 4);
   set_function(L, "caps", l_touch_caps);
   set_function(L, "read", l_touch_read);
+  set_function(L, "capture", l_touch_capture);
+  set_function(L, "captured", l_touch_captured);
   set_function(L, "gesture", l_touch_gesture);
   // **I de qui és el gest dels tres tocs** (0.190.254): un joc llegeix cada toc, o sigui que el tercer no pot ser una ordre del
   // sistema que li tanca la partida. `touch.triple_tap_close(false)` els deixa a la cua de la pàgina i torna l'estat nou
@@ -15417,6 +15655,10 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_alloc.used = 0;
   g_alloc.peak = 0;
   g_alloc.limit = limit_bytes;
+  g_alloc.in_ram = 0;
+  g_alloc.in_extra = 0;
+  g_alloc.blocks_in_ram = 0;
+  g_alloc.blocks_in_extra = 0;
 
   g_state = lua_newstate(&counting_alloc, &g_alloc);
   if (g_state == nullptr) {
@@ -15567,6 +15809,11 @@ void stop() {
   // **And the block of stops goes with it** (0.189.10): it is the page's scratch and not the system's, so an app that
   // ends gives it back and the next one asks for the size its own page needs (docs/75, docs/90).
   ui_stops_release();
+  // **La pàgina de l'error també** (0.192.93): the block of the last error is a block of the PAL that outlives the state, i un
+  // emulador que torna a fer les seves cases entre dues proves —o un run que canvia els sostres— el deixava apuntant a memòria que ja
+  // no és de ningú i `forget_the_error` el tornava a donar (un SIGSEGV a la suite de `test_luabind`, trobat fent aquesta feina). Es
+  // dona aquí, que és l'últim moment en què el bloc és viu i de qui el va demanar (docs/30, docs/75, docs/85).
+  forget_the_error();
   lua_close(g_state);
   g_state = nullptr;
 }
@@ -18741,6 +18988,18 @@ int32_t until_next_ms() {
 }
 
 size_t used_bytes() { return g_alloc.used; }
+
+// **On viu l'intèrpret** (0.192.93): les dues cases de la placa, amb els bytes i els trossos de cadascuna. Un estat que no hi és no
+// té res a comptar i les quatre respostes són zero, que és el que el prompt ha de poder ensenyar sense preguntar abans si hi ha
+// intèrpret (docs/20, docs/75).
+Homes homes() {
+  Homes out;
+  out.ram_bytes = g_alloc.in_ram;
+  out.ram_blocks = g_alloc.blocks_in_ram;
+  out.extra_bytes = g_alloc.in_extra;
+  out.extra_blocks = g_alloc.blocks_in_extra;
+  return out;
+}
 
 size_t peak_bytes() { return g_alloc.peak; }
 

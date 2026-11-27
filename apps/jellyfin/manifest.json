@@ -1,0 +1,9 @@
+{
+  "title": "Jellyfin",
+  "author": "@lunokjod",
+  "version": "0.1.4",
+  "entry": "jellyfin.lua",
+  "icon": "res/icon.png",
+  "boards": ["esp32"],
+  "description": "Control a Jellyfin server on the LAN: sessions, play/pause and a refresh.\nFour tabs are the whole way around it —Server, Sessions, Continue and Control— and the gear at the top right keeps the address and the API key. The Server page asks the server's public name and what its library holds; Sessions lists who is connected and what each one is doing; Continue is a card for every film that is half watched, with its poster, how much of it is seen and how much is left, and a card plays the title on the session that is chosen; Control is one session —the poster, the title, the identity line, a bar with the time gone, the total and what is left, and the seven keys of a remote—. The settings are not a tab: the gear opens them from any page and takes a person back there. The orders of a Jellyfin remote are POST on the server and this system only speaks GET, so a real server answers 405 to them and the line of state says so."
+}

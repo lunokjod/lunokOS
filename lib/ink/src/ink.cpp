@@ -85,7 +85,24 @@ void walk(int32_t ax, int32_t ay, int32_t bx, int32_t by, uint8_t* cell, int32_t
 
 }  // namespace
 
-bool raster(const Glyph& g, Grid& out) {
+namespace {
+
+// **El lloc dins del camp, en vuitens** (0.195.0): eighths and not quarters, perquè és el pas que separa una `-` del mig d'una `_`
+// del peu (tres vuitens, mesurats) i alhora un pèl de traç no mou el número més d'un; el pes de la distància és el que decideix quant
+// compta, i qui dibuixa el mateix traç una mica més amunt té el seu exemple a prop (docs/30, docs/90).
+uint8_t eighth_of(int32_t at, int32_t field) {
+  if (field <= 0) return kWhereUnknown;
+  int32_t eighth = (at * 8) / field;
+  if (eighth < 0) eighth = 0;
+  if (eighth > 8) eighth = 8;
+  return static_cast<uint8_t>(eighth);
+}
+
+}  // namespace
+
+bool raster(const Glyph& g, Grid& out) { return raster(g, Field(), out); }
+
+bool raster(const Glyph& g, const Field& where, Grid& out) {
   out = Grid();
   if (g.count == 0 || g.strokes == 0) return false;
   int16_t x0 = g.point[0].x;
@@ -100,8 +117,9 @@ bool raster(const Glyph& g, Grid& out) {
   }
   const int32_t width = static_cast<int32_t>(x1) - x0 + 1;
   const int32_t height = static_cast<int32_t>(y1) - y0 + 1;
-  // **Un toc no és una lletra**: a glyph with every point in the same place is a finger that pressed and nothing else.
-  if (width <= 1 && height <= 1) return false;
+  // **Un toc és un punt i no una negativa** (0.195.0): every point in the same place is a finger that pressed, i un `.` és això
+  // mateix; abans es refusava i el punt no es podia escriure. El que el separa d'una ratlla és la `size`, i per això aquesta porta
+  // vol el camp (docs/30, docs/90).
   const int32_t longest = (width > height) ? width : height;
   const int32_t centre_x2 = static_cast<int32_t>(x0) + x1;
   const int32_t centre_y2 = static_cast<int32_t>(y0) + y1;
@@ -132,17 +150,32 @@ bool raster(const Glyph& g, Grid& out) {
   if (aspect < 1) aspect = 1;
   if (aspect > 8) aspect = 8;
   out.aspect = static_cast<uint8_t>(aspect);
+  // **On i quant, si el camp es diu**: the centre of the ink in quarters of the field, and the longest side of the ink over the
+  // longest side of the field. A `-` in the middle and a `_` at the bottom differ here and nowhere else, i un `.` és `size` zero
+  // mentre una ratlla que travessa el paper és tres (docs/30, docs/90).
+  if (where.known()) {
+    // **El centre de la tinta, en coordenades del camp**: the points come in the coordinates of the page and the field is a box
+    // inside it, o sigui que primer es treu l'origen i després es mira on cau (docs/30, docs/90).
+    const int32_t centre_x = (static_cast<int32_t>(x0) + x1) / 2 - where.x;
+    const int32_t centre_y = (static_cast<int32_t>(y0) + y1) / 2 - where.y;
+    const int32_t field_longest = (where.w > where.h) ? where.w : where.h;
+    out.at_x = eighth_of(centre_x, where.w);
+    out.at_y = eighth_of(centre_y, where.h);
+    out.size = eighth_of(longest, field_longest);
+  }
   return true;
 }
 
-bool raster(const Point* points, uint16_t count, Grid& out) {
+bool raster(const Point* points, uint16_t count, Grid& out) { return raster(points, count, Field(), out); }
+
+bool raster(const Point* points, uint16_t count, const Field& where, Grid& out) {
   Glyph g;
   if (points == nullptr || count == 0) return false;
   for (uint16_t i = 0; i < count; ++i) {
     if (!g.add(points[i].x, points[i].y)) break;
   }
   g.lift();
-  return raster(g, out);
+  return raster(g, where, out);
 }
 
 // ------------------------------------------------------------------ el model
@@ -156,6 +189,20 @@ uint16_t distance(const Grid& a, const Grid& b) {
   // **Els traços pesen més que una cel·la**: `l` i `i` són la mateixa línia i una té un punt, o sigui que comptar-los és el que
   // les separa quan la quadrícula ja no pot (docs/90).
   total = static_cast<uint16_t>(total + static_cast<uint16_t>(absolute(a.strokes - b.strokes) * 9));
+  // **I el lloc i la mida, quan les dues en saben** (0.195.0): a `-` and a `_` are the same cells and the same aspect, o sigui que
+  // aquests tres números són l'única cosa que les separa; la mida pesa més perquè un `.` i una `-` també són la mateixa tinta. Una
+  // quadrícula sense camp no compta en cap dels tres, que és el que fa que un dibuix sense camp es pugui comparar amb un model vell
+  // (docs/30, docs/90).
+  // **Quant compta cada un, i per què no pesen igual**: `at_y` és la línia d'escriptura —el mig i el peu de la pàgina són dues coses—
+  // i pesa **12** per vuitè, que és el que fa que un `-` del mig i un `_` del peu (dos vuitens) estiguin a 24 i no a 16, és a dir per
+  // sobre de `kNear` i no només per sobre de `kMargin` (mesurat: vegeu el cas de `test_ink`); `size` és el que separa un punt d'una
+  // ratlla i pesa 10; i `at_x` pesa **2** i no més perquè el paper d'entrenament és ample i **on, d'ample, dibuixa una persona és
+  // soroll**: el mateix `-` al mig del paper i a l'esquerra no han de ser dues ratlles (docs/30, docs/90).
+  if (a.at_x != kWhereUnknown && b.at_x != kWhereUnknown) {
+    total = static_cast<uint16_t>(total + static_cast<uint16_t>(absolute(a.at_x - b.at_x) * 2));
+    total = static_cast<uint16_t>(total + static_cast<uint16_t>(absolute(a.at_y - b.at_y) * 12));
+    total = static_cast<uint16_t>(total + static_cast<uint16_t>(absolute(a.size - b.size) * 10));
+  }
   return total;
 }
 
@@ -223,6 +270,21 @@ Answer Model::guess(const Grid& grid) const {
   return out;
 }
 
+uint16_t Model::remove_of(char text) {
+  uint16_t removed = 0;
+  uint16_t at = 0;
+  for (uint16_t i = 0; i < count; ++i) {
+    if (examples[i].text == text) {
+      ++removed;
+      continue;
+    }
+    if (at != i) examples[at] = examples[i];
+    ++at;
+  }
+  count = at;
+  return removed;
+}
+
 uint16_t Model::examples_of(char text) const {
   uint16_t n = 0;
   for (uint16_t i = 0; i < count; ++i) {
@@ -237,7 +299,8 @@ size_t blob_bytes(const Model& model) { return kHeaderBytes + static_cast<size_t
 
 namespace {
 
-// Four cells in a byte, two bits each: thirteen bytes for a 7x7 grid, the last one with three bits spare.
+// Four cells in a byte, two bits each: thirteen bytes for a 7x7 grid, the last one with three bits spare. The place and the size of
+// the example come after the label, the strokes and the aspect, and they are the three bytes this file grew by in the 0.195.0.
 void pack(const Grid& grid, uint8_t* out) {
   memset(out, 0, 13);
   for (uint8_t i = 0; i < kCells; ++i) {
@@ -271,6 +334,9 @@ size_t save(const Model& model, uint8_t* out, size_t cap) {
     at[13] = static_cast<uint8_t>(model.examples[i].text);
     at[14] = model.examples[i].grid.strokes;
     at[15] = model.examples[i].grid.aspect;
+    at[16] = model.examples[i].grid.at_x;
+    at[17] = model.examples[i].grid.at_y;
+    at[18] = model.examples[i].grid.size;
     at += kExampleBytes;
   }
   return need;
@@ -295,6 +361,9 @@ bool load(Model& model, const uint8_t* in, size_t len) {
     one.text = static_cast<char>(at[13]);
     one.grid.strokes = at[14];
     one.grid.aspect = at[15];
+    one.grid.at_x = at[16];
+    one.grid.at_y = at[17];
+    one.grid.size = at[18];
     if (one.text != '\0') model.examples[model.count++] = one;
     at += kExampleBytes;
   }

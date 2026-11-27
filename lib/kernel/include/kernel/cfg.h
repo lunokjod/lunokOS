@@ -272,6 +272,20 @@ uint32_t turn_instructions();
 uint32_t turn_default();
 // A slice is a count of digits: true when `text` is one of the numbers a slice may be. `instructions` holds it then.
 bool parse_turn(const char* text, uint32_t& instructions);
+
+// **El sostre de memòria de l'intèrpret** (0.192.94, l'amo: *«a partir d'ara tota memoria que demani lua ha de ser PSRAM exclusivament»* i
+// després, triant com es decideix el número: *«un ajust `cfg mem <kb>` amb la meitat per defecte»*). Amb l'intèrpret vivint sencer a la
+// memòria extra, aquell sostre deixa de ser un número decoratiu: **és el que separa una app que creix del sistema que ha de continuar
+// pintant**, perquè els llenços de la pàgina, les miniatures, les fotos i les memòries de sessió són a la mateixa casa (docs/20, docs/75).
+//
+// **Zero vol dir automàtic**, que és la meitat del que la placa dona: la casa gran la comparteixen el sistema i l'app, i el que un app pot
+// prendre sol no pot ser tota (docs/30, docs/75).
+uint32_t interpreter_mem_kb();
+// La meitat del que la placa dona, que és el que mana quan ningú no ha dit res.
+uint32_t interpreter_mem_default_kb(uint32_t board_kb);
+// `auto` (o `0`) és el valor de sèrie i un número són kilobytes; res més enllà del que la placa dona no és un sostre.
+bool parse_interpreter_mem(const char* text, uint32_t& kb, uint32_t board_kb);
+bool set_interpreter_mem(uint32_t kb);
 // Applies the number now —the next turn of the app uses it— and saves it. False when the number is not a slice or when
 // there is nowhere to keep it.
 bool set_turn_instructions(uint32_t instructions);

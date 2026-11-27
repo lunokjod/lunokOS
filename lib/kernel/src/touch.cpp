@@ -352,6 +352,103 @@ void turn_frame() {
   }
 }
 
+// **LA CAPTURA** (0.192.88): the box that somebody asked for, the ring of points of its lines, and the line that is open.
+// The ring is small on purpose —a line of a letter is a hundred points and a page drains it in every turn—, and a ring that
+// overflows says so instead of losing the line without a word (docs/30, docs/50).
+const uint16_t kCapturePoints = 320;
+CaptureOwner g_capture_owner = CaptureOwner::kNone;
+uint16_t g_capture_x = 0;
+uint16_t g_capture_y = 0;
+uint16_t g_capture_w = 0;
+uint16_t g_capture_h = 0;
+CapturedPoint g_capture_ring[kCapturePoints];
+uint16_t g_capture_first = 0;  // the oldest point in the ring
+uint16_t g_capture_used = 0;
+uint16_t g_capture_line = 0;     // the line that is open (0 before the first contact)
+uint16_t g_capture_ended = 0;    // how many lines are over
+bool g_capture_following = false;  // a contact of the box is on the glass right now
+uint32_t g_capture_lost = 0;
+
+bool inside_the_capture(uint16_t x, uint16_t y) {
+  return x >= g_capture_x && x < static_cast<uint16_t>(g_capture_x + g_capture_w) && y >= g_capture_y &&
+         y < static_cast<uint16_t>(g_capture_y + g_capture_h);
+}
+
+void the_capture_follows_the_frame() {
+  if (g_capture_owner == CaptureOwner::kNone) return;
+  const uint16_t x = (g_count > 0) ? g_frame[0].x : 0;
+  const uint16_t y = (g_count > 0) ? g_frame[0].y : 0;
+  if (g_count > 0 && inside_the_capture(x, y)) {
+    if (!g_capture_following) {
+      g_capture_following = true;
+      ++g_capture_line;
+    }
+    // **Un dit quiet no omple el buffer** (0.192.88): a finger that rests on the glass reports the same point once per scan, and
+    // a hundred of them are a hundred points of nothing. El rellotge de la pausa el porta qui dibuixa, que ja té el seu i no ha
+    // de llegir un rellotge de setze bits (docs/30, docs/50).
+    if (g_capture_used > 0) {
+      const uint16_t at = static_cast<uint16_t>((g_capture_first + g_capture_used - 1) % kCapturePoints);
+      const CapturedPoint& last = g_capture_ring[at];
+      if (last.line == g_capture_line && last.x == x && last.y == y) return;
+    }
+    const uint16_t at = static_cast<uint16_t>((g_capture_first + g_capture_used) % kCapturePoints);
+    if (g_capture_used >= kCapturePoints) {
+      ++g_capture_lost;
+      g_capture_first = static_cast<uint16_t>((g_capture_first + 1) % kCapturePoints);
+      --g_capture_used;
+    }
+    g_capture_ring[at].x = x;
+    g_capture_ring[at].y = y;
+    g_capture_ring[at].line = g_capture_line;
+    ++g_capture_used;
+    return;
+  }
+  // **El dit ha sortit del quadre o s'ha aixecat, i la línia s'ha acabat aquí**: it is the kernel that says it and not the page,
+  // perquè el marc que una pàgina llegeix és sempre l'últim i un dit que s'aixeca entre dos torns no s'hi veu (docs/30, docs/50).
+  if (g_capture_following) {
+    g_capture_following = false;
+    ++g_capture_ended;
+  }
+}
+
+// **La captura, tal com la demana una pàgina** (0.192.88): the box is in the view's frame —the one every finger an app reads is
+// given in— i un quadre que no toca el vidre es refusa en comptes d'armar una captura que no pot donar cap punt (docs/30,
+// docs/50).
+bool capture_for_lua(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  if (g_glass == nullptr) return false;
+  if (w == 0 || h == 0) return false;
+  if (x >= ui::width() || y >= ui::height()) return false;
+  capture(CaptureOwner::kThePage, x, y, w, h);
+  return true;
+}
+
+void uncapture_for_lua() { uncapture(CaptureOwner::kThePage); }
+
+bool capturing_for_lua() { return capturing(CaptureOwner::kThePage); }
+
+uint16_t take_captured_for_lua(luabind::CapturedPointInfo* out, uint16_t capacity, uint16_t& lines_ended, bool& finger,
+                               uint32_t& lost) {
+  // **De mica en mica, que la pila d'aquest bucle és petita** (0.192.88): the ring is drained in chunks of a few points and copied
+  // into the interpreter's own struct, en comptes de copiar tres-cents punts a la pila per tornar-los a copiar (docs/30).
+  const uint16_t kChunk = 24;
+  CapturedPoint chunk[kChunk];
+  if (out == nullptr) return 0;
+  uint16_t wrote = 0;
+  while (wrote < capacity) {
+    const uint16_t want = (capacity - wrote < kChunk) ? static_cast<uint16_t>(capacity - wrote) : kChunk;
+    const uint16_t got = take_captured(chunk, want, lines_ended, finger, lost);
+    if (got == 0) break;
+    for (uint16_t i = 0; i < got; ++i) {
+      out[wrote + i].x = chunk[i].x;
+      out[wrote + i].y = chunk[i].y;
+      out[wrote + i].line = chunk[i].line;
+    }
+    wrote = static_cast<uint16_t>(wrote + got);
+    if (got < want) break;
+  }
+  return wrote;
+}
+
 // What the interpreter asked for: **the frame of the view of the app**, which is the frame the fingers
 // are given in. The chip counts in its own frame and that one is not an app's business (docs/30, docs/90).
 bool caps_for_lua(luabind::TouchInfo& out) {
@@ -464,7 +561,8 @@ bool boot(hal::IPlatform& platform) {
   // on it; el vidre ho aplica ara, i el son ja el configurarà a cada mode (docs/30, docs/50, docs/60).
   g_adaptive_scan = cfg::touch_adaptive();
   g_glass->set_adaptive_scan(g_adaptive_scan);
-  luabind::set_touch_ops(luabind::TouchOps{caps_for_lua, points_for_lua, gesture_for_lua});
+  luabind::set_touch_ops(luabind::TouchOps{caps_for_lua, points_for_lua, gesture_for_lua, capture_for_lua,
+                                           uncapture_for_lua, capturing_for_lua, take_captured_for_lua});
   return true;
 }
 
@@ -599,6 +697,10 @@ void poll() {
   // **I la primera cosa que es llegeixi del vidre després canviar la pàgina no és d'aquesta** (0.189.100): an empty frame is
   // what says that the contact that comes after it began under this page; anything already on the glass —or already gone from
   // it— is what the page before left behind.
+  // **I la captura, aquí**: every frame the kernel has in its hand becomes a point of a line, sigui qui sigui l'amo del
+  // contacte (la banda i la pàgina dibuixen lletres i totes dues volen el camí sencer), i abans que res no el pugui aturar
+  // (docs/30, docs/50, docs/90).
+  the_capture_follows_the_frame();
   if (g_page_wants_an_empty_glass) {
     if (g_count > 0) g_contact = kNobodys;
     g_page_wants_an_empty_glass = false;
@@ -911,6 +1013,58 @@ void on_the_glass(uint16_t& x, uint16_t& y) {
   if (off_y > 0) y = static_cast<uint16_t>(y + off_y);
 }
 
+// **La captura d'un tros del vidre** (0.192.88): what a page or the band asks for when it draws with the finger. The box is in
+// the frame of the view, the ring starts empty, and the lines are counted from one (docs/30, docs/50, docs/90).
+void capture(CaptureOwner owner, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  if (owner == CaptureOwner::kNone || w == 0 || h == 0) {
+    uncapture(owner);
+    return;
+  }
+  g_capture_owner = owner;
+  g_capture_x = x;
+  g_capture_y = y;
+  g_capture_w = w;
+  g_capture_h = h;
+  g_capture_first = 0;
+  g_capture_used = 0;
+  g_capture_line = 0;
+  g_capture_ended = 0;
+  g_capture_following = false;
+  g_capture_lost = 0;
+  // **Un dit que ja hi és quan s'arma la captura és el començament d'una línia** (0.192.88): the band arms its capture when it
+  // comes up, which is a turn after the finger that opened it, o sigui que mirar el marc d'ara mateix al mateix instant li dona
+  // el primer punt en comptes d'esperar el següent (docs/30, docs/50).
+  the_capture_follows_the_frame();
+}
+
+void uncapture(CaptureOwner owner) {
+  if (owner == CaptureOwner::kNone || g_capture_owner != owner) return;
+  g_capture_owner = CaptureOwner::kNone;
+  g_capture_w = 0;
+  g_capture_h = 0;
+  g_capture_used = 0;
+  g_capture_line = 0;
+  g_capture_ended = 0;
+  g_capture_following = false;
+  g_capture_lost = 0;
+}
+
+bool capturing(CaptureOwner owner) { return owner != CaptureOwner::kNone && g_capture_owner == owner; }
+
+uint16_t take_captured(CapturedPoint* out, uint16_t capacity, uint16_t& lines_ended, bool& finger, uint32_t& lost) {
+  lines_ended = g_capture_ended;
+  finger = g_capture_following;
+  lost = g_capture_lost;
+  if (out == nullptr || capacity == 0) return 0;
+  const uint16_t count = (g_capture_used < capacity) ? g_capture_used : capacity;
+  for (uint16_t i = 0; i < count; ++i) {
+    out[i] = g_capture_ring[static_cast<uint16_t>((g_capture_first + i) % kCapturePoints)];
+  }
+  g_capture_first = static_cast<uint16_t>((g_capture_first + count) % kCapturePoints);
+  g_capture_used = static_cast<uint16_t>(g_capture_used - count);
+  return count;
+}
+
 uint8_t points(hal::TouchPoint* out, uint8_t capacity) {
   if (out == nullptr) return 0;
   const uint8_t count = (g_count < capacity) ? g_count : capacity;
@@ -1007,6 +1161,10 @@ bool take_a_drag_up_from_the_system_rows(int16_t min_px, Gesture& out) {
 //    read takes it, and nothing is read while an app is loaded and compiled, so a tap over an empty glass is handed over
 //    after the new page is on it —and it clicked the cell of the launcher under the finger—.
 void forget_the_page_before() {
+  // **I la captura del paper se'n va amb la pàgina** (0.192.88): a box the page before asked for is not the box of the page that
+  // arrives —a finger of the new one would be drawn into a ring nobody reads, and the page that does draw would find the ring
+  // full of somebody else's points— (docs/30, docs/50).
+  uncapture(CaptureOwner::kThePage);
   g_queue_count = 0;
   g_taps = 0;
   g_tap_x = 0;

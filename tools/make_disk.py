@@ -286,6 +286,23 @@ def rebuild():
             # nowhere if the disk ever gained a level —and a link that points nowhere leaves the app out of
             # the image without a word.
             os.symlink(source, target)
+    # **El fitxer de la persona que l'app del temps necessita, a `/data` i no dins de l'app** (0.197.5, l'amo: *«Fes que el
+    # script que munta la imatge del T5S3 i del M5Paper tinguin una copia de l'arxiu a /data/weather/openweather.txt i el
+    # .gitignore per si de cas»*): `apps/weather/res/openweather.txt` és el que una persona escriu i el que el repositori no
+    # guarda, i la imatge el porta **copiat** a `data/weather/`, que és `/data/weather/` a la placa quan no hi ha targeta
+    # (quan n'hi ha, `/data` és la targeta i el fitxer és cosa de qui la té a la mà).
+    #
+    # **Es copia i no s'enllaça**: una imatge amb un enllaç al repositori no és una imatge, i el que ha de sortir del build és
+    # un fitxer amb els bytes de dins. I **només va al disc que porta l'app**: la clau no viatja a una placa on no hi ha res
+    # que la llegeixi.
+    carried = 0
+    if "weather" in apps:
+        source_file = os.path.join(APPS_DIR, "weather", "res", "openweather.txt")
+        if os.path.isfile(source_file):
+            weather_dir = os.path.join(DISK_DIR, "data", "weather")
+            os.makedirs(weather_dir, exist_ok=True)
+            shutil.copy2(source_file, os.path.join(weather_dir, "openweather.txt"))
+            carried = 1
     # **The builders read `$PROJECT_DATA_DIR`, and this is what points it at this build's disk**: the project
     # has one value for every environment and the image of an environment is its own (docs/80).
     env.Replace(PROJECT_DATA_DIR=DISK_DIR)
@@ -312,6 +329,9 @@ def rebuild():
         how += ", %d files of the boot, of the faces and of the sample book left out (no glass)" % left_out
     if planes:
         how += ", %d splash pictures as the plane of the glass (%d B smaller)" % (planes, saved)
+    # **I la clau del temps, dita sense dir-la**: the line says the file traveled and never what is inside it.
+    if carried:
+        how += ", the weather config at data/weather/openweather.txt"
     print("make_disk: %s is %d B in %d files, %s" % (os.path.relpath(DISK_DIR, PROJECT), payload, files, how))
     # **A boot that names an app the disk does not carry is said here and not discovered on the board** (found on the
     # Paper the 11/11: `no such app: home_eink` at the prompt and a warning in the log, because `custom_apps` of that

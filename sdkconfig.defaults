@@ -19,6 +19,37 @@ CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
+# **I la ràdio, que demana els seus coixins a la casa gran** (0.192.99, l'amo: *«wifi: the board did not get on the network, the radio did not
+# come up (ESP_ERR_NO_MEM; 53623 B free, largest 26612 B) … Abans he pogut»*): `esp_wifi_init` demana un tros de sis kilobytes i mig
+# seguit dels seus coixins estàtics de transmissió (setze de mil sis-cents bytes) i un altre d'igual de gran per als de recepció, i no pas
+# trenta kilobytes en set trossos — que és exactament el que una RAM del xip amb l'aplicació a dalt deixa de tenir. Amb aquest paràmetre
+# el driver prova primer la PSRAM i, si no n'hi ha, torna a la interna com sempre, o sigui que el pitjor que pot passar és el que ja passava
+# (docs/50, docs/75).
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# **Fora IPv6** (0.197.11, l'amo: *«Fora ipv6»*, amb la guia de mida de la IDF 5.2.1 al davant: *«Setting `CONFIG_LWIP_IPV6` to
+# `false` will reduce the size of the lwIP TCP/IP stack, at the cost of only supporting IPv4»*). Aquesta casa parla amb dos serveis
+# que tenen adreça IPv4 i prou —el temps i el repositori—, i mitja pila de lwIP menys és **codi i taules que no es demanen mai**;
+# el que es perd és poder arribar a un lloc que només existeixi en IPv6, i el dia que n'hi hagi un es torna a encendre (docs/50).
+CONFIG_LWIP_IPV6=
+
+# **Els buffers de la ràdio, comptats per a una petició per hora i no per a un mirall de vídeo** (0.197.10): el driver demana els
+# seus buffers **d'un sol tros** i és el que va fer caure l'arrencada de la ràdio amb l'app del temps oberta —`esf_buf_setup_static:
+# alloc eb fail(1)` amb 49 799 B lliures i el tros més gran de 22 516 B, o sigui setze buffers de 1 600 B que no hi cabien
+# (0.197.8, docs/50, docs/75)—. Mitges: la feina d'aquesta casa és una pàgina de deu kilobytes cada vuit hores, i la resta de
+# números són els de la IDF per a un punt d'accés domèstic.
+# **Els buffers d'entrada dinàmics són UNA sola reserva**: the driver asks for `DYNAMIC_RX_BUFFER_NUM × 1 600 B` in one piece, o
+# sigui que trenta-dos buffers eren **51 200 B seguits** i vuit són **12 800**. Amb 22,5 KB de tros més gran, setze encara no hi
+# cabien (0.197.12, i és el número que el log deia: `largest 22 516 B`). Una petició de deu kilobytes amb la finestra de TCP
+# d'aquesta casa no necessita més de vuit.
+# **I la finestra de reordenació, que la IDF vigila** (0.197.12): `esp_wifi/src/wifi_init.c` té dos `#error` que no deixen compilar
+# si `ESP_WIFI_RX_BA_WIN` (setze de sèrie) passa dels buffers dinàmics o del doble dels estàtics. Amb vuit dinàmics i sis estàtics,
+# la finestra és **vuit** — i és l'única que cap a les dues bandes: 8 ≤ 8 i 8 ≤ 2 × 6 (docs/50).
+CONFIG_ESP_WIFI_RX_BA_WIN=8
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
 
 # **La consola de la IDF engegada, i no apagada** (0.190.90, el primer flaix): amb `CONFIG_ESP_CONSOLE_NONE` la placa calla també el
 # bootloader de segona etapa i els panics, o sigui que un xoc i un penjament es veuen iguals —i el primer flaix es va quedar així, sense
@@ -33,9 +64,11 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # es tria amb `cfg.ansi` (docs/30, docs/85).
 # CONFIG_LOG_COLORS is not set
 
-# El torn del nucli compta mil·lisegons, i la pila del nucli és la mateixa dels 16 KB de l'Arduino (docs/75)
+# El torn del nucli compta mil·lisegons, i la tasca que el fa ja no és la de la IDF: la del nucli és una tasca nostra amb la pila a la
+# PSRAM, i aquesta només ha de cobrir el que queda aquí a baix (`app_main`: el corrent, la PAL i fer-la néixer). És el valor de sèrie de la
+# IDF, i el marge es llegeix al registre a cada arrencada (0.192.96, docs/50, docs/75)
 CONFIG_FREERTOS_HZ=1000
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=3584
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
 
 # El rellotge a 240 MHz, que és el que el governador del sistema mou després per la seva porta (docs/50)
@@ -59,6 +92,86 @@ CONFIG_COMPILER_CXX_RTTI=
 # **El TLS allotja a la PSRAM** (0.190.90): `net.cpp` instal·la els ganxos de mbedTLS abans del primer client, i sense aquest símbol la
 # crida no existeix i la connexió cauria amb la RAM interna del xip (docs/75)
 CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+
+# **El TLS, prim** (0.197.9, l'amo: *«Treu els protocols antics i llegeix la pàgina per estalviar algo de pila i heap»*, amb la
+# pàgina de la IDF 5.2.1 a la mà). Els números són **de la documentació** —*Mbed TLS → Reducing heap usage*, l'exemple
+# `https_request` amb la validació del servidor encesa— i no meus:
+#
+# | Configuració | Heap |
+# |---|---|
+# | De sèrie | 42 196 B |
+# | Buffers de mida variable | 42 120 B |
+# | Sense desar el certificat de l'altre cap | 38 533 B |
+# | **Buffers dinàmics** | **22 013 B** |
+#
+# O sigui que el que es guanya aquí són **vint kilobytes**, que és exactament la mena de forat que fa que `esp-aes` no trobi un tros
+# contigu de RAM interna quan ha de desencriptar un registre de setze kilobytes (el `Failed to allocate memory` amb què l'app del
+# temps es va quedar sense previsió, 0.197.8). **Els buffers es demanen al handshake i es tornen quan la connexió s'ha acabat**: el
+# pitjor moment passa a ser el de la connexió, que és quan el marge és més gran (docs/50, docs/75).
+# **I els buffers dinàmics, fora** (0.198.2): es van encendre per estalviar vint kilobytes i amb ells les respostes grosses van
+# començar a tornar `-0x7100` (`MBEDTLS_ERR_SSL_BAD_INPUT_DATA`) a mig llegir —el `esp_tls_conn_read error` del registre de la
+# placa—. El que es guanya amb això no val una lectura que falla, i el forat es tapa per l'altra banda: **un registre més petit
+# que els setze kilobytes de sèrie** (`MBEDTLS_SSL_IN_CONTENT_LEN`), que és el que la desencriptació ha de tenir seguit i el que no
+# trobava (docs/50, docs/75).
+# CONFIG_MBEDTLS_DYNAMIC_BUFFER is not set
+# **Quatre kilobytes eren massa pocs, i el handshake també és un registre** (0.199.5, la placa: `esp-tls-mbedtls:
+# mbedtls_ssl_handshake returned -0x7100` a cada petició, i el mateix URL amb el navegador del PC funcionant). El certificat del
+# servidor arriba en **un sol missatge d'handshake** i mbedTLS no el pot pas partir: s'ha de saber sencer dins del buffer de
+# registre, o torna `-0x7100` («requesting more data than fits») abans de dir res del servei. Mesurat amb `openssl s_client
+# -showcerts` contra `api.openweathermap.org`: **quatre certificats, 6 671 B de DER i un missatge de 6 690 B**, o sigui que amb
+# 4 096 no hi cap (i el cel d'una cadena que creix encara menys). El que costava car no és el buffer —amb
+# `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` **totes** les assignacions de mbedTLS surten de la PSRAM (`esp_mem.c`), que en té sis
+# megabytes— sinó la desencriptació, i això també està resolt a la banda del port: `esp-aes` **parteix l'entrada externa en trossos
+# de 1 600 B** (`AES_MAX_CHUNK_WRITE_SIZE`) i el GCM cau al camí de programari quan el buffer no és de RAM interna, o sigui que el
+# que demana de RAM interna **no creix amb el registre**. Setze kilobytes és el màxim del protocol i el que la IDF dona de sèrie
+# (docs/50, docs/75).
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+# **I el que s'envia es queda a quatre kilobytes**: el ClientHello, una petició d'uns pocs centenars de bytes i el `Finished`, i un
+# buffer de sortida de setze kilobytes seria RAM per a un registre que mai no s'omple (docs/50).
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+# **I el certificat de l'altre cap no es desa**: es valida durant el handshake i prou; el que el guarda són cinc kilobytes de RAM que
+# aquesta casa no té per a una dada que ningú no torna a llegir (docs/50, docs/75).
+CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=
+# **Els protocols antics, fora**: la 5.x ja no porta SSL 3.0, TLS 1.0 ni TLS 1.1, i el que queda a apagar és el TLS 1.3 (experimental i
+# només de client, que a més no es pot combinar amb els buffers dinàmics), el DTLS —aquesta placa no fa UDP— i els tiquets de sessió del
+# client, que són una represa que una petició per hora no aprofita mai (docs/50).
+CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=
+CONFIG_MBEDTLS_SSL_PROTO_DTLS=
+CONFIG_MBEDTLS_CLIENT_SSL_SESSION_TICKETS=
+# **I el que aquesta placa no és, no es compila** (0.197.11): la guia de mida de la IDF 5.2.1 (§ *Minimizing binary mbedtls*) llista
+# les peces que es poden apagar si l'aplicació no les fa servir, i aquí l'aplicació és **un client que parla amb dos servidors**:
+#
+#   - **no és cap servidor TLS** (`MBEDTLS_TLS_CLIENT_ONLY`): mitja biblioteca fora, i cap camí d'aquesta casa escolta;
+#   - **no desa tiquets de sessió de servidor** ni reprèn sessions d'aquesta banda (`SERVER_SSL_SESSION_TICKETS`),
+#   - **no renegocia** (`SSL_RENEGOTIATION`, que a més és un forat que no es vol),
+#   - **no negocia protocol per ALPN** (`SSL_ALPN`): `esp_http_client` no en demana cap,
+#   - **no serialitza el context** (`SSL_CONTEXT_SERIALIZATION`), no escriu PEM (`PEM_WRITE_C`), no llegeix CRL ni CSR
+#     (`X509_CRL_PARSE_C`, `X509_CSR_PARSE_C`), i la firma no ha de ser determinista (`ECDSA_DETERMINISTIC`): aquesta placa **verifica**
+#     i no firma;
+#   - **i el bescanvi de claus RSA pur, fora** (`KEY_EXCHANGE_RSA`): cap servidor de 2025 el demana, i el que queda és ECDHE amb ECDSA i
+#     amb RSA, que són els dos que fan falta.
+#
+# **El que NO s'ha tocat, i és el que importa**: `GCM_C` (l'AES-GCM és el xifrat de totes les connexions modernes), `ECP_C`, `SHA512_C`
+# (perquè P-384 en depèn), el paquet de certificats, i el SNI. La mateixa guia avisa que no s'apagui tot, i apagar el GCM deixaria la placa
+# sense cap servidor amb qui parlar (docs/50, docs/75).
+CONFIG_MBEDTLS_TLS_SERVER_AND_CLIENT=
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
+CONFIG_MBEDTLS_SERVER_SSL_SESSION_TICKETS=
+CONFIG_MBEDTLS_SSL_RENEGOTIATION=
+CONFIG_MBEDTLS_SSL_ALPN=
+CONFIG_MBEDTLS_SSL_CONTEXT_SERIALIZATION=
+CONFIG_MBEDTLS_PEM_WRITE_C=
+CONFIG_MBEDTLS_X509_CRL_PARSE_C=
+CONFIG_MBEDTLS_X509_CSR_PARSE_C=
+CONFIG_MBEDTLS_ECDSA_DETERMINISTIC=
+CONFIG_MBEDTLS_KEY_EXCHANGE_RSA=
+# **I les corbes que cap servidor d'aquest món demana**: les de Brainpool i les de 192 i 224 bits són codi i taules per a res; les que
+# es fan servir de debò són P-256, P-384 i Curve25519 (docs/50, docs/75).
+CONFIG_MBEDTLS_ECP_DP_BP256R1_ENABLED=
+CONFIG_MBEDTLS_ECP_DP_BP384R1_ENABLED=
+CONFIG_MBEDTLS_ECP_DP_BP512R1_ENABLED=
+CONFIG_MBEDTLS_ECP_DP_SECP192R1_ENABLED=
+CONFIG_MBEDTLS_ECP_DP_SECP224R1_ENABLED=
 
 # **El verí del heap, encès una altra vegada** (0.190.101, l'amo: *«el problema d'overflow continua!... millor fem les proves que volies
 # fer amb els canaris i tota la pesca»*). El xoc dins del `tlsf` de la PSRAM ha tornat —`StoreProhibited` en un `free` d'un bloc de Lua

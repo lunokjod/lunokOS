@@ -415,6 +415,8 @@ struct HttpJob {
   char url[kHttpUrlCap] = {0};
   uint32_t timeout_ms = 0;
   uint32_t max_bytes = 0;
+  // **Quin mètode** (0.199.3): un `POST` sense cos; el camí del cos, la memòria i el fitxer són els mateixos.
+  bool post = false;
   // **Where a page that does not fit goes**: the unit the kernel resolved and the path inside it, and
   // `saved` says the page is there and not in the heap (docs/30).
   hal::IStorage* sink = nullptr;
@@ -528,6 +530,9 @@ void http_fetch(HttpJob& job) {
     job.error = HttpError::kConnect;
     return;
   }
+  // **El mètode es posa abans d'obrir** (0.199.3): el client del sistema neix amb GET, i un `POST` sense cos és el que obre
+  // amb zero bytes de cos i `Content-Length: 0` (docs/30, docs/50).
+  if (job.post) esp_http_client_set_method(client, HTTP_METHOD_POST);
   uint32_t len = 0;    // what is in the heap
   uint32_t saved = 0;  // what is in the file
   hal::FileSlot slot;
@@ -787,6 +792,7 @@ class Esp32Net : public INet {
   bool wifi_radio_is_on() const override { return g_radio_on; }
 
   const char* last_error() const override { return g_why; }
+  int32_t wifi_last_reason() const override { return g_sta_reason; }
 
   bool ntp_start(const char* server) override {
     if (!espWifiReady()) return false;
@@ -1152,6 +1158,7 @@ class Esp32Net : public INet {
       snprintf(job.url, sizeof(job.url), "%s", url);
       job.timeout_ms = opts.timeout_ms;
       job.max_bytes = opts.max_bytes;
+      job.post = opts.post;
       job.sink = opts.sink;
       if (opts.sink != nullptr) snprintf(job.sink_path, sizeof(job.sink_path), "%s", opts.sink_path);
       g_http = job;

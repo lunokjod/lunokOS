@@ -447,6 +447,11 @@ bt dev [on|off]          aquesta placa com a dispositiu: un teclat i un ratolí
 bt dev forget            oblidar l'altre cap (i cal treure'l de la seva llista)
 bt dev move <dx> <dy>    moure el cursor de l'altre aparell (la prova de l'enllaç)
 bt dev click [left|right|middle]
+bt dev beacon [on|off]    aquesta placa com un iBeacon, en lloc del teclat
+bt dev battery [on|off]   el nivell de la bateria, llegible i notificat per BLE
+bt dev console [on|off]   la shell d'aquest sistema per BLE, el mateix que el sèrie
+bt dev beacon <uuid> [<major> [<minor>]]  canviar la identitat del beacon
+bt dev beacon power <dbm>  el senyal que hauria de donar a un metre
 bt host [on|off]         aquesta placa com a amfitriona, sense oferir-se a ningú
 bt host scan [segons]    qui hi ha a l'aire
 bt host pair <n>         quedar-se amb un
@@ -468,6 +473,69 @@ fals a `host_off`.
 
 **`bt host off` baixa la ràdio només si el dispositiu també és fora**: les dues meitats comparteixen la pila de NimBLE i matar-la per una
 banda seria tancar l'altra.
+
+### La bateria i la consola per BLE (0.196.0)
+
+**Dos serveis de la taula de GATT que es poden obrir i tancar** (l'amo: *«Afegeix al bt dev battery on/off per notificar la batería»* i
+*«bt dev console on/off per exposar la shell de sistema (el mateix que es veu via serial, però per ble)»*).
+
+| Servei | UUID | Què fa |
+|---|---|---|
+| **Battery Service** | `0x180F`, nivell a **`0x2A19`** | el percentatge, llegible i notificat. És el servei estàndard del Bluetooth: un telèfon o un rellotge ja el sap llegir sense cap app |
+| **Nordic UART Service** | `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`, amb **`…0002`** per escriure-hi i **`…0003`** per rebre'n notificacions | la shell del sistema: el que s'hi escriu entra a `shell::feed` i el que la consola escriu en surt |
+
+**Tancats no contesten, i això és el commutador**: els serveis són a la taula des del primer aparellament —NimBLE no deixa afegir-ne un
+després d'arrencar l'amfitrió (`ble_gatts_mutable` és fals)— o sigui que el que es tria no és que hi siguin sinó què fan: amb el de la
+bateria tancat el nivell es llegeix **zero** i no surt cap notificació; amb el de la consola tancat una escriptura es refusa
+(`WRITE_NOT_PERMITTED`) i no arriba a cap shell.
+
+**La consola és «el mateix que el sèrie», i es fa amb un mirall**: `pal::IConsole::mirror()` dona una segona boca al que surt pel
+filferro —el prompt, la resposta d'una ordre i el registre quan `verbose` el posa aquí—, i el nucli el connecta a la ràdio quan es fa
+`bt dev console on`. **El mirall no pot bloquejar la consola** (una placa que espera la ràdio per escriure el prompt és una placa que no
+té prompt) i **no es pot alimentar de si mateix**: el PAL no el crida mentre ja hi és a dins, que és el que impedeix que una línia del
+registre escrita pel camí de la notificació torni a entrar-hi.
+
+**El nivell de la bateria el llegeix el nucli, no la ràdio**: un indicador és un xip en un bus i la ràdio no en sap res. El torn mira si
+el servei és obert i, cada deu segons, llegeix el gauge amb `power::battery` i només diu el número si ha canviat —o sigui que el que
+costa en un torn és un rellotge i una comparació (docs/30, docs/50).
+
+**I els dos necessiten que la placa es pugui aparellar**: si el costat dispositiu és apagat, `bt dev battery on` i `bt dev console on`
+l'encenen i ho diuen, perquè un servei que ningú no pot veure és un commutador que no fa res (docs/30).
+
+### L'iBeacon (0.194.0)
+
+**El mateix anunci, amb un altre contingut** (l'amo: *«pots integrar això (iBeacon) al ble dev? `ble dev beacon on`»*, amb el tutorial de
+Mynewt). Un iBeacon no vol enllaç ni porta mapa de reports: el que fa és repetir quatre números a l'aire perquè un telèfon situï la placa
+a l'espai.
+
+**El format és el de Apple i el fa la pila**: `ble_ibeacon_set_adv_data(uuid, major, minor, measured_power)` de NimBLE, que és el que fa
+servir el tutorial de Mynewt, escriu els vint-i-cinc bytes de dades de fabricant i les banderes:
+
+```
+02 01 06   les banderes: descobrible en general, i sense BR/EDR
+1A FF 4C 00 02 15  <UUID 16 B>  <major 2 B BE>  <minor 2 B BE>  <potència 1 B amb signe>
+```
+
+`4C 00` és Apple com a identificador de companyia, `02 15` és la marca d'iBeacon, i la potència és el senyal calibrat a un metre en dBm
+(`-59` de sèrie aquí). Trenta bytes dels trenta-u que caben en una advertise de llegat: **per això un iBeacon no porta nom**.
+
+**El que és decisió d'aquesta casa**:
+
+- **Una advertise de llegat és un sol contingut**, o sigui que el beacon i el teclat no poden ser a l'aire alhora: `bt dev beacon on`
+  pren el torn i el teclat queda apagat però no oblidat, i `bt dev beacon off` el torna a posar si era engegut. `bt dev on` amb el beacon
+  a l'aire **es refusa i ho diu**, en lloc de treure'l sense avisar. `bt dev off` i `bt off` s'emporten les dues coses.
+- **No és connectable** (`BLE_GAP_CONN_MODE_NON`) i **no té resposta d'exploració**: un iBeacon que accepta un enllaç no és un iBeacon, i un
+  que contesta al `SCAN_REQ` és un aparell que una persona pot confondre amb el teclat.
+- **La identitat de sèrie és d'aquesta casa**: `6c756e6f-6b4f-5321-0000-000000000001` —`lunokOS!` en bytes i després zeros—, `major` 1,
+  `minor` 1 i `-59 dBm`. Un UUID de proximitat no es registra enlloc; el que ha de fer és no coincidir amb el d'una altra cosa que una
+  persona ja tingui, i per això es pot canviar: `bt dev beacon <uuid> [<major> [<minor>]]` (amb o sense guions) i `bt dev beacon power
+  <dbm>`. **Canviar qualsevol dels quatre el torna a engegar amb els altres tres com eren**, i un UUID que no ho és deixa el beacon com
+  estava.
+- **La ràdio no s'apaga mentre el beacon dura**: `wants_the_chip_awake()` és cert amb el beacon, o sigui que el torn no obre el pany de la
+  becaina —un anunci que dorm és un anunci que no hi és—. Quan s'apaga i no hi ha res més, la pila baixa i els kilobytes tornen, com amb el
+  teclat (docs/60, docs/75).
+- **El que no es fa**: no hi ha persistència (el beacon viu fins que la placa es reinicia o `bt dev beacon off`), ni `major`/`minor`
+  aleatoris, ni l'Eddystone (que és un altre format i una altra decisió).
 
 ### Un sol mapa: el teclat i el ratolí, sempre (0.191.0)
 
@@ -761,9 +829,15 @@ contestava amb un avís d'una connexió que ningú no havia demanat.
   no torna a pagar el driver.
 - **La paraula desada es compleix a l'arrencada**: `kernel::net::boot` mira `cfg::wifi_on()` i encén la ràdio, com fa el teclat de Bluetooth des
   de la 0.190.180; si no arrenca, el commutador torna a apagar-se i el registre diu per què.
-- **I el que no vol dir encesa, tampoc**: aquest sistema usa la xarxa i la deixa anar quan la feina s'acaba (`net::poll` tanca la ràdio quan la cua
-  és buida). El commutador diu «la ràdio pot treballar», i per això la clau no s'apaga tota sola quan una tasca acaba: el que fa la feina és
-  `wifi connect`/`http get`/`ntp`, i el commutador és la porta de la persona (docs/30, docs/75).
+- **I el que no vol dir encesa, tampoc**: aquest sistema usa la xarxa i la deixa anar quan la feina s'acaba (`net::poll` tanca la ràdio
+  **tres segons** després de l'última contestació, des de la 0.197.0 —docs/75—). El commutador diu «la ràdio pot treballar», i per això la clau
+  no s'apaga tota sola quan una tasca acaba: el que fa la feina és `wifi connect`/`http get`/`ntp`, i el commutador és la porta de la persona
+  (docs/30, docs/75).
+- **I la ràdio que la persona ha encès no la tanca el nucli**: amb el commutador cert, una feina fa la seva i la finestra de tres segons no
+  s'obre; l'apagada és cosa de qui la va encendre.
+- **Quan l'associació falla, el HAL diu per què**: `INet::wifi_last_reason()` torna el codi de la IDF (`WIFI_REASON_AUTH_FAIL` 15, 201
+  `NO_AP_FOUND`, 204 `HANDSHAKE_TIMEOUT`…). El nucli el fa servir per no reintentar el que ja se sap que tornarà igual: una contrasenya dolenta
+  no es reintenta tres cops, i una xarxa que no es veu sí (docs/30, docs/75).
 - **On és**: `INet::wifi_radio_on/off/is_on` a `hal/hal.h` (amb definició per defecte, com la resta del HAL), `wifi_driver_up` i
   `wifi_radio_up` a `hal_esp32/src/net.cpp`, l'emulador a `hal_emulator`, `kernel::net::radio_on/off/is_on`, `cfg::wifi_on`/`set_wifi_on` i la
   clau `WiFi` de la targeta del panell.
@@ -932,8 +1006,18 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
 |---|---|
 | Tasca | `esp_http_client_init` → `open` → `fetch_headers` → llegeix → `close` → publica (o llença, si ningú la vol) |
 | Nucli | pregunta l'estat a cada torn, compta el termini, copia el cos i **allibera** |
-| Ràdio | es puja perquè la petició porta `needs_network` i es tanca quan la cua es buida |
+| Ràdio | es puja perquè la petició porta `needs_network` i es tanca tres segons després de l'última feina (0.197.0, docs/75) |
 
+- **El TLS, prim** (0.197.9, l'amo: *«Treu els protocols antics i llegeix la pàgina per estalviar algo de pila i heap»*): els números
+  són **de la documentació de la IDF 5.2.1** (§ *Mbed TLS → Reducing heap usage*, l'exemple `https_request` amb la validació del
+  servidor encesa) i no mesures d'aquesta casa: de sèrie **42 196 B**, buffers de mida variable 42 120 B, sense desar el certificat
+  de l'altre cap 38 533 B, i **amb buffers dinàmics 22 013 B**. O sigui que el que es guanya són vint kilobytes, i la diferència
+  importa perquè `esp-aes` necessita un tros **contigu de RAM interna** per desencriptar cada registre —el `Failed to allocate
+  memory` amb què l'app del temps es va quedar sense previsió (0.197.8)—. El que hi ha posat a `sdkconfig.defaults`:
+  `CONFIG_MBEDTLS_DYNAMIC_BUFFER`, `DYNAMIC_FREE_CONFIG_DATA`, `DYNAMIC_FREE_CA_CERT` i `SSL_VARIABLE_BUFFER_LENGTH`; el certificat
+  de l'altre cap no es desa (`SSL_KEEP_PEER_CERTIFICATE`); i **fora els protocols i les corbes que no es fan servir**: TLS 1.3
+  (experimental, només de client i incompatible amb els buffers dinàmics), DTLS, els tiquets de sessió del client, i les corbes de
+  Brainpool i les de 192 i 224 bits (docs/50, docs/75).
 - **TLS**: `esp_crt_bundle_attach`, el paquet d'autoritats del build
   (`CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y`). No hi ha cap certificat escrit al repositori i no hi ha
   manera de desactivar la verificació.
@@ -1514,7 +1598,9 @@ peces:
   prompt). Les línies que arribin mentre l'arrencada encara va queden a la cua i el torn les fa al primer `poll`, i **la resta de l'arrencada
   es fa amb el pany del torn a la mà** perquè l'eco d'una tecla no entri mentre es munten el vidre i l'intèrpret.
   **Sis kilobytes** de pila: llegeix, fa l'eco i deixa la línia a la cua, o sigui que les comandes que pinten es fan a la pila del torn, on es
-  feien abans de tot això. Prioritat per damunt del torn, i no li lleva res: passa la vida esperant.
+  feien abans de tot això. Prioritat per damunt del torn, i no li lleva res: passa la vida esperant. **I aquesta pila és a la PSRAM des de la
+  0.192.95** (`xTaskCreateWithCaps`), com la de l'editor de línia i les dues del cable: una pila no és codi ni un buffer de DMA, o sigui que
+  és el que la casa gran té de sobres (docs/75).
 - **`kernel/orders`**, la cua: **quatre línies** de cent vint-i-vuit bytes amb **mutex** (`pal::make_lock`) i **el qui la demana**. Aquest
   últim no és un detall: al cable la sessió arrenca **tancada** (0.190.184, perquè el xip pugui fer becaines), i la línia d'una persona tancada
   **obre la sessió i no s'executa**; una ordre del sistema —la pàgina de casa d'una arrencada— ha de córrer igualment. Sense la distinció, el
@@ -1770,11 +1856,39 @@ volta de bucle (`gps::poll`). **Aquesta placa pot fer servir les potes 43 i 44, 
 consola és el USB natiu** (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` i `CONFIG_ESP_CONSOLE_UART_NUM=-1`): el driver obre la
 **UART1** i la porta allà amb la matriu del xip, o sigui que no toca res del que el sistema ja té. **I la placa pot portar
 dos mòduls amb el mateix peu** —la `MIA-M10Q` de u-blox a **38 400 bauds** i la `L76K` de Quectel a **9 600**—, o sigui
-que el driver prova el primer ritme, espera mil dos-cents mil·lisegons una frase i, si no en sent cap, canvia al segon: una
-placa muntada amb l'altre mòdul no es queda muda. Les cinc frases que llegeix són les que un M10Q dona de fàbrica (NMEA
-0183: **RMC, GGA, GSA, GSV i VTG**) amb el **segell XOR comprovat** —una frase que no quadra no es llegeix, perquè un
-caràcter perdut en un cable llarg dona un número que sembla una latitud— i **sense enviar cap trama de configuració**: un
-UBX escrit a cegues és la mena de cosa que deixa un receptor en un estat que ningú sap desfer (docs/30, docs/95).
+que el driver prova **el de la Quectel primer** —és el que obre l'exemple del fabricant—, espera mil dos-cents mil·lisegons una
+**frase sencera amb el segell bé** i, si no en sent cap, canvia al de la u-blox: una placa muntada amb l'altre mòdul no es queda
+muda. Les cinc frases que llegeix són les que un M10Q dona de fàbrica (NMEA
+0183: **RMC, GGA, GSA, GSV i VTG**), i qui les entén és **`hal::nmea`** (`lib/hal/src/nmea.cpp`, 0.192.90), que no sap què és
+una UART i es prova al PC amb frases de debò (`test_nmea`). El **segell XOR es comprova** —una frase que no quadra no es
+llegeix, perquè un caràcter perdut en un cable llarg dona un número que sembla una latitud— i **no s'envia cap trama de
+configuració**: un UBX escrit a cegues és la mena de cosa que deixa un receptor en un estat que ningú sap desfer (docs/30,
+docs/95). El que el fabricant sí que fa al seu exemple és parlar-hi (`$PCAS03`/`$PCAS04`/`$PCAS11` al L76K i UBX de
+recuperació al M10Q): la comunicació és de dues direccions, i un receptor de fàbrica **no la necessita** perquè ja vomita el
+seu cicle cada segon.
+
+**Qui escolta i qui torna a lligar el cable** (0.192.90). El nucli llegeix el receptor **a cada torn** (`gps::poll`), que és
+l'única manera en una placa sense la interrupció del mòdul; el que faltava era el que passa quan no hi ha res a escoltar. Tres
+coses lliguen el cable ara:
+
+1. **El sondeig vol una frase sencera i no un byte**: a un ritme equivocat la UART també dona bytes —el que dona és
+   escombraries d'un marc trencat—, o sigui que el driver obre el ritme de la Quectel (9 600, el que obre el fabricant) i, si
+   en 1,2 segons `hal::nmea` no ha entès **cap frase amb el segell bé**, prova el de la u-blox (38 400). Abans es creia que el
+   mòdul parlava amb el primer byte i es podia quedar enganxat al ritme dolent per sempre.
+2. **Un vigilant al torn**: si el mòdul és volgut i fa vuit segons que no arriba cap frase, es tanca la UART i es torna a
+   sondar; si el mòdul no hi és, es reintenta amb una espera que dobla (mig minut, un, dos… fins a vuit) perquè una placa sense
+   receptor no pagui un sondeig de dos segons i mig cada mig minut. **Apagar-lo és d'una persona** (`gps.off` i el commutador):
+   el vigilant no el torna a encendre.
+3. **I el que la pàgina ha de dir**: `gps.caps().last_error` és el que el driver sap —«no contesta ni a 9 600 ni a 38 400»—, i
+   la pàgina del cel l'ensenya quan no ha arribat cap frase.
+
+**El que es llegeix i el que no**, que és el que 0.192.90 ha arreglat després de revisar l'exemple del fabricant: una posició
+**de dues dimensions** (GSA tipus 2 o 3) és una posició —abans es descartava i la pàgina deia «no position yet» amb la
+posició a la mà, i com que el GSA arriba després del RMC dins del mateix cicle, el que es veia depenia del moment de la
+lectura—; les marques de «aquest satèl·lit compta» són del GSA i **sobreviuen al GSV** que escombra el cel (abans s'esborraven
+i el mapa no ensenyava mai quins compten); `satellites_seen` és el que diu el GSV i **baixa** quan el cel minva (abans era un
+màxim que no baixava mai); i el segle d'una data de dos dígits segueix la convenció de tothom —de vuitanta en amunt és el
+segle passat— perquè una data de 1994 no es llegeixi com a 2094.
 
 El driver del panell és
 `lib/hal_t5s3/src/epd47.cpp` i el de l'expansor `lib/hal_t5s3/src/expander.cpp`, i el que hi ha dins

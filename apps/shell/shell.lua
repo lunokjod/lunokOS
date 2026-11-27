@@ -316,15 +316,22 @@ end
 --  bar holds five titles and sixteen entries and a `ui.menu` holds twelve, so the list of the prompt is offered as
 --  **themes in the bar** and the words of a theme in a card under it. A word the table does not know is not lost: it goes
 --  to `Other`, which is the theme of what this page has not been told about yet (docs/30).
+-- **Els temes, i cada comanda del prompt en un** (0.192.91, l'amo: *«Falta informació en aquesta ajuda… repasa totes les comandes per
+-- si t'has deixat alguna cosa mes»*): the menu was built with words that no hand of the shell answers —`cd`, `pwd`, `rm`, `mkdir`,
+-- `free`, `fonts`, `keys`, `battery`, `tz`, `date`, `imu`, `touch`…, que són apps— i li'n faltaven les que sí (`bt`, `gps`, `mesh`,
+-- `http`, `screenshot`, `rotate`, `power`, `load`, `heapguard`, `open`…), o sigui que mig menú obria una comanda que no existeix i
+-- l'altra meitat queia a `Other`. La llista de dalt —`sys.commands()`, la de `help`— és la que mana: **cada nom seu és en un tema i cap
+-- tema té un nom que no hi sigui** (docs/30, docs/45).
 local themes = {
-  { title = 'Files', words = { 'cat', 'ls', 'cd', 'pwd', 'mkdir', 'rm', 'mv', 'cp', 'hexdump', 'fs' } },
-  { title = 'Disk', words = { 'mounts', 'free', 'stats', 'mem', 'sessions', 'clear' } },
-  { title = 'Apps', words = { 'apps', 'run', 'stop', 'home', 'repo', 'lua', 'fonts', 'version' } },
-  { title = 'System', words = { 'caps', 'panel', 'splash', 'cfg', 'keys', 'log', 'panic', 'help', 'echo', 'history' } },
-  { title = 'Power', words = { 'poweroff', 'deepsleep', 'reboot', 'battery', 'led', 'sleep' } },
-  { title = 'Time', words = { 'tz', 'date', 'alarm', 'ntp' } },
-  { title = 'Network', words = { 'wifi', 'provision' } },
-  { title = 'Hardware', words = { 'imu', 'touch', 'buttons', 'serial' } },
+  { title = 'Files', words = { 'cat', 'ls', 'hexdump', 'open' } },
+  { title = 'Disk', words = { 'mounts', 'mem', 'sessions', 'stats', 'clear' } },
+  { title = 'Apps', words = { 'apps', 'run', 'kill', 'home', 'repo', 'lua', 'version' } },
+  { title = 'Screen', words = { 'panel', 'rotate', 'screenshot', 'splash', 'ansi', 'terminal', 'verbose' } },
+  { title = 'System', words = { 'caps', 'cfg', 'log', 'help', '?', 'button', 'heapguard', 'load', 'exit', 'logout' } },
+  { title = 'Power', words = { 'poweroff', 'deepsleep', 'reboot', 'sleep', 'power', 'led' } },
+  { title = 'Time', words = { 'alarm', 'ntp' } },
+  { title = 'Network', words = { 'wifi', 'provision', 'http' } },
+  { title = 'Radio', words = { 'bt', 'mesh', 'gps', 'serial' } },
 }
 
 --  **The theme of a word**, and the words no theme names: a command the kernel adds tomorrow is in the list of the door

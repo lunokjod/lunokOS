@@ -14,6 +14,8 @@
 #include <unistd.h>
 
 #include "freertos/FreeRTOS.h"
+// **`xTaskCreateWithCaps`** (0.192.95): the door that puts a task's stack in the extra memory, with the TCB where the port demands it.
+#include "freertos/idf_additions.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -483,7 +485,25 @@ bool start_the_line_editor(const char* const* names, uint8_t count) {
     return false;
   }
   register_the_names(names, count);
-  if (xTaskCreate(&line_trampoline, "pal_line", kTaskStack, nullptr, kTaskPriority, &g_task) != pdPASS) {
+  // **I la pila de l'editor, a la memòria extra** (0.192.95, l'amo: *«a pal_line l'editor de linenoise no es pot asignar a unaltra ram?»*): sí
+  // que es pot, i és el que més val la pena d'aquest fitxer, perquè són vuit kilobytes. Una pila de tasca no és codi ni res que un perifèric
+  // llegeixi per DMA: la IDF ho permet (`CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y`) i el que cal —que la TCB sigui interna— ho fa
+  // ella sola. **Si la PSRAM no en té, es fa de la de sempre**: l'editor no pot deixar d'existir perquè la casa gran era plena, i aleshores
+  // el que es diu al registre és que la pila és a la RAM del xip (docs/50, docs/75).
+  bool lined = xTaskCreateWithCaps(&line_trampoline, "pal_line", kTaskStack, nullptr, kTaskPriority, &g_task,
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS;
+  const bool in_the_extra = lined;
+  if (!lined) {
+    lined = xTaskCreate(&line_trampoline, "pal_line", kTaskStack, nullptr, kTaskPriority, &g_task) == pdPASS;
+  }
+  // **I es diu on ha anat a parar** (0.192.98): the fallback above was silent, o sigui que una placa que no havia pogut demanar la PSRAM
+  // era una placa que **no ensenyava cap senyal** de no haver-hi pogut anar, i les piles que s'havien de moure seguien totes a la RAM del
+  // xip amb l'aspecte d'haver-se mogut (docs/50, docs/75).
+  if (lined) {
+    hal::logf(in_the_extra ? pal::kLogInfo : pal::kLogWarn, "CONSOLE", "the line editor's %u B of stack are %s",
+              static_cast<unsigned>(kTaskStack), in_the_extra ? "in the extra memory" : "in the board's RAM (the extra memory said no)");
+  }
+  if (!lined) {
     vSemaphoreDelete(g_ready);
     g_ready = nullptr;
     vQueueDelete(g_lines);

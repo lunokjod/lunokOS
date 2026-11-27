@@ -1,6 +1,6 @@
 {
   "name": "hal_emulator",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Board support for the PC emulator: same kernel, host console, host disk, and an air of its own —an invented sky of LoRa nodes and a carrier, so the sniffer has something to find (docs/85).",
   "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
 }

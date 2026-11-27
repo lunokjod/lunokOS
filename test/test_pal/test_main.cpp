@@ -277,6 +277,55 @@ void test_the_books_say_which_block_is_whose(void) {
   for (uint32_t i = 0; i < asks; ++i) pal::extra_memory().release(many[i]);
 }
 
+// **Les dues cases, comptades a part** (0.192.92, l'amo: *«Estem segurs que estem obtenint la memoria ocupada real?»*): the map of the
+// memory paints the RAM and the extra memory in columns of their own, so the books have to say which home a block is in —and they say it
+// **by the pointer** and not by a flag kept in the row, perquè un `resize` pot moure un bloc d'una casa a l'altra i una fila que
+// recordés on va néixer pintaria els bytes de la PSRAM a la barra de la RAM (docs/75).
+void test_the_books_count_each_home_apart(void) {
+  pal::set_memory_bytes(kHomeBytes, kExtraBytes);
+  // A large block that asks for the extra memory goes there, and a small one asked without that wish goes home while home keeps its floor.
+  void* big = nullptr;
+  void* small = nullptr;
+  {
+    pal::MemoryTag tag(pal::kMemoryUi, "home_eink");
+    big = pal::extra_memory().allocate(64000, true);
+    small = pal::extra_memory().allocate(kSmallBytes, false);
+  }
+  TEST_ASSERT_NOT_NULL(big);
+  TEST_ASSERT_NOT_NULL(small);
+  TEST_ASSERT_TRUE_MESSAGE(pal::extra_memory().in_the_extra(big), "a block that asked for the extra memory is not there");
+  TEST_ASSERT_FALSE_MESSAGE(pal::extra_memory().in_the_extra(small), "a small block went to the extra memory");
+
+  const pal::MemoryHeld ram = pal::memory_held(0);
+  const pal::MemoryHeld extra = pal::memory_held(1);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32_MESSAGE(kSmallBytes, ram.bytes, "the books lost the block of the board's RAM");
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32_MESSAGE(64000, extra.bytes, "the books lost the block of the extra memory");
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32(1, ram.blocks);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32(1, extra.blocks);
+  // **I el total de la casa és el que el heap pot donar**, que és contra què es llegeix el lliure (0.192.92): the emulator was told the
+  // ceiling of the two homes, o sigui que el número hi és i és el de la regió.
+  const pal::HeapInfo heap = pal::system().heap();
+  TEST_ASSERT_TRUE(heap.valid);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(kHomeBytes, heap.total_bytes, "the heap does not say how much the home can give");
+  TEST_ASSERT_TRUE_MESSAGE(heap.free_bytes < heap.total_bytes, "nothing was taken from a home that handed out two blocks");
+
+  // **Un bloc que es mou canvia de casa**: a `resize` down to a small block and with no wish for the extra memory brings it home, i els
+  // llibres el compten on és ara (docs/75).
+  {
+    pal::MemoryTag tag(pal::kMemoryLua, "about");
+    void* moved = pal::extra_memory().resize(big, kSmallBytes, false);
+    TEST_ASSERT_NOT_NULL(moved);
+    TEST_ASSERT_FALSE_MESSAGE(pal::extra_memory().in_the_extra(moved),
+                              "a block resized down to the board's RAM is still in the extra memory");
+    big = moved;
+  }
+  const pal::MemoryHeld extra_after = pal::memory_held(1);
+  TEST_ASSERT_LESS_THAN_UINT32_MESSAGE(64000, extra_after.bytes, "the books still count the block in the home it left");
+
+  pal::extra_memory().release(big);
+  pal::extra_memory().release(small);
+}
+
 // **El host que es mira mentre el nucli espera una persona** (0.190.3): the page of an app that has died stops the turn of the
 // kernel, and that turn is what looks at the window of the emulator —so the page asks the host for a look itself, and the answer
 // of the look is the second thing: a person who closes the window is a run that ends (docs/30, docs/85).
@@ -333,6 +382,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_relief_is_a_failed_ask_and_not_a_heap_that_looks_full);
   RUN_TEST(test_a_block_that_is_being_moved_is_not_one_the_relief_may_take);
   RUN_TEST(test_the_books_say_which_block_is_whose);
+  RUN_TEST(test_the_books_count_each_home_apart);
   RUN_TEST(test_a_host_is_looked_at_with_the_answer_that_ends_a_page);
   RUN_TEST(test_a_console_that_cannot_see_its_line_says_it_is_quiet_at_once);
   return UNITY_END();

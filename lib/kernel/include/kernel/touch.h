@@ -49,6 +49,37 @@ void counters(uint32_t& asks, uint32_t& frames, uint32_t& false_warnings);
 // The points that were down in the last turn, up to `capacity`.
 uint8_t points(hal::TouchPoint* out, uint8_t capacity);
 
+// **LA CAPTURA D'UN TROS DEL VIDRE** (0.192.88, l'amo: *«Captura tots els gestos al panell d'entrenament i converteix-lo en
+// línia. El teclat també haurà de fer el mateix: convertir els gestos que li succeeixin a la seva àrea convertits en events de
+// dits (per no perdre línies, per exemple, sense això els accents semblen un punt sobre el símbol)»*).
+//
+// A page that draws a letter needs **the path of the finger, frame by frame**, and not a photograph of it read in its own
+// turn: a frame that the kernel saw and nobody took is a piece of a line that is gone for ever, and a short line —the mark
+// above an `à`— is two or three frames. Who asks here gives a box **in the frame of the view** and the kernel turns every frame
+// that lands inside it into a point of a line, saying where a line starts and where it ends —the part a page cannot know,
+// because the frame it reads is always the last one— (docs/30, docs/50, docs/90).
+//
+// One box at a time and one owner at a time: the page of the trainer and the band of the keyboard are never drawing at once,
+// and an owner that stops its capture cannot take the other one's away (docs/30, docs/90).
+enum class CaptureOwner : uint8_t { kNone = 0, kThePage = 1, kTheKeyboard = 2 };
+
+struct CapturedPoint {
+  uint16_t x = 0;     // the frame of the view, like a gesture's
+  uint16_t y = 0;
+  uint16_t line = 0;  // 1, 2, 3… for one arming: a contact that lands in the box opens one, and its lift closes it
+};
+
+// The box of the capture, in the frame of the view.
+void capture(CaptureOwner owner, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+void uncapture(CaptureOwner owner);
+bool capturing(CaptureOwner owner);
+
+// Everything captured since the last call, oldest first and **taken**: a second call answers zero, so a page that reads twice
+// does not draw the same point twice. `lines_ended` is the number of lines that have been closed since the capture began
+// (1 means the first one is over), `finger` says whether a contact is inside the box at this very moment, and `lost` is what
+// the ring had no room for —a page that sees a number here is drawing with more samples than this buffer (docs/30, docs/50).
+uint16_t take_captured(CapturedPoint* out, uint16_t capacity, uint16_t& lines_ended, bool& finger, uint32_t& lost);
+
 // **On cau un punt de la vista sobre el vidre** (0.190.4). Everything this layer hands over —the frames of `points` and the
 // points of every gesture— is in the frame of the **view**: an app draws in the page left over the bar of the system, and
 // `turn_frame` takes the offset of the view out of what the chip measured. A page of the system —the page of an app that has

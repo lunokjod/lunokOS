@@ -254,6 +254,10 @@ struct HttpOpts {
   // the volume. `nullptr` is a page that only lives in memory (docs/30, docs/75).
   IStorage* sink = nullptr;
   const char* sink_path = nullptr;
+  // **El mètode, que fins ara era sempre GET** (0.199.3): a POST **sense cos** i prou, que és el que són totes les ordres
+  // d'un servidor de mitjans i el que un comandament necessita; una ordre amb cos no l'ha demanada ningú i no hi és
+  // (docs/30, docs/50).
+  bool post = false;
 };
 
 // Why a page did not arrive, said as a cause and not as a word: the code an app
@@ -318,6 +322,10 @@ class INet {
   // the chip turned down—: they are different faults with different fixes and the board answered the
   // same four letters to all of them (the ATOM, 8/11) (docs/30, docs/50).
   virtual const char* last_error() const { return ""; }
+  // **Per què va caure l'última associació**, en el número del driver (0.197.0): `15` és una contrasenya que no és i `201` un punt d'accés
+  // que no hi és, i la diferència és la que decideix si val la pena tornar-ho a provar —tres cops amb una contrasenya dolenta són tres
+  // cops la mateixa resposta— (docs/30, docs/50). Zero vol dir que la ràdio no en sap res.
+  virtual int32_t wifi_last_reason() const { return 0; }
   virtual bool wifi_scan_done() = 0;
   virtual uint32_t wifi_scan_count() = 0;
   // One entry of the last finished scan: its name and its signal. True when the
@@ -471,6 +479,62 @@ class IBluetooth {
   }
   // **Si el ràdio vol el xip despert**: verdader mentre el teclat és engegat, o sigui que el torn no obre el pany de la becaina.
   virtual bool wants_the_chip_awake() const { return false; }
+
+  // ---- l'iBeacon (0.194.0) ----
+  //
+  // **El mateix anunci amb un altre contingut** (l'amo: *«pots integrar això (iBeacon) al ble dev? `ble dev beacon on`»*, amb el
+  // tutorial de Mynewt a la mà): a beacon does not want a link and does not carry a report map — it *is* four numbers said into the air
+  // (a proximity UUID, a major, a minor and the power it is expected to give at one metre) so a phone can place it. **A legacy
+  // advertisement is one payload and not two**, o sigui que mentre el beacon és ences el costat dispositiu anuncia això i no el teclat,
+  // i el teclat és apagat però no oblidat: `beacon_stop()` el torna a posar (docs/50).
+  //
+  // El format és el de Apple i el posa la pila de la IDF: `ble_ibeacon_set_adv_data` de NimBLE fa els vint-i-cinc bytes de dades de
+  // fabricant (`4C 00`, `02 15`, l'UUID, el major i el minor en big-endian, i el senyal calibrat) i les banderes, que és el tutorial de
+  // Mynewt sencer (docs/50).
+  struct Beacon {
+    uint8_t uuid[16];  // the proximity UUID, in the order the air carries it
+    uint16_t major;
+    uint16_t minor;
+    int8_t power;  // the RSSI this beacon is expected to give at one metre, in dBm
+  };
+  virtual bool beacon_start(const Beacon& beacon) {
+    (void)beacon;
+    return false;
+  }
+  // ---- la bateria i la consola, per BLE (0.196.0) ----
+  //
+  // **Dos serveis de la taula de GATT que es poden obrir i tancar** (l'amo: *«Afegeix al bt dev battery on/off per notificar la batería»*
+  // i *«bt dev console on/off per exposar la shell de sistema (el mateix que es veu via serial, però per ble)»*): el de la bateria és el
+  // **Battery Service** del Bluetooth (0x180F) amb el nivell a 0x2A19, que és el que un telèfon o un rellotge ja sap llegir; el de la
+  // consola és el **Nordic UART Service** —dues característiques, una per escriure-hi i una per rebre'n notificacions—, que és el que
+  // parlen les apps de terminal de BLE que hi ha per telèfon (docs/50).
+  //
+  // **Tancats vol dir que no contesten**: the services are in the table from the first pair and `on` is what makes them answer, o
+  // sigui que una escriptura al port de la consola amb el commutador apagat es refusa i no arriba a la shell de ningú (docs/30,
+  // docs/50).
+  typedef void (*ConsoleSink)(const uint8_t* data, uint16_t len);
+  virtual bool battery_on() { return false; }
+  virtual void battery_off() {}
+  virtual bool battery_is_on() const { return false; }
+  // **El nivell, quan canvia**: fals vol dir que no hi ha ningú escoltant o que el servei és tancat, i cap de les dues coses és un error.
+  virtual bool battery_level(uint8_t percent) {
+    (void)percent;
+    return false;
+  }
+  // **On arriba el que s'escriu pel port de la consola**, i el que se n'envia: el ràdio no sap què és una comanda, només rep bytes i els
+  // dona al sistema, que és qui té la shell (docs/30, docs/50).
+  virtual void console_sink(ConsoleSink sink) { (void)sink; }
+  virtual bool console_on() { return false; }
+  virtual void console_off() {}
+  virtual bool console_is_on() const { return false; }
+  virtual bool console_send(const uint8_t* data, uint16_t len) {
+    (void)data;
+    (void)len;
+    return false;
+  }
+  // Apagar-lo: si el costat dispositiu era engegut, el teclat i el ratolí tornen a anunciar-se.
+  virtual void beacon_stop() {}
+  virtual bool beacon_on() const { return false; }
 
   // ---- el costat amfitrió (0.190.188) ----
   //

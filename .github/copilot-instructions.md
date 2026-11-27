@@ -64,3 +64,16 @@ es mesuren a la placa. Si no hi és, es diu que no hi és.
 ## Paraules
 
 - «font» i no «cara» (tipografia).
+
+## `DevelNotes.md`: prohibit de mirar-lo
+
+L'amo ho ha dit amb aquestes paraules: *«grava't a foc que DevelNotes.md NO TENS PERMIS NI PER MIRAR EL CONTINGUT»*, després que
+l'obrís per recuperar-hi un secret d'un fitxer que jo havia esborrat per accident.
+
+- **No s'obre, no es llegeix, no es busca-hi res**: ni `cat`, ni `view`, ni `grep`, ni un `python` que en tregui cap línia, ni
+  tan sols per comprovar si existeix.
+- **No se'n cita ni se'n descriu el contingut**, encara que l'amo hi faci referència.
+- **Cap urgència no ho aixeca**: si la solució d'alguna cosa sembla que és allà dins, es diu que no s'hi pot mirar i s'espera que
+  sigui l'amo qui ho llegeixi i ho doni.
+- **I la mateixa regla val per a qualsevol secret seu** —claus, contrasenyes, notes personals—: no es llegeixen ni s'envien enlloc
+  sense un permís explícit demanat abans i donat amb paraules.

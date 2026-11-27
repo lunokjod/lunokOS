@@ -59,6 +59,10 @@ void set_done(Done done);
 
 // True while a job is running, so the shell knows a prompt is not due yet.
 bool busy();
+// **Els tres segons de marge, i el que una prova pot escurçar** (0.197.0): the radio is closed three seconds after the last job, i una suite
+// que hagués d'esperar-los per veure-ho és una suite que ningú no corre; aquesta porta és la que la fa curta (docs/75, docs/85).
+void set_the_quiet_ms(uint32_t ms);
+uint32_t the_quiet_ms();
 
 // **Les dues preguntes que la barra del sistema fa** (0.189.56, i són fets i no un resum): whether the clock is being
 // synchronised right now —`net.ntp` in the air, which is the hourglass of the bar— and whether a provisioning is running
@@ -109,6 +113,11 @@ luabind::NetRefuse http_get_spill(const char* url, uint32_t max_bytes, const cha
 // an app goes through `http.download`, which is the same page under the write policy of docs/70
 // (docs/30, docs/75).
 luabind::NetRefuse http_download(const char* url, const char* path, uint32_t timeout_ms);
+
+// **Una ordre i prou** (0.199.3): a POST with no body, which is what a media server's commands are —`PlayPause`, `Seek`,
+// `ToggleMute`—. The answer is a status and a few bytes of body, and the rest of the road is the one of a page: the queue,
+// the network brought up and let go, and the deadline (docs/30).
+luabind::NetRefuse http_post(const char* url, uint32_t timeout_ms, bool person);
 
 // The answer of the page that has just arrived. Valid while the answer is being
 // given and no longer: the shell prints it there, the interpreter copies it into a

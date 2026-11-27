@@ -32,6 +32,55 @@ size_t type(const char* text);
 // **El que sap aquest sistema del ràdio, en una frase** per al prompt i per al registre.
 const char* state_word();
 
+// ---- l'iBeacon (0.194.0) ----
+//
+// **El mateix ràdio, dient un nombre i no oferint un teclat** (l'amo: *«pots integrar això (iBeacon) al ble dev? `ble dev beacon on`»*).
+// Un beacon no vol enllaç: el que fa és repetir quatre números a l'aire —un UUID de proximitat, un `major`, un `minor` i el senyal que
+// dona a un metre— perquè un telèfon pugui situar-lo. **Mentre dura, el teclat i el ratolí no s'anuncien** (una advertise de llegat és un
+// sol contingut) però no s'apaguen: `beacon_stop()` els torna a posar (docs/30, docs/50).
+//
+// **La identitat de sèrie és d'aquesta casa i es pot canviar**: `6c756e6f-6b4f-5321-0000-000000000001`, que és `lunokOS!` en bytes i
+// després zeros, amb `major` 1, `minor` 1 i `-59 dBm` a un metre. Un UUID de proximitat no es registra enlloc; el que ha de fer és no
+// coincidir amb el d'una altra cosa que una persona ja tingui (docs/50).
+extern const char kBeaconUuid[];
+// **Els valors amb què neix**, perquè el prompt els pugui dir sense endevinar-los.
+const uint16_t kBeaconMajor = 1;
+const uint16_t kBeaconMinor = 1;
+const int8_t kBeaconPower = -59;
+// **Un UUID de text a setze bytes**, amb o sense guions (`6c756e6f-6b4f-5321-…` o els trenta-dos dígits seguits). Fals si no és un UUID.
+bool beacon_uuid_from_text(const char* text, uint8_t out[16]);
+// **El UUID de text del que s'està anunciant** —o del que s'anunciaria—, per al prompt i per al registre.
+const char* beacon_uuid_text(const uint8_t uuid[16]);
+// **La identitat que hi ha ara, en bytes**: el que cal per canviar-ne un tros (el `major`) i tornar a engegar el beacon amb la resta
+// igual (docs/30).
+const uint8_t* beacon_uuid();
+// **Encendre'l**, amb la identitat que es digui, i apagar-lo. `false` vol dir que aquesta placa no té ràdio o que la pila no hi és.
+bool beacon_start(const uint8_t uuid[16], uint16_t major, uint16_t minor, int8_t power);
+void beacon_stop();
+bool beacon_on();
+// **El que fa el beacon en aquest moment**, perquè `bt status` i `bt dev` ho puguin dir: si hi és, amb quins números.
+uint16_t beacon_major();
+uint16_t beacon_minor();
+int8_t beacon_power();
+
+// ---- la bateria i la consola, per BLE (0.196.0) ----
+//
+// **Dos serveis que es poden obrir i tancar** (l'amo: *«Afegeix al bt dev battery on/off per notificar la batería»* i *«bt dev console
+// on/off per exposar la shell de sistema (el mateix que es veu via serial, però per ble)»*). El de la bateria és el **Battery Service**
+// del Bluetooth (0x180F, nivell a 0x2A19) i el de la consola és el **Nordic UART Service**, que és el que parlen les apps de terminal
+// de BLE per telèfon. **Tancats no contesten**: el servei és a la taula des del primer aparellament i el commutador és el que fa que
+// respongui —un nivell que es llegeix a zero i una escriptura que es refusa— (docs/30, docs/50).
+bool battery_on();
+void battery_off();
+bool battery_on_now();
+// **El nivell, quan canvia**: fals vol dir que no hi ha ningú escoltant o que el servei és tancat.
+bool battery_notify(int percent);
+// **La consola**: obrir-la vol dir que el que arriba pel port entra a la shell i que el que la shell escriu en surt. El nucli és qui
+// instal·la el mirall de la consola (el mateix que veu el sèrie) i qui rep els bytes (docs/30, docs/50).
+bool console_on();
+void console_off();
+bool console_on_now();
+
 // ---- l'amfitrió (0.190.188) ----
 //
 // **L'altra direcció**: the board is the host and somebody else's keyboard writes into the system. Les tecles d'aquest teclat passen

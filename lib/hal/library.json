@@ -1,6 +1,6 @@
 {
   "name": "hal",
-  "version": "0.5.3",
+  "version": "0.7.0",
   "description": "Hardware abstraction interfaces: capabilities, clock, storage, net, power, and the LoRa radio, which this firmware only ever listens to.",
   "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
 }

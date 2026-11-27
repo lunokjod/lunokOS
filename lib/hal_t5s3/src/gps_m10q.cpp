@@ -1,6 +1,6 @@
-// **El receptor del cel d'aquesta placa, pel seu cable** (0.192.63): el perquè i els pins són a la capçalera; aquí hi ha la UART,
-// el sondeig de bauds i les cinc frases NMEA que es llegeixen (NMEA 0183 v4, §RMC/§GGA/§GSA/§GSV/§VTG, que és el que un M10Q dona
-// de fàbrica) (docs/50).
+// **El receptor del cel d'aquesta placa, pel seu cable** (0.192.63): el perquè i els pins són a la capçalera; aquí hi ha **el
+// cable** —la UART, el rail i el sondeig dels dos bauds— i res més. Les frases NMEA i el que volen dir són a `hal::nmea`
+// (`lib/hal/src/nmea.cpp`), que no sap què és una UART i es prova al PC amb frases de debò (0.192.90, docs/50, docs/85).
 #include "t5s3/gps_m10q.h"
 
 #include <driver/gpio.h>
@@ -33,72 +33,11 @@ const uint32_t kProbeMs = 1200;
 
 uint32_t now_ms() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 
-// **El següent camp d'una frase** (NMEA 0183: comes i un asterisc abans del segell): torna el tros i deixa el punter al següent, o
-// `nullptr` quan la frase s'ha acabat. Els camps buits són cadenes buides i no un salt, perquè un GGA sense altitud és un camp buit i
-// no una frase més curta (docs/50).
-char* next_field(char*& at) {
-  if (at == nullptr) return nullptr;
-  char* start = at;
-  char* comma = strchr(start, ',');
-  if (comma == nullptr) {
-    char* star = strchr(start, '*');
-    if (star != nullptr) *star = '\0';
-    at = nullptr;
-    return start;
-  }
-  *comma = '\0';
-  at = comma + 1;
-  return start;
-}
-
-// **El segell de la frase**: la XOR de tot el que hi ha entre el `$` i l'asterisc, en hexadecimal. Una frase que no quadra no es llegeix:
-// un caràcter perdut en un cable llarg dona un número que sembla una latitud (docs/50).
-bool checksum_ok(const char* sentence) {
-  const char* star = strrchr(sentence, '*');
-  if (star == nullptr || star[1] == '\0' || star[2] == '\0') return false;
-  uint8_t sum = 0;
-  for (const char* at = sentence + 1; at < star; ++at) sum ^= static_cast<uint8_t>(*at);
-  char hex[3] = {star[1], star[2], '\0'};
-  return static_cast<uint8_t>(strtoul(hex, nullptr, 16)) == sum;
-}
-
-// **Una coordenada NMEA** (`ddmm.mmmm` o `dddmm.mmmm`) a graus per deu milions, amb el seu quadrant.
-int32_t degrees_e7(const char* text, char hemi) {
-  if (text == nullptr || text[0] == '\0') return 0;
-  const double raw = atof(text);
-  const int degrees = static_cast<int>(raw / 100.0);
-  const double minutes = raw - degrees * 100.0;
-  double value = degrees + minutes / 60.0;
-  if (hemi == 'S' || hemi == 'W') value = -value;
-  return static_cast<int32_t>(value * 10000000.0 + ((value < 0) ? -0.5 : 0.5));
-}
-
-// **L'hora d'una frase** (`hhmmss.ss`) i la data (`ddmmyy`), que van en frases diferents: el RMC les porta totes dues i el GGA només
-// l'hora (docs/50).
-void read_time(const char* text, GpsTime& time) {
-  if (text == nullptr) return;
-  const int value = atoi(text);
-  time.hour = static_cast<uint8_t>(value / 10000);
-  time.minute = static_cast<uint8_t>((value / 100) % 100);
-  time.second = static_cast<uint8_t>(value % 100);
-  const char* dot = strchr(text, '.');
-  time.hundredths = (dot != nullptr) ? static_cast<uint8_t>(atoi(dot + 1)) : 0;
-}
-
-void read_date(const char* text, GpsTime& time) {
-  if (text == nullptr || strlen(text) < 6) return;
-  time.day = static_cast<uint8_t>((text[0] - '0') * 10 + (text[1] - '0'));
-  time.month = static_cast<uint8_t>((text[2] - '0') * 10 + (text[3] - '0'));
-  const int year = (text[4] - '0') * 10 + (text[5] - '0');
-  time.year = static_cast<uint16_t>(2000 + year);
-}
-
-// Els décims d'una xifra de text (`0.9` → 9), que és com el receptor dona la dilució i la força del senyal.
-uint16_t tenths_of(const char* text) {
-  if (text == nullptr || text[0] == '\0') return 0;
-  const double value = atof(text);
-  return static_cast<uint16_t>(value * 10.0 + 0.5);
-}
+// **Els bauds de la placa i el marge per dir que no** (docs/pinmap.md de la placa, docs/50): the manufacturer's own example
+// (`examples/GPS/main/main.ino`) opens the L76K's 9 600 first and only then the u-blox 38 400, i el que compta per dir «aquest
+// ritme és el bo» és **una frase amb el segell bé**, no un byte qualsevol: a un ritme equivocat la UART també dona bytes —el que
+// dona és escombraries—, i abans això es creia que el mòdul parlava i es quedava enganxat al ritme dolent per sempre (0.192.90,
+// docs/50).
 
 }  // namespace
 
@@ -150,7 +89,9 @@ void GpsM10Q::close_the_wire() {
   if (!open_) return;
   uart_driver_delete(kPort);
   open_ = false;
-  used_ = 0;
+  // **Un cable que s'obre a un altre ritme no hereta la meitat d'una frase** (0.192.90): the state of `hal::nmea` goes with the wire
+  // it was reading, o sigui que el que s'ha llegit es llença sencer (docs/50).
+  nmea::reset(nmea_);
 }
 
 bool GpsM10Q::on() {
@@ -163,29 +104,37 @@ bool GpsM10Q::on() {
   // apagar-lo callaria també la ràdio, o sigui que aquest driver només l'encén (docs/50).
   (void)rail_->write(Expander::kLoraEnable, true);
   const uint32_t started = now_ms();
-  // **Un mòdul, no dos**: es prova el ritme de la u-blox i, si en mil dos-cents mil·lisegons no ha dit ni una lletra, el de la
-  // Quectel. El primer que parla és el que hi ha gravat a la placa (docs/pinmap.md, docs/50).
-  const uint32_t rates[2] = {kBaudM10Q, kBaudL76K};
+  // **Un mòdul, no dos**: es prova el ritme de la Quectel —el que obre el fabricant— i, si en mil dos-cents mil·lisegons no ha dit
+  // cap frase sencera, el de la u-blox. El primer que **parla** és el que hi ha gravat a la placa (docs/pinmap.md, docs/50).
+  const uint32_t rates[2] = {kBaudL76K, kBaudM10Q};
   for (uint32_t baud : rates) {
     if (!open_the_wire(baud)) return false;
-    uart_flush_input(kPort);
-    const uint32_t from = now_ms();
-    while (now_ms() - from < kProbeMs) {
-      uint8_t byte = 0;
-      if (uart_read_bytes(kPort, &byte, 1, 0) == 1) {
-        // **El que ha parlat és aquest**: es buida el que hi hagi i es torna bo, i la frase que s'ha llegit mentre es mirava es
-        // descarta perquè no comença per cap `$` (docs/50).
-        uart_flush_input(kPort);
-        used_ = 0;
-        hal::logf(pal::kLogInfo, "GPS", "the receiver answers at %u bauds (%u ms)", static_cast<unsigned>(baud),
-                  static_cast<unsigned>(now_ms() - started));
-        return true;
-      }
+    if (hear_a_sentence(kProbeMs)) {
+      hal::logf(pal::kLogInfo, "GPS", "the receiver answers at %u bauds (%u baud test, %u ms)",
+                static_cast<unsigned>(baud), static_cast<unsigned>(baud), static_cast<unsigned>(now_ms() - started));
+      return true;
     }
     close_the_wire();
   }
-  error_ = "the receiver says nothing at 38400 or at 9600 bauds";
+  error_ = "the receiver says nothing at 9600 or at 38400 bauds (or it says it with the checksum broken)";
   return false;
+}
+
+// **Esperar una frase de debò**: el cable s'escolta durant `ms` i el que compta és que `hal::nmea` hagi entès una frase —segell bé i
+// una de les cinc—, no que hagi arribat un byte. A un ritme equivocat la UART dona bytes d'un marc trencat, o sigui que un byte no
+// vol dir res; una frase sencera sí (0.192.90, docs/50).
+bool GpsM10Q::hear_a_sentence(uint32_t ms) {
+  nmea::reset(nmea_);
+  const uint32_t from = now_ms();
+  uint8_t chunk[64];
+  while (now_ms() - from < ms) {
+    const int got = uart_read_bytes(kPort, chunk, sizeof(chunk), 0);
+    for (int i = 0; i < got; ++i) {
+      (void)nmea::feed(nmea_, static_cast<char>(chunk[i]));
+    }
+    if (nmea::heard_a_sentence(nmea_)) return true;
+  }
+  return nmea::heard_a_sentence(nmea_);
 }
 
 bool GpsM10Q::off() {
@@ -196,206 +145,6 @@ bool GpsM10Q::off() {
   return true;
 }
 
-void GpsM10Q::take_a_line(char* line, size_t length) {
-  // **Del `$` fins al final i res més**: el que arribi abans del `$` és el que quedava d'una frase trencada o el que el mòdul diu en
-  // arrencar (un M10Q de fàbrica no diu res, però un de configurat pot dir-ho) (docs/50).
-  const char* dollar = static_cast<const char*>(memchr(line, '$', length));
-  if (dollar == nullptr) return;
-  const size_t skip = static_cast<size_t>(dollar - line);
-  if (length <= skip) return;
-  ++sentences_;
-  const char* body = dollar + 1;
-  if (!checksum_ok(dollar)) {
-    ++bad_;
-    fix_.bad_sentences = bad_;
-    return;
-  }
-  // **Quina frase és**: les dues lletres del tipus van després del parladora (`GNRMC`, `GPRMC`, `GLGGA`…), o sigui que el que compta
-  // són les tres últimes lletres abans de la coma (docs/50).
-  char kind[4] = {0};
-  if (strlen(body) < 5) return;
-  kind[0] = body[2];
-  kind[1] = body[3];
-  kind[2] = body[4];
-  kind[3] = '\0';
-  // Una còpia perquè els camps es tallen a lloc.
-  char work[112];
-  snprintf(work, sizeof(work), "%s", body);
-  if (strcmp(kind, "RMC") == 0) {
-    parse_rmc(work);
-  } else if (strcmp(kind, "GGA") == 0) {
-    parse_gga(work);
-  } else if (strcmp(kind, "GSA") == 0) {
-    parse_gsa(work);
-  } else if (strcmp(kind, "GSV") == 0) {
-    parse_gsv(work);
-  } else if (strcmp(kind, "VTG") == 0) {
-    parse_vtg(work);
-  }
-  fix_.sentences = sentences_;
-  fix_.bad_sentences = bad_;
-}
-
-bool GpsM10Q::parse_rmc(const char* body) {
-  char work[112];
-  snprintf(work, sizeof(work), "%s", body);
-  char* at = work;
-  // El primer camp és el tipus (`GNRMC`) i el segon l'hora.
-  (void)next_field(at);
-  char* time = next_field(at);
-  char* status = next_field(at);
-  char* lat = next_field(at);
-  char* north = next_field(at);
-  char* lon = next_field(at);
-  char* east = next_field(at);
-  char* knots = next_field(at);
-  char* course = next_field(at);
-  char* date = next_field(at);
-  if (status == nullptr) return false;
-  read_time(time, fix_.time);
-  read_date(date, fix_.time);
-  // **L'estat és el que diu si la posició serveix**: `A` vol dir vàlida i `V` que el receptor encara no la té (docs/50).
-  const bool ok = (status[0] == 'A');
-  fix_.valid = ok;
-  fix_.time.valid = ok && fix_.time.year >= 2024;
-  if (!ok) return true;
-  fix_.lat_e7 = degrees_e7(lat, (north != nullptr && north[0] != '\0') ? north[0] : 'N');
-  fix_.lon_e7 = degrees_e7(lon, (east != nullptr && east[0] != '\0') ? east[0] : 'E');
-  // **Els nusos a centímetres per segon**: un nus són 51,444 cm/s, i el receptor dona els nusos amb un decimal (docs/50).
-  if (knots != nullptr && knots[0] != '\0') fix_.speed_cm_s = static_cast<int32_t>(atof(knots) * 51.444 + 0.5);
-  if (course != nullptr && course[0] != '\0') fix_.course_deg10 = static_cast<int32_t>(atof(course) * 10.0 + 0.5);
-  return true;
-}
-
-bool GpsM10Q::parse_gga(const char* body) {
-  char work[112];
-  snprintf(work, sizeof(work), "%s", body);
-  char* at = work;
-  (void)next_field(at);  // el tipus
-  char* time = next_field(at);
-  char* lat = next_field(at);
-  char* north = next_field(at);
-  char* lon = next_field(at);
-  char* east = next_field(at);
-  char* quality = next_field(at);
-  char* sats = next_field(at);
-  char* hdop = next_field(at);
-  char* altitude = next_field(at);
-  (void)next_field(at);  // la lletra de l'altitud (`M`)
-  char* geoid = next_field(at);
-  if (quality == nullptr) return false;
-  read_time(time, fix_.time);
-  fix_.quality = static_cast<uint8_t>(atoi(quality));
-  if (sats != nullptr && sats[0] != '\0') fix_.satellites_used = static_cast<uint8_t>(atoi(sats));
-  fix_.hdop_x10 = tenths_of(hdop);
-  if (altitude != nullptr && altitude[0] != '\0') fix_.altitude_cm = static_cast<int32_t>(atof(altitude) * 100.0);
-  if (geoid != nullptr && geoid[0] != '\0') fix_.geoid_cm = static_cast<int32_t>(atof(geoid) * 100.0);
-  // **Un GGA amb qualitat zero no és una posició**: el receptor hi posa la latitud i la longitud de l'última que va tenir, o sigui que
-  // creure-se-la seria ensenyar un lloc on la placa no és (docs/50).
-  if (fix_.quality == 0) return true;
-  if (lat != nullptr && lat[0] != '\0') {
-    fix_.lat_e7 = degrees_e7(lat, (north != nullptr && north[0] != '\0') ? north[0] : 'N');
-    fix_.lon_e7 = degrees_e7(lon, (east != nullptr && east[0] != '\0') ? east[0] : 'E');
-  }
-  return true;
-}
-
-bool GpsM10Q::parse_gsa(const char* body) {
-  char work[112];
-  snprintf(work, sizeof(work), "%s", body);
-  char* at = work;
-  (void)next_field(at);  // el tipus
-  (void)next_field(at);  // el mode (`A` automàtic o `M` manual)
-  char* fixtype = next_field(at);
-  if (fixtype != nullptr) {
-    // **El tipus de posició** (1 no fix, 2 no fix, 3 fix 2D, 4 fix 3D): el 2 i el 3 no són una posició de debò i el 4 sí.
-    const int type = atoi(fixtype);
-    if (type < 4) fix_.valid = false;
-  }
-  // Els dotze números de satèl·lit que aquesta posició fa servir: és el que marca `used` al cel (docs/50).
-  uint8_t used = 0;
-  for (int i = 0; i < 12; ++i) {
-    char* prn = next_field(at);
-    if (prn == nullptr) break;
-    if (prn[0] == '\0') continue;
-    ++used;
-    const uint8_t id = static_cast<uint8_t>(atoi(prn));
-    for (uint8_t s = 0; s < sky_count_; ++s) {
-      if (sky_[s].id == id) sky_[s].used = true;
-    }
-  }
-  fix_.satellites_used = used;
-  char* pdop = next_field(at);
-  char* hdop = next_field(at);
-  char* vdop = next_field(at);
-  if (pdop != nullptr) fix_.pdop_x10 = tenths_of(pdop);
-  if (hdop != nullptr) fix_.hdop_x10 = tenths_of(hdop);
-  if (vdop != nullptr) fix_.vdop_x10 = tenths_of(vdop);
-  return true;
-}
-
-bool GpsM10Q::parse_gsv(const char* body) {
-  char work[112];
-  snprintf(work, sizeof(work), "%s", body);
-  char* at = work;
-  (void)next_field(at);  // el tipus
-  char* messages = next_field(at);
-  char* number = next_field(at);
-  char* in_view = next_field(at);
-  if (messages == nullptr || number == nullptr) return false;
-  const int total = atoi(messages);
-  const int which = atoi(number);
-  if (in_view != nullptr && in_view[0] != '\0') fix_.satellites_seen = static_cast<uint8_t>(atoi(in_view));
-  // **La primera frase d'una tanda escombra el cel**: les GSV venen en grups de fins a quatre satèl·lits i la primera diu quants n'hi ha
-  // en total, o sigui que és el moment de començar la llista de nou (docs/50).
-  if (which <= 1 || which > total) {
-    sky_count_ = 0;
-    gsv_next_ = 0;
-  }
-  for (int slot = 0; slot < 4; ++slot) {
-    char* prn = next_field(at);
-    char* elevation = next_field(at);
-    char* azimuth = next_field(at);
-    char* snr = next_field(at);
-    if (prn == nullptr || prn[0] == '\0') break;
-    if (gsv_next_ >= 32) break;
-    GpsSatellite& sat = sky_[gsv_next_];
-    sat.id = static_cast<uint8_t>(atoi(prn));
-    sat.elevation = (elevation != nullptr) ? static_cast<uint8_t>(atoi(elevation)) : 0;
-    sat.azimuth = (azimuth != nullptr) ? static_cast<uint16_t>(atoi(azimuth)) : 0;
-    sat.snr = (snr != nullptr) ? static_cast<uint8_t>(atoi(snr)) : 0;
-    // **La marca de «el comptes» ve del GSA**, que és una altra frase: es conserva la que ja hi havia per a aquest número (docs/50).
-    sat.used = false;
-    for (uint8_t s = 0; s < sky_count_; ++s) {
-      if (sky_[s].id == sat.id) sat.used = sky_[s].used;
-    }
-    ++gsv_next_;
-    if (gsv_next_ > sky_count_) sky_count_ = gsv_next_;
-  }
-  return true;
-}
-
-bool GpsM10Q::parse_vtg(const char* body) {
-  char work[112];
-  snprintf(work, sizeof(work), "%s", body);
-  char* at = work;
-  (void)next_field(at);  // el tipus
-  char* course = next_field(at);
-  (void)next_field(at);  // la lletra del rumb (`T` de debò, `M` magnètic)
-  (void)next_field(at);
-  (void)next_field(at);  // la lletra del rumb magnètic
-  char* knots = next_field(at);
-  (void)next_field(at);
-  char* kmh = next_field(at);
-  if (course != nullptr && course[0] != '\0') fix_.course_deg10 = static_cast<int32_t>(atof(course) * 10.0 + 0.5);
-  if (kmh != nullptr && kmh[0] != '\0') {
-    fix_.speed_cm_s = static_cast<int32_t>(atof(kmh) * 27.778 + 0.5);
-  } else if (knots != nullptr && knots[0] != '\0') {
-    fix_.speed_cm_s = static_cast<int32_t>(atof(knots) * 51.444 + 0.5);
-  }
-  return true;
-}
-
 bool GpsM10Q::poll(GpsFix& out) {
   if (!open_) {
     error_ = "the receiver is off";
@@ -403,40 +152,23 @@ bool GpsM10Q::poll(GpsFix& out) {
   }
   // **El que hi hagi, i prou** (0.192.63): this plate has no interrupt line of the module, so the read is a poll and the buffer of the
   // UART is what says how much has arrived. No `uart_read_bytes` with a timeout: waiting here would be waiting in the turn of the
-  // whole board (docs/30, docs/50).
+  // whole board (docs/30, docs/50). **I el que s'ha llegit no es queda aquí**: les frases les entén `hal::nmea`, que és el que
+  // sap què vol dir un `$GNRMC` (0.192.90, docs/50).
   uint8_t chunk[128];
   for (int round = 0; round < 8; ++round) {
     const int got = uart_read_bytes(kPort, chunk, sizeof(chunk), 0);
     if (got <= 0) break;
     for (int i = 0; i < got; ++i) {
-      const char c = static_cast<char>(chunk[i]);
-      if (c == '\n' || c == '\r') {
-        if (used_ > 0) {
-          line_[used_] = '\0';
-          take_a_line(line_, used_);
-        }
-        used_ = 0;
-        continue;
-      }
-      // **Una frase que no cap és una frase que es llença sencera** i es diu al comptador, perquè una línia trencada que s'enganxa
-      // amb la següent és un segell que falla i una posició que no arriba mai sense que ningú sàpiga per què (docs/50).
-      if (used_ + 1 >= sizeof(line_)) {
-        used_ = 0;
-        ++bad_;
-        fix_.bad_sentences = bad_;
-        continue;
-      }
-      line_[used_++] = c;
+      (void)nmea::feed(nmea_, static_cast<char>(chunk[i]));
     }
   }
-  fix_.satellites_seen = (fix_.satellites_seen > sky_count_) ? fix_.satellites_seen : sky_count_;
-  out = fix_;
+  out = nmea_.fix;
   return true;
 }
 
 const GpsSatellite* GpsM10Q::satellites(uint8_t& count) const {
-  count = sky_count_;
-  return (sky_count_ > 0) ? sky_ : nullptr;
+  count = nmea_.sky_count;
+  return (nmea_.sky_count > 0) ? nmea_.sky : nullptr;
 }
 
 // **El receptor d'aquesta placa, una vegada** (0.192.63): el rail és el mateix objecte que obre el panell, i si no hi és el receptor

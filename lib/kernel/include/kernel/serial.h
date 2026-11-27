@@ -52,6 +52,13 @@ const char* owner();
 // here, they come through the interpreter's console, which keeps the port (docs/30, docs/50).
 pal::IConsole* console();
 
+// **El port i prou, sigui de qui sigui** (0.199.2, i el forat que tanca és el del teclat del cable): la cessió calla el que
+// el sistema **escriu**, i el lector del sistema no és un escriptor —el torn llegeix el port un cop per volta i dona els bytes
+// a qui toqui—. Amb `console()` per a les dues coses, una caixa amb el focus que aixecava el teclat del cable es quedava sense
+// cap tecla: el port era cedit, `console()` responia `nullptr`, i ningú no el llegia. Qui escriu segueix preguntant `console()`
+// (docs/30, docs/50).
+pal::IConsole* port();
+
 }  // namespace serial
 }  // namespace kernel
 

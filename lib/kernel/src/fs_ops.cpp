@@ -286,6 +286,25 @@ bool is_dir(const char* path, luabind::FsError& err) {
   return info.type == hal::NodeType::kDir;
 }
 
+// **Quan es va tocar el fitxer per últim cop** (0.199.0): the backend's own hour, and 0 when it does not keep one. The
+// permission is the reading one (`allowed`), because an hour is something a file tells and not something written.
+int64_t mtime(const char* path, luabind::FsError& err) {
+  err = luabind::FsError::kOk;
+  char full[128];
+  if (!absolute(path, full, sizeof(full))) {
+    err = luabind::FsError::kInval;
+    return 0;
+  }
+  if (!allowed(full, false, err)) return 0;
+
+  hal::Stat info;
+  if (!vfs::stat(full, info)) {
+    err = luabind::FsError::kNoEnt;
+    return 0;
+  }
+  return static_cast<int64_t>(info.mtime);
+}
+
 // The VFS lists through a sink of its own; this one only passes the entries on.
 class VisitorSink : public hal::ListSink {
  public:
@@ -1020,6 +1039,7 @@ void install_fs_ops() {
   ops.read_at = &read_at;
   ops.size = &size;
   ops.is_dir = &is_dir;
+  ops.mtime = &mtime;
   ops.list = &list;
   ops.write_atomic = &write_atomic;
   ops.mkdir = &mkdir;

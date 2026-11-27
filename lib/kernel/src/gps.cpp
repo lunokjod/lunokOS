@@ -17,6 +17,20 @@ namespace kernel {
 namespace gps {
 namespace {
 
+// **El vigilant del cable** (0.192.90, l'amo: *«L'app de GPS fa alguna cosa quan no troba senyal? per exemple, reintentar-ho a cada
+// pas amb una alarma o el torn? o el sistema ja s'en ocupa d'anar escoltant?»*). El que el sistema ja fa és **escoltar a cada torn**:
+// `poll` llegeix el que la UART tingui i no espera ningú. El que no feia era **tornar a lligar el cable**: si el mòdul no va contestar
+// quan es va encendre —el rail encara pujava, el ritme era l'altre, el cable s'havia mogut—, `g_on` es quedava fals per sempre i la
+// pàgina deia «the receiver is off» fins a reiniciar; i si contestava i després callava (una baixada del rail, un reset del mòdul), la
+// UART es quedava buida i ningú se n'adonava.
+//
+// Ara: si fa `kSilentMs` que no arriba cap frase i el mòdul és volgut, es tanca la UART i es torna a sondar; i si el mòdul no hi és,
+// es reintenta amb una espera que dobla, per no pagar un sondeig de dos segons i mig cada deu segons en una placa sense receptor
+// (docs/30, docs/50).
+const int64_t kSilentMs = 8000;
+const int64_t kRetryFirstMs = 30000;
+const int64_t kRetryMaxMs = 480000;
+
 hal::IGps* g_gps = nullptr;
 // **El que s'ha llegit l'última vegada**, i si el mòdul és encès (0.192.63). El capejament es recorda aquí i no al driver perquè
 // és una decisió del sistema: el mòdul es pot apagar quan la pàgina marxa i el driver no ha de saber qui el mira (docs/50).
@@ -29,6 +43,14 @@ int64_t g_sync_ms = -1;
 // té» en comptes d'ensenyar l'última que va veure com si fos d'ara (docs/30).
 int64_t g_last_fix_ms = -1;
 int64_t g_shift_ms = 0;
+// **El vigilant** (0.192.90): quan es va sentir una frase per última vegada, quan toca tornar a provar i amb quina espera, i si algú
+// vol el mòdul (una pàgina l'ha demanat o el rellotge se'l creu). `wanted` no el toca el vigilant: apagar-lo és una decisió d'una
+// persona i tornar-lo a encendre sol seria desfer-la (docs/30, docs/50).
+bool g_wanted = false;
+int64_t g_heard_ms = -1;
+uint32_t g_heard_sentences = 0;
+int64_t g_next_try_ms = 0;
+int64_t g_retry_ms = kRetryFirstMs;
 // **Una sincronització per minut com a molt** (0.192.63): the sky says the time every second and the clock only needs to be told
 // once; a `set_epoch` is a write to the chip's RTC and to the wall clock, i fer-ho seixanta vegades per minut seria gastar el
 // rellotge per res (docs/50, docs/60).
@@ -97,6 +119,32 @@ void believe_the_sky(const hal::GpsFix& fix) {
   }
 }
 
+// **El vigilant, a cada torn** (0.192.90): el que el sistema ja fa és escoltar —aquest `poll` llegeix el que la UART tingui i no espera
+// ningú—, i el que faltava era tornar a lligar el cable quan no hi ha res a escoltar. Dues maneres de no tenir-lo lligat: el mòdul no
+// va contestar quan es va encendre, o va contestar i després ha callat (docs/30, docs/50).
+void watch_the_wire() {
+  const int64_t now = mono_ms();
+  if (g_on) {
+    if (g_heard_ms < 0) g_heard_ms = now;
+    // **Un mòdul que parla cada segon i fa vuit que calla no parla**: es tanca la UART i es torna a sondar, i es diu una vegada perquè
+    // una línia cada vuit segons en un receptor mort és el registre que l'amo no vol (docs/50).
+    if (now - g_heard_ms >= kSilentMs) {
+      hal::logf(pal::kLogWarn, "GPS", "the receiver has said nothing for %d ms: looking for it again",
+                static_cast<int>(now - g_heard_ms));
+      (void)the_wire_gone();
+      g_next_try_ms = now;
+    }
+    return;
+  }
+  if (!g_wanted) return;
+  if (now < g_next_try_ms) return;
+  // **Tornar-lo a provar**: si no hi és, l'espera dobla fins a vuit minuts, perquè una placa sense receptor no ha de pagar un sondeig de
+  // dos segons i mig cada mig minut (docs/50).
+  if (turn_on()) return;
+  g_next_try_ms = now + g_retry_ms;
+  g_retry_ms = (g_retry_ms * 2 > kRetryMaxMs) ? kRetryMaxMs : g_retry_ms * 2;
+}
+
 }  // namespace
 
 bool available() { return g_gps != nullptr; }
@@ -105,6 +153,7 @@ bool powered() { return g_on; }
 
 bool turn_on() {
   if (g_gps == nullptr) return false;
+  g_wanted = true;
   if (!g_begun) {
     meter::Scope scope(meter::kGpsOn);
     g_begun = g_gps->on();
@@ -115,13 +164,27 @@ bool turn_on() {
   }
   if (!g_on) {
     g_on = true;
+    g_heard_ms = mono_ms();
+    g_heard_sentences = 0;
+    g_retry_ms = kRetryFirstMs;
+    g_next_try_ms = 0;
     const hal::GpsCaps caps = g_gps->caps();
     hal::logf(pal::kLogInfo, "GPS", "the receiver is on: %s at %u bauds", caps.chip, static_cast<unsigned>(caps.baud));
   }
   return true;
 }
 
+// **Una persona l'ha apagat** (0.192.90): `turn_off` és la porta de Lua i del commutador, o sigui que el vigilant no el torna a
+// encendre; el tancament que fa el vigilant és `the_wire_gone`, que deixa `wanted` com estava (docs/30, docs/50).
 bool turn_off() {
+  if (g_gps == nullptr) return false;
+  g_wanted = false;
+  return the_wire_gone();
+}
+
+// **Tancar el cable i tornar-lo a provar després**: el que fa el vigilant quan el mòdul calla, sense dir que la persona l'hagi apagat
+// (docs/50).
+bool the_wire_gone() {
   if (g_gps == nullptr) return false;
   const bool was = g_on;
   g_on = false;
@@ -135,13 +198,21 @@ bool turn_off() {
 // nova, el que es queda és el que ja se sabia— i no diu res al registre a cada volta, perquè un receptor que parla cada segon
 // ompliria el registre de dues mil línies per hora (docs/30, docs/50).
 void poll() {
-  if (g_gps == nullptr || !g_on) return;
+  if (g_gps == nullptr) return;
+  watch_the_wire();
+  if (!g_on) return;
   meter::Scope scope(meter::kGpsPoll);
   hal::GpsFix fresh = g_fix;
   if (g_gps->poll(fresh)) {
     // **Les frases i els errors els compta el driver** (0.192.63): qui llegeix el cable és qui sap què ha arribat i què s'ha
     // perdut, i el nucli només hi afegeix el que sap ell —quant fa de l'última posició (docs/30, docs/50).
     g_fix = fresh;
+    // **Una frase que ha arribat és el cable lligat**: el comptador el porten les frases i no les preguntes, o sigui que si creix és que
+    // el mòdul parla (0.192.90, docs/50).
+    if (fresh.sentences != g_heard_sentences) {
+      g_heard_sentences = fresh.sentences;
+      g_heard_ms = mono_ms();
+    }
     if (cfg::gps_sync()) believe_the_sky(g_fix);
   }
   if (g_fix.valid) {

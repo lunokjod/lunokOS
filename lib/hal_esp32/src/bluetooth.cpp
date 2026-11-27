@@ -34,6 +34,7 @@
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
+#include "host/ble_ibeacon.h"  // the twenty-five manufacturer bytes of an iBeacon, as NimBLE makes them (0.194.0)
 #include "host/ble_hs_adv.h"
 #include "host/ble_hs_mbuf.h"
 #include "host/ble_store.h"
@@ -202,6 +203,14 @@ bool g_host_wanted = false;
 uint8_t g_own_addr_type = 0;
 uint8_t g_protocol_mode = 1;  // 1 is Report protocol, 0 is Boot protocol
 bool g_started = false;
+// **L'anunci del beacon, i el seu contingut** (0.194.0): a legacy advertisement holds one payload, o sigui que aquests quatre números
+// substitueixen el del teclat mentre duri. Es guarden aquí i no al nucli perquè aquesta banda és qui torna a anunciar-se sola —quan
+// cau un enllaç, quan la pila es ressincronitza— i qui la repeteix no pot dependre de ningú (docs/50).
+bool g_beacon_on = false;
+uint8_t g_beacon_uuid[16] = {};
+uint16_t g_beacon_major = 0;
+uint16_t g_beacon_minor = 0;
+int8_t g_beacon_power = -59;
 // **El nom d'aquesta placa, amb la seva adreça** (0.190.197, l'amo: *«El nom de la máquina, usa lunokOS-XXYY (els dos últims digits de la
 // mac) si no ca "lunokXXYY"»*): a name that is the same on every board is a list of keyboards nobody can tell apart, o sigui que els dos
 // últims bytes de l'adreça del ràdio hi van. **I si el nom no hi cap** —la resposta de l'escaneig són trenta-un bytes i el nom hi va amb
@@ -262,6 +271,32 @@ ble_uuid16_t g_mouse_reference_uuid = BLE_UUID16_INIT(0x2908);
 // perfil no sap llegir (docs/50).
 ble_uuid16_t g_output_reference_uuid = BLE_UUID16_INIT(0x2908);
 ble_uuid16_t g_hid_service_uuid = BLE_UUID16_INIT(0x1812);
+// **Els dos serveis que es poden obrir i tancar** (0.196.0): the Battery Service of the Bluetooth spec (0x180F with the level at 0x2A19)
+// i el Nordic UART Service, que és el que parlen les apps de terminal de BLE que hi ha per telèfon: una característica per escriure-hi
+// (RX, de la banda cap a nosaltres) i una per rebre'n (TX, nostra cap a la banda) (docs/50).
+ble_uuid16_t g_battery_service_uuid = BLE_UUID16_INIT(0x180F);
+ble_uuid16_t g_battery_level_uuid = BLE_UUID16_INIT(0x2A19);
+ble_uuid128_t g_console_service_uuid =
+    BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0x01, 0x00, 0x40, 0x6e);
+ble_uuid128_t g_console_rx_uuid =
+    BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0x02, 0x00, 0x40, 0x6e);
+ble_uuid128_t g_console_tx_uuid =
+    BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0x03, 0x00, 0x40, 0x6e);
+// **Els interruptors, el nivell i el que s'ha de fer amb el que arriba** (0.196.0): the two switches are the whole difference between
+// "the service is there" and "the service answers", i el que arriba pel port de la consola no el sap la ràdio: el dona al sistema.
+bool g_battery_on = false;
+uint8_t g_battery_level = 0;
+bool g_console_on = false;
+hal::IBluetooth::ConsoleSink g_console_sink = nullptr;
+// **Els dos manegaments de notificació**, trobats una vegada: a notification goes to the value handle of the characteristic and only
+// after the other side has written its CCCD, o sigui que es guarden aquí i es comparen a l'esdeveniment de subscripció (docs/50).
+uint16_t g_battery_value_handle = 0;
+uint16_t g_console_tx_handle = 0;
+bool g_battery_subscribed = false;
+bool g_console_subscribed = false;
+// **I una notificació no pot provocar-ne una altra**: the console of this system writes to its own log, i el mirall de la consola és
+// el que envia les notificacions, o sigui que una línia escrita mentre s'envia tornaria aquí (docs/50).
+bool g_sending_the_console = false;
 
 int hid_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt* ctxt, void* arg) {
   (void)conn_handle;
@@ -445,12 +480,105 @@ const struct ble_gatt_chr_def kHidCharacteristics[] = {
     {},
 };
 
+// **El nivell de la bateria, que només contesta si el commutador és obert**: a phone that reads it while it is off gets zero, que és el
+// que aquest commutador vol dir (docs/50).
+int battery_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt* ctxt, void* arg) {
+  (void)conn_handle;
+  (void)attr_handle;
+  (void)arg;
+  if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_UNLIKELY;
+  const uint8_t level = g_battery_on ? g_battery_level : 0;
+  const int rc = os_mbuf_append(ctxt->om, &level, sizeof level);
+  return (rc == 0) ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+// **El que escriu el telèfon pel port de la consola** (0.196.0): the radio does not know what a command is; it copies the bytes and gives
+// them to the system, which is the one with the shell. Amb el commutador tancat no s'accepta res, i això és el que fa que la shell no
+// quedi exposada quan ningú l'ha oberta (docs/30, docs/50).
+int console_rx_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt* ctxt, void* arg) {
+  (void)conn_handle;
+  (void)attr_handle;
+  (void)arg;
+  if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+  if (!g_console_on || g_console_sink == nullptr) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+  // **Una escriptura cap a la consola és curta i s'ha de poder dir sencera**: the ATT MTU of a paired phone is a couple of hundred bytes,
+  // i el que no hi cabria es refusa en lloc de tallar-se a mitges (docs/50).
+  uint8_t bytes[256];
+  const uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+  if (len == 0) return 0;
+  if (len > sizeof bytes) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+  if (os_mbuf_copydata(ctxt->om, 0, len, bytes) != 0) return BLE_ATT_ERR_UNLIKELY;
+  if (g_console_sink != nullptr) g_console_sink(bytes, len);
+  return 0;
+}
+
+// **La característica per on surten les respostes no es llegeix ni s'escriu**: it is a notification and nothing else, però NimBLE **vol**
+// un `access_cb` a cada característica encara que no el cridi mai —`ble_gatts_chr_is_sane` refusa la taula sencera amb `EINVAL` (3) si
+// en falta un, que és el que la placa va dir a la primera arrencada— (docs/50).
+int console_tx_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt* ctxt, void* arg) {
+  (void)conn_handle;
+  (void)attr_handle;
+  (void)ctxt;
+  (void)arg;
+  return BLE_ATT_ERR_READ_NOT_PERMITTED;
+}
+
+const struct ble_gatt_chr_def kBatteryCharacteristics[] = {
+    {
+        .uuid = &g_battery_level_uuid.u,
+        .access_cb = battery_access,
+        .arg = &g_battery_level_uuid.u,
+        .descriptors = nullptr,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .min_key_size = 0,
+        .val_handle = &g_battery_value_handle,
+    },
+    {},
+};
+
+const struct ble_gatt_chr_def kConsoleCharacteristics[] = {
+    {
+        .uuid = &g_console_rx_uuid.u,
+        .access_cb = console_rx_access,
+        .arg = &g_console_rx_uuid.u,
+        .descriptors = nullptr,
+        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+        .min_key_size = 0,
+        .val_handle = nullptr,
+    },
+    {
+        .uuid = &g_console_tx_uuid.u,
+        .access_cb = console_tx_access,
+        .arg = &g_console_tx_uuid.u,
+        .descriptors = nullptr,
+        .flags = BLE_GATT_CHR_F_NOTIFY,
+        .min_key_size = 0,
+        .val_handle = &g_console_tx_handle,
+    },
+    {},
+};
+
 const struct ble_gatt_svc_def kGattServices[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
         .uuid = &g_hid_service_uuid.u,
         .includes = nullptr,
         .characteristics = kHidCharacteristics,
+    },
+    // **Els dos serveis són a la taula sempre i el commutador és el que els fa contestar** (0.196.0): a service added after the host has
+    // started is refused by NimBLE (`ble_gatts_mutable` is false), o sigui que el que es pot triar no és que hi siguin sinó què fan
+    // (docs/50).
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &g_battery_service_uuid.u,
+        .includes = nullptr,
+        .characteristics = kBatteryCharacteristics,
+    },
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &g_console_service_uuid.u,
+        .includes = nullptr,
+        .characteristics = kConsoleCharacteristics,
     },
     {},
 };
@@ -509,7 +637,15 @@ int gap_event(struct ble_gap_event* event, void* arg) {
     // said in the log because it is the line that tells a person «connected» from «connected and heard» (docs/50).
     case BLE_GAP_EVENT_SUBSCRIBE: {
       const bool on = event->subscribe.cur_notify != 0;
-      if (event->subscribe.attr_handle == g_report_handle) {
+      // **I les dues notificacions noves** (0.196.0): a level that nobody asked for is a packet nobody reads, o sigui que el CCCD és el
+      // que diu si el telèfon escolta la bateria i la consola (docs/50).
+      if (event->subscribe.attr_handle == g_battery_value_handle && g_battery_value_handle != 0) {
+        g_battery_subscribed = on;
+        hal::logf(pal::kLogInfo, "BT", "the other side %s the battery level", on ? "asked for" : "left");
+      } else if (event->subscribe.attr_handle == g_console_tx_handle && g_console_tx_handle != 0) {
+        g_console_subscribed = on;
+        hal::logf(pal::kLogInfo, "BT", "the other side %s the console", on ? "asked for" : "left");
+      } else if (event->subscribe.attr_handle == g_report_handle) {
         g_report_subscribed = on;
         hal::logf(pal::kLogInfo, "BT", "the other side %s the keyboard report", on ? "asked for" : "left");
       } else if (event->subscribe.attr_handle == g_mouse_report_handle) {
@@ -538,7 +674,30 @@ int gap_event(struct ble_gap_event* event, void* arg) {
   }
 }
 
+// **L'anunci del beacon** (0.194.0): the payload is the stack's, not ours —`ble_ibeacon_set_adv_data` is the helper the Mynewt tutorial
+// uses, and it is what puts `4C 00 02 15` in front of the UUID—; el que sí que és nostre és que **no sigui connectable** i que no porti
+// cap resposta d'exploració: un iBeacon que accepta un enllaç no és un iBeacon, i un que respon al `SCAN_REQ` és un aparell que una
+// persona pot confondre amb el teclat (docs/50).
+void advertise_the_beacon() {
+  const int set = ble_ibeacon_set_adv_data(g_beacon_uuid, g_beacon_major, g_beacon_minor, g_beacon_power);
+  if (set != 0) {
+    hal::logf(pal::kLogWarn, "BT", "the beacon was not put in the advertisement (%d)", set);
+    return;
+  }
+  struct ble_gap_adv_params params = {};
+  params.conn_mode = BLE_GAP_CONN_MODE_NON;  // a beacon is heard and never answered
+  params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+  const int rc = ble_gap_adv_start(g_own_addr_type, nullptr, BLE_HS_FOREVER, &params, gap_event, nullptr);
+  if (rc != 0 && rc != BLE_HS_EALREADY) {
+    hal::logf(pal::kLogWarn, "BT", "the beacon is not in the air (%d)", rc);
+  }
+}
+
 void advertise() {
+  if (g_beacon_on) {
+    advertise_the_beacon();
+    return;
+  }
   if (!g_started) return;
   struct ble_hs_adv_fields fields = {};
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
@@ -1118,6 +1277,113 @@ void Esp32Bluetooth::keyboard_stop() {
 
 bool Esp32Bluetooth::keyboard_connected() const { return g_connection != BLE_HS_CONN_HANDLE_NONE; }
 
+// **El beacon, que no necessita ni el mapa de reports ni el servei del teclat** (0.194.0): només la pila enlaire i vint-i-cinc bytes a
+// l'anunci. El que sí que fa és **prendre el torn al teclat**: el costat dispositiu queda apagat mentre el beacon dura, perquè una
+// advertise de llegat és un sol contingut, i `g_started` és el que fa que `beacon_stop()` el torni a posar sense demanar res a ningú
+// (docs/50).
+bool Esp32Bluetooth::beacon_start(const Beacon& beacon) {
+  if (!bring_up_the_radio("the beacon")) return false;
+  g_beacon_on = true;
+  memcpy(g_beacon_uuid, beacon.uuid, sizeof g_beacon_uuid);
+  g_beacon_major = beacon.major;
+  g_beacon_minor = beacon.minor;
+  g_beacon_power = beacon.power;
+  // **El que hi hagués a l'aire marxa abans que el nou anunci hi entri**: dues `adv_start` seguides contesten `EALREADY` i el que es
+  // queda a l'aire és el vell, que és pitjor que un error perquè sembla que hagi funcionat (docs/50).
+  ble_gap_adv_stop();
+  advertise();
+  hal::logf(pal::kLogInfo, "BT",
+            "the beacon is in the air: major %u, minor %u, %d dBm at one metre (the keyboard and the mouse step aside while it lasts)",
+            static_cast<unsigned>(g_beacon_major), static_cast<unsigned>(g_beacon_minor),
+            static_cast<int>(g_beacon_power));
+  return true;
+}
+
+void Esp32Bluetooth::beacon_stop() {
+  if (!g_beacon_on) return;
+  g_beacon_on = false;
+  ble_gap_adv_stop();
+  // **I el teclat torna si era engegut**: el beacon no l'ha apagat, només li ha pres l'anunci (docs/50).
+  if (g_started) advertise();
+  hal::logf(pal::kLogInfo, "BT", "the beacon is gone from the air");
+  if (!g_started && !host_lives() && !g_host.busy) {
+    // Ningú no fa servir la ràdio: baixa sencera, com fa `keyboard_stop` (docs/50, docs/75).
+    g_radio_up = false;
+    g_the_stack_is_up = false;
+    nimble_port_stop();
+    nimble_port_deinit();
+    hal::logf(pal::kLogInfo, "BT", "the radio is down: %u B of internal memory are back",
+              static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
+  }
+}
+
+bool Esp32Bluetooth::beacon_on() const { return g_beacon_on; }
+
+// **El servei de la bateria** (0.196.0): obrir-lo vol dir que el nivell que es llegeix és el de debò i que les notificacions surten; tancar-lo
+// el deixa contestant zero, que és el mateix que no dir res (docs/50).
+bool Esp32Bluetooth::battery_on() {
+  if (!bring_up_the_radio("the battery service")) return false;
+  g_battery_on = true;
+  hal::logf(pal::kLogInfo, "BT", "the battery service is on: level %u%%", static_cast<unsigned>(g_battery_level));
+  return true;
+}
+
+void Esp32Bluetooth::battery_off() {
+  if (!g_battery_on) return;
+  g_battery_on = false;
+  hal::logf(pal::kLogInfo, "BT", "the battery service is off: the level reads zero");
+}
+
+bool Esp32Bluetooth::battery_is_on() const { return g_battery_on; }
+
+// **Un nivell que ha canviat, cap a l'altre costat**: only when the switch is on and the other side has written its CCCD, perquè una
+// notificació a qui no escolta és un error que el telèfon no ha demanat (docs/50).
+bool Esp32Bluetooth::battery_level(uint8_t percent) {
+  g_battery_level = percent;
+  if (!g_battery_on || !g_battery_subscribed || g_connection == BLE_HS_CONN_HANDLE_NONE || g_battery_value_handle == 0) return false;
+  struct os_mbuf* om = ble_hs_mbuf_from_flat(&percent, sizeof percent);
+  if (om == nullptr) return false;
+  const int rc = ble_gatts_notify_custom(g_connection, g_battery_value_handle, om);
+  return rc == 0;
+}
+
+// **La consola per BLE** (0.196.0, l'amo: *«el mateix que es veu via serial, però per ble»*): el que arriba pel port es dona al sistema i
+// el que el sistema escriu a la consola surt per l'altra característica. El mirall el posa el nucli, perquè un caràcter no és cosa
+// d'aquest fitxer (docs/30, docs/50).
+void Esp32Bluetooth::console_sink(ConsoleSink sink) { g_console_sink = sink; }
+
+bool Esp32Bluetooth::console_on() {
+  if (!bring_up_the_radio("the console")) return false;
+  g_console_on = true;
+  hal::logf(pal::kLogInfo, "BT", "the console is on the air: write into it and its answers come back here");
+  return true;
+}
+
+void Esp32Bluetooth::console_off() {
+  if (!g_console_on) return;
+  g_console_on = false;
+  hal::logf(pal::kLogInfo, "BT", "the console is off the air");
+}
+
+bool Esp32Bluetooth::console_is_on() const { return g_console_on; }
+
+bool Esp32Bluetooth::console_send(const uint8_t* data, uint16_t len) {
+  if (data == nullptr || len == 0) return false;
+  if (!g_console_on || !g_console_subscribed || g_connection == BLE_HS_CONN_HANDLE_NONE || g_console_tx_handle == 0) return false;
+  // **El que s'envia no pot tornar a entrar pel mirall**: a log line written while this notification is being made would come back here,
+  // i una consola que s'alimenta de si mateixa és un bucle (docs/50).
+  if (g_sending_the_console) return false;
+  g_sending_the_console = true;
+  // **A trossos, perquè el paquet té un màxim**: the ATT MTU of a phone is a couple of hundred bytes and a page of the shell is more, o
+  // sigui que s'envia el que hi cap i es deixa la resta per a la crida següent (docs/50).
+  const uint16_t piece = (len > 180) ? 180 : len;
+  struct os_mbuf* om = ble_hs_mbuf_from_flat(data, piece);
+  int rc = BLE_HS_ENOMEM;
+  if (om != nullptr) rc = ble_gatts_notify_custom(g_connection, g_console_tx_handle, om);
+  g_sending_the_console = false;
+  return rc == 0;
+}
+
 // **Escoltat, que no és el mateix que connectat** (0.190.208): a report only reaches the other side once it has written the CCCD of
 // the characteristic it wants, and the two can be a second apart (docs/50). **I des de la 0.191.0 es pregunten un a un**, perquè la
 // placa en publica dos i l'altre cap pot encendre'n un i no l'altre: un dit que mou un punter vol saber del ratolí (docs/50, docs/30).
@@ -1393,7 +1659,7 @@ bool Esp32Bluetooth::mouse_click(uint8_t buttons) {
 
 uint8_t Esp32Bluetooth::mouse_buttons() const { return g_mouse_buttons; }
 
-bool Esp32Bluetooth::wants_the_chip_awake() const { return g_started || host_lives(); }
+bool Esp32Bluetooth::wants_the_chip_awake() const { return g_started || g_beacon_on || host_lives(); }
 
 #else  // nothing of the radio is in this build: the platform still answers, and says it cannot
 
@@ -1452,6 +1718,28 @@ bool Esp32Bluetooth::keyboard_start(const char* name) {
 }
 void Esp32Bluetooth::keyboard_stop() {}
 bool Esp32Bluetooth::keyboard_connected() const { return false; }
+bool Esp32Bluetooth::beacon_start(const Beacon& beacon) {
+  (void)beacon;
+  return false;
+}
+void Esp32Bluetooth::beacon_stop() {}
+bool Esp32Bluetooth::beacon_on() const { return false; }
+bool Esp32Bluetooth::battery_on() { return false; }
+void Esp32Bluetooth::battery_off() {}
+bool Esp32Bluetooth::battery_is_on() const { return false; }
+bool Esp32Bluetooth::battery_level(uint8_t percent) {
+  (void)percent;
+  return false;
+}
+void Esp32Bluetooth::console_sink(ConsoleSink sink) { (void)sink; }
+bool Esp32Bluetooth::console_on() { return false; }
+void Esp32Bluetooth::console_off() {}
+bool Esp32Bluetooth::console_is_on() const { return false; }
+bool Esp32Bluetooth::console_send(const uint8_t* data, uint16_t len) {
+  (void)data;
+  (void)len;
+  return false;
+}
 bool Esp32Bluetooth::keyboard_tap(uint8_t mods, uint8_t usage) {
   (void)mods;
   (void)usage;

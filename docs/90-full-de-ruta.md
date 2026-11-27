@@ -718,3 +718,35 @@ paraules de la targeta per sempre (mesurat a l'emulador amb una pàgina d'etique
 2. El criteri passa a la placa, o es diu exactament quina part no s'ha pogut provar i per què.
 3. Els números mesurats s'escriuen a `75`.
 4. Si una decisió ha canviat, es canvia el document de la matèria **abans** de tancar la fita.
+
+## La lletra a mà: on cau la tinta i quant n'ocupa (0.195.0)
+
+**El que fallava i no era la graella** (l'amo: *«no detecta bé els símbols, potser massa petita la graella? … VUll que m'entengui»*).
+`ink::raster` trobava la caixa **del dibuix**, l'escalava pel costat més llarg i la centrava; o sigui que el lloc on la persona havia
+dibuixat i la mida del que havia dibuixat es llençaven abans d'arribar a la graella. Mesurat amb un programa al PC contra `lib/ink`:
+
+| Parell | Distància abans | Ara |
+|---|---|---|
+| `-` i `_` | **0** (les mateixes set cel·les) | **36** |
+| `.` i `-` | **0** (un toc de quatre píxels era una ratlla sencera) | **48** |
+| `'` i `,` | **0** | **60** |
+| `:` i `;` | 6 | 28 |
+| `-` dibuixada un pèl més amunt que una altra `-` | 0 | 12 (sota `kNear`: segueix essent la mateixa) |
+| `o` i `0` | 0 | 0 (un `0` estret es va separar per la proporció, no per això) |
+
+**El que s'hi ha afegit**: `Grid` porta tres números més —`at_x`, `at_y` i `size`, en vuitens del camp on s'ha dibuixat— i la distància
+els compta amb pesos diferents: **12** per vuitè de `at_y`, perquè la línia d'escriptura és el que separa el mig del peu; **10** per
+vuitè de `size`, perquè és el que separa un punt d'una ratlla; i **2** per a `at_x`, perquè el paper d'entrenament és ample i *on,
+d'ample, dibuixa una persona és soroll*.
+
+**El camp qui el diu**: `ink::Field` (un rectangle en les coordenades dels punts). L'app d'entrenament hi passa el seu paper
+(`hand.grid(strokes, w, h)`, o `hand.add`/`hand.guess` amb els mateixos dos números) i la banda del nucli hi passa **la zona** on s'ha
+dibuixat —la meitat de les lletres o la dels símbols, no la banda sencera—. Un camp que no es diu (amplada o alçada zero) deixa la
+quadrícula com era, que és el que veu un caller que no el passa.
+
+**Un toc és un punt**: un dibuix amb tots els punts al mateix lloc es refusava —«a press is not a letter»— i el `.` no es podia
+escriure. Ara és un glif d'una cel·la, i la seva `size` zero és el que el separa d'una ratlla.
+
+**I el preu, dit clar**: el fitxer del model passa de setze bytes per mostra a **dinou** i la marca de `INK1` a `INK2`, o sigui que **els
+models desats abans es refusen** i s'han de tornar a entrenar. Els llindars de la decisió (`kFar` 70, `kNear` 20, `kMargin` 10) no es
+toquen, perquè la part de la distància que ve de les cel·les no ha canviat.

@@ -1,6 +1,6 @@
 {
   "name": "pal_esp32",
-  "version": "0.2.15",
+  "version": "0.3.0",
   "description": "PAL implementation for ESP32 + Arduino (FreeRTOS queue, UART console).",
   "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
 }

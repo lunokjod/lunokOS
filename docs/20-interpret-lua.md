@@ -104,7 +104,7 @@ Cada app s'executa amb un `_ENV` propi:
 
 | Pressupost | Com es compta | Què passa en excedir-lo |
 |---|---|---|
-| **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb el sostre de la placa (`IPlatform::heap_limit_kb()`: si la placa no en diu cap, **131 072 B** —els 128 KB de `kDefaultHeapBytes`, `lib/kernel/src/shell.cpp`— i **4 096 KB al Paper**, que és la PSRAM mapejada) | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
+| **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb un sostre que és **la meitat del que la placa dona** des de la 0.192.94 (`IPlatform::heap_limit_kb()/2`: **4 096 KB al T5S3**, 2 048 al Paper; si la placa no en diu cap, els **131 072 B** de `kDefaultHeapBytes`). Es canvia amb `cfg mem <kb>` i es torna amb `cfg mem auto`; el número que mana es decideix **en arrencar l'app** i mai no passa del que el xip té | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
 | **Instruccions** | `lua_sethook` amb comptador: **20 000 per torn** de sèrie (0.174.7, eren 100 000), en blocs de 2 000, i és **un ajust de la placa**: `cfg turn <n>`, de 2 000 a 200 000, que `sys.turn()` llegeix des de Lua | En esgotar-se, la tasca fa `lua_yield` i torna al nucli; **no es mata**. Un `while true do end` corre a trossos i la placa no es penja; `!!exit`/3 ESC la tanquen (docs/75) |
 | **Temps de torn** | El comptador talla el torn: una app que cedeix torna al nucli a cada espera, i una que no cedeix hi torna igualment quan el comptador s'esgota | Es torna a la cua de tasques |
 
@@ -123,6 +123,78 @@ El comptador no distingeix una app que pinta un joc d'una que s'ha penjat; per a
 crida C); si no, s'espera el proper punt segur. **Encara no hi ha** el matar amb `E_BUDGET` després de dos
 avisos, ni el pressupost propi de la finestra d'alarma, ni el del prompt `lua`, ni el de les coroutines
 que crea l'app, ni el dels ganxos que el nucli crida amb `lua_pcall` (docs/75, docs/90).
+
+## D'on surt la memòria de l'intèrpret, i a quina casa viu (0.192.93)
+
+L'amo, davant de `mem lua` amb un `asked for 384.1 KB`: *«De quin tipus de memoria parla? 384.1Kb es molta... d'on la treu? quina
+part es dram quina psram quina altres tipus? I que vol dir "in the collector"?»*.
+
+**Un bloc del PAL per cada valor de Lua.** L'assignador de l'intèrpret és `counting_alloc` (`lib/luabind/src/luabind.cpp`) i no té
+cap pool propi: cada petició de Lua —una cadena, una taula, una closura, una pila de coroutine, l'estat mateix— travessa
+`pal::extra_memory()`. O sigui que el que `mem lua` en diu «asked for» és **la suma dels bytes de cada valor viu**: no és una
+reserva, no és una caché i no és el sostre; és el que hi ha dins de la màquina en aquell instant.
+
+**I la casa la tria el que demana, amb una regla que no té mida** (0.192.94, l'amo: *«Canviem totalment aquesta política... a partir
+d'ara tota memoria que demani lua ha de ser PSRAM exclusivament»*):
+
+| Qui demana | On va |
+|---|---|
+| **L'intèrpret de Lua** | **només a la memòria extra**, per petit que sigui el bloc; i en una placa que no en té, a la RAM del xip, perquè una app ha de córrer igual |
+| **La resta del sistema** | la regla de sempre: el petit a la RAM del xip mentre en quedin més de **64 KB** (`pal::kHomeReserveBytes`) i el gran (≥ 4 KB) a la memòria extra |
+
+Fins a la 0.192.93 l'intèrpret seguia la regla de la segona fila: un bloc de quatre kilobytes o més anava a la PSRAM i els petits es
+quedaven a la RAM mentre en quedés. El que hi ha ara és el que l'amo va demanar —**una màquina de Lua és la cosa més gran que aquest
+sistema demana i la RAM interna és la que es discuteixen els drivers, la pila i el sistema de fitxers**—: cada petició de l'intèrpret
+surt de la casa gran o falla, i la porta es diu `IExtraMemory::allocate_in_the_extra` (0.192.94). El preu és el de sempre i s'ha de dir:
+la PSRAM és més lenta que la RAM del xip, i una taula gran o petita que viu allà es llegeix amb més cicles.
+
+**Mesurat a l'emulador** (T5S3, el llançador al davant, `mem lua`):
+
+```
+asked for           210.3 KB
+in the board's RAM   0 B in 0 block(s)
+in the PSRAM        210.3 KB in 2432 block(s)
+```
+
+**I la RAM del xip queda gairebé intacta**: `mem` diu `ram in use 352 B of 158.9 KB` amb el llançador i la seva pàgina corrent, on abans
+deia 96.0 KB. Les dues mil quatre-centes peticions són, gairebé totes, taules i cadenes petites que abans es repartien entre les dues
+cases.
+
+**Per què tres-cents vuitanta kilobytes.** El llançador té, en aquell moment, trenta-sis manifests llegits i convertits en taules, les
+miniatures de dotze imatges, la seva pàgina, i tota l'API del sistema en globals i metamètodes (`ui`, `sys`, `fs`, `net`, `touch`,
+`canvas`…). Un valor de Lua costa: una taula buida són **56 B** i cada camp hi afegeix una entrada de setze; una cadena porta la
+capçalera, el hash i el zero final; una closura són quaranta bytes més l'upvalue. Tres-cents vuitanta kilobytes són unes deu mil
+entrades, i el pic (`worst`, 392.8 KB) és el moment en què el llançador reconstrueix la llista d'apps amb la vella i la nova alhora.
+
+**No hi ha cap fila del recol·lector i és a propòsit.** `lua_gc(LUA_GCCOUNT)` en aquest Lua (5.4) torna `totalbytes + GCdebt`, que és
+**exactament** la mateixa suma que porta `counting_alloc` —els bytes que l'assignador ha donat menys els que ha llevat—: la fila que hi
+havia («in the collector») era el mateix número dues vegades amb dos noms, i el comentari que la justificava deia una cosa que no és
+certa (que el recol·lector hi compta les capçaleres de cada valor; no n'hi afegeix cap). El que sí que no se sabia és a quina casa anava
+cada tros, i és el que hi ha ara (0.192.93).
+
+**I això no és cap reserva**: `limit` és el **total de la PSRAM** de la placa (`IPlatform::heap_limit_kb()`: 8 192 KB al T5S3, 4 096 al
+Paper, 128 KB de sèrie en una placa que no en diu cap). Per això `how full` diu un 2 o un 4 %: no és que l'app estigui a punt de no
+caber, és que **el sostre és vint-i-cinc vegades la mida que aquest app té**. El número que ha de mirar un app és el seu pic contra el
+sostre, i el que ha de mirar el sistema és `ram in use` de `mem`, que és una altra cosa.
+
+**Com s'inicialitza, en ordre** (per qui vulgui seguir el camí sencer):
+
+1. `run <app>` (o el `lua` del prompt, o una finestra d'alarma) → `luabind::start(Boot, limit)`.
+2. `lua_newstate(&counting_alloc, &g_alloc)`: **Lua demana el seu propi estat** pels volts de dos kilobytes, i d'allà endavant tot
+   passa pel mateix assignador. Si no hi cap, `start` torna `false` i no queda res.
+3. `open_everything` dins d'un `lua_pcall`: les llibreries (base, string, table, math, coroutine, utf8), les promeses, la sessió del
+   shell, el paquet d'administrador si el manifest el va demanar, i **se segellen els globals** (`seal_globals`): després d'això una
+   app no pot inventar-se un global.
+4. `lua_sethook(..., LUA_MASKCALL|MASKRET|MASKCOUNT)`: el mateix ganxo compta les instruccions del torn i mesura les crides a l'API.
+5. El codi de l'app es llegeix del VFS (**fins a 98 304 B**, `kSourceCap`), es compila amb `luaL_loadbuffer` i s'embolica en una
+   **coroutine** (`make_the_task`, dins d'un `lua_pcall` perquè quedar-se sense sostre aquí mataria el procés en comptes de tornar un
+   error).
+6. Cada torn del nucli és **un `lua_resume`** d'aquella coroutine: l'app corre fins que espera una promesa o fins que el comptador
+   li lleva el torn (20 000 instruccions de sèrie).
+7. `stop()` → `lua_close`: cada bloc torna al PAL per la mateixa porta per la qual va venir, i la RAM i la PSRAM queden com estaven.
+
+**Res de la màquina viu a la pila de C**: la pila de Lua, les taules i les coroutines són blocs d'aquestes dues cases com qualsevol
+altre, i per això `mem` les compta a `lua` i `mem lua` les reparteix.
 
 ## El prompt com a intèrpret (`lua`)
 

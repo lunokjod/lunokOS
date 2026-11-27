@@ -103,7 +103,10 @@ class Esp32Fs : public IStorage {
     const bool dir = S_ISDIR(info.st_mode);
     out.type = dir ? NodeType::kDir : NodeType::kFile;
     out.size = dir ? 0 : static_cast<uint32_t>(info.st_size);
-    out.mtime = 0;
+    // **L'hora de la flash sí que hi és** (0.199.0): littlefs desa la modificació de cada fitxer —el component porta
+    // `LITTLEFS_USE_MTIME` encès— i el VFS la torna a `st_mtime`, o sigui que una app pot preguntar l'edat d'un fitxer que
+    // ha baixat. Abans es posava a zero aquí i a zero al binding, i cap app podia saber si una resposta era d'ahir (docs/30, docs/70).
+    out.mtime = dir ? 0 : static_cast<int64_t>(info.st_mtime);
     return true;
   }
 
@@ -125,7 +128,7 @@ class Esp32Fs : public IStorage {
       const bool known = (::stat(full, &info) == 0);
       entry.type = (known && S_ISDIR(info.st_mode)) ? NodeType::kDir : NodeType::kFile;
       entry.size = (entry.type == NodeType::kDir || !known) ? 0 : static_cast<uint32_t>(info.st_size);
-      entry.mtime = 0;
+      entry.mtime = (known && entry.type == NodeType::kFile) ? static_cast<int64_t>(info.st_mtime) : 0;
       keep = sink.on_entry(entry);
     }
     closedir(dir);

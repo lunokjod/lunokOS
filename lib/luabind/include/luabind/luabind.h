@@ -59,6 +59,10 @@ struct FileOps {
   int64_t (*size)(const char* path, FsError& err);
   // True when the path is a directory.
   bool (*is_dir)(const char* path, FsError& err);
+  // **L'hora del fitxer** (0.199.0): seconds since the epoch as the backend keeps them —the modification time
+  // littlefs saves and the card's own—, or 0 when it does not know. It is what lets an app ask the age of a file
+  // it downloaded instead of writing a mark of its own beside it (docs/30, docs/70).
+  int64_t (*mtime)(const char* path, FsError& err);
   // Lists a directory, handing every entry to the visitor. False when it cannot.
   bool (*list)(const char* path, DirVisitor& visitor, FsError& err);
   // Writes a whole file: either the new contents are there or the old ones are
@@ -302,6 +306,10 @@ struct CfgOps {
   bool (*set_sort_by_usage)(bool on);
   uint32_t (*turn)();
   bool (*set_turn)(uint32_t instructions);
+  // **El sostre de memòria de l'intèrpret** (0.192.94): zero vol dir `auto`, que és la meitat del que la placa dona, i un número són
+  // kilobytes. És la mateixa preferència que la comanda `cfg mem` i viu a `/cfg` (docs/20, docs/30).
+  uint32_t (*memory)();
+  bool (*set_memory)(uint32_t kb);
   int32_t (*cursor_delay)();
   bool (*set_cursor_delay)(int32_t ms);
   // **Les llistes que una pàgina necessita per a un desplegable**: the ids of the keyboards this build carries and the words
@@ -555,6 +563,9 @@ struct NetOps {
   // Downloads a page. It needs the network like the time server does, and the
   // answer is a status and a body, not a yes (docs/30).
   NetRefuse (*http_get)(const char* url, uint32_t max_bytes, uint32_t timeout_ms);
+  // **Una ordre** (0.199.3): a POST with no body, which is what a media server's commands are (`PlayPause`, `Seek`,
+  // `ToggleMute`). The answer is the status and a short body, so the app reads a number and not a page (docs/30).
+  NetRefuse (*http_post)(const char* url, uint32_t timeout_ms);
   // Downloads a page **into a file**: the whole page goes to the volume the path names, however long
   // it is, and the answer says how many bytes did and where they are (docs/30).
   NetRefuse (*download)(const char* url, const char* path, uint32_t timeout_ms);
@@ -742,13 +753,19 @@ struct HandOps {
   bool (*zone)(const char* name, uint8_t& out);
   const char* (*zone_name)(uint8_t zone);
   uint8_t (*zones)();
-  bool (*add)(uint8_t zone, char text);
-  ink::Answer (*guess)(uint8_t zone);
+  // **El camp on s'ha dibuixat** (0.195.0): where the ink fell in the paper and how much of it it takes, o sigui el que fa que un `-`
+  // i un `_` deixin de ser el mateix dibuix. Un camp desconegut (amplada o alçada zero) és el comportament de sempre (docs/30, docs/90).
+  bool (*add)(uint8_t zone, char text, const ink::Field& where);
+  ink::Answer (*guess)(uint8_t zone, const ink::Field& where);
   bool (*save)(uint8_t zone);
   bool (*load)(uint8_t zone);
   uint16_t (*examples)(uint8_t zone);
   uint16_t (*examples_of)(uint8_t zone, char text);
   void (*forget)(uint8_t zone);
+  // **Les mostres d'un caràcter i quantes hi caben** (0.192.86): the page that trains a hand takes a wrong sample back with the
+  // first, i la segona és el que li permet dir que el model és ple (docs/30).
+  uint16_t (*forget_of)(uint8_t zone, char text);
+  uint16_t (*capacity)();
 };
 
 void set_hand_ops(const HandOps& ops);
@@ -807,6 +824,14 @@ struct TouchInfo {
   uint16_t height;
 };
 
+// **Un punt d'una línia capturada** (0.192.88): where the finger was and which line of the drawing it belongs to. `line` rises
+// from one within one arming, o sigui que dos contactes són dues línies i no un traç amb un salt (docs/30, docs/50).
+struct CapturedPointInfo {
+  uint16_t x;
+  uint16_t y;
+  uint16_t line;
+};
+
 struct TouchOps {
   bool (*caps)(TouchInfo& out);
   // The frame of the last turn of the kernel: the chip gives a frame once and it has already been
@@ -815,6 +840,15 @@ struct TouchOps {
   // The last gesture, taken once. False when there is none.
   bool (*gesture)(const char** kind, uint16_t& x, uint16_t& y, int16_t& dx, int16_t& dy,
                   int16_t& spread, int32_t& held_ms, uint8_t& fingers);
+  // **La captura d'un quadre, convertida en línies de dits** (0.192.88, l'amo: *«Captura tots els gestos al panell
+  // d'entrenament i converteix-lo en línia»*): a page that draws a letter is given the path of the finger frame by frame and
+  // not a photograph of it read once per turn, perquè un marc que el nucli ha vist i ningú no ha pres és un tros de línia que
+  // no torna, i un accent són dos o tres marcs. The four calls are the four of `kernel::touch` (docs/30, docs/50).
+  bool (*capture)(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  void (*uncapture)();
+  bool (*capturing)();
+  uint16_t (*take_captured)(CapturedPointInfo* out, uint16_t capacity, uint16_t& lines_ended, bool& finger,
+                            uint32_t& lost);
 };
 
 void set_touch_ops(const TouchOps& ops);
@@ -1659,6 +1693,19 @@ void clear_exit_request();
 size_t used_bytes();
 size_t peak_bytes();
 size_t limit_bytes();
+
+// **On viu l'intèrpret** (0.192.93, l'amo: *«De quin tipus de memoria parla? 384.1Kb es molta... d'on la treu? quina part es dram quina
+// psram quina altres tipus?»*): `used_bytes` és una suma i no diu a quina de les dues cases de la placa són els bytes. The interpreter
+// asks the PAL for **one block per Lua object**, i el PAL en dona de la RAM del xip als petits i de la PSRAM als grans —i als petits
+// també, quan la RAM és a punt de baixar del seu terra—, o sigui que el repartiment no es pot deduir de la mida: es compta a cada
+// petició (docs/20, docs/75).
+struct Homes {
+  size_t ram_bytes = 0;      // el que viu a la RAM del xip
+  uint32_t ram_blocks = 0;   // i en quants trossos, que és el que diu la fragmentació
+  size_t extra_bytes = 0;    // el que viu a la memòria extra (la PSRAM)
+  uint32_t extra_blocks = 0;
+};
+Homes homes();
 
 // **The turn budget: how much of the app's own code a turn is worth before the kernel takes it back** (0.90.0, a
 // setting since 0.174.7). The count hook of the interpreter counts in blocks of two thousand instructions and, when a

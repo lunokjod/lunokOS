@@ -13,7 +13,8 @@
 --     mesurat, amb una barra, el temps i el percentatge de cada un. Els tons de la llegenda són els del control (`color`, `+4`, `+8`,
 --     `+12`), o sigui que la quadrícula i la porció són el mateix to (docs/30);
 --   · **Load**: dues gràfiques que es refresquen cada deu segons mentre la pestanya és al vidre —la càrrega del sistema
---     (`power.load()`, la mateixa mesura que imprimeix `load` al prompt) i la memòria en ús (`sys.heap()`)—, que és el que va
+--     (`power.load()`, la mateixa mesura que imprimeix `load` al prompt) i **el que la RAM té pres** (`sys.heap()`, el total del
+--     heap menys el que en queda: el que l'intèrpret té demanat és una altra cosa i va a la pestanya de Memory)—, que és el que va
 --     demanar l'amo: *«A l'app d'Stats: afegir una pestanya nova: "Load", i anar monitoritzant la cárrega del sistema (comanda
 --     load) fent una gráfica. I assota unaltra gràfica amb la quantitat de memoria en us actualment (refresc de les gráfiques
 --     temporitzat mentre la vista estigui activa, cada 10 segons)»* (0.192.48). **I la finestra és de mitja hora** (0.192.60,
@@ -21,7 +22,9 @@
 --     apenes aguanta 7 minuts»*), amb la història en una sessió pròpia que es torna a trobar en entrar-hi
 --     (*«Usa session state per guardar l'historial entre sortir i tornar a l'app»*) i un **`tick`** del sistema que en pren una
 --     cada minut mentre la placa és desperta;
---   · **Memory**: `sys.heap()` —la RAM, el bloc més gran, la memòria extra i el cim de Lua—;
+--   · **Memory**: `sys.heap()` —el que la RAM té pres i quant en queda, quants d'aquests bytes tenen nom als llibres i quants no,
+--     el bloc més gran, la memòria extra i el que l'intèrpret té demanat—, amb **una columna de la memòria** a la cantonada que
+--     pinta els bytes ocupats i deixa els lliures en blanc (0.192.92);
 --   · **Info**: el que l'`info_app` ensenyava —placa, versió, uptime, bateria, ràdio—.
 --
 -- **El que NO fa**: no reseteja cap comptador ni esborra res. Una pàgina de diagnòstic que toca el que mesura menteix la propera vegada.
@@ -214,18 +217,42 @@ local function memory_rows()
     out[#out + 1] = row('memory', '-', 'this build cannot say')
     return out
   end
-  out[#out + 1] = row('free heap', kb(heap.ram_free), 'the RAM of the board')
-  out[#out + 1] = row('largest block', kb(heap.ram_largest), 'in one piece', percent_of(heap.ram_largest, heap.ram_free))
+  -- **La RAM del board, contra el que pot donar** (0.192.92, l'amo: *«Estem segurs que estem obtenint la memoria ocupada real? segons
+  -- (es pensa) l'app tenim 170kb de 8192Kb (jajajaja)»*): `heap.used` és el que l'intèrpret té demanat i `heap.limit` el seu sostre, i
+  -- comparar-los amb els vuit megabytes de la PSRAM era una pàgina que deia una mentida tranquil·la. El que mana és el heap de la
+  -- placa: el total de la casa i el que hi ha pres (docs/75).
+  local total = heap.ram_total or 0
+  local used = heap.ram_used or 0
+  out[#out + 1] = row('ram in use', kb(used), (total > 0) and string.format('of %s', kb(total)) or 'this run has no ceiling',
+                      percent_of(used, total))
+  -- **I quants d'aquests bytes tenen nom** (0.192.92): the books write down who asked for each block, and what the heap holds and the
+  -- books do not explain is the statics of the binary and the asks the table could not fit. Said apart, perquè una barra que ho
+  -- barrejés pintaria una sola cosa on n'hi ha dues (docs/30, docs/75).
+  local booked = heap.ram_booked or 0
+  if booked > used then booked = used end
+  out[#out + 1] = row('free heap', kb(heap.ram_free), 'the biggest block is ' .. kb(heap.ram_largest),
+                      percent_of(heap.ram_free, total))
+  out[#out + 1] = row('written down', kb(booked), string.format('%d block(s) in the books', heap.ram_blocks or 0),
+                      percent_of(booked, total))
+  if used > booked then
+    out[#out + 1] = row('no name', kb(used - booked), 'statics and dropped asks',
+                        percent_of(used - booked, total))
+  end
+  if (heap.books_lost or 0) > 0 then
+    out[#out + 1] = row('dropped', tostring(heap.books_lost), 'asks with no row in the books')
+  end
   if heap.extra_total ~= nil and heap.extra_total > 0 then
     out[#out + 1] = row('extra memory', kb(heap.extra_free), string.format('of %s usable', kb(heap.extra_total)),
                         percent_of(heap.extra_free, heap.extra_total))
   else
     out[#out + 1] = row('extra memory', 'none', 'this board has no PSRAM')
   end
+  -- **I l'intèrpret, que no és la placa**: the pool of Lua has its own ceiling and it is the one the app should watch for itself, not
+  -- the memory of the board (docs/30, docs/75).
+  out[#out + 1] = row('lua pool', kb(heap.used), string.format('of %s allowed', kb(heap.limit)),
+                      percent_of(heap.used, heap.limit))
   out[#out + 1] = row('lua peak', kb(heap.peak), string.format('of %s allowed', kb(heap.limit)),
                       percent_of(heap.peak, heap.limit))
-  out[#out + 1] = row('lua pool', kb(heap.used), string.format('of %s', kb(heap.limit)),
-                      percent_of(heap.used, heap.limit))
   return out
 end
 
@@ -238,8 +265,8 @@ local function info_rows()
   out[#out + 1] = row('Version', tostring(sys.version or '-'), 'lunokOS')
   out[#out + 1] = row('Uptime', human((sys.time_ms() or 0) * 1000), 'since it came up')
   if ok and type(heap) == 'table' then
-    out[#out + 1] = row('Heap', kb(heap.ram_free), string.format('largest %s', kb(heap.ram_largest)),
-                        percent_of(heap.ram_largest, heap.ram_free))
+    out[#out + 1] = row('Heap', kb(heap.ram_used), string.format('of %s, %s free', kb(heap.ram_total), kb(heap.ram_free)),
+                        percent_of(heap.ram_used, heap.ram_total))
     if heap.extra_total ~= nil and heap.extra_total > 0 then
       out[#out + 1] = row('PSRAM', kb(heap.extra_free), string.format('of %s usable', kb(heap.extra_total)),
                           percent_of(heap.extra_free, heap.extra_total))
@@ -268,7 +295,7 @@ end
 -- pestanyes no es toquen mai, i la resta se'n va amb `release()` quan la pestanya canvia (docs/30, docs/90).
 local title, subtitle, tabs
 local bars, pie, legend, strip, the_list
-local load_caption, load_chart, mem_caption, mem_chart
+local load_caption, load_chart, mem_caption, mem_chart, mem_bar
 local wid, hei = 0, 0
 
 local owned = {}
@@ -292,7 +319,7 @@ local function give_back_the_view()
   owned = {}
   facts = {}
   bars, pie, legend, strip, the_list = nil, nil, nil, nil, nil
-  load_caption, load_chart, mem_caption, mem_chart = nil, nil, nil, nil
+  load_caption, load_chart, mem_caption, mem_chart, mem_bar = nil, nil, nil, nil, nil
 end
 
 -- ------------------------------------------------------------------ la càrrega i la memòria, mostrejades cada deu segons
@@ -313,15 +340,21 @@ local kGapSeconds = 4 * kSampleMs // 1000
 -- sortir i tornar a l'app»*). No és `state` —allò és la forma de la vista— sinó una caché amb la seva clau, que és el que aquesta
 -- casa demana per a una caché (docs/30, docs/75): es torna a trobar en tornar a l'app, i el nucli la desa a la targeta quan l'app
 -- s'acaba. Quatre kilobytes per cent vuitanta-una línies de `ms pct10 memkb` (uns disset bytes cada una) i la capçalera.
--- **I la finestra creua els reinicis** (0.192.68, l'amo: *«Load bé, però perd el log entre reinicis?»* —sí que el perdia—): the
--- samples are stamped with the **epoch** (`time.now_ms`) when the board's clock knows it, and with the uptime of this boot
--- (`sys.time_ms`) when it does not —a board without an hour has no way to say when a sample was taken—. The block says which of
--- the two it is in its first line: `v2` is the world's time and `v1` is this boot's, and a block of the other shape is thrown
--- away, perquè una hora d'aran i una del món a la mateixa gràfica serien dues escales i una corba que menteix (docs/30, docs/60,
--- docs/75).
+--
+-- **I la finestra és un registre circular que no s'esborra mai** (0.192.92, l'amo: *«L'app lua Stats reinicia la vista per complet i
+-- tot torna a 0?¿? al cap d'una estona... no usa un log circlar?»* —no el feia servir—). Les mostres són del bloc i prou: no hi ha
+-- cap còpia a la memòria de la pàgina, i el bloc es rellisca quan la finestra s'omple o quan el rellotge canvia d'escala. El que hi
+-- havia era una escriptura per escriptor amb el seu propi compte de bytes —el bucle de la pàgina i la finestra del tick escriuen el
+-- mateix bloc—, i el bloc desat es va trobar amb les últimes mostres **més antigues que les primeres**: línies escrites a sobre
+-- d'altres, i una corba que es tornava a omplir de zero. Ara es llegeix el bloc, es talla el que és fora de la finestra, s'hi afegeix
+-- la mostra, i el compte de bytes és sempre el del text que hi ha de debò (docs/30, docs/60, docs/75).
+--
+-- **I l'escala de les hores, a la capçalera**: `w` és l'hora del món (`time.now_ms`, quan la placa la sap) i `u` l'uptime d'aquesta
+-- encesa. Dues escales no es poden restar —i menys dos uptimes de dues enceses—, o sigui que un bloc d'una escala que no és la d'ara
+-- **es rellisca** (se'n conserva l'espaiat i s'acaba a l'hora d'ara) en lloc de llençar-se: la corba que hi havia continua essent el
+-- que es va mesurar, i el que la placa no va mesurar queda com a forat (docs/30, docs/60).
 local kHistoryKey = 'load'
-local kHistoryLayout = 'v2'
-local kHistoryLayoutUptime = 'v1'
+local kHistoryLayout = 'v3'
 local kHistoryBytes = 4096
 
 -- **El rellotge del món, quan n'hi ha**: `time.now_ms()` torna zero mentre ningú no ha posat l'hora (docs/30), i un zero no és
@@ -332,16 +365,21 @@ local function the_world_ms()
   return ms
 end
 
-local function the_layout()
-  return (the_world_ms() ~= nil) and kHistoryLayout or kHistoryLayoutUptime
+local function the_clock()
+  return (the_world_ms() ~= nil) and 'w' or 'u'
 end
 
--- **El segell d'una mostra i la forma del bloc que li toca**, dits alhora.
+local function the_header()
+  return kHistoryLayout .. ' ' .. the_clock()
+end
+
+-- **El segell d'una mostra**: l'hora del món quan hi és i l'uptime quan no, que és el que la capçalera diu d'aquest bloc.
 local function the_stamp()
   local world = the_world_ms()
-  if world ~= nil then return world, kHistoryLayout end
-  return sys.time_ms() or 0, kHistoryLayoutUptime
+  if world ~= nil then return world end
+  return sys.time_ms() or 0
 end
+
 -- **I una crida del sistema cada minut** (0.192.60, l'amo: *«M'agradaría que l'app Stats rebés una crida cada minut, però només si
 -- la placa està desperta»*): mentre la pestanya Load és al vidre aquesta app es mostreja sola cada deu segons, o sigui que el que
 -- afegeix el tick és la mostra de les altres quatre pestanyes —mirar la memòria o el pastís no ha de deixar un forat a la corba— i
@@ -349,18 +387,14 @@ end
 local kTickSeconds = 300
 
 -- **Les dues sèries, i la seva hora**: `times` són els segons des de la primera mostra de la finestra, o sigui que el gràfic
--- les col·loca per temps de debò i no pel seu índex (docs/30, docs/90).
+-- les col·loca per temps de debò i no pel seu índex (docs/30, docs/90). Es reconstrueixen del bloc cada vegada que s'hi escriu,
+-- que és el que fa que les dues escriptores del bloc no puguin divergir (docs/75).
 local load_values, load_times = {}, {}
 local mem_values, mem_times = {}, {}
 local load_word, load_pct10 = '-', 0
-local mem_used_kb, mem_limit_kb = 0, 0
-local sampling_from = nil
+local mem_used_kb, mem_total_kb = 0, 0
 local last_sample_ms = nil
--- **El bloc i on s'ha arribat a escriure**: `history_used` és el byte lliure del bloc, o sigui que una mostra nova s'hi afegeix
--- amb disset bytes i no torna a escriure els tres mil que ja hi eren (docs/75).
 local history_block = nil
-local history_used = 0
-local history_layout = nil
 
 local function copy_of(list)
   local out = {}
@@ -392,34 +426,37 @@ local function the_history_text()
   return text
 end
 
--- **Una llista de línies i prou**: the block is `v1` and then one line per sample —`ms pct mem`, with a `-` where a measurement
--- is missing— so the file of a session can be read by a person, and the app writes it once and not once per field (docs/45).
-local function write_the_history(lines)
-  local block = the_history()
-  if block == nil then return false end
-  local text = the_layout() .. '\n'
-  if #lines > 0 then text = text .. table.concat(lines, '\n') .. '\n' end
-  block:clear()
-  block:write(0, text)
-  history_used = #text
-  history_layout = the_layout()
-  return true
+-- **Una línia per mostra i prou**: `ms pct10 memkb`, amb un `-` on falta una mesura, o sigui que el fitxer d'una sessió el pot
+-- llegir una persona i l'app l'escriu sencera quan cal (docs/45).
+local function the_line(one)
+  return string.format('%d %s %s\n', math.floor(one.when),
+                       (one.pct ~= nil) and string.format('%d', one.pct) or '-',
+                       (one.mem ~= nil) and string.format('%d', one.mem) or '-')
 end
 
--- **La finestra que queda, tornada a escriure**: it is what makes the curve walk —the oldest line leaves the block when the window
--- is full— and it only happens when the block has physically filled up, not at every sample (docs/30, docs/75).
-local function compact_the_history(keep)
-  local text = the_history_text()
-  if text == nil then return false end
-  local lines = {}
+-- **Les mostres del text, en l'ordre del fitxer**: la capçalera no és cap mostra —no comença per un número— i una línia trencada
+-- es llença sola.
+local function the_rows_of(text)
+  local rows = {}
+  if text == nil then return rows end
   for line in (text .. '\n'):gmatch('([^\n]*)\n') do
-    if line ~= '' and line ~= kHistoryLayout and line ~= kHistoryLayoutUptime then lines[#lines + 1] = line end
+    local ms, pct, mem = line:match('^(%d+) (%S+) (%S+)$')
+    local when = tonumber(ms)
+    if when ~= nil then rows[#rows + 1] = { when = when, pct = tonumber(pct), mem = tonumber(mem) } end
   end
-  local first = #lines - keep + 1
-  if first < 1 then first = 1 end
-  local kept = {}
-  for i = first, #lines do kept[#kept + 1] = lines[i] end
-  return write_the_history(kept)
+  return rows
+end
+
+-- **La finestra sencera, tornada a escriure**: la capçalera d'aquest moment i les mostres que hi queden, que és el que fa el bloc
+-- llegible per una persona i el que el deixa en una sola escriptura quan la finestra rellisca (docs/45, docs/75).
+local function write_the_rows(rows)
+  local block = the_history()
+  if block == nil then return false end
+  local out = { the_header() .. '\n' }
+  for i = 1, #rows do out[#out + 1] = the_line(rows[i]) end
+  block:clear()
+  block:write(0, table.concat(out))
+  return true
 end
 
 local function push_sample(values, times, value, second)
@@ -429,92 +466,79 @@ local function push_sample(values, times, value, second)
   while #times > kSamples do table.remove(times, 1) end
 end
 
--- **Una mostra al bloc, i només disset bytes** (0.192.60): what is written is the new line, not the three kilobytes that were
--- already there —the block is in the memory and the disk only sees it when the app ends—, i quan no hi cap es torna a escriure
--- amb la finestra que queda.
-local function remember_the_sample(ms, pct10, mem_kb)
-  local block = the_history()
-  if block == nil then return false end
-  -- **I si el rellotge del món ha arribat ara** (una sincronització amb el GPS amb la pàgina oberta): el bloc canvia de forma i
-  -- el que hi havia eren segons d'aquesta encesa, o sigui que es comença de nou en lloc de mesclar dues escales (docs/30, docs/60).
-  if history_used == 0 or history_layout ~= the_layout() then
-    local head = the_layout() .. '\n'
-    block:clear()
-    block:write(0, head)
-    history_used = #head
-    history_layout = the_layout()
+-- **La finestra que hi cap** (0.192.92): les mostres conserven l'espaiat amb què es van mesurar i perden el que és més antic que
+-- `kWindowMs`; i un joc de segells que no es pot llegir contra l'hora d'ara —una altra escala, una altra encesa, un rellotge que ha
+-- reculat— **rellisca** fins que la seva última mostra és ara. El forat més gran que la finestra és l'únic cas en què no hi ha res a
+-- conservar, perquè tot el que hi havia és fora de la finestra.
+local function fit_the_window(rows, stamp_now, other_scale)
+  local kept = {}
+  local last = (#rows > 0) and rows[#rows].when or stamp_now
+  local shift = 0
+  if other_scale or last > stamp_now then
+    shift = stamp_now - last
+  elseif (stamp_now - last) > kWindowMs then
+    return kept, shift
   end
-  local line = string.format('%d %s %s\n', math.floor(ms),
-                             (pct10 ~= nil) and string.format('%d', pct10) or '-',
-                             (mem_kb ~= nil) and string.format('%d', mem_kb) or '-')
-  if history_used + #line > kHistoryBytes then
-    compact_the_history(kSamples)
-  end
-  if history_used + #line > kHistoryBytes then return false end
-  block:write(history_used, line)
-  history_used = history_used + #line
-  return true
-end
-
--- **La història que hi havia, en entrar a l'app** (0.192.60, l'amo: *«Usa session state per guardar l'historial entre sortir i
--- tornar a l'app»*): the block is read, what is older than the window is forgotten, i el que queda es torna a escriure compactat.
--- Les dues sèries es reconstrueixen d'aquí i no d'una còpia a part (docs/30, docs/75). **I des de la 0.192.68 la finestra creua un
--- reinici**: amb la forma `v2` les mostres són l'època i mitja hora enrere vol dir mitja hora del món, no d'aquesta encesa.
-local function load_the_history()
-  local text = the_history_text()
-  if text == nil then return false end
-  -- **Una forma que no és la meva es llença** (docs/30, docs/45): the header is the layout, i un bloc d'una altra versió no es
-  -- migra mai —el que hi hagués seria una corba de números que volen dir una altra cosa—. Un `v1` (l'uptime d'una encesa d'abans)
-  -- i un `v2` (l'època) no es poden llegir junts, o sigui que el que no és la forma d'ara comença de zero.
-  local layout = the_layout()
-  if (text:match('^([^\n]*)') or '') ~= layout then
-    history_used = 0
-    write_the_history({})
-    return false
-  end
-  local now = (layout == kHistoryLayout) and (the_world_ms() or 0) or (sys.time_ms() or 0)
-  local kept, lines = {}, 0
-  for line in (text .. '\n'):gmatch('([^\n]*)\n') do
-    if line ~= '' and line ~= kHistoryLayout and line ~= kHistoryLayoutUptime then
-      lines = lines + 1
-      local ms, pct, mem = line:match('^(%d+) (%S+) (%S+)$')
-      local when = tonumber(ms)
-      if when ~= nil and when <= now + 60000 and now - when <= kWindowMs then
-        kept[#kept + 1] = line
-      end
+  for i = 1, #rows do
+    local when = rows[i].when + shift
+    if when >= stamp_now - kWindowMs and when <= stamp_now + 1000 then
+      kept[#kept + 1] = { when = when, pct = rows[i].pct, mem = rows[i].mem }
     end
   end
   while #kept > kSamples do table.remove(kept, 1) end
+  return kept, shift
+end
+
+-- **Les dues sèries, tornades a fer del bloc**: el que es pinta és el que hi ha escrit i no una segona còpia que algú ha de mantenir
+-- d'acord amb la primera (docs/30, docs/75).
+local function rebuild_the_series()
+  local rows = the_rows_of(the_history_text())
   load_values, load_times, mem_values, mem_times = {}, {}, {}, {}
-  local base = nil
-  for i = 1, #kept do
-    local ms, pct, mem = kept[i]:match('^(%d+) (%S+) (%S+)$')
-    local when = tonumber(ms)
-    if base == nil then base = when end
-    local second = math.max(0, math.floor((when - base) / 1000))
-    local p = tonumber(pct)
-    local m = tonumber(mem)
-    if p ~= nil then
-      push_sample(load_values, load_times, p, second)
-      load_pct10 = p
+  local base = (#rows > 0) and rows[1].when or nil
+  for i = 1, #rows do
+    local second = math.max(0, math.floor((rows[i].when - base) / 1000))
+    if rows[i].pct ~= nil then
+      push_sample(load_values, load_times, rows[i].pct, second)
+      load_pct10 = rows[i].pct
     end
-    if m ~= nil then
-      push_sample(mem_values, mem_times, m, second)
-      mem_used_kb = m
+    if rows[i].mem ~= nil then
+      push_sample(mem_values, mem_times, rows[i].mem, second)
+      mem_used_kb = rows[i].mem
     end
   end
-  sampling_from = base
+end
+
+-- **La història que hi havia, en entrar a l'app** (0.192.60, l'amo: *«Usa session state per guardar l'historial entre sortir i
+-- tornar a l'app»*): the block is read, what is older than the window is dropped, i el que queda es torna a escriure amb la
+-- capçalera d'aquest moment. **I un bloc d'una escala que no és la d'ara no es llença: es rellisca** (0.192.92) —una placa que
+-- rep l'hora del GPS amb la pàgina oberta perdia la finestra sencera, que és el «tot torna a 0» que es va veure— (docs/30, docs/60,
+-- docs/75).
+-- **Un salt es diu** (0.192.92): una finestra que es mou sola no és el que es va mesurar, i el registre és l'única manera de saber des
+-- de fora per què la corba ha canviat de lloc (docs/30).
+local function note_the_slide(shift, why)
+  if shift == 0 then return end
+  console.print(string.format('[stats] the window slides %d s: %s', math.floor(shift / 1000), why))
+end
+
+local function load_the_history()
+  local text = the_history_text()
+  if text == nil then return false end
+  local header = text:match('^([^\n]*)') or ''
+  local elsewhere = header ~= the_header()
+  local rows, shift = fit_the_window(the_rows_of(text), the_stamp(), elsewhere)
+  note_the_slide(shift, elsewhere and string.format('the block said %s', (header ~= '') and header or 'nothing')
+                                 or 'the clock went back')
+  write_the_rows(rows)
+  rebuild_the_series()
   last_sample_ms = nil
-  if lines ~= #kept then return write_the_history(kept) end
-  history_used = #text
-  history_layout = layout
-  return #kept > 0
+  return #rows > 0
 end
 
 -- **Les dues preguntes d'una mostra.** La càrrega és `power.load()` —el tros de la finestra que el nucli ha passat treballant i no
 -- esperant, en dècimes de punt; la finestra és la que hi ha des de l'última mostra, o sigui deu segons quan la pestanya és al
--- vidre— i la memòria és `sys.heap()`: el que aquest sistema té donat a Lua, en KB. Les dues poden faltar (una placa que no
--- mesura la càrrega, una memòria curta) i llavors no s'apunta res: una barra de zero no és una mesura (docs/30).
+-- vidre— i la memòria és el **heap de la placa**, en KB: el que la RAM té pres, que és el total de la casa menys el que en queda.
+-- Les dues poden faltar (una placa que no mesura la càrrega, una memòria curta) i llavors no s'apunta res: una barra de zero no és
+-- una mesura (docs/30).
 --
 -- **I el forat s'hi veu, no es llença** (0.192.60): abans, una mostra que arribava deu minuts després de l'última esborrava la
 -- finestra sencera i la corba començava de zero —una app que s'obre i es tanca cada deu minuts no tenia mai més d'un punt—. Ara
@@ -528,38 +552,43 @@ local function take_a_sample()
   -- and the tick of the system (each minute) can call here in the same turn, i dues mostres al mateix segon serien un punt doble
   -- a la corba i una línia més al bloc per res (docs/30).
   if last_sample_ms ~= nil and now - last_sample_ms < kSampleMs // 2 then return false end
-  local stamp, layout = the_stamp()
-  -- **Una finestra que ha canviat de forma o que ha saltat comença de nou**: el rellotge del món pot arribar amb una
-  -- sincronització del GPS, i aleshores el que hi havia eren segons d'aquesta encesa; un salt més gran que la finestra és una
-  -- escala que no vol dir res. Les dues coses es diuen al registre i no es mesclen (docs/30, docs/60).
-  if sampling_from == nil or layout ~= history_layout or stamp < sampling_from
-     or (stamp - sampling_from) > kWindowMs then
-    if sampling_from ~= nil and (layout ~= history_layout or (stamp - sampling_from) > kWindowMs) then
-      load_values, load_times, mem_values, mem_times = {}, {}, {}, {}
-      write_the_history({})
-    end
-    sampling_from = stamp
-  end
-  local second = math.max(0, math.floor((stamp - sampling_from) / 1000))
   local pct10, mem_kb = nil, nil
   local ok, pct, word = pcall(power.load)
   if ok and type(pct) == 'number' then
     pct10 = math.floor(pct)
-    load_pct10 = pct10
     load_word = (type(word) == 'string') and word or '-'
-    push_sample(load_values, load_times, pct10, second)
   end
   local okm, heap = pcall(sys.heap)
-  if okm and type(heap) == 'table' and type(heap.used) == 'number' then
-    mem_kb = math.floor(heap.used / 1024)
-    mem_used_kb = mem_kb
-    mem_limit_kb = math.floor((heap.limit or 0) / 1024)
-    if mem_limit_kb < mem_used_kb then mem_limit_kb = mem_used_kb end
-    push_sample(mem_values, mem_times, mem_kb, second)
+  -- **La RAM que la placa té presa, i no el sostre de l'intèrpret** (0.192.92, l'amo: *«segons (es pensa) l'app tenim 170kb de
+  -- 8192Kb (jajajaja)»*): `heap.used` és el que té demanat Lua i `heap.limit` el seu sostre de vuit megabytes, o sigui que la
+  -- gràfica deia «memòria» i ensenyava una altra cosa. El que ha de dir és el heap de debò: el pres contra el total de la casa (docs/75).
+  if okm and type(heap) == 'table' and type(heap.ram_used) == 'number' then
+    mem_kb = math.floor(heap.ram_used / 1024)
+    mem_total_kb = math.floor((heap.ram_total or 0) / 1024)
+    if mem_total_kb < mem_kb then mem_total_kb = mem_kb end
   end
   if pct10 == nil and mem_kb == nil then return false end
+  -- **La finestra del bloc, i la mostra nova al final**: el que hi ha escrit mana, i l'escriptura és d'una línia quan la finestra no
+  -- s'ha mogut (docs/75).
+  local block = the_history()
+  if block == nil then return false end
+  local stamp = the_stamp()
+  local text = the_history_text() or ''
+  local header = text:match('^([^\n]*)') or ''
+  local rows = the_rows_of(text)
+  local elsewhere = header ~= the_header()
+  local kept, shift = fit_the_window(rows, stamp, elsewhere)
+  note_the_slide(shift, elsewhere and 'the clock has another scale now' or 'the clock went back')
+  kept[#kept + 1] = { when = stamp, pct = pct10, mem = mem_kb }
+  while #kept > kSamples do table.remove(kept, 1) end
+  local line = the_line(kept[#kept])
+  if shift == 0 and header == the_header() and #kept == #rows + 1 and #text + #line <= kHistoryBytes then
+    block:write(#text, line)
+  else
+    write_the_rows(kept)
+  end
   last_sample_ms = now
-  remember_the_sample(stamp, pct10, mem_kb)
+  rebuild_the_series()
   return true
 end
 
@@ -612,15 +641,71 @@ local function show_the_samples()
     mem_chart.values = copy_of(mem_values)
     mem_chart.times = copy_of(mem_times)
     mem_chart.min = 0
-    mem_chart.max = (mem_limit_kb > 0) and mem_limit_kb or 1024
+    -- **L'escala de la gràfica és el que la RAM té, i no el sostre de l'intèrpret** (0.192.92): la corba de la memòria es llegeix
+    -- contra la casa sencera, o sigui que una pujada de deu kilobytes es veu com el que és (docs/75).
+    mem_chart.max = (mem_total_kb > 0) and mem_total_kb or 1024
     mem_chart.span = 0
     mem_chart.gap = kGapSeconds
     mem_chart.left = axis_left_of(mem_times)
     mem_chart.right = (#mem_times > 0) and 'now' or ''
   end
   if mem_caption ~= nil then
-    mem_caption.text = string.format('in use: %d KB of %d', mem_used_kb, mem_limit_kb)
+    mem_caption.text = string.format('in use: %d KB of %d', mem_used_kb, mem_total_kb)
   end
+  if mem_bar ~= nil then mem_bar:invalidate() end
+end
+
+-- ------------------------------------------------------------------ la barra de la memòria
+
+-- **La barra vertical de la memòria** (0.192.92, l'amo: *«Podriem afegir una barra vertical a una de les cantonades? ... Pintar els
+-- pixels ocupats i deixar blancs els lliures. Evidentment, fet a escala.»*): a column in the corner of the page whose height is the
+-- whole heap of the board's RAM and whose pixels say what is in it —dark for the bytes the books have a name for, the grey of what
+-- nobody wrote down, and the paper for the free ones—. Un píxel és el que toqui: `total / height` bytes, i la columna es llegeix com
+-- una regla graduada perquè el marc és la vora del heap (docs/30, docs/45, docs/75).
+--
+-- **El que es pinta són els bytes que els llibres tenen i el que el heap diu que està pres**, i les dues coses no són la mateixa: les
+-- estàtiques del binari i les peticions que la taula dels llibres no va poder escriure són memòria presa que cap fila explica, i una
+-- barra que ho barregés pintaria una sola cosa on n'hi ha dues. El gris del mig és exactament això, i la fila de Memory diu quants
+-- bytes són (docs/30, docs/75).
+local kMemBarW = 46
+local kMemBarLabel = 20   -- the word above the column, at two steps
+
+local function paint_the_memory_bar(canvas)
+  local box = canvas:caps()
+  canvas:clear(15)
+  local top = kMemBarLabel
+  if box.width < 10 or box.height < top + 20 then return end
+  canvas:text(0, 0, 'RAM', 2, 0)
+  local ok, heap = pcall(sys.heap)
+  if not ok or type(heap) ~= 'table' or (heap.ram_total or 0) <= 0 then
+    canvas:text(0, top, 'no heap', 2, 4)
+    return
+  end
+  local total = heap.ram_total
+  local used = heap.ram_used or 0
+  if used > total then used = total end
+  local booked = heap.ram_booked or 0
+  if booked > used then booked = used end
+  -- **La columna, de baix a dalt**: the frame is the whole heap of this home —the top of the picture is `total` and the bottom is
+  -- zero— and what is painted inside it are the bytes (docs/45).
+  local column_h = box.height - top
+  canvas:frame(0, top, box.width, column_h, 0)
+  local inner_w = box.width - 2
+  local inner_h = column_h - 2
+  local function rows_for(bytes)
+    local rows = math.floor(bytes * inner_h / total + 0.5)
+    if rows < 0 then rows = 0 end
+    if rows > inner_h then rows = inner_h end
+    return rows
+  end
+  local used_rows = rows_for(used)
+  local booked_rows = rows_for(booked)
+  local bottom = top + column_h - 1
+  -- **El que ningú no ha escrit**, del color del mig, i a sota el que els llibres tenen, que és el que té nom (docs/30, docs/75).
+  if used_rows > booked_rows then
+    canvas:rect(1, bottom - used_rows, inner_w, used_rows - booked_rows, 8)
+  end
+  if booked_rows > 0 then canvas:rect(1, bottom - booked_rows, inner_w, booked_rows, 0) end
 end
 
 -- ------------------------------------------------------------------ el dibuix de les barres
@@ -768,17 +853,27 @@ local function layout()
   end
   if bars ~= nil then bars:place(MARGIN, g.top) end
   if load_chart ~= nil then
-    load_caption:resize(g.width, g.caption)
+    local body = g.width - kMemBarW - GAP
+    load_caption:resize(body, g.caption)
     load_caption:place(MARGIN, g.top)
     load_chart:place(MARGIN, g.top + g.caption)
     local below = g.top + g.caption + g.chart + GAP
-    mem_caption:resize(g.width, g.caption)
+    mem_caption:resize(body, g.caption)
     mem_caption:place(MARGIN, below)
     mem_chart:place(MARGIN, below + g.caption)
   end
   if the_list ~= nil then
-    the_list:resize(g.width, g.room)
+    local body = (mem_bar ~= nil) and (g.width - kMemBarW - GAP) or g.width
+    the_list:resize(body, g.room)
     the_list:place(MARGIN, g.top)
+  end
+  -- **La columna, a la cantonada de dalt a la dreta del cos** (0.192.92): it starts where the body does and it ends at the bottom of
+  -- the page, o sigui que el seu alt és el que la pestanya té per dibuixar i cada píxel és el mateix nombre de bytes a les dues
+  -- pestanyes (docs/30, docs/45).
+  if mem_bar ~= nil then
+    -- **Una columna no es redimensiona**: neix amb els seus píxels i una altra mida és tornar-la i fer-ne una altra, que és el que
+    -- fa canviar de pestanya (docs/30, docs/90).
+    mem_bar:place(MARGIN + g.width - kMemBarW, g.top)
   end
   if pie ~= nil then
     -- **El pastís a l'esquerra amb la llegenda a la dreta quan el vidre és ample** i el pastís a sobre amb la llegenda a
@@ -1014,14 +1109,17 @@ local function build_the_view()
     -- **Les dues gràfiques de la pestanya nova** (0.192.48): la càrrega a sobre i la memòria a sota, amb el seu número a sobre
     -- de cada una. El `decimals = 1` de la càrrega és el que fa que mitja dècima de punt es vegi (`3.4 %`) en un gràfic d'un
     -- centenar de línies; la memòria va en KB sencers perquè un byte no és una cosa que una persona llegeixi (docs/30, docs/90).
-    load_caption = keep(ui.label(g.width, g.caption))
+    -- **I la columna de la memòria a la dreta** (0.192.92): the two charts give up the width of the column, perquè la barra és el
+    -- que es llegeix d'un cop d'ull i el que les gràfiques diuen és el mateix número amb més detall (docs/45).
+    local body = g.width - kMemBarW - GAP
+    load_caption = keep(ui.label(body, g.caption))
     if load_caption ~= nil then
       load_caption.scale = 3
       load_caption.align = 'left'
       load_caption.color = 0
       load_caption.text = 'the load: -'
     end
-    load_chart = keep(ui.chart(g.width, g.chart))
+    load_chart = keep(ui.chart(body, g.chart))
     if load_chart ~= nil then
       load_chart.suffix = '%'
       load_chart.decimals = 1
@@ -1030,14 +1128,14 @@ local function build_the_view()
       load_chart.scale = g.wide and 4 or 3
       load_chart.color = 0
     end
-    mem_caption = keep(ui.label(g.width, g.caption))
+    mem_caption = keep(ui.label(body, g.caption))
     if mem_caption ~= nil then
       mem_caption.scale = 3
       mem_caption.align = 'left'
       mem_caption.color = 0
       mem_caption.text = 'in use: -'
     end
-    mem_chart = keep(ui.chart(g.width, g.chart))
+    mem_chart = keep(ui.chart(body, g.chart))
     if mem_chart ~= nil then
       mem_chart.suffix = ' KB'
       mem_chart.decimals = 0
@@ -1046,16 +1144,25 @@ local function build_the_view()
       mem_chart.scale = g.wide and 4 or 3
       mem_chart.color = 0
     end
+    mem_bar = keep(ui.canvas(kMemBarW, g.room))
+    if mem_bar ~= nil then mem_bar.on_draw = function(self) paint_the_memory_bar(self) end end
     if subtitle ~= nil then subtitle.text = 'every 10 s, half an hour' end
   else
-    the_list = keep(ui.list(g.width, g.room))
+    -- **I la columna de la memòria, que aquí és on es mira** (0.192.92): the list of the Memory tab loses the width of the bar, i el
+    -- dibuix és el mateix que el de la pestanya Load perquè el número i la barra no poden dir dues coses (docs/30, docs/45).
+    local body = (shape.tab == kMemoryTab) and (g.width - kMemBarW - GAP) or g.width
+    the_list = keep(ui.list(body, g.room))
     if the_list ~= nil then
       the_list.row_height = fact_row_height()
       the_list.on_page = function(self, page)
         shape.page = page
         save_state()
       end
-      build_the_facts(g.width, the_list.row_height)
+      build_the_facts(body, the_list.row_height)
+    end
+    if shape.tab == kMemoryTab then
+      mem_bar = keep(ui.canvas(kMemBarW, g.room))
+      if mem_bar ~= nil then mem_bar.on_draw = function(self) paint_the_memory_bar(self) end end
     end
     if subtitle ~= nil then
       subtitle.text = (shape.tab == kMemoryTab) and 'the memory of this board'

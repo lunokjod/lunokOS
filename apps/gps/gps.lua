@@ -147,6 +147,14 @@ local function powered()
   return ok and type(about) == 'table' and about.powered == true
 end
 
+-- **El que el mòdul diu de si mateix** (0.1.19): si el cable no va pujar, a quants bauds ha contestat o per què no ha contestat, que
+-- és el que el driver sap i el que una pàgina ha d'ensenyar quan no hi ha res a ensenyar (docs/30, docs/50).
+local function the_reason()
+  local ok, about = pcall(gps.caps)
+  if ok and type(about) == 'table' and type(about.last_error) == 'string' then return about.last_error end
+  return ''
+end
+
 -- ------------------------------------------------------------------ el mapa del cel
 
 -- **El cercle del cel**: el centre és el zènit i la vora l'horitzó, o sigui que un satèl·lit a 90° d'elevació cau al mig i un a 0° a
@@ -216,67 +224,100 @@ end
 
 -- ------------------------------------------------------------------ els números
 
+-- **La mida de la lletra que hi cap** (0.1.19): el canvas dels números fa cinc-cents dotze píxels i una línia de tres-una mica
+-- passava, o sigui que l'últim número de la fila —el `pdop`, l'últim de la data— es quedava fora del canvas i la pàgina deia una
+-- cosa que no era. La mida es tria mirant **la línia més llarga d'aquest dibuix** i baixant fins que hi cauen totes (docs/30, docs/90).
+local function a_scale_that_fits(lines, wide, most)
+  local scale = most
+  while scale > 1 do
+    local fits = true
+    for i = 1, #lines do
+      if lines[i] ~= nil and ui.text_width(lines[i], scale) > wide then
+        fits = false
+        break
+      end
+    end
+    if fits then return scale end
+    scale = scale - 1
+  end
+  return 1
+end
+
+-- **El separador és ASCII** (0.1.19): the middle dot of this page was written as UTF-8 and this system's face is Latin-1, o sigui que
+-- cada separador sortia com dues lletres trencades (`Â·`) —el que l'amo va veure a la línia de sota de l'app de la lletra a mà i que
+-- aquí era a totes les frases— (docs/30, docs/90).
+local kSplit = ' - '
+
 local function paint_the_numbers(canvas)
   local box = canvas:caps()
   canvas:clear(15)
-  -- **La lletra, tan gran com cap a la pàgina** (0.192.63, l'amo: *«Fes la lletra mes grossa, encara tens vista»*): el canvas dels
-  -- números fa dues-centes vint píxels i el que hi ha són set línies, o sigui que l'escala gran de la vista (6) hi cap a la posició i la
-  -- del mig (3) a la resta. El que era a quatre i dos s'havia de llegir amb el nas a la tinta (docs/30, docs/90).
-  local big = 6
-  local small = 3
-  local lh_small = ui.line_height(small)
-  local lh_big = ui.line_height(big)
+  -- **La lletra, tan gran com cap a la pàgina** (0.192.63, l'amo: *«Fes la lletra mes grossa, encara tens vista»*): the position is
+  -- the biggest thing on the page and the rest goes below it, i la mida de cada meitat és **la que hi cap** (0.1.19, docs/30, docs/90).
   local y = 2
   local fix = the_fix
 
   if fix == nil then
-    canvas:text(0, y, 'the receiver is off', small, 8)
+    canvas:text(0, y, 'the receiver is off', a_scale_that_fits({ 'the receiver is off' }, box.width, 3), 8)
     return
   end
 
   if not fix.fix then
     -- **El que es pot dir sense posició**: el receptor parla, quants satèl·lits veu i que encara no ha tancat el cercle. És la
     -- diferència entre «espera» i «no hi ha cel», que és el que una persona necessita saber (docs/30, docs/50).
-    canvas:text(0, y, 'no position yet', big, 0)
-    y = y + lh_big + 6
-    local words = string.format('%d satellite(s) in view, %d sentence(s) read', fix.satellites_seen or 0, fix.sentences or 0)
-    canvas:text(0, y, words, small, 8)
-    y = y + lh_small + 4
+    local head = a_scale_that_fits({ 'no position yet' }, box.width, 6)
+    canvas:text(0, y, 'no position yet', head, 0)
+    y = y + ui.line_height(head) + 6
+    local words = {
+      string.format('%d satellite(s) in view', fix.satellites_seen or 0),
+      string.format('%d sentence(s) read', fix.sentences or 0),
+    }
     if (fix.sentences or 0) == 0 and powered() then
-      canvas:text(0, y, 'the module has not said anything yet: check the wire and the bauds', small, 8)
+      words[#words + 1] = 'the module has not said anything'
+      words[#words + 1] = 'check the wire and the bauds'
+      -- **I el que el mòdul ha dit de si mateix** (0.1.19): the driver knows whether the wire came up, at which rate the module
+      -- answered and why it did not, i una pàgina que només diu «espera» fa endevinar el que el sistema ja sap. El vigilant del
+      -- nucli torna a provar-ho sol cada mig minut, o sigui que aquesta línia també canvia tota sola (0.192.90, docs/30, docs/50).
+      local why = the_reason()
+      if why ~= '' then words[#words + 1] = why end
+    end
+    local small = a_scale_that_fits(words, box.width, 3)
+    for i = 1, #words do
+      canvas:text(0, y, words[i], small, 8)
+      y = y + ui.line_height(small) + 4
     end
     return
   end
 
   -- **La posició, gran**: és el que una persona ha vingut a veure i el que es pot dictar per telèfon (docs/30).
-  canvas:text(0, y, lat_lon(fix.lat_e7, 'N', 'S'), big, 0)
-  y = y + lh_big + 4
-  canvas:text(0, y, lat_lon(fix.lon_e7, 'E', 'W'), big, 0)
-  y = y + lh_big + 8
+  local lat = lat_lon(fix.lat_e7, 'N', 'S')
+  local lon = lat_lon(fix.lon_e7, 'E', 'W')
+  local head = a_scale_that_fits({ lat, lon }, box.width, 6)
+  canvas:text(0, y, lat, head, 0)
+  y = y + ui.line_height(head) + 4
+  canvas:text(0, y, lon, head, 0)
+  y = y + ui.line_height(head) + 8
 
   -- **Una cosa per línia** (0.192.63): a l'escala que es llegeix de lluny, una línia només hi cap si diu tres o quatre coses, i el que
   -- es talla no és un detall sinó l'últim número de la fila. Cada línia és una pregunta —quant, com, amb què, quan— i així cap es perd
   -- (docs/30, docs/90).
-  local line = string.format('%s  ·  %s  ·  %s %0.1f°', metres(fix.altitude), kmh(fix.speed), course_name(fix.course),
-                             fix.course or 0)
-  canvas:text(0, y, line, small, 8)
-  y = y + lh_small + 4
-
-  line = string.format('%s  ·  %d of %d satellites', kQuality[fix.quality or 0] or 'quality ?', fix.satellites_used or 0,
-                       fix.satellites_seen or 0)
-  canvas:text(0, y, line, small, 8)
-  y = y + lh_small + 4
-
-  line = string.format('hdop %0.1f  ·  vdop %0.1f  ·  pdop %0.1f', fix.hdop or 0, fix.vdop or 0, fix.pdop or 0)
-  canvas:text(0, y, line, small, 8)
-  y = y + lh_small + 8
-
-  -- **I l'hora, que és la meitat del que el cel dona**: la del satèl·lit en UTC i el que ha arribat a la placa (docs/30, docs/60).
-  canvas:text(0, y, sky_time(fix.time), small, 0)
-  y = y + lh_small + 4
-  line = string.format('%d sentence(s), %d bad  ·  %s', fix.sentences or 0, fix.bad_sentences or 0,
-                       (fix.ms_since_a_fix or 0) > 0 and string.format('%d s ago', (fix.ms_since_a_fix or 0) // 1000) or 'now')
-  canvas:text(0, y, line, small, 8)
+  local lines = {
+    string.format('%s%s%s', metres(fix.altitude), kSplit, kmh(fix.speed)),
+    string.format('%s %0.1f deg', course_name(fix.course), fix.course or 0),
+    string.format('%s%s%d of %d', kQuality[fix.quality or 0] or 'quality ?', kSplit, fix.satellites_used or 0,
+                  fix.satellites_seen or 0),
+    sky_time(fix.time),
+    -- **La salut del cable, en una línia**: el canvas dels números no té set línies i la que deia quantes frases s'han llegit i la que
+    -- deia quan s'ha vist la posició es menjaven mitja pantalla per dir dues coses que cap a la mateixa pregunta (0.1.19, docs/30, docs/50).
+    string.format('%d sent, %d bad, %s', fix.sentences or 0, fix.bad_sentences or 0,
+                  (fix.ms_since_a_fix or 0) > 0 and string.format('%d s ago', (fix.ms_since_a_fix or 0) // 1000) or 'now'),
+  }
+  local small = a_scale_that_fits(lines, box.width, 3)
+  local lh = ui.line_height(small)
+  for i = 1, #lines do
+    -- L'hora del cel va en negre i la resta en el gris de la informació (docs/30).
+    canvas:text(0, y, lines[i], small, (i == 6) and 0 or 8)
+    y = y + lh + 4
+  end
 end
 
 -- ------------------------------------------------------------------ la pàgina
@@ -285,8 +326,10 @@ local function the_subtitle()
   local fix = the_fix
   if fix == nil or not powered() then return 'the receiver is off' end
   if fix.fix then
-    return string.format('the sky: %d of %d satellites, hdop %0.1f', fix.satellites_used or 0, fix.satellites_seen or 0,
-                         fix.hdop or 0)
+    -- **Les tres dilucions, al subtítol** (0.1.19): they are the three numbers a person compares with another receiver, i el canvas
+    -- dels números no té lloc per a tres línies més; el subtítol és ample i és d'ells (docs/30, docs/50).
+    return string.format('the sky: %d of %d sats, dop %.1f/%.1f/%.1f', fix.satellites_used or 0, fix.satellites_seen or 0,
+                         fix.hdop or 0, fix.vdop or 0, fix.pdop or 0)
   end
   if (fix.sentences or 0) == 0 then return 'waiting: the module has not spoken yet' end
   return string.format('waiting for a position: %d satellite(s) in view', fix.satellites_seen or 0)
@@ -296,15 +339,15 @@ local function the_footer()
   local fix = the_fix
   local said
   if fix ~= nil and fix.synced_ms ~= nil then
-    said = string.format('the sky set the clock %d s ago', (fix.synced_ms or 0) // 1000)
+    said = string.format('clock from the sky: %d s ago', (fix.synced_ms or 0) // 1000)
   elseif fix ~= nil and fix.fix then
-    said = 'the clock has not been set from the sky'
+    said = 'clock from the sky: not yet'
   else
-    said = 'the sky does not set the clock while there is no position'
+    said = 'clock from the sky: no position'
   end
   local ok, sync = pcall(cfg.gps_sync)
-  if ok and sync == true then return said .. ' · Settings: on' end
-  return said .. ' · Settings: off'
+  if ok and sync == true then return said .. ' - sync on' end
+  return said .. ' - sync off'
 end
 
 -- **Les mides es calculen una vegada i les dues meitats les fan servir** (0.192.63): un canvas amb buffer **no es pot
