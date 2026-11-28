@@ -1,0 +1,10 @@
+{
+  "title": "Moonlight",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "moonlight.lua",
+  "icon": "res/icon.png",
+  "boards": ["esp32"],
+  "admin": true,
+  "description": "The shop of apps of lunokOS, the same work the `repo` command does on the glass. It reads the list of apps of github.com/lunokjod/lunokOS, then the `manifest.json` of each one and the icon that manifest names, one app per turn of the loop, and it keeps them at /data/moonlight/repo/ so the shop opens with the list it had the last time. The list is a `ui.list` of the system with the icon of every app beside its name and the two versions it has to know: the one this board has and the one the repository offers. Above the list is a text box with a magnifier of its own, drawn with the canvas' primitives, and typing in it cuts the list down to the apps whose name or id matches (capital letters do not count) without the box being taken away: the page rebuilds the rows and not the keyboard's box. Tapping an app opens its card: the big icon, the name, the id and the author, the version here and the version in the repository, the boards it runs on and the whole description, and one button that is the one that has to be there: `Install` when the app is not on this board, `Upgrade` when the repository's is newer, `Uninstall` when it is here. An app whose version here is more advanced than the repository's is marked with another background, a grey one, because that is the only way this glass has to say it with no other word. An install downloads every file of the app into /apps/.moonlight/<id>/ and only then gives it the app's name, so a chain that dies halfway leaves the app of before untouched and throws the folder of the work away; the version is compared number by number, not as text, so 1.10.0 is newer than 1.9.0. `Refresh` asks the repository again."
+}

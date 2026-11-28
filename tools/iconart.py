@@ -134,6 +134,21 @@ MARKS = {
     # altres tretze, o sigui que el joc sencer de la targeta i les eines d'una app són els mateixos disset glifs (docs/45, docs/92).
     "bucket": (0xF576, "fill-drip: the bucket pours, and the drip says fill"),
     "brush": (0xF1FC, "paint-brush: the thick stroke of a painter"),
+    # **La paperera** (0.200.0, l'amo: *«Al botó "Uninstall" de la vista detalls afegeix al botó una icona de paperera (dins, amb el
+    # label) i el títol títol dins el botó»*): the first mark of the set that says «this goes out» instead of «this goes somewhere»,
+    # i la volia **dins la clau** i no al costat. `U+F1F8` és la paperera de tapa, la mateixa silueta d'un sol pes que el pinyó, la
+    # casa i el candau —una tapa, un cos i dues nanses—, que és el que fa que una clau amb la marca i la paraula es llegeixi com el
+    # mateix joc de les altres. El que treu no és una brossa sinó una app, i per això la clau diu `Uninstall` i la marca diu
+    # on acaba (docs/41, docs/45).
+    "trash": (0xF1F8, "trash: what goes out goes out for good"),
+    # **El polze i les dues fletxes** (0.200.1, l'amo: *«El botó d'install que sigui mes claret i amb una icona de polze amunt»* i
+    # *«El botó Actualitzar, amb una icona d'actualitzar (no sé, fletxes amunt?)»*): the three keys of the card of an app of the shop
+    # are the same key with three meanings, i cada una porta la seva marca en lloc de tres dibuixos d'app. `U+F164` és el polze
+    # enlaire de tota la vida —el gest de «això sí»— i `U+F102` són **dos xevrons apilats**, que és el mateix pes que el xevró de
+    # tornar i es llegeix com una pujada sense la prima de la fletxa sola (docs/41, docs/45, docs/92).
+    "forward": (0xF105, "angle-right: the way on, the chevron of `back` turned round"),
+    "thumb": (0xF164, "thumbs-up: this one is wanted"),
+    "upgrade": (0xF102, "angle-double-up: the app goes up a version"),
 }
 
 

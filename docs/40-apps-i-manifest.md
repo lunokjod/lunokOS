@@ -881,7 +881,8 @@ pàgina de l'error no arribava mai. Ara compara dues taules, que sí que és un 
 passar desapercebuda (docs/30, docs/80).
 
 Les altres apps —`about`, **`agenda` (0.189.171)**, **`appinfo` (0.189.157)**, `battery`, `calculator`, `clock`, `device_lock`, `editor`, `fonts`,
-**`gradient` (0.190.86)**, `home_eink`, `life`, **`meteo` (0.189.169)**, **`minesweeper` (0.190.76)**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`,
+**`gradient` (0.190.86)**, `home_eink`, `life`, **`meteo` (0.189.169)**, **`minesweeper` (0.190.76)**, **`moonlight`
+(0.200.0, [docs/41](41-moonlight-installer.md))**, `reader`, `settings`, `shell`, `splash`, `timeclock`, `tz`,
 **`weather` (0.197.1)**, `wipe`, `2048` i
 `rainbow` i **`stats`**, amb **`brokenapp`**— segueixen la
 mateixa convenció,

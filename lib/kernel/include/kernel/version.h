@@ -16389,7 +16389,162 @@ namespace kernel {
 //   - **`Hours` es queda sense dibuixos a posta**: quaranta peces amb un canvas cadascuna són quaranta controls i aquesta placa no
 //     els té; la llista les dibuixa el sistema, i el que la pàgina diu de cada peça són els números (docs/30, docs/75).
 
-static const char kVersion[] = "0.199.9";
+// **0.200.0 — la botiga, i una app que baixa apps** (l'amo: *«Farem la botiga de descarregues de lunokOS. Li direm
+// "Moonlight Installer"... Et baixes la llista d'arxius, et baixes el manifesto.json i vas baixant les icones... Si toques una
+// app de la llista vas a una vista de detalls... I el botó "Install" si l'app no està al sistema, "Uninstall" si està i
+// "Upgrade" si la versió es mes gran. En cas de tenir una app d'una versió mes avançada que la del repo haurás de marcar-la
+// amb un fons diferent»*).
+//
+//   - **`apps/moonlight` és una app i no una comanda** (0.1.0): la comanda `repo` del prompt fa el mateix treball amb el
+//     nucli a la mà; aquí el fa una pàgina, amb les portes que una app té —`http`, `fs` i la taula `admin`— i amb el mateix
+//     ordre de passes: el llistat és una baixada, cada fitxer de l'app és una baixada, i una app només pren el seu nom quan
+//     l'últim dels seus fitxers hi és (docs/30, docs/40, docs/70).
+//   - **`store.lua` és el costat del dipòsit i no pinta res**: `list_ids` baixa el llistat de trenta-un kilobytes **a un
+//     fitxer** i en treu quaranta-una carpetes llegint-lo a trossos de dos kilobytes amb quaranta-vuit bytes de solapament
+//     —una pàgina sencera de la API a la memòria és el que aquesta placa no fa—, i el manifest de cada app, la seva icona i
+//     l'índex (`repo/index.txt`, una línia per app) es queden a `/data/moonlight/repo/`, que és el que fa que la botiga
+//     s'obri amb la llista que tenia.
+//   - **Dues versions es comparen número a número** (`store.compare`): `1.10.0` és més nova que `1.9.0` i una comparació de
+//     textos diria el contrari; `1.2` i `1.2.0` són la mateixa. És el número que decideix si el botó diu `Upgrade`.
+//   - **La llista és una `ui.list` del sistema amb la icona de cada app al costat del nom**, i el fons d'una fila és gris
+//     (`kNewer = 13`) quan **aquí hi ha una versió més avançada que la del dipòsit**: és l'única manera que aquest vidre té
+//     de dir-ho sense una paraula més.
+//   - **I una fila sí i una no al revés** (l'amo: *«Pots fer que cada fila vagi al revés de l'anterior?»*): odd rows carry the
+//     icon on the left and the words on its right, and the even ones are the same row turned round, with the version and the
+//     state swapped with it. The second line is **two halves of the row** and not two texts one after the other, so a row
+//     does not move when a version grows or when a state changes while the page is on the glass (apps/moonlight 0.1.0).
+//   - **I la fila és gairebé una fitxa** (l'amo: *«Les icones queden tallades a la llista! Has de fer les files mes altes, quasi
+//     fitxes»*): cent cinquanta-sis píxels i tres pisos, amb la icona de **noranta-sis** —la mida del dibuix que una app porta— al
+//     pis de dalt, el títol **enganxat a la icona** (a la fila girada, per la banda de la dreta) i la segona línia a sota de la
+//     icona amb tota l'amplada. Amb el mateix vidre es van veure els botons tallats —`R...`, `Refre...`, `B...`—: l'amplada d'un
+//     botó es mesura amb `ui.text_width` **mentre la pàgina es fa** (en carregar l'app la cara encara no és la que dibuixa) i la
+//     clau es queda setze píxels de marge a cada banda.
+//   - **I el refresc és una fletxa que espera dues hores** (l'amo: *«El botó refresh es massa retro, una fletxa circular i
+//     deshabilitada per ara (ja es refresca al iniciar, i lo ideal seria eperar 2h per habilitat el refresc)»*): la marca
+//     `reboot` del sistema sense marc, en tinta quan es pot demanar i en gris mig quan no —i llavors sense cap `on_click`—, el
+//     `mtime` de l'índex com a rellotge, un zero que vol dir «no ho sé» i contesta *pregunta*, la pregunta automàtica a
+//     l'arrencar quan el cau té més de dues hores, i la línia de sota que diu l'edat del cau (`asked just now`).
+//   - **La versió i el seu estat són un sol grup** (l'amo: *«l'«up to date» al costat de la versió (i en text petit)»*): la
+//     versió toca la vora del costat de la icona i l'estat s'hi enganxa una mida més baix (`kTiny`, vint-i-dos píxels de
+//     línia), i les dues caixes es recol·loquen quan el text canvia perquè un número no sempre fa la mateixa amplada.
+//   - **`Upgrade` vol dir pujar i no baixar**: la fitxa d'una app *newer here* oferia baixar-la a la versió vella del dipòsit;
+//     ara només és `Upgrade` quan l'estat és `upgrade to X.Y.Z` i la resta de casos és `Uninstall`.
+//   - **I el text del dipòsit es passa per `store.plain`**: un manifest és UTF-8 i la cara és Latin-1, i la descripció de
+//     l'`about` sortia al vidre com `Back â€”or a pinchâ€”`. El que es pot tornar a Latin-1 es torna, la puntuació es converteix en
+//     ASCII i la resta es treu en lloc de dibuixar-hi caixes (docs/30, docs/45).
+//   - **La cerca és una caixa de text amb la seva lupa dibuixada** (un `ui.canvas` amb `circle` i `line`): escriure-hi
+//     **redueix la llista** pel nom o per l'id sense que comptin les majúscules, i **no es torna a fer la pàgina** —es refan
+//     les files i prou— perquè la caixa té el focus del teclat i el cursor, i alliberar-la a cada lletra seria perdre'ls.
+//   - **I una resposta que arriba del dipòsit toca les etiquetes que ja hi són** (`update_rows`) en lloc de refer les files:
+//     una fila és una icona i una icona és una descodificació de PNG, i quaranta-una apps demanades d'una en una haurien
+//     estat tres-centes seixanta-nou descodificacions per ensenyar la mateixa llista (docs/75).
+//   - **La cua la buida el bucle i no el botó**: una descàrrega és una espera i una espera dins d'un ganxo no es pot fer, o
+//     sigui que `Refresh` demana el llistat, omple la cua i torna, i cada torn baixa **una** app i diu què queda (docs/30,
+//     docs/85). La primera vegada que s'obre, si no se sap res del dipòsit, la botiga es pregunta tota sola.
+//   - **Una app arriba sencera o no arriba**: els fitxers van a `/apps/.moonlight/<id>/` i només quan l'últim hi és la
+//     carpeta pren el nom de l'app (la vella marxa i la de feina es renombra). Una cadena que mor a mig camí deixa l'app de
+//     davant intacta i llença la carpeta de feina; i un manifest que no hi és vol dir que allò no és una app i no pren cap
+//     nom. Treure una app és `admin.uninstall`, que s'endú la carpeta, les alarmes i la memòria cau i apuja la generació de
+//     la llista d'apps (docs/30, docs/40, docs/70).
+//   - **I la icona té recepta**: `tools/make_moonlight_icon.py` dibuixa cada versió que l'amo va veure —la negra, la dels
+//     cràters foradats, la metàl·lica, els núvols de l'amo, els dibuixats, la girada— a `apps/moonlight/res/icon/` i el
+//     mestre a `res/icon-source.png`, amb un `passos.txt` que diu què es va provar i per què es va deixar estar. Els grisos
+//     són els de sempre (68 la tinta, 170 l'ombra, 221 el farciment, 255 el paper), el dibuix no té cap forat —els cràters
+//     són grisos amb la seva ombra— i la lluna va girada trenta graus cap amunt, que és la banda on sembla que surti i no
+//     que caigui.
+//   - **I la feina d'una instal·lació va al volum, no a la porta** (i va costar trobar-ho: el registre deia
+//     `a file of the app did not come: banner.lua (E_UNAVAIL)`): `/apps` és una porta que contesta un nom amb el disc que ja
+//     el té, i una carpeta que encara no existeix no la contesta ningú; `repo install` escriu a `/sd/apps/.<id>.install` i la
+//     botiga fa el mateix (`sys.settings().unit` diu el disc, i el nom es pren amb un `fs.rename`). Cada fallada diu ara el
+//     codi, i un fitxer que hi era es treu abans de baixar-lo.
+//   - **I la lupa de la cerca és un glif de FontAwesome i no un anell dibuixat** (l'amo: *«no es veu, es massa fina, busca una
+//     bon icona de lupa a la font que tenim d'awesome»*): `res/marks.ttf` és el glif de la lupa (U+F002) escrit amb
+//     `tools/make_keys.py` en el byte `\1`, que és el que una app pot posar en un text d'un byte, i el dibuixa `ui.label` amb
+//     `:font(marks_face)`.
+//   - **Les pàgines les fa la llista del sistema i el dit les passa** (l'amo: *«Botons "next" i "back" son lo puto pitjor.
+//     Deixa el recompte de pàgina i el conteig d'apps totals. Afegeix un "Slide for more!"»*): totes les files són fills de la
+//     `ui.list`, que compta, dibuixa la tira de boles, passa la pàgina amb el dit i amb el dial i ho diu per `on_page`; el
+//     comptador `2 / 11 - 42 app(s)` i la invitació `Slide for more!` els pinta l'app, amb la mateixa aritmètica de
+//     `list_page_of` perquè la banda del peu es menja quaranta-un píxels i una fila de cent cinquanta-sis en perdia una.
+//   - **I una app que ja hi és va en un to més clar** (l'amo: *«Les apps instal·lades han de tenir un color diferent (text una
+//     mica mes clar)»*), amb la tinta a la fila del fons gris.
+//   - **I la botiga no es toca a si mateixa**: `install` i `uninstall` de `moonlight` es refusen, que una app que s'esborra
+//     mentre corre és una pàgina que desapareix a mig dibuix.
+//   - **La paperera és una marca del sistema i no un dibuix de l'app** (l'amo: *«Al botó "Uninstall" de la vista detalls
+//     afegeix al botó una icona de paperera (dins, amb el label) i el títol títol dins el botó»*): `trash` és el dissetè glif de
+//     `tools/iconart.py` (l'`U+F1F8`, la tapa, el cos i les dues nanses, del mateix pes que el pinyó i la casa) i
+//     `data/res/icons/trash.png` la seva icona; la clau de la fitxa la porta amb `button.icon` i `icon_side = 'left'`, o sigui
+//     que la marca i la paraula són una sola clau i la tinta de totes dues es gira amb el focus, que és el que un fill dibuixat
+//     per l'app no sap fer (docs/30, docs/41, docs/45).
+//   - **I treure una app es pregunta abans, amb les portes altes** (l'amo: *«Espero que aquest botò tingui modal "Are you
+//     sure?" amb els botons ben amples»*, i després *«Els boton del modal de "N'està segur?" … Botons mes alts»*): la clau obre
+//     una `ui.dialog` de l'ample de la pàgina amb el nom de l'app, el que se'n va i el que es queda, la nota en to fluix i dues
+//     portes de setanta-un píxels; el dial hi comença a `Keep it` (`emphasis = 1` i `choice = 1`), i el que la targeta accepta no
+//     s'executa dins del ganxo: deixa `asked = 'remove'` i el bucle tanca la targeta i treu l'app (docs/30, docs/41, docs/90).
+//   - **I el sostre de l'alçada d'una porta puja de cinquanta-sis a vuitanta-vuit** (0.200.0, i és del nucli, no de la botiga):
+//     `doors_of` calcula `height / 7` i el tancava a cinquanta-sis, que era l'alçada de les targetes del sistema vell; una
+//     targeta de cinc-cents —la que demana un missatge de cinc línies i una nota— es quedava amb unes portes que el dit tenia
+//     lloc de fer més altes. El terra no es mou: una porta de trenta-dos píxels és una porta que no encerta ningú (docs/30,
+//     docs/90).
+//   - **I el que es buida és una llista curta de camins** (0.200.0): `store.drop` és l'única funció de la botiga que esborra
+//     fitxers, i un camí fet amb un nom buit —`<disc>/apps/` és la porta i no una carpeta— hauria recorregut cada app de la
+//     placa i les hauria buidada una per una; ara només accepta `<disc>/apps/<id>` i `<disc>/apps/.moonlight/<id>` (docs/41).
+
+// **0.200.1 — la fitxa de la botiga: la descripció en una caixa i les tres claus** (l'amo: *«La vista detall, caldrà posar la
+// descripció dins una caixa de text de només lectura»*, *«Al botó Uninstall posa el color del botó en un to mes fosc, no el mateix
+// color que els altres. El botó d'install que sigui mes claret i amb una icona de polze amunt»*, *«El botó Actualitzar, amb una
+// icona d'actualitzar (no sé, fletxes amunt?)»*, i després *«Fes mes alt el botó, així no es veurà la vora de l'icona sobre el
+// botó»*, *«un parell de pixels mes per banda i ho tens!»*).
+//   - **La descripció és un `ui.textbox_multiline` de només lectura** (`readonly`, `wrap`, sense vores, amb la cara del sistema a
+//     `kSmall`): rep el lloc que deixen les dades i el botó —la fitxa d'una descripció curta i la d'una de vint fan el mateix
+//     dibuix—, i quan el text no hi cap surt la barra del desplaçament i el dit el mou (el gest el fa el sistema; l'app només hi
+//     registra `on_swipe`). Abans era una pila de `ui.label` partides per l'app, que es menjaven la mitja línia de sota i no es
+//     podien moure (docs/30, docs/41, docs/90).
+//   - **La clau de la fitxa és alta** (82 px i no 64): la marca d'una clau és un quadrat de l'alçada de la cara i el dibuix es
+//     queda un cinquè del quadrat d'aire, o sigui que en una cara de seixanta el dibuix tocava la vora del botó i el que es veia
+//     era el requadre de la icona. Amb setanta-vuit de cara hi ha vuit píxels d'aire a dalt i a baix (docs/30, docs/45).
+//   - **I les tres claus són tres tons i tres marques del sistema** (`tools/iconart.py` passa de disset a dinou glifs): `Install`
+//     es queda el paper (15) i el polze amunt (`thumb`, l'`U+F164`), `Upgrade` baixa un graó (13) i porta dos xevrons apilats
+//     (`upgrade`, l'`U+F102`, el mateix pes del xevró de tornar) i `Uninstall` baixa fins al mig (9) amb la paperera —el to que el
+//     dit troba sense buscar-lo i que el dial no ha de ser el primer a oferir (docs/30, docs/41, docs/45).
+// **0.200.2 — la llista camina amunt i avall, la barra de la feina i el número que hi era però no es veia** (l'amo: *«Canviar el
+// swipe dels costats per el d'amunt/avall dins del control de la llista d'aplicacions del repositori. Sense el paginador es el mes
+// natural»*, *«Tens una barra de progrés per la instalació/desinstalar/actualitzar oi que si??? I mentre esperem: botons
+// deshabilitats (install/uninstall/update) fins acabar el procés»* i *«totes les linies alineades a la dreta teneen esborrat el
+// numero de versió....esbrina perqué i solucion-ho»*).
+//   - **Les files no són d'una `ui.list`**: l'app es queda la primera fila visible i construeix només les que hi caben; el dit
+//     amunt i avall les camina (`|dy| / kRow`, llegit de `touch.gesture()` perquè un gest no arriba mai a l'arbre dels controls) i
+//     el peu diu `1-4 / 43 app(s)` amb `Slide for more!` només quan en queda alguna a sota. **Els punts del paginador no hi són**
+//     perquè no hi ha pàgines (docs/30, docs/41, docs/90).
+//   - **I una fila que no es dona es queda pintada**: fora de la llista ningú del sistema les torna, o sigui que es fan amb `keep`
+//     i `build_rows` allibera les d'abans —la primera versió del canvi ensenyava la llista sencera a sota de la fitxa (vist al
+//     vidre)— (docs/30).
+//   - **I una etiqueta pinta el seu paper**: el requadre de l'estat, de l'ample de la fila i dibuixat després, **esborrava el
+//     número de versió de totes les files girades** (l'amo: *«Clarament es el text que te fons blanc i tapa, perqué es tant
+//     llarg?»*). Ara cada etiqueta es mesura amb `ui.text_width` i es torna a mesurar amb `cv:resize` quan el text canvia
+//     (docs/30, docs/92).
+//   - **La barra de la feina** (`ui.progress`, deu píxels, al peu de la llista i sobre la clau de la fitxa): percentatge quan se
+//     sap —els fulls de la cua— i **−1** quan no —una baixada no sap quants fitxers li falten fins que les llistes arriben—; i les
+//     claus de la fitxa i la fletxa de refresc **no es premen mentre dura** (sense `on_click`, en `kDim` i fora del dial), perquè
+//     aquest sistema no té cap `disabled`. La pàgina es pinta amb la barra **abans** de la feina, que el torn que instal·la es
+//     queda dins la crida (docs/30, docs/41, docs/90).
+// **0.200.3 — la fitxa diu quant ocupa i de quan és** (l'amo: *«A la vista detalls de l'app, on la fitxa, falta el tamany del
+// programa sencer (Mb/Kb/b) i la data de publicació (ctime del arxiu manifest.json)»*): dues dades més a la fitxa, `size` i
+// `published`. La mida és la carpeta de l'app **de debò** —`store.footprint` la camina i suma el que el disc gasta, que no és el
+// que un manifest promet— i la data surt de l'`mtime` del seu `manifest.json`; una app que no hi és, o una placa sense rellotge,
+// diuen `-` i no un zero, perquè un zero en aquest sistema vol dir «no ho sé» (docs/30, docs/41, docs/70).
+//   - **I la carpeta es busca on és i no on s'instal·la** (es va veure a l'emulador: la fitxa deia `size: -`): `apps_root()`
+//     contesta el volum on va una app **nova** i en una placa amb targeta això no és on són les apps, o sigui que una pregunta que
+//     només llegeix prova els dos discs i es queda el que contesta el nom (docs/30, docs/41).
+// **0.200.4 — la fitxa de la llista diu què és l'app** (l'amo: *«Hi ha una zona que queda buida es pot posar text entre el títol i
+// el cartell de "newer here", queda molta tarjeta. Pots posar un trosset de l'inici de la descripció de l'app o si hi han captures
+// de /res/shots/ uns retalls»*): el títol va al capdamunt de la columna de les paraules i sota seu hi caben **dues línies del
+// començament de la descripció** a `kTiny` —`two_lines`, amb els punts només a l'última— alineades com el títol, o sigui a la
+// dreta a les files girades. El que diu una app es demana **una vegada** per arrencada (`blurb_of`), que el manifest ja és al cau.
+//   - **I les captures queden per a més endavant**: cap app del repositori no porta `res/shots/`, i el retall amb `ui.canvas` no
+//     s'arribava ni a fer en una fila que ja té la icona; el lloc hi és i el dibuix serà un `cv:image` centrat (l'amo: *«en farem
+//     mes tard de captures»*) (docs/30, docs/41).
+static const char kVersion[] = "0.200.4";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

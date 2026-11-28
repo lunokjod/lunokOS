@@ -21,7 +21,7 @@ img	0.2.1	lib/img		The pictures a page can carry: the reader, done the way this 
 inflate	0.1.0	lib/inflate		Deflate read the other way (RFC 1951) and the two checksums a container needs (RFC 1950, zip), with no allocation of its own.
 ink	0.2.0	lib/ink	MIT	A glyph drawn with a finger, put on a 7x7 grid, and the model that learns a person's own handwriting: k-nearest neighbours over the examples they drew, with a reject threshold and three candidates, and no allocation of its own.
 json	0.1.0	lib/json		Pull-style JSON helpers: read one known key, never build a tree.
-kernel	0.13.8	lib/kernel		lunokOS kernel: boot, event loop, shell, log ring.
+kernel	0.13.10	lib/kernel		lunokOS kernel: boot, event loop, shell, log ring.
 lua	5.4.7	lib/lua	MIT	Lua 5.4.7 sources, vendored so luaconf.h can be tuned for the board.
 luabind	0.13.1	lib/luabind		The Lua state, its accounting allocator and the first bindings.
 pal	0.5.0	lib/pal		Platform abstraction layer: queues, console, log sink, clock, reboot.

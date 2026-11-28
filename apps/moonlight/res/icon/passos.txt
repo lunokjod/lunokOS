@@ -1,0 +1,60 @@
+MOONLIGHT INSTALLER :: la icona, i cada pas que hi va portar
+=============================================================
+
+L'amo: «L'icona es massa bàsica, treballa-la una mica» ... «Em referia a usar color gris i
+ombres.... No a que foradessis el dibuix xD» ... «la que sembla metàl·lica anterior era millor,
+però l'has de tombar una mica» ... «tombada cap a l'altre banda!!! aixi sembla que cau!!!» ...
+«Molt bé! algo així si. Millor» ... «Guarda el master i si pot ser els passos que has fet i totes
+les versions que hem fet a res/».
+
+QUÈ ÉS AQUESTA CARPETA
+----------------------
+Els dibuixos de cada versió, numerats en l'ordre en què l'amo els va veure. Els de 224 píxels en
+`LA` (dos canals, la meitat de bytes) perquè viatgen a la placa amb l'app; el mestre de debò és
+`../icon-source.png`, de 448 i amb alfa, que és el que una persona obre en un editor. I
+`0-nuvol.png` és el núvol que l'amo va portar, que és la peça d'una de les versions.
+
+COM ES TORNA A FER
+------------------
+    tools/make_moonlight_icon.py
+    python3 tools/make_icon.py --png apps/moonlight/res/icon-source.png \
+                               --out apps/moonlight/res/icon.png
+
+El primer escriu tots els passos i el mestre; el segon és el de sempre, el que baixa el mestre a
+la icona de 94 x 94 que el manifest nomena. No hi ha cap retoc fet a mà: si un pas no surt igual
+que la imatge que hi ha, és que el guió s'ha mogut.
+
+ELS GRISOS (mesurats als dibuixos del projecte)
+-----------------------------------------------
+     68   la tinta (el cos i els contorns)
+    170   l'ombra
+    221   el gris clar dels farciments
+    255   el paper
+
+I el gir de la lluna: 30 graus, positius, que és la banda que l'amo va triar («així sembla que
+cau» era l'altra).
+
+ELS PASSOS
+----------
+1-negre.png            La lluna i tres estels, tot en tinta. El primer dibuix: bonic però massa
+                       bàsic, i l'amo ho va dir («l'icona es massa básica»).
+2-forats.png           Els cràters foradats, blancs a dins del cos negre. Rebutjat: «No a que
+                       foradessis el dibuix xD».
+3-gris.png             La lluna metàl·lica: cos clar, contorn de tinta pintat com un traç interior,
+                       dues bandes d'ombra al costat que no toca la llum i els cràters en gris amb
+                       la seva pròpia ombra. Així el dibuix té volum i cap forat.
+4-nuvol-de-lamo.png    El núvol que l'amo va portar, tal com és, davant de la lluna. Rebutjat:
+                       «aquestes dues no m'agraden».
+5-nuvols-dibuixats.png Els núvols dibuixats amb els grisos de casa: sis lòbuls, base plana,
+                       contorn de tinta i dues bandes d'ombra a sota.
+6-negre-amb-nuvols.png La lluna negra (la del pas 1) amb aquests núvols a sobre. També rebutjada.
+7-tombada.png          La metàl·lica girada 30 graus i sense núvols: la que l'amo va dir «Molt
+                       millor!!!».
+8-final.png            La que es queda: la metàl·lica tombada i els núvols davant, tapant-li la
+                       panxa. És el que hi ha a `../icon-source.png` i el que surt a `../icon.png`.
+
+PER QUÈ EL GIR ÉS CAP A L'ALTRE BANDA
+-------------------------------------
+Amb la lluna girada cap avall (els graus negatius del guió) el cantó de la llum mira a terra i la
+figura sembla que caigui; amb els graus positius mira amunt i sembla que surti. El número és un
+sol paràmetre (`TURN`) i es pot provar un altre dia sense tocar res més.

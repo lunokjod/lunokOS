@@ -6682,7 +6682,11 @@ Doors doors_of(const Canvas& card) {
   doors.pad = (card.width > 100) ? 16 : 8;
   doors.height = static_cast<int32_t>(card.height) / 7;
   if (doors.height < 32) doors.height = 32;
-  if (doors.height > 56) doors.height = 56;
+  // **La porta d'una targeta alta és tan alta com la targeta demana** (0.200.1, l'amo: *«Els boton del modal de "N'està segur?"
+  // … Botons mes alts»*): the roof of fifty-six pixels was the height of the card of the old system, and a card of five hundred
+  // —the one a message of five lines and a note needs— kept its doors at that hundredth of the glass when the finger had the
+  // room for sixty or seventy. The floor is still the floor: a door of thirty pixels is a door nobody hits (docs/30, docs/90).
+  if (doors.height > 88) doors.height = 88;
   doors.gap = (card.width > 160) ? 12 : 8;
   const int32_t inner = static_cast<int32_t>(card.width) - 2 * doors.pad;
   // Two doors side by side when the card is wide enough for two words, and one across the whole card when it is

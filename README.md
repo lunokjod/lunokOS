@@ -169,6 +169,7 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
 | [20 · Intèrpret Lua](docs/20-interpret-lua.md) | Versió, flags, mòduls, sandbox, pressupostos, errors |
 | [30 · API de Lua](docs/30-api-lua.md) | Referència de tots els mòduls que veu una app |
 | [40 · Apps i manifest](docs/40-apps-i-manifest.md) | Format d'una app, manifest, cicle de vida, handlers d'extensió |
+| [41 · Moonlight Installer](docs/41-moonlight-installer.md) | La botiga d'apps: el llistat del dipòsit, la cerca, la fitxa, instal·lar i treure des del vidre |
 | [45 · Portar una app del paper](docs/45-portar-una-app-del-paper.md) | El procediment per portar una app de `OLD/PaperOS` amb la mateixa cara: recursos, icones, mides i les trampes d'aquest sistema |
 | [46 · L'EPUB: el motor i el port](docs/46-epub-el-motor-i-el-port.md) | El lector d'EPUB del paper, funcionalitat per funcionalitat, i el pla de portar-lo aquí |
 | [50 · HAL i plaques](docs/50-hal-i-plaques.md) | Interfícies, taula de capacitats, com s'afegeix una placa |
